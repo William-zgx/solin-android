@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,25 +36,31 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,15 +70,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bytedance.zgx.gemmalocalqa.ui.theme.PocketMindTheme
-import java.io.File
 
 class MainActivity : ComponentActivity() {
     private val viewModel: GemmaChatViewModel by viewModels()
@@ -86,16 +97,22 @@ class MainActivity : ComponentActivity() {
                     state = state,
                     onImportModel = viewModel::importModel,
                     onDownloadModel = viewModel::startModelDownload,
+                    onDownloadCustomModel = viewModel::startCustomModelDownload,
                     onCancelDownload = viewModel::cancelModelDownload,
                     onLoadModel = viewModel::loadModel,
+                    onRecommendedModelSelected = viewModel::selectRecommendedModel,
+                    onInstalledModelSelected = viewModel::selectInstalledModel,
                     onBackendSelected = viewModel::selectBackend,
-                    onResetConversation = viewModel::resetConversation,
+                    onCreateSession = viewModel::createNewSession,
+                    onSessionSelected = viewModel::selectSession,
+                    onDeleteSession = viewModel::deleteActiveSession,
                     onOpenModelPage = {
                         context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(GEMMA_MODEL_REPOSITORY_URL)),
+                            Intent(Intent.ACTION_VIEW, Uri.parse(state.selectedRecommendedModel.repositoryUrl)),
                         )
                     },
                     onSendMessage = viewModel::sendMessage,
+                    onStopGeneration = viewModel::stopGeneration,
                 )
             }
         }
@@ -103,25 +120,36 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun GemmaChatScreen(
     state: ChatUiState,
     onImportModel: (Uri) -> Unit,
     onDownloadModel: () -> Unit,
+    onDownloadCustomModel: (String) -> Unit,
     onCancelDownload: () -> Unit,
     onLoadModel: () -> Unit,
+    onRecommendedModelSelected: (String) -> Unit,
+    onInstalledModelSelected: (String) -> Unit,
     onBackendSelected: (BackendChoice) -> Unit,
-    onResetConversation: () -> Unit,
+    onCreateSession: () -> Unit,
+    onSessionSelected: (String) -> Unit,
+    onDeleteSession: () -> Unit,
     onOpenModelPage: () -> Unit,
     onSendMessage: (String) -> Unit,
+    onStopGeneration: () -> Unit,
 ) {
     val pickModel = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(onImportModel)
     }
     val listState = rememberLazyListState()
     var input by rememberSaveable { mutableStateOf("") }
-    val lastMessageText = state.messages.lastOrNull()?.text.orEmpty()
+    var customModelUrl by rememberSaveable { mutableStateOf("") }
+    var showModelManager by rememberSaveable { mutableStateOf(false) }
+    var showSessions by rememberSaveable { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val lastMessageId = state.messages.lastOrNull()?.id
 
-    LaunchedEffect(state.messages.size, lastMessageText) {
+    LaunchedEffect(state.activeSessionId, lastMessageId) {
         if (state.messages.isNotEmpty()) {
             listState.animateScrollToItem(state.messages.lastIndex)
         }
@@ -136,11 +164,11 @@ private fun GemmaChatScreen(
                 .fillMaxSize()
                 .imePadding(),
         ) {
-            Header(
+            ChatTopBar(
                 state = state,
-                onLoadModel = onLoadModel,
-                onBackendSelected = onBackendSelected,
-                onResetConversation = onResetConversation,
+                onOpenModelManager = { showModelManager = true },
+                onOpenSessions = { showSessions = true },
+                onCreateSession = onCreateSession,
             )
 
             Box(
@@ -149,13 +177,13 @@ private fun GemmaChatScreen(
                     .fillMaxWidth(),
             ) {
                 if (state.messages.isEmpty()) {
-                    EmptyExperience(
+                    ChatEmptyState(
                         state = state,
+                        onOpenModelManager = { showModelManager = true },
                         onPickModel = { pickModel.launch(arrayOf("*/*")) },
                         onDownloadModel = onDownloadModel,
                         onCancelDownload = onCancelDownload,
-                        onLoadModel = onLoadModel,
-                        onOpenModelPage = onOpenModelPage,
+                        onRecommendedModelSelected = onRecommendedModelSelected,
                         onSendPrompt = onSendMessage,
                     )
                 } else {
@@ -169,21 +197,363 @@ private fun GemmaChatScreen(
                             items = state.messages,
                             key = { it.id },
                         ) { message ->
-                            MessageBubble(message)
+                            MessageBubble(
+                                message = message,
+                                isStreaming = state.isGenerating &&
+                                    message.role == MessageRole.Assistant &&
+                                    message.id == state.messages.lastOrNull()?.id,
+                            )
                         }
                     }
                 }
             }
 
             Composer(
+                state = state,
                 input = input,
-                enabled = state.isReady && !state.isBusy,
-                isBusy = state.isBusy,
                 onInputChanged = { input = it },
+                onOpenModelManager = { showModelManager = true },
                 onSend = {
                     val message = input
                     input = ""
                     onSendMessage(message)
+                },
+                onStopGeneration = onStopGeneration,
+            )
+        }
+
+        if (showModelManager) {
+            ModalBottomSheet(
+                sheetState = sheetState,
+                onDismissRequest = { showModelManager = false },
+            ) {
+                ModelManagerSheet(
+                    state = state,
+                    customModelUrl = customModelUrl,
+                    onCustomModelUrlChanged = { customModelUrl = it },
+                    onPickModel = { pickModel.launch(arrayOf("*/*")) },
+                    onDownloadModel = onDownloadModel,
+                    onDownloadCustomModel = onDownloadCustomModel,
+                    onCancelDownload = onCancelDownload,
+                    onLoadModel = onLoadModel,
+                    onRecommendedModelSelected = onRecommendedModelSelected,
+                    onInstalledModelSelected = onInstalledModelSelected,
+                    onBackendSelected = onBackendSelected,
+                    onOpenModelPage = onOpenModelPage,
+                )
+            }
+        }
+
+        if (showSessions) {
+            ModalBottomSheet(
+                sheetState = sheetState,
+                onDismissRequest = { showSessions = false },
+            ) {
+                SessionManagerSheet(
+                    state = state,
+                    onCreateSession = {
+                        onCreateSession()
+                        showSessions = false
+                    },
+                    onSessionSelected = {
+                        onSessionSelected(it)
+                        showSessions = false
+                    },
+                    onDeleteSession = onDeleteSession,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatTopBar(
+    state: ChatUiState,
+    onOpenModelManager: () -> Unit,
+    onOpenSessions: () -> Unit,
+    onCreateSession: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 3.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = "PocketMind",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = currentModelStatus(state),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(
+                    onClick = onCreateSession,
+                    enabled = !state.isBusy,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = "新会话",
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RuntimeStatusBadge(state)
+                TextButton(onClick = onOpenModelManager) {
+                    Text("模型")
+                }
+                TextButton(onClick = onOpenSessions) {
+                    Text("会话")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RuntimeStatusBadge(state: ChatUiState) {
+    val active = state.isReady && !state.isBusy
+    val label = when {
+        state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
+        state.isBusy -> "处理中"
+        state.isReady -> "离线可用"
+        state.modelPath != null -> "可加载"
+        else -> "待准备"
+    }
+    val container = when {
+        active -> MaterialTheme.colorScheme.primaryContainer
+        state.isBusy || state.isDownloading -> MaterialTheme.colorScheme.tertiaryContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val content = when {
+        active -> MaterialTheme.colorScheme.onPrimaryContainer
+        state.isBusy || state.isDownloading -> MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Surface(
+        shape = CircleShape,
+        color = container,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(content),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = content,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChatEmptyState(
+    state: ChatUiState,
+    onOpenModelManager: () -> Unit,
+    onPickModel: () -> Unit,
+    onDownloadModel: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onRecommendedModelSelected: (String) -> Unit,
+    onSendPrompt: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            color = if (state.isReady) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            shadowElevation = if (state.isReady) 0.dp else 1.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                RuntimeStatusBadge(state)
+                Text(
+                    text = if (state.isReady) "可以开始本地问答" else "先把本地模型准备好",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = if (state.isReady) {
+                        "当前会话为空，选择一个开场问题，或在底部直接输入。"
+                    } else {
+                        "模型下载、导入、切换和后端选择都集中在模型管理里；加载成功后，问答和历史记录都保留在本机。"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (state.isReady) {
+                    PromptSuggestionList(
+                        enabled = !state.isBusy,
+                        onSendPrompt = onSendPrompt,
+                    )
+                } else {
+                    QuickModelSetup(
+                        state = state,
+                        onOpenModelManager = onOpenModelManager,
+                        onPickModel = onPickModel,
+                        onDownloadModel = onDownloadModel,
+                        onCancelDownload = onCancelDownload,
+                        onRecommendedModelSelected = onRecommendedModelSelected,
+                    )
+                }
+            }
+        }
+
+        if (!state.isReady) {
+            DeviceCheck(state)
+        }
+    }
+}
+
+@Composable
+private fun QuickModelSetup(
+    state: ChatUiState,
+    onOpenModelManager: () -> Unit,
+    onPickModel: () -> Unit,
+    onDownloadModel: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onRecommendedModelSelected: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            state.recommendedModels.forEach { model ->
+                FilterChip(
+                    selected = model.id == state.selectedModelId,
+                    enabled = !state.isBusy,
+                    onClick = { onRecommendedModelSelected(model.id) },
+                    label = { Text(model.shortName) },
+                )
+            }
+        }
+        Text(
+            text = "${state.selectedRecommendedModel.shortName} · " +
+                "${GemmaModelRules.formatBytes(state.selectedRecommendedModel.byteSize)} · " +
+                state.selectedRecommendedModel.deviceHint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (state.isDownloading || state.downloadProgressPercent != null || state.totalBytes > 0L) {
+            ProgressBlock(state)
+        }
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onDownloadModel,
+            enabled = !state.isBusy && !state.isDownloading,
+        ) {
+            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("下载 ${state.selectedRecommendedModel.shortName}")
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                onClick = onPickModel,
+                enabled = !state.isBusy,
+            ) {
+                Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("导入")
+            }
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                onClick = onOpenModelManager,
+                enabled = !state.isBusy,
+            ) {
+                Text("更多")
+            }
+        }
+        if (state.isDownloading) {
+            TextButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onCancelDownload,
+            ) {
+                Text("取消下载")
+            }
+        }
+    }
+}
+
+@Composable
+private fun PromptSuggestionList(
+    enabled: Boolean,
+    onSendPrompt: (String) -> Unit,
+) {
+    val prompts = listOf(
+        "用三句话解释端侧大模型",
+        "帮我整理一个今日待办清单",
+        "写一段简洁的中文自我介绍",
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        prompts.forEach { prompt ->
+            AssistChip(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = enabled,
+                onClick = { onSendPrompt(prompt) },
+                label = {
+                    Text(
+                        text = prompt,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 },
             )
         }
@@ -191,24 +561,235 @@ private fun GemmaChatScreen(
 }
 
 @Composable
-private fun Header(
+private fun ModelManagerSheet(
     state: ChatUiState,
+    customModelUrl: String,
+    onCustomModelUrlChanged: (String) -> Unit,
+    onPickModel: () -> Unit,
+    onDownloadModel: () -> Unit,
+    onDownloadCustomModel: (String) -> Unit,
+    onCancelDownload: () -> Unit,
     onLoadModel: () -> Unit,
+    onRecommendedModelSelected: (String) -> Unit,
+    onInstalledModelSelected: (String) -> Unit,
     onBackendSelected: (BackendChoice) -> Unit,
-    onResetConversation: () -> Unit,
+    onOpenModelPage: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        Color(0xFF0F3D35),
-                        Color(0xFF284B63),
-                    ),
-                ),
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "模型管理",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
             )
-            .padding(horizontal = 16.dp, vertical = 16.dp),
+            RuntimeStatusBadge(state)
+        }
+
+        CurrentModelPanel(
+            state = state,
+            onLoadModel = onLoadModel,
+            onBackendSelected = onBackendSelected,
+        )
+
+        if (state.isDownloading || state.downloadProgressPercent != null || state.totalBytes > 0L) {
+            ProgressBlock(state)
+            if (state.isDownloading) {
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onCancelDownload,
+                ) {
+                    Text("取消下载")
+                }
+            }
+        }
+
+        DeviceCheck(state)
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionTitle(
+                text = "本地模型",
+                subtitle = "已下载或已导入的模型会出现在这里。",
+            )
+            if (state.installedModels.isEmpty()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                ) {
+                    Text(
+                        modifier = Modifier.padding(14.dp),
+                        text = "还没有本地模型。先下载推荐模型，或导入已有 .litertlm 文件。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                state.installedModels.forEach { model ->
+                    ModelRow(
+                        title = model.displayName,
+                        subtitle = "${model.fileName} · ${GemmaModelRules.formatBytes(model.fileBytes)}",
+                        selected = model.id == state.activeInstalledModelId,
+                        enabled = !state.isBusy,
+                        onClick = { onInstalledModelSelected(model.id) },
+                    )
+                }
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionTitle(
+                text = "推荐模型",
+                subtitle = "E2B 更适合多数手机；E4B 质量更高，但需要更多内存和存储。",
+            )
+            state.recommendedModels.forEach { model ->
+                ModelRow(
+                    title = model.shortName,
+                    subtitle = "${GemmaModelRules.formatBytes(model.byteSize)} · ${model.deviceHint}",
+                    selected = model.id == state.selectedModelId,
+                    enabled = !state.isBusy,
+                    onClick = { onRecommendedModelSelected(model.id) },
+                )
+            }
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onDownloadModel,
+                enabled = !state.isBusy && !state.isDownloading,
+            ) {
+                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("下载 ${state.selectedRecommendedModel.shortName}")
+            }
+            TextButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onOpenModelPage,
+                enabled = !state.isBusy,
+            ) {
+                Text("查看推荐模型来源")
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionTitle(
+                text = "添加模型",
+                subtitle = "自定义链接或本地文件都必须是 .litertlm 模型。",
+            )
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = customModelUrl,
+                onValueChange = onCustomModelUrlChanged,
+                enabled = !state.isBusy,
+                maxLines = 2,
+                placeholder = { Text("粘贴 .litertlm 模型下载链接") },
+            )
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { onDownloadCustomModel(customModelUrl) },
+                enabled = !state.isBusy && customModelUrl.isNotBlank(),
+            ) {
+                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("从链接下载")
+            }
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onPickModel,
+                enabled = !state.isBusy,
+            ) {
+                Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("导入本地文件")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CurrentModelPanel(
+    state: ChatUiState,
+    onLoadModel: () -> Unit,
+    onBackendSelected: (BackendChoice) -> Unit,
+) {
+    val activeModel = state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = if (state.isReady) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        },
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            SectionTitle(
+                text = "当前模型",
+                subtitle = if (state.modelPath == null) {
+                    state.statusText
+                } else {
+                    state.statusText
+                },
+            )
+            Text(
+                text = activeModel?.displayName ?: "未选择",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BackendChip(
+                    label = "GPU",
+                    selected = state.backend == BackendChoice.GPU,
+                    enabled = !state.isBusy,
+                    onClick = { onBackendSelected(BackendChoice.GPU) },
+                )
+                BackendChip(
+                    label = "CPU",
+                    selected = state.backend == BackendChoice.CPU,
+                    enabled = !state.isBusy,
+                    onClick = { onBackendSelected(BackendChoice.CPU) },
+                )
+            }
+            if (state.modelPath != null && !state.isReady && !state.isBusy) {
+                FilledTonalButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onLoadModel,
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("加载模型")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionManagerSheet(
+    state: ChatUiState,
+    onCreateSession: () -> Unit,
+    onSessionSelected: (String) -> Unit,
+    onDeleteSession: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
@@ -216,281 +797,141 @@ private fun Header(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Text(
+                text = "会话",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            TextButton(
+                onClick = onCreateSession,
+                enabled = !state.isBusy,
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("新建")
+            }
+        }
+        state.sessions.forEach { session ->
+            ModelRow(
+                title = session.title,
+                subtitle = if (session.messageCount == 0) "空会话" else "${session.messageCount} 条消息",
+                selected = session.id == state.activeSessionId,
+                enabled = !state.isBusy,
+                onClick = { onSessionSelected(session.id) },
+            )
+        }
+        if (state.sessions.size > 1) {
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onDeleteSession,
+                enabled = !state.isBusy,
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("删除当前会话")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelRow(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(8.dp)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.58f)
+                } else {
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+                },
+                shape = shape,
+            ),
+        shape = shape,
+        color = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        tonalElevation = if (selected) 2.dp else 0.dp,
+        onClick = onClick,
+        enabled = enabled,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    text = "PocketMind",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = state.statusText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFDDEBE7),
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-
-            IconButton(
-                onClick = onResetConversation,
-                enabled = state.isReady && !state.isBusy,
-            ) {
+            if (selected) {
                 Icon(
-                    imageVector = Icons.Filled.Refresh,
-                    contentDescription = "新会话",
-                    tint = if (state.isReady && !state.isBusy) Color.White else Color(0x88FFFFFF),
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = "已选择",
+                    tint = MaterialTheme.colorScheme.primary,
                 )
             }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            StatusPill(
-                text = if (state.isReady) "离线可用" else "模型待加载",
-                active = state.isReady,
-            )
-
-            BackendChip(
-                label = "GPU",
-                selected = state.backend == BackendChoice.GPU,
-                enabled = !state.isBusy,
-                onClick = { onBackendSelected(BackendChoice.GPU) },
-            )
-            BackendChip(
-                label = "CPU",
-                selected = state.backend == BackendChoice.CPU,
-                enabled = !state.isBusy,
-                onClick = { onBackendSelected(BackendChoice.CPU) },
-            )
-
-            if (state.modelPath != null && !state.isReady && !state.isBusy) {
-                AssistChip(
-                    onClick = onLoadModel,
-                    label = { Text("加载模型") },
-                )
-            }
-        }
-
-        state.modelPath?.let { path ->
-            Text(
-                text = File(path).name,
-                style = MaterialTheme.typography.labelMedium,
-                color = Color(0xFFC9D8D4),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }
 
 @Composable
-private fun EmptyExperience(
-    state: ChatUiState,
-    onPickModel: () -> Unit,
-    onDownloadModel: () -> Unit,
-    onCancelDownload: () -> Unit,
-    onLoadModel: () -> Unit,
-    onOpenModelPage: () -> Unit,
-    onSendPrompt: (String) -> Unit,
+private fun SectionTitle(
+    text: String,
+    subtitle: String? = null,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        if (state.isReady) {
-            ReadyPanel(onSendPrompt)
-        } else {
-            SetupPanel(
-                state = state,
-                onPickModel = onPickModel,
-                onDownloadModel = onDownloadModel,
-                onCancelDownload = onCancelDownload,
-                onLoadModel = onLoadModel,
-                onOpenModelPage = onOpenModelPage,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SetupPanel(
-    state: ChatUiState,
-    onPickModel: () -> Unit,
-    onDownloadModel: () -> Unit,
-    onCancelDownload: () -> Unit,
-    onLoadModel: () -> Unit,
-    onOpenModelPage: () -> Unit,
-) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = "准备 Gemma 4 E2B",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "推荐模型约 2.6 GB。下载完成后会自动加载；已有 .litertlm 文件可以直接导入。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SetupStep("1", "获取模型", "使用 Wi-Fi 下载推荐模型，或导入手机里已有的 .litertlm 文件。")
-                SetupStep("2", "自动加载", "优先使用 GPU；如果设备不支持，会自动切到 CPU。")
-                SetupStep("3", "离线问答", "加载成功后不需要联网，问题和回答都留在本机。")
-            }
-
-            DeviceCheck(state)
-
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (subtitle != null) {
             Text(
-                text = "导入已有模型时会复制一份到 App 私有目录，请预留额外空间。",
+                text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-
-            if (state.isDownloading || state.downloadProgressPercent != null || state.totalBytes > 0L) {
-                ProgressBlock(state)
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onDownloadModel,
-                    enabled = !state.isBusy && !state.isDownloading,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Download,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("下载推荐模型")
-                }
-
-                OutlinedButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onPickModel,
-                    enabled = !state.isBusy,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.FolderOpen,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("导入已有模型")
-                }
-
-                if (state.isDownloading) {
-                    TextButton(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = onCancelDownload,
-                    ) {
-                        Text("取消下载")
-                    }
-                } else if (state.modelPath != null && !state.isReady) {
-                    FilledTonalButton(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = onLoadModel,
-                        enabled = !state.isBusy,
-                    ) {
-                        Text("加载已导入模型")
-                    }
-                }
-
-                TextButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onOpenModelPage,
-                    enabled = !state.isBusy,
-                ) {
-                    Text("查看模型来源")
-                }
-            }
         }
     }
 }
 
-@Composable
-private fun ReadyPanel(onSendPrompt: (String) -> Unit) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.CheckCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    text = "模型已就绪",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-            Text(
-                text = "试试这些问题，或者直接在下方输入。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            val prompts = listOf(
-                "用三句话解释什么是端侧大模型",
-                "帮我写一段中文自我介绍",
-                "把今天要做的事整理成清单",
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                prompts.forEach { prompt ->
-                    AssistChip(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onSendPrompt(prompt) },
-                        label = {
-                            Text(
-                                text = prompt,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                    )
-                }
-            }
-        }
+private fun currentModelStatus(state: ChatUiState): String {
+    val modelName = state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }?.displayName
+        ?: state.selectedRecommendedModel.shortName
+    val ready = when {
+        state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
+        state.isBusy -> state.statusText
+        state.isReady -> "已就绪"
+        state.modelPath != null -> "待加载"
+        else -> state.statusText
     }
+    return "$modelName · ${state.backend.name} · $ready"
 }
 
 @Composable
@@ -515,12 +956,15 @@ private fun DeviceCheck(state: ChatUiState) {
                 modifier = Modifier.weight(1f),
                 label = "空间",
                 value = GemmaModelRules.formatBytes(state.availableModelStorageBytes),
-                good = GemmaModelRules.hasEnoughSpace(state.availableModelStorageBytes),
+                good = GemmaModelRules.hasEnoughSpace(
+                    state.availableModelStorageBytes,
+                    state.selectedRecommendedModel.byteSize,
+                ),
             )
             DeviceMetric(
                 modifier = Modifier.weight(1f),
-                label = "模型",
-                value = GemmaModelRules.formatBytes(GEMMA_RECOMMENDED_MODEL_BYTES),
+                label = "模型大小",
+                value = GemmaModelRules.formatBytes(state.selectedRecommendedModel.byteSize),
                 good = true,
             )
         }
@@ -530,9 +974,13 @@ private fun DeviceCheck(state: ChatUiState) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
-        } else if (!GemmaModelRules.hasEnoughSpace(state.availableModelStorageBytes)) {
+        } else if (!GemmaModelRules.hasEnoughSpace(
+                state.availableModelStorageBytes,
+                state.selectedRecommendedModel.byteSize,
+            )
+        ) {
             Text(
-                text = "建议至少预留 2.6 GB，再多留一些空间给加载缓存。",
+                text = "建议至少预留 ${GemmaModelRules.formatBytes(state.selectedRecommendedModel.byteSize)}，再多留一些空间给加载缓存。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -582,45 +1030,6 @@ private fun DeviceMetric(
 }
 
 @Composable
-private fun SetupStep(
-    index: String,
-    title: String,
-    detail: String,
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = index,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
 private fun ProgressBlock(state: ChatUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val progress = state.downloadProgressPercent
@@ -642,7 +1051,7 @@ private fun ProgressBlock(state: ChatUiState) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-            text = progress?.let { "$it%" } ?: GemmaModelRules.formatBytes(state.downloadedBytes),
+                text = progress?.let { "$it%" } ?: GemmaModelRules.formatBytes(state.downloadedBytes),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -655,27 +1064,6 @@ private fun ProgressBlock(state: ChatUiState) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-@Composable
-private fun StatusPill(
-    text: String,
-    active: Boolean,
-) {
-    val background = if (active) Color(0xFFBDEFE4) else Color(0x33FFFFFF)
-    val foreground = if (active) Color(0xFF00201B) else Color.White
-    Surface(
-        shape = CircleShape,
-        color = background,
-    ) {
-        Text(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-            text = text,
-            style = MaterialTheme.typography.labelMedium,
-            color = foreground,
-            maxLines = 1,
-        )
     }
 }
 
@@ -695,7 +1083,10 @@ private fun BackendChip(
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage) {
+private fun MessageBubble(
+    message: ChatMessage,
+    isStreaming: Boolean,
+) {
     val isUser = message.role == MessageRole.User
     val bubbleColor = if (isUser) {
         MaterialTheme.colorScheme.primaryContainer
@@ -718,60 +1109,250 @@ private fun MessageBubble(message: ChatMessage) {
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = alignment,
     ) {
-        Text(
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.88f)
+                .fillMaxWidth(if (isUser) 0.86f else 0.94f)
                 .clip(shape)
                 .background(bubbleColor)
                 .padding(horizontal = 14.dp, vertical = 11.dp),
-            text = message.text.ifBlank { "..." },
-            style = MaterialTheme.typography.bodyLarge,
-            color = textColor,
-        )
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = when {
+                    isUser -> "你"
+                    isStreaming -> "PocketMind · 生成中"
+                    else -> "PocketMind"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = textColor.copy(alpha = 0.72f),
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (isStreaming && message.text.isBlank()) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surface,
+                )
+            }
+            SelectionContainer {
+                MessageContent(
+                    text = message.text.ifBlank { if (isStreaming) "正在思考..." else "..." },
+                    isUser = isUser,
+                    color = textColor,
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun Composer(
-    input: String,
-    enabled: Boolean,
-    isBusy: Boolean,
-    onInputChanged: (String) -> Unit,
-    onSend: () -> Unit,
+private fun MessageContent(
+    text: String,
+    isUser: Boolean,
+    color: Color,
 ) {
-    Row(
+    if (isUser) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyLarge,
+            color = color,
+        )
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        splitMessageSegments(text).forEach { segment ->
+            if (segment.isCode) {
+                CodeBlock(segment.text)
+            } else if (segment.text.isNotBlank()) {
+                Text(
+                    text = segment.text.toMessageAnnotatedString(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = color,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CodeBlock(code: String) {
+    val cleaned = code.trim('\n')
+    val lines = cleaned.lines()
+    val maybeLanguage = lines.firstOrNull().orEmpty()
+    val hasLanguage = maybeLanguage.length in 1..24 &&
+        maybeLanguage.all { it.isLetterOrDigit() || it == '-' || it == '_' || it == '+' || it == '#' }
+    val codeText = if (hasLanguage) lines.drop(1).joinToString("\n") else cleaned
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(8.dp),
+            ),
+    ) {
+        if (hasLanguage) {
+            Text(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                text = maybeLanguage,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+            )
+            HorizontalDivider()
+        }
+        Text(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(12.dp),
+            text = codeText.ifBlank { "..." },
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Start,
+        )
+    }
+}
+
+private data class MessageSegment(
+    val text: String,
+    val isCode: Boolean,
+)
+
+private fun splitMessageSegments(text: String): List<MessageSegment> {
+    if (!text.contains("```")) return listOf(MessageSegment(text, isCode = false))
+    val pieces = text.split("```")
+    return pieces.mapIndexedNotNull { index, piece ->
+        if (piece.isEmpty()) {
+            null
+        } else {
+            MessageSegment(text = piece, isCode = index % 2 == 1)
+        }
+    }.ifEmpty { listOf(MessageSegment(text, isCode = false)) }
+}
+
+private fun String.toMessageAnnotatedString(): AnnotatedString =
+    buildAnnotatedString {
+        lines().forEachIndexed { index, rawLine ->
+            if (index > 0) append('\n')
+            appendMarkdownLine(rawLine)
+        }
+    }
+
+private fun AnnotatedString.Builder.appendMarkdownLine(rawLine: String) {
+    val trimmedStart = rawLine.trimStart()
+    val normalized = when {
+        trimmedStart.startsWith("### ") -> trimmedStart.removePrefix("### ").trim()
+        trimmedStart.startsWith("## ") -> trimmedStart.removePrefix("## ").trim()
+        trimmedStart.startsWith("# ") -> trimmedStart.removePrefix("# ").trim()
+        trimmedStart.startsWith("- ") -> "• ${trimmedStart.removePrefix("- ").trim()}"
+        trimmedStart.startsWith("* ") -> "• ${trimmedStart.removePrefix("* ").trim()}"
+        else -> rawLine
+    }
+    val boldRegex = Regex("""\*\*(.+?)\*\*""")
+    var cursor = 0
+    boldRegex.findAll(normalized).forEach { match ->
+        append(normalized.substring(cursor, match.range.first))
+        pushStyle(SpanStyle(fontWeight = FontWeight.SemiBold))
+        append(match.groupValues[1])
+        pop()
+        cursor = match.range.last + 1
+    }
+    append(normalized.substring(cursor))
+}
+
+@Composable
+private fun Composer(
+    state: ChatUiState,
+    input: String,
+    onInputChanged: (String) -> Unit,
+    onOpenModelManager: () -> Unit,
+    onSend: () -> Unit,
+    onStopGeneration: () -> Unit,
+) {
+    val inputEnabled = state.isReady && !state.isBusy
+    val actionIsStop = state.isGenerating
+    val placeholder = when {
+        state.isBusy -> state.statusText
+        !state.isReady -> "先准备模型，再开始提问"
+        else -> "输入问题"
+    }
+    val actionIsModelManager = !state.isReady && !actionIsStop
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .navigationBarsPadding()
             .padding(horizontal = 12.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Bottom,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        OutlinedTextField(
-            modifier = Modifier
-                .weight(1f)
-                .heightIn(min = 56.dp),
-            value = input,
-            onValueChange = onInputChanged,
-            enabled = !isBusy,
-            minLines = 1,
-            maxLines = 5,
-            placeholder = { Text("输入问题") },
-        )
-
-        Button(
-            modifier = Modifier
-                .height(56.dp)
-                .width(56.dp),
-            onClick = onSend,
-            enabled = enabled && input.isNotBlank(),
-            contentPadding = PaddingValues(0.dp),
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.Send,
-                contentDescription = "发送",
+        if (!state.isReady || state.isBusy) {
+            Text(
+                text = state.statusText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            OutlinedTextField(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 56.dp),
+                value = input,
+                onValueChange = onInputChanged,
+                enabled = inputEnabled,
+                minLines = 1,
+                maxLines = 5,
+                placeholder = { Text(placeholder) },
+            )
+
+            Button(
+                modifier = Modifier
+                    .height(56.dp)
+                    .width(if (actionIsModelManager) 88.dp else 56.dp),
+                onClick = when {
+                    actionIsStop -> onStopGeneration
+                    actionIsModelManager -> onOpenModelManager
+                    else -> onSend
+                },
+                enabled = when {
+                    actionIsStop -> true
+                    actionIsModelManager -> !state.isBusy
+                    else -> inputEnabled && input.isNotBlank()
+                },
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                when {
+                    actionIsStop -> {
+                        Icon(
+                            imageVector = Icons.Filled.Stop,
+                            contentDescription = "停止生成",
+                        )
+                    }
+
+                    actionIsModelManager -> {
+                        Text("准备")
+                    }
+
+                    else -> {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "发送",
+                        )
+                    }
+                }
+            }
         }
     }
 }

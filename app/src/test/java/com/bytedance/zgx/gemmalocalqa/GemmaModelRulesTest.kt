@@ -42,6 +42,21 @@ class GemmaModelRulesTest {
     }
 
     @Test
+    fun recommendedModels_includeE2bAndE4bSources() {
+        val e2b = GemmaModelRules.recommendedModelById("gemma-4-e2b")
+        val e4b = GemmaModelRules.recommendedModelById("gemma-4-e4b")
+
+        assertEquals("gemma-4-E2B-it.litertlm", e2b.fileName)
+        assertEquals(2_588_147_712L, e2b.byteSize)
+        assertTrue(e2b.downloadUrl.contains("gemma-4-E2B-it.litertlm"))
+
+        assertEquals("gemma-4-E4B-it.litertlm", e4b.fileName)
+        assertEquals(3_659_530_240L, e4b.byteSize)
+        assertTrue(e4b.downloadUrl.contains("gemma-4-E4B-it.litertlm"))
+        assertTrue(GemmaModelRules.isCompleteRecommendedModel(3_659_530_240L, e4b))
+    }
+
+    @Test
     fun progressPercent_handlesUnknownOverflowAndNormalProgress() {
         assertNull(GemmaModelRules.progressPercent(100L, 0L))
         assertEquals(0, GemmaModelRules.progressPercent(-10L, 100L))

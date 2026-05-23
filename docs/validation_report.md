@@ -2,6 +2,33 @@
 
 验证时间：2026-05-24
 
+## 最新增量验证
+
+命令：
+
+```bash
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+```
+
+结果：通过。
+
+覆盖项：
+
+- 推荐模型目录包含 Gemma 4 E2B 与 Gemma 4 E4B。
+- 首屏直接暴露推荐模型选择、下载、导入、设备检查和状态提示。
+- 顶部常驻展示运行状态，模型管理弹层展示当前模型、本地模型、推荐模型、添加模型和进度。
+- 底部输入区会根据无模型、忙碌、就绪状态切换提示与主操作。
+- 下载/导入进入加载阶段时会清理进度字段，避免 100% 下载进度残留。
+- Compose 冒烟测试已补充首屏模型准备入口断言。
+
+真机：
+
+- 已连接设备 `23127PN0CC`，设备状态为 `device`。
+- `connectedDebugAndroidTest` 首次尝试在已有模型状态下进入 instrumentation 后卡住；清理调试包后重跑，设备安装阶段返回 `INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`。
+- 需要在 Xiaomi / HyperOS / MIUI 开发者选项中允许“USB 安装 / 通过 USB 安装”，并确认手机弹窗后重跑真机自动化。
+
 ## 本地验证
 
 命令：

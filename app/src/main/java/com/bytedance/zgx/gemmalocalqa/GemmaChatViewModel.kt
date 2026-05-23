@@ -17,12 +17,17 @@ import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.LogSeverity
+import com.google.ai.edge.litertlm.Message as LiteRtMessage
 import com.google.ai.edge.litertlm.SamplerConfig
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.max
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,10 +37,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 private const val PREFS_NAME = "gemma_local_qa"
 private const val PREF_MODEL_PATH = "model_path"
 private const val PREF_DOWNLOAD_ID = "download_id"
+private const val PREF_DOWNLOAD_SOURCE = "download_source"
+private const val PREF_SELECTED_MODEL_ID = "selected_model_id"
+private const val PREF_INSTALLED_MODELS_JSON = "installed_models_json"
+private const val PREF_ACTIVE_INSTALLED_MODEL_ID = "active_installed_model_id"
+private const val PREF_SESSIONS_JSON = "sessions_json"
+private const val PREF_ACTIVE_SESSION_ID = "active_session_id"
 private val nextMessageId = AtomicLong(0L)
 
 enum class BackendChoice {
@@ -54,67 +67,174 @@ data class ChatMessage(
     val id: Long = nextMessageId.incrementAndGet(),
 )
 
+data class ChatSessionSummary(
+    val id: String,
+    val title: String,
+    val updatedAtMillis: Long,
+    val messageCount: Int,
+)
+
+data class InstalledModelSummary(
+    val id: String,
+    val displayName: String,
+    val path: String,
+    val fileBytes: Long,
+    val recommendedModelId: String?,
+) {
+    val fileName: String
+        get() = File(path).name
+}
+
 data class ChatUiState(
     val modelPath: String? = null,
+    val activeInstalledModelId: String? = null,
+    val installedModels: List<InstalledModelSummary> = emptyList(),
+    val selectedModelId: String = GEMMA_DEFAULT_RECOMMENDED_MODEL_ID,
+    val recommendedModels: List<RecommendedModel> = GEMMA_RECOMMENDED_MODELS,
     val backend: BackendChoice = BackendChoice.GPU,
     val statusText: String = "未加载模型",
     val isArm64Supported: Boolean = true,
     val availableModelStorageBytes: Long = 0L,
     val isBusy: Boolean = false,
+    val isGenerating: Boolean = false,
     val isDownloading: Boolean = false,
     val downloadProgressPercent: Int? = null,
     val downloadedBytes: Long = 0L,
     val totalBytes: Long = 0L,
     val isReady: Boolean = false,
+    val sessions: List<ChatSessionSummary> = emptyList(),
+    val activeSessionId: String? = null,
     val messages: List<ChatMessage> = emptyList(),
+) {
+    val selectedRecommendedModel: RecommendedModel
+        get() = GemmaModelRules.recommendedModelById(selectedModelId)
+}
+
+private data class ChatSession(
+    val id: String,
+    val title: String,
+    val createdAtMillis: Long,
+    val updatedAtMillis: Long,
+    val messages: List<ChatMessage>,
 )
+
+private data class InstalledModel(
+    val id: String,
+    val displayName: String,
+    val path: String,
+    val fileBytes: Long,
+    val recommendedModelId: String?,
+)
+
+private data class ModelDownloadSource(
+    val title: String,
+    val fileName: String,
+    val downloadUrl: String,
+    val expectedBytes: Long?,
+    val modelId: String?,
+) {
+    companion object {
+        fun recommended(model: RecommendedModel): ModelDownloadSource =
+            ModelDownloadSource(
+                title = model.shortName,
+                fileName = model.fileName,
+                downloadUrl = model.downloadUrl,
+                expectedBytes = model.byteSize,
+                modelId = model.id,
+            )
+    }
+}
 
 class GemmaChatViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val modelDir = File(appContext.filesDir, "models")
     private val downloadManager = appContext.getSystemService(DownloadManager::class.java)
+    private var selectedModelId = prefs.getString(PREF_SELECTED_MODEL_ID, GEMMA_DEFAULT_RECOMMENDED_MODEL_ID)
+        ?: GEMMA_DEFAULT_RECOMMENDED_MODEL_ID
+    private var installedModels: List<InstalledModel> = loadInstalledModels()
+    private var activeInstalledModelId: String? = resolveActiveInstalledModelId(installedModels)
+    private var sessions: List<ChatSession> = loadSessions()
+    private var activeSessionId: String = resolveActiveSessionId(sessions)
 
-    private val _uiState = MutableStateFlow(ChatUiState())
+    private val _uiState = MutableStateFlow(
+        ChatUiState(
+            modelPath = activeInstalledModel()?.path,
+            activeInstalledModelId = activeInstalledModelId,
+            installedModels = installedModelSummaries(),
+            selectedModelId = selectedModelId,
+            sessions = sessionSummaries(),
+            activeSessionId = activeSessionId,
+            messages = activeSessionMessages(),
+        ),
+    )
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     private val runtimeLock = Mutex()
     private var engine: Engine? = null
     private var conversation: Conversation? = null
+    private var generationJob: Job? = null
 
     init {
         Engine.setNativeMinLogSeverity(LogSeverity.ERROR)
         cleanTemporaryModelFiles()
         refreshDeviceStatus()
-        val savedPath = prefs.getString(PREF_MODEL_PATH, null)
-            ?.takeIf { File(it).exists() }
+        if (installedModels.isNotEmpty()) {
+            persistInstalledModels()
+        }
         val pendingDownloadId = prefs.getLong(PREF_DOWNLOAD_ID, -1L)
+        val pendingDownloadSource = loadPendingDownloadSource()
         if (!isArm64Device()) {
             _uiState.update {
                 it.copy(statusText = "当前设备不是 64 位 ARM，无法运行此模型")
             }
         } else if (pendingDownloadId > 0L) {
-            val target = defaultDownloadedModelFile()
+            val source = pendingDownloadSource ?: ModelDownloadSource.recommended(selectedRecommendedModel())
+            source.modelId?.let { selectedModelId = it }
+            val target = downloadedModelFile(source.fileName)
             if (target == null) {
-                prefs.edit().remove(PREF_DOWNLOAD_ID).apply()
+                prefs.edit().remove(PREF_DOWNLOAD_ID).remove(PREF_DOWNLOAD_SOURCE).apply()
                 _uiState.update {
                     it.copy(statusText = "下载目录不可用，请导入已有模型")
                 }
             } else {
-                monitorDownload(pendingDownloadId, target)
+                _uiState.update { it.copy(selectedModelId = selectedModelId) }
+                monitorDownload(pendingDownloadId, target, source)
             }
-        } else if (savedPath != null) {
+        } else {
+            val activeModel = activeInstalledModel()
+            activeModel?.recommendedModelId?.let { selectedModelId = it }
             _uiState.update {
                 it.copy(
-                    modelPath = savedPath,
-                    statusText = "已找到模型，正在加载",
+                    modelPath = activeModel?.path,
+                    activeInstalledModelId = activeInstalledModelId,
+                    installedModels = installedModelSummaries(),
+                    selectedModelId = selectedModelId,
+                    statusText = if (activeModel == null) it.statusText else "已找到模型，正在加载",
                 )
             }
-            loadModel()
+            if (activeModel != null) {
+                loadModel()
+            }
         }
     }
 
     fun startModelDownload() {
+        beginModelDownload(ModelDownloadSource.recommended(selectedRecommendedModel()))
+    }
+
+    fun startCustomModelDownload(downloadUrl: String) {
+        val source = createCustomDownloadSource(downloadUrl)
+        if (source == null) {
+            _uiState.update {
+                it.copy(statusText = "请输入有效的 http/https 模型下载链接")
+            }
+            return
+        }
+        beginModelDownload(source)
+    }
+
+    private fun beginModelDownload(source: ModelDownloadSource) {
         refreshDeviceStatus()
         if (_uiState.value.isBusy || _uiState.value.isDownloading) return
         if (!isArm64Device()) {
@@ -124,22 +244,19 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
 
-        val target = defaultDownloadedModelFile()
+        val target = downloadedModelFile(source.fileName)
         if (target == null) {
             _uiState.update {
                 it.copy(statusText = "下载目录不可用，请导入已有模型")
             }
             return
         }
-        if (target.exists() && GemmaModelRules.isCompleteRecommendedModel(target.length())) {
-            prefs.edit().putString(PREF_MODEL_PATH, target.absolutePath).apply()
-            _uiState.update {
-                it.copy(
-                    modelPath = target.absolutePath,
-                    statusText = "已找到已下载模型",
-                    messages = emptyList(),
-                )
-            }
+        if (source.expectedBytes != null && target.exists() && source.isCompleteFile(target.length())) {
+            registerInstalledModel(
+                path = target.absolutePath,
+                displayName = source.installedDisplayName(target),
+                recommendedModelId = source.modelId ?: inferRecommendedModelId(target.name),
+            )
             loadModel()
             return
         }
@@ -157,15 +274,16 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
             }
             return
         }
-        if (!GemmaModelRules.hasEnoughSpace(modelParent.usableSpace)) {
+        val requiredBytes = source.expectedBytes ?: GEMMA_RECOMMENDED_MODEL_BYTES
+        if (!GemmaModelRules.hasEnoughSpace(modelParent.usableSpace, requiredBytes)) {
             _uiState.update {
-                it.copy(statusText = "存储空间不足，至少需要约 2.6 GB")
+                it.copy(statusText = "存储空间不足，至少需要约 ${GemmaModelRules.formatBytes(requiredBytes)}")
             }
             return
         }
-        val request = DownloadManager.Request(Uri.parse(GEMMA_MODEL_DOWNLOAD_URL))
-            .setTitle("Gemma 4 E2B")
-            .setDescription("正在下载本地问答模型")
+        val request = DownloadManager.Request(Uri.parse(source.downloadUrl))
+            .setTitle(source.title)
+            .setDescription("正在下载本地模型")
             .setMimeType("application/octet-stream")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
@@ -174,7 +292,7 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
             .setDestinationInExternalFilesDir(
                 appContext,
                 Environment.DIRECTORY_DOWNLOADS,
-                GEMMA_MODEL_FILE_NAME,
+                source.fileName,
             )
 
         val downloadId = runCatching { downloadManager.enqueue(request) }.getOrElse { throwable ->
@@ -184,7 +302,10 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
 
-        prefs.edit().putLong(PREF_DOWNLOAD_ID, downloadId).apply()
+        prefs.edit()
+            .putLong(PREF_DOWNLOAD_ID, downloadId)
+            .putString(PREF_DOWNLOAD_SOURCE, source.toJson().toString())
+            .apply()
         _uiState.update {
             it.copy(
                 isBusy = true,
@@ -196,7 +317,7 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
                 isReady = false,
             )
         }
-        monitorDownload(downloadId, target)
+        monitorDownload(downloadId, target, source)
     }
 
     fun cancelModelDownload() {
@@ -204,7 +325,7 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
         if (downloadId > 0L) {
             downloadManager.remove(downloadId)
         }
-        prefs.edit().remove(PREF_DOWNLOAD_ID).apply()
+        prefs.edit().remove(PREF_DOWNLOAD_ID).remove(PREF_DOWNLOAD_SOURCE).apply()
         _uiState.update {
             it.copy(
                 isBusy = false,
@@ -239,7 +360,7 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     closeRuntime()
-                    prefs.edit().remove(PREF_DOWNLOAD_ID).apply()
+                    prefs.edit().remove(PREF_DOWNLOAD_ID).remove(PREF_DOWNLOAD_SOURCE).apply()
                     modelDir.mkdirs()
                     val displayName = resolveDisplayName(uri)
                     require(GemmaModelRules.isAcceptedModelName(displayName)) {
@@ -276,7 +397,14 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
                         tempTarget.delete()
                         throw throwable
                     }
-                    prefs.edit().putString(PREF_MODEL_PATH, target.absolutePath).apply()
+                    val recommendedId = inferRecommendedModelId(target.name)
+                    registerInstalledModel(
+                        path = target.absolutePath,
+                        displayName = recommendedId
+                            ?.let { GemmaModelRules.recommendedModelById(it).shortName }
+                            ?: target.nameWithoutExtension,
+                        recommendedModelId = recommendedId,
+                    )
                     target.absolutePath
                 }
             }
@@ -286,7 +414,6 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
                     _uiState.update {
                         it.copy(
                             modelPath = path,
-                            messages = emptyList(),
                             isBusy = false,
                             isDownloading = false,
                             downloadProgressPercent = null,
@@ -319,13 +446,35 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
             it.copy(
                 backend = choice,
                 isReady = false,
-                messages = emptyList(),
-                statusText = "已切换到 ${choice.label()}",
+                statusText = "已切换到 ${choice.label()}，点击加载模型",
             )
         }
-        if (_uiState.value.modelPath != null) {
-            loadModel()
+    }
+
+    fun selectRecommendedModel(modelId: String) {
+        if (_uiState.value.isBusy || selectedModelId == modelId) return
+        selectedModelId = GemmaModelRules.recommendedModelById(modelId).id
+        prefs.edit().putString(PREF_SELECTED_MODEL_ID, selectedModelId).apply()
+        val installed = installedModels.firstOrNull {
+            it.recommendedModelId == selectedModelId && File(it.path).exists()
         }
+        if (installed != null) {
+            activateInstalledModel(installed, "已切换到 ${installed.displayName}，点击加载模型")
+        } else {
+            _uiState.update {
+                it.copy(
+                    selectedModelId = selectedModelId,
+                    statusText = "已选择 ${selectedRecommendedModel().shortName}",
+                )
+            }
+        }
+        refreshDeviceStatus()
+    }
+
+    fun selectInstalledModel(modelId: String) {
+        if (_uiState.value.isBusy || activeInstalledModelId == modelId) return
+        val installed = installedModels.firstOrNull { it.id == modelId && File(it.path).exists() } ?: return
+        activateInstalledModel(installed, "已切换到 ${installed.displayName}，点击加载模型")
     }
 
     fun loadModel() {
@@ -336,7 +485,11 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
         _uiState.update {
             it.copy(
                 isBusy = true,
+                isDownloading = false,
                 isReady = false,
+                downloadProgressPercent = null,
+                downloadedBytes = 0L,
+                totalBytes = 0L,
                 statusText = "正在初始化 ${backendChoice.label()}",
             )
         }
@@ -353,7 +506,11 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
                     _uiState.update {
                         it.copy(
                             isBusy = false,
+                            isDownloading = false,
                             isReady = true,
+                            downloadProgressPercent = null,
+                            downloadedBytes = 0L,
+                            totalBytes = 0L,
                             statusText = "就绪 · ${it.backend.label()}",
                         )
                     }
@@ -370,7 +527,11 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
                                 it.copy(
                                     backend = BackendChoice.CPU,
                                     isBusy = false,
+                                    isDownloading = false,
                                     isReady = true,
+                                    downloadProgressPercent = null,
+                                    downloadedBytes = 0L,
+                                    totalBytes = 0L,
                                     statusText = "GPU 不可用，已切到 CPU",
                                 )
                             }
@@ -380,7 +541,11 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
                     _uiState.update {
                         it.copy(
                             isBusy = false,
+                            isDownloading = false,
                             isReady = false,
+                            downloadProgressPercent = null,
+                            downloadedBytes = 0L,
+                            totalBytes = 0L,
                             statusText = "初始化失败：${throwable.cleanMessage()}",
                         )
                     }
@@ -390,67 +555,90 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun resetConversation() {
-        if (_uiState.value.isBusy || engine == null) return
+        createNewSession()
+    }
 
+    fun createNewSession() {
+        if (_uiState.value.isBusy) return
+        val created = newChatSession()
+        sessions = listOf(created) + sessions
+        activeSessionId = created.id
+        persistSessions()
         _uiState.update {
             it.copy(
-                isBusy = true,
-                isReady = false,
-                statusText = "正在开启新会话",
+                sessions = sessionSummaries(),
+                activeSessionId = activeSessionId,
+                messages = emptyList(),
+                statusText = if (engine == null) "新会话" else "正在开启新会话",
             )
         }
+        if (engine != null) {
+            recreateConversationForActiveSession("新会话")
+        }
+    }
 
-        viewModelScope.launch(Dispatchers.IO) {
-            val result = runCatching {
-                conversation?.close()
-                conversation = engine?.createConversation(defaultConversationConfig())
-            }
-            result.fold(
-                onSuccess = {
-                    _uiState.update {
-                        it.copy(
-                            messages = emptyList(),
-                            isBusy = false,
-                            isReady = true,
-                            statusText = "新会话 · ${it.backend.label()}",
-                        )
-                    }
-                },
-                onFailure = { throwable ->
-                    _uiState.update {
-                        it.copy(
-                            isBusy = false,
-                            isReady = false,
-                            statusText = "新会话失败：${throwable.cleanMessage()}",
-                        )
-                    }
-                },
+    fun selectSession(sessionId: String) {
+        if (_uiState.value.isBusy || activeSessionId == sessionId) return
+        val session = sessions.firstOrNull { it.id == sessionId } ?: return
+        activeSessionId = session.id
+        prefs.edit().putString(PREF_ACTIVE_SESSION_ID, activeSessionId).apply()
+        _uiState.update {
+            it.copy(
+                activeSessionId = activeSessionId,
+                messages = session.messages,
+                statusText = if (engine == null) "已切换会话" else "正在恢复会话",
             )
+        }
+        if (engine != null) {
+            recreateConversationForActiveSession("已恢复会话")
+        }
+    }
+
+    fun deleteActiveSession() {
+        if (_uiState.value.isBusy || sessions.size <= 1) return
+        sessions = sessions.filterNot { it.id == activeSessionId }
+        activeSessionId = resolveActiveSessionId(sessions)
+        persistSessions()
+        _uiState.update {
+            it.copy(
+                sessions = sessionSummaries(),
+                activeSessionId = activeSessionId,
+                messages = activeSessionMessages(),
+                statusText = if (engine == null) "已删除会话" else "正在恢复会话",
+            )
+        }
+        if (engine != null) {
+            recreateConversationForActiveSession("已删除会话")
         }
     }
 
     fun sendMessage(prompt: String) {
         val trimmed = prompt.trim()
-        if (trimmed.isEmpty() || !_uiState.value.isReady || _uiState.value.isBusy) return
+        if (trimmed.isEmpty() || !_uiState.value.isReady || _uiState.value.isBusy || generationJob?.isActive == true) {
+            return
+        }
 
+        val userMessage = ChatMessage(MessageRole.User, trimmed)
         val assistantPlaceholder = ChatMessage(MessageRole.Assistant, "")
+        val nextMessages = _uiState.value.messages + userMessage + assistantPlaceholder
+        replaceActiveSessionMessages(nextMessages, persistNow = true)
         _uiState.update {
             it.copy(
                 isBusy = true,
-                messages = it.messages +
-                    ChatMessage(MessageRole.User, trimmed) +
-                    assistantPlaceholder,
+                isGenerating = true,
                 statusText = "生成中",
             )
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
+        val job = viewModelScope.launch(Dispatchers.IO) {
             val activeConversation = conversation
             if (activeConversation == null) {
                 _uiState.updateLastAssistant("模型尚未就绪")
+                persistActiveSessionFromUi()
                 _uiState.update {
                     it.copy(
                         isBusy = false,
+                        isGenerating = false,
                         isReady = false,
                         statusText = "未加载模型",
                     )
@@ -458,7 +646,7 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
                 return@launch
             }
 
-            val result = runCatching {
+            try {
                 val partial = StringBuilder()
                 activeConversation.sendMessageAsync(trimmed).collect { chunk ->
                     partial.append(chunk.textContent().ifBlank { chunk.toString() })
@@ -467,30 +655,45 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
                 if (partial.isBlank()) {
                     _uiState.updateLastAssistant("没有生成内容")
                 }
+                persistActiveSessionFromUi()
+                _uiState.update {
+                    it.copy(
+                        isBusy = false,
+                        isGenerating = false,
+                        isReady = true,
+                        statusText = "就绪 · ${it.backend.label()}",
+                    )
+                }
+            } catch (cancellation: CancellationException) {
+                if (_uiState.value.isGenerating) {
+                    finishStoppedGeneration()
+                }
+                throw cancellation
+            } catch (throwable: Throwable) {
+                _uiState.updateLastAssistant("出错了：${throwable.cleanMessage()}")
+                persistActiveSessionFromUi()
+                _uiState.update {
+                    it.copy(
+                        isBusy = false,
+                        isGenerating = false,
+                        isReady = false,
+                        statusText = "生成失败，建议重新加载",
+                    )
+                }
             }
-
-            result.fold(
-                onSuccess = {
-                    _uiState.update {
-                        it.copy(
-                            isBusy = false,
-                            isReady = true,
-                            statusText = "就绪 · ${it.backend.label()}",
-                        )
-                    }
-                },
-                onFailure = { throwable ->
-                    _uiState.updateLastAssistant("出错了：${throwable.cleanMessage()}")
-                    _uiState.update {
-                        it.copy(
-                            isBusy = false,
-                            isReady = false,
-                            statusText = "生成失败，建议重新加载",
-                        )
-                    }
-                },
-            )
         }
+        generationJob = job
+        job.invokeOnCompletion {
+            if (generationJob == job) {
+                generationJob = null
+            }
+        }
+    }
+
+    fun stopGeneration() {
+        val job = generationJob ?: return
+        job.cancel()
+        finishStoppedGeneration()
     }
 
     override fun onCleared() {
@@ -498,9 +701,10 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
         super.onCleared()
     }
 
-    private fun defaultConversationConfig(): ConversationConfig =
+    private fun defaultConversationConfig(messages: List<ChatMessage> = activeSessionMessages()): ConversationConfig =
         ConversationConfig(
             systemInstruction = Contents.of("你是一个简洁、可靠的中文问答助手。回答要直接，必要时说明不确定性。"),
+            initialMessages = messages.toLiteRtInitialMessages(),
             samplerConfig = SamplerConfig(
                 topK = 40,
                 topP = 0.95,
@@ -580,12 +784,16 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
         return 0L
     }
 
-    private fun monitorDownload(downloadId: Long, targetFile: File) {
+    private fun monitorDownload(
+        downloadId: Long,
+        targetFile: File,
+        source: ModelDownloadSource,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             while (true) {
                 val info = queryDownload(downloadId)
                 if (info == null) {
-                    prefs.edit().remove(PREF_DOWNLOAD_ID).apply()
+                    prefs.edit().remove(PREF_DOWNLOAD_ID).remove(PREF_DOWNLOAD_SOURCE).apply()
                     _uiState.update {
                         it.copy(
                             isBusy = false,
@@ -612,27 +820,30 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
 
                 when (info.status) {
                     DownloadManager.STATUS_SUCCESSFUL -> {
-                        if (!targetFile.exists() || !GemmaModelRules.isCompleteRecommendedModel(targetFile.length())) {
-                            prefs.edit().remove(PREF_DOWNLOAD_ID).apply()
+                        if (!targetFile.exists() || !source.isCompleteFile(targetFile.length())) {
+                            prefs.edit().remove(PREF_DOWNLOAD_ID).remove(PREF_DOWNLOAD_SOURCE).apply()
                             targetFile.delete()
                             _uiState.update {
                                 it.copy(
                                     isBusy = false,
                                     isDownloading = false,
                                     downloadProgressPercent = null,
-                                    statusText = "下载文件不完整，请重新下载",
+                                    statusText = "下载文件不可用，请重新下载",
                                 )
                             }
                             return@launch
                         }
                         prefs.edit()
                             .remove(PREF_DOWNLOAD_ID)
-                            .putString(PREF_MODEL_PATH, targetFile.absolutePath)
+                            .remove(PREF_DOWNLOAD_SOURCE)
                             .apply()
+                        registerInstalledModel(
+                            path = targetFile.absolutePath,
+                            displayName = source.installedDisplayName(targetFile),
+                            recommendedModelId = source.modelId ?: inferRecommendedModelId(targetFile.name),
+                        )
                         _uiState.update {
                             it.copy(
-                                modelPath = targetFile.absolutePath,
-                                messages = emptyList(),
                                 isBusy = false,
                                 isDownloading = false,
                                 downloadProgressPercent = 100,
@@ -644,7 +855,7 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
                     }
 
                     DownloadManager.STATUS_FAILED -> {
-                        prefs.edit().remove(PREF_DOWNLOAD_ID).apply()
+                        prefs.edit().remove(PREF_DOWNLOAD_ID).remove(PREF_DOWNLOAD_SOURCE).apply()
                         targetFile.delete()
                         _uiState.update {
                             it.copy(
@@ -684,8 +895,11 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun defaultDownloadedModelFile(): File? =
+        downloadedModelFile(selectedRecommendedModel().fileName)
+
+    private fun downloadedModelFile(fileName: String): File? =
         appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-            ?.let { File(it, GEMMA_MODEL_FILE_NAME) }
+            ?.let { File(it, fileName) }
 
     private fun refreshDeviceStatus() {
         _uiState.update {
@@ -730,8 +944,475 @@ class GemmaChatViewModel(application: Application) : AndroidViewModel(applicatio
                     ?.let { return it }
             }
         }
-        return "gemma-4-e2b$GEMMA_MODEL_EXTENSION"
+        return selectedRecommendedModel().fileName
     }
+
+    private fun selectedRecommendedModel(): RecommendedModel =
+        GemmaModelRules.recommendedModelById(selectedModelId)
+
+    private fun createCustomDownloadSource(downloadUrl: String): ModelDownloadSource? {
+        val trimmedUrl = downloadUrl.trim()
+        val uri = runCatching { Uri.parse(trimmedUrl) }.getOrNull() ?: return null
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") return null
+        val host = uri.host
+        if (host.isNullOrBlank()) return null
+        val fileName = GemmaModelRules.sanitizeModelName(
+            uri.lastPathSegment
+                ?.substringAfterLast('/')
+                ?.substringBefore('?')
+                ?.takeIf { it.isNotBlank() }
+                ?: "custom-model$GEMMA_MODEL_EXTENSION",
+        )
+        return ModelDownloadSource(
+            title = "自定义模型",
+            fileName = fileName,
+            downloadUrl = trimmedUrl,
+            expectedBytes = null,
+            modelId = null,
+        )
+    }
+
+    private fun loadPendingDownloadSource(): ModelDownloadSource? =
+        prefs.getString(PREF_DOWNLOAD_SOURCE, null)
+            ?.let { encoded ->
+                runCatching {
+                    val json = JSONObject(encoded)
+                    ModelDownloadSource(
+                        title = json.optString("title", "模型下载"),
+                        fileName = GemmaModelRules.sanitizeModelName(json.getString("fileName")),
+                        downloadUrl = json.getString("downloadUrl"),
+                        expectedBytes = json.optLongOrNull("expectedBytes"),
+                        modelId = json.optString("modelId").takeIf { it.isNotBlank() },
+                    )
+                }.getOrNull()
+            }
+
+    private fun ModelDownloadSource.toJson(): JSONObject =
+        JSONObject()
+            .put("title", title)
+            .put("fileName", fileName)
+            .put("downloadUrl", downloadUrl)
+            .put("expectedBytes", expectedBytes ?: JSONObject.NULL)
+            .put("modelId", modelId ?: JSONObject.NULL)
+
+    private fun ModelDownloadSource.isCompleteFile(fileBytes: Long): Boolean =
+        if (expectedBytes == null) {
+            fileBytes > 0L
+        } else {
+            fileBytes == expectedBytes
+        }
+
+    private fun ModelDownloadSource.installedDisplayName(file: File): String =
+        modelId?.let { GemmaModelRules.recommendedModelById(it).shortName }
+            ?: file.nameWithoutExtension
+
+    private fun inferRecommendedModelId(fileName: String): String? =
+        GEMMA_RECOMMENDED_MODELS.firstOrNull {
+            it.fileName.equals(fileName, ignoreCase = true)
+        }?.id
+
+    private fun registerInstalledModel(
+        path: String,
+        displayName: String,
+        recommendedModelId: String?,
+    ): InstalledModel {
+        val file = File(path)
+        val existing = installedModels.firstOrNull {
+            it.path == path || (recommendedModelId != null && it.recommendedModelId == recommendedModelId)
+        }
+        val installed = InstalledModel(
+            id = existing?.id ?: installedModelId(path, recommendedModelId),
+            displayName = displayName,
+            path = path,
+            fileBytes = file.length().coerceAtLeast(0L),
+            recommendedModelId = recommendedModelId,
+        )
+        installedModels = (listOf(installed) + installedModels)
+            .distinctBy { it.id }
+            .filter { File(it.path).exists() }
+        activateInstalledModel(installed, "已选择 ${installed.displayName}", persistNow = true)
+        return installed
+    }
+
+    private fun activateInstalledModel(
+        installed: InstalledModel,
+        statusText: String,
+        persistNow: Boolean = true,
+    ) {
+        activeInstalledModelId = installed.id
+        installed.recommendedModelId?.let {
+            selectedModelId = it
+        }
+        if (persistNow) {
+            persistInstalledModels()
+        }
+        _uiState.update {
+            it.copy(
+                modelPath = installed.path,
+                activeInstalledModelId = activeInstalledModelId,
+                installedModels = installedModelSummaries(),
+                selectedModelId = selectedModelId,
+                isReady = false,
+                statusText = statusText,
+            )
+        }
+    }
+
+    private fun loadInstalledModels(): List<InstalledModel> {
+        val persisted = prefs.getString(PREF_INSTALLED_MODELS_JSON, null)
+            ?.let { encoded ->
+                runCatching {
+                    val array = JSONArray(encoded)
+                    buildList {
+                        for (index in 0 until array.length()) {
+                            val json = array.getJSONObject(index)
+                            val path = json.optString("path").takeIf { it.isNotBlank() } ?: continue
+                            val file = File(path)
+                            if (!file.exists()) continue
+                            val recommendedId = json.optString("recommendedModelId").takeIf { it.isNotBlank() }
+                                ?: inferRecommendedModelId(file.name)
+                            add(
+                                InstalledModel(
+                                    id = json.optString("id").takeIf { it.isNotBlank() }
+                                        ?: installedModelId(path, recommendedId),
+                                    displayName = json.optString("displayName").takeIf { it.isNotBlank() }
+                                        ?: installedModelDisplayName(file, recommendedId),
+                                    path = path,
+                                    fileBytes = file.length().coerceAtLeast(0L),
+                                    recommendedModelId = recommendedId,
+                                ),
+                            )
+                        }
+                    }
+                }.getOrNull()
+            }
+            .orEmpty()
+
+        val legacy = prefs.getString(PREF_MODEL_PATH, null)
+            ?.takeIf { File(it).exists() }
+            ?.let { path ->
+                val file = File(path)
+                val recommendedId = inferRecommendedModelId(file.name)
+                InstalledModel(
+                    id = installedModelId(path, recommendedId),
+                    displayName = installedModelDisplayName(file, recommendedId),
+                    path = path,
+                    fileBytes = file.length().coerceAtLeast(0L),
+                    recommendedModelId = recommendedId,
+                )
+            }
+
+        val discovered = discoverRecommendedDownloadedModels()
+        return (persisted + listOfNotNull(legacy) + discovered)
+            .filter { File(it.path).exists() }
+            .distinctBy { it.id }
+    }
+
+    private fun discoverRecommendedDownloadedModels(): List<InstalledModel> {
+        val downloadDir = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return emptyList()
+        return GEMMA_RECOMMENDED_MODELS.mapNotNull { model ->
+            val file = File(downloadDir, model.fileName)
+            if (file.exists() && GemmaModelRules.isCompleteRecommendedModel(file.length(), model)) {
+                InstalledModel(
+                    id = model.id,
+                    displayName = model.shortName,
+                    path = file.absolutePath,
+                    fileBytes = file.length(),
+                    recommendedModelId = model.id,
+                )
+            } else {
+                null
+            }
+        }
+    }
+
+    private fun resolveActiveInstalledModelId(models: List<InstalledModel>): String? {
+        val savedId = prefs.getString(PREF_ACTIVE_INSTALLED_MODEL_ID, null)
+        val savedPath = prefs.getString(PREF_MODEL_PATH, null)
+        return models.firstOrNull { it.id == savedId }?.id
+            ?: models.firstOrNull { it.path == savedPath }?.id
+            ?: models.firstOrNull()?.id
+    }
+
+    private fun activeInstalledModel(): InstalledModel? =
+        installedModels.firstOrNull { it.id == activeInstalledModelId && File(it.path).exists() }
+
+    private fun installedModelSummaries(): List<InstalledModelSummary> =
+        installedModels
+            .filter { File(it.path).exists() }
+            .map { installed ->
+                InstalledModelSummary(
+                    id = installed.id,
+                    displayName = installed.displayName,
+                    path = installed.path,
+                    fileBytes = installed.fileBytes,
+                    recommendedModelId = installed.recommendedModelId,
+                )
+            }
+
+    private fun persistInstalledModels() {
+        val active = activeInstalledModel()
+        prefs.edit()
+            .putString(PREF_INSTALLED_MODELS_JSON, installedModels.toInstalledModelsJson().toString())
+            .putString(PREF_ACTIVE_INSTALLED_MODEL_ID, activeInstalledModelId)
+            .apply {
+                if (active == null) {
+                    remove(PREF_MODEL_PATH)
+                } else {
+                    putString(PREF_MODEL_PATH, active.path)
+                }
+            }
+            .apply()
+    }
+
+    private fun List<InstalledModel>.toInstalledModelsJson(): JSONArray =
+        JSONArray().also { array ->
+            forEach { model ->
+                array.put(
+                    JSONObject()
+                        .put("id", model.id)
+                        .put("displayName", model.displayName)
+                        .put("path", model.path)
+                        .put("fileBytes", model.fileBytes)
+                        .put("recommendedModelId", model.recommendedModelId ?: JSONObject.NULL),
+                )
+            }
+        }
+
+    private fun installedModelDisplayName(file: File, recommendedModelId: String?): String =
+        recommendedModelId?.let { GemmaModelRules.recommendedModelById(it).shortName }
+            ?: file.nameWithoutExtension
+
+    private fun installedModelId(path: String, recommendedModelId: String?): String =
+        recommendedModelId ?: "local-${Integer.toHexString(path.hashCode())}"
+
+    private fun loadSessions(): List<ChatSession> {
+        val decoded = prefs.getString(PREF_SESSIONS_JSON, null)
+            ?.let { encoded ->
+                runCatching {
+                    val array = JSONArray(encoded)
+                    buildList {
+                        for (index in 0 until array.length()) {
+                            val json = array.getJSONObject(index)
+                            val messages = json.optJSONArray("messages").orEmptyMessages()
+                            add(
+                                ChatSession(
+                                    id = json.optString("id").takeIf { it.isNotBlank() }
+                                        ?: UUID.randomUUID().toString(),
+                                    title = json.optString("title").takeIf { it.isNotBlank() }
+                                        ?: deriveSessionTitle(messages),
+                                    createdAtMillis = json.optLong("createdAtMillis", System.currentTimeMillis()),
+                                    updatedAtMillis = json.optLong("updatedAtMillis", System.currentTimeMillis()),
+                                    messages = messages,
+                                ),
+                            )
+                        }
+                    }
+                }.getOrNull()
+            }
+            .orEmpty()
+            .sortedByDescending { it.updatedAtMillis }
+            .take(20)
+
+        return decoded.ifEmpty { listOf(newChatSession()) }
+    }
+
+    private fun resolveActiveSessionId(availableSessions: List<ChatSession>): String {
+        val saved = prefs.getString(PREF_ACTIVE_SESSION_ID, null)
+        return availableSessions.firstOrNull { it.id == saved }?.id
+            ?: availableSessions.firstOrNull()?.id
+            ?: newChatSession().id
+    }
+
+    private fun newChatSession(): ChatSession {
+        val now = System.currentTimeMillis()
+        return ChatSession(
+            id = UUID.randomUUID().toString(),
+            title = "新会话",
+            createdAtMillis = now,
+            updatedAtMillis = now,
+            messages = emptyList(),
+        )
+    }
+
+    private fun activeSessionMessages(): List<ChatMessage> =
+        sessions.firstOrNull { it.id == activeSessionId }?.messages.orEmpty()
+
+    private fun sessionSummaries(): List<ChatSessionSummary> =
+        sessions
+            .sortedByDescending { it.updatedAtMillis }
+            .map { session ->
+                ChatSessionSummary(
+                    id = session.id,
+                    title = session.title,
+                    updatedAtMillis = session.updatedAtMillis,
+                    messageCount = session.messages.size,
+                )
+            }
+
+    private fun replaceActiveSessionMessages(
+        messages: List<ChatMessage>,
+        persistNow: Boolean,
+    ) {
+        val now = System.currentTimeMillis()
+        sessions = sessions.map { session ->
+            if (session.id == activeSessionId) {
+                session.copy(
+                    title = deriveSessionTitle(messages),
+                    updatedAtMillis = max(session.updatedAtMillis, now),
+                    messages = messages,
+                )
+            } else {
+                session
+            }
+        }.sortedByDescending { it.updatedAtMillis }
+        if (persistNow) {
+            persistSessions()
+        }
+        _uiState.update {
+            it.copy(
+                sessions = sessionSummaries(),
+                activeSessionId = activeSessionId,
+                messages = messages,
+            )
+        }
+    }
+
+    private fun persistActiveSessionFromUi() {
+        replaceActiveSessionMessages(_uiState.value.messages, persistNow = true)
+    }
+
+    private fun finishStoppedGeneration() {
+        val currentMessages = _uiState.value.messages
+        val messages = if (
+            currentMessages.lastOrNull()?.role == MessageRole.Assistant &&
+            currentMessages.last().text.isBlank()
+        ) {
+            currentMessages.dropLast(1)
+        } else {
+            currentMessages
+        }
+        replaceActiveSessionMessages(messages, persistNow = true)
+        _uiState.update {
+            it.copy(
+                isBusy = false,
+                isGenerating = false,
+                isReady = engine != null && conversation != null,
+                statusText = if (engine == null || conversation == null) {
+                    "未加载模型"
+                } else {
+                    "已停止 · ${it.backend.label()}"
+                },
+            )
+        }
+    }
+
+    private fun persistSessions() {
+        prefs.edit()
+            .putString(PREF_SESSIONS_JSON, sessions.toSessionsJson().toString())
+            .putString(PREF_ACTIVE_SESSION_ID, activeSessionId)
+            .apply()
+    }
+
+    private fun List<ChatSession>.toSessionsJson(): JSONArray =
+        JSONArray().also { array ->
+            forEach { session ->
+                array.put(
+                    JSONObject()
+                        .put("id", session.id)
+                        .put("title", session.title)
+                        .put("createdAtMillis", session.createdAtMillis)
+                        .put("updatedAtMillis", session.updatedAtMillis)
+                        .put("messages", session.messages.toMessagesJson()),
+                )
+            }
+        }
+
+    private fun List<ChatMessage>.toMessagesJson(): JSONArray =
+        JSONArray().also { array ->
+            forEach { message ->
+                array.put(
+                    JSONObject()
+                        .put("role", message.role.name)
+                        .put("text", message.text),
+                )
+            }
+        }
+
+    private fun JSONArray?.orEmptyMessages(): List<ChatMessage> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                val json = optJSONObject(index) ?: continue
+                val role = runCatching { MessageRole.valueOf(json.optString("role")) }
+                    .getOrDefault(MessageRole.Assistant)
+                val text = json.optString("text")
+                if (text.isNotBlank()) {
+                    add(ChatMessage(role = role, text = text))
+                }
+            }
+        }
+    }
+
+    private fun deriveSessionTitle(messages: List<ChatMessage>): String =
+        messages
+            .firstOrNull { it.role == MessageRole.User && it.text.isNotBlank() }
+            ?.text
+            ?.replace(Regex("\\s+"), " ")
+            ?.take(28)
+            ?: "新会话"
+
+    private fun List<ChatMessage>.toLiteRtInitialMessages(): List<LiteRtMessage> =
+        mapNotNull { message ->
+            val text = message.text.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            when (message.role) {
+                MessageRole.User -> LiteRtMessage.user(text)
+                MessageRole.Assistant -> LiteRtMessage.model(text)
+            }
+        }
+
+    private fun recreateConversationForActiveSession(successPrefix: String) {
+        val currentEngine = engine ?: return
+        _uiState.update {
+            it.copy(
+                isBusy = true,
+                isReady = false,
+                statusText = "正在恢复会话",
+            )
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                runtimeLock.withLock {
+                    conversation?.close()
+                    conversation = currentEngine.createConversation(defaultConversationConfig(activeSessionMessages()))
+                }
+            }
+            result.fold(
+                onSuccess = {
+                    _uiState.update {
+                        it.copy(
+                            isBusy = false,
+                            isReady = true,
+                            statusText = "$successPrefix · ${it.backend.label()}",
+                        )
+                    }
+                },
+                onFailure = { throwable ->
+                    _uiState.update {
+                        it.copy(
+                            isBusy = false,
+                            isReady = false,
+                            statusText = "恢复会话失败：${throwable.cleanMessage()}",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    private fun JSONObject.optLongOrNull(name: String): Long? =
+        if (isNull(name)) null else optLong(name).takeIf { it > 0L }
 
     private fun closeRuntime() {
         conversation?.close()

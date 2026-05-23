@@ -4,13 +4,51 @@ import android.app.DownloadManager
 import java.util.Locale
 
 internal const val GEMMA_MODEL_EXTENSION = ".litertlm"
-internal const val GEMMA_MODEL_FILE_NAME = "gemma-4-E2B-it.litertlm"
-internal const val GEMMA_RECOMMENDED_MODEL_BYTES = 2_588_147_712L
-const val GEMMA_MODEL_REPOSITORY_URL = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm"
-internal const val GEMMA_MODEL_DOWNLOAD_URL =
-    "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true"
+
+data class RecommendedModel(
+    val id: String,
+    val displayName: String,
+    val shortName: String,
+    val fileName: String,
+    val byteSize: Long,
+    val repositoryUrl: String,
+    val downloadUrl: String,
+    val deviceHint: String,
+)
+
+const val GEMMA_DEFAULT_RECOMMENDED_MODEL_ID = "gemma-4-e2b"
+
+val GEMMA_RECOMMENDED_MODELS = listOf(
+    RecommendedModel(
+        id = GEMMA_DEFAULT_RECOMMENDED_MODEL_ID,
+        displayName = "Gemma 4 E2B Instruct",
+        shortName = "Gemma 4 E2B",
+        fileName = "gemma-4-E2B-it.litertlm",
+        byteSize = 2_588_147_712L,
+        repositoryUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm",
+        downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true",
+        deviceHint = "更适合大多数手机，下载约 2.4 GB",
+    ),
+    RecommendedModel(
+        id = "gemma-4-e4b",
+        displayName = "Gemma 4 E4B Instruct",
+        shortName = "Gemma 4 E4B",
+        fileName = "gemma-4-E4B-it.litertlm",
+        byteSize = 3_659_530_240L,
+        repositoryUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm",
+        downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm?download=true",
+        deviceHint = "质量更高但更吃内存，下载约 3.4 GB",
+    ),
+)
+
+internal val GEMMA_DEFAULT_RECOMMENDED_MODEL: RecommendedModel =
+    GEMMA_RECOMMENDED_MODELS.first { it.id == GEMMA_DEFAULT_RECOMMENDED_MODEL_ID }
+internal val GEMMA_RECOMMENDED_MODEL_BYTES: Long = GEMMA_DEFAULT_RECOMMENDED_MODEL.byteSize
 
 internal object GemmaModelRules {
+    fun recommendedModelById(modelId: String?): RecommendedModel =
+        GEMMA_RECOMMENDED_MODELS.firstOrNull { it.id == modelId } ?: GEMMA_DEFAULT_RECOMMENDED_MODEL
+
     fun isAcceptedModelName(displayName: String): Boolean =
         displayName.endsWith(GEMMA_MODEL_EXTENSION, ignoreCase = true)
 
@@ -24,13 +62,15 @@ internal object GemmaModelRules {
         } else {
             "$safeName$GEMMA_MODEL_EXTENSION"
         }
-    }
+        }
 
     fun hasEnoughSpace(usableBytes: Long, requiredBytes: Long = GEMMA_RECOMMENDED_MODEL_BYTES): Boolean =
         usableBytes >= requiredBytes
 
-    fun isCompleteRecommendedModel(fileBytes: Long): Boolean =
-        fileBytes == GEMMA_RECOMMENDED_MODEL_BYTES
+    fun isCompleteRecommendedModel(
+        fileBytes: Long,
+        model: RecommendedModel = GEMMA_DEFAULT_RECOMMENDED_MODEL,
+    ): Boolean = fileBytes == model.byteSize
 
     fun progressPercent(doneBytes: Long, totalBytes: Long): Int? {
         if (totalBytes <= 0L) return null
