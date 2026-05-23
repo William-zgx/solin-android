@@ -1,6 +1,6 @@
-# Gemma 随身问答 Android
+# PocketMind Android
 
-一个 Android 本地问答 App：安装后可在应用内下载 Gemma 4 E2B LiteRT-LM 模型，也可以导入已有 `.litertlm` 文件，然后在手机端离线流式问答。
+PocketMind 是一个 Android 本地问答 App：安装后可在应用内下载推荐的 LiteRT-LM 模型，也可以导入已有 `.litertlm` 文件，然后在手机端离线流式问答。
 
 ## 模型
 
@@ -20,7 +20,7 @@ https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/ge
 
 ## 手机端使用
 
-1. 安装 APK 后打开“Gemma 随身问答”。
+1. 安装 APK 后打开“PocketMind”。
 2. 首屏会显示设备架构、可用空间和模型大小；确认空间足够后点“下载推荐模型”，已有模型时点“导入已有模型”。
 3. 看到“离线可用”后直接输入问题。
 4. 如果设备 GPU 不支持，App 会自动切到 CPU，速度会慢一些但仍可使用。

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "GemmaLocalQA"
+rootProject.name = "PocketMind"
 include(":app")

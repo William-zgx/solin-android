@@ -12,7 +12,7 @@ class MainActivitySmokeTest {
 
     @Test
     fun firstLaunchShowsModelSetupActions() {
-        composeRule.onNodeWithText("Gemma 随身问答").assertIsDisplayed()
+        composeRule.onNodeWithText("PocketMind").assertIsDisplayed()
         composeRule.onNodeWithText("准备 Gemma 4 E2B").assertIsDisplayed()
         composeRule.onNodeWithText("设备检查").assertIsDisplayed()
         composeRule.onNodeWithText("下载推荐模型").assertIsDisplayed()

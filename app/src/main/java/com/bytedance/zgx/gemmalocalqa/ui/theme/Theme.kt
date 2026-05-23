@@ -52,7 +52,7 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun GemmaLocalQATheme(content: @Composable () -> Unit) {
+fun PocketMindTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
         content = content,

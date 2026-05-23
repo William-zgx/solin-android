@@ -69,7 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.bytedance.zgx.gemmalocalqa.ui.theme.GemmaLocalQATheme
+import com.bytedance.zgx.gemmalocalqa.ui.theme.PocketMindTheme
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            GemmaLocalQATheme {
+            PocketMindTheme {
                 val context = LocalContext.current
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
                 GemmaChatScreen(
@@ -221,7 +221,7 @@ private fun Header(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    text = "Gemma 随身问答",
+                    text = "PocketMind",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,

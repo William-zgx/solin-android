@@ -10,7 +10,7 @@
         android:largeHeap="true"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.GemmaLocalQA">
+        android:theme="@style/Theme.PocketMind">
 
         <uses-native-library
             android:name="libvndksupport.so"
