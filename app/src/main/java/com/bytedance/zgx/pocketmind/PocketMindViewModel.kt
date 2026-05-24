@@ -56,14 +56,30 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
     private var activeDownloadId: Long? = null
     private val setupDownloadQueue = ArrayDeque<ModelDownloadSource>()
     private var setupDownloadInProgress = false
+    private var startupRestored = false
 
     private val _uiState = MutableStateFlow(createInitialState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     init {
         RealLiteRtRuntime.configureNativeLogging()
+    }
+
+    fun restoreStartupState(skipModelRuntimeWork: Boolean = false) {
+        if (startupRestored) return
+        startupRestored = true
+
         refreshDeviceStatus()
         rebuildMemoryIndex()
+
+        if (skipModelRuntimeWork) {
+            if (_uiState.value.modelPath != null) {
+                _uiState.update {
+                    it.copy(statusText = "已找到模型，点击加载模型")
+                }
+            }
+            return
+        }
 
         val pendingDownloadId = modelRepository.pendingDownloadId()
         val pendingDownloadSource = modelRepository.loadPendingDownloadSource()

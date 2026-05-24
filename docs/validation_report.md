@@ -203,3 +203,43 @@ ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/androi
 ```
 
 结果：`Success`。仅覆盖安装，未卸载 App，未清除 App 数据。
+
+## 主分支合并检查
+
+日期：2026-05-24
+
+分支与提交：
+
+- `main`
+- 合并提交：`b0b4306 Add model capability setup and assistant orchestration`
+
+代码检查：
+
+```bash
+rg "com.bytedance.zgx.gemmalocalqa|GemmaChatViewModel|GemmaChatScreen|GemmaModelRules|GEMMA_|FunctionGemmaActionPlanner|gemma_local_qa" \
+  app/src build.gradle.kts settings.gradle.kts docs scripts
+```
+
+结果：通过，未发现旧产品级包名、类名或脚本符号残留。
+
+本地验证：
+
+```bash
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+scripts/verify_local.sh
+```
+
+结果：通过。覆盖 `testDebugUnitTest`、`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease`、APK 不含 `.litertlm`、仅 `arm64-v8a` native code。
+
+真机 UI 验证：
+
+```bash
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+./gradlew connectedDebugAndroidTest --console=plain
+```
+
+结果：通过。设备 `23127PN0CC - 16` 执行 `3 tests, 0 skipped, 0 failed`，`BUILD SUCCESSFUL in 1m 39s`。
+
+补充修复：instrumentation 进程内自动跳过启动期 pending download / 模型加载工作，并禁止测试期间打开模型来源外链；`MainActivitySmokeTest` 使用稳定的 `testTag` 定位模型管理与自定义下载入口，避免依赖长滚动和占位文案。该改动已由本地验证和真机 UI 测试覆盖。

@@ -717,7 +717,7 @@ private fun ModelManagerSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("session_manager_sheet")
+            .testTag("model_manager_sheet")
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp, vertical = 10.dp),
@@ -848,7 +848,9 @@ private fun ModelManagerSheet(
                 subtitle = "自定义链接或本地文件都必须是 .litertlm 模型。",
             )
             OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("custom_model_url_input"),
                 value = customModelUrl,
                 onValueChange = onCustomModelUrlChanged,
                 enabled = !state.isBusy,
@@ -856,7 +858,9 @@ private fun ModelManagerSheet(
                 placeholder = { Text("粘贴 .litertlm 模型下载链接") },
             )
             OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("custom_model_download_button"),
                 onClick = { onDownloadCustomModel(customModelUrl) },
                 enabled = !state.isBusy && customModelUrl.isNotBlank(),
             ) {

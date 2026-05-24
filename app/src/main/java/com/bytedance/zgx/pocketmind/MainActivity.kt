@@ -17,6 +17,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val skipStartupModelRuntimeWork =
+            intent.getBooleanExtra(EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, false) ||
+                isRunningUnderAndroidTest()
+        viewModel.restoreStartupState(
+            skipModelRuntimeWork = skipStartupModelRuntimeWork,
+        )
 
         setContent {
             PocketMindTheme {
@@ -38,9 +44,11 @@ class MainActivity : ComponentActivity() {
                     onSessionSelected = viewModel::selectSession,
                     onDeleteSession = viewModel::deleteActiveSession,
                     onOpenModelPage = {
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(state.selectedRecommendedModel.repositoryUrl)),
-                        )
+                        if (!skipStartupModelRuntimeWork) {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(state.selectedRecommendedModel.repositoryUrl)),
+                            )
+                        }
                     },
                     onSetupModelToggled = viewModel::toggleSetupModel,
                     onDownloadSetupModels = viewModel::startSetupModelDownload,
@@ -53,5 +61,16 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK =
+            "com.bytedance.zgx.pocketmind.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK"
+
+        private fun isRunningUnderAndroidTest(): Boolean =
+            runCatching {
+                val registry = Class.forName("androidx.test.platform.app.InstrumentationRegistry")
+                registry.getMethod("getInstrumentation").invoke(null) != null
+            }.getOrDefault(false)
     }
 }
