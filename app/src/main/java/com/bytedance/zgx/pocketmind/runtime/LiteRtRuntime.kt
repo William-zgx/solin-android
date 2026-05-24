@@ -95,7 +95,9 @@ class RealLiteRtRuntime(
 
     @OptIn(ExperimentalApi::class)
     override fun lastGenerationStats(): GenerationStats? {
-        val benchmark = conversation?.getBenchmarkInfo() ?: return null
+        val benchmark = runCatching {
+            conversation?.getBenchmarkInfo()
+        }.getOrNull() ?: return null
         return GenerationStats(
             tokenCount = benchmark.lastDecodeTokenCount,
             tokensPerSecond = benchmark.lastDecodeTokensPerSecond,

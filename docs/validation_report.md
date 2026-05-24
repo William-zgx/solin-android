@@ -2,6 +2,48 @@
 
 验证时间：2026-05-24
 
+## 模拟器真实对话验证
+
+环境：
+
+- AVD：`pocketmind_api36_arm64`
+- Android：API 36 Google APIs ARM64
+- 安装包：`app/build/outputs/apk/release/app-release-local-signed.apk`
+- 模型文件：在模拟器内通过 App 首装向导下载 `基础对话 E2B`，文件位于 `/sdcard/Android/data/com.bytedance.zgx.pocketmind/files/Download/gemma-4-E2B-it.litertlm`
+
+流程：
+
+- 首装向导默认展示基础能力包；为缩短真实对话验证时间，只保留对话模型，取消记忆与动作模型。
+- 模拟器内 DownloadManager 完成约 2.4 GB 对话模型下载。
+- App 自动注册模型并加载；GPU dispatch 初始化不可用时自动回退 CPU，界面显示 `基础对话 E2B · CPU · 已就绪`。
+- 新建会话后点击开场问题 `用三句话解释端侧大模型`。
+
+首次结果：
+
+- 模型下载与加载成功，但生成结束后因为 LiteRT benchmark 未启用，`getBenchmarkInfo()` 抛错，UI 显示 `生成失败，建议重新加载`。
+
+修复：
+
+- `PocketMindViewModel` 读取生成统计时忽略 benchmark 不可用错误。
+- `RealLiteRtRuntime.lastGenerationStats()` 对 LiteRT benchmark API 做容错，统计不可用时返回 `null`。
+
+复测结果：
+
+- 同一模拟器保留已下载模型，覆盖安装修复后的 release 包。
+- 新建会话再次发送 `用三句话解释端侧大模型`，成功返回三句话中文回答。
+- 生成结束后状态回到 `基础对话 E2B · CPU · 已就绪`，未再出现 benchmark 导致的生成失败。
+- 截图：`/tmp/pocketmind-real-dialogue-fixed.png`
+
+验证命令：
+
+```bash
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+./gradlew testDebugUnitTest assembleRelease
+```
+
+结果：通过。
+
 ## 最新增量验证
 
 命令：

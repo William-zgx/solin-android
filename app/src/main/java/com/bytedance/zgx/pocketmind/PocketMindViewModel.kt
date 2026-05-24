@@ -558,7 +558,9 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
                 if (partial.isBlank()) {
                     _uiState.updateLastAssistant("没有生成内容")
                 } else {
-                    _uiState.updateLastAssistantStats(runtime.lastGenerationStats())
+                    _uiState.updateLastAssistantStats(
+                        runCatching { runtime.lastGenerationStats() }.getOrNull(),
+                    )
                 }
                 persistActiveSessionFromUi()
                 rebuildMemoryIndex()
