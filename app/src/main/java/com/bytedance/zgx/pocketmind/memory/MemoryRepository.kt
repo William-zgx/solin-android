@@ -56,17 +56,23 @@ class MemoryRepository(
     fun index(id: String, text: String) {
         val normalized = text.trim()
         if (normalized.isBlank()) return
+        val tokens = tokenize(normalized).toSet()
+        if (tokens.isEmpty()) return
         entries[id] = MemoryEntry(
             id = id,
             text = normalized,
+            tokens = tokens,
             embedding = embeddingRuntime.embed(normalized),
         )
     }
 
     fun search(query: String, topK: Int = 3): List<MemoryHit> {
         if (!enabled || query.isBlank() || topK <= 0 || entries.isEmpty()) return emptyList()
+        val queryTokens = tokenize(query).toSet()
+        if (queryTokens.isEmpty()) return emptyList()
         val queryEmbedding = embeddingRuntime.embed(query)
         return entries.values
+            .filter { entry -> entry.tokens.any { it in queryTokens } }
             .map { entry ->
                 MemoryHit(
                     id = entry.id,
@@ -95,6 +101,7 @@ class MemoryRepository(
 private data class MemoryEntry(
     val id: String,
     val text: String,
+    val tokens: Set<String>,
     val embedding: FloatArray,
 )
 
@@ -103,7 +110,7 @@ private fun tokenize(text: String): List<String> {
     val latinTokens = normalized
         .split(Regex("""[^\p{L}\p{N}]+"""))
         .map { it.trim() }
-        .filter { it.length >= 2 }
+        .filter { it.length >= 2 && it !in LATIN_STOP_WORDS }
     val cjkChars = normalized
         .filter { it.isCjk() }
         .map { it.toString() }
@@ -116,3 +123,28 @@ private fun Char.isCjk(): Boolean =
         this in '\u3400'..'\u4DBF' ||
         this in '\u3040'..'\u30FF' ||
         this in '\uAC00'..'\uD7AF'
+
+private val LATIN_STOP_WORDS = setOf(
+    "a",
+    "an",
+    "and",
+    "are",
+    "for",
+    "in",
+    "is",
+    "it",
+    "my",
+    "of",
+    "ok",
+    "on",
+    "only",
+    "or",
+    "please",
+    "remember",
+    "reply",
+    "the",
+    "to",
+    "what",
+    "you",
+    "your",
+)

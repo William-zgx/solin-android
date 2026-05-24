@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
                     state = state,
                     onImportModel = viewModel::importModel,
                     onDownloadModel = viewModel::startModelDownload,
+                    onDownloadRecommendedModel = viewModel::startRecommendedModelDownload,
                     onDownloadCustomModel = viewModel::startCustomModelDownload,
                     onCancelDownload = viewModel::cancelModelDownload,
                     onLoadModel = viewModel::loadModel,

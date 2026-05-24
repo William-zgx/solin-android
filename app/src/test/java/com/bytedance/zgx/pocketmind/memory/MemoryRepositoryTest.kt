@@ -32,6 +32,29 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun searchSkipsEntriesWithoutTokenOverlap() {
+        val repository = MemoryRepository()
+        repository.index("one", "端侧大模型部署在手机本地运行")
+
+        val hits = repository.search("project codename starboat")
+
+        assertTrue(hits.isEmpty())
+    }
+
+    @Test
+    fun searchIgnoresCommonLatinStopWords() {
+        val repository = MemoryRepository()
+        repository.index("old", "What is my project")
+        repository.index("code", "zcode_is_zeta73")
+        repository.index("command", "Remember my project note")
+
+        val hits = repository.search("What_is_my_zcode")
+
+        assertEquals(1, hits.size)
+        assertEquals("code", hits.first().id)
+    }
+
+    @Test
     fun rebuildIndexesConversationMessagesWithStableIds() {
         val repository = MemoryRepository()
         val message = ChatMessage(

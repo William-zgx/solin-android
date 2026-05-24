@@ -2,6 +2,47 @@
 
 验证时间：2026-05-24
 
+## 模拟器完整功能回归
+
+环境：
+
+- AVD：`pocketmind_api36_arm64`
+- Android：API 36 Google APIs ARM64
+- 安装包：`app/build/outputs/apk/release/app-release-local-signed.apk`
+- 模型目录：`/sdcard/Android/data/com.bytedance.zgx.pocketmind/files/Download/`
+
+模型补齐结果：
+
+- `gemma-4-E2B-it.litertlm`：已安装，约 2.4 GB。
+- `embeddinggemma-300m.litertlm`：已补装，约 171 MB。
+- `mobile-actions_q8_ekv1024.litertlm`：已补装，约 271 MB。
+- 模型管理页确认三类能力均出现在“本地模型”，设备检查在基础能力齐全后显示 `待下载：已就绪`。
+
+真实交互覆盖：
+
+- 普通聊天：保留既有 `用三句话解释端侧大模型` 成功回答验证。
+- 记忆增强：新会话发送 `Remember my rcode is xb83`，停止生成后会重建记忆索引；追问 `What is my rcode` 时 UI 显示 `已引用本地记忆 1 条`，回答 `你的 rcode 是 xb83。`
+- 动作草稿：发送 `open wifi settings` 后只展示确认 Sheet；未确认时仍停留在 App；点击 `确认并打开` 后进入系统 Wi-Fi 设置页。
+- 会话管理：会话列表展示当前会话、消息数量和历史会话，入口可正常打开。
+- 模型管理：推荐模型区支持基础对话、记忆、动作模型逐项补装/重下；Top K 滑条不再展示密集刻度点；下载完成后不再残留旧进度条。
+
+修复项：
+
+- 记忆检索增加词项重叠过滤，避免哈希向量碰撞导致无关旧记忆注入。
+- 英文停用词过滤加入 `remember`、`is`、`my` 等常见词，避免“记住某事”类命令互相误召回。
+- 停止生成后会重建本地记忆索引，已经发送的用户事实可被后续检索。
+- 设备检查按仍需下载的基础能力大小提示空间；基础能力齐全时不再误报 2.4 GB 对话模型空间不足。
+
+验证命令：
+
+```bash
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+scripts/verify_local.sh
+```
+
+结果：通过。覆盖 `testDebugUnitTest`、`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease`、APK 不含 `.litertlm`、仅 `arm64-v8a` native code、release size <= 75 MB。
+
 ## 模拟器真实对话验证
 
 环境：

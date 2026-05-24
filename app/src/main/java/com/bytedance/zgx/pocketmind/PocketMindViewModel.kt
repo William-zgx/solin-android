@@ -116,6 +116,15 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
         beginModelDownload(ModelDownloadSource.recommended(modelRepository.selectedRecommendedModel()))
     }
 
+    fun startRecommendedModelDownload(modelId: String) {
+        val model = ModelCatalog.recommendedModelById(modelId)
+        if (model.capability == ModelCapability.Chat) {
+            val result = modelRepository.selectRecommendedModel(model.id)
+            updateModelState(result.state)
+        }
+        beginModelDownload(ModelDownloadSource.recommended(model))
+    }
+
     fun toggleSetupModel(modelId: String, selected: Boolean) {
         if (_uiState.value.isBusy) return
         _uiState.update { state ->
@@ -769,7 +778,9 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
                             it.copy(
                                 isBusy = false,
                                 isDownloading = false,
-                                downloadProgressPercent = 100,
+                                downloadProgressPercent = null,
+                                downloadedBytes = 0L,
+                                totalBytes = 0L,
                                 statusText = "模型下载完成",
                             )
                         }
@@ -949,6 +960,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
             currentMessages
         }
         replaceActiveSessionMessages(messages, persistNow = true)
+        rebuildMemoryIndex()
         _uiState.update {
             it.copy(
                 isBusy = false,

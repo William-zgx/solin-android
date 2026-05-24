@@ -78,6 +78,8 @@ import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.GenerationStats
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.RecommendedModel
+import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.isUsable
 import java.util.Locale
@@ -88,6 +90,7 @@ fun PocketMindScreen(
     state: ChatUiState,
     onImportModel: (Uri) -> Unit,
     onDownloadModel: () -> Unit,
+    onDownloadRecommendedModel: (String) -> Unit,
     onDownloadCustomModel: (String) -> Unit,
     onCancelDownload: () -> Unit,
     onLoadModel: () -> Unit,
@@ -164,6 +167,11 @@ fun PocketMindScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
+                        if (state.memoryHits.isNotEmpty()) {
+                            item(key = "memory_context") {
+                                MemoryContextStrip(state.memoryHits.size)
+                            }
+                        }
                         items(
                             items = state.messages,
                             key = { it.id },
@@ -204,6 +212,7 @@ fun PocketMindScreen(
                     onCustomModelUrlChanged = { customModelUrl = it },
                     onPickModel = { pickModel.launch(arrayOf("*/*")) },
                     onDownloadModel = onDownloadModel,
+                    onDownloadRecommendedModel = onDownloadRecommendedModel,
                     onDownloadCustomModel = onDownloadCustomModel,
                     onCancelDownload = onCancelDownload,
                     onLoadModel = onLoadModel,
@@ -457,7 +466,10 @@ private fun ChatEmptyState(
         }
 
         if (!state.isReady) {
-            DeviceCheck(state)
+            DeviceCheck(
+                state = state,
+                requiredBytes = state.pendingSelectedChatDownloadBytes(),
+            )
         }
     }
 }
@@ -600,7 +612,10 @@ private fun FirstRunSetupSheet(
                 }
             }
         }
-        DeviceCheck(state)
+        DeviceCheck(
+            state = state,
+            requiredBytes = state.pendingSetupDownloadBytes(),
+        )
         Button(
             modifier = Modifier
                 .fillMaxWidth()
@@ -703,6 +718,7 @@ private fun ModelManagerSheet(
     onCustomModelUrlChanged: (String) -> Unit,
     onPickModel: () -> Unit,
     onDownloadModel: () -> Unit,
+    onDownloadRecommendedModel: (String) -> Unit,
     onDownloadCustomModel: (String) -> Unit,
     onCancelDownload: () -> Unit,
     onLoadModel: () -> Unit,
@@ -757,7 +773,10 @@ private fun ModelManagerSheet(
             }
         }
 
-        DeviceCheck(state)
+        DeviceCheck(
+            state = state,
+            requiredBytes = state.pendingBasicDownloadBytes(),
+        )
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionTitle(
@@ -793,27 +812,15 @@ private fun ModelManagerSheet(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionTitle(
                 text = "推荐模型",
-                subtitle = "基础包默认用于聊天、记忆和动作；高质量对话模型放在可选区。",
+                subtitle = "缺少或文件不完整时，可在这里单独补装对应能力。",
             )
             state.basicSetupModels.forEach { model ->
-                ModelRow(
-                    title = model.shortName,
-                    subtitle = "${capabilityLabel(model.capability)} · ${ModelCatalog.formatBytes(model.byteSize)} · ${model.deviceHint}",
-                    selected = model.id == state.selectedModelId,
-                    enabled = !state.isBusy,
-                    onClick = {
-                        if (model.capability == ModelCapability.Chat) {
-                            onRecommendedModelSelected(model.id)
-                        }
-                    },
+                RecommendedModelCard(
+                    model = model,
+                    state = state,
+                    onSelect = { onRecommendedModelSelected(model.id) },
+                    onDownload = { onDownloadRecommendedModel(model.id) },
                 )
-            }
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onDownloadModel,
-                enabled = !state.isBusy && !state.isDownloading,
-            ) {
-                Text("下载 ${state.selectedRecommendedModel.shortName}")
             }
             TextButton(
                 modifier = Modifier.fillMaxWidth(),
@@ -831,12 +838,11 @@ private fun ModelManagerSheet(
                     subtitle = "用于高质量或备用对话，不参与首装默认下载。",
                 )
                 state.optionalChatModels.forEach { model ->
-                    ModelRow(
-                        title = model.shortName,
-                        subtitle = "${ModelCatalog.formatBytes(model.byteSize)} · ${model.deviceHint}",
-                        selected = model.id == state.selectedModelId,
-                        enabled = !state.isBusy,
-                        onClick = { onRecommendedModelSelected(model.id) },
+                    RecommendedModelCard(
+                        model = model,
+                        state = state,
+                        onSelect = { onRecommendedModelSelected(model.id) },
+                        onDownload = { onDownloadRecommendedModel(model.id) },
                     )
                 }
             }
@@ -890,11 +896,9 @@ private fun CurrentModelPanel(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        color = if (state.isReady) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f)
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-        },
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+        shadowElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -1058,6 +1062,100 @@ private fun SessionManagerSheet(
 }
 
 @Composable
+private fun RecommendedModelCard(
+    model: RecommendedModel,
+    state: ChatUiState,
+    onSelect: () -> Unit,
+    onDownload: () -> Unit,
+) {
+    val installed = state.isModelInstalled(model.id)
+    val isSelectedChat = model.capability == ModelCapability.Chat && model.id == state.selectedModelId
+    val statusText = when {
+        installed -> "已安装"
+        model.setupTier == SetupTier.BasicRecommended -> "基础包"
+        else -> "可选"
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = if (installed) {
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.46f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        tonalElevation = if (installed) 1.dp else 0.dp,
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = if (isSelectedChat) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.54f)
+            } else {
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.16f)
+            },
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = model.shortName,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "${capabilityLabel(model.capability)} · ${ModelCatalog.formatBytes(model.byteSize)} · ${model.deviceHint}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (installed) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            ) {
+                if (model.capability == ModelCapability.Chat) {
+                    OutlinedButton(
+                        onClick = onSelect,
+                        enabled = !state.isBusy && !isSelectedChat,
+                    ) {
+                        Text(if (isSelectedChat) "当前" else "选择")
+                    }
+                }
+                FilledTonalButton(
+                    onClick = onDownload,
+                    enabled = !state.isBusy && !state.isDownloading,
+                ) {
+                    Text(if (installed) "重新下载" else "下载")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ModelRow(
     title: String,
     subtitle: String,
@@ -1166,7 +1264,31 @@ private fun capabilityLabel(capability: ModelCapability): String =
     }
 
 @Composable
-private fun DeviceCheck(state: ChatUiState) {
+private fun ChatUiState.pendingSelectedChatDownloadBytes(): Long =
+    if (isModelInstalled(selectedRecommendedModel.id)) {
+        0L
+    } else {
+        selectedRecommendedModel.byteSize
+    }
+
+private fun ChatUiState.pendingSetupDownloadBytes(): Long =
+    basicSetupModels
+        .filter { it.id in setupSelectedModelIds && !isModelInstalled(it.id) }
+        .sumOf { it.byteSize }
+
+private fun ChatUiState.pendingBasicDownloadBytes(): Long =
+    basicSetupModels
+        .filterNot { isModelInstalled(it.id) }
+        .sumOf { it.byteSize }
+
+@Composable
+private fun DeviceCheck(
+    state: ChatUiState,
+    requiredBytes: Long,
+) {
+    val hasPendingDownload = requiredBytes > 0L
+    val hasEnoughSpace = !hasPendingDownload ||
+        ModelCatalog.hasEnoughSpace(state.availableModelStorageBytes, requiredBytes)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = "设备检查",
@@ -1187,15 +1309,16 @@ private fun DeviceCheck(state: ChatUiState) {
                 modifier = Modifier.weight(1f),
                 label = "空间",
                 value = ModelCatalog.formatBytes(state.availableModelStorageBytes),
-                good = ModelCatalog.hasEnoughSpace(
-                    state.availableModelStorageBytes,
-                    state.selectedRecommendedModel.byteSize,
-                ),
+                good = hasEnoughSpace,
             )
             DeviceMetric(
                 modifier = Modifier.weight(1f),
-                label = "模型大小",
-                value = ModelCatalog.formatBytes(state.selectedRecommendedModel.byteSize),
+                label = "待下载",
+                value = if (hasPendingDownload) {
+                    ModelCatalog.formatBytes(requiredBytes)
+                } else {
+                    "已就绪"
+                },
                 good = true,
             )
         }
@@ -1205,13 +1328,9 @@ private fun DeviceCheck(state: ChatUiState) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
-        } else if (!ModelCatalog.hasEnoughSpace(
-                state.availableModelStorageBytes,
-                state.selectedRecommendedModel.byteSize,
-            )
-        ) {
+        } else if (!hasEnoughSpace) {
             Text(
-                text = "建议至少预留 ${ModelCatalog.formatBytes(state.selectedRecommendedModel.byteSize)}，再多留一些空间给加载缓存。",
+                text = "建议至少预留 ${ModelCatalog.formatBytes(requiredBytes)}，再多留一些空间给加载缓存。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -1354,7 +1473,7 @@ private fun GenerationParametersPanel(
             value = parameters.topK.toFloat(),
             valueText = { it.toInt().toString() },
             valueRange = GenerationParameters.MIN_TOP_K.toFloat()..GenerationParameters.MAX_TOP_K.toFloat(),
-            steps = 98,
+            steps = 0,
             enabled = enabled,
             helper = "低：输出更集中；高：每一步可选词更多，回答更可能多样。",
             onValueCommitted = { value ->
@@ -1417,6 +1536,23 @@ private fun ParameterSlider(
             text = helper,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun MemoryContextStrip(hitCount: Int) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.58f),
+    ) {
+        Text(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            text = "已引用本地记忆 $hitCount 条",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }
