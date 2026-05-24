@@ -7,12 +7,12 @@
 命令：
 
 ```bash
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
 scripts/doctor.sh
 
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
 scripts/verify_local.sh
 ```
 
@@ -20,7 +20,7 @@ scripts/verify_local.sh
 
 覆盖项：
 
-- `GemmaChatViewModel` 已拆到 runtime、model repository、download service 和 session repository 边界。
+- `PocketMindViewModel` 已拆到 runtime、model repository、download service 和 session repository 边界。
 - `MainActivity` 仅保留 Activity wiring；Compose UI 移到 `ui/`，markdown 分段逻辑已可 JVM 测试。
 - 下载取消会先取消 monitor job 并清除 active download id，避免取消后被轮询覆盖为“下载任务不存在”。
 - Release 已开启 R8/resource shrink，并在本地门禁中加入 75 MB APK 预算。
@@ -43,8 +43,8 @@ scripts/verify_local.sh
 命令：
 
 ```bash
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
 ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
 ```
 
@@ -52,7 +52,7 @@ ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk 
 
 覆盖项：
 
-- 推荐模型目录包含 Gemma 4 E2B 与 Gemma 4 E4B。
+- 推荐模型目录包含 基础对话模型 E2B 与 高质量对话模型 E4B。
 - 首屏直接暴露推荐模型选择、下载、导入、设备检查和状态提示。
 - 顶部常驻展示运行状态，模型管理弹层展示当前模型、本地模型、推荐模型、添加模型和进度。
 - 底部输入区会根据无模型、忙碌、就绪状态切换提示与主操作。
@@ -70,8 +70,8 @@ ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk 
 命令：
 
 ```bash
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
 GRADLE_CMD=/tmp/gradle-9.5.1/bin/gradle \
 scripts/verify_local.sh
 ```
@@ -117,7 +117,7 @@ scripts/install_and_test_device.sh
 App 内点击“下载推荐模型”后，模型文件成功下载到：
 
 ```text
-/storage/emulated/0/Android/data/com.bytedance.zgx.gemmalocalqa/files/Download/gemma-4-E2B-it.litertlm
+/storage/emulated/0/Android/data/com.bytedance.zgx.pocketmind/files/Download/chat-model.litertlm
 ```
 
 文件大小：
@@ -129,7 +129,7 @@ App 内点击“下载推荐模型”后，模型文件成功下载到：
 App 偏好已保存模型路径：
 
 ```xml
-<string name="model_path">/storage/emulated/0/Android/data/com.bytedance.zgx.gemmalocalqa/files/Download/gemma-4-E2B-it.litertlm</string>
+<string name="model_path">/storage/emulated/0/Android/data/com.bytedance.zgx.pocketmind/files/Download/chat-model.litertlm</string>
 ```
 
 加载结果：
@@ -178,8 +178,8 @@ App 偏好已保存模型路径：
 验证命令：
 
 ```bash
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
 scripts/verify_local.sh
 ```
 
@@ -188,8 +188,8 @@ scripts/verify_local.sh
 真机命令：
 
 ```bash
-ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
-ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
+ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk \
 ./gradlew :app:connectedDebugAndroidTest --console=plain
 ```
 
@@ -198,7 +198,7 @@ ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk 
 安装命令：
 
 ```bash
-/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk/platform-tools/adb \
+/Users/bytedance/Documents/Codex/2026-05-24/pocketmind-model/android-sdk/platform-tools/adb \
   -s fb6272c install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 

@@ -10,9 +10,12 @@ Google AI Edge LiteRT-LM.
 ## Features
 
 - On-device streaming chat with LiteRT-LM models.
-- Built-in Gemma 4 E2B and Gemma 4 E4B model presets.
+- First-run model setup for chat, local memory, and mobile action capabilities.
+- Optional higher-quality chat model presets.
 - Custom `.litertlm` download links and local file import.
 - Model manager for switching downloaded or imported models.
+- Local memory recall for previous conversation context.
+- Safe mobile action drafts for settings, map, mail, calendar, and contacts.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
 - Local chat sessions with create, switch, and delete actions.
 - Stop button while a response is being generated.
@@ -35,18 +38,23 @@ model manager responsive while browsing models or switching CPU/GPU; use
 
 ## Recommended Models
 
-The app includes presets for LiteRT Community Gemma models hosted on Hugging
-Face:
+The app includes model-neutral capability presets. The current upstream files
+are hosted on Hugging Face and can be replaced by future compatible `.litertlm`
+models:
 
-- [Gemma 4 E2B Instruct LiteRT-LM](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm)
-- [Gemma 4 E4B Instruct LiteRT-LM](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm)
+- [基础对话模型 E2B](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm)
+- [本地记忆模型 300M](https://huggingface.co/kontextdev/embeddinggemma-300m-litertlm)
+- [设备动作模型 270M](https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm)
+- [高质量对话模型 E4B](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm)
 
 The downloaded files are large:
 
-| Model | File | Size |
+| Capability | File | Size |
 | --- | --- | --- |
-| Gemma 4 E2B | `gemma-4-E2B-it.litertlm` | about 2.59 GB |
-| Gemma 4 E4B | `gemma-4-E4B-it.litertlm` | about 3.66 GB |
+| 基础对话 E2B | upstream `.litertlm` chat model | about 2.59 GB |
+| 本地记忆模型 | upstream `.litertlm` embedding model | about 179 MB |
+| 设备动作模型 | upstream `.litertlm` action model | about 284 MB |
+| 高质量对话 E4B | upstream `.litertlm` chat model | about 3.66 GB |
 
 Use Wi-Fi and keep enough free device storage for the model and runtime cache.
 Model files are intentionally not committed to this repository and should not
@@ -129,12 +137,15 @@ want a clean first-launch validation.
 
 ```text
 app/
-  src/main/java/com/bytedance/zgx/gemmalocalqa/
+  src/main/java/com/bytedance/zgx/pocketmind/
     MainActivity.kt          Activity wiring
-    GemmaChatViewModel.kt    Coordinates UI state and use cases
-    GemmaModelRules.kt       Model metadata and validation helpers
+    PocketMindViewModel.kt   Coordinates UI state and use cases
+    ModelCatalog.kt          Model metadata and validation helpers
+    action/                  Mobile action planning and execution boundary
     data/                    Model and session persistence
     download/                DownloadManager boundary
+    memory/                  Local memory indexing and search
+    orchestration/           Chat, memory, and action route selection
     runtime/                 LiteRT-LM runtime boundary
     ui/                      Compose chat, model, session, and message UI
   src/test/                 JVM unit tests

@@ -32,7 +32,7 @@ if unzip -Z1 "$RELEASE_APK" | grep -E '(^|/)[^/]+\.litertlm$' >/dev/null; then
 fi
 
 BADGING="$("$AAPT" dump badging "$DEBUG_APK")"
-grep -q "package: name='com.bytedance.zgx.gemmalocalqa'" <<<"$BADGING"
+grep -q "package: name='com.bytedance.zgx.pocketmind'" <<<"$BADGING"
 grep -q "uses-permission: name='android.permission.INTERNET'" <<<"$BADGING"
 grep -q "native-code: 'arm64-v8a'" <<<"$BADGING"
 

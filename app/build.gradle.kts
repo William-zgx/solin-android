@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.bytedance.zgx.gemmalocalqa"
+    namespace = "com.bytedance.zgx.pocketmind"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.bytedance.zgx.gemmalocalqa"
+        applicationId = "com.bytedance.zgx.pocketmind"
         minSdk = 28
         targetSdk = 36
         versionCode = 1

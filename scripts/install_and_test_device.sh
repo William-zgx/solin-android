@@ -21,7 +21,7 @@ if [[ "$DEVICE_COUNT" != "1" ]]; then
   exit 1
 fi
 
-PACKAGE_NAME="com.bytedance.zgx.gemmalocalqa"
+PACKAGE_NAME="com.bytedance.zgx.pocketmind"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 REQUIRED_FREE_KB=$((3 * 1024 * 1024))
 
