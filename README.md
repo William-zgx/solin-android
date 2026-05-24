@@ -102,7 +102,8 @@ Or let Gradle install it:
 Run local verification:
 
 ```bash
-./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+scripts/doctor.sh
+scripts/verify_local.sh
 ```
 
 Run instrumented tests on one connected Android device:
@@ -119,23 +120,30 @@ scripts/verify_local.sh
 scripts/install_and_test_device.sh
 ```
 
-`scripts/install_and_test_device.sh` clears the previous app installation before
-running device checks, then reinstalls the debug APK if the test run succeeds.
+`scripts/install_and_test_device.sh` leaves the debug app installed after a
+successful run and preserves app data by default. Use
+`CLEAN_DEVICE=1 scripts/install_and_test_device.sh` only when you intentionally
+want a clean first-launch validation.
 
 ## Project Structure
 
 ```text
 app/
   src/main/java/com/bytedance/zgx/gemmalocalqa/
-    MainActivity.kt          Compose UI and navigation surfaces
-    GemmaChatViewModel.kt    Model, session, download, and generation state
+    MainActivity.kt          Activity wiring
+    GemmaChatViewModel.kt    Coordinates UI state and use cases
     GemmaModelRules.kt       Model metadata and validation helpers
+    data/                    Model and session persistence
+    download/                DownloadManager boundary
+    runtime/                 LiteRT-LM runtime boundary
+    ui/                      Compose chat, model, session, and message UI
   src/test/                 JVM unit tests
   src/androidTest/          Device smoke tests
 docs/
   phone_acceptance.md       Manual device acceptance checklist
   validation_report.md      Recent validation notes
 scripts/
+  doctor.sh                 Local Android/JDK environment checker
   verify_local.sh           Local build/test helper
   install_and_test_device.sh Device install and smoke-test helper
 ```
@@ -162,8 +170,11 @@ Issues and pull requests are welcome. A good contribution should include:
 Before opening a pull request, run:
 
 ```bash
-./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+scripts/verify_local.sh
 ```
+
+The local verification gate runs unit tests, lint, debug/androidTest APK
+assembly, release assembly, APK content checks, and a 75 MB release APK budget.
 
 If the change affects real-device flows, also run:
 

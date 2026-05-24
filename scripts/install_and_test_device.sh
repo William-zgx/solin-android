@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 ADB="${ANDROID_SDK}/platform-tools/adb"
+CLEAN_DEVICE="${CLEAN_DEVICE:-0}"
 
 if [[ ! -x "$ADB" ]]; then
   echo "adb not found. Set ANDROID_SDK_ROOT or ANDROID_HOME." >&2
@@ -36,7 +37,9 @@ if [[ "$DATA_FREE_KB" =~ ^[0-9]+$ && "$DATA_FREE_KB" -lt "$REQUIRED_FREE_KB" ]];
   exit 1
 fi
 
-"$ADB" uninstall "$PACKAGE_NAME" >/dev/null 2>&1 || true
+if [[ "$CLEAN_DEVICE" == "1" ]]; then
+  "$ADB" uninstall "$PACKAGE_NAME" >/dev/null 2>&1 || true
+fi
 "$GRADLE_CMD" assembleDebug assembleDebugAndroidTest
 
 set +e
@@ -58,7 +61,6 @@ EOF
 fi
 
 "$ADB" install -r app/build/outputs/apk/debug/app-debug.apk
-"$ADB" shell pm clear "$PACKAGE_NAME" >/dev/null
 "$ADB" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null
 
-echo "Device install and smoke test passed."
+echo "Device install and smoke test passed. App remains installed."
