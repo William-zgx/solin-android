@@ -14,6 +14,7 @@ import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
 import com.bytedance.zgx.pocketmind.data.GenerationParametersRepository
 import com.bytedance.zgx.pocketmind.data.ModelRepository
 import com.bytedance.zgx.pocketmind.data.ModelSelectionState
+import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
 import com.bytedance.zgx.pocketmind.data.SessionRepository
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
@@ -21,6 +22,7 @@ import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRoute
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.RealLiteRtRuntime
+import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
 import java.io.File
 import java.util.ArrayDeque
 import kotlinx.coroutines.CancellationException
@@ -42,9 +44,11 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
     private val modelRepository = ModelRepository(appContext)
     private val sessionRepository = SessionRepository(appContext)
     private val generationParametersRepository = GenerationParametersRepository(appContext)
+    private val remoteModelRepository = RemoteModelRepository(appContext)
     private val firstRunSetupRepository = FirstRunSetupRepository(appContext)
     private val downloadService = ModelDownloadService(appContext)
     private val runtime: LiteRtRuntime = RealLiteRtRuntime(appContext.cacheDir)
+    private val remoteRuntime = RemoteChatRuntime()
     private val memoryRepository = MemoryRepository()
     private val actionPlanner = MobileActionPlanner()
     private val actionExecutor = ActionExecutor(appContext)
@@ -73,7 +77,9 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
         rebuildMemoryIndex()
 
         if (skipModelRuntimeWork) {
-            if (_uiState.value.modelPath != null) {
+            if (_uiState.value.inferenceMode == InferenceMode.Remote) {
+                updateRemoteReadiness("远程模型")
+            } else if (_uiState.value.modelPath != null) {
                 _uiState.update {
                     it.copy(statusText = "已找到模型，点击加载模型")
                 }
@@ -83,11 +89,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
 
         val pendingDownloadId = modelRepository.pendingDownloadId()
         val pendingDownloadSource = modelRepository.loadPendingDownloadSource()
-        if (!isArm64Device()) {
-            _uiState.update {
-                it.copy(statusText = "当前设备不是 64 位 ARM，无法运行此模型")
-            }
-        } else if (pendingDownloadId > 0L) {
+        if (pendingDownloadId > 0L) {
             val source = pendingDownloadSource ?: ModelDownloadSource.recommended(modelRepository.selectedRecommendedModel())
             source.modelId?.let {
                 updateModelState(modelRepository.selectRecommendedModel(it).state)
@@ -100,6 +102,12 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
                 }
             } else {
                 monitorDownload(pendingDownloadId, target, source)
+            }
+        } else if (_uiState.value.inferenceMode == InferenceMode.Remote) {
+            updateRemoteReadiness("远程模型")
+        } else if (!isArm64Device()) {
+            _uiState.update {
+                it.copy(statusText = "当前设备不是 64 位 ARM，无法运行此模型")
             }
         } else {
             val activePath = modelRepository.currentState().activeModelPath
@@ -311,6 +319,41 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
         updateGenerationParameters(GenerationParameters())
     }
 
+    fun selectInferenceMode(mode: InferenceMode) {
+        if (_uiState.value.isBusy || _uiState.value.inferenceMode == mode) return
+        remoteModelRepository.saveMode(mode)
+        if (mode == InferenceMode.Remote) {
+            runtime.close()
+            updateRemoteReadiness("已切换到远程模型")
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                inferenceMode = InferenceMode.Local,
+                isReady = runtime.isLoaded,
+                statusText = if (runtime.isLoaded) {
+                    "就绪 · ${it.backend.label()}"
+                } else if (it.modelPath != null) {
+                    "已切换到本地模型，点击加载模型"
+                } else {
+                    "请先下载或导入本地模型"
+                },
+            )
+        }
+    }
+
+    fun updateRemoteModelConfig(config: RemoteModelConfig) {
+        if (_uiState.value.isBusy) return
+        val normalized = remoteModelRepository.saveConfig(config)
+        _uiState.update {
+            it.copy(remoteModelConfig = normalized)
+        }
+        if (_uiState.value.inferenceMode == InferenceMode.Remote) {
+            updateRemoteReadiness("远程模型")
+        }
+    }
+
     fun selectRecommendedModel(modelId: String) {
         if (_uiState.value.isBusy || _uiState.value.selectedModelId == modelId) return
         val result = modelRepository.selectRecommendedModel(modelId)
@@ -330,9 +373,11 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
     fun selectInstalledModel(modelId: String) {
         if (_uiState.value.isBusy || _uiState.value.activeInstalledModelId == modelId) return
         val installed = modelRepository.selectInstalledModel(modelId) ?: return
+        remoteModelRepository.saveMode(InferenceMode.Local)
         updateModelState(modelRepository.currentState())
         _uiState.update {
             it.copy(
+                inferenceMode = InferenceMode.Local,
                 isReady = false,
                 statusText = "已切换到 ${installed.displayName}，点击加载模型",
             )
@@ -343,9 +388,11 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
         val path = _uiState.value.modelPath ?: return
         if (_uiState.value.isBusy) return
         val backendChoice = _uiState.value.backend
+        remoteModelRepository.saveMode(InferenceMode.Local)
 
         _uiState.update {
             it.copy(
+                inferenceMode = InferenceMode.Local,
                 isBusy = true,
                 isDownloading = false,
                 isReady = false,
@@ -483,10 +530,14 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
             return
         }
 
+        val stateBeforeSend = _uiState.value
+        val useRemoteModel = stateBeforeSend.inferenceMode == InferenceMode.Remote
+        val remoteConfig = stateBeforeSend.remoteModelConfig
+        val remoteHistory = stateBeforeSend.messages
         val route = assistantOrchestrator.route(
             input = trimmed,
-            installedCapabilities = _uiState.value.installedCapabilities,
-            memoryEnabled = _uiState.value.memoryEnabled,
+            installedCapabilities = stateBeforeSend.installedCapabilities,
+            memoryEnabled = stateBeforeSend.memoryEnabled,
         )
         val userMessage = ChatMessage(MessageRole.User, trimmed)
         when (route) {
@@ -544,7 +595,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
         }
 
         val job = viewModelScope.launch(Dispatchers.IO) {
-            if (!runtime.isLoaded) {
+            if (!useRemoteModel && !runtime.isLoaded) {
                 _uiState.updateLastAssistant("模型尚未就绪")
                 persistActiveSessionFromUi()
                 _uiState.update {
@@ -557,16 +608,39 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
                 }
                 return@launch
             }
+            if (useRemoteModel && !remoteConfig.isConfigured) {
+                _uiState.updateLastAssistant("请先在模型管理中配置远程模型地址和模型名")
+                persistActiveSessionFromUi()
+                _uiState.update {
+                    it.copy(
+                        isBusy = false,
+                        isGenerating = false,
+                        isReady = false,
+                        statusText = "请配置远程模型",
+                    )
+                }
+                return@launch
+            }
 
             try {
                 val partial = StringBuilder()
-                runtime.send(route.promptForModel).collect { chunk ->
+                val response = if (useRemoteModel) {
+                    remoteRuntime.send(
+                        prompt = route.promptForModel,
+                        history = remoteHistory,
+                        parameters = _uiState.value.generationParameters,
+                        config = remoteConfig,
+                    )
+                } else {
+                    runtime.send(route.promptForModel)
+                }
+                response.collect { chunk ->
                     partial.append(chunk)
                     _uiState.updateLastAssistant(partial.toString())
                 }
                 if (partial.isBlank()) {
                     _uiState.updateLastAssistant("没有生成内容")
-                } else {
+                } else if (!useRemoteModel) {
                     _uiState.updateLastAssistantStats(
                         runCatching { runtime.lastGenerationStats() }.getOrNull(),
                     )
@@ -578,7 +652,11 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
                         isBusy = false,
                         isGenerating = false,
                         isReady = true,
-                        statusText = "就绪 · ${it.backend.label()}",
+                        statusText = if (useRemoteModel) {
+                            "就绪 · 远程"
+                        } else {
+                            "就绪 · ${it.backend.label()}"
+                        },
                     )
                 }
             } catch (cancellation: CancellationException) {
@@ -593,8 +671,12 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
                     it.copy(
                         isBusy = false,
                         isGenerating = false,
-                        isReady = false,
-                        statusText = "生成失败，建议重新加载",
+                        isReady = useRemoteModel && remoteConfig.isConfigured,
+                        statusText = if (useRemoteModel) {
+                            "远程生成失败"
+                        } else {
+                            "生成失败，建议重新加载"
+                        },
                     )
                 }
             }
@@ -609,7 +691,9 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
 
     fun stopGeneration() {
         val job = generationJob ?: return
-        runtime.stop()
+        if (_uiState.value.inferenceMode == InferenceMode.Local) {
+            runtime.stop()
+        }
         job.cancel()
         finishStoppedGeneration()
     }
@@ -884,6 +968,8 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
             activeInstalledModelId = modelState.activeInstalledModelId,
             installedModels = modelState.installedModels,
             selectedModelId = modelState.selectedModelId,
+            inferenceMode = remoteModelRepository.loadMode(),
+            remoteModelConfig = remoteModelRepository.loadConfig(),
             showFirstRunSetup = !firstRunSetupRepository.isSetupDismissed(),
             memoryEnabled = firstRunSetupRepository.isMemoryEnabled(),
             generationParameters = generationParametersRepository.load(),
@@ -902,6 +988,23 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
                 activeInstalledModelId = modelState.activeInstalledModelId,
                 installedModels = modelState.installedModels,
                 selectedModelId = modelState.selectedModelId,
+            )
+        }
+    }
+
+    private fun updateRemoteReadiness(prefix: String) {
+        val config = _uiState.value.remoteModelConfig
+        _uiState.update {
+            it.copy(
+                inferenceMode = InferenceMode.Remote,
+                isBusy = false,
+                isDownloading = false,
+                isReady = config.isConfigured,
+                statusText = if (config.isConfigured) {
+                    "${prefix}已就绪"
+                } else {
+                    "请配置远程模型"
+                },
             )
         }
     }

@@ -88,6 +88,8 @@ data class ChatUiState(
     val memoryEnabled: Boolean = true,
     val memoryHits: List<MemoryHit> = emptyList(),
     val pendingActionDraft: ActionDraft? = null,
+    val inferenceMode: InferenceMode = InferenceMode.Local,
+    val remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),
     val backend: BackendChoice = BackendChoice.GPU,
     val generationParameters: GenerationParameters = GenerationParameters(),
     val statusText: String = "未加载模型",

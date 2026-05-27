@@ -67,6 +67,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,12 +77,15 @@ import com.bytedance.zgx.pocketmind.ChatUiState
 import com.bytedance.zgx.pocketmind.ModelCatalog
 import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.GenerationStats
+import com.bytedance.zgx.pocketmind.InferenceMode
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.RecommendedModel
+import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.isUsable
+import com.bytedance.zgx.pocketmind.label
 import java.util.Locale
 
 @Composable
@@ -96,6 +100,8 @@ fun PocketMindScreen(
     onLoadModel: () -> Unit,
     onRecommendedModelSelected: (String) -> Unit,
     onInstalledModelSelected: (String) -> Unit,
+    onInferenceModeSelected: (InferenceMode) -> Unit,
+    onRemoteModelConfigChanged: (RemoteModelConfig) -> Unit,
     onBackendSelected: (BackendChoice) -> Unit,
     onGenerationParametersChanged: (GenerationParameters) -> Unit,
     onResetGenerationParameters: () -> Unit,
@@ -218,6 +224,8 @@ fun PocketMindScreen(
                     onLoadModel = onLoadModel,
                     onRecommendedModelSelected = onRecommendedModelSelected,
                     onInstalledModelSelected = onInstalledModelSelected,
+                    onInferenceModeSelected = onInferenceModeSelected,
+                    onRemoteModelConfigChanged = onRemoteModelConfigChanged,
                     onBackendSelected = onBackendSelected,
                     onGenerationParametersChanged = onGenerationParametersChanged,
                     onResetGenerationParameters = onResetGenerationParameters,
@@ -360,7 +368,9 @@ private fun RuntimeStatusBadge(state: ChatUiState) {
     val label = when {
         state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
         state.isBusy -> "处理中"
+        state.inferenceMode == InferenceMode.Remote && state.isReady -> "远程可用"
         state.isReady -> "离线可用"
+        state.inferenceMode == InferenceMode.Remote -> "待配置"
         state.modelPath != null -> "可加载"
         else -> "待准备"
     }
@@ -724,6 +734,8 @@ private fun ModelManagerSheet(
     onLoadModel: () -> Unit,
     onRecommendedModelSelected: (String) -> Unit,
     onInstalledModelSelected: (String) -> Unit,
+    onInferenceModeSelected: (InferenceMode) -> Unit,
+    onRemoteModelConfigChanged: (RemoteModelConfig) -> Unit,
     onBackendSelected: (BackendChoice) -> Unit,
     onGenerationParametersChanged: (GenerationParameters) -> Unit,
     onResetGenerationParameters: () -> Unit,
@@ -755,10 +767,17 @@ private fun ModelManagerSheet(
         CurrentModelPanel(
             state = state,
             onLoadModel = onLoadModel,
+            onInferenceModeSelected = onInferenceModeSelected,
             onBackendSelected = onBackendSelected,
             onGenerationParametersChanged = onGenerationParametersChanged,
             onResetGenerationParameters = onResetGenerationParameters,
             onMemoryEnabledChanged = onMemoryEnabledChanged,
+        )
+
+        RemoteModelPanel(
+            state = state,
+            onInferenceModeSelected = onInferenceModeSelected,
+            onRemoteModelConfigChanged = onRemoteModelConfigChanged,
         )
 
         if (state.isDownloading || state.downloadProgressPercent != null || state.totalBytes > 0L) {
@@ -887,12 +906,14 @@ private fun ModelManagerSheet(
 private fun CurrentModelPanel(
     state: ChatUiState,
     onLoadModel: () -> Unit,
+    onInferenceModeSelected: (InferenceMode) -> Unit,
     onBackendSelected: (BackendChoice) -> Unit,
     onGenerationParametersChanged: (GenerationParameters) -> Unit,
     onResetGenerationParameters: () -> Unit,
     onMemoryEnabledChanged: (Boolean) -> Unit,
 ) {
     val activeModel = state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }
+    val usingRemote = state.inferenceMode == InferenceMode.Remote
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -906,14 +927,14 @@ private fun CurrentModelPanel(
         ) {
             SectionTitle(
                 text = "当前模型",
-                subtitle = if (state.modelPath == null) {
-                    state.statusText
-                } else {
-                    state.statusText
-                },
+                subtitle = state.statusText,
             )
             Text(
-                text = activeModel?.displayName ?: "未选择",
+                text = if (usingRemote) {
+                    state.remoteModelConfig.modelName.ifBlank { "未配置远程模型" }
+                } else {
+                    activeModel?.displayName ?: "未选择"
+                },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -921,23 +942,39 @@ private fun CurrentModelPanel(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BackendChip(
-                    label = "GPU",
-                    selected = state.backend == BackendChoice.GPU,
+                    label = InferenceMode.Local.label(),
+                    selected = state.inferenceMode == InferenceMode.Local,
                     enabled = !state.isBusy,
-                    onClick = { onBackendSelected(BackendChoice.GPU) },
+                    onClick = { onInferenceModeSelected(InferenceMode.Local) },
                 )
                 BackendChip(
-                    label = "CPU",
-                    selected = state.backend == BackendChoice.CPU,
+                    label = InferenceMode.Remote.label(),
+                    selected = usingRemote,
                     enabled = !state.isBusy,
-                    onClick = { onBackendSelected(BackendChoice.CPU) },
+                    onClick = { onInferenceModeSelected(InferenceMode.Remote) },
                 )
             }
-            Text(
-                text = "GPU 通常更快，适合设备驱动和内存条件较好的手机；CPU 更稳但更慢。GPU 初始化失败时会自动切到 CPU。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (!usingRemote) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BackendChip(
+                        label = "GPU",
+                        selected = state.backend == BackendChoice.GPU,
+                        enabled = !state.isBusy,
+                        onClick = { onBackendSelected(BackendChoice.GPU) },
+                    )
+                    BackendChip(
+                        label = "CPU",
+                        selected = state.backend == BackendChoice.CPU,
+                        enabled = !state.isBusy,
+                        onClick = { onBackendSelected(BackendChoice.CPU) },
+                    )
+                }
+                Text(
+                    text = "GPU 通常更快，适合设备驱动和内存条件较好的手机；CPU 更稳但更慢。GPU 初始化失败时会自动切到 CPU。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             GenerationParametersPanel(
                 parameters = state.generationParameters,
                 enabled = !state.isBusy,
@@ -949,7 +986,7 @@ private fun CurrentModelPanel(
                 enabled = !state.isBusy,
                 onMemoryEnabledChanged = onMemoryEnabledChanged,
             )
-            if (state.modelPath != null && !state.isReady && !state.isBusy) {
+            if (!usingRemote && state.modelPath != null && !state.isReady && !state.isBusy) {
                 FilledTonalButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onLoadModel,
@@ -957,6 +994,89 @@ private fun CurrentModelPanel(
                     Text("加载模型")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RemoteModelPanel(
+    state: ChatUiState,
+    onInferenceModeSelected: (InferenceMode) -> Unit,
+    onRemoteModelConfigChanged: (RemoteModelConfig) -> Unit,
+) {
+    val config = state.remoteModelConfig
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SectionTitle(
+                    text = "远程模型",
+                    subtitle = "兼容 /v1/chat/completions 的服务地址。",
+                )
+                Switch(
+                    checked = state.inferenceMode == InferenceMode.Remote,
+                    enabled = !state.isBusy,
+                    onCheckedChange = {
+                        onInferenceModeSelected(
+                            if (it) InferenceMode.Remote else InferenceMode.Local,
+                        )
+                    },
+                )
+            }
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = config.baseUrl,
+                onValueChange = {
+                    onRemoteModelConfigChanged(config.copy(baseUrl = it))
+                },
+                enabled = !state.isBusy,
+                singleLine = true,
+                placeholder = { Text("https://api.example.com/v1") },
+                label = { Text("服务地址") },
+            )
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = config.modelName,
+                onValueChange = {
+                    onRemoteModelConfigChanged(config.copy(modelName = it))
+                },
+                enabled = !state.isBusy,
+                singleLine = true,
+                placeholder = { Text("model-name") },
+                label = { Text("模型名") },
+            )
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = config.apiKey,
+                onValueChange = {
+                    onRemoteModelConfigChanged(config.copy(apiKey = it))
+                },
+                enabled = !state.isBusy,
+                singleLine = true,
+                placeholder = { Text("可留空") },
+                label = { Text("API Key") },
+                visualTransformation = PasswordVisualTransformation(),
+            )
+            Text(
+                text = if (config.isConfigured) {
+                    "远程配置已保存"
+                } else {
+                    "填写服务地址和模型名后可切换远程模型"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -1244,6 +1364,15 @@ private fun SectionTitle(
 }
 
 private fun currentModelStatus(state: ChatUiState): String {
+    if (state.inferenceMode == InferenceMode.Remote) {
+        val modelName = state.remoteModelConfig.modelName.ifBlank { "远程模型" }
+        val ready = when {
+            state.isBusy -> state.statusText
+            state.isReady -> "已就绪"
+            else -> state.statusText
+        }
+        return "$modelName · 远程 · $ready"
+    }
     val modelName = state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }?.displayName
         ?: state.selectedRecommendedModel.shortName
     val ready = when {

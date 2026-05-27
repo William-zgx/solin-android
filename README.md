@@ -14,6 +14,7 @@ Google AI Edge LiteRT-LM.
 - Optional higher-quality chat model presets.
 - Custom `.litertlm` download links and local file import.
 - Model manager for switching downloaded or imported models.
+- Configurable remote chat backend for OpenAI-compatible `/v1/chat/completions` services.
 - Local memory recall for previous conversation context.
 - Safe mobile action drafts for settings, map, mail, calendar, and contacts.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
@@ -29,12 +30,18 @@ session management:
 1. Open **Model**.
 2. Pick a recommended model, paste a custom `.litertlm` URL, or import a local
    model file.
-3. Load the selected model.
-4. Chat offline once the app reports that the model is ready.
+3. Or configure a remote chat service with a base URL, model name, and optional
+   API key.
+4. Load the selected local model, or switch to the configured remote model.
+5. Chat once the app reports that the selected backend is ready.
 
 Model selection itself does not immediately reload the runtime. This keeps the
 model manager responsive while browsing models or switching CPU/GPU; use
 **Load model** when you are ready to initialize the selected model.
+
+Remote chat uses the same conversation, memory, and action routing surface as
+local chat. Mobile actions still require the local action model and explicit
+user confirmation before opening Android system pages or drafts.
 
 ## Recommended Models
 

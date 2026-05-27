@@ -38,6 +38,8 @@ class MainActivity : ComponentActivity() {
                     onLoadModel = viewModel::loadModel,
                     onRecommendedModelSelected = viewModel::selectRecommendedModel,
                     onInstalledModelSelected = viewModel::selectInstalledModel,
+                    onInferenceModeSelected = viewModel::selectInferenceMode,
+                    onRemoteModelConfigChanged = viewModel::updateRemoteModelConfig,
                     onBackendSelected = viewModel::selectBackend,
                     onGenerationParametersChanged = viewModel::updateGenerationParameters,
                     onResetGenerationParameters = viewModel::resetGenerationParameters,
