@@ -175,11 +175,6 @@ fun PocketMindScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        if (state.memoryHits.isNotEmpty()) {
-                            item(key = "memory_context") {
-                                MemoryContextStrip(state.memoryHits.size)
-                            }
-                        }
                         items(
                             items = state.messages,
                             key = { it.id },
@@ -193,6 +188,15 @@ fun PocketMindScreen(
                         }
                     }
                 }
+            }
+
+            if (state.memoryHits.isNotEmpty()) {
+                MemoryContextStrip(
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("memory_context_strip"),
+                    hitCount = state.memoryHits.size,
+                )
             }
 
             Composer(
@@ -590,6 +594,7 @@ private fun FirstRunSetupSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(
+                        modifier = Modifier.testTag("first_run_model_${model.id}"),
                         checked = selected,
                         enabled = !state.isBusy && !state.isModelInstalled(model.id),
                         onCheckedChange = { onSetupModelToggled(model.id, it) },
@@ -681,13 +686,17 @@ private fun ActionDraftSheet(
             }
         }
         Button(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("action_confirm_button"),
             onClick = onConfirm,
         ) {
             Text("确认并打开")
         }
         OutlinedButton(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("action_dismiss_button"),
             onClick = onDismiss,
         ) {
             Text("取消")
@@ -895,7 +904,9 @@ private fun ModelManagerSheet(
                 Text("从链接下载")
             }
             OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("import_model_button"),
                 onClick = onPickModel,
                 enabled = !state.isBusy,
             ) {
@@ -945,12 +956,14 @@ private fun CurrentModelPanel(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BackendChip(
+                    modifier = Modifier.testTag("inference_local_chip"),
                     label = InferenceMode.Local.label(),
                     selected = state.inferenceMode == InferenceMode.Local,
                     enabled = !state.isBusy,
                     onClick = { onInferenceModeSelected(InferenceMode.Local) },
                 )
                 BackendChip(
+                    modifier = Modifier.testTag("inference_remote_chip"),
                     label = InferenceMode.Remote.label(),
                     selected = usingRemote,
                     enabled = !state.isBusy,
@@ -960,12 +973,14 @@ private fun CurrentModelPanel(
             if (!usingRemote) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     BackendChip(
+                        modifier = Modifier.testTag("backend_gpu_chip"),
                         label = "GPU",
                         selected = state.backend == BackendChoice.GPU,
                         enabled = !state.isBusy,
                         onClick = { onBackendSelected(BackendChoice.GPU) },
                     )
                     BackendChip(
+                        modifier = Modifier.testTag("backend_cpu_chip"),
                         label = "CPU",
                         selected = state.backend == BackendChoice.CPU,
                         enabled = !state.isBusy,
@@ -1028,6 +1043,7 @@ private fun RemoteModelPanel(
                     subtitle = "兼容 /v1/chat/completions；远程模式会发送当前对话上下文。",
                 )
                 Switch(
+                    modifier = Modifier.testTag("remote_mode_switch"),
                     checked = state.inferenceMode == InferenceMode.Remote,
                     enabled = !state.isBusy,
                     onCheckedChange = {
@@ -1038,7 +1054,9 @@ private fun RemoteModelPanel(
                 )
             }
             OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_base_url_input"),
                 value = config.baseUrl,
                 onValueChange = {
                     onRemoteModelConfigChanged(config.copy(baseUrl = it))
@@ -1049,7 +1067,9 @@ private fun RemoteModelPanel(
                 label = { Text("服务地址") },
             )
             OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_model_name_input"),
                 value = config.modelName,
                 onValueChange = {
                     onRemoteModelConfigChanged(config.copy(modelName = it))
@@ -1060,7 +1080,9 @@ private fun RemoteModelPanel(
                 label = { Text("模型名") },
             )
             OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_api_key_input"),
                 value = config.apiKey,
                 onValueChange = {
                     onRemoteModelConfigChanged(config.copy(apiKey = it))
@@ -1127,6 +1149,7 @@ private fun MemoryTogglePanel(
                 )
             }
             Switch(
+                modifier = Modifier.testTag("memory_switch"),
                 checked = state.memoryEnabled,
                 onCheckedChange = onMemoryEnabledChanged,
                 enabled = enabled,
@@ -1180,7 +1203,9 @@ private fun SessionManagerSheet(
         }
         if (state.sessions.size > 1) {
             OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("session_delete_button"),
                 onClick = onDeleteSession,
                 enabled = !state.isBusy,
             ) {
@@ -1565,12 +1590,14 @@ private fun ProgressBlock(state: ChatUiState) {
 
 @Composable
 private fun BackendChip(
+    modifier: Modifier = Modifier,
     label: String,
     selected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
     FilterChip(
+        modifier = modifier,
         selected = selected,
         enabled = enabled,
         onClick = onClick,
@@ -1687,9 +1714,12 @@ private fun ParameterSlider(
 }
 
 @Composable
-private fun MemoryContextStrip(hitCount: Int) {
+private fun MemoryContextStrip(
+    modifier: Modifier = Modifier,
+    hitCount: Int,
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.58f),
     ) {
@@ -1921,7 +1951,8 @@ private fun Composer(
             OutlinedTextField(
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 56.dp),
+                    .heightIn(min = 56.dp)
+                    .testTag("composer_input"),
                 value = input,
                 onValueChange = onInputChanged,
                 enabled = inputEnabled,
@@ -1933,7 +1964,8 @@ private fun Composer(
             OutlinedButton(
                 modifier = Modifier
                     .height(56.dp)
-                    .width(64.dp),
+                    .width(64.dp)
+                    .testTag("composer_model_button"),
                 onClick = onOpenModelManager,
                 enabled = !state.isBusy,
                 contentPadding = PaddingValues(0.dp),
@@ -1944,7 +1976,8 @@ private fun Composer(
             Button(
                 modifier = Modifier
                     .height(56.dp)
-                    .width(56.dp),
+                    .width(56.dp)
+                    .testTag("composer_send_button"),
                 onClick = when {
                     actionIsStop -> onStopGeneration
                     else -> onSend

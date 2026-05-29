@@ -314,9 +314,16 @@ class ModelRepository(
 
     private fun discoverRecommendedDownloadedModels() {
         val downloadDir = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return
+        val registeredPaths = modelDao.models()
+            .map { File(it.path).absolutePath }
+            .toSet()
         RECOMMENDED_MODELS.forEach { model ->
             val file = File(downloadDir, model.fileName)
-            if (file.exists() && modelDao.model(model.id) == null) {
+            if (
+                file.exists() &&
+                modelDao.model(model.id) == null &&
+                file.absolutePath !in registeredPaths
+            ) {
                 modelDao.upsert(
                     InstalledModelEntity(
                         id = model.id,
