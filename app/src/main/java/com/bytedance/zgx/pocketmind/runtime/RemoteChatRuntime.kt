@@ -4,60 +4,116 @@ import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import okhttp3.Call
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
-class RemoteChatRuntime {
+interface RemoteChatRuntime {
     fun send(
         prompt: String,
         history: List<ChatMessage>,
         parameters: GenerationParameters,
         config: RemoteModelConfig,
-    ): Flow<String> = flow {
-        emit(
-            withContext(Dispatchers.IO) {
-                requestChatCompletion(prompt, history, parameters, config.normalized())
-            },
-        )
-    }
+    ): Flow<String>
 
-    private fun requestChatCompletion(
+    fun stop()
+}
+
+class OkHttpRemoteChatRuntime(
+    private val callFactory: Call.Factory = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .build(),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : RemoteChatRuntime {
+    @Volatile
+    private var activeCall: Call? = null
+
+    override fun send(
         prompt: String,
         history: List<ChatMessage>,
         parameters: GenerationParameters,
         config: RemoteModelConfig,
-    ): String {
-        require(config.isConfigured) { "请先配置远程模型地址和模型名" }
-        val connection = (URL(config.chatCompletionsUrl()).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 15_000
-            readTimeout = 60_000
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("Accept", "application/json")
-            if (config.apiKey.isNotBlank()) {
-                setRequestProperty("Authorization", "Bearer ${config.apiKey}")
+    ): Flow<String> = callbackFlow {
+        val normalized = config.normalized()
+        require(normalized.isConfigured) { "请先配置远程模型地址和模型名" }
+        val request = Request.Builder()
+            .url(normalized.chatCompletionsUrl())
+            .post(
+                buildChatCompletionBody(prompt, history, parameters, normalized)
+                    .toString()
+                    .toRequestBody(JSON),
+            )
+            .header("Accept", "text/event-stream, application/json")
+            .header("Content-Type", "application/json")
+            .apply {
+                if (normalized.apiKey.isNotBlank()) {
+                    header("Authorization", "Bearer ${normalized.apiKey}")
+                }
+            }
+            .build()
+        val call = callFactory.newCall(request)
+        activeCall = call
+        val worker = launch(ioDispatcher) {
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        response.body.close()
+                        error("远程模型请求失败 ${response.code}")
+                    }
+                    val body = response.body
+                    if (response.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)) {
+                        body.charStream().buffered().use { reader ->
+                            while (isActive) {
+                                val line = reader.readLine() ?: break
+                                if (!line.startsWith("data:")) continue
+                                val payload = line.removePrefix("data:").trim()
+                                if (payload == "[DONE]") break
+                                val chunk = parseChatCompletionChunkText(payload)
+                                if (chunk.isNotEmpty()) send(chunk)
+                            }
+                        }
+                    } else {
+                        send(parseChatCompletionText(body.string()))
+                    }
+                }
+                close()
+            } catch (throwable: Throwable) {
+                if (call.isCanceled()) {
+                    close(CancellationException("远程生成已取消", throwable))
+                } else {
+                    close(throwable)
+                }
+            } finally {
+                if (activeCall == call) {
+                    activeCall = null
+                }
             }
         }
-
-        val body = buildChatCompletionBody(prompt, history, parameters, config).toString()
-        connection.outputStream.use { output ->
-            output.write(body.toByteArray(Charsets.UTF_8))
+        awaitClose {
+            call.cancel()
+            worker.cancel()
+            if (activeCall == call) {
+                activeCall = null
+            }
         }
+    }
 
-        val responseBody = connection.responseText()
-        if (connection.responseCode !in 200..299) {
-            error("远程模型请求失败 ${connection.responseCode}: ${responseBody.take(180)}")
-        }
-        return parseChatCompletionText(responseBody)
+    override fun stop() {
+        activeCall?.cancel()
     }
 }
 
@@ -69,7 +125,7 @@ internal fun buildChatCompletionBody(
 ): JSONObject =
     JSONObject()
         .put("model", config.modelName)
-        .put("stream", false)
+        .put("stream", true)
         .put("temperature", parameters.temperature.toDouble())
         .put("top_p", parameters.topP.toDouble())
         .put(
@@ -83,6 +139,24 @@ internal fun buildChatCompletionBody(
                 .appendHistory(history)
                 .put(JSONObject().put("role", "user").put("content", prompt)),
         )
+
+internal fun parseChatCompletionChunkText(raw: String): String {
+    val json = runCatching { JSONObject(raw) }.getOrNull() ?: return ""
+    val choice = json.optJSONArray("choices")
+        ?.optJSONObject(0)
+        ?: return ""
+    val deltaText = choice.optJSONObject("delta")
+        ?.optString("content")
+        .orEmpty()
+    if (deltaText.isNotEmpty()) return deltaText
+
+    val messageText = choice.optJSONObject("message")
+        ?.optString("content")
+        .orEmpty()
+    if (messageText.isNotEmpty()) return messageText
+
+    return choice.optString("text")
+}
 
 internal fun parseChatCompletionText(raw: String): String {
     val json = JSONObject(raw)
@@ -102,14 +176,16 @@ internal fun parseChatCompletionText(raw: String): String {
 }
 
 private fun JSONArray.appendHistory(history: List<ChatMessage>): JSONArray {
-    history.forEach { message ->
-        val text = message.text.takeIf { it.isNotBlank() } ?: return@forEach
-        val role = when (message.role) {
-            MessageRole.User -> "user"
-            MessageRole.Assistant -> "assistant"
+    history
+        .filter { it.text.isNotBlank() }
+        .takeLast(20)
+        .forEach { message ->
+            val role = when (message.role) {
+                MessageRole.User -> "user"
+                MessageRole.Assistant -> "assistant"
+            }
+            put(JSONObject().put("role", role).put("content", message.text))
         }
-        put(JSONObject().put("role", role).put("content", text))
-    }
     return this
 }
 
@@ -120,9 +196,4 @@ private fun RemoteModelConfig.chatCompletionsUrl(): String =
         "$baseUrl/chat/completions"
     }
 
-private fun HttpURLConnection.responseText(): String {
-    val source = if (responseCode in 200..299) inputStream else errorStream
-    return source?.use { stream ->
-        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).readText()
-    }.orEmpty()
-}
+private val JSON = "application/json; charset=utf-8".toMediaType()

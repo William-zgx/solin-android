@@ -4,34 +4,25 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.OpenableColumns
-import com.bytedance.zgx.pocketmind.DEFAULT_CHAT_MODEL
-import com.bytedance.zgx.pocketmind.DEFAULT_CHAT_MODEL_ID
-import com.bytedance.zgx.pocketmind.MODEL_FILE_EXTENSION
-import com.bytedance.zgx.pocketmind.RECOMMENDED_MODELS
 import com.bytedance.zgx.pocketmind.DEFAULT_CHAT_MODEL_BYTES
-import com.bytedance.zgx.pocketmind.ModelCatalog
+import com.bytedance.zgx.pocketmind.DEFAULT_CHAT_MODEL_ID
 import com.bytedance.zgx.pocketmind.InstalledModelSummary
+import com.bytedance.zgx.pocketmind.MODEL_FILE_EXTENSION
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.ModelCatalog
+import com.bytedance.zgx.pocketmind.RECOMMENDED_MODELS
 import com.bytedance.zgx.pocketmind.RecommendedModel
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import org.json.JSONArray
 import org.json.JSONObject
-
-private const val PREFS_NAME = "pocketmind"
-private const val PREF_MODEL_PATH = "model_path"
-private const val PREF_DOWNLOAD_ID = "download_id"
-private const val PREF_DOWNLOAD_SOURCE = "download_source"
-private const val PREF_SELECTED_MODEL_ID = "selected_model_id"
-private const val PREF_INSTALLED_MODELS_JSON = "installed_models_json"
-private const val PREF_ACTIVE_INSTALLED_MODEL_ID = "active_installed_model_id"
 
 data class ModelDownloadSource(
     val title: String,
     val fileName: String,
     val downloadUrl: String,
     val expectedBytes: Long?,
+    val expectedSha256: String?,
     val modelId: String?,
 ) {
     companion object {
@@ -41,15 +32,21 @@ data class ModelDownloadSource(
                 fileName = model.fileName,
                 downloadUrl = model.downloadUrl,
                 expectedBytes = model.byteSize,
+                expectedSha256 = model.sha256Hex,
                 modelId = model.id,
             )
     }
 
-    fun isCompleteFile(fileBytes: Long): Boolean =
-        if (expectedBytes == null) {
-            fileBytes > 0L
-        } else {
-            fileBytes == expectedBytes
+    fun hasExpectedSize(fileBytes: Long): Boolean =
+        expectedBytes?.let { fileBytes == it } ?: (fileBytes > 0L)
+
+    fun verifiedSha256(file: File): Result<String?> =
+        runCatching {
+            check(hasExpectedSize(file.length())) { "模型文件大小不匹配" }
+            val expected = expectedSha256?.takeIf { it.isNotBlank() } ?: return@runCatching null
+            val actual = ModelCatalog.sha256Hex(file)
+            check(actual.equals(expected, ignoreCase = true)) { "模型校验失败，请重新下载" }
+            actual.lowercase()
         }
 
     fun installedDisplayName(file: File): String =
@@ -75,78 +72,88 @@ data class ModelSelectionResult(
     val activatedModel: InstalledModelSummary?,
 )
 
-class ModelRepository(context: Context) {
-    private val appContext = context.applicationContext
-    private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val modelDir = File(appContext.filesDir, "models")
+class ModelRepository(
+    private val appContext: Context,
+    private val modelDao: ModelDao,
+    private val downloadRecordDao: DownloadRecordDao,
+    private val settingsStore: PreferenceSettingsStore,
+) : ModelStore, DownloadStore {
+    constructor(context: Context) : this(
+        context.applicationContext,
+        PocketMindDatabase.get(context).modelDao(),
+        PocketMindDatabase.get(context).downloadRecordDao(),
+        PreferenceSettingsStore(context),
+    )
 
-    private var selectedModelId = prefs.getString(PREF_SELECTED_MODEL_ID, DEFAULT_CHAT_MODEL_ID)
-        ?: DEFAULT_CHAT_MODEL_ID
-    private var installedModels: List<InstalledModel> = loadInstalledModels()
-    private var activeInstalledModelId: String? = resolveActiveInstalledModelId(installedModels)
+    private val modelDir = File(appContext.filesDir, "models")
 
     init {
         cleanTemporaryModelFiles()
-        if (installedModels.isNotEmpty()) {
-            persistInstalledModels()
-        }
+        discoverRecommendedDownloadedModels()
     }
 
-    fun currentState(): ModelSelectionState =
-        ModelSelectionState(
+    override fun currentState(): ModelSelectionState {
+        val selectedModelId = settingsStore.selectedModelId() ?: DEFAULT_CHAT_MODEL_ID
+        val activeModel = activeInstalledModel()
+        return ModelSelectionState(
             selectedModelId = selectedModelId,
-            activeInstalledModelId = activeInstalledModelId,
-            activeModelPath = activeInstalledModel()?.path,
+            activeInstalledModelId = activeModel?.id,
+            activeModelPath = activeModel?.path,
             installedModels = installedModelSummaries(),
         )
+    }
 
-    fun selectedRecommendedModel(): RecommendedModel =
-        ModelCatalog.recommendedChatModelById(selectedModelId)
+    override fun selectedRecommendedModel(): RecommendedModel =
+        ModelCatalog.recommendedChatModelById(settingsStore.selectedModelId() ?: DEFAULT_CHAT_MODEL_ID)
 
-    fun selectRecommendedModel(modelId: String): ModelSelectionResult {
-        selectedModelId = ModelCatalog.recommendedChatModelById(modelId).id
-        prefs.edit().putString(PREF_SELECTED_MODEL_ID, selectedModelId).apply()
-        val installed = installedModels.firstOrNull {
-            it.recommendedModelId == selectedModelId && File(it.path).exists()
+    override fun selectRecommendedModel(modelId: String): ModelSelectionResult {
+        val selectedModelId = ModelCatalog.recommendedChatModelById(modelId).id
+        settingsStore.saveSelectedModelId(selectedModelId)
+        val installed = installedModels().firstOrNull {
+            it.recommendedModelId == selectedModelId && File(it.path).exists() && it.canBecomeActiveChatModel()
         }
-        val activated = installed?.let { activateInstalledModel(it, persistNow = true) }
-        return ModelSelectionResult(
-            state = currentState(),
-            activatedModel = activated,
-        )
+        val activated = installed?.let { activateInstalledModel(it) }
+        return ModelSelectionResult(currentState(), activated)
     }
 
-    fun selectInstalledModel(modelId: String): InstalledModelSummary? {
-        val installed = installedModels.firstOrNull { it.id == modelId && File(it.path).exists() } ?: return null
+    override fun selectInstalledModel(modelId: String): InstalledModelSummary? {
+        val installed = modelDao.model(modelId)?.takeIf { File(it.path).exists() } ?: return null
         if (!installed.canBecomeActiveChatModel()) return null
-        return activateInstalledModel(installed, persistNow = true)
+        return activateInstalledModel(installed)
     }
 
-    fun registerInstalledModel(
+    override fun registerInstalledModel(
         path: String,
         displayName: String,
         recommendedModelId: String?,
+        verifiedSha256: String?,
+        verificationStatus: ModelVerificationStatus,
     ): InstalledModelSummary {
         val file = File(path)
-        val existing = installedModels.firstOrNull {
-            it.path == path || (recommendedModelId != null && it.recommendedModelId == recommendedModelId)
+        val model = recommendedModelId?.let { ModelCatalog.recommendedModelById(it) }
+        val status = when {
+            recommendedModelId == null -> ModelVerificationStatus.UnverifiedCustom
+            verificationStatus == ModelVerificationStatus.FailedVerification -> verificationStatus
+            verifiedSha256 != null && model != null && verifiedSha256.equals(model.sha256Hex, ignoreCase = true) ->
+                ModelVerificationStatus.VerifiedRecommended
+            verificationStatus == ModelVerificationStatus.LegacyUnverified -> verificationStatus
+            else -> ModelVerificationStatus.FailedVerification
         }
-        val installed = InstalledModel(
-            id = existing?.id ?: installedModelId(path, recommendedModelId),
+        val entity = InstalledModelEntity(
+            id = recommendedModelId ?: "local-${Integer.toHexString(path.hashCode())}",
             displayName = displayName,
             path = path,
             fileBytes = file.length().coerceAtLeast(0L),
             recommendedModelId = recommendedModelId,
+            sourceRevision = model?.sourceRevision,
+            verifiedSha256 = verifiedSha256,
+            verificationStatus = status.name,
         )
-        installedModels = (listOf(installed) + installedModels)
-            .distinctBy { it.id }
-            .filter { File(it.path).exists() }
-        return if (installed.canBecomeActiveChatModel()) {
-            activateInstalledModel(installed, persistNow = true)
-        } else {
-            persistInstalledModels()
-            installed.toSummary()
+        modelDao.upsert(entity)
+        if (entity.canBecomeActiveChatModel()) {
+            activateInstalledModel(entity)
         }
+        return entity.toSummary()
     }
 
     fun importModel(
@@ -183,40 +190,40 @@ class ModelRepository(context: Context) {
                     StandardCopyOption.REPLACE_EXISTING,
                 )
             }
-            if (moved.isFailure) {
-                error("无法保存模型文件")
-            }
+            if (moved.isFailure) error("无法保存模型文件")
         } catch (throwable: Throwable) {
             tempTarget.delete()
             throw throwable
         }
-        val recommendedId = inferRecommendedModelId(target.name)
         registerInstalledModel(
             path = target.absolutePath,
-            displayName = recommendedId
-                ?.let { ModelCatalog.recommendedModelById(it).shortName }
-                ?: target.nameWithoutExtension,
-            recommendedModelId = recommendedId,
+            displayName = target.nameWithoutExtension,
+            recommendedModelId = null,
+            verificationStatus = ModelVerificationStatus.UnverifiedCustom,
         )
         return target.absolutePath
     }
 
-    fun pendingDownloadId(): Long =
-        prefs.getLong(PREF_DOWNLOAD_ID, -1L)
+    override fun pendingDownloadId(): Long =
+        downloadRecordDao.record()?.downloadManagerId ?: -1L
 
-    fun savePendingDownload(downloadId: Long, source: ModelDownloadSource) {
-        prefs.edit()
-            .putLong(PREF_DOWNLOAD_ID, downloadId)
-            .putString(PREF_DOWNLOAD_SOURCE, source.toJson().toString())
-            .apply()
+    override fun savePendingDownload(downloadId: Long, source: ModelDownloadSource) {
+        downloadRecordDao.upsert(
+            DownloadRecordEntity(
+                id = PENDING_DOWNLOAD_RECORD_ID,
+                downloadManagerId = downloadId,
+                sourceJson = source.toJson().toString(),
+                updatedAtMillis = System.currentTimeMillis(),
+            ),
+        )
     }
 
-    fun clearPendingDownload() {
-        prefs.edit().remove(PREF_DOWNLOAD_ID).remove(PREF_DOWNLOAD_SOURCE).apply()
+    override fun clearPendingDownload() {
+        downloadRecordDao.delete()
     }
 
-    fun loadPendingDownloadSource(): ModelDownloadSource? =
-        prefs.getString(PREF_DOWNLOAD_SOURCE, null)
+    override fun loadPendingDownloadSource(): ModelDownloadSource? =
+        downloadRecordDao.record()?.sourceJson
             ?.let { encoded ->
                 runCatching {
                     val json = JSONObject(encoded)
@@ -225,7 +232,8 @@ class ModelRepository(context: Context) {
                         fileName = ModelCatalog.sanitizeModelName(json.getString("fileName")),
                         downloadUrl = json.getString("downloadUrl"),
                         expectedBytes = json.optLongOrNull("expectedBytes"),
-                        modelId = json.optString("modelId").takeIf { it.isNotBlank() },
+                        expectedSha256 = json.optStringOrNull("expectedSha256"),
+                        modelId = json.optStringOrNull("modelId"),
                     )
                 }.getOrNull()
             }
@@ -235,8 +243,7 @@ class ModelRepository(context: Context) {
         val uri = runCatching { Uri.parse(trimmedUrl) }.getOrNull() ?: return null
         val scheme = uri.scheme?.lowercase()
         if (scheme != "http" && scheme != "https") return null
-        val host = uri.host
-        if (host.isNullOrBlank()) return null
+        if (uri.host.isNullOrBlank()) return null
         val fileName = ModelCatalog.sanitizeModelName(
             uri.lastPathSegment
                 ?.substringAfterLast('/')
@@ -249,6 +256,7 @@ class ModelRepository(context: Context) {
             fileName = fileName,
             downloadUrl = trimmedUrl,
             expectedBytes = null,
+            expectedSha256 = null,
             modelId = null,
         )
     }
@@ -272,19 +280,89 @@ class ModelRepository(context: Context) {
             it.fileName.equals(fileName, ignoreCase = true)
         }?.id
 
+    fun verifiedActionModelPath(): String? =
+        installedModels().firstOrNull {
+            it.recommendedModelId != null &&
+                ModelCatalog.recommendedModelById(it.recommendedModelId).capability == ModelCapability.MobileAction &&
+                it.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name &&
+                File(it.path).exists()
+        }?.path
+
+    fun verifyLegacyRecommendedModels(): Boolean {
+        var changed = false
+        installedModels().forEach { entity ->
+            val modelId = entity.recommendedModelId ?: return@forEach
+            if (entity.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name) return@forEach
+            val model = ModelCatalog.recommendedModelById(modelId)
+            val file = File(entity.path)
+            if (!file.exists() || !ModelCatalog.isCompleteRecommendedModel(file.length(), model)) return@forEach
+            val verified = ModelCatalog.matchesExpectedSha256(file, model.sha256Hex)
+            modelDao.upsert(
+                entity.copy(
+                    verifiedSha256 = if (verified) model.sha256Hex else null,
+                    verificationStatus = if (verified) {
+                        ModelVerificationStatus.VerifiedRecommended.name
+                    } else {
+                        ModelVerificationStatus.FailedVerification.name
+                    },
+                ),
+            )
+            changed = true
+        }
+        return changed
+    }
+
+    private fun discoverRecommendedDownloadedModels() {
+        val downloadDir = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return
+        RECOMMENDED_MODELS.forEach { model ->
+            val file = File(downloadDir, model.fileName)
+            if (file.exists() && modelDao.model(model.id) == null) {
+                modelDao.upsert(
+                    InstalledModelEntity(
+                        id = model.id,
+                        displayName = model.shortName,
+                        path = file.absolutePath,
+                        fileBytes = file.length().coerceAtLeast(0L),
+                        recommendedModelId = model.id,
+                        sourceRevision = model.sourceRevision,
+                        verifiedSha256 = null,
+                        verificationStatus = ModelVerificationStatus.LegacyUnverified.name,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun activeInstalledModel(): InstalledModelEntity? {
+        val savedId = settingsStore.activeInstalledModelId()
+        val saved = savedId?.let { modelDao.model(it) }
+        return when {
+            saved != null && File(saved.path).exists() && saved.canBecomeActiveChatModel() -> saved
+            else -> installedModels().firstOrNull { File(it.path).exists() && it.canBecomeActiveChatModel() }
+                ?.also { settingsStore.saveActiveInstalledModelId(it.id) }
+        }
+    }
+
+    private fun activateInstalledModel(installed: InstalledModelEntity): InstalledModelSummary {
+        check(installed.canBecomeActiveChatModel()) { "只有可加载的对话模型可以成为当前模型" }
+        settingsStore.saveActiveInstalledModelId(installed.id)
+        installed.recommendedModelId?.let { settingsStore.saveSelectedModelId(it) }
+        return installed.toSummary()
+    }
+
+    private fun installedModels(): List<InstalledModelEntity> =
+        modelDao.models().filter { File(it.path).exists() }
+
+    private fun installedModelSummaries(): List<InstalledModelSummary> =
+        installedModels().map { it.toSummary() }
+
     private fun copyUriToFile(
         uri: Uri,
         target: File,
         onProgress: (TransferProgress) -> Unit,
     ) {
         val total = resolveFileSize(uri)
-        onProgress(
-            TransferProgress(
-                percent = if (total > 0L) 0 else null,
-                transferredBytes = 0L,
-                totalBytes = total,
-            ),
-        )
+        onProgress(TransferProgress(if (total > 0L) 0 else null, 0L, total))
         appContext.contentResolver.openInputStream(uri)?.use { input ->
             target.outputStream().use { output ->
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -344,134 +422,11 @@ class ModelRepository(context: Context) {
         return selectedRecommendedModel().fileName
     }
 
-    private fun activateInstalledModel(
-        installed: InstalledModel,
-        persistNow: Boolean,
-    ): InstalledModelSummary {
-        check(installed.canBecomeActiveChatModel()) { "只有对话模型可以加载为当前模型" }
-        activeInstalledModelId = installed.id
-        installed.recommendedModelId?.let {
-            selectedModelId = it
-        }
-        if (persistNow) {
-            persistInstalledModels()
-        }
-        return installed.toSummary()
+    private fun cleanTemporaryModelFiles() {
+        modelDir.listFiles { file ->
+            file.isFile && file.extension == "tmp"
+        }?.forEach { it.delete() }
     }
-
-    private fun loadInstalledModels(): List<InstalledModel> {
-        val persisted = prefs.getString(PREF_INSTALLED_MODELS_JSON, null)
-            ?.let { encoded ->
-                runCatching {
-                    val array = JSONArray(encoded)
-                    buildList {
-                        for (index in 0 until array.length()) {
-                            val json = array.getJSONObject(index)
-                            val path = json.optString("path").takeIf { it.isNotBlank() } ?: continue
-                            val file = File(path)
-                            if (!file.exists()) continue
-                            val recommendedId = json.optString("recommendedModelId").takeIf { it.isNotBlank() }
-                                ?: inferRecommendedModelId(file.name)
-                            add(
-                                InstalledModel(
-                                    id = json.optString("id").takeIf { it.isNotBlank() }
-                                        ?: installedModelId(path, recommendedId),
-                                    displayName = json.optString("displayName").takeIf { it.isNotBlank() }
-                                        ?: installedModelDisplayName(file, recommendedId),
-                                    path = path,
-                                    fileBytes = file.length().coerceAtLeast(0L),
-                                    recommendedModelId = recommendedId,
-                                ),
-                            )
-                        }
-                    }
-                }.getOrNull()
-            }
-            .orEmpty()
-
-        val legacy = prefs.getString(PREF_MODEL_PATH, null)
-            ?.takeIf { File(it).exists() }
-            ?.let { path ->
-                val file = File(path)
-                val recommendedId = inferRecommendedModelId(file.name)
-                InstalledModel(
-                    id = installedModelId(path, recommendedId),
-                    displayName = installedModelDisplayName(file, recommendedId),
-                    path = path,
-                    fileBytes = file.length().coerceAtLeast(0L),
-                    recommendedModelId = recommendedId,
-                )
-            }
-
-        val discovered = discoverRecommendedDownloadedModels()
-        return (persisted + listOfNotNull(legacy) + discovered)
-            .filter { File(it.path).exists() }
-            .distinctBy { it.id }
-    }
-
-    private fun discoverRecommendedDownloadedModels(): List<InstalledModel> {
-        val downloadDir = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return emptyList()
-        return RECOMMENDED_MODELS.mapNotNull { model ->
-            val file = File(downloadDir, model.fileName)
-            if (file.exists() && ModelCatalog.isCompleteRecommendedModel(file.length(), model)) {
-                InstalledModel(
-                    id = model.id,
-                    displayName = model.shortName,
-                    path = file.absolutePath,
-                    fileBytes = file.length(),
-                    recommendedModelId = model.id,
-                )
-            } else {
-                null
-            }
-        }
-    }
-
-    private fun resolveActiveInstalledModelId(models: List<InstalledModel>): String? {
-        val savedId = prefs.getString(PREF_ACTIVE_INSTALLED_MODEL_ID, null)
-        val savedPath = prefs.getString(PREF_MODEL_PATH, null)
-        val chatModels = models.filter { it.canBecomeActiveChatModel() }
-        return chatModels.firstOrNull { it.id == savedId }?.id
-            ?: chatModels.firstOrNull { it.path == savedPath }?.id
-            ?: chatModels.firstOrNull()?.id
-    }
-
-    private fun activeInstalledModel(): InstalledModel? =
-        installedModels.firstOrNull { it.id == activeInstalledModelId && File(it.path).exists() }
-
-    private fun installedModelSummaries(): List<InstalledModelSummary> =
-        installedModels
-            .filter { File(it.path).exists() }
-            .map { it.toSummary() }
-
-    private fun persistInstalledModels() {
-        val active = activeInstalledModel()
-        prefs.edit()
-            .putString(PREF_INSTALLED_MODELS_JSON, installedModels.toInstalledModelsJson().toString())
-            .putString(PREF_ACTIVE_INSTALLED_MODEL_ID, activeInstalledModelId)
-            .apply {
-                if (active == null) {
-                    remove(PREF_MODEL_PATH)
-                } else {
-                    putString(PREF_MODEL_PATH, active.path)
-                }
-            }
-            .apply()
-    }
-
-    private fun List<InstalledModel>.toInstalledModelsJson(): JSONArray =
-        JSONArray().also { array ->
-            forEach { model ->
-                array.put(
-                    JSONObject()
-                        .put("id", model.id)
-                        .put("displayName", model.displayName)
-                        .put("path", model.path)
-                        .put("fileBytes", model.fileBytes)
-                        .put("recommendedModelId", model.recommendedModelId ?: JSONObject.NULL),
-                )
-            }
-        }
 
     private fun ModelDownloadSource.toJson(): JSONObject =
         JSONObject()
@@ -479,42 +434,32 @@ class ModelRepository(context: Context) {
             .put("fileName", fileName)
             .put("downloadUrl", downloadUrl)
             .put("expectedBytes", expectedBytes ?: JSONObject.NULL)
+            .put("expectedSha256", expectedSha256 ?: JSONObject.NULL)
             .put("modelId", modelId ?: JSONObject.NULL)
-
-    private fun installedModelDisplayName(file: File, recommendedModelId: String?): String =
-        recommendedModelId?.let { ModelCatalog.recommendedModelById(it).shortName }
-            ?: file.nameWithoutExtension
-
-    private fun installedModelId(path: String, recommendedModelId: String?): String =
-        recommendedModelId ?: "local-${Integer.toHexString(path.hashCode())}"
-
-    private fun cleanTemporaryModelFiles() {
-        modelDir.listFiles { file ->
-            file.isFile && file.extension == "tmp"
-        }?.forEach { it.delete() }
-    }
 
     private fun JSONObject.optLongOrNull(name: String): Long? =
         if (isNull(name)) null else optLong(name).takeIf { it > 0L }
 
-    private fun InstalledModel.toSummary(): InstalledModelSummary =
+    private fun JSONObject.optStringOrNull(name: String): String? =
+        if (isNull(name)) null else optString(name).takeIf { it.isNotBlank() && it != "null" }
+
+    private fun InstalledModelEntity.toSummary(): InstalledModelSummary =
         InstalledModelSummary(
             id = id,
             displayName = displayName,
             path = path,
             fileBytes = fileBytes,
             recommendedModelId = recommendedModelId,
+            verifiedSha256 = verifiedSha256,
+            verificationStatus = runCatching { ModelVerificationStatus.valueOf(verificationStatus) }
+                .getOrDefault(ModelVerificationStatus.LegacyUnverified),
         )
-}
 
-private data class InstalledModel(
-    val id: String,
-    val displayName: String,
-    val path: String,
-    val fileBytes: Long,
-    val recommendedModelId: String?,
-) {
-    fun canBecomeActiveChatModel(): Boolean =
-        recommendedModelId == null ||
-            ModelCatalog.recommendedModelById(recommendedModelId).capability == ModelCapability.Chat
+    private fun InstalledModelEntity.canBecomeActiveChatModel(): Boolean =
+        if (recommendedModelId == null) {
+            true
+        } else {
+            ModelCatalog.recommendedModelById(recommendedModelId).capability == ModelCapability.Chat &&
+                verificationStatus == ModelVerificationStatus.VerifiedRecommended.name
+        }
 }

@@ -1,0 +1,134 @@
+package com.bytedance.zgx.pocketmind.action
+
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.SamplerConfig
+import java.io.File
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.runBlocking
+
+interface ActionPlanningRuntime {
+    fun isLikelyAction(input: String): Boolean
+    fun plan(input: String, actionModelPath: String?): ActionPlanningResult
+}
+
+data class ActionPlanningResult(
+    val plan: ActionPlan,
+    val usedModel: Boolean,
+    val fallbackReason: String?,
+)
+
+class HybridActionPlanningRuntime(
+    cacheDir: File,
+    private val rulePlanner: MobileActionPlanner = MobileActionPlanner(),
+) : ActionPlanningRuntime, AutoCloseable {
+    private val modelPlanner = ModelBackedActionPlanner(cacheDir, rulePlanner)
+
+    override fun isLikelyAction(input: String): Boolean =
+        rulePlanner.isLikelyAction(input)
+
+    override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
+        if (actionModelPath != null) {
+            val modelPlan = runCatching { modelPlanner.plan(input, actionModelPath) }
+                .getOrNull()
+            if (modelPlan?.kind == ActionPlanKind.Draft && modelPlan.draft != null) {
+                return ActionPlanningResult(
+                    plan = modelPlan,
+                    usedModel = true,
+                    fallbackReason = null,
+                )
+            }
+        }
+
+        return ActionPlanningResult(
+            plan = rulePlanner.plan(input),
+            usedModel = false,
+            fallbackReason = if (actionModelPath == null) "动作模型未安装或未校验" else "动作模型未产出可执行草稿",
+        )
+    }
+
+    override fun close() {
+        modelPlanner.close()
+    }
+}
+
+private class ModelBackedActionPlanner(
+    private val cacheDir: File,
+    private val parser: MobileActionPlanner,
+) : AutoCloseable {
+    private var loadedPath: String? = null
+    private var engine: Engine? = null
+
+    fun plan(input: String, modelPath: String): ActionPlan? {
+        val activeEngine = engineFor(modelPath)
+        val conversation = activeEngine.createConversation(actionConversationConfig())
+        return try {
+            val output = StringBuilder()
+            runBlocking {
+                conversation.sendMessageAsync(actionPrompt(input)).collect { message ->
+                    output.append(message.textContent())
+                }
+            }
+            parser.parseModelOutput(output.toString())
+                ?.let { ActionPlan(ActionPlanKind.Draft, it) }
+        } finally {
+            conversation.close()
+        }
+    }
+
+    private fun engineFor(modelPath: String): Engine {
+        if (loadedPath == modelPath && engine != null) return engine!!
+        close()
+        val created = Engine(
+            EngineConfig(
+                modelPath = modelPath,
+                backend = Backend.CPU(),
+                cacheDir = cacheDir.absolutePath,
+            ),
+        )
+        created.initialize()
+        loadedPath = modelPath
+        engine = created
+        return created
+    }
+
+    override fun close() {
+        engine?.close()
+        engine = null
+        loadedPath = null
+    }
+}
+
+private fun actionConversationConfig(): ConversationConfig =
+    ConversationConfig(
+        systemInstruction = Contents.of(
+            "你是手机动作规划器。只能输出 call:function {\"arg\":\"value\"}，不解释。",
+        ),
+        samplerConfig = SamplerConfig(
+            topK = 1,
+            topP = 0.1,
+            temperature = 0.0,
+        ),
+    )
+
+private fun actionPrompt(input: String): String =
+    """
+    将用户请求转换成一个手机动作调用。支持函数：
+    - open_wifi_settings {}
+    - search_maps {"query":"..."}
+    - compose_email {"body":"..."}
+    - create_calendar_event {"title":"..."}
+    - create_contact_draft {"name":"..."}
+    - open_flashlight_settings {}
+
+    用户请求：$input
+    """.trimIndent()
+
+private fun com.google.ai.edge.litertlm.Message.textContent(): String =
+    contents.contents
+        .filterIsInstance<Content.Text>()
+        .joinToString(separator = "") { it.text }

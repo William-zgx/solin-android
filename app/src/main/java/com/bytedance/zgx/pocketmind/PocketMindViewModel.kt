@@ -1,19 +1,17 @@
 package com.bytedance.zgx.pocketmind
 
-import android.app.Application
 import android.app.DownloadManager
 import android.net.Uri
-import android.os.Build
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionExecutor
-import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupRepository
 import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
 import com.bytedance.zgx.pocketmind.data.GenerationParametersRepository
 import com.bytedance.zgx.pocketmind.data.ModelRepository
 import com.bytedance.zgx.pocketmind.data.ModelSelectionState
+import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
 import com.bytedance.zgx.pocketmind.data.SessionRepository
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
@@ -26,6 +24,7 @@ import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
 import java.io.File
 import java.util.ArrayDeque
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -39,21 +38,21 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-class PocketMindViewModel(application: Application) : AndroidViewModel(application) {
-    private val appContext = application.applicationContext
-    private val modelRepository = ModelRepository(appContext)
-    private val sessionRepository = SessionRepository(appContext)
-    private val generationParametersRepository = GenerationParametersRepository(appContext)
-    private val remoteModelRepository = RemoteModelRepository(appContext)
-    private val firstRunSetupRepository = FirstRunSetupRepository(appContext)
-    private val downloadService = ModelDownloadService(appContext)
-    private val runtime: LiteRtRuntime = RealLiteRtRuntime(appContext.cacheDir)
-    private val remoteRuntime = RemoteChatRuntime()
-    private val memoryRepository = MemoryRepository()
-    private val actionPlanner = MobileActionPlanner()
-    private val actionExecutor = ActionExecutor(appContext)
-    private val assistantOrchestrator = AssistantOrchestrator(memoryRepository, actionPlanner)
-
+class PocketMindViewModel(
+    private val modelRepository: ModelRepository,
+    private val sessionRepository: SessionRepository,
+    private val generationParametersRepository: GenerationParametersRepository,
+    private val remoteModelRepository: RemoteModelRepository,
+    private val firstRunSetupRepository: FirstRunSetupRepository,
+    private val downloadService: ModelDownloadService,
+    private val runtime: LiteRtRuntime,
+    private val remoteRuntime: RemoteChatRuntime,
+    private val memoryRepository: MemoryRepository,
+    private val actionExecutor: ActionExecutor,
+    private val assistantOrchestrator: AssistantOrchestrator,
+    private val isArm64DeviceProvider: () -> Boolean,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : ViewModel() {
     private val runtimeLock = Mutex()
     private var generationJob: Job? = null
     private var downloadMonitorJob: Job? = null
@@ -75,6 +74,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
 
         refreshDeviceStatus()
         rebuildMemoryIndex()
+        verifyLegacyModelsOnStartup(skipModelRuntimeWork)
 
         if (skipModelRuntimeWork) {
             if (_uiState.value.inferenceMode == InferenceMode.Remote) {
@@ -241,7 +241,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
 
         viewModelScope.launch {
             val result = runCatching {
-                withContext(Dispatchers.IO) {
+                withContext(ioDispatcher) {
                     runtimeLock.withLock {
                         runtime.close()
                         modelRepository.importModel(uri) { progress ->
@@ -292,6 +292,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
 
     fun selectBackend(choice: BackendChoice) {
         if (_uiState.value.isBusy || _uiState.value.backend == choice) return
+        generationParametersRepository.saveBackend(choice)
         _uiState.update {
             it.copy(
                 backend = choice,
@@ -345,13 +346,22 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
 
     fun updateRemoteModelConfig(config: RemoteModelConfig) {
         if (_uiState.value.isBusy) return
-        val normalized = remoteModelRepository.saveConfig(config)
-        _uiState.update {
-            it.copy(remoteModelConfig = normalized)
-        }
-        if (_uiState.value.inferenceMode == InferenceMode.Remote) {
-            updateRemoteReadiness("远程模型")
-        }
+        remoteModelRepository.saveConfig(config)
+            .fold(
+                onSuccess = { normalized ->
+                    _uiState.update {
+                        it.copy(remoteModelConfig = normalized)
+                    }
+                    if (_uiState.value.inferenceMode == InferenceMode.Remote) {
+                        updateRemoteReadiness("远程模型")
+                    }
+                },
+                onFailure = { throwable ->
+                    _uiState.update {
+                        it.copy(statusText = "API Key 加密保存失败：${throwable.cleanMessage()}")
+                    }
+                },
+            )
     }
 
     fun selectRecommendedModel(modelId: String) {
@@ -403,7 +413,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
             )
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val result = runCatching {
                 runtimeLock.withLock {
                     runtime.load(
@@ -534,139 +544,173 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
         val useRemoteModel = stateBeforeSend.inferenceMode == InferenceMode.Remote
         val remoteConfig = stateBeforeSend.remoteModelConfig
         val remoteHistory = stateBeforeSend.messages
-        val route = assistantOrchestrator.route(
-            input = trimmed,
-            installedCapabilities = stateBeforeSend.installedCapabilities,
-            memoryEnabled = stateBeforeSend.memoryEnabled,
-        )
-        val userMessage = ChatMessage(MessageRole.User, trimmed)
-        when (route) {
-            is AssistantRoute.Action -> {
-                val assistantMessage = ChatMessage(
-                    role = MessageRole.Assistant,
-                    text = "已准备动作草稿：${route.draft.summary}\n请确认后再执行。",
-                )
-                replaceActiveSessionMessages(_uiState.value.messages + userMessage + assistantMessage, persistNow = true)
-                _uiState.update {
-                    it.copy(
-                        pendingActionDraft = route.draft,
-                        memoryHits = emptyList(),
-                        statusText = "动作草稿待确认",
-                    )
-                }
-                rebuildMemoryIndex()
-                return
-            }
-
-            is AssistantRoute.MissingModel -> {
-                val capabilityName = when (route.capability) {
-                    ModelCapability.Chat -> "对话模型"
-                    ModelCapability.MemoryEmbedding -> "记忆模型"
-                    ModelCapability.MobileAction -> "动作模型"
-                }
-                val assistantMessage = ChatMessage(
-                    role = MessageRole.Assistant,
-                    text = "需要先安装$capabilityName，才能完成这个请求。请到模型管理安装基础能力包。",
-                )
-                replaceActiveSessionMessages(_uiState.value.messages + userMessage + assistantMessage, persistNow = true)
-                _uiState.update {
-                    it.copy(
-                        memoryHits = emptyList(),
-                        statusText = "缺少$capabilityName",
-                    )
-                }
-                rebuildMemoryIndex()
-                return
-            }
-
-            is AssistantRoute.Chat -> Unit
-        }
-
-        val assistantPlaceholder = ChatMessage(MessageRole.Assistant, "")
-        val nextMessages = _uiState.value.messages + userMessage + assistantPlaceholder
-        replaceActiveSessionMessages(nextMessages, persistNow = true)
         _uiState.update {
             it.copy(
                 isBusy = true,
-                isGenerating = true,
-                memoryHits = route.memoryHits,
-                statusText = "生成中",
+                isGenerating = false,
+                statusText = "处理中",
             )
         }
 
-        val job = viewModelScope.launch(Dispatchers.IO) {
-            if (!useRemoteModel && !runtime.isLoaded) {
-                _uiState.updateLastAssistant("模型尚未就绪")
-                persistActiveSessionFromUi()
-                _uiState.update {
-                    it.copy(
-                        isBusy = false,
-                        isGenerating = false,
-                        isReady = false,
-                        statusText = "未加载模型",
-                    )
-                }
-                return@launch
-            }
-            if (useRemoteModel && !remoteConfig.isConfigured) {
-                _uiState.updateLastAssistant("请先在模型管理中配置远程模型地址和模型名")
-                persistActiveSessionFromUi()
-                _uiState.update {
-                    it.copy(
-                        isBusy = false,
-                        isGenerating = false,
-                        isReady = false,
-                        statusText = "请配置远程模型",
-                    )
-                }
-                return@launch
-            }
-
+        val job = viewModelScope.launch(ioDispatcher) {
             try {
-                val partial = StringBuilder()
-                val response = if (useRemoteModel) {
-                    remoteRuntime.send(
-                        prompt = route.promptForModel,
-                        history = remoteHistory,
-                        parameters = _uiState.value.generationParameters,
-                        config = remoteConfig,
-                    )
-                } else {
-                    runtime.send(route.promptForModel)
-                }
-                response.collect { chunk ->
-                    partial.append(chunk)
-                    _uiState.updateLastAssistant(partial.toString())
-                }
-                if (partial.isBlank()) {
-                    _uiState.updateLastAssistant("没有生成内容")
-                } else if (!useRemoteModel) {
-                    _uiState.updateLastAssistantStats(
-                        runCatching { runtime.lastGenerationStats() }.getOrNull(),
-                    )
-                }
-                persistActiveSessionFromUi()
-                rebuildMemoryIndex()
-                _uiState.update {
-                    it.copy(
-                        isBusy = false,
-                        isGenerating = false,
-                        isReady = true,
-                        statusText = if (useRemoteModel) {
-                            "就绪 · 远程"
+                val route = assistantOrchestrator.route(
+                    input = trimmed,
+                    installedCapabilities = stateBeforeSend.installedCapabilities,
+                    memoryEnabled = stateBeforeSend.memoryEnabled,
+                    actionModelPath = modelRepository.verifiedActionModelPath(),
+                )
+                val userMessage = ChatMessage(MessageRole.User, trimmed)
+                when (route) {
+                    is AssistantRoute.Action -> {
+                        val planningLabel = if (route.plannedByModel) {
+                            "动作模型实验"
                         } else {
-                            "就绪 · ${it.backend.label()}"
-                        },
-                    )
+                            "规则回退"
+                        }
+                        val assistantMessage = ChatMessage(
+                            role = MessageRole.Assistant,
+                            text = "已准备动作草稿（$planningLabel）：${route.draft.summary}\n请确认后再执行。",
+                        )
+                        replaceActiveSessionMessages(
+                            stateBeforeSend.messages + userMessage + assistantMessage,
+                            persistNow = true,
+                        )
+                        _uiState.update {
+                            it.copy(
+                                isBusy = false,
+                                isGenerating = false,
+                                pendingActionDraft = route.draft,
+                                memoryHits = emptyList(),
+                                statusText = "动作草稿待确认 · $planningLabel",
+                            )
+                        }
+                        rebuildMemoryIndex()
+                        return@launch
+                    }
+
+                    is AssistantRoute.MissingModel -> {
+                        val capabilityName = when (route.capability) {
+                            ModelCapability.Chat -> "对话模型"
+                            ModelCapability.MemoryEmbedding -> "记忆模型"
+                            ModelCapability.MobileAction -> "动作模型"
+                        }
+                        val assistantMessage = ChatMessage(
+                            role = MessageRole.Assistant,
+                            text = "需要先安装$capabilityName，才能完成这个请求。请到模型管理安装基础能力包。",
+                        )
+                        replaceActiveSessionMessages(
+                            stateBeforeSend.messages + userMessage + assistantMessage,
+                            persistNow = true,
+                        )
+                        _uiState.update {
+                            it.copy(
+                                isBusy = false,
+                                isGenerating = false,
+                                memoryHits = emptyList(),
+                                statusText = "缺少$capabilityName",
+                            )
+                        }
+                        rebuildMemoryIndex()
+                        return@launch
+                    }
+
+                    is AssistantRoute.Chat -> {
+                        val assistantPlaceholder = ChatMessage(MessageRole.Assistant, "")
+                        replaceActiveSessionMessages(
+                            stateBeforeSend.messages + userMessage + assistantPlaceholder,
+                            persistNow = true,
+                        )
+                        _uiState.update {
+                            it.copy(
+                                isGenerating = true,
+                                memoryHits = route.memoryHits,
+                                statusText = "生成中",
+                            )
+                        }
+                        if (!useRemoteModel && !runtime.isLoaded) {
+                            _uiState.updateLastAssistant("模型尚未就绪")
+                            persistActiveSessionFromUi()
+                            _uiState.update {
+                                it.copy(
+                                    isBusy = false,
+                                    isGenerating = false,
+                                    isReady = false,
+                                    statusText = "未加载模型",
+                                )
+                            }
+                            return@launch
+                        }
+                        if (useRemoteModel && !remoteConfig.isConfigured) {
+                            _uiState.updateLastAssistant("请先在模型管理中配置远程模型地址和模型名")
+                            persistActiveSessionFromUi()
+                            _uiState.update {
+                                it.copy(
+                                    isBusy = false,
+                                    isGenerating = false,
+                                    isReady = false,
+                                    statusText = "请配置远程模型",
+                                )
+                            }
+                            return@launch
+                        }
+
+                        val partial = StringBuilder()
+                        val response = if (useRemoteModel) {
+                            remoteRuntime.send(
+                                prompt = route.promptForModel,
+                                history = remoteHistory,
+                                parameters = _uiState.value.generationParameters,
+                                config = remoteConfig,
+                            )
+                        } else {
+                            runtime.send(route.promptForModel)
+                        }
+                        response.collect { chunk ->
+                            partial.append(chunk)
+                            _uiState.updateLastAssistant(partial.toString())
+                        }
+                        if (partial.isBlank()) {
+                            _uiState.updateLastAssistant("没有生成内容")
+                        } else if (!useRemoteModel) {
+                            _uiState.updateLastAssistantStats(
+                                runCatching { runtime.lastGenerationStats() }.getOrNull(),
+                            )
+                        }
+                        persistActiveSessionFromUi()
+                        rebuildMemoryIndex()
+                        _uiState.update {
+                            it.copy(
+                                isBusy = false,
+                                isGenerating = false,
+                                isReady = true,
+                                statusText = if (useRemoteModel) {
+                                    "就绪 · 远程"
+                                } else {
+                                    "就绪 · ${it.backend.label()}"
+                                },
+                            )
+                        }
+                    }
                 }
             } catch (cancellation: CancellationException) {
                 if (_uiState.value.isGenerating) {
                     finishStoppedGeneration()
+                } else if (_uiState.value.isBusy) {
+                    _uiState.update {
+                        it.copy(
+                            isBusy = false,
+                            isGenerating = false,
+                            statusText = "已停止",
+                        )
+                    }
                 }
                 throw cancellation
             } catch (throwable: Throwable) {
-                _uiState.updateLastAssistant("出错了：${throwable.cleanMessage()}")
-                persistActiveSessionFromUi()
+                if (_uiState.value.isGenerating) {
+                    _uiState.updateLastAssistant("出错了：${throwable.cleanMessage()}")
+                    persistActiveSessionFromUi()
+                }
                 _uiState.update {
                     it.copy(
                         isBusy = false,
@@ -693,6 +737,8 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
         val job = generationJob ?: return
         if (_uiState.value.inferenceMode == InferenceMode.Local) {
             runtime.stop()
+        } else {
+            remoteRuntime.stop()
         }
         job.cancel()
         finishStoppedGeneration()
@@ -719,7 +765,9 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
 
     override fun onCleared() {
         downloadMonitorJob?.cancel()
+        remoteRuntime.stop()
         runtime.close()
+        assistantOrchestrator.close()
         super.onCleared()
     }
 
@@ -740,14 +788,8 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
             }
             return
         }
-        if (source.expectedBytes != null && target.exists() && source.isCompleteFile(target.length())) {
-            modelRepository.registerInstalledModel(
-                path = target.absolutePath,
-                displayName = source.installedDisplayName(target),
-                recommendedModelId = source.modelId ?: modelRepository.inferRecommendedModelId(target.name),
-            )
-            updateModelState(modelRepository.currentState())
-            continueSetupDownloadOrLoad(source)
+        if (source.expectedBytes != null && target.exists() && source.hasExpectedSize(target.length())) {
+            verifyAndRegisterDownloadedModel(target, source)
             return
         }
         if (target.exists() && !target.delete()) {
@@ -802,7 +844,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
     ) {
         downloadMonitorJob?.cancel()
         activeDownloadId = downloadId
-        downloadMonitorJob = viewModelScope.launch(Dispatchers.IO) {
+        downloadMonitorJob = viewModelScope.launch(ioDispatcher) {
             while (isActive && activeDownloadId == downloadId) {
                 val info = downloadService.query(downloadId)
                 if (info == null) {
@@ -838,7 +880,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
                 when (info.status) {
                     DownloadManager.STATUS_SUCCESSFUL -> {
                         activeDownloadId = null
-                        if (!targetFile.exists() || !source.isCompleteFile(targetFile.length())) {
+                        if (!targetFile.exists() || !source.hasExpectedSize(targetFile.length())) {
                             modelRepository.clearPendingDownload()
                             targetFile.delete()
                             _uiState.update {
@@ -851,11 +893,42 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
                             }
                             return@launch
                         }
+                        _uiState.update {
+                            it.copy(
+                                isBusy = true,
+                                isDownloading = false,
+                                downloadProgressPercent = null,
+                                statusText = "正在校验模型文件",
+                            )
+                        }
+                        val verifiedSha256 = source.verifiedSha256(targetFile).getOrElse { throwable ->
+                            modelRepository.clearPendingDownload()
+                            setupDownloadQueue.clear()
+                            setupDownloadInProgress = false
+                            targetFile.delete()
+                            _uiState.update {
+                                it.copy(
+                                    isBusy = false,
+                                    isDownloading = false,
+                                    downloadProgressPercent = null,
+                                    downloadedBytes = 0L,
+                                    totalBytes = 0L,
+                                    statusText = throwable.cleanMessage(),
+                                )
+                            }
+                            return@launch
+                        }
                         modelRepository.clearPendingDownload()
                         modelRepository.registerInstalledModel(
                             path = targetFile.absolutePath,
                             displayName = source.installedDisplayName(targetFile),
-                            recommendedModelId = source.modelId ?: modelRepository.inferRecommendedModelId(targetFile.name),
+                            recommendedModelId = source.modelId,
+                            verifiedSha256 = verifiedSha256,
+                            verificationStatus = if (source.modelId == null) {
+                                ModelVerificationStatus.UnverifiedCustom
+                            } else {
+                                ModelVerificationStatus.VerifiedRecommended
+                            },
                         )
                         updateModelState(modelRepository.currentState())
                         _uiState.update {
@@ -895,6 +968,62 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    private fun verifyAndRegisterDownloadedModel(
+        targetFile: File,
+        source: ModelDownloadSource,
+    ) {
+        _uiState.update {
+            it.copy(
+                isBusy = true,
+                isDownloading = false,
+                downloadProgressPercent = null,
+                statusText = "正在校验模型文件",
+                isReady = false,
+            )
+        }
+        viewModelScope.launch(ioDispatcher) {
+            val verifiedSha256 = source.verifiedSha256(targetFile).getOrElse { throwable ->
+                targetFile.delete()
+                setupDownloadQueue.clear()
+                setupDownloadInProgress = false
+                _uiState.update {
+                    it.copy(
+                        isBusy = false,
+                        isDownloading = false,
+                        downloadProgressPercent = null,
+                        downloadedBytes = 0L,
+                        totalBytes = 0L,
+                        statusText = throwable.cleanMessage(),
+                    )
+                }
+                return@launch
+            }
+            modelRepository.registerInstalledModel(
+                path = targetFile.absolutePath,
+                displayName = source.installedDisplayName(targetFile),
+                recommendedModelId = source.modelId,
+                verifiedSha256 = verifiedSha256,
+                verificationStatus = if (source.modelId == null) {
+                    ModelVerificationStatus.UnverifiedCustom
+                } else {
+                    ModelVerificationStatus.VerifiedRecommended
+                },
+            )
+            updateModelState(modelRepository.currentState())
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    isDownloading = false,
+                    downloadProgressPercent = null,
+                    downloadedBytes = 0L,
+                    totalBytes = 0L,
+                    statusText = "模型校验通过",
+                )
+            }
+            continueSetupDownloadOrLoad(source)
+        }
+    }
+
     private fun continueSetupDownloadOrLoad(completedSource: ModelDownloadSource) {
         if (setupDownloadQueue.isNotEmpty()) {
             val nextSource = setupDownloadQueue.removeFirst()
@@ -929,7 +1058,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
                 statusText = "正在恢复会话",
             )
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             val result = runCatching {
                 runtimeLock.withLock {
                     runtime.recreateConversation(
@@ -970,6 +1099,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
             selectedModelId = modelState.selectedModelId,
             inferenceMode = remoteModelRepository.loadMode(),
             remoteModelConfig = remoteModelRepository.loadConfig(),
+            backend = generationParametersRepository.loadBackend(),
             showFirstRunSetup = !firstRunSetupRepository.isSetupDismissed(),
             memoryEnabled = firstRunSetupRepository.isMemoryEnabled(),
             generationParameters = generationParametersRepository.load(),
@@ -989,6 +1119,29 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
                 installedModels = modelState.installedModels,
                 selectedModelId = modelState.selectedModelId,
             )
+        }
+    }
+
+    private fun verifyLegacyModelsOnStartup(skipModelRuntimeWork: Boolean) {
+        viewModelScope.launch(ioDispatcher) {
+            val changed = modelRepository.verifyLegacyRecommendedModels()
+            if (!changed) return@launch
+            val state = modelRepository.currentState()
+            updateModelState(state)
+            val localMode = _uiState.value.inferenceMode == InferenceMode.Local
+            val hasFailedLegacy = state.installedModels.any {
+                it.verificationStatus == ModelVerificationStatus.FailedVerification
+            }
+            when {
+                !localMode || skipModelRuntimeWork -> Unit
+                state.activeModelPath != null && !_uiState.value.isBusy && !_uiState.value.isReady -> {
+                    _uiState.update { it.copy(statusText = "旧模型校验通过，正在加载") }
+                    loadModel()
+                }
+                state.activeModelPath == null && hasFailedLegacy -> {
+                    _uiState.update { it.copy(statusText = "旧模型校验失败，请重新下载或重新导入") }
+                }
+            }
         }
     }
 
@@ -1020,11 +1173,11 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun rebuildMemoryIndex() {
         memoryRepository.enabled = _uiState.value.memoryEnabled
-        memoryRepository.rebuild(sessionRepository.allMessages())
+        memoryRepository.rebuild(sessionRepository.allMessages(limit = 500))
     }
 
     private fun isArm64Device(): Boolean =
-        Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
+        isArm64DeviceProvider()
 
     private fun replaceActiveSessionMessages(
         messages: List<ChatMessage>,
@@ -1053,6 +1206,7 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun finishStoppedGeneration() {
+        val remoteMode = _uiState.value.inferenceMode == InferenceMode.Remote
         val currentMessages = _uiState.value.messages
         val messages = if (
             currentMessages.lastOrNull()?.role == MessageRole.Assistant &&
@@ -1068,8 +1222,10 @@ class PocketMindViewModel(application: Application) : AndroidViewModel(applicati
             it.copy(
                 isBusy = false,
                 isGenerating = false,
-                isReady = runtime.isLoaded,
-                statusText = if (!runtime.isLoaded) {
+                isReady = if (remoteMode) it.remoteModelConfig.isConfigured else runtime.isLoaded,
+                statusText = if (remoteMode) {
+                    "已停止 · 远程"
+                } else if (!runtime.isLoaded) {
                     "未加载模型"
                 } else {
                     "已停止 · ${it.backend.label()}"

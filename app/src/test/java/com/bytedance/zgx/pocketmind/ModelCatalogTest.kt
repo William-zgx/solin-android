@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind
 
 import android.app.DownloadManager
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -50,6 +51,9 @@ class ModelCatalogTest {
         assertEquals(ModelCapability.Chat, defaultChat.capability)
         assertEquals(SetupTier.BasicRecommended, defaultChat.setupTier)
         assertEquals(2_588_147_712L, defaultChat.byteSize)
+        assertEquals("a4a831c060880f3733135ad22f10e0e9f758f45d", defaultChat.sourceRevision)
+        assertEquals("181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c", defaultChat.sha256Hex)
+        assertFalse(defaultChat.downloadUrl.contains("/resolve/main/"))
 
         assertEquals(ModelCapability.Chat, optionalChat.capability)
         assertEquals(SetupTier.OptionalChat, optionalChat.setupTier)
@@ -59,9 +63,29 @@ class ModelCatalogTest {
             setOf(ModelCapability.Chat, ModelCapability.MemoryEmbedding, ModelCapability.MobileAction),
             basicModels.map { it.capability }.toSet(),
         )
-        assertTrue(ModelCatalog.defaultSetupModelIds().contains(DEFAULT_CHAT_MODEL_ID))
-        assertTrue(ModelCatalog.defaultSetupModelIds().contains(MEMORY_EMBEDDING_MODEL_ID))
-        assertTrue(ModelCatalog.defaultSetupModelIds().contains(MOBILE_ACTION_MODEL_ID))
+        assertEquals(setOf(DEFAULT_CHAT_MODEL_ID), ModelCatalog.defaultSetupModelIds())
+    }
+
+    @Test
+    fun sha256Hex_matchesKnownFileContent() {
+        val file = File.createTempFile("pocketmind-sha", ".txt")
+        try {
+            file.writeText("pocketmind", Charsets.UTF_8)
+
+            assertEquals(
+                "84968002f8dabc8fae6052f1616ffdeb668bc4f2616d2bc22fbc43e7db06212a",
+                ModelCatalog.sha256Hex(file),
+            )
+            assertTrue(
+                ModelCatalog.matchesExpectedSha256(
+                    file,
+                    "84968002f8dabc8fae6052f1616ffdeb668bc4f2616d2bc22fbc43e7db06212a",
+                ),
+            )
+            assertFalse(ModelCatalog.matchesExpectedSha256(file, "bad"))
+        } finally {
+            file.delete()
+        }
     }
 
     @Test

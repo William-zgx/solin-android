@@ -21,7 +21,7 @@ import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-interface LiteRtRuntime {
+interface LocalChatRuntime {
     val isLoaded: Boolean
 
     fun load(
@@ -44,6 +44,8 @@ interface LiteRtRuntime {
 
     fun close()
 }
+
+interface LiteRtRuntime : LocalChatRuntime
 
 class RealLiteRtRuntime(
     private val cacheDir: File,

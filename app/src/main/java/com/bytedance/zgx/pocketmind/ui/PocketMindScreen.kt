@@ -78,12 +78,14 @@ import com.bytedance.zgx.pocketmind.ModelCatalog
 import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.GenerationStats
 import com.bytedance.zgx.pocketmind.InferenceMode
+import com.bytedance.zgx.pocketmind.InstalledModelSummary
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.isUsable
 import com.bytedance.zgx.pocketmind.label
 import java.util.Locale
@@ -573,7 +575,7 @@ private fun FirstRunSetupSheet(
     ) {
         SectionTitle(
             text = "准备基础能力包",
-            subtitle = "默认安装对话、记忆和动作模型；也可以取消任意项，之后再补装。",
+            subtitle = "默认只安装对话模型；记忆和动作当前是本地轻量助手，可稍后补装实验模型资产。",
         )
         state.basicSetupModels.forEach { model ->
             val selected = model.id in state.setupSelectedModelIds
@@ -633,7 +635,7 @@ private fun FirstRunSetupSheet(
             onClick = onDownloadSetupModels,
             enabled = !state.isBusy && state.setupSelectedModelIds.isNotEmpty(),
         ) {
-            Text("下载选中的基础包")
+            Text("下载选中的模型")
         }
         TextButton(
             modifier = Modifier.fillMaxWidth(),
@@ -819,7 +821,8 @@ private fun ModelManagerSheet(
                 state.installedModels.forEach { model ->
                     ModelRow(
                         title = model.displayName,
-                        subtitle = "${capabilityLabel(model.capability)} · ${model.fileName} · ${ModelCatalog.formatBytes(model.fileBytes)}",
+                        subtitle = "${capabilityLabel(model.capability)} · ${model.fileName} · " +
+                            "${ModelCatalog.formatBytes(model.fileBytes)} · ${model.verificationLabel()}",
                         selected = model.id == state.activeInstalledModelId,
                         enabled = !state.isBusy && model.capability == ModelCapability.Chat,
                         onClick = { onInstalledModelSelected(model.id) },
@@ -1022,7 +1025,7 @@ private fun RemoteModelPanel(
             ) {
                 SectionTitle(
                     text = "远程模型",
-                    subtitle = "兼容 /v1/chat/completions 的服务地址。",
+                    subtitle = "兼容 /v1/chat/completions；远程模式会发送当前对话上下文。",
                 )
                 Switch(
                     checked = state.inferenceMode == InferenceMode.Remote,
@@ -1069,11 +1072,7 @@ private fun RemoteModelPanel(
                 visualTransformation = PasswordVisualTransformation(),
             )
             Text(
-                text = if (config.isConfigured) {
-                    "远程配置已保存"
-                } else {
-                    "填写服务地址和模型名后可切换远程模型"
-                },
+                text = remoteConfigStatusText(config),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1081,13 +1080,27 @@ private fun RemoteModelPanel(
     }
 }
 
+private fun remoteConfigStatusText(config: RemoteModelConfig): String =
+    when {
+        config.isConfigured && config.usesLocalInsecureTransport ->
+            "远程配置已保存；HTTP 仅允许本机调试地址，API Key 会加密保存在本机。"
+
+        config.isConfigured ->
+            "远程配置已保存；API Key 会加密保存在本机。"
+
+        config.baseUrl.startsWith("http://") ->
+            "非本机 HTTP 地址不可用；请使用 HTTPS 或本机调试地址。"
+
+        else ->
+            "填写 HTTPS 服务地址和模型名后可切换远程模型"
+    }
+
 @Composable
 private fun MemoryTogglePanel(
     state: ChatUiState,
     enabled: Boolean,
     onMemoryEnabledChanged: (Boolean) -> Unit,
 ) {
-    val memoryModelInstalled = ModelCapability.MemoryEmbedding in state.installedCapabilities
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -1108,19 +1121,15 @@ private fun MemoryTogglePanel(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = if (memoryModelInstalled) {
-                        "启用后会从本机会话中召回相关片段。"
-                    } else {
-                        "安装本地记忆模型后可开启语义召回。"
-                    },
+                    text = "启用后用本地轻量索引从已保存会话中召回相关片段。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Switch(
-                checked = state.memoryEnabled && memoryModelInstalled,
+                checked = state.memoryEnabled,
                 onCheckedChange = onMemoryEnabledChanged,
-                enabled = enabled && memoryModelInstalled,
+                enabled = enabled,
             )
         }
     }
@@ -1392,6 +1401,14 @@ private fun capabilityLabel(capability: ModelCapability): String =
         ModelCapability.MobileAction -> "动作"
     }
 
+private fun InstalledModelSummary.verificationLabel(): String =
+    when (verificationStatus) {
+        ModelVerificationStatus.VerifiedRecommended -> "SHA-256 已校验"
+        ModelVerificationStatus.UnverifiedCustom -> "自定义未校验"
+        ModelVerificationStatus.LegacyUnverified -> "旧文件未校验"
+        ModelVerificationStatus.FailedVerification -> "校验失败"
+    }
+
 @Composable
 private fun ChatUiState.pendingSelectedChatDownloadBytes(): Long =
     if (isModelInstalled(selectedRecommendedModel.id)) {
@@ -1407,7 +1424,7 @@ private fun ChatUiState.pendingSetupDownloadBytes(): Long =
 
 private fun ChatUiState.pendingBasicDownloadBytes(): Long =
     basicSetupModels
-        .filterNot { isModelInstalled(it.id) }
+        .filter { it.id in setupSelectedModelIds && !isModelInstalled(it.id) }
         .sumOf { it.byteSize }
 
 @Composable

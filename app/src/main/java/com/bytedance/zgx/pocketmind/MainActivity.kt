@@ -13,7 +13,12 @@ import com.bytedance.zgx.pocketmind.ui.PocketMindScreen
 import com.bytedance.zgx.pocketmind.ui.theme.PocketMindTheme
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: PocketMindViewModel by viewModels()
+    private val appContainer: PocketMindAppContainer by lazy {
+        PocketMindAppContainer(applicationContext)
+    }
+    private val viewModel: PocketMindViewModel by viewModels {
+        appContainer.viewModelFactory
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
