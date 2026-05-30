@@ -138,11 +138,11 @@ Recommended model URL provenance is checked only when explicitly requested:
 VERIFY_MODEL_URLS=1 scripts/verify_local.sh
 ```
 
-Run instrumented tests on one connected Android device:
+Run instrumented tests on one connected Android device with the helper script:
 
 ```bash
 adb devices
-./gradlew :app:connectedDebugAndroidTest
+scripts/install_and_test_device.sh
 ```
 
 Convenience scripts are also available:
@@ -156,6 +156,10 @@ scripts/install_and_test_device.sh
 successful run and preserves app data by default. Use
 `CLEAN_DEVICE=1 scripts/install_and_test_device.sh` only when you intentionally
 want a clean first-launch validation.
+
+Avoid `./gradlew :app:connectedDebugAndroidTest` when you need to keep the app
+installed on the device. The Android Gradle Plugin may clean up test packages
+after instrumentation runs.
 
 ## Project Structure
 
@@ -218,7 +222,7 @@ assembly, release assembly, APK content checks, and a 75 MB release APK budget.
 If the change affects real-device flows, also run:
 
 ```bash
-./gradlew :app:connectedDebugAndroidTest
+scripts/install_and_test_device.sh
 ```
 
 ## License
