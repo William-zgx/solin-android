@@ -78,6 +78,10 @@ data class InstalledModelSummary(
         get() = recommendedModelId
             ?.let { ModelCatalog.recommendedModelById(it).capability }
             ?: ModelCapability.Chat
+
+    val isUsable: Boolean
+        get() = recommendedModelId == null ||
+            verificationStatus == ModelVerificationStatus.VerifiedRecommended
 }
 
 data class ChatUiState(
@@ -122,10 +126,13 @@ data class ChatUiState(
         get() = ModelCatalog.optionalChatModels()
 
     val installedCapabilities: Set<ModelCapability>
-        get() = installedModels.map { it.capability }.toSet()
+        get() = installedModels
+            .filter { it.isUsable }
+            .map { it.capability }
+            .toSet()
 
     fun isModelInstalled(modelId: String): Boolean =
-        installedModels.any { it.recommendedModelId == modelId }
+        installedModels.any { it.recommendedModelId == modelId && it.isUsable }
 }
 
 fun BackendChoice.label(): String =

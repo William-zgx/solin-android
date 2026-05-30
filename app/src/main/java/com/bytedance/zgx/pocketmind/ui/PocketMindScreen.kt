@@ -995,7 +995,7 @@ private fun ModelInventoryPanel(
                         subtitle = "${capabilityLabel(model.capability)} · ${model.fileName} · " +
                             "${ModelCatalog.formatBytes(model.fileBytes)} · ${model.verificationLabel()}",
                         selected = model.id == state.activeInstalledModelId,
-                        enabled = !state.isBusy && model.capability == ModelCapability.Chat,
+                        enabled = !state.isBusy && model.capability == ModelCapability.Chat && model.isUsable,
                         onClick = { onInstalledModelSelected(model.id) },
                     )
                 }
