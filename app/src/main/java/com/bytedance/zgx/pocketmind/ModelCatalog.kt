@@ -1,6 +1,8 @@
 package com.bytedance.zgx.pocketmind
 
 import android.app.DownloadManager
+import java.io.File
+import java.security.MessageDigest
 import java.util.Locale
 
 internal const val MODEL_FILE_EXTENSION = ".litertlm"
@@ -22,6 +24,8 @@ data class RecommendedModel(
     val shortName: String,
     val fileName: String,
     val byteSize: Long,
+    val sourceRevision: String,
+    val sha256Hex: String,
     val repositoryUrl: String,
     val downloadUrl: String,
     val deviceHint: String,
@@ -40,8 +44,10 @@ val RECOMMENDED_MODELS = listOf(
         shortName = "基础对话 E2B",
         fileName = "gemma-4-E2B-it.litertlm",
         byteSize = 2_588_147_712L,
+        sourceRevision = "a4a831c060880f3733135ad22f10e0e9f758f45d",
+        sha256Hex = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
         repositoryUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm",
-        downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true",
+        downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/a4a831c060880f3733135ad22f10e0e9f758f45d/gemma-4-E2B-it.litertlm?download=true",
         deviceHint = "更适合大多数手机，下载约 2.4 GB",
         capability = ModelCapability.Chat,
         setupTier = SetupTier.BasicRecommended,
@@ -52,9 +58,11 @@ val RECOMMENDED_MODELS = listOf(
         shortName = "本地记忆模型",
         fileName = "embeddinggemma-300m.litertlm",
         byteSize = 179_159_040L,
+        sourceRevision = "96fa469293abd2da72b46aeeafea3bb571468dfe",
+        sha256Hex = "80e9596830fdd083cbc741dad666c0186439b0ba7b30112b552094650960b1cd",
         repositoryUrl = "https://huggingface.co/kontextdev/embeddinggemma-300m-litertlm",
-        downloadUrl = "https://huggingface.co/kontextdev/embeddinggemma-300m-litertlm/resolve/main/embeddinggemma-300m.litertlm?download=true",
-        deviceHint = "本地记忆与语义检索，下载约 171 MB",
+        downloadUrl = "https://huggingface.co/kontextdev/embeddinggemma-300m-litertlm/resolve/96fa469293abd2da72b46aeeafea3bb571468dfe/embeddinggemma-300m.litertlm?download=true",
+        deviceHint = "实验资产；当前记忆使用本地轻量索引，下载约 171 MB",
         capability = ModelCapability.MemoryEmbedding,
         setupTier = SetupTier.BasicRecommended,
     ),
@@ -64,9 +72,11 @@ val RECOMMENDED_MODELS = listOf(
         shortName = "设备动作模型",
         fileName = "mobile-actions_q8_ekv1024.litertlm",
         byteSize = 284_426_240L,
+        sourceRevision = "82d0f654a6270c518d16c600edce3136221b3347",
+        sha256Hex = "92109695f911d1872fa8ae07c1e3ff0ed70f2c3d1690d410ec6db8587c2ab409",
         repositoryUrl = "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm",
-        downloadUrl = "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm/resolve/main/mobile-actions_q8_ekv1024.litertlm?download=true",
-        deviceHint = "设备动作草稿与函数调用，下载约 271 MB",
+        downloadUrl = "https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm/resolve/82d0f654a6270c518d16c600edce3136221b3347/mobile-actions_q8_ekv1024.litertlm?download=true",
+        deviceHint = "实验资产；当前动作使用本地规则草稿，下载约 271 MB",
         capability = ModelCapability.MobileAction,
         setupTier = SetupTier.BasicRecommended,
     ),
@@ -76,8 +86,10 @@ val RECOMMENDED_MODELS = listOf(
         shortName = "高质量对话 E4B",
         fileName = "gemma-4-E4B-it.litertlm",
         byteSize = 3_659_530_240L,
+        sourceRevision = "65ce5ba80d8790d66ef11d82d7d079a06f3fef97",
+        sha256Hex = "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
         repositoryUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm",
-        downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm?download=true",
+        downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/65ce5ba80d8790d66ef11d82d7d079a06f3fef97/gemma-4-E4B-it.litertlm?download=true",
         deviceHint = "质量更高但更吃内存，下载约 3.4 GB",
         capability = ModelCapability.Chat,
         setupTier = SetupTier.OptionalChat,
@@ -109,7 +121,7 @@ internal object ModelCatalog {
         }
 
     fun defaultSetupModelIds(): Set<String> =
-        basicSetupModels().map { it.id }.toSet()
+        setOf(DEFAULT_CHAT_MODEL_ID)
 
     fun capabilityForModelId(modelId: String?): ModelCapability =
         recommendedModelById(modelId).capability
@@ -139,6 +151,33 @@ internal object ModelCatalog {
         fileBytes: Long,
         model: RecommendedModel = DEFAULT_CHAT_MODEL,
     ): Boolean = fileBytes == model.byteSize
+
+    fun isVerifiedRecommendedModel(
+        file: File,
+        model: RecommendedModel = DEFAULT_CHAT_MODEL,
+    ): Boolean =
+        isCompleteRecommendedModel(file.length(), model) &&
+            matchesExpectedSha256(file, model.sha256Hex)
+
+    fun matchesExpectedSha256(file: File, expectedSha256: String?): Boolean {
+        if (expectedSha256.isNullOrBlank()) return file.length() > 0L
+        return sha256Hex(file).equals(expectedSha256, ignoreCase = true)
+    }
+
+    fun sha256Hex(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString(separator = "") { byte ->
+            String.format(Locale.US, "%02x", byte.toInt() and 0xff)
+        }
+    }
 
     fun progressPercent(doneBytes: Long, totalBytes: Long): Int? {
         if (totalBytes <= 0L) return null

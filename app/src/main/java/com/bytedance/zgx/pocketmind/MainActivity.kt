@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -13,10 +14,16 @@ import com.bytedance.zgx.pocketmind.ui.PocketMindScreen
 import com.bytedance.zgx.pocketmind.ui.theme.PocketMindTheme
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: PocketMindViewModel by viewModels()
+    private val appContainer: PocketMindAppContainer by lazy {
+        PocketMindAppContainer(applicationContext)
+    }
+    private val viewModel: PocketMindViewModel by viewModels {
+        appContainer.viewModelFactory
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val skipStartupModelRuntimeWork =
             intent.getBooleanExtra(EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, false) ||
                 isRunningUnderAndroidTest()

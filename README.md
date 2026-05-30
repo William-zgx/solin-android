@@ -10,13 +10,13 @@ Google AI Edge LiteRT-LM.
 ## Features
 
 - On-device streaming chat with LiteRT-LM models.
-- First-run model setup for chat, local memory, and mobile action capabilities.
+- First-run setup for the recommended on-device chat model.
 - Optional higher-quality chat model presets.
 - Custom `.litertlm` download links and local file import.
 - Model manager for switching downloaded or imported models.
-- Configurable remote chat backend for OpenAI-compatible `/v1/chat/completions` services.
-- Local memory recall for previous conversation context.
-- Safe mobile action drafts for settings, map, mail, calendar, and contacts.
+- Configurable streaming remote chat backend for OpenAI-compatible `/v1/chat/completions` services.
+- Lightweight local memory recall over previous conversation context.
+- Experimental local mobile action planning with deterministic rule fallback and explicit confirmation.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
 - Local chat sessions with create, switch, and delete actions.
 - Stop button while a response is being generated.
@@ -40,8 +40,16 @@ model manager responsive while browsing models or switching CPU/GPU; use
 **Load model** when you are ready to initialize the selected model.
 
 Remote chat uses the same conversation, memory, and action routing surface as
-local chat. Mobile actions still require the local action model and explicit
-user confirmation before opening Android system pages or drafts.
+local chat. Remote mode sends the current conversation context, including any
+memory-injected context, to the configured backend. HTTPS is required except for
+local debug hosts such as `localhost`, `127.0.0.1`, and Android emulator
+`10.0.2.2`. API keys are stored with Android Keystore-backed encryption.
+
+Memory recall is currently a lightweight on-device token/hash index over saved
+sessions. Mobile actions can use the verified action model as an experimental
+planner; if it is missing or does not produce a supported `call:function {...}`
+draft, PocketMind falls back to deterministic local rules and still requires
+explicit user confirmation before opening Android system pages or drafts.
 
 ## Recommended Models
 
@@ -66,6 +74,9 @@ The downloaded files are large:
 Use Wi-Fi and keep enough free device storage for the model and runtime cache.
 Model files are intentionally not committed to this repository and should not
 be bundled into the APK.
+
+Recommended downloads are pinned to immutable Hugging Face revisions and include
+expected byte size plus SHA-256 metadata. See `docs/model_manifest.md`.
 
 ## Requirements
 
@@ -121,11 +132,17 @@ scripts/doctor.sh
 scripts/verify_local.sh
 ```
 
-Run instrumented tests on one connected Android device:
+Recommended model URL provenance is checked only when explicitly requested:
+
+```bash
+VERIFY_MODEL_URLS=1 scripts/verify_local.sh
+```
+
+Run instrumented tests on one connected Android device with the helper script:
 
 ```bash
 adb devices
-./gradlew :app:connectedDebugAndroidTest
+scripts/install_and_test_device.sh
 ```
 
 Convenience scripts are also available:
@@ -139,6 +156,10 @@ scripts/install_and_test_device.sh
 successful run and preserves app data by default. Use
 `CLEAN_DEVICE=1 scripts/install_and_test_device.sh` only when you intentionally
 want a clean first-launch validation.
+
+Avoid `./gradlew :app:connectedDebugAndroidTest` when you need to keep the app
+installed on the device. The Android Gradle Plugin may clean up test packages
+after instrumentation runs.
 
 ## Project Structure
 
@@ -158,7 +179,9 @@ app/
   src/test/                 JVM unit tests
   src/androidTest/          Device smoke tests
 docs/
+  model_manifest.md        Pinned recommended model provenance and hashes
   phone_acceptance.md       Manual device acceptance checklist
+  release_readiness.md      External distribution checklist
   validation_report.md      Recent validation notes
 scripts/
   doctor.sh                 Local Android/JDK environment checker
@@ -170,11 +193,13 @@ scripts/
 
 - Keep model binaries out of Git and out of the APK.
 - Prefer a physical arm64-v8a device for runtime validation.
-- Run unit tests after changing model rules, download logic, or formatting.
+- Run unit tests after changing model rules, download logic, remote config, or formatting.
 - Run connected tests after changing first-launch UI, model manager UI, or
   session navigation.
 - Treat GPU fallback behavior as device-dependent; always keep the CPU path
   working.
+- Chat sessions, model registry, and download records use Room. Non-secret
+  settings use DataStore; API keys use Android Keystore-backed encrypted prefs.
 
 ## Contributing
 
@@ -197,10 +222,9 @@ assembly, release assembly, APK content checks, and a 75 MB release APK budget.
 If the change affects real-device flows, also run:
 
 ```bash
-./gradlew :app:connectedDebugAndroidTest
+scripts/install_and_test_device.sh
 ```
 
 ## License
 
-This repository does not include a license file yet. Add a license before
-publishing the project for broad external reuse.
+PocketMind Android is distributed under the MIT License. See `LICENSE`.

@@ -21,7 +21,7 @@ import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-interface LiteRtRuntime {
+interface LocalChatRuntime {
     val isLoaded: Boolean
 
     fun load(
@@ -44,6 +44,8 @@ interface LiteRtRuntime {
 
     fun close()
 }
+
+interface LiteRtRuntime : LocalChatRuntime
 
 class RealLiteRtRuntime(
     private val cacheDir: File,
@@ -127,7 +129,7 @@ private fun defaultConversationConfig(
     parameters: GenerationParameters,
 ): ConversationConfig =
     ConversationConfig(
-        systemInstruction = Contents.of("你是一个简洁、可靠的中文问答助手。回答要直接，必要时说明不确定性。"),
+        systemInstruction = Contents.of(DEFAULT_CHAT_SYSTEM_INSTRUCTION),
         initialMessages = messages.toLiteRtInitialMessages(),
         samplerConfig = SamplerConfig(
             topK = parameters.topK,

@@ -14,6 +14,14 @@ interface EmbeddingRuntime {
     fun embed(text: String): FloatArray
 }
 
+interface MemoryIndex {
+    var enabled: Boolean
+    fun rebuild(messages: List<ChatMessage>)
+    fun index(id: String, text: String)
+    fun search(query: String, topK: Int = 3): List<MemoryHit>
+    fun buildContext(hits: List<MemoryHit>): String
+}
+
 class HashingEmbeddingRuntime(
     private val dimensions: Int = 256,
 ) : EmbeddingRuntime {
@@ -35,11 +43,11 @@ class HashingEmbeddingRuntime(
 
 class MemoryRepository(
     private val embeddingRuntime: EmbeddingRuntime = HashingEmbeddingRuntime(),
-) {
+) : MemoryIndex {
     private val entries = linkedMapOf<String, MemoryEntry>()
-    var enabled: Boolean = true
+    override var enabled: Boolean = true
 
-    fun rebuild(messages: List<ChatMessage>) {
+    override fun rebuild(messages: List<ChatMessage>) {
         entries.clear()
         messages.forEach { message ->
             val rolePrefix = when (message.role) {
@@ -53,7 +61,7 @@ class MemoryRepository(
         }
     }
 
-    fun index(id: String, text: String) {
+    override fun index(id: String, text: String) {
         val normalized = text.trim()
         if (normalized.isBlank()) return
         val tokens = tokenize(normalized).toSet()
@@ -66,7 +74,7 @@ class MemoryRepository(
         )
     }
 
-    fun search(query: String, topK: Int = 3): List<MemoryHit> {
+    override fun search(query: String, topK: Int): List<MemoryHit> {
         if (!enabled || query.isBlank() || topK <= 0 || entries.isEmpty()) return emptyList()
         val queryTokens = tokenize(query).toSet()
         if (queryTokens.isEmpty()) return emptyList()
@@ -85,7 +93,7 @@ class MemoryRepository(
             .take(topK)
     }
 
-    fun buildContext(hits: List<MemoryHit>): String =
+    override fun buildContext(hits: List<MemoryHit>): String =
         hits.joinToString(separator = "\n") { "- ${it.text}" }
 
     private fun cosine(left: FloatArray, right: FloatArray): Float {

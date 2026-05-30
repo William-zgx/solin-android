@@ -8,230 +8,141 @@ import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.isUsable
 import java.util.UUID
 import kotlin.math.max
-import org.json.JSONArray
-import org.json.JSONObject
 
-private const val PREFS_NAME = "pocketmind"
-private const val PREF_SESSIONS_JSON = "sessions_json"
-private const val PREF_ACTIVE_SESSION_ID = "active_session_id"
-private const val SESSION_JSON_VERSION = 1
-private const val MAX_SESSIONS = 20
+class SessionRepository(
+    private val sessionDao: SessionDao,
+    private val settingsStore: PreferenceSettingsStore,
+) : SessionStore {
+    constructor(context: Context) : this(
+        PocketMindDatabase.get(context).sessionDao(),
+        PreferenceSettingsStore(context),
+    )
 
-private enum class SessionStorageFormat {
-    LegacyArray,
-    VersionedObject,
-}
-
-class SessionRepository(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private var sessionStorageFormat = SessionStorageFormat.VersionedObject
-    private var sessions: List<ChatSession> = loadSessions()
-    var activeSessionId: String = resolveActiveSessionId(sessions)
+    override var activeSessionId: String = resolveActiveSessionId()
         private set
 
-    fun summaries(): List<ChatSessionSummary> =
-        sessions
-            .sortedByDescending { it.updatedAtMillis }
-            .map { session ->
-                ChatSessionSummary(
-                    id = session.id,
-                    title = session.title,
-                    updatedAtMillis = session.updatedAtMillis,
-                    messageCount = session.messages.size,
-                )
-            }
+    override fun summaries(): List<ChatSessionSummary> =
+        sessionDao.sessions().map { session ->
+            ChatSessionSummary(
+                id = session.id,
+                title = session.title,
+                updatedAtMillis = session.updatedAtMillis,
+                messageCount = sessionDao.messagesForSession(session.id).size,
+            )
+        }
 
-    fun activeMessages(): List<ChatMessage> =
-        sessions.firstOrNull { it.id == activeSessionId }?.messages.orEmpty()
+    override fun activeMessages(): List<ChatMessage> =
+        sessionDao.messagesForSession(activeSessionId).toChatMessages()
 
-    fun allMessages(): List<ChatMessage> =
-        sessions.flatMap { it.messages }
+    override fun allMessages(limit: Int): List<ChatMessage> =
+        if (limit == Int.MAX_VALUE) {
+            sessionDao.sessions()
+                .sortedBy { it.updatedAtMillis }
+                .flatMap { session -> sessionDao.messagesForSession(session.id).toChatMessages() }
+        } else {
+            sessionDao.recentMessages(limit)
+                .asReversed()
+                .toChatMessages()
+        }
 
-    fun createNewSession(): List<ChatMessage> {
+    override fun createNewSession(): List<ChatMessage> {
         val created = newChatSession()
-        sessions = (listOf(created) + sessions).take(MAX_SESSIONS)
+        sessionDao.upsertSession(created)
         activeSessionId = created.id
-        persistSessions()
+        settingsStore.saveActiveSessionId(activeSessionId)
         return emptyList()
     }
 
-    fun selectSession(sessionId: String): List<ChatMessage>? {
-        val session = sessions.firstOrNull { it.id == sessionId } ?: return null
-        activeSessionId = session.id
-        prefs.edit().putString(PREF_ACTIVE_SESSION_ID, activeSessionId).apply()
-        return session.messages
-    }
-
-    fun deleteActiveSession(): List<ChatMessage>? {
-        if (sessions.size <= 1) return null
-        sessions = sessions.filterNot { it.id == activeSessionId }
-        activeSessionId = resolveActiveSessionId(sessions)
-        persistSessions()
+    override fun selectSession(sessionId: String): List<ChatMessage>? {
+        sessionDao.session(sessionId) ?: return null
+        activeSessionId = sessionId
+        settingsStore.saveActiveSessionId(activeSessionId)
         return activeMessages()
     }
 
-    fun replaceActiveSessionMessages(
+    override fun deleteActiveSession(): List<ChatMessage>? {
+        val sessions = sessionDao.sessions()
+        if (sessions.size <= 1) return null
+        sessionDao.deleteMessages(activeSessionId)
+        sessionDao.deleteSession(activeSessionId)
+        activeSessionId = resolveActiveSessionId()
+        settingsStore.saveActiveSessionId(activeSessionId)
+        return activeMessages()
+    }
+
+    override fun replaceActiveSessionMessages(
         messages: List<ChatMessage>,
         persistNow: Boolean,
     ) {
+        val existing = sessionDao.session(activeSessionId) ?: newChatSession(activeSessionId)
         val now = System.currentTimeMillis()
-        sessions = sessions.map { session ->
-            if (session.id == activeSessionId) {
-                session.copy(
-                    title = SessionTitleRules.deriveTitle(messages),
-                    updatedAtMillis = max(session.updatedAtMillis, now),
-                    messages = messages,
-                )
-            } else {
-                session
-            }
-        }.sortedByDescending { it.updatedAtMillis }
-            .take(MAX_SESSIONS)
+        sessionDao.upsertSession(
+            existing.copy(
+                title = SessionTitleRules.deriveTitle(messages),
+                updatedAtMillis = max(existing.updatedAtMillis, now),
+            ),
+        )
         if (persistNow) {
-            persistSessions()
+            persistMessages(activeSessionId, messages)
         }
     }
 
-    fun persistActiveSessionFrom(messages: List<ChatMessage>) {
+    override fun persistActiveSessionFrom(messages: List<ChatMessage>) {
         replaceActiveSessionMessages(messages, persistNow = true)
     }
 
-    private fun loadSessions(): List<ChatSession> {
-        val decoded = prefs.getString(PREF_SESSIONS_JSON, null)
-            ?.let { encoded ->
-                runCatching {
-                    val format = encoded.sessionStorageFormat()
-                    sessionStorageFormat = format
-                    val array = readSessionsArray(encoded, format)
-                    buildList {
-                        for (index in 0 until array.length()) {
-                            val json = array.getJSONObject(index)
-                            val messages = json.optJSONArray("messages").orEmptyMessages()
-                            add(
-                                ChatSession(
-                                    id = json.optString("id").takeIf { it.isNotBlank() }
-                                        ?: UUID.randomUUID().toString(),
-                                    title = json.optString("title").takeIf { it.isNotBlank() }
-                                        ?: SessionTitleRules.deriveTitle(messages),
-                                    createdAtMillis = json.optLong("createdAtMillis", System.currentTimeMillis()),
-                                    updatedAtMillis = json.optLong("updatedAtMillis", System.currentTimeMillis()),
-                                    messages = messages,
-                                ),
-                            )
-                        }
-                    }
-                }.getOrNull()
-            }
-            .orEmpty()
-            .sortedByDescending { it.updatedAtMillis }
-            .take(MAX_SESSIONS)
-
-        return decoded.ifEmpty { listOf(newChatSession()) }
-    }
-
-    private fun String.sessionStorageFormat(): SessionStorageFormat =
-        if (trimStart().startsWith("[")) SessionStorageFormat.LegacyArray else SessionStorageFormat.VersionedObject
-
-    private fun readSessionsArray(encoded: String, format: SessionStorageFormat): JSONArray =
-        when (format) {
-            SessionStorageFormat.LegacyArray -> JSONArray(encoded)
-            SessionStorageFormat.VersionedObject -> JSONObject(encoded).optJSONArray("sessions") ?: JSONArray()
-        }
-
-    private fun resolveActiveSessionId(availableSessions: List<ChatSession>): String {
-        val saved = prefs.getString(PREF_ACTIVE_SESSION_ID, null)
-        return availableSessions.firstOrNull { it.id == saved }?.id
-            ?: availableSessions.firstOrNull()?.id
-            ?: newChatSession().id
-    }
-
-    private fun newChatSession(): ChatSession {
-        val now = System.currentTimeMillis()
-        return ChatSession(
-            id = UUID.randomUUID().toString(),
-            title = "新会话",
-            createdAtMillis = now,
-            updatedAtMillis = now,
-            messages = emptyList(),
+    private fun persistMessages(sessionId: String, messages: List<ChatMessage>) {
+        sessionDao.deleteMessages(sessionId)
+        sessionDao.insertMessages(
+            messages.mapIndexed { index, message ->
+                ChatMessageEntity(
+                    sessionId = sessionId,
+                    position = index,
+                    role = message.role.name,
+                    text = message.text,
+                    tokenCount = message.generationStats?.tokenCount,
+                    tokensPerSecond = message.generationStats?.tokensPerSecond,
+                )
+            },
         )
     }
 
-    private fun persistSessions() {
-        val encoded = when (sessionStorageFormat) {
-            SessionStorageFormat.LegacyArray -> sessions.toSessionsArray().toString()
-            SessionStorageFormat.VersionedObject -> sessions.toSessionsJson().toString()
-        }
-        prefs.edit()
-            .putString(PREF_SESSIONS_JSON, encoded)
-            .putString(PREF_ACTIVE_SESSION_ID, activeSessionId)
-            .apply()
+    private fun resolveActiveSessionId(): String {
+        val sessions = sessionDao.sessions()
+        val saved = settingsStore.activeSessionId()
+        val resolved = sessions.firstOrNull { it.id == saved }?.id
+            ?: sessions.firstOrNull()?.id
+            ?: newChatSession().also { sessionDao.upsertSession(it) }.id
+        settingsStore.saveActiveSessionId(resolved)
+        return resolved
     }
 
-    private fun List<ChatSession>.toSessionsJson(): JSONObject =
-        JSONObject()
-            .put("version", SESSION_JSON_VERSION)
-            .put("sessions", toSessionsArray())
-
-    private fun List<ChatSession>.toSessionsArray(): JSONArray =
-        JSONArray().also { array ->
-            forEach { session ->
-                array.put(
-                    JSONObject()
-                        .put("id", session.id)
-                        .put("title", session.title)
-                        .put("createdAtMillis", session.createdAtMillis)
-                        .put("updatedAtMillis", session.updatedAtMillis)
-                        .put("messages", session.messages.toMessagesJson()),
-                )
-            }
-        }
-
-    private fun List<ChatMessage>.toMessagesJson(): JSONArray =
-        JSONArray().also { array ->
-            forEach { message ->
-                array.put(
-                    JSONObject()
-                        .put("role", message.role.name)
-                        .put("text", message.text)
-                        .apply {
-                            message.generationStats?.let { stats ->
-                                put(
-                                    "generationStats",
-                                    JSONObject()
-                                        .put("tokenCount", stats.tokenCount)
-                                        .put("tokensPerSecond", stats.tokensPerSecond),
-                                )
-                            }
-                        },
-                )
-            }
-        }
-
-    private fun JSONArray?.orEmptyMessages(): List<ChatMessage> {
-        if (this == null) return emptyList()
-        return buildList {
-            for (index in 0 until length()) {
-                val json = optJSONObject(index) ?: continue
-                val role = runCatching { MessageRole.valueOf(json.optString("role")) }
-                    .getOrDefault(MessageRole.Assistant)
-                val text = json.optString("text")
-                if (text.isNotBlank()) {
-                    add(
-                        ChatMessage(
-                            role = role,
-                            text = text,
-                            generationStats = json.optJSONObject("generationStats")?.let { stats ->
-                                GenerationStats(
-                                    tokenCount = stats.optInt("tokenCount"),
-                                    tokensPerSecond = stats.optDouble("tokensPerSecond"),
-                                ).takeIf { it.isUsable() }
-                            },
-                        ),
-                    )
-                }
-            }
-        }
+    private fun newChatSession(id: String = UUID.randomUUID().toString()): ChatSessionEntity {
+        val now = System.currentTimeMillis()
+        return ChatSessionEntity(
+            id = id,
+            title = "新会话",
+            createdAtMillis = now,
+            updatedAtMillis = now,
+        )
     }
+
+    private fun List<ChatMessageEntity>.toChatMessages(): List<ChatMessage> =
+        mapNotNull { entity ->
+            val text = entity.text.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val role = runCatching { MessageRole.valueOf(entity.role) }
+                .getOrDefault(MessageRole.Assistant)
+            ChatMessage(
+                role = role,
+                text = text,
+                generationStats = entity.tokenCount?.let { tokenCount ->
+                    GenerationStats(
+                        tokenCount = tokenCount,
+                        tokensPerSecond = entity.tokensPerSecond ?: 0.0,
+                    ).takeIf { it.isUsable() }
+                },
+            )
+        }
 }
 
 object SessionTitleRules {
@@ -244,11 +155,3 @@ object SessionTitleRules {
             ?.take(28)
             ?: "新会话"
 }
-
-private data class ChatSession(
-    val id: String,
-    val title: String,
-    val createdAtMillis: Long,
-    val updatedAtMillis: Long,
-    val messages: List<ChatMessage>,
-)

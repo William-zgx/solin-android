@@ -76,7 +76,7 @@ class MainActivitySmokeTest {
         val skipNodes = composeRule.onAllNodesWithText("先跳过").fetchSemanticsNodes()
         if (skipNodes.isNotEmpty()) {
             composeRule.onNodeWithText("准备基础能力包").assertIsDisplayed()
-            composeRule.onNodeWithText("下载选中的基础包").assertIsDisplayed()
+            composeRule.onNodeWithText("下载选中的模型").assertIsDisplayed()
             composeRule.onNodeWithText("先跳过").performClick()
         }
     }
