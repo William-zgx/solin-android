@@ -43,6 +43,8 @@ class RemoteChatRuntimeTest {
         val messages = body.getJSONArray("messages")
         assertEquals(22, messages.length())
         assertEquals("system", messages.getJSONObject(0).getString("role"))
+        assertTrue(messages.getJSONObject(0).getString("content").contains("PocketMind"))
+        assertTrue(messages.getJSONObject(0).getString("content").contains("用户当前输入一致的语言"))
         assertEquals("history-5", messages.getJSONObject(1).getString("content"))
         assertEquals("你好", messages.getJSONObject(21).getString("content"))
     }
@@ -55,7 +57,19 @@ class RemoteChatRuntimeTest {
         )
         assertEquals(
             "",
+            parseChatCompletionChunkText("""{"choices":[{"delta":{"content":null}}]}"""),
+        )
+        assertEquals(
+            "",
             parseChatCompletionChunkText("""{"choices":[{"delta":{}}]}"""),
+        )
+    }
+
+    @Test
+    fun parseChatCompletionText_ignoresJsonNullContent() {
+        assertEquals(
+            "fallback",
+            parseChatCompletionText("""{"choices":[{"message":{"content":null},"text":"fallback"}]}"""),
         )
     }
 
@@ -68,6 +82,8 @@ class RemoteChatRuntimeTest {
                     .addHeader("Content-Type", "text/event-stream")
                     .body(
                         """
+                        data: {"choices":[{"delta":{"content":null}}]}
+
                         data: {"choices":[{"delta":{"content":"你"}}]}
 
                         data: {"choices":[{"delta":{"content":"好"}}]}

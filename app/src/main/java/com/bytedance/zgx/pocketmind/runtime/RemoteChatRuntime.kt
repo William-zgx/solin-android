@@ -134,7 +134,7 @@ internal fun buildChatCompletionBody(
                 .put(
                     JSONObject()
                         .put("role", "system")
-                        .put("content", "你是一个简洁、可靠的中文问答助手。回答要直接，必要时说明不确定性。"),
+                        .put("content", DEFAULT_CHAT_SYSTEM_INSTRUCTION),
                 )
                 .appendHistory(history)
                 .put(JSONObject().put("role", "user").put("content", prompt)),
@@ -146,16 +146,16 @@ internal fun parseChatCompletionChunkText(raw: String): String {
         ?.optJSONObject(0)
         ?: return ""
     val deltaText = choice.optJSONObject("delta")
-        ?.optString("content")
+        ?.optNonNullString("content")
         .orEmpty()
     if (deltaText.isNotEmpty()) return deltaText
 
     val messageText = choice.optJSONObject("message")
-        ?.optString("content")
+        ?.optNonNullString("content")
         .orEmpty()
     if (messageText.isNotEmpty()) return messageText
 
-    return choice.optString("text")
+    return choice.optNonNullString("text")
 }
 
 internal fun parseChatCompletionText(raw: String): String {
@@ -164,16 +164,19 @@ internal fun parseChatCompletionText(raw: String): String {
         ?.optJSONObject(0)
         ?: error("远程模型响应为空")
     val messageText = choice.optJSONObject("message")
-        ?.optString("content")
+        ?.optNonNullString("content")
         .orEmpty()
         .trim()
     if (messageText.isNotBlank()) return messageText
 
-    val text = choice.optString("text").trim()
+    val text = choice.optNonNullString("text").trim()
     if (text.isNotBlank()) return text
 
     error("远程模型响应没有文本内容")
 }
+
+private fun JSONObject.optNonNullString(name: String): String =
+    if (has(name) && !isNull(name)) optString(name) else ""
 
 private fun JSONArray.appendHistory(history: List<ChatMessage>): JSONArray {
     history

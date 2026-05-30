@@ -51,7 +51,12 @@ class AssistantOrchestrator(
             if (hits.isNotEmpty()) {
                 val context = memoryIndex.buildContext(hits)
                 return AssistantRoute.Chat(
-                    promptForModel = "请结合以下本地记忆回答用户问题；如果记忆无关，请忽略。\n$context\n\n用户问题：$input",
+                    promptForModel = """
+                        请根据用户当前输入的语言回答。只有在以下本地记忆与当前问题明显相关时才使用；如果无关，请忽略，不要复述无关隐私内容。
+                        $context
+
+                        用户问题：$input
+                    """.trimIndent(),
                     memoryHits = hits,
                 )
             }

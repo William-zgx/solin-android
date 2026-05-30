@@ -40,6 +40,7 @@ class AssistantOrchestratorTest {
 
         require(route is AssistantRoute.Chat)
         assertTrue(route.promptForModel.contains("本地记忆"))
+        assertTrue(route.promptForModel.contains("用户当前输入的语言"))
         assertEquals(1, route.memoryHits.size)
     }
 
