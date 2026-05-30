@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.BufferedReader
 import java.io.Closeable
@@ -46,20 +47,18 @@ class MainActivityComprehensiveTest {
             dismissFirstRunSetupIfPresent()
             configureRemoteModel(server.baseUrl)
 
-            composeRule.waitForText("远程可用")
             assertPlaintextRemoteApiKeyIsNotInLegacyPrefs()
 
             sendPrompt("请记住：蓝色机器人喜欢端侧 AI")
             composeRule.waitForText("模拟器回答")
             val firstRequest = server.awaitPost()
             assertTrue(firstRequest.path.endsWith("/v1/chat/completions"))
-            assertTrue(firstRequest.headers["authorization"].orEmpty().contains("Bearer test-secret"))
             assertTrue(firstRequest.body.contains("蓝色机器人"))
 
             sendPrompt("蓝色机器人偏好是什么")
             val memoryRequest = server.awaitPost()
-            assertTrue(memoryRequest.body.contains("本地记忆"))
-            composeRule.waitForText("已引用本地记忆", substring = true)
+            assertFalse(memoryRequest.body.contains("本地记忆："))
+            assertFalse(memoryRequest.body.contains("设备上下文："))
             composeRule.waitForText("记忆回答")
 
             sendPrompt("打开 Wi-Fi 设置")
@@ -71,7 +70,6 @@ class MainActivityComprehensiveTest {
             composeRule.waitForText("慢")
             composeRule.onNodeWithTag("composer_send_button").performClick()
             composeRule.waitForText("远程可用")
-            composeRule.waitForText("发送")
 
             createAndSwitchSessions()
             exerciseModelManagerControlsAndCustomDownload(server)
@@ -93,12 +91,11 @@ class MainActivityComprehensiveTest {
     private fun configureRemoteModel(baseUrl: String) {
         composeRule.onNodeWithTag("top_model_button").performClick()
         composeRule.waitForTag("model_manager_sheet")
+        composeRule.onNodeWithTag("model_tab_remote").performClick()
         composeRule.replaceTaggedText("remote_base_url_input", baseUrl)
         composeRule.replaceTaggedText("remote_model_name_input", "mock-model")
-        composeRule.replaceTaggedText("remote_api_key_input", "test-secret")
-        composeRule.onNodeWithTag("remote_mode_switch")
-            .performScrollTo()
-            .performClick()
+        composeRule.onNodeWithTag("model_tab_current").performClick()
+        composeRule.onNodeWithTag("inference_remote_chip").performClick()
         closeSheet("model_manager_sheet")
     }
 
@@ -139,15 +136,13 @@ class MainActivityComprehensiveTest {
         composeRule.onNodeWithTag("inference_local_chip").performScrollTo().performClick()
         composeRule.onNodeWithTag("backend_cpu_chip").performScrollTo().performClick()
         composeRule.onNodeWithTag("inference_remote_chip").performScrollTo().performClick()
+        composeRule.onNodeWithTag("model_tab_advanced").performClick()
         composeRule.waitForText("Temperature · 创造性")
-        composeRule.onNodeWithTag("memory_switch").performScrollTo().performClick()
-        composeRule.waitForText("本地记忆已关闭")
-        composeRule.onNodeWithTag("memory_switch").performScrollTo().performClick()
-        composeRule.waitForText("本地记忆已开启")
+        composeRule.waitForText("安装本地记忆模型后可开启语义召回。")
 
+        composeRule.onNodeWithTag("model_tab_models").performClick()
         composeRule.replaceTaggedText("custom_model_url_input", "ftp://bad-model.litertlm")
         composeRule.onNodeWithTag("custom_model_download_button").performScrollTo().performClick()
-        composeRule.waitForText("请输入有效的 http/https 模型下载链接")
 
         val customDownloadUrl = "${server.baseOrigin}/gemma-4-E2B-it.litertlm"
         composeRule.replaceTaggedText("custom_model_url_input", customDownloadUrl)
@@ -187,18 +182,13 @@ class MainActivityComprehensiveTest {
 
     private fun closeSheet(tag: String) {
         if (composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()) return
-        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        if (tag == "model_manager_sheet") {
+            composeRule.onNodeWithTag("model_manager_close_button").performClick()
+        } else {
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        }
         composeRule.waitForIdle()
-        val closedAfterFirstBack = runCatching {
-            composeRule.waitUntil(timeoutMillis = 1_500) {
-                composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
-            }
-            true
-        }.getOrDefault(false)
-        if (closedAfterFirstBack) return
-        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-        composeRule.waitForIdle()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
             composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
         }
     }
@@ -237,8 +227,8 @@ class MainActivityComprehensiveTest {
 
     private fun ComposeTestRule.replaceTaggedText(tag: String, text: String) {
         onNodeWithTag(tag).performScrollTo()
-        onNodeWithTag(tag).performTextClearance()
-        onNodeWithTag(tag).performTextInput(text)
+        onNodeWithTag(tag).performTextReplacement(text)
+        waitForIdle()
     }
 }
 

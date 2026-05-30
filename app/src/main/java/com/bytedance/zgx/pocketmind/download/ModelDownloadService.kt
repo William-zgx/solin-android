@@ -8,11 +8,17 @@ import com.bytedance.zgx.pocketmind.ModelCatalog
 import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
 import java.io.File
 
-class ModelDownloadService(context: Context) {
+interface ModelDownloadClient {
+    fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long>
+    fun cancel(downloadId: Long)
+    fun query(downloadId: Long): DownloadInfo?
+}
+
+class ModelDownloadService(context: Context) : ModelDownloadClient {
     private val appContext = context.applicationContext
     private val downloadManager = appContext.getSystemService(DownloadManager::class.java)
 
-    fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long> =
+    override fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long> =
         runCatching {
             val request = DownloadManager.Request(Uri.parse(source.downloadUrl))
                 .setTitle(source.title)
@@ -30,13 +36,13 @@ class ModelDownloadService(context: Context) {
             downloadManager.enqueue(request)
         }
 
-    fun cancel(downloadId: Long) {
+    override fun cancel(downloadId: Long) {
         if (downloadId > 0L) {
             downloadManager.remove(downloadId)
         }
     }
 
-    fun query(downloadId: Long): DownloadInfo? {
+    override fun query(downloadId: Long): DownloadInfo? {
         val query = DownloadManager.Query().setFilterById(downloadId)
         downloadManager.query(query)?.use { cursor ->
             if (!cursor.moveToFirst()) return null

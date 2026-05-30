@@ -5,7 +5,10 @@ import com.bytedance.zgx.pocketmind.action.ActionPlan
 import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
+import com.bytedance.zgx.pocketmind.tool.ToolResult
+import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -59,6 +62,72 @@ class AssistantOrchestratorTest {
         require(route is AssistantRoute.Chat)
         assertEquals("端侧聊天偏好是什么", route.promptForModel)
         assertTrue(route.memoryHits.isEmpty())
+    }
+
+    @Test
+    fun defaultSequentialReplannerPlansExplicitNextActionAfterObservation() {
+        val orchestrator = AssistantOrchestrator(MemoryRepository(), RuleActionRuntime())
+        val route = orchestrator.route(
+            input = "先搜索 Kotlin，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(route is AssistantRoute.Action)
+
+        orchestrator.confirmToolRequest(requireNotNull(route.runId), requireNotNull(route.toolRequest).id)
+        val observed = orchestrator.observeToolResult(
+            runId = route.runId,
+            result = ToolResult(
+                requestId = route.toolRequest.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(
+            MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            observed.decision.plan.request.toolName,
+        )
+    }
+
+    @Test
+    fun clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation() {
+        val orchestrator = AssistantOrchestrator(MemoryRepository(), RuleActionRuntime())
+        val route = orchestrator.route(
+            input = "总结剪贴板并分享",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(route is AssistantRoute.Action)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, route.toolRequest?.toolName)
+
+        orchestrator.confirmToolRequest(requireNotNull(route.runId), requireNotNull(route.toolRequest).id)
+        val observed = orchestrator.observeToolResult(
+            runId = route.runId,
+            result = ToolResult(
+                requestId = route.toolRequest.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+                    "text" to "需要总结的剪贴板文本",
+                    "truncated" to "false",
+                ),
+            ),
+        )
+        requireNotNull(observed)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+
+        val modelObserved = orchestrator.observeModelResult(route.runId, "摘要文本")
+
+        requireNotNull(modelObserved)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, modelObserved.run.state)
+        require(modelObserved.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, modelObserved.decision.plan.request.toolName)
+        assertEquals("摘要文本", modelObserved.decision.plan.request.arguments["text"])
     }
 
     private class RuleActionRuntime : ActionPlanningRuntime {

@@ -6,6 +6,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.bytedance.zgx.pocketmind.action.ActionExecutor
 import com.bytedance.zgx.pocketmind.action.HybridActionPlanningRuntime
+import com.bytedance.zgx.pocketmind.audit.ToolAuditRepository
+import com.bytedance.zgx.pocketmind.background.AndroidBackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.ReminderNotificationHelper
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskRepository
 import com.bytedance.zgx.pocketmind.data.EncryptedSecretStore
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupRepository
 import com.bytedance.zgx.pocketmind.data.GenerationParametersRepository
@@ -15,11 +19,16 @@ import com.bytedance.zgx.pocketmind.data.PocketMindDatabase
 import com.bytedance.zgx.pocketmind.data.PreferenceSettingsStore
 import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
 import com.bytedance.zgx.pocketmind.data.SessionRepository
+import com.bytedance.zgx.pocketmind.device.AndroidCalendarAvailabilityProvider
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
+import com.bytedance.zgx.pocketmind.memory.RoomMemoryRecordStore
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
+import com.bytedance.zgx.pocketmind.orchestration.RoomAgentTraceStore
 import com.bytedance.zgx.pocketmind.runtime.OkHttpRemoteChatRuntime
 import com.bytedance.zgx.pocketmind.runtime.RealLiteRtRuntime
+import com.bytedance.zgx.pocketmind.tool.RoutingToolExecutor
+import com.bytedance.zgx.pocketmind.tool.ToolExecutor
 
 class PocketMindAppContainer(context: Context) {
     private val appContext = context.applicationContext
@@ -36,8 +45,12 @@ class PocketMindAppContainer(context: Context) {
     private val localRuntime: RealLiteRtRuntime
     private val remoteRuntime: OkHttpRemoteChatRuntime
     private val memoryRepository: MemoryRepository
+    private val toolAuditRepository: ToolAuditRepository
+    private val scheduledTaskRepository: ScheduledTaskRepository
+    private val backgroundTaskScheduler: AndroidBackgroundTaskScheduler
+    private val reminderNotificationHelper: ReminderNotificationHelper
     private val actionPlanningRuntime: HybridActionPlanningRuntime
-    private val actionExecutor: ActionExecutor
+    private val actionExecutor: ToolExecutor
     private val assistantOrchestrator: AssistantOrchestrator
 
     init {
@@ -54,12 +67,31 @@ class PocketMindAppContainer(context: Context) {
         remoteModelRepository = RemoteModelRepository(settingsStore, secretStore, appContext)
         firstRunSetupRepository = FirstRunSetupRepository(settingsStore)
         downloadService = ModelDownloadService(appContext)
+        RealLiteRtRuntime.configureNativeLogging()
         localRuntime = RealLiteRtRuntime(appContext.cacheDir)
         remoteRuntime = OkHttpRemoteChatRuntime()
-        memoryRepository = MemoryRepository()
+        memoryRepository = MemoryRepository(
+            recordStore = RoomMemoryRecordStore(database.memoryRecordDao()),
+        )
+        toolAuditRepository = ToolAuditRepository(database.toolAuditDao())
+        scheduledTaskRepository = ScheduledTaskRepository(database.scheduledTaskDao())
+        backgroundTaskScheduler = AndroidBackgroundTaskScheduler(appContext, scheduledTaskRepository)
+        reminderNotificationHelper = ReminderNotificationHelper(appContext)
         actionPlanningRuntime = HybridActionPlanningRuntime(appContext.cacheDir)
-        actionExecutor = ActionExecutor(appContext)
-        assistantOrchestrator = AssistantOrchestrator(memoryRepository, actionPlanningRuntime)
+        actionExecutor = RoutingToolExecutor(
+            calendarAvailabilityProvider = AndroidCalendarAvailabilityProvider(appContext),
+            delegate = ActionExecutor(
+                context = appContext,
+                backgroundTaskScheduler = backgroundTaskScheduler,
+                canPostReminderNotifications = reminderNotificationHelper::canPostNotifications,
+            ),
+        )
+        assistantOrchestrator = AssistantOrchestrator(
+            memoryIndex = memoryRepository,
+            actionPlanningRuntime = actionPlanningRuntime,
+            toolAuditSink = toolAuditRepository,
+            traceStore = RoomAgentTraceStore(database.agentTraceDao()),
+        )
     }
 
     val viewModelFactory: ViewModelProvider.Factory =
@@ -91,7 +123,7 @@ private class PocketMindViewModelFactory(
     private val runtime: RealLiteRtRuntime,
     private val remoteRuntime: OkHttpRemoteChatRuntime,
     private val memoryRepository: MemoryRepository,
-    private val actionExecutor: ActionExecutor,
+    private val actionExecutor: ToolExecutor,
     private val assistantOrchestrator: AssistantOrchestrator,
     private val isArm64DeviceProvider: () -> Boolean,
 ) : ViewModelProvider.Factory {

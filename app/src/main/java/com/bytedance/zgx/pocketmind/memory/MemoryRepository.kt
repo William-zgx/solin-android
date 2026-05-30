@@ -2,6 +2,8 @@ package com.bytedance.zgx.pocketmind.memory
 
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.MessageRole
+import com.bytedance.zgx.pocketmind.data.MemoryRecordDao
+import com.bytedance.zgx.pocketmind.data.MemoryRecordEntity
 import kotlin.math.sqrt
 
 data class MemoryHit(
@@ -9,6 +11,12 @@ data class MemoryHit(
     val text: String,
     val score: Float,
 )
+
+enum class MemoryRecordType {
+    Conversation,
+    Preference,
+    TaskState,
+}
 
 interface EmbeddingRuntime {
     fun embed(text: String): FloatArray
@@ -20,6 +28,13 @@ interface MemoryIndex {
     fun index(id: String, text: String)
     fun search(query: String, topK: Int = 3): List<MemoryHit>
     fun buildContext(hits: List<MemoryHit>): String
+}
+
+interface LongTermMemoryControls {
+    fun indexPreference(id: String, text: String)
+    fun indexTaskState(id: String, text: String)
+    fun forget(id: String): Boolean
+    fun clear()
 }
 
 class HashingEmbeddingRuntime(
@@ -43,12 +58,21 @@ class HashingEmbeddingRuntime(
 
 class MemoryRepository(
     private val embeddingRuntime: EmbeddingRuntime = HashingEmbeddingRuntime(),
-) : MemoryIndex {
+    private val recordStore: MemoryRecordStore = NoOpMemoryRecordStore,
+) : MemoryIndex, LongTermMemoryControls {
     private val entries = linkedMapOf<String, MemoryEntry>()
     override var enabled: Boolean = true
 
     override fun rebuild(messages: List<ChatMessage>) {
         entries.clear()
+        recordStore.records().forEach { record ->
+            indexRecord(
+                id = record.id,
+                text = record.text,
+                type = record.type,
+                persist = false,
+            )
+        }
         messages.forEach { message ->
             val rolePrefix = when (message.role) {
                 MessageRole.User -> "用户"
@@ -58,10 +82,48 @@ class MemoryRepository(
                 id = message.id.toString(),
                 text = "$rolePrefix：${message.text}",
             )
+            if (message.role == MessageRole.User) {
+                extractPreference(message.text)?.let { preference ->
+                    indexRecord(
+                        id = "preference-${message.id}",
+                        text = "用户偏好：$preference",
+                        type = MemoryRecordType.Preference,
+                        persist = false,
+                    )
+                }
+            }
         }
     }
 
     override fun index(id: String, text: String) {
+        indexRecord(id, text, MemoryRecordType.Conversation, persist = false)
+    }
+
+    override fun indexPreference(id: String, text: String) {
+        indexRecord(id, "用户偏好：$text", MemoryRecordType.Preference, persist = true)
+    }
+
+    override fun indexTaskState(id: String, text: String) {
+        indexRecord(id, "任务状态：$text", MemoryRecordType.TaskState, persist = true)
+    }
+
+    override fun forget(id: String): Boolean {
+        val removedInMemory = entries.remove(id) != null
+        val removedPersisted = recordStore.delete(id)
+        return removedInMemory || removedPersisted
+    }
+
+    override fun clear() {
+        entries.clear()
+        recordStore.clear()
+    }
+
+    private fun indexRecord(
+        id: String,
+        text: String,
+        type: MemoryRecordType,
+        persist: Boolean,
+    ) {
         val normalized = text.trim()
         if (normalized.isBlank()) return
         val tokens = tokenize(normalized).toSet()
@@ -69,9 +131,37 @@ class MemoryRepository(
         entries[id] = MemoryEntry(
             id = id,
             text = normalized,
+            type = type,
             tokens = tokens,
             embedding = embeddingRuntime.embed(normalized),
         )
+        if (persist && type != MemoryRecordType.Conversation) {
+            recordStore.upsert(
+                PersistedMemoryRecord(
+                    id = id,
+                    type = type,
+                    text = normalized,
+                ),
+            )
+        }
+    }
+
+    private fun extractPreference(text: String): String? {
+        val trimmed = text.trim()
+        val chinesePrefix = Regex("""^(请)?记住[:：]?\s*(.+)$""")
+        chinesePrefix.find(trimmed)?.groupValues?.getOrNull(2)?.trim()?.let { preference ->
+            if (preference.isNotBlank()) return preference
+        }
+
+        val englishPrefix = Regex(
+            pattern = """^(please\s+)?remember\s+(that\s+)?(.+)$""",
+            option = RegexOption.IGNORE_CASE,
+        )
+        return englishPrefix.find(trimmed)
+            ?.groupValues
+            ?.getOrNull(3)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
     }
 
     override fun search(query: String, topK: Int): List<MemoryHit> {
@@ -106,9 +196,67 @@ class MemoryRepository(
     }
 }
 
+data class PersistedMemoryRecord(
+    val id: String,
+    val type: MemoryRecordType,
+    val text: String,
+)
+
+interface MemoryRecordStore {
+    fun records(): List<PersistedMemoryRecord>
+    fun upsert(record: PersistedMemoryRecord)
+    fun delete(id: String): Boolean
+    fun clear()
+}
+
+object NoOpMemoryRecordStore : MemoryRecordStore {
+    override fun records(): List<PersistedMemoryRecord> = emptyList()
+    override fun upsert(record: PersistedMemoryRecord) = Unit
+    override fun delete(id: String): Boolean = false
+    override fun clear() = Unit
+}
+
+class RoomMemoryRecordStore(
+    private val dao: MemoryRecordDao,
+    private val clockMillis: () -> Long = { System.currentTimeMillis() },
+) : MemoryRecordStore {
+    override fun records(): List<PersistedMemoryRecord> =
+        dao.records().mapNotNull { entity ->
+            val type = runCatching { MemoryRecordType.valueOf(entity.type) }.getOrNull()
+                ?: return@mapNotNull null
+            PersistedMemoryRecord(
+                id = entity.id,
+                type = type,
+                text = entity.text,
+            )
+        }
+
+    override fun upsert(record: PersistedMemoryRecord) {
+        val now = clockMillis()
+        val existing = dao.record(record.id)
+        dao.upsert(
+            MemoryRecordEntity(
+                id = record.id,
+                type = record.type.name,
+                text = record.text,
+                createdAtMillis = existing?.createdAtMillis ?: now,
+                updatedAtMillis = now,
+            ),
+        )
+    }
+
+    override fun delete(id: String): Boolean =
+        dao.delete(id) > 0
+
+    override fun clear() {
+        dao.deleteAll()
+    }
+}
+
 private data class MemoryEntry(
     val id: String,
     val text: String,
+    val type: MemoryRecordType,
     val tokens: Set<String>,
     val embedding: FloatArray,
 )

@@ -1,5 +1,208 @@
 # PocketMind 验证报告
 
+## 2026-05-31 长期记忆持久化增量验证
+
+本轮覆盖项：
+
+- 新增 `memory_records` Room 表和 `4 -> 5` 数据库迁移，用于保存显式用户偏好
+  与任务状态记忆。
+- `MemoryRepository` 会把 `indexPreference` / `indexTaskState` 写入持久化
+  store，并在 `rebuild` 时重新载入；普通会话记忆仍从已保存聊天消息重建，避免
+  重复写入长期记忆表。
+- `forget(id)` 同时删除内存索引和持久化记录，`clear()` 清空长期记忆记录。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest'
+```
+
+结果：通过。
+
+## 2026-05-31 Clipboard Summary Share Skill 接入增量验证
+
+本轮覆盖项：
+
+- `clipboard_summary_share_skill` 不再只停留在独立 Skill contract；输入
+  “总结剪贴板并分享”会先规划受确认保护的 `read_clipboard`。
+- 剪贴板 observe 成功后仍优先进入本地模型续写，不调用普通 observation
+  replanner。
+- 本地模型生成摘要后，Agent loop 绑定摘要到 `share_text.text`，回到
+  `AwaitingUserConfirmation` 等待第二次确认；不会直接打开分享面板。
+- Agent loop 只接受当前 pending / confirmed request id，避免旧
+  `read_clipboard` request 在第二步确认或执行阶段被重复确认/观察。
+- ViewModel 在本地摘要生成后会展示第二次 `share_text` 确认，并保持剪贴板
+  派生消息为 `LocalOnly`；存在待确认动作时会阻止新消息越过旧确认卡。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+
+./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:lintDebug
+git diff --check
+```
+
+结果：通过。
+
+补充检查：
+
+- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+  Authorization Bearer token 被写入文件。
+- 当前 `adb devices -l` 无已连接设备，因此本轮未执行
+  `connectedDebugAndroidTest` 或真机分享面板验证。
+
+## 2026-05-31 Agent Replan / ViewModel 隐私回归增量验证
+
+本轮覆盖项：
+
+- Agent observe 成功后可通过 `AgentObservationReplanner` 产出下一步工具计划。
+- 默认生产策略 `SequentialActionObservationReplanner` 会在用户输入含明确顺序
+  连接词（如“然后”/`then`）且 run 目前只有一个工具计划时，规划下一步动作。
+- 下一步工具会重新经过 Tool Registry 参数校验、SafetyPolicy、trace、audit
+  和用户确认；不会因为来自 observe 阶段就直接执行。
+- Replanned request id 不能复用已有 `ToolRequested` id，避免确认/观察串到旧
+  请求。
+- Clipboard continuation 优先于 replan；当观察结果需要本地模型续写时，不会
+  调用 replanner，也不会产生被忽略的拒绝 trace/audit 副作用。
+- ViewModel 构造边界改为窄接口，新增 JVM 回归测试覆盖远程 `LocalOnly`
+  当前输入保护，以及本地 share input / local assistant 回复不进入后续远程
+  history。
+- LiteRT native logging 配置从 ViewModel 构造移到 AppContainer，降低 JVM
+  单测副作用。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest'
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:lintDebug
+git diff --check
+```
+
+结果：通过。
+
+补充检查：
+
+- 仓库扫描未发现 DeepSeek/OpenAI-style API Key 或 DeepSeek 远程配置被写入文件。
+- 当前 `adb devices -l` 无已连接设备，因此本轮未执行 `connectedDebugAndroidTest`。
+
+## 2026-05-30 隐私边界 / Skill 执行器 / DB 迁移增量验证
+
+本轮覆盖项：
+
+- `MessagePrivacy.LocalOnly` 持久化到会话消息，并在远程历史构造前过滤。
+- 远程模式下当前输入若标记为 `LocalOnly`，会在 ViewModel 层直接保护，
+  不调用远程模型。
+- Android 分享入口与剪贴板派生续写的自动消息标记为 `LocalOnly`，避免之后
+  切换远程模式时进入 history。
+- `RemoteChatRuntime` 在请求体构造和真实 `send` 路径中都过滤 `LocalOnly`
+  history。
+- `SkillRunExecutor` 默认通过工具 registry 和 safety policy gate；需确认的
+  tool step 返回 `AwaitingConfirmation`，不会直接执行工具。
+- `SkillRunExecutor` 的公开 outputs 不再暴露 `read_clipboard.text` 等私有工具
+  绑定输出。
+- Agent observe 阶段新增显式 `AgentObservationDecision`，覆盖 complete、
+  continue-with-model、retry、fail、cancel，并写入 trace 但不存储私有续写 prompt。
+- Room `chat_messages.privacy` 增加实体默认值和 `3 -> 4` 迁移；新增
+  instrumentation 迁移测试。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.data.SessionRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:testDebugUnitTest
+```
+
+结果：通过。
+
+模拟器说明：
+
+- SDK 工具位于 `/Users/bytedance/Library/Android/sdk`。
+- `pocketmind_api36_arm64` 与 `focus_agent_api36_arm64` 两个 AVD 在本轮尝试
+  中均未能在限定时间内完成启动，且 emulator 进程自动退出，因此本轮未能执行
+  `connectedDebugAndroidTest`。
+- `PocketMindDatabaseMigrationTest` 已通过 `assembleDebugAndroidTest` 编译，
+  仍需要在可启动模拟器或真机上执行。
+
+验证时间：2026-05-30
+
+## Agent 核心能力增量验证
+
+环境：
+
+- AVD：`focus_agent_api36_arm64`
+- Android：API 36 Google APIs ARM64
+- 设备序列号：`emulator-5554`
+- SDK：`/Users/bytedance/Library/Android/sdk`
+
+覆盖项：
+
+- Tool Registry 增加权限声明、结构化错误模型、参数拒绝和执行结果。
+- Tool Registry 参数校验改为由 JSON schema 驱动，覆盖 required、额外参数拒绝、`minLength` 和 `pattern`。
+- Agent Loop 增加确认后的 `ToolResult` observe 回写、trace step 和完成状态。
+- Agent Loop 对 retryable 工具失败增加一次有界自动重试，记录 `ToolRetryScheduled` trace/audit 事件，重试预算耗尽后才进入 `Failed`。
+- 用户取消动作确认时，Agent run 会进入 `Cancelled`，并记录取消/观察审计事件。
+- Built-in Skill Runtime 增加版本化 manifest，并将邮件、日程、地图、信息查找、设备设置映射为一跳工具 skill。
+- Device Context 增加最小非敏感设备状态快照，并接入 Agent trace / prompt context。
+- Safety Policy 增加风险分级执行策略，阻止中高风险工具绕过确认。
+- Tool Audit 增加 `tool_audit_events` Room 表，记录计划、确认、执行观察和拒绝事件。
+- Memory 增加显式偏好/任务状态记录与遗忘控制。
+- Background Tasks 增加 `schedule_reminder` 工具、`reminder_skill`、`scheduled_tasks` Room 表、AlarmManager 调度和提醒通知通道。
+- Reminder 执行前会请求 Android 通知权限；拒绝后返回结构化 `PermissionDenied`。
+- Device Context 增加受确认保护的 `read_clipboard` 工具和剪贴板上下文 Skill。
+- Clipboard observe 成功后会生成一次本地模型续写 prompt，剪贴板原文只进入即时内存续写链路；trace、audit 和持久化工具观察消息保留脱敏摘要，远程模型模式不会自动上传剪贴板内容。
+- 远程模型普通聊天不再自动注入本地记忆和设备上下文；Android 分享入口在远程模式下不自动上传分享文本或附件元数据。
+- 远程 API Key 清空时会同步清除已加密保存的旧值。
+- Execution Boundary 增加 `share_text` 工具和系统分享 Skill；结果语义为打开系统分享面板。
+- Multimodal Inputs 增加 Android 分享入口，接收文本以及图片/音频/视频/PDF 元数据，不读取文件内容。
+- 模型管理 sheet 增加显式关闭按钮，避免模拟器回归依赖 Back 键状态。
+- 远程模型回归使用本地 mock OpenAI-compatible 服务，不写入真实 API Key。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleDebug
+
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+ANDROID_SERIAL=emulator-5554 \
+./gradlew :app:connectedDebugAndroidTest
+```
+
+结果：通过。
+
+- JVM 单测：通过。
+- Debug APK 构建：通过。
+- 模拟器 instrumentation：`4 tests, 0 skipped, 0 failed`。
+
+说明：
+
+- 用户提供的 DeepSeek 远程配置仅作为可选手工验证输入，未写入仓库、测试代码或文档。
+- 当前仍未完成的核心能力包括屏幕/当前 App/通知/文件/日历/联系人读取器、周期性后台任务、专用语义记忆模型接入、深链/App-specific intents/通用权限请求、语音/截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
+
+## 历史验证记录
+
 验证时间：2026-05-24
 
 ## 模拟器完整功能回归

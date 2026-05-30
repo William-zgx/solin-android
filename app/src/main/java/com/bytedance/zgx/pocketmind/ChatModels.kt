@@ -19,6 +19,11 @@ enum class MessageRole {
     Assistant,
 }
 
+enum class MessagePrivacy {
+    RemoteEligible,
+    LocalOnly,
+}
+
 data class GenerationParameters(
     val temperature: Float = DEFAULT_TEMPERATURE,
     val topP: Float = DEFAULT_TOP_P,
@@ -43,7 +48,11 @@ data class ChatMessage(
     val text: String,
     val generationStats: GenerationStats? = null,
     val id: Long = nextMessageId.incrementAndGet(),
+    val privacy: MessagePrivacy = MessagePrivacy.RemoteEligible,
 )
+
+fun List<ChatMessage>.remoteEligibleMessages(): List<ChatMessage> =
+    filter { it.privacy == MessagePrivacy.RemoteEligible }
 
 data class GenerationStats(
     val tokenCount: Int,
@@ -67,6 +76,7 @@ data class PendingAgentConfirmation(
     val runId: String?,
     val draft: ActionDraft,
     val toolRequest: ToolRequest?,
+    val skillId: String?,
     val plannedByModel: Boolean,
     val fallbackReason: String?,
 )

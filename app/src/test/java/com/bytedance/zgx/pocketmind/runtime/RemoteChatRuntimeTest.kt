@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.runtime
 
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.GenerationParameters
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import java.io.IOException
@@ -47,6 +48,26 @@ class RemoteChatRuntimeTest {
         assertTrue(messages.getJSONObject(0).getString("content").contains("用户当前输入一致的语言"))
         assertEquals("history-5", messages.getJSONObject(1).getString("content"))
         assertEquals("你好", messages.getJSONObject(21).getString("content"))
+    }
+
+    @Test
+    fun buildChatCompletionBody_excludesLocalOnlyHistory() {
+        val body = buildChatCompletionBody(
+            prompt = "继续",
+            history = listOf(
+                ChatMessage(MessageRole.User, "普通历史"),
+                ChatMessage(MessageRole.User, "分享来的本地内容", privacy = MessagePrivacy.LocalOnly),
+                ChatMessage(MessageRole.Assistant, "本地工具摘要", privacy = MessagePrivacy.LocalOnly),
+            ),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+        )
+
+        val encoded = body.toString()
+
+        assertTrue(encoded.contains("普通历史"))
+        assertFalse(encoded.contains("分享来的本地内容"))
+        assertFalse(encoded.contains("本地工具摘要"))
     }
 
     @Test
@@ -99,7 +120,10 @@ class RemoteChatRuntimeTest {
 
             val chunks = runtime.send(
                 prompt = "你好",
-                history = emptyList(),
+                history = listOf(
+                    ChatMessage(MessageRole.User, "可发送历史"),
+                    ChatMessage(MessageRole.User, "仅本地历史", privacy = MessagePrivacy.LocalOnly),
+                ),
                 parameters = GenerationParameters(),
                 config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a"),
             ).toList()
@@ -107,7 +131,10 @@ class RemoteChatRuntimeTest {
             assertEquals("你好", chunks.joinToString(separator = ""))
             val request = server.takeRequest()
             assertEquals("/v1/chat/completions", request.target)
-            assertTrue(request.body!!.utf8().contains(""""stream":true"""))
+            val requestBody = request.body!!.utf8()
+            assertTrue(requestBody.contains(""""stream":true"""))
+            assertTrue(requestBody.contains("可发送历史"))
+            assertFalse(requestBody.contains("仅本地历史"))
         }
     }
 

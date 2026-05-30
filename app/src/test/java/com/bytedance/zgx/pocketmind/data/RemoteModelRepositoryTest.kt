@@ -49,6 +49,32 @@ class RemoteModelRepositoryTest {
         assertEquals("secret", secretStore.loadString("remote_model_api_key").getOrThrow())
     }
 
+    @Test
+    fun saveConfigWithBlankApiKeyClearsPreviouslySavedSecret() {
+        val settingsStore = FakeSettingsStore()
+        val secretStore = InMemorySecretStore()
+        val repository = RemoteModelRepository(settingsStore, secretStore)
+
+        repository.saveConfig(
+            RemoteModelConfig(
+                baseUrl = "https://api.example.com/v1",
+                modelName = "model-a",
+                apiKey = "secret",
+            ),
+        ).getOrThrow()
+
+        repository.saveConfig(
+            RemoteModelConfig(
+                baseUrl = "https://api.example.com/v1",
+                modelName = "model-a",
+                apiKey = " ",
+            ),
+        ).getOrThrow()
+
+        assertEquals("", secretStore.loadString("remote_model_api_key").getOrThrow())
+        assertEquals("", repository.loadConfig().apiKey)
+    }
+
     private class FakeSettingsStore : SettingsStore {
         var remoteConfig: RemoteModelConfig = RemoteModelConfig()
 

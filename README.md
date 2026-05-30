@@ -17,6 +17,12 @@ Google AI Edge LiteRT-LM.
 - Configurable streaming remote chat backend for OpenAI-compatible `/v1/chat/completions` services.
 - Lightweight local memory recall over previous conversation context.
 - Experimental local mobile action planning with deterministic rule fallback and explicit confirmation.
+- Schema-driven tool validation plus Agent run tracing for plan-confirm-observe execution, safety checks, bounded retry, and persistent audit events.
+- Minimal device context snapshots and confirmed clipboard text reads for controlled context access.
+- Versioned built-in skill manifests for email drafts, calendar drafts, map search, information lookup, device settings, local reminders, clipboard context, and system sharing.
+- A conservative clipboard-summary-share composite flow that keeps summarization local and asks again before opening the Android share sheet.
+- AlarmManager-backed local reminder scheduling with a dedicated notification channel.
+- Android share-target entry for text, image, audio, video, and PDF metadata, plus confirmed outbound system sharing for text.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
 - Local chat sessions with create, switch, and delete actions.
 - Stop button while a response is being generated.
@@ -39,17 +45,58 @@ Model selection itself does not immediately reload the runtime. This keeps the
 model manager responsive while browsing models or switching CPU/GPU; use
 **Load model** when you are ready to initialize the selected model.
 
-Remote chat uses the same conversation, memory, and action routing surface as
-local chat. Remote mode sends the current conversation context, including any
-memory-injected context, to the configured backend. HTTPS is required except for
-local debug hosts such as `localhost`, `127.0.0.1`, and Android emulator
-`10.0.2.2`. API keys are stored with Android Keystore-backed encryption.
+Remote chat uses the same conversation and action routing surface as local
+chat, but private local context is stricter: memory recall, device context,
+clipboard continuations, and Android share-intent metadata are not
+automatically sent to the configured backend. HTTPS is required except for local
+debug hosts such as `localhost`, `127.0.0.1`, and Android emulator `10.0.2.2`.
+API keys are stored with Android Keystore-backed encryption and are removed
+when the user clears the key field.
 
 Memory recall is currently a lightweight on-device token/hash index over saved
-sessions. Mobile actions can use the verified action model as an experimental
-planner; if it is missing or does not produce a supported `call:function {...}`
-draft, PocketMind falls back to deterministic local rules and still requires
-explicit user confirmation before opening Android system pages or drafts.
+sessions. Explicit preference and task-state records are persisted locally in
+Room and can be forgotten through the memory boundary; ordinary conversation
+memory is rebuilt from saved chat messages. Mobile actions can use the verified
+action model as an experimental planner; if it is missing or does not produce a supported
+`call:function {...}` draft, PocketMind falls back to deterministic local rules
+and still requires explicit user confirmation before opening Android system
+pages or drafts. After confirmation, Android execution returns a structured tool
+result that is written back to the Agent run trace, audit log, and chat session.
+Reminder requests such as “提醒我 15 分钟后喝水” become confirmed
+`schedule_reminder` tool calls and are persisted before being handed to Android
+AlarmManager. Pending reminders are restored after device reboot; reminders
+that became due while the device was off are rescheduled with a short catch-up
+delay.
+Clipboard requests such as “读取剪贴板” become confirmed `read_clipboard`
+tool calls. After confirmation, clipboard text is used only for the immediate
+local follow-up answer and is redacted from trace, audit, and persisted chat
+tool-observation messages. Remote model mode does not automatically receive
+clipboard content.
+Requests such as “总结剪贴板并分享” use one constrained composite flow: after
+the user confirms the clipboard read, PocketMind summarizes locally, then opens
+a second confirmation for `share_text` with the generated summary. The share
+sheet is never opened without this second confirmation.
+Requests such as “分享这段文字...” open Android's system share panel through
+`share_text`; destination selection stays with the user.
+Shared text or attachments from other Android apps are ingested as
+privacy-minimal multimodal prompts: PocketMind records user-visible text plus
+attachment metadata for local processing, but it does not read file contents
+yet and does not auto-upload shared content in remote mode.
+Automatically generated shared-input and clipboard-derived messages are marked
+local-only, filtered from remote history, and rejected as current prompts before
+any remote model request is made.
+
+Agent and skill module responsibilities are documented in
+`docs/agent_core_modules.md`. The current code includes the Tool Registry,
+single-run Agent planning, confirmation, tool observation, built-in one-step and
+one conservative clipboard-summary-share composite flow, conservative
+observe-after-success replanning for explicit next actions, a gated skill-run
+executor, minimal device context
+snapshots, safety policy, persistent tool audit, long-term memory controls,
+local reminder scheduling, confirmed clipboard reads, outbound text sharing, and
+Android share intent metadata ingestion. Rich
+device readers, recurring background policies, and actual image/audio/document
+understanding are tracked there as pending core modules.
 
 ## Recommended Models
 
@@ -170,16 +217,24 @@ app/
     PocketMindViewModel.kt   Coordinates UI state and use cases
     ModelCatalog.kt          Model metadata and validation helpers
     action/                  Mobile action planning and execution boundary
+    audit/                   Tool audit event models and Room-backed sink
+    background/              Alarm-backed reminders and scheduled task store
     data/                    Model and session persistence
+    device/                  Minimal non-secret device context snapshots
     download/                DownloadManager boundary
     memory/                  Local memory indexing and search
+    multimodal/              Shared text and attachment metadata ingestion
     orchestration/           Chat, memory, and action route selection
     runtime/                 LiteRT-LM runtime boundary
+    safety/                  Tool safety policy and confirmation decisions
+    skill/                   Built-in skill manifests and skill-to-tool plans
+    tool/                    Tool registry, schemas, results, and executor API
     ui/                      Compose chat, model, session, and message UI
   src/test/                 JVM unit tests
   src/androidTest/          Device smoke tests
 docs/
   model_manifest.md        Pinned recommended model provenance and hashes
+  agent_core_modules.md    Agent core module ownership and status
   phone_acceptance.md       Manual device acceptance checklist
   release_readiness.md      External distribution checklist
   validation_report.md      Recent validation notes

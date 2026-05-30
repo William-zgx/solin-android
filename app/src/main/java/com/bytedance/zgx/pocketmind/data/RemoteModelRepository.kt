@@ -11,7 +11,7 @@ class RemoteModelRepository(
     private val settingsStore: SettingsStore,
     private val secretStore: SecretStore,
     context: Context? = null,
-) {
+) : RemoteModelStore {
     constructor(context: Context) : this(
         PreferenceSettingsStore(context),
         EncryptedSecretStore(context),
@@ -20,16 +20,16 @@ class RemoteModelRepository(
 
     private val legacyPrefs = context?.applicationContext?.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun loadMode(): InferenceMode =
+    override fun loadMode(): InferenceMode =
         settingsStore.loadInferenceMode()
 
-    fun saveMode(mode: InferenceMode): InferenceMode =
+    override fun saveMode(mode: InferenceMode): InferenceMode =
         settingsStore.saveInferenceMode(mode)
 
-    fun loadConfig(): RemoteModelConfig =
+    override fun loadConfig(): RemoteModelConfig =
         settingsStore.loadRemoteConfig(loadApiKey().getOrDefault(""))
 
-    fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig> =
+    override fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig> =
         runCatching {
             val normalized = config.normalized()
             secretStore.saveString(PREF_REMOTE_API_KEY, normalized.apiKey).getOrThrow()

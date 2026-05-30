@@ -1,0 +1,143 @@
+package com.bytedance.zgx.pocketmind.background
+
+import com.bytedance.zgx.pocketmind.data.ScheduledTaskDao
+import com.bytedance.zgx.pocketmind.data.ScheduledTaskEntity
+
+class ScheduledTaskRepository(
+    private val dao: ScheduledTaskDao,
+    private val clockMillis: () -> Long = { System.currentTimeMillis() },
+) {
+    fun createReminder(
+        title: String,
+        body: String,
+        triggerAtMillis: Long,
+    ): ScheduledTask {
+        val now = clockMillis()
+        val task = ScheduledTask(
+            id = "task-$now-${title.hashCode().toUInt()}",
+            type = ScheduledTaskType.Reminder,
+            title = title,
+            body = body,
+            triggerAtMillis = triggerAtMillis,
+            status = ScheduledTaskStatus.Scheduled,
+            createdAtMillis = now,
+            updatedAtMillis = now,
+        )
+        dao.upsert(task.toEntity())
+        return task
+    }
+
+    fun task(taskId: String): ScheduledTask? =
+        dao.task(taskId)?.toModel()
+
+    fun scheduled(limit: Int = 100): List<ScheduledTask> =
+        dao.scheduled(limit).map { it.toModel() }
+
+    fun scheduledReminders(limit: Int = 100): List<ScheduledTask> =
+        dao.scheduledByType(ScheduledTaskType.Reminder.name, limit).map { it.toModel() }
+
+    fun periodicCheck(): ScheduledTask? =
+        dao.task(PeriodicCheckScheduleRequest.TASK_ID)?.toModel()
+
+    fun createOrUpdatePeriodicCheck(request: PeriodicCheckScheduleRequest): ScheduledTask {
+        val normalized = request.normalized()
+        val now = clockMillis()
+        val existing = periodicCheck()
+        val task = ScheduledTask(
+            id = PeriodicCheckScheduleRequest.TASK_ID,
+            type = ScheduledTaskType.PeriodicCheck,
+            title = PeriodicCheckScheduleRequest.TITLE,
+            body = normalized.storageSummary(),
+            triggerAtMillis = existing?.triggerAtMillis?.coerceAtLeast(now) ?: now,
+            status = ScheduledTaskStatus.Scheduled,
+            createdAtMillis = existing?.createdAtMillis ?: now,
+            updatedAtMillis = now,
+        )
+        dao.upsert(task.toEntity())
+        return task
+    }
+
+    fun recordPeriodicCheckRun(
+        nextAllowedRunAtMillis: Long,
+        summary: String,
+        status: ScheduledTaskStatus = ScheduledTaskStatus.Scheduled,
+    ): ScheduledTask {
+        val now = clockMillis()
+        val existing = periodicCheck()
+        val task = ScheduledTask(
+            id = PeriodicCheckScheduleRequest.TASK_ID,
+            type = ScheduledTaskType.PeriodicCheck,
+            title = PeriodicCheckScheduleRequest.TITLE,
+            body = summary,
+            triggerAtMillis = nextAllowedRunAtMillis,
+            status = status,
+            createdAtMillis = existing?.createdAtMillis ?: now,
+            updatedAtMillis = now,
+        )
+        dao.upsert(task.toEntity())
+        return task
+    }
+
+    fun disablePeriodicCheck(): ScheduledTask {
+        val now = clockMillis()
+        val existing = periodicCheck()
+        val task = ScheduledTask(
+            id = PeriodicCheckScheduleRequest.TASK_ID,
+            type = ScheduledTaskType.PeriodicCheck,
+            title = PeriodicCheckScheduleRequest.TITLE,
+            body = "enabled=false",
+            triggerAtMillis = now,
+            status = ScheduledTaskStatus.Cancelled,
+            createdAtMillis = existing?.createdAtMillis ?: now,
+            updatedAtMillis = now,
+        )
+        dao.upsert(task.toEntity())
+        return task
+    }
+
+    fun markDelivered(taskId: String) {
+        updateStatus(taskId, ScheduledTaskStatus.Delivered)
+    }
+
+    fun markCancelled(taskId: String) {
+        updateStatus(taskId, ScheduledTaskStatus.Cancelled)
+    }
+
+    fun markFailed(taskId: String) {
+        updateStatus(taskId, ScheduledTaskStatus.Failed)
+    }
+
+    private fun updateStatus(taskId: String, status: ScheduledTaskStatus) {
+        val existing = dao.task(taskId) ?: return
+        dao.upsert(
+            existing.copy(
+                status = status.name,
+                updatedAtMillis = clockMillis(),
+            ),
+        )
+    }
+
+    private fun ScheduledTask.toEntity(): ScheduledTaskEntity =
+        ScheduledTaskEntity(
+            id = id,
+            type = type.name,
+            title = title,
+            body = body,
+            triggerAtMillis = triggerAtMillis,
+            status = status.name,
+            createdAtMillis = createdAtMillis,
+            updatedAtMillis = updatedAtMillis,
+        )
+
+    private fun ScheduledTaskEntity.toModel(): ScheduledTask =
+        ScheduledTask(
+            id = id,
+            type = ScheduledTaskType.valueOf(type),
+            title = title,
+            body = body,
+            triggerAtMillis = triggerAtMillis,
+            status = ScheduledTaskStatus.valueOf(status),
+            createdAtMillis = createdAtMillis,
+            updatedAtMillis = updatedAtMillis,
+        )
+}

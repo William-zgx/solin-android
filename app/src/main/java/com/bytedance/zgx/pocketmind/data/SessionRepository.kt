@@ -4,6 +4,7 @@ import android.content.Context
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.ChatSessionSummary
 import com.bytedance.zgx.pocketmind.GenerationStats
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.isUsable
 import java.util.UUID
@@ -11,7 +12,7 @@ import kotlin.math.max
 
 class SessionRepository(
     private val sessionDao: SessionDao,
-    private val settingsStore: PreferenceSettingsStore,
+    private val activeSessionStore: ActiveSessionStore,
 ) : SessionStore {
     constructor(context: Context) : this(
         PocketMindDatabase.get(context).sessionDao(),
@@ -49,14 +50,14 @@ class SessionRepository(
         val created = newChatSession()
         sessionDao.upsertSession(created)
         activeSessionId = created.id
-        settingsStore.saveActiveSessionId(activeSessionId)
+        activeSessionStore.saveActiveSessionId(activeSessionId)
         return emptyList()
     }
 
     override fun selectSession(sessionId: String): List<ChatMessage>? {
         sessionDao.session(sessionId) ?: return null
         activeSessionId = sessionId
-        settingsStore.saveActiveSessionId(activeSessionId)
+        activeSessionStore.saveActiveSessionId(activeSessionId)
         return activeMessages()
     }
 
@@ -66,7 +67,7 @@ class SessionRepository(
         sessionDao.deleteMessages(activeSessionId)
         sessionDao.deleteSession(activeSessionId)
         activeSessionId = resolveActiveSessionId()
-        settingsStore.saveActiveSessionId(activeSessionId)
+        activeSessionStore.saveActiveSessionId(activeSessionId)
         return activeMessages()
     }
 
@@ -102,6 +103,7 @@ class SessionRepository(
                     text = message.text,
                     tokenCount = message.generationStats?.tokenCount,
                     tokensPerSecond = message.generationStats?.tokensPerSecond,
+                    privacy = message.privacy.name,
                 )
             },
         )
@@ -109,11 +111,11 @@ class SessionRepository(
 
     private fun resolveActiveSessionId(): String {
         val sessions = sessionDao.sessions()
-        val saved = settingsStore.activeSessionId()
+        val saved = activeSessionStore.activeSessionId()
         val resolved = sessions.firstOrNull { it.id == saved }?.id
             ?: sessions.firstOrNull()?.id
             ?: newChatSession().also { sessionDao.upsertSession(it) }.id
-        settingsStore.saveActiveSessionId(resolved)
+        activeSessionStore.saveActiveSessionId(resolved)
         return resolved
     }
 
@@ -141,6 +143,8 @@ class SessionRepository(
                         tokensPerSecond = entity.tokensPerSecond ?: 0.0,
                     ).takeIf { it.isUsable() }
                 },
+                privacy = runCatching { MessagePrivacy.valueOf(entity.privacy) }
+                    .getOrDefault(MessagePrivacy.RemoteEligible),
             )
         }
 }

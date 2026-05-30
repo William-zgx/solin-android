@@ -7,22 +7,22 @@ import kotlin.math.roundToInt
 
 class GenerationParametersRepository(
     private val settingsStore: SettingsStore,
-) {
+) : GenerationParametersStore {
     constructor(context: Context) : this(PreferenceSettingsStore(context))
 
-    fun load(): GenerationParameters =
+    override fun load(): GenerationParameters =
         settingsStore.loadGenerationParameters()
 
-    fun save(parameters: GenerationParameters): GenerationParameters =
+    override fun save(parameters: GenerationParameters): GenerationParameters =
         settingsStore.saveGenerationParameters(parameters)
 
-    fun reset(): GenerationParameters =
+    override fun reset(): GenerationParameters =
         save(GenerationParameters())
 
-    fun loadBackend(): BackendChoice =
+    override fun loadBackend(): BackendChoice =
         settingsStore.loadBackend()
 
-    fun saveBackend(backend: BackendChoice) {
+    override fun saveBackend(backend: BackendChoice) {
         settingsStore.saveBackend(backend)
     }
 }

@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
@@ -75,6 +76,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -102,8 +104,8 @@ import com.bytedance.zgx.pocketmind.InferenceMode
 import com.bytedance.zgx.pocketmind.InstalledModelSummary
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.ModelCapability
-import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.PendingAgentConfirmation
+import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.action.ActionDraft
@@ -164,154 +166,171 @@ fun PocketMindScreen(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding(),
+                .background(PocketMindBackgroundBrush()),
         ) {
-            ChatTopBar(
-                state = state,
-                onOpenModelManager = { showModelManager = true },
-                onOpenSessions = { showSessions = true },
-                onCreateSession = onCreateSession,
-            )
-
-            Box(
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxSize()
+                    .imePadding(),
             ) {
-                if (state.messages.isEmpty()) {
-                    ChatEmptyState(
-                        state = state,
-                        onOpenModelManager = { showModelManager = true },
-                        onPickModel = { pickModel.launch(arrayOf("*/*")) },
-                        onDownloadModel = onDownloadModel,
-                        onCancelDownload = onCancelDownload,
-                        onRecommendedModelSelected = onRecommendedModelSelected,
-                        onSendPrompt = onSendMessage,
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        state = listState,
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        items(
-                            items = state.messages,
-                            key = { it.id },
-                        ) { message ->
-                            MessageBubble(
-                                message = message,
-                                isStreaming = state.isGenerating &&
-                                    message.role == MessageRole.Assistant &&
-                                    message.id == state.messages.lastOrNull()?.id,
-                            )
+                ChatTopBar(
+                    state = state,
+                    onOpenModelManager = { showModelManager = true },
+                    onOpenSessions = { showSessions = true },
+                    onCreateSession = onCreateSession,
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                ) {
+                    if (state.messages.isEmpty()) {
+                        ChatEmptyState(
+                            state = state,
+                            onOpenModelManager = { showModelManager = true },
+                            onPickModel = { pickModel.launch(arrayOf("*/*")) },
+                            onDownloadModel = onDownloadModel,
+                            onCancelDownload = onCancelDownload,
+                            onRecommendedModelSelected = onRecommendedModelSelected,
+                            onSendPrompt = onSendMessage,
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            state = listState,
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            items(
+                                items = state.messages,
+                                key = { it.id },
+                            ) { message ->
+                                MessageBubble(
+                                    message = message,
+                                    isStreaming = state.isGenerating &&
+                                        message.role == MessageRole.Assistant &&
+                                        message.id == state.messages.lastOrNull()?.id,
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            if (state.memoryHits.isNotEmpty()) {
-                MemoryContextStrip(
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .testTag("memory_context_strip"),
-                    hitCount = state.memoryHits.size,
-                )
-            }
+                if (state.memoryHits.isNotEmpty()) {
+                    MemoryContextStrip(
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .testTag("memory_context_strip"),
+                        hitCount = state.memoryHits.size,
+                    )
+                }
 
-            Composer(
-                state = state,
-                input = input,
-                onInputChanged = { input = it },
-                onOpenModelManager = { showModelManager = true },
-                onSend = {
-                    val message = input
-                    input = ""
-                    onSendMessage(message)
-                },
-                onStopGeneration = onStopGeneration,
-            )
-        }
-
-        if (showModelManager) {
-            ModalBottomSheet(
-                sheetState = sheetState,
-                onDismissRequest = { showModelManager = false },
-            ) {
-                ModelManagerSheet(
+                Composer(
                     state = state,
-                    customModelUrl = customModelUrl,
-                    onCustomModelUrlChanged = { customModelUrl = it },
-                    onPickModel = { pickModel.launch(arrayOf("*/*")) },
-                    onDownloadModel = onDownloadModel,
-                    onDownloadRecommendedModel = onDownloadRecommendedModel,
-                    onDownloadCustomModel = onDownloadCustomModel,
-                    onCancelDownload = onCancelDownload,
-                    onLoadModel = onLoadModel,
-                    onRecommendedModelSelected = onRecommendedModelSelected,
-                    onInstalledModelSelected = onInstalledModelSelected,
-                    onInferenceModeSelected = onInferenceModeSelected,
-                    onRemoteModelConfigChanged = onRemoteModelConfigChanged,
-                    onBackendSelected = onBackendSelected,
-                    onGenerationParametersChanged = onGenerationParametersChanged,
-                    onResetGenerationParameters = onResetGenerationParameters,
-                    onMemoryEnabledChanged = onMemoryEnabledChanged,
-                    onOpenModelPage = onOpenModelPage,
-                )
-            }
-        }
-
-        if (showSessions) {
-            ModalBottomSheet(
-                sheetState = sheetState,
-                onDismissRequest = { showSessions = false },
-            ) {
-                SessionManagerSheet(
-                    state = state,
-                    onCreateSession = {
-                        onCreateSession()
-                        showSessions = false
+                    input = input,
+                    onInputChanged = { input = it },
+                    onOpenModelManager = { showModelManager = true },
+                    onSend = {
+                        val message = input
+                        input = ""
+                        onSendMessage(message)
                     },
-                    onSessionSelected = {
-                        onSessionSelected(it)
-                        showSessions = false
-                    },
-                    onDeleteSession = onDeleteSession,
+                    onStopGeneration = onStopGeneration,
                 )
             }
-        }
 
-        if (state.showFirstRunSetup) {
-            ModalBottomSheet(
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                onDismissRequest = onSkipFirstRunSetup,
-            ) {
-                FirstRunSetupSheet(
-                    state = state,
-                    onSetupModelToggled = onSetupModelToggled,
-                    onDownloadSetupModels = onDownloadSetupModels,
-                    onSkip = onSkipFirstRunSetup,
-                )
+            if (showModelManager) {
+                ModalBottomSheet(
+                    sheetState = sheetState,
+                    onDismissRequest = { showModelManager = false },
+                ) {
+                    ModelManagerSheet(
+                        state = state,
+                        customModelUrl = customModelUrl,
+                        onCustomModelUrlChanged = { customModelUrl = it },
+                        onPickModel = { pickModel.launch(arrayOf("*/*")) },
+                        onDownloadModel = onDownloadModel,
+                        onDownloadRecommendedModel = onDownloadRecommendedModel,
+                        onDownloadCustomModel = onDownloadCustomModel,
+                        onCancelDownload = onCancelDownload,
+                        onLoadModel = onLoadModel,
+                        onRecommendedModelSelected = onRecommendedModelSelected,
+                        onInstalledModelSelected = onInstalledModelSelected,
+                        onInferenceModeSelected = onInferenceModeSelected,
+                        onRemoteModelConfigChanged = onRemoteModelConfigChanged,
+                        onBackendSelected = onBackendSelected,
+                        onGenerationParametersChanged = onGenerationParametersChanged,
+                        onResetGenerationParameters = onResetGenerationParameters,
+                        onMemoryEnabledChanged = onMemoryEnabledChanged,
+                        onOpenModelPage = onOpenModelPage,
+                        onDismiss = { showModelManager = false },
+                    )
+                }
             }
-        }
 
-        state.pendingConfirmation?.let { confirmation ->
-            ModalBottomSheet(
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                onDismissRequest = onDismissAgentConfirmation,
-            ) {
-                ActionDraftSheet(
-                    draft = confirmation.draft,
-                    onConfirm = { onConfirmAgentConfirmation(confirmation) },
-                    onDismiss = onDismissAgentConfirmation,
-                )
+            if (showSessions) {
+                ModalBottomSheet(
+                    sheetState = sheetState,
+                    onDismissRequest = { showSessions = false },
+                ) {
+                    SessionManagerSheet(
+                        state = state,
+                        onCreateSession = {
+                            onCreateSession()
+                            showSessions = false
+                        },
+                        onSessionSelected = {
+                            onSessionSelected(it)
+                            showSessions = false
+                        },
+                        onDeleteSession = onDeleteSession,
+                    )
+                }
+            }
+
+            if (state.showFirstRunSetup) {
+                ModalBottomSheet(
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                    onDismissRequest = onSkipFirstRunSetup,
+                ) {
+                    FirstRunSetupSheet(
+                        state = state,
+                        onSetupModelToggled = onSetupModelToggled,
+                        onDownloadSetupModels = onDownloadSetupModels,
+                        onSkip = onSkipFirstRunSetup,
+                    )
+                }
+            }
+
+            state.pendingConfirmation?.let { confirmation ->
+                ModalBottomSheet(
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                    onDismissRequest = onDismissAgentConfirmation,
+                ) {
+                    ActionDraftSheet(
+                        draft = confirmation.draft,
+                        onConfirm = { onConfirmAgentConfirmation(confirmation) },
+                        onDismiss = onDismissAgentConfirmation,
+                    )
+                }
             }
         }
     }
 }
+
+@Composable
+private fun PocketMindBackgroundBrush(): Brush =
+    Brush.verticalGradient(
+        colors = listOf(
+            MaterialTheme.colorScheme.surfaceContainerLowest,
+            MaterialTheme.colorScheme.background,
+            MaterialTheme.colorScheme.surfaceContainerLowest,
+        ),
+    )
 
 @Composable
 private fun ChatTopBar(
@@ -322,7 +341,8 @@ private fun ChatTopBar(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.background,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.88f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)),
         shadowElevation = 0.dp,
     ) {
         Column(
@@ -400,7 +420,9 @@ private fun TopActionButton(
         onClick = onClick,
         enabled = enabled,
         colors = IconButtonDefaults.iconButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f),
             contentColor = MaterialTheme.colorScheme.primary,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.36f),
             disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
         ),
     ) {
@@ -440,6 +462,7 @@ private fun RuntimeStatusBadge(state: ChatUiState) {
     Surface(
         shape = CircleShape,
         color = container,
+        border = BorderStroke(1.dp, content.copy(alpha = 0.16f)),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -497,13 +520,13 @@ private fun ChatEmptyState(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
             border = BorderStroke(
                 width = 1.dp,
                 color = if (state.isReady) {
-                    semanticColors.accentLine.copy(alpha = 0.65f)
+                    semanticColors.accentLine.copy(alpha = 0.86f)
                 } else {
-                    MaterialTheme.colorScheme.outlineVariant
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
                 },
             ),
             tonalElevation = 0.dp,
@@ -764,7 +787,7 @@ private fun ActionDraftSheet(
     ) {
         SectionTitle(
             text = draft.title,
-            subtitle = "动作只会在你确认后打开系统页面或草稿页。",
+            subtitle = "动作只会在你确认后读取上下文、创建草稿或调起系统能力。",
         )
         Text(
             text = draft.summary,
@@ -788,7 +811,7 @@ private fun ActionDraftSheet(
                 .testTag("action_confirm_button"),
             onClick = onConfirm,
         ) {
-            Text("确认并打开")
+            Text("确认执行")
         }
         OutlinedButton(
             modifier = Modifier
@@ -869,6 +892,7 @@ private fun ModelManagerSheet(
     onResetGenerationParameters: () -> Unit,
     onMemoryEnabledChanged: (Boolean) -> Unit,
     onOpenModelPage: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(0) }
     val tabs = listOf("当前", "模型", "远程", "高级")
@@ -891,7 +915,22 @@ private fun ModelManagerSheet(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold,
             )
-            RuntimeStatusBadge(state)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RuntimeStatusBadge(state)
+                IconButton(
+                    modifier = Modifier.testTag("model_manager_close_button"),
+                    onClick = onDismiss,
+                    enabled = !state.isBusy,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "关闭模型管理",
+                    )
+                }
+            }
         }
 
         PrimaryTabRow(
@@ -1149,10 +1188,10 @@ private fun PanelSurface(content: @Composable () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.58f),
         ),
         tonalElevation = 0.dp,
     ) {
@@ -1464,14 +1503,14 @@ private fun RecommendedModelCard(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
         tonalElevation = 0.dp,
         border = BorderStroke(
             width = 1.dp,
             color = if (isSelectedChat) {
                 accent.copy(alpha = 0.8f)
             } else {
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.58f)
             },
         ),
     ) {
@@ -1579,9 +1618,9 @@ private fun ModelRow(
             ),
         shape = shape,
         color = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f)
         } else {
-            MaterialTheme.colorScheme.surface
+            MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f)
         },
         tonalElevation = 0.dp,
         onClick = onClick,
@@ -2030,9 +2069,9 @@ private fun MessageBubble(
     val isUser = message.role == MessageRole.User
     val semanticColors = LocalPocketMindColors.current
     val bubbleColor = if (isUser) {
-        semanticColors.localContainer.copy(alpha = 0.82f)
+        semanticColors.localContainer.copy(alpha = 0.92f)
     } else {
-        MaterialTheme.colorScheme.surface
+        MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.96f)
     }
     val textColor = if (isUser) {
         semanticColors.onLocalContainer
@@ -2056,9 +2095,9 @@ private fun MessageBubble(
             shape = shape,
             color = bubbleColor,
             border = if (isUser) {
-                null
+                BorderStroke(1.dp, semanticColors.local.copy(alpha = 0.24f))
             } else {
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.58f))
             },
         ) {
             Column(
@@ -2236,7 +2275,15 @@ private fun Composer(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.96f),
+                        MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.98f),
+                    ),
+                ),
+            )
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f))
             .navigationBarsPadding()
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -2253,7 +2300,7 @@ private fun Composer(
                     Modifier.weight(1f, fill = false)
                 },
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
                 onClick = onOpenModelManager,
                 enabled = !state.isBusy,
@@ -2329,6 +2376,8 @@ private fun Composer(
                 enabled = !state.isBusy,
                 colors = IconButtonDefaults.iconButtonColors(
                     contentColor = MaterialTheme.colorScheme.primary,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.58f),
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.34f),
                     disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                 ),
             ) {

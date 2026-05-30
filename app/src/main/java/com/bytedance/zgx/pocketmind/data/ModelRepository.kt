@@ -77,7 +77,7 @@ class ModelRepository(
     private val modelDao: ModelDao,
     private val downloadRecordDao: DownloadRecordDao,
     private val settingsStore: PreferenceSettingsStore,
-) : ModelStore, DownloadStore {
+) : ModelRepositoryFacade {
     constructor(context: Context) : this(
         context.applicationContext,
         PocketMindDatabase.get(context).modelDao(),
@@ -156,7 +156,7 @@ class ModelRepository(
         return entity.toSummary()
     }
 
-    fun importModel(
+    override fun importModel(
         uri: Uri,
         onProgress: (TransferProgress) -> Unit,
     ): String {
@@ -238,7 +238,7 @@ class ModelRepository(
                 }.getOrNull()
             }
 
-    fun createCustomDownloadSource(downloadUrl: String): ModelDownloadSource? {
+    override fun createCustomDownloadSource(downloadUrl: String): ModelDownloadSource? {
         val trimmedUrl = downloadUrl.trim()
         val uri = runCatching { Uri.parse(trimmedUrl) }.getOrNull() ?: return null
         val scheme = uri.scheme?.lowercase()
@@ -261,11 +261,11 @@ class ModelRepository(
         )
     }
 
-    fun downloadedModelFile(fileName: String): File? =
+    override fun downloadedModelFile(fileName: String): File? =
         appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?.let { File(it, fileName) }
 
-    fun resolveModelStorageBytes(): Long {
+    override fun resolveModelStorageBytes(): Long {
         val downloadParent = downloadedModelFile(selectedRecommendedModel().fileName)?.parentFile
         return when {
             downloadParent == null -> appContext.filesDir.usableSpace
@@ -280,7 +280,7 @@ class ModelRepository(
             it.fileName.equals(fileName, ignoreCase = true)
         }?.id
 
-    fun verifiedActionModelPath(): String? =
+    override fun verifiedActionModelPath(): String? =
         installedModels().firstOrNull {
             it.recommendedModelId != null &&
                 ModelCatalog.recommendedModelById(it.recommendedModelId).capability == ModelCapability.MobileAction &&
@@ -288,7 +288,7 @@ class ModelRepository(
                 File(it.path).exists()
         }?.path
 
-    fun verifyLegacyRecommendedModels(): Boolean {
+    override fun verifyLegacyRecommendedModels(): Boolean {
         var changed = false
         installedModels().forEach { entity ->
             val modelId = entity.recommendedModelId ?: return@forEach

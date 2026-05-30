@@ -58,6 +58,7 @@ class LegacyPrefsMigrator(
                         text = message.text,
                         tokenCount = message.tokenCount,
                         tokensPerSecond = message.tokensPerSecond,
+                        privacy = com.bytedance.zgx.pocketmind.MessagePrivacy.RemoteEligible.name,
                     )
                 },
             )

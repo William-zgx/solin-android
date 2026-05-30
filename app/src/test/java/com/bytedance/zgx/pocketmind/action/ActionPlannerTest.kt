@@ -34,6 +34,19 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun parsesCalendarAvailabilityCallOutput() {
+        val draft = planner.parseModelOutput(
+            """call:query_calendar_availability{"start":"2026-06-01T09:00:00Z","end":"2026-06-01T10:00:00Z"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, draft.functionName)
+        assertEquals("2026-06-01T09:00:00Z", draft.parameters["start"])
+        assertEquals("2026-06-01T10:00:00Z", draft.parameters["end"])
+        assertTrue(draft.summary.contains("只读查询"))
+    }
+
+    @Test
     fun rejectsUnsupportedFunctionCalls() {
         assertNull(planner.parseModelOutput("""call:delete_contact{"name":"A"}"""))
     }
@@ -53,5 +66,52 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.WEB_SEARCH, plan.draft?.functionName)
         assertEquals("Kotlin 协程最新用法", plan.draft?.parameters?.get("query"))
+    }
+
+    @Test
+    fun infersReminderDraftWithDelayMinutes() {
+        val plan = planner.plan("提醒我 15 分钟后喝水")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, plan.draft?.functionName)
+        assertEquals("15", plan.draft?.parameters?.get("delayMinutes"))
+        assertTrue(plan.draft?.parameters?.get("title").orEmpty().contains("喝水"))
+    }
+
+    @Test
+    fun infersClipboardReadDraftOnlyWhenClipboardIsNamed() {
+        val plan = planner.plan("读取剪贴板并总结")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, plan.draft?.functionName)
+        assertTrue(plan.draft?.parameters.orEmpty().isEmpty())
+    }
+
+    @Test
+    fun infersShareTextDraft() {
+        val plan = planner.plan("分享这段文字：明天十点开会")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, plan.draft?.functionName)
+        assertEquals("明天十点开会", plan.draft?.parameters?.get("text"))
+    }
+
+    @Test
+    fun infersCalendarAvailabilityDraftWhenIsoWindowIsExplicit() {
+        val plan = planner.plan(
+            "查一下忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z",
+        )
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, plan.draft?.functionName)
+        assertEquals("2026-06-01T09:00:00Z", plan.draft?.parameters?.get("start"))
+        assertEquals("2026-06-01T10:00:00Z", plan.draft?.parameters?.get("end"))
+    }
+
+    @Test
+    fun doesNotTreatShareOpinionAsShareSheetAction() {
+        val plan = planner.plan("分享一下你对端侧 Agent 的看法")
+
+        assertEquals(ActionPlanKind.NoAction, plan.kind)
     }
 }

@@ -23,6 +23,7 @@ class ToolRegistryTest {
         assertNotNull(rejection)
         requireNotNull(rejection)
         assertEquals(ToolStatus.Rejected, rejection.status)
+        assertEquals(ToolErrorCode.UnknownTool, rejection.error?.code)
         assertTrue(rejection.summary.contains("Unknown tool"))
         assertEquals("delete_contact", rejection.data["toolName"])
     }
@@ -37,6 +38,7 @@ class ToolRegistryTest {
         assertNotNull(wifiSpec)
         requireNotNull(wifiSpec)
         assertEquals(ToolCapability.DeviceSettings, wifiSpec.capability)
+        assertTrue(ToolPermission.StartsExternalActivity in wifiSpec.permissions)
         assertEquals(RiskLevel.MediumDraftOrNavigation, wifiSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, wifiSpec.confirmationPolicy)
 
@@ -44,7 +46,53 @@ class ToolRegistryTest {
         assertNotNull(webSearchSpec)
         requireNotNull(webSearchSpec)
         assertEquals(ToolCapability.WebSearch, webSearchSpec.capability)
+        assertTrue(ToolPermission.StartsExternalActivity in webSearchSpec.permissions)
         assertTrue(webSearchSpec.inputSchemaJson.contains("query"))
+
+        val reminderSpec = registry.specFor(MobileActionFunctions.SCHEDULE_REMINDER)
+        assertNotNull(reminderSpec)
+        requireNotNull(reminderSpec)
+        assertEquals(ToolCapability.BackgroundTask, reminderSpec.capability)
+        assertTrue(ToolPermission.SchedulesBackgroundWork in reminderSpec.permissions)
+        assertTrue(ToolPermission.PostsNotification in reminderSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission in reminderSpec.permissions)
+
+        val clipboardSpec = registry.specFor(MobileActionFunctions.READ_CLIPBOARD)
+        assertNotNull(clipboardSpec)
+        requireNotNull(clipboardSpec)
+        assertEquals(ToolCapability.DeviceContext, clipboardSpec.capability)
+        assertTrue(ToolPermission.ReadsDeviceContext in clipboardSpec.permissions)
+        assertTrue(ToolPermission.ReadsClipboard in clipboardSpec.permissions)
+
+        val shareSpec = registry.specFor(MobileActionFunctions.SHARE_TEXT)
+        assertNotNull(shareSpec)
+        requireNotNull(shareSpec)
+        assertEquals(ToolCapability.ExternalShare, shareSpec.capability)
+        assertTrue(ToolPermission.StartsExternalActivity in shareSpec.permissions)
+        assertTrue(ToolPermission.SendsTextToExternalApp in shareSpec.permissions)
+
+        val calendarAvailabilitySpec = registry.specFor(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY)
+        assertNotNull(calendarAvailabilitySpec)
+        requireNotNull(calendarAvailabilitySpec)
+        assertEquals(ToolCapability.DeviceContext, calendarAvailabilitySpec.capability)
+        assertEquals(RiskLevel.LowReadOnly, calendarAvailabilitySpec.riskLevel)
+        assertTrue(ToolPermission.ReadsDeviceContext in calendarAvailabilitySpec.permissions)
+        assertTrue(ToolPermission.ReadsCalendar in calendarAvailabilitySpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission in calendarAvailabilitySpec.permissions)
+        assertTrue(calendarAvailabilitySpec.inputSchemaJson.contains("\"start\""))
+        assertTrue(calendarAvailabilitySpec.inputSchemaJson.contains("\"end\""))
+        assertTrue(calendarAvailabilitySpec.inputSchemaJson.contains("31 days"))
+    }
+
+    @Test
+    fun allToolInputSchemasAreParseableAndClosed() {
+        registry.specs().forEach { spec ->
+            assertTrue("${spec.name} schema should declare object type", spec.inputSchemaJson.contains("\"object\""))
+            assertTrue(
+                "${spec.name} schema should reject undeclared arguments",
+                spec.inputSchemaJson.contains("\"additionalProperties\": false"),
+            )
+        }
     }
 
     @Test
@@ -86,6 +134,55 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun rejectsUnknownArguments() {
+        val rejection = registry.validate(
+            ToolRequest(
+                id = "request-extra",
+                toolName = MobileActionFunctions.COMPOSE_EMAIL,
+                arguments = mapOf(
+                    "body" to "明天聊",
+                    "sendNow" to "true",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertNotNull(rejection)
+        requireNotNull(rejection)
+        assertEquals(ToolStatus.Rejected, rejection.status)
+        assertTrue(rejection.summary.contains("sendNow"))
+    }
+
+    @Test
+    fun validatesRequiredArgumentsForDraftTools() {
+        val requiredArgumentsByTool = mapOf(
+            MobileActionFunctions.COMPOSE_EMAIL to "body",
+            MobileActionFunctions.CREATE_CALENDAR_EVENT to "title",
+            MobileActionFunctions.CREATE_CONTACT_DRAFT to "name",
+            MobileActionFunctions.SEARCH_MAPS to "query",
+            MobileActionFunctions.WEB_SEARCH to "query",
+            MobileActionFunctions.SCHEDULE_REMINDER to "title",
+            MobileActionFunctions.SHARE_TEXT to "text",
+        )
+
+        requiredArgumentsByTool.forEach { (toolName, requiredArgument) ->
+            val rejection = registry.validate(
+                ToolRequest(
+                    id = "request-$toolName",
+                    toolName = toolName,
+                    arguments = mapOf(requiredArgument to " "),
+                    reason = "test",
+                ),
+            )
+
+            assertNotNull("Expected blank $requiredArgument to reject $toolName", rejection)
+            requireNotNull(rejection)
+            assertEquals(ToolStatus.Rejected, rejection.status)
+            assertTrue(rejection.summary.contains(requiredArgument))
+        }
+    }
+
+    @Test
     fun acceptsOpenWifiSettingsWithoutArguments() {
         val rejection = registry.validate(
             ToolRequest(
@@ -96,5 +193,112 @@ class ToolRegistryTest {
         )
 
         assertNull(rejection)
+    }
+
+    @Test
+    fun rejectsArgumentsDisallowedByEmptyObjectSchema() {
+        val rejection = registry.validate(
+            ToolRequest(
+                id = "request-wifi-extra",
+                toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                arguments = mapOf("enabled" to "true"),
+                reason = "test",
+            ),
+        )
+
+        assertNotNull(rejection)
+        requireNotNull(rejection)
+        assertEquals(ToolStatus.Rejected, rejection.status)
+        assertTrue(rejection.summary.contains("enabled"))
+    }
+
+    @Test
+    fun validatesReminderDelayMinutesAsPositiveInteger() {
+        val invalid = registry.validate(
+            ToolRequest(
+                id = "request-reminder-invalid",
+                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                arguments = mapOf(
+                    "title" to "喝水",
+                    "delayMinutes" to "0",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalid)
+        requireNotNull(invalid)
+        assertTrue(invalid.summary.contains("delayMinutes"))
+
+        val nonInteger = registry.validate(
+            ToolRequest(
+                id = "request-reminder-non-integer",
+                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                arguments = mapOf(
+                    "title" to "喝水",
+                    "delayMinutes" to "1.5",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNotNull(nonInteger)
+        requireNotNull(nonInteger)
+        assertTrue(nonInteger.summary.contains("delayMinutes"))
+
+        val valid = registry.validate(
+            ToolRequest(
+                id = "request-reminder-valid",
+                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                arguments = mapOf(
+                    "title" to "喝水",
+                    "body" to "提醒我喝水",
+                    "delayMinutes" to "15",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNull(valid)
+    }
+
+    @Test
+    fun acceptsReadClipboardWithoutArguments() {
+        val rejection = registry.validate(
+            ToolRequest(
+                id = "request-clipboard",
+                toolName = MobileActionFunctions.READ_CLIPBOARD,
+                reason = "test",
+            ),
+        )
+
+        assertNull(rejection)
+    }
+
+    @Test
+    fun validatesCalendarAvailabilityStartAndEndArguments() {
+        val missingEnd = registry.validate(
+            ToolRequest(
+                id = "request-calendar-missing",
+                toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+                arguments = mapOf("start" to "2026-06-01T09:00:00Z"),
+                reason = "test",
+            ),
+        )
+        assertNotNull(missingEnd)
+        requireNotNull(missingEnd)
+        assertEquals(ToolStatus.Rejected, missingEnd.status)
+        assertTrue(missingEnd.summary.contains("end"))
+
+        val valid = registry.validate(
+            ToolRequest(
+                id = "request-calendar-valid",
+                toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+                arguments = mapOf(
+                    "start" to "2026-06-01T09:00:00Z",
+                    "end" to "2026-06-01T10:00:00Z",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertNull(valid)
     }
 }

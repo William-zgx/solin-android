@@ -8,6 +8,7 @@ data class ToolSpec(
     val description: String,
     val inputSchemaJson: String,
     val capability: ToolCapability,
+    val permissions: Set<ToolPermission> = emptySet(),
     val riskLevel: RiskLevel = RiskLevel.MediumDraftOrNavigation,
     val confirmationPolicy: ConfirmationPolicy = ConfirmationPolicy.Required,
 )
@@ -24,7 +25,14 @@ data class ToolResult(
     val status: ToolStatus,
     val summary: String,
     val data: Map<String, String> = emptyMap(),
+    val error: ToolError? = null,
+    val retryable: Boolean = false,
     val userVisible: Boolean = true,
+)
+
+data class ToolError(
+    val code: ToolErrorCode,
+    val message: String,
 )
 
 enum class ToolStatus {
@@ -41,6 +49,18 @@ enum class RiskLevel {
     CriticalDeviceOrPayment,
 }
 
+enum class ToolPermission {
+    None,
+    StartsExternalActivity,
+    SendsTextToExternalApp,
+    ReadsDeviceContext,
+    ReadsClipboard,
+    ReadsCalendar,
+    RequiresAndroidRuntimePermission,
+    SchedulesBackgroundWork,
+    PostsNotification,
+}
+
 enum class ConfirmationPolicy {
     Required,
     Optional,
@@ -52,4 +72,69 @@ enum class ToolCapability {
     ExternalNavigation,
     WebSearch,
     ExternalDraft,
+    BackgroundTask,
+    DeviceContext,
+    ExternalShare,
+}
+
+fun ToolRequest.succeeded(
+    summary: String,
+    data: Map<String, String> = emptyMap(),
+): ToolResult =
+    ToolResult(
+        requestId = id,
+        status = ToolStatus.Succeeded,
+        summary = summary,
+        data = data,
+    )
+
+fun ToolRequest.failed(
+    code: ToolErrorCode,
+    summary: String,
+    retryable: Boolean = true,
+    data: Map<String, String> = emptyMap(),
+): ToolResult =
+    ToolResult(
+        requestId = id,
+        status = ToolStatus.Failed,
+        summary = summary,
+        data = data,
+        error = ToolError(code, summary),
+        retryable = retryable,
+    )
+
+fun ToolRequest.rejected(
+    summary: String,
+    data: Map<String, String> = mapOf("toolName" to toolName),
+): ToolResult =
+    ToolResult(
+        requestId = id,
+        status = ToolStatus.Rejected,
+        summary = summary,
+        data = data,
+        error = ToolError(ToolErrorCode.InvalidRequest, summary),
+        retryable = false,
+    )
+
+fun ToolRequest.cancelled(
+    summary: String,
+    data: Map<String, String> = mapOf("toolName" to toolName),
+): ToolResult =
+    ToolResult(
+        requestId = id,
+        status = ToolStatus.Cancelled,
+        summary = summary,
+        data = data,
+        error = ToolError(ToolErrorCode.UserCancelled, summary),
+        retryable = false,
+    )
+
+enum class ToolErrorCode {
+    UnknownTool,
+    InvalidRequest,
+    MissingArgument,
+    PermissionDenied,
+    NoActivityFound,
+    ExecutionFailed,
+    UserCancelled,
 }

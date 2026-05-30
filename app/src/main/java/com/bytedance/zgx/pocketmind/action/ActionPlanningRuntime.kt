@@ -125,6 +125,9 @@ private fun actionPrompt(input: String): String =
     - create_calendar_event {"title":"..."}
     - create_contact_draft {"name":"..."}
     - open_flashlight_settings {}
+    - schedule_reminder {"title":"...","body":"...","delayMinutes":"15"} 仅用于明确的分钟/小时后提醒
+    - read_clipboard {} 仅用于用户明确要求读取剪贴板
+    - share_text {"text":"...","title":"..."} 仅打开系统分享面板，不直接发送
 
     用户请求：$input
     """.trimIndent()

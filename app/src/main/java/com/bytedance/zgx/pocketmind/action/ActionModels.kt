@@ -27,6 +27,10 @@ object MobileActionFunctions {
     const val CREATE_CALENDAR_EVENT = "create_calendar_event"
     const val CREATE_CONTACT_DRAFT = "create_contact_draft"
     const val OPEN_FLASHLIGHT_SETTINGS = "open_flashlight_settings"
+    const val SCHEDULE_REMINDER = "schedule_reminder"
+    const val READ_CLIPBOARD = "read_clipboard"
+    const val SHARE_TEXT = "share_text"
+    const val QUERY_CALENDAR_AVAILABILITY = "query_calendar_availability"
 
     val supported: Set<String> = setOf(
         OPEN_WIFI_SETTINGS,
@@ -36,5 +40,9 @@ object MobileActionFunctions {
         CREATE_CALENDAR_EVENT,
         CREATE_CONTACT_DRAFT,
         OPEN_FLASHLIGHT_SETTINGS,
+        SCHEDULE_REMINDER,
+        READ_CLIPBOARD,
+        SHARE_TEXT,
+        QUERY_CALENDAR_AVAILABILITY,
     )
 }

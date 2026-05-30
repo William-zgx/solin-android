@@ -7,20 +7,32 @@ import androidx.lifecycle.viewModelScope
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionExecutor
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupRepository
+import com.bytedance.zgx.pocketmind.data.FirstRunSetupStore
 import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
-import com.bytedance.zgx.pocketmind.data.GenerationParametersRepository
+import com.bytedance.zgx.pocketmind.data.GenerationParametersStore
+import com.bytedance.zgx.pocketmind.data.ModelRepositoryFacade
 import com.bytedance.zgx.pocketmind.data.ModelRepository
 import com.bytedance.zgx.pocketmind.data.ModelSelectionState
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
+import com.bytedance.zgx.pocketmind.data.RemoteModelStore
 import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
-import com.bytedance.zgx.pocketmind.data.SessionRepository
+import com.bytedance.zgx.pocketmind.data.SessionStore
+import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
+import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
+import com.bytedance.zgx.pocketmind.memory.MemoryIndex
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
+import com.bytedance.zgx.pocketmind.multimodal.SharedInput
+import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
+import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
+import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
+import com.bytedance.zgx.pocketmind.orchestration.AssistantRouter
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRoute
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
-import com.bytedance.zgx.pocketmind.runtime.RealLiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
+import com.bytedance.zgx.pocketmind.tool.ToolExecutor
+import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import java.io.File
 import java.util.ArrayDeque
 import kotlinx.coroutines.CancellationException
@@ -39,17 +51,17 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class PocketMindViewModel(
-    private val modelRepository: ModelRepository,
-    private val sessionRepository: SessionRepository,
-    private val generationParametersRepository: GenerationParametersRepository,
-    private val remoteModelRepository: RemoteModelRepository,
-    private val firstRunSetupRepository: FirstRunSetupRepository,
-    private val downloadService: ModelDownloadService,
+    private val modelRepository: ModelRepositoryFacade,
+    private val sessionRepository: SessionStore,
+    private val generationParametersRepository: GenerationParametersStore,
+    private val remoteModelRepository: RemoteModelStore,
+    private val firstRunSetupRepository: FirstRunSetupStore,
+    private val downloadService: ModelDownloadClient,
     private val runtime: LiteRtRuntime,
     private val remoteRuntime: RemoteChatRuntime,
-    private val memoryRepository: MemoryRepository,
-    private val actionExecutor: ActionExecutor,
-    private val assistantOrchestrator: AssistantOrchestrator,
+    private val memoryRepository: MemoryIndex,
+    private val actionExecutor: ToolExecutor,
+    private val assistantOrchestrator: AssistantRouter,
     private val isArm64DeviceProvider: () -> Boolean,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
@@ -63,10 +75,6 @@ class PocketMindViewModel(
 
     private val _uiState = MutableStateFlow(createInitialState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
-
-    init {
-        RealLiteRtRuntime.configureNativeLogging()
-    }
 
     fun restoreStartupState(skipModelRuntimeWork: Boolean = false) {
         if (startupRestored) return
@@ -534,8 +542,17 @@ class PocketMindViewModel(
         }
     }
 
-    fun sendMessage(prompt: String) {
+    fun sendMessage(
+        prompt: String,
+        messagePrivacy: MessagePrivacy = MessagePrivacy.RemoteEligible,
+    ) {
         val trimmed = prompt.trim()
+        if (trimmed.isNotEmpty() && _uiState.value.pendingConfirmation != null) {
+            _uiState.update {
+                it.copy(statusText = "请先确认或取消待执行动作")
+            }
+            return
+        }
         if (trimmed.isEmpty() || !_uiState.value.isReady || _uiState.value.isBusy || generationJob?.isActive == true) {
             return
         }
@@ -543,7 +560,27 @@ class PocketMindViewModel(
         val stateBeforeSend = _uiState.value
         val useRemoteModel = stateBeforeSend.inferenceMode == InferenceMode.Remote
         val remoteConfig = stateBeforeSend.remoteModelConfig
-        val remoteHistory = stateBeforeSend.messages
+        val remoteHistory = stateBeforeSend.messages.remoteEligibleMessages()
+        val includePrivateLocalContext = !useRemoteModel
+        if (useRemoteModel && messagePrivacy == MessagePrivacy.LocalOnly) {
+            replaceActiveSessionMessages(
+                stateBeforeSend.messages + ChatMessage(
+                    role = MessageRole.User,
+                    text = trimmed,
+                    privacy = MessagePrivacy.LocalOnly,
+                ) + ChatMessage(
+                    role = MessageRole.Assistant,
+                    text = "这条内容已标记为仅本地使用。当前为远程模型模式，我不会把它发送到远程模型。",
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+                persistNow = true,
+            )
+            rebuildMemoryIndex()
+            _uiState.update {
+                it.copy(statusText = "已保护本地内容")
+            }
+            return
+        }
         _uiState.update {
             it.copy(
                 isBusy = true,
@@ -557,10 +594,15 @@ class PocketMindViewModel(
                 val route = assistantOrchestrator.route(
                     input = trimmed,
                     installedCapabilities = stateBeforeSend.installedCapabilities,
-                    memoryEnabled = stateBeforeSend.memoryEnabled,
+                    memoryEnabled = stateBeforeSend.memoryEnabled && includePrivateLocalContext,
                     actionModelPath = modelRepository.verifiedActionModelPath(),
+                    deviceContext = stateBeforeSend.toDeviceContextSnapshot().takeIf { includePrivateLocalContext },
                 )
-                val userMessage = ChatMessage(MessageRole.User, trimmed)
+                val userMessage = ChatMessage(
+                    role = MessageRole.User,
+                    text = trimmed,
+                    privacy = messagePrivacy,
+                )
                 when (route) {
                     is AssistantRoute.Action -> {
                         val planningLabel = if (route.plannedByModel) {
@@ -571,6 +613,7 @@ class PocketMindViewModel(
                         val assistantMessage = ChatMessage(
                             role = MessageRole.Assistant,
                             text = "已准备动作草稿（$planningLabel）：${route.draft.summary}\n请确认后再执行。",
+                            privacy = messagePrivacy,
                         )
                         replaceActiveSessionMessages(
                             stateBeforeSend.messages + userMessage + assistantMessage,
@@ -584,6 +627,7 @@ class PocketMindViewModel(
                                     runId = route.runId,
                                     draft = route.draft,
                                     toolRequest = route.toolRequest,
+                                    skillId = route.skillId,
                                     plannedByModel = route.plannedByModel,
                                     fallbackReason = route.fallbackReason,
                                 ),
@@ -599,6 +643,7 @@ class PocketMindViewModel(
                         val assistantMessage = ChatMessage(
                             role = MessageRole.Assistant,
                             text = "无法准备这个动作：${route.summary}",
+                            privacy = messagePrivacy,
                         )
                         replaceActiveSessionMessages(
                             stateBeforeSend.messages + userMessage + assistantMessage,
@@ -625,6 +670,7 @@ class PocketMindViewModel(
                         val assistantMessage = ChatMessage(
                             role = MessageRole.Assistant,
                             text = "需要先安装$capabilityName，才能完成这个请求。请到模型管理安装基础能力包。",
+                            privacy = messagePrivacy,
                         )
                         replaceActiveSessionMessages(
                             stateBeforeSend.messages + userMessage + assistantMessage,
@@ -643,7 +689,11 @@ class PocketMindViewModel(
                     }
 
                     is AssistantRoute.Chat -> {
-                        val assistantPlaceholder = ChatMessage(MessageRole.Assistant, "")
+                        val assistantPlaceholder = ChatMessage(
+                            role = MessageRole.Assistant,
+                            text = "",
+                            privacy = messagePrivacy,
+                        )
                         replaceActiveSessionMessages(
                             stateBeforeSend.messages + userMessage + assistantPlaceholder,
                             persistNow = true,
@@ -760,6 +810,46 @@ class PocketMindViewModel(
         }
     }
 
+    fun ingestSharedInput(sharedInput: SharedInput) {
+        val prompt = sharedInput.toPrompt()
+        if (prompt.isBlank()) return
+        if (_uiState.value.inferenceMode == InferenceMode.Remote) {
+            replaceActiveSessionMessages(
+                _uiState.value.messages + ChatMessage(
+                    role = MessageRole.Assistant,
+                    text = "已接收分享内容。当前为远程模型模式，为保护隐私，不会自动发送分享文本或附件元数据。请手动粘贴你愿意发送的内容。",
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+                persistNow = true,
+            )
+            _uiState.update {
+                it.copy(statusText = "已保护分享内容")
+            }
+            return
+        }
+        if (_uiState.value.isReady && !_uiState.value.isBusy && generationJob?.isActive != true) {
+            sendMessage(prompt, messagePrivacy = MessagePrivacy.LocalOnly)
+            return
+        }
+
+        replaceActiveSessionMessages(
+            _uiState.value.messages + ChatMessage(
+                role = MessageRole.User,
+                text = prompt,
+                privacy = MessagePrivacy.LocalOnly,
+            ) + ChatMessage(
+                role = MessageRole.Assistant,
+                text = "已接收分享内容。请先准备模型后再发送，当前不会读取附件文件内容。",
+                privacy = MessagePrivacy.LocalOnly,
+            ),
+            persistNow = true,
+        )
+        rebuildMemoryIndex()
+        _uiState.update {
+            it.copy(statusText = "已接收分享内容")
+        }
+    }
+
     fun stopGeneration() {
         val job = generationJob ?: return
         if (_uiState.value.inferenceMode == InferenceMode.Local) {
@@ -772,23 +862,332 @@ class PocketMindViewModel(
     }
 
     fun confirmAgentConfirmation(confirmation: PendingAgentConfirmation) {
-        val executed = actionExecutor.executeConfirmed(confirmation.draft)
+        val pendingConfirmation = _uiState.value.pendingConfirmation
+        if (pendingConfirmation == null || !pendingConfirmation.matchesExecution(confirmation)) {
+            _uiState.update {
+                it.copy(statusText = "工具确认已处理")
+            }
+            return
+        }
         _uiState.update {
             it.copy(
                 pendingConfirmation = null,
-                statusText = if (executed) "已打开系统确认页" else "无法执行这个动作",
+                isBusy = true,
+                isGenerating = false,
+                statusText = "工具执行中",
+            )
+        }
+        val request = confirmation.toolRequest ?: ToolRequest(
+            toolName = confirmation.draft.functionName,
+            arguments = confirmation.draft.parameters,
+            reason = confirmation.draft.summary,
+        )
+        val confirmedRun = confirmation.runId?.let { runId ->
+            assistantOrchestrator.confirmToolRequest(runId, request.id)
+        }
+        if (confirmation.runId != null && confirmedRun?.state != AgentRunState.ExecutingTool) {
+            replaceActiveSessionMessages(
+                _uiState.value.messages + ChatMessage(
+                    MessageRole.Assistant,
+                    "工具确认失败，未执行动作。",
+                ),
+                persistNow = true,
+            )
+            _uiState.update {
+                it.copy(
+                    pendingConfirmation = null,
+                    isBusy = false,
+                    isGenerating = false,
+                    statusText = "工具未执行",
+                )
+            }
+            return
+        }
+        var result = actionExecutor.execute(request)
+        var observation = confirmation.runId?.let { runId ->
+            assistantOrchestrator.observeToolResult(runId, result)
+        }
+        var assistantText = observation?.assistantMessage ?: "工具执行结果：${result.summary}"
+        var observationPrivacy = observation.privacyForObservation()
+        var messagesWithObservation = _uiState.value.messages + ChatMessage(
+            role = MessageRole.Assistant,
+            text = assistantText,
+            privacy = observationPrivacy,
+        )
+        replaceActiveSessionMessages(
+            messagesWithObservation,
+            persistNow = true,
+        )
+        var retryRequest = observation?.retryRequest
+        while (retryRequest != null) {
+            _uiState.update {
+                it.copy(statusText = "工具重试中")
+            }
+            result = actionExecutor.execute(retryRequest)
+            observation = confirmation.runId?.let { runId ->
+                assistantOrchestrator.observeToolResult(runId, result)
+            }
+            assistantText = observation?.assistantMessage ?: "工具执行结果：${result.summary}"
+            observationPrivacy = observation.privacyForObservation()
+            messagesWithObservation = _uiState.value.messages + ChatMessage(
+                role = MessageRole.Assistant,
+                text = assistantText,
+                privacy = observationPrivacy,
+            )
+            replaceActiveSessionMessages(
+                messagesWithObservation,
+                persistNow = true,
+            )
+            retryRequest = observation?.retryRequest
+        }
+        val nextToolPlan = (observation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
+        if (nextToolPlan != null) {
+            rebuildMemoryIndex()
+            _uiState.update {
+                it.copy(
+                    pendingConfirmation = PendingAgentConfirmation(
+                        runId = observation.run.id,
+                        draft = nextToolPlan.draft,
+                        toolRequest = nextToolPlan.request,
+                        skillId = nextToolPlan.skillRequest?.skillId,
+                        plannedByModel = nextToolPlan.plannedByModel,
+                        fallbackReason = nextToolPlan.fallbackReason,
+                    ),
+                    isBusy = false,
+                    isGenerating = false,
+                    statusText = "下一步动作待确认",
+                )
+            }
+            return
+        }
+        observation?.continuationPromptForModel?.let { continuationPrompt ->
+            if (observation.continuationRequiresLocalModel &&
+                _uiState.value.inferenceMode == InferenceMode.Remote
+            ) {
+                replaceActiveSessionMessages(
+                    messagesWithObservation + ChatMessage(
+                        role = MessageRole.Assistant,
+                        text = "已读取剪贴板。当前为远程模型模式，为保护隐私，我不会自动发送剪贴板内容到远程模型。请切换到本地模型后重试，或手动粘贴你愿意发送的内容。",
+                        privacy = MessagePrivacy.LocalOnly,
+                    ),
+                    persistNow = true,
+                )
+                rebuildMemoryIndex()
+                _uiState.update {
+                    it.copy(
+                        pendingConfirmation = null,
+                        isBusy = false,
+                        isGenerating = false,
+                        statusText = "已保护剪贴板内容",
+                    )
+                }
+                return
+            }
+            replaceActiveSessionMessages(
+                messagesWithObservation + ChatMessage(
+                    role = MessageRole.Assistant,
+                    text = "",
+                    privacy = observationPrivacy,
+                ),
+                persistNow = true,
+            )
+            _uiState.update {
+                it.copy(
+                    pendingConfirmation = null,
+                    isBusy = true,
+                    isGenerating = true,
+                    statusText = "生成中",
+                )
+            }
+            continueAfterToolObservation(
+                runId = observation.run.id,
+                promptForModel = continuationPrompt,
+                responsePrivacy = observationPrivacy,
+            )
+            return
+        }
+        rebuildMemoryIndex()
+        _uiState.update {
+            it.copy(
+                pendingConfirmation = null,
+                statusText = result.summary,
             )
         }
     }
 
+    private fun continueAfterToolObservation(
+        runId: String?,
+        promptForModel: String,
+        responsePrivacy: MessagePrivacy,
+    ) {
+        val stateAtStart = _uiState.value
+        val useRemoteModel = stateAtStart.inferenceMode == InferenceMode.Remote
+        val remoteConfig = stateAtStart.remoteModelConfig
+        val remoteHistory = stateAtStart.messages.dropLast(1).remoteEligibleMessages()
+        val job = viewModelScope.launch(ioDispatcher) {
+            try {
+                if (useRemoteModel && responsePrivacy == MessagePrivacy.LocalOnly) {
+                    _uiState.updateLastAssistant("工具结果包含仅本地内容。当前为远程模型模式，我不会把它发送到远程模型。")
+                    persistActiveSessionFromUi()
+                    rebuildMemoryIndex()
+                    _uiState.update {
+                        it.copy(
+                            isBusy = false,
+                            isGenerating = false,
+                            isReady = remoteConfig.isConfigured,
+                            statusText = "已保护工具结果",
+                        )
+                    }
+                    return@launch
+                }
+                if (!useRemoteModel && !runtime.isLoaded) {
+                    _uiState.updateLastAssistant("模型尚未就绪，无法继续处理工具结果")
+                    persistActiveSessionFromUi()
+                    _uiState.update {
+                        it.copy(
+                            isBusy = false,
+                            isGenerating = false,
+                            isReady = false,
+                            statusText = "未加载模型",
+                        )
+                    }
+                    return@launch
+                }
+                if (useRemoteModel && !remoteConfig.isConfigured) {
+                    _uiState.updateLastAssistant("请先在模型管理中配置远程模型地址和模型名")
+                    persistActiveSessionFromUi()
+                    _uiState.update {
+                        it.copy(
+                            isBusy = false,
+                            isGenerating = false,
+                            isReady = false,
+                            statusText = "请配置远程模型",
+                        )
+                    }
+                    return@launch
+                }
+
+                val partial = StringBuilder()
+                val response = if (useRemoteModel) {
+                    remoteRuntime.send(
+                        prompt = promptForModel,
+                        history = remoteHistory,
+                        parameters = _uiState.value.generationParameters,
+                        config = remoteConfig,
+                    )
+                } else {
+                    runtime.send(promptForModel)
+                }
+                response.collect { chunk ->
+                    partial.append(chunk)
+                    _uiState.updateLastAssistant(partial.toString())
+                }
+                if (partial.isBlank()) {
+                    _uiState.updateLastAssistant("没有生成内容")
+                } else if (!useRemoteModel) {
+                    _uiState.updateLastAssistantStats(
+                        runCatching { runtime.lastGenerationStats() }.getOrNull(),
+                    )
+                }
+                persistActiveSessionFromUi()
+                rebuildMemoryIndex()
+                val modelObservation = runId?.let { id ->
+                    assistantOrchestrator.observeModelResult(id, partial.toString())
+                }
+                val nextToolPlan = (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
+                if (nextToolPlan != null) {
+                    _uiState.update {
+                        it.copy(
+                            pendingConfirmation = PendingAgentConfirmation(
+                                runId = modelObservation.run.id,
+                                draft = nextToolPlan.draft,
+                                toolRequest = nextToolPlan.request,
+                                skillId = nextToolPlan.skillRequest?.skillId,
+                                plannedByModel = nextToolPlan.plannedByModel,
+                                fallbackReason = nextToolPlan.fallbackReason,
+                            ),
+                            isBusy = false,
+                            isGenerating = false,
+                            isReady = true,
+                            statusText = "下一步动作待确认",
+                        )
+                    }
+                    return@launch
+                }
+                _uiState.update {
+                    it.copy(
+                        isBusy = false,
+                        isGenerating = false,
+                        isReady = true,
+                        statusText = when (modelObservation?.decision) {
+                            is AgentObservationDecision.Fail -> "后续动作不可执行"
+                            else -> if (useRemoteModel) {
+                                "就绪 · 远程"
+                            } else {
+                                "就绪 · ${it.backend.label()}"
+                            }
+                        },
+                    )
+                }
+            } catch (cancellation: CancellationException) {
+                finishStoppedGeneration()
+                throw cancellation
+            } catch (throwable: Throwable) {
+                _uiState.updateLastAssistant("出错了：${throwable.cleanMessage()}")
+                persistActiveSessionFromUi()
+                _uiState.update {
+                    it.copy(
+                        isBusy = false,
+                        isGenerating = false,
+                        isReady = useRemoteModel && remoteConfig.isConfigured,
+                        statusText = if (useRemoteModel) {
+                            "远程生成失败"
+                        } else {
+                            "生成失败，建议重新加载"
+                        },
+                    )
+                }
+            }
+        }
+        generationJob = job
+        job.invokeOnCompletion {
+            if (generationJob == job) {
+                generationJob = null
+            }
+        }
+    }
+
     fun dismissAgentConfirmation() {
+        val confirmation = _uiState.value.pendingConfirmation
+        val request = confirmation?.toolRequest ?: confirmation?.let {
+            ToolRequest(
+                toolName = it.draft.functionName,
+                arguments = it.draft.parameters,
+                reason = it.draft.summary,
+            )
+        }
+        val observation = if (confirmation?.runId != null && request != null) {
+            assistantOrchestrator.cancelToolRequest(confirmation.runId, request.id)
+        } else {
+            null
+        }
         _uiState.update {
             it.copy(
                 pendingConfirmation = null,
-                statusText = "已取消动作草稿",
+                statusText = observation?.assistantMessage ?: "已取消动作草稿",
             )
         }
     }
+
+    private fun AgentObservationResult?.privacyForObservation(): MessagePrivacy =
+        if (
+            this?.continuationRequiresLocalModel == true ||
+            this?.result?.data?.get("privacy") == MessagePrivacy.LocalOnly.name
+        ) {
+            MessagePrivacy.LocalOnly
+        } else {
+            MessagePrivacy.RemoteEligible
+        }
 
     fun confirmActionDraft(draft: ActionDraft) {
         confirmAgentConfirmation(
@@ -796,6 +1195,7 @@ class PocketMindViewModel(
                 runId = null,
                 draft = draft,
                 toolRequest = null,
+                skillId = null,
                 plannedByModel = false,
                 fallbackReason = null,
             ),
@@ -1305,4 +1705,21 @@ class PocketMindViewModel(
             state.copy(messages = updatedMessages)
         }
     }
+
+    private fun ChatUiState.toDeviceContextSnapshot(): DeviceContextSnapshot =
+        DeviceContextSnapshot(
+            isArm64Supported = isArm64Supported,
+            inferenceMode = inferenceMode.name,
+            installedCapabilities = installedCapabilities,
+            memoryEnabled = memoryEnabled,
+            availableStorageBytes = availableModelStorageBytes,
+            activeSessionId = activeSessionId,
+            hasPendingConfirmation = pendingConfirmation != null,
+        )
+
+    private fun PendingAgentConfirmation.matchesExecution(other: PendingAgentConfirmation): Boolean =
+        runId == other.runId &&
+            toolRequest?.id == other.toolRequest?.id &&
+            draft.functionName == other.draft.functionName &&
+            draft.parameters == other.draft.parameters
 }

@@ -16,7 +16,7 @@ import kotlinx.coroutines.runBlocking
 
 private val Context.pocketMindDataStore by preferencesDataStore(name = "pocketmind_settings")
 
-class PreferenceSettingsStore(context: Context) : SettingsStore {
+class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionStore {
     private val dataStore = context.applicationContext.pocketMindDataStore
 
     override fun isSetupDismissed(): Boolean =
@@ -71,10 +71,10 @@ class PreferenceSettingsStore(context: Context) : SettingsStore {
         writeString(Keys.BACKEND, backend.name)
     }
 
-    fun activeSessionId(): String? =
+    override fun activeSessionId(): String? =
         readString(Keys.ACTIVE_SESSION_ID, "").takeIf { it.isNotBlank() }
 
-    fun saveActiveSessionId(sessionId: String) {
+    override fun saveActiveSessionId(sessionId: String) {
         writeString(Keys.ACTIVE_SESSION_ID, sessionId)
     }
 

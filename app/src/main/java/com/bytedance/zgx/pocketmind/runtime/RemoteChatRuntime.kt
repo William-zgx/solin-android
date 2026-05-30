@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.runtime
 
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.GenerationParameters
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import java.util.concurrent.TimeUnit
@@ -180,7 +181,7 @@ private fun JSONObject.optNonNullString(name: String): String =
 
 private fun JSONArray.appendHistory(history: List<ChatMessage>): JSONArray {
     history
-        .filter { it.text.isNotBlank() }
+        .filter { it.text.isNotBlank() && it.privacy == MessagePrivacy.RemoteEligible }
         .takeLast(20)
         .forEach { message ->
             val role = when (message.role) {

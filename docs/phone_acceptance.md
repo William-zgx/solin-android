@@ -42,6 +42,21 @@ CLEAN_DEVICE=1 scripts/install_and_test_device.sh
 
 需要保留真机安装时，不要直接运行 `./gradlew :app:connectedDebugAndroidTest`；Android Gradle Plugin 可能会在 instrumentation 结束后清理安装包。
 
+## 模拟器回归
+
+模拟器用于 UI、确认链路、工具失败路径和普通聊天回归；LiteRT-LM 性能和 GPU 行为仍以真机为准。
+
+1. 启动一个已授权 Android 模拟器。
+2. 在项目根目录运行：
+
+```bash
+adb devices -l
+./gradlew :app:assembleDebug :app:connectedDebugAndroidTest
+```
+
+3. 验证首屏、模型管理、会话入口和动作确认 UI 都能打开。
+4. 如果连接了多台设备，先指定 `ANDROID_SERIAL`，避免 instrumentation 跑到真机或错误模拟器。
+
 ## 手动模型验收
 
 1. 使用 `CLEAN_DEVICE=1 scripts/install_and_test_device.sh` 或手动清除数据后打开“PocketMind”，确认首屏会展示基础能力包准备向导。
@@ -84,5 +99,41 @@ CLEAN_DEVICE=1 scripts/install_and_test_device.sh
 ## 记忆与动作验收
 
 - 开启记忆后，历史会话相关问题应能注入“本地记忆”上下文；关闭后不应显示记忆命中。
+- 发送“记住：我喜欢简洁的中文回答”后，后续相关问题应能从偏好记忆中召回；遗忘接口的单测应覆盖删除后不再召回。
 - 未安装或未校验动作模型时，动作请求应显示“规则回退”的待确认草稿。
 - 安装并校验动作模型后，支持的动作请求可以显示“动作模型实验”的待确认草稿；执行前仍必须经过用户确认。
+- 确认动作后，聊天中应追加一条结构化执行结果，例如“工具执行结果：已打开网页搜索”。
+- 取消动作后，不应打开外部 App 或系统页面，Agent run 应进入 `Cancelled` 并写入审计事件。
+- 未知工具、缺少参数或没有可处理 Intent 的设备，应显示明确失败原因，不应崩溃。
+- 支持的动作应能在 Agent trace 中形成 `ToolRequested -> UserConfirmed -> ToolObserved -> AssistantResponded` 顺序。
+- 支持的动作应先经过 `SafetyPolicy`，中高风险或外发文本工具不允许绕过确认。
+- 确认并执行动作后，`tool_audit_events` 应记录计划、请求确认、用户确认和观察结果；记录中不应包含 API Key、完整 prompt 或工具参数明文。
+- 普通聊天路由可携带最小设备上下文，例如推理模式、能力类别、存储估计和是否存在待确认动作；上下文不应包含联系人、通知、剪贴板或文件内容。
+- “读取剪贴板” 应先出现确认；确认后可读取当前文本剪贴板，审计日志不应保存原始剪贴板文本。
+- “分享这段文字：...” 应先出现确认；确认后只打开 Android 系统分享面板，不能声明目标 App 已完成发送。
+
+## Skill 验收
+
+- “帮我写封邮件说明明天延期” 应进入邮件草稿 Skill，最终使用 `compose_email` 工具且仍需确认。
+- “帮我建个明天下午开会的日程” 应进入日程 Skill，最终使用 `create_calendar_event` 工具且仍需确认。
+- “查去机场的路线” 应进入地图 Skill，最终使用 `search_maps` 工具且仍需确认。
+- “搜一下 Kotlin 协程” 应进入信息查找 Skill，最终使用 `web_search` 工具且仍需确认。
+- “提醒我 15 分钟后喝水” 应进入后台提醒 Skill，最终使用 `schedule_reminder` 工具且仍需确认。
+- “读取剪贴板” 应进入剪贴板上下文 Skill，最终使用 `read_clipboard` 工具且仍需确认。
+- “分享这段文字：明天十点开会” 应进入系统分享 Skill，最终使用 `share_text` 工具且仍需确认。
+
+## 后台任务验收
+
+- 安排提醒前应先出现动作确认，不确认时不应创建 `scheduled_tasks` 记录。
+- 确认 `schedule_reminder` 后，`scheduled_tasks` 应写入 `Scheduled` 状态，聊天中应追加结构化工具结果并包含任务 id。
+- Android 13+ 首次确认提醒时应先弹出通知权限请求；拒绝后应显示结构化权限失败，不应创建误导性的成功状态。
+- 到点后如果通知权限可用，应通过 `pocketmind_agent_reminders` 通知通道弹出提醒，并把任务状态更新为 `Delivered`。
+- 如果触发时通知权限不可用，不应崩溃，任务应进入 `Failed`。
+- 当前只验收一次性提醒；周期性检查、开机恢复和任务列表 UI 仍是待实现项。
+
+## 多模态入口验收
+
+- 从 Android 分享菜单把文本分享到 PocketMind，应生成一条用户可见的分享 prompt。
+- 分享图片、音频、视频或 PDF 时，App 只应读取 MIME 类型、文件名和大小等元数据，不应读取文件正文或二进制内容。
+- 如果模型已就绪，分享 prompt 可直接进入普通聊天路由；如果模型未就绪，应落到会话里并提示先准备模型。
+- 当前只验收入口与元数据边界；截图捕获、相册选择、语音录入、OCR、图片理解和文档解析仍是待实现项。

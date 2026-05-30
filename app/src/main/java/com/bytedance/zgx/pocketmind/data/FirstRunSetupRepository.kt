@@ -4,20 +4,20 @@ import android.content.Context
 
 class FirstRunSetupRepository(
     private val settingsStore: SettingsStore,
-) {
+) : FirstRunSetupStore {
     constructor(context: Context) : this(PreferenceSettingsStore(context))
 
-    fun isSetupDismissed(): Boolean =
+    override fun isSetupDismissed(): Boolean =
         settingsStore.isSetupDismissed()
 
-    fun markSetupDismissed() {
+    override fun markSetupDismissed() {
         settingsStore.markSetupDismissed()
     }
 
-    fun isMemoryEnabled(): Boolean =
+    override fun isMemoryEnabled(): Boolean =
         settingsStore.isMemoryEnabled()
 
-    fun setMemoryEnabled(enabled: Boolean) {
+    override fun setMemoryEnabled(enabled: Boolean) {
         settingsStore.setMemoryEnabled(enabled)
     }
 }
