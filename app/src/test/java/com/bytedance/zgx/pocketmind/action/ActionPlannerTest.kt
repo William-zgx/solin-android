@@ -22,6 +22,18 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun parsesHermesStyleWebSearchCallOutput() {
+        val draft = planner.parseModelOutput(
+            """call:web_search{"query":"Kotlin coroutines Android"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, draft.functionName)
+        assertEquals("Kotlin coroutines Android", draft.parameters["query"])
+        assertTrue(draft.summary.contains("浏览器"))
+    }
+
+    @Test
     fun rejectsUnsupportedFunctionCalls() {
         assertNull(planner.parseModelOutput("""call:delete_contact{"name":"A"}"""))
     }
@@ -32,5 +44,14 @@ class ActionPlannerTest {
 
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, plan.draft?.functionName)
+    }
+
+    @Test
+    fun infersDraftForNaturalLanguageWebSearch() {
+        val plan = planner.plan("帮我搜一下 Kotlin 协程最新用法")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, plan.draft?.functionName)
+        assertEquals("Kotlin 协程最新用法", plan.draft?.parameters?.get("query"))
     }
 }

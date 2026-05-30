@@ -23,7 +23,7 @@ class MobileActionPlanner : ActionPlanner {
             "email",
             "map",
             "contact",
-        ).any { it in normalized }
+        ).any { it in normalized } || isWebSearchRequest(input)
     }
 
     override fun plan(input: String): ActionPlan =
@@ -60,6 +60,9 @@ class MobileActionPlanner : ActionPlanner {
             "手电筒" in input || "flashlight" in normalized ->
                 MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS.toDraft(emptyMap())
 
+            isWebSearchRequest(input) ->
+                MobileActionFunctions.WEB_SEARCH.toDraft(mapOf("query" to cleanedWebSearchQuery(input)))
+
             else -> null
         }
     }
@@ -77,6 +80,7 @@ class MobileActionPlanner : ActionPlanner {
         when (functionName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "打开 Wi-Fi 设置"
             MobileActionFunctions.SEARCH_MAPS -> "地图搜索"
+            MobileActionFunctions.WEB_SEARCH -> "Web 搜索"
             MobileActionFunctions.COMPOSE_EMAIL -> "邮件草稿"
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> "日程草稿"
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "联系人草稿"
@@ -88,6 +92,7 @@ class MobileActionPlanner : ActionPlanner {
         when (functionName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "将打开系统 Wi-Fi 设置页。"
             MobileActionFunctions.SEARCH_MAPS -> "将在地图中搜索：${parameters["query"].orEmpty()}"
+            MobileActionFunctions.WEB_SEARCH -> "将在浏览器中搜索：${parameters["query"].orEmpty()}"
             MobileActionFunctions.COMPOSE_EMAIL -> "将打开邮件 App 并填入草稿内容。"
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> "将打开日历新建事件页面。"
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "将打开联系人新建页面。"
@@ -101,6 +106,34 @@ class MobileActionPlanner : ActionPlanner {
             .removePrefix("帮我")
             .trim()
             .ifBlank { input.trim() }
+
+    private fun cleanedWebSearchQuery(input: String): String {
+        val cleaned = cleanedObject(input)
+        return cleaned
+            .replace(Regex("""^百度一下\s*[:：]?\s*"""), "")
+            .replace(Regex("""^(网页|网络|互联网|上网|网上)?\s*(搜索|搜|查)(一下|一搜|一查)?\s*[:：]?\s*"""), "")
+            .replace(Regex("""^(web\s+search|search\s+the\s+web|search\s+online|look\s+up|google|bing)\s+(for\s+)?""", RegexOption.IGNORE_CASE), "")
+            .trim()
+            .ifBlank { cleaned }
+    }
+
+    private fun isWebSearchRequest(input: String): Boolean {
+        val normalized = input.lowercase()
+        return listOf(
+            "网页搜索",
+            "网络搜索",
+            "互联网搜索",
+            "上网搜",
+            "网上搜",
+            "搜索一下",
+            "搜一下",
+            "搜一搜",
+            "查一下",
+            "查一查",
+            "百度一下",
+        ).any { it in input } || Regex("""\b(web search|search the web|search online|look up|google|bing)\b""")
+            .containsMatchIn(normalized)
+    }
 
     private fun parseJsonLikeObject(raw: String): Map<String, String> {
         val content = raw.trim().removePrefix("{").removeSuffix("}")

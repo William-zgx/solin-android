@@ -22,6 +22,7 @@ data class ActionPlan(
 object MobileActionFunctions {
     const val OPEN_WIFI_SETTINGS = "open_wifi_settings"
     const val SEARCH_MAPS = "search_maps"
+    const val WEB_SEARCH = "web_search"
     const val COMPOSE_EMAIL = "compose_email"
     const val CREATE_CALENDAR_EVENT = "create_calendar_event"
     const val CREATE_CONTACT_DRAFT = "create_contact_draft"
@@ -30,6 +31,7 @@ object MobileActionFunctions {
     val supported: Set<String> = setOf(
         OPEN_WIFI_SETTINGS,
         SEARCH_MAPS,
+        WEB_SEARCH,
         COMPOSE_EMAIL,
         CREATE_CALENDAR_EVENT,
         CREATE_CONTACT_DRAFT,
