@@ -28,16 +28,19 @@ scripts/install_and_test_device.sh
 - 设备支持 `arm64-v8a`。
 - `/data` 分区大致有 3 GB 以上可用空间。
 - Debug APK 可以安装。
+- AndroidTest APK 可以安装。
 - 首屏 Compose 冒烟测试通过。
 - App 可以被启动。
 
-默认情况下，脚本不会在测试通过后删除 App，也不会清空 App 数据；通过后会保留 debug App 并启动它。需要做干净首启验收时，显式运行：
+默认情况下，脚本不会在测试后删除 App，也不会清空 App 数据；通过后会保留 debug App 并启动它。需要做干净首启验收时，显式运行：
 
 ```bash
 CLEAN_DEVICE=1 scripts/install_and_test_device.sh
 ```
 
 `CLEAN_DEVICE=1` 会在测试前卸载旧调试包，已经下载好的模型会被清掉；只在确认可以重新下载或重新导入时使用。
+
+需要保留真机安装时，不要直接运行 `./gradlew :app:connectedDebugAndroidTest`；Android Gradle Plugin 可能会在 instrumentation 结束后清理安装包。
 
 ## 手动模型验收
 

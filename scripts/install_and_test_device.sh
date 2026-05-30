@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
+export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK}"
+export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_SDK}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 ADB="${ANDROID_SDK}/platform-tools/adb"
 CLEAN_DEVICE="${CLEAN_DEVICE:-0}"
@@ -22,7 +24,11 @@ if [[ "$DEVICE_COUNT" != "1" ]]; then
 fi
 
 PACKAGE_NAME="com.bytedance.zgx.pocketmind"
+TEST_PACKAGE_NAME="${PACKAGE_NAME}.test"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
+TEST_RUNNER="${TEST_PACKAGE_NAME}/androidx.test.runner.AndroidJUnitRunner"
+DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
+ANDROID_TEST_APK="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 REQUIRED_FREE_KB=$((3 * 1024 * 1024))
 
 ABI_LIST="$("$ADB" shell getprop ro.product.cpu.abilist64 | tr -d '\r')"
@@ -42,8 +48,14 @@ if [[ "$CLEAN_DEVICE" == "1" ]]; then
 fi
 "$GRADLE_CMD" assembleDebug assembleDebugAndroidTest
 
+run_device_tests() {
+  "$ADB" install -r "$DEBUG_APK" &&
+    "$ADB" install -r -t "$ANDROID_TEST_APK" &&
+    "$ADB" shell am instrument -w -r "$TEST_RUNNER"
+}
+
 set +e
-TEST_OUTPUT="$("$GRADLE_CMD" connectedDebugAndroidTest 2>&1)"
+TEST_OUTPUT="$(run_device_tests 2>&1)"
 TEST_STATUS=$?
 set -e
 printf '%s\n' "$TEST_OUTPUT"
@@ -60,7 +72,6 @@ EOF
   exit "$TEST_STATUS"
 fi
 
-"$ADB" install -r app/build/outputs/apk/debug/app-debug.apk
 "$ADB" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null
 
 echo "Device install and smoke test passed. App remains installed."
