@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -29,21 +30,38 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -71,6 +89,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.bytedance.zgx.pocketmind.BackendChoice
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.ChatUiState
@@ -86,6 +107,7 @@ import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.isUsable
 import com.bytedance.zgx.pocketmind.label
+import com.bytedance.zgx.pocketmind.ui.theme.LocalPocketMindColors
 import java.util.Locale
 
 @Composable
@@ -293,24 +315,24 @@ private fun ChatTopBar(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 3.dp,
+        color = MaterialTheme.colorScheme.background,
+        shadowElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(1.dp),
                 ) {
                     Text(
                         modifier = Modifier.testTag("app_title"),
@@ -328,37 +350,57 @@ private fun ChatTopBar(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                TextButton(
+                TopActionButton(
                     modifier = Modifier.testTag("top_create_session_button"),
+                    icon = Icons.Filled.Add,
+                    label = "新建会话",
                     onClick = onCreateSession,
                     enabled = !state.isBusy,
-                ) {
-                    Text("新建")
-                }
+                )
+                TopActionButton(
+                    modifier = Modifier.testTag("top_model_button"),
+                    icon = Icons.Filled.Tune,
+                    label = "模型管理",
+                    onClick = onOpenModelManager,
+                )
+                TopActionButton(
+                    modifier = Modifier.testTag("top_session_button"),
+                    icon = Icons.Filled.Hub,
+                    label = "会话",
+                    onClick = onOpenSessions,
+                )
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RuntimeStatusBadge(state)
-                TextButton(
-                    modifier = Modifier.testTag("top_model_button"),
-                    onClick = onOpenModelManager,
-                ) {
-                    Text("模型")
-                }
-                TextButton(
-                    modifier = Modifier.testTag("top_session_button"),
-                    onClick = onOpenSessions,
-                ) {
-                    Text("会话")
-                }
-            }
+            RuntimeStatusBadge(state)
         }
+    }
+}
+
+@Composable
+private fun TopActionButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    IconButton(
+        modifier = modifier
+            .size(48.dp)
+            .semantics {
+                contentDescription = label
+            },
+        onClick = onClick,
+        enabled = enabled,
+        colors = IconButtonDefaults.iconButtonColors(
+            contentColor = MaterialTheme.colorScheme.primary,
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+        ),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+        )
     }
 }
 
@@ -374,14 +416,17 @@ private fun RuntimeStatusBadge(state: ChatUiState) {
         state.modelPath != null -> "可加载"
         else -> "待准备"
     }
+    val semanticColors = LocalPocketMindColors.current
     val container = when {
-        active -> MaterialTheme.colorScheme.primaryContainer
-        state.isBusy || state.isDownloading -> MaterialTheme.colorScheme.tertiaryContainer
+        active && state.inferenceMode == InferenceMode.Remote -> semanticColors.remoteContainer
+        active -> semanticColors.localContainer
+        state.isBusy || state.isDownloading -> semanticColors.busyContainer
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
     val content = when {
-        active -> MaterialTheme.colorScheme.onPrimaryContainer
-        state.isBusy || state.isDownloading -> MaterialTheme.colorScheme.onTertiaryContainer
+        active && state.inferenceMode == InferenceMode.Remote -> semanticColors.onRemoteContainer
+        active -> semanticColors.onLocalContainer
+        state.isBusy || state.isDownloading -> semanticColors.onBusyContainer
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
@@ -390,7 +435,7 @@ private fun RuntimeStatusBadge(state: ChatUiState) {
         color = container,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -421,6 +466,20 @@ private fun ChatEmptyState(
     onRecommendedModelSelected: (String) -> Unit,
     onSendPrompt: (String) -> Unit,
 ) {
+    val semanticColors = LocalPocketMindColors.current
+    val readyTitle = when {
+        state.inferenceMode == InferenceMode.Remote && state.isReady -> "远程模型已就绪"
+        state.isReady -> "本机模型已就绪"
+        else -> "准备你的随身模型"
+    }
+    val readyDescription = when {
+        state.inferenceMode == InferenceMode.Remote && state.isReady ->
+            "当前会话为空，可以直接输入问题；远程模式会发送当前对话上下文。"
+        state.isReady ->
+            "当前会话为空，选择一个开场问题，或在底部直接输入。问答和历史记录会保留在本机。"
+        else ->
+            "先下载推荐模型或导入已有 .litertlm 文件；加载成功后即可离线问答。"
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -430,34 +489,34 @@ private fun ChatEmptyState(
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(8.dp),
-            color = if (state.isReady) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
-            shadowElevation = if (state.isReady) 0.dp else 1.dp,
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(
+                width = 1.dp,
+                color = if (state.isReady) {
+                    semanticColors.accentLine.copy(alpha = 0.65f)
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                },
+            ),
+            tonalElevation = 0.dp,
         ) {
             Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 17.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                RuntimeStatusBadge(state)
                 Text(
-                    text = if (state.isReady) "可以开始本地问答" else "先把本地模型准备好",
-                    style = MaterialTheme.typography.titleLarge,
+                    text = readyTitle,
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = if (state.isReady) {
-                        "当前会话为空，选择一个开场问题，或在底部直接输入。"
-                    } else {
-                        "模型下载、导入、切换和后端选择都集中在模型管理里；加载成功后，问答和历史记录都保留在本机。"
-                    },
+                    text = readyDescription,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (state.isReady) {
+                    StatusSummaryRow(state)
                     PromptSuggestionList(
                         enabled = !state.isBusy,
                         onSendPrompt = onSendPrompt,
@@ -485,6 +544,31 @@ private fun ChatEmptyState(
 }
 
 @Composable
+private fun StatusSummaryRow(state: ChatUiState) {
+    val modelName = if (state.inferenceMode == InferenceMode.Remote) {
+        state.remoteModelConfig.modelName.ifBlank { "远程模型" }
+    } else {
+        state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }?.displayName
+            ?: state.selectedRecommendedModel.shortName
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RuntimeStatusBadge(state)
+        Text(
+            modifier = Modifier.weight(1f),
+            text = modelName,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
 private fun QuickModelSetup(
     state: ChatUiState,
     onOpenModelManager: () -> Unit,
@@ -493,7 +577,7 @@ private fun QuickModelSetup(
     onCancelDownload: () -> Unit,
     onRecommendedModelSelected: (String) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -524,7 +608,11 @@ private fun QuickModelSetup(
             onClick = onDownloadModel,
             enabled = !state.isBusy && !state.isDownloading,
         ) {
-            Text("下载 ${state.selectedRecommendedModel.shortName}")
+            Icon(
+                imageVector = Icons.Filled.Download,
+                contentDescription = null,
+            )
+            Text(" 下载 ${state.selectedRecommendedModel.shortName}")
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -535,14 +623,22 @@ private fun QuickModelSetup(
                 onClick = onPickModel,
                 enabled = !state.isBusy,
             ) {
-                Text("导入")
+                Icon(
+                    imageVector = Icons.Filled.FolderOpen,
+                    contentDescription = null,
+                )
+                Text(" 导入")
             }
             OutlinedButton(
                 modifier = Modifier.weight(1f),
                 onClick = onOpenModelManager,
                 enabled = !state.isBusy,
             ) {
-                Text("更多")
+                Icon(
+                    imageVector = Icons.Filled.Tune,
+                    contentDescription = null,
+                )
+                Text(" 更多")
             }
         }
         if (state.isDownloading) {
@@ -705,18 +801,38 @@ private fun PromptSuggestionList(
     )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         prompts.forEach { prompt ->
-            AssistChip(
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                ),
                 enabled = enabled,
                 onClick = { onSendPrompt(prompt) },
-                label = {
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
+                        modifier = Modifier.weight(1f),
                         text = prompt,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                },
-            )
+                    Icon(
+                        modifier = Modifier.size(18.dp),
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
         }
     }
 }
@@ -742,6 +858,8 @@ private fun ModelManagerSheet(
     onMemoryEnabledChanged: (Boolean) -> Unit,
     onOpenModelPage: () -> Unit,
 ) {
+    var selectedTab by rememberSaveable { mutableStateOf(0) }
+    val tabs = listOf("当前", "模型", "远程", "高级")
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -749,7 +867,7 @@ private fun ModelManagerSheet(
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -764,21 +882,54 @@ private fun ModelManagerSheet(
             RuntimeStatusBadge(state)
         }
 
-        CurrentModelPanel(
-            state = state,
-            onLoadModel = onLoadModel,
-            onInferenceModeSelected = onInferenceModeSelected,
-            onBackendSelected = onBackendSelected,
-            onGenerationParametersChanged = onGenerationParametersChanged,
-            onResetGenerationParameters = onResetGenerationParameters,
-            onMemoryEnabledChanged = onMemoryEnabledChanged,
-        )
+        PrimaryTabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.primary,
+        ) {
+            tabs.forEachIndexed { index, label ->
+                Tab(
+                    modifier = Modifier.testTag("model_tab_${labelToTabTag(label)}"),
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = { Text(label, maxLines = 1) },
+                )
+            }
+        }
 
-        RemoteModelPanel(
-            state = state,
-            onInferenceModeSelected = onInferenceModeSelected,
-            onRemoteModelConfigChanged = onRemoteModelConfigChanged,
-        )
+        when (selectedTab) {
+            0 -> CurrentModelPanel(
+                state = state,
+                onLoadModel = onLoadModel,
+                onInferenceModeSelected = onInferenceModeSelected,
+                onBackendSelected = onBackendSelected,
+            )
+
+            1 -> ModelInventoryPanel(
+                state = state,
+                customModelUrl = customModelUrl,
+                onCustomModelUrlChanged = onCustomModelUrlChanged,
+                onPickModel = onPickModel,
+                onDownloadCustomModel = onDownloadCustomModel,
+                onRecommendedModelSelected = onRecommendedModelSelected,
+                onInstalledModelSelected = onInstalledModelSelected,
+                onDownloadRecommendedModel = onDownloadRecommendedModel,
+                onOpenModelPage = onOpenModelPage,
+            )
+
+            2 -> RemoteModelPanel(
+                state = state,
+                onInferenceModeSelected = onInferenceModeSelected,
+                onRemoteModelConfigChanged = onRemoteModelConfigChanged,
+            )
+
+            else -> AdvancedModelPanel(
+                state = state,
+                onGenerationParametersChanged = onGenerationParametersChanged,
+                onResetGenerationParameters = onResetGenerationParameters,
+                onMemoryEnabledChanged = onMemoryEnabledChanged,
+            )
+        }
 
         if (state.isDownloading || state.downloadProgressPercent != null || state.totalBytes > 0L) {
             ProgressBlock(state)
@@ -791,30 +942,41 @@ private fun ModelManagerSheet(
                 }
             }
         }
+    }
+}
 
+private fun labelToTabTag(label: String): String =
+    when (label) {
+        "当前" -> "current"
+        "模型" -> "models"
+        "远程" -> "remote"
+        else -> "advanced"
+    }
+
+@Composable
+private fun ModelInventoryPanel(
+    state: ChatUiState,
+    customModelUrl: String,
+    onCustomModelUrlChanged: (String) -> Unit,
+    onPickModel: () -> Unit,
+    onDownloadCustomModel: (String) -> Unit,
+    onRecommendedModelSelected: (String) -> Unit,
+    onInstalledModelSelected: (String) -> Unit,
+    onDownloadRecommendedModel: (String) -> Unit,
+    onOpenModelPage: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         DeviceCheck(
             state = state,
             requiredBytes = state.pendingBasicDownloadBytes(),
         )
-
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionTitle(
                 text = "本地模型",
                 subtitle = "已下载或已导入的模型会出现在这里。",
             )
             if (state.installedModels.isEmpty()) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                ) {
-                    Text(
-                        modifier = Modifier.padding(14.dp),
-                        text = "还没有本地模型。先下载推荐模型，或导入已有 .litertlm 文件。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                EmptyPanelText("还没有本地模型。先下载推荐模型，或导入已有 .litertlm 文件。")
             } else {
                 state.installedModels.forEach { model ->
                     ModelRow(
@@ -867,37 +1029,122 @@ private fun ModelManagerSheet(
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionTitle(
-                text = "添加模型",
-                subtitle = "自定义链接或本地文件都必须是 .litertlm 模型。",
+        AddModelPanel(
+            customModelUrl = customModelUrl,
+            onCustomModelUrlChanged = onCustomModelUrlChanged,
+            onPickModel = onPickModel,
+            onDownloadCustomModel = onDownloadCustomModel,
+            enabled = !state.isBusy,
+        )
+    }
+}
+
+@Composable
+private fun AddModelPanel(
+    customModelUrl: String,
+    onCustomModelUrlChanged: (String) -> Unit,
+    onPickModel: () -> Unit,
+    onDownloadCustomModel: (String) -> Unit,
+    enabled: Boolean,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionTitle(
+            text = "添加模型",
+            subtitle = "自定义链接或本地文件都必须是 .litertlm 模型。",
+        )
+        OutlinedTextField(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("custom_model_url_input"),
+            value = customModelUrl,
+            onValueChange = onCustomModelUrlChanged,
+            enabled = enabled,
+            maxLines = 2,
+            placeholder = { Text("粘贴 .litertlm 模型下载链接") },
+        )
+        OutlinedButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("custom_model_download_button"),
+            onClick = { onDownloadCustomModel(customModelUrl) },
+            enabled = enabled && customModelUrl.isNotBlank(),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Download,
+                contentDescription = null,
             )
-            OutlinedTextField(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("custom_model_url_input"),
-                value = customModelUrl,
-                onValueChange = onCustomModelUrlChanged,
-                enabled = !state.isBusy,
-                maxLines = 2,
-                placeholder = { Text("粘贴 .litertlm 模型下载链接") },
+            Text(" 从链接下载")
+        }
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onPickModel,
+            enabled = enabled,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.FolderOpen,
+                contentDescription = null,
             )
-            OutlinedButton(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("custom_model_download_button"),
-                onClick = { onDownloadCustomModel(customModelUrl) },
-                enabled = !state.isBusy && customModelUrl.isNotBlank(),
-            ) {
-                Text("从链接下载")
-            }
-            OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onPickModel,
+            Text(" 导入本地文件")
+        }
+    }
+}
+
+@Composable
+private fun EmptyPanelText(text: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+    ) {
+        Text(
+            modifier = Modifier.padding(14.dp),
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun AdvancedModelPanel(
+    state: ChatUiState,
+    onGenerationParametersChanged: (GenerationParameters) -> Unit,
+    onResetGenerationParameters: () -> Unit,
+    onMemoryEnabledChanged: (Boolean) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        PanelSurface {
+            GenerationParametersPanel(
+                parameters = state.generationParameters,
                 enabled = !state.isBusy,
-            ) {
-                Text("导入本地文件")
-            }
+                onParametersChanged = onGenerationParametersChanged,
+                onReset = onResetGenerationParameters,
+            )
+        }
+        MemoryTogglePanel(
+            state = state,
+            enabled = !state.isBusy,
+            onMemoryEnabledChanged = onMemoryEnabledChanged,
+        )
+    }
+}
+
+@Composable
+private fun PanelSurface(content: @Composable () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+        ),
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+        ) {
+            content()
         }
     }
 }
@@ -908,21 +1155,11 @@ private fun CurrentModelPanel(
     onLoadModel: () -> Unit,
     onInferenceModeSelected: (InferenceMode) -> Unit,
     onBackendSelected: (BackendChoice) -> Unit,
-    onGenerationParametersChanged: (GenerationParameters) -> Unit,
-    onResetGenerationParameters: () -> Unit,
-    onMemoryEnabledChanged: (Boolean) -> Unit,
 ) {
     val activeModel = state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }
     val usingRemote = state.inferenceMode == InferenceMode.Remote
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        shadowElevation = 0.dp,
-    ) {
+    PanelSurface {
         Column(
-            modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             SectionTitle(
@@ -975,23 +1212,16 @@ private fun CurrentModelPanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            GenerationParametersPanel(
-                parameters = state.generationParameters,
-                enabled = !state.isBusy,
-                onParametersChanged = onGenerationParametersChanged,
-                onReset = onResetGenerationParameters,
-            )
-            MemoryTogglePanel(
-                state = state,
-                enabled = !state.isBusy,
-                onMemoryEnabledChanged = onMemoryEnabledChanged,
-            )
             if (!usingRemote && state.modelPath != null && !state.isReady && !state.isBusy) {
                 FilledTonalButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onLoadModel,
                 ) {
-                    Text("加载模型")
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                    )
+                    Text(" 加载模型")
                 }
             }
         }
@@ -1005,14 +1235,8 @@ private fun RemoteModelPanel(
     onRemoteModelConfigChanged: (RemoteModelConfig) -> Unit,
 ) {
     val config = state.remoteModelConfig
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-    ) {
+    PanelSurface {
         Column(
-            modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
@@ -1088,13 +1312,9 @@ private fun MemoryTogglePanel(
     onMemoryEnabledChanged: (Boolean) -> Unit,
 ) {
     val memoryModelInstalled = ModelCapability.MemoryEmbedding in state.installedCapabilities
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.64f),
-    ) {
+    PanelSurface {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1190,6 +1410,12 @@ private fun RecommendedModelCard(
 ) {
     val installed = state.isModelInstalled(model.id)
     val isSelectedChat = model.capability == ModelCapability.Chat && model.id == state.selectedModelId
+    val semanticColors = LocalPocketMindColors.current
+    val accent = when (model.capability) {
+        ModelCapability.Chat -> MaterialTheme.colorScheme.primary
+        ModelCapability.MemoryEmbedding -> semanticColors.memory
+        ModelCapability.MobileAction -> semanticColors.busy
+    }
     val statusText = when {
         installed -> "已安装"
         model.setupTier == SetupTier.BasicRecommended -> "基础包"
@@ -1197,19 +1423,15 @@ private fun RecommendedModelCard(
     }
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = if (installed) {
-            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.46f)
-        } else {
-            MaterialTheme.colorScheme.surface
-        },
-        tonalElevation = if (installed) 1.dp else 0.dp,
-        border = androidx.compose.foundation.BorderStroke(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        border = BorderStroke(
             width = 1.dp,
             color = if (isSelectedChat) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.54f)
+                accent.copy(alpha = 0.8f)
             } else {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.16f)
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
             },
         ),
     ) {
@@ -1219,9 +1441,13 @@ private fun RecommendedModelCard(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.Top,
             ) {
+                CapabilityMark(
+                    icon = capabilityIcon(model.capability),
+                    tint = accent,
+                )
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1246,7 +1472,7 @@ private fun RecommendedModelCard(
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = if (installed) {
-                        MaterialTheme.colorScheme.primary
+                        accent
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
@@ -1254,21 +1480,36 @@ private fun RecommendedModelCard(
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                val hasSelectButton = model.capability == ModelCapability.Chat
                 if (model.capability == ModelCapability.Chat) {
                     OutlinedButton(
+                        modifier = Modifier.weight(1f),
                         onClick = onSelect,
                         enabled = !state.isBusy && !isSelectedChat,
                     ) {
-                        Text(if (isSelectedChat) "当前" else "选择")
+                        Text(
+                            text = if (isSelectedChat) "当前" else "选择",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
                 FilledTonalButton(
+                    modifier = if (hasSelectButton) Modifier.weight(1f) else Modifier.fillMaxWidth(),
                     onClick = onDownload,
                     enabled = !state.isBusy && !state.isDownloading,
                 ) {
-                    Text(if (installed) "重新下载" else "下载")
+                    Icon(
+                        imageVector = Icons.Filled.Download,
+                        contentDescription = null,
+                    )
+                    Text(
+                        text = if (installed) " 重新下载" else " 下载",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }
@@ -1283,7 +1524,7 @@ private fun ModelRow(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(8.dp)
+    val shape = MaterialTheme.shapes.medium
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1292,17 +1533,17 @@ private fun ModelRow(
                 color = if (selected) {
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.58f)
                 } else {
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
                 },
                 shape = shape,
             ),
         shape = shape,
         color = if (selected) {
-            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
         } else {
             MaterialTheme.colorScheme.surface
         },
-        tonalElevation = if (selected) 2.dp else 0.dp,
+        tonalElevation = 0.dp,
         onClick = onClick,
         enabled = enabled,
     ) {
@@ -1341,6 +1582,33 @@ private fun ModelRow(
         }
     }
 }
+
+@Composable
+private fun CapabilityMark(
+    icon: ImageVector,
+    tint: Color,
+) {
+    Surface(
+        shape = CircleShape,
+        color = tint.copy(alpha = 0.16f),
+    ) {
+        Icon(
+            modifier = Modifier
+                .padding(7.dp)
+                .size(18.dp),
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+        )
+    }
+}
+
+private fun capabilityIcon(capability: ModelCapability): ImageVector =
+    when (capability) {
+        ModelCapability.Chat -> Icons.Filled.Storage
+        ModelCapability.MemoryEmbedding -> Icons.Filled.Memory
+        ModelCapability.MobileAction -> Icons.Filled.Settings
+    }
 
 @Composable
 private fun SectionTitle(
@@ -1418,51 +1686,53 @@ private fun DeviceCheck(
     val hasPendingDownload = requiredBytes > 0L
     val hasEnoughSpace = !hasPendingDownload ||
         ModelCatalog.hasEnoughSpace(state.availableModelStorageBytes, requiredBytes)
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = "设备检查",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            DeviceMetric(
-                modifier = Modifier.weight(1f),
-                label = "架构",
-                value = if (state.isArm64Supported) "arm64" else "不支持",
-                good = state.isArm64Supported,
-            )
-            DeviceMetric(
-                modifier = Modifier.weight(1f),
-                label = "空间",
-                value = ModelCatalog.formatBytes(state.availableModelStorageBytes),
-                good = hasEnoughSpace,
-            )
-            DeviceMetric(
-                modifier = Modifier.weight(1f),
-                label = "待下载",
-                value = if (hasPendingDownload) {
-                    ModelCatalog.formatBytes(requiredBytes)
-                } else {
-                    "已就绪"
-                },
-                good = true,
-            )
-        }
-        if (!state.isArm64Supported) {
+    PanelSurface {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                text = "此模型需要 64 位 ARM 安卓设备。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+                text = "设备检查",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
             )
-        } else if (!hasEnoughSpace) {
-            Text(
-                text = "建议至少预留 ${ModelCatalog.formatBytes(requiredBytes)}，再多留一些空间给加载缓存。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DeviceMetric(
+                    modifier = Modifier.weight(1f),
+                    label = "架构",
+                    value = if (state.isArm64Supported) "arm64" else "不支持",
+                    good = state.isArm64Supported,
+                )
+                DeviceMetric(
+                    modifier = Modifier.weight(1f),
+                    label = "空间",
+                    value = ModelCatalog.formatBytes(state.availableModelStorageBytes),
+                    good = hasEnoughSpace,
+                )
+                DeviceMetric(
+                    modifier = Modifier.weight(1f),
+                    label = "待下载",
+                    value = if (hasPendingDownload) {
+                        ModelCatalog.formatBytes(requiredBytes)
+                    } else {
+                        "已就绪"
+                    },
+                    good = true,
+                )
+            }
+            if (!state.isArm64Supported) {
+                Text(
+                    text = "此模型需要 64 位 ARM 安卓设备。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            } else if (!hasEnoughSpace) {
+                Text(
+                    text = "建议至少预留 ${ModelCatalog.formatBytes(requiredBytes)}，再多留一些空间给加载缓存。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 }
@@ -1474,12 +1744,13 @@ private fun DeviceMetric(
     value: String,
     good: Boolean,
 ) {
+    val semanticColors = LocalPocketMindColors.current
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(MaterialTheme.shapes.medium)
             .background(
                 if (good) {
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    semanticColors.localContainer.copy(alpha = 0.52f)
                 } else {
                     MaterialTheme.colorScheme.errorContainer
                 },
@@ -1498,7 +1769,7 @@ private fun DeviceMetric(
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = if (good) {
-                MaterialTheme.colorScheme.onPrimaryContainer
+                semanticColors.onLocalContainer
             } else {
                 MaterialTheme.colorScheme.onErrorContainer
             },
@@ -1671,18 +1942,30 @@ private fun ParameterSlider(
 
 @Composable
 private fun MemoryContextStrip(hitCount: Int) {
+    val semanticColors = LocalPocketMindColors.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.58f),
+        shape = MaterialTheme.shapes.medium,
+        color = semanticColors.memoryContainer.copy(alpha = 0.72f),
     ) {
-        Text(
+        Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-            text = "已引用本地记忆 $hitCount 条",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onTertiaryContainer,
-            fontWeight = FontWeight.SemiBold,
-        )
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                modifier = Modifier.size(16.dp),
+                imageVector = Icons.Filled.Memory,
+                contentDescription = null,
+                tint = semanticColors.onMemoryContainer,
+            )
+            Text(
+                text = "已引用本地记忆 $hitCount 条",
+                style = MaterialTheme.typography.labelMedium,
+                color = semanticColors.onMemoryContainer,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
     }
 }
 
@@ -1692,15 +1975,16 @@ private fun MessageBubble(
     isStreaming: Boolean,
 ) {
     val isUser = message.role == MessageRole.User
+    val semanticColors = LocalPocketMindColors.current
     val bubbleColor = if (isUser) {
-        MaterialTheme.colorScheme.primaryContainer
+        semanticColors.localContainer.copy(alpha = 0.82f)
     } else {
-        MaterialTheme.colorScheme.surfaceVariant
+        MaterialTheme.colorScheme.surface
     }
     val textColor = if (isUser) {
-        MaterialTheme.colorScheme.onPrimaryContainer
+        semanticColors.onLocalContainer
     } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+        MaterialTheme.colorScheme.onSurface
     }
     val alignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
     val shape = if (isUser) {
@@ -1713,44 +1997,52 @@ private fun MessageBubble(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = alignment,
     ) {
-        Column(
+        Surface(
             modifier = Modifier
-                .fillMaxWidth(if (isUser) 0.86f else 0.94f)
-                .clip(shape)
-                .background(bubbleColor)
-                .padding(horizontal = 14.dp, vertical = 11.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .fillMaxWidth(if (isUser) 0.84f else 0.96f),
+            shape = shape,
+            color = bubbleColor,
+            border = if (isUser) {
+                null
+            } else {
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
+            },
         ) {
-            Text(
-                text = when {
-                    isUser -> "你"
-                    isStreaming -> "PocketMind · 生成中"
-                    else -> "PocketMind"
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = textColor.copy(alpha = 0.72f),
-                fontWeight = FontWeight.SemiBold,
-            )
-            if (isStreaming && message.text.isBlank()) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surface,
-                )
-            }
-            SelectionContainer {
-                MessageContent(
-                    text = message.text.ifBlank { if (isStreaming) "正在思考..." else "..." },
-                    isUser = isUser,
-                    color = textColor,
-                )
-            }
-            if (!isUser && !isStreaming && message.generationStats?.isUsable() == true) {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text(
-                    text = formatGenerationStats(message.generationStats),
+                    text = when {
+                        isUser -> "你"
+                        isStreaming -> "PocketMind · 生成中"
+                        else -> "PocketMind"
+                    },
                     style = MaterialTheme.typography.labelSmall,
-                    color = textColor.copy(alpha = 0.68f),
+                    color = textColor.copy(alpha = 0.62f),
+                    fontWeight = FontWeight.SemiBold,
                 )
+                if (isStreaming && message.text.isBlank()) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                }
+                SelectionContainer {
+                    MessageContent(
+                        text = message.text.ifBlank { if (isStreaming) "正在思考..." else "..." },
+                        isUser = isUser,
+                        color = textColor,
+                    )
+                }
+                if (!isUser && !isStreaming && message.generationStats?.isUsable() == true) {
+                    Text(
+                        text = formatGenerationStats(message.generationStats),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textColor.copy(alpha = 0.54f),
+                    )
+                }
             }
         }
     }
@@ -1791,6 +2083,7 @@ private fun MessageContent(
 
 @Composable
 private fun CodeBlock(code: String) {
+    val semanticColors = LocalPocketMindColors.current
     val cleaned = code.trim('\n')
     val lines = cleaned.lines()
     val maybeLanguage = lines.firstOrNull().orEmpty()
@@ -1801,12 +2094,12 @@ private fun CodeBlock(code: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .clip(MaterialTheme.shapes.medium)
+            .background(semanticColors.codeSurface)
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(8.dp),
+                shape = MaterialTheme.shapes.medium,
             ),
     ) {
         if (hasLanguage) {
@@ -1827,7 +2120,7 @@ private fun CodeBlock(code: String) {
             text = codeText.ifBlank { "..." },
             style = MaterialTheme.typography.bodyMedium,
             fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f),
             textAlign = TextAlign.Start,
         )
     }
@@ -1874,27 +2167,79 @@ private fun Composer(
 ) {
     val inputEnabled = state.isReady && !state.isBusy
     val actionIsStop = state.isGenerating
+    val semanticColors = LocalPocketMindColors.current
     val placeholder = when {
         state.isBusy -> state.statusText
         !state.isReady -> "先准备模型，再开始提问"
         else -> "输入问题"
     }
+    val modelLabel = if (state.inferenceMode == InferenceMode.Remote) {
+        state.remoteModelConfig.modelName.ifBlank { "远程模型" }
+    } else {
+        state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }?.displayName
+            ?: state.selectedRecommendedModel.shortName
+    }
+    val showCompactStatus = !state.isReady || state.isBusy
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        if (!state.isReady || state.isBusy) {
-            Text(
-                text = state.statusText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = if (showCompactStatus) {
+                    Modifier.weight(1f)
+                } else {
+                    Modifier.weight(1f, fill = false)
+                },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+                onClick = onOpenModelManager,
+                enabled = !state.isBusy,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        modifier = Modifier.size(15.dp),
+                        imageVector = if (state.inferenceMode == InferenceMode.Remote) {
+                            Icons.Filled.Cloud
+                        } else {
+                            Icons.Filled.Storage
+                        },
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        modifier = Modifier.weight(1f, fill = false),
+                        text = modelLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (showCompactStatus) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = state.statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1904,7 +2249,7 @@ private fun Composer(
             OutlinedTextField(
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 56.dp),
+                    .heightIn(min = 52.dp),
                 value = input,
                 onValueChange = onInputChanged,
                 enabled = inputEnabled,
@@ -1913,21 +2258,38 @@ private fun Composer(
                 placeholder = { Text(placeholder) },
             )
 
-            OutlinedButton(
+            IconButton(
                 modifier = Modifier
-                    .height(56.dp)
-                    .width(64.dp),
+                    .height(52.dp)
+                    .width(52.dp)
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        shape = CircleShape,
+                    )
+                    .semantics {
+                        contentDescription = "模型管理"
+                    },
                 onClick = onOpenModelManager,
                 enabled = !state.isBusy,
-                contentPadding = PaddingValues(0.dp),
+                colors = IconButtonDefaults.iconButtonColors(
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                ),
             ) {
-                Text("模型")
+                Icon(
+                    imageVector = Icons.Filled.Tune,
+                    contentDescription = null,
+                )
             }
 
-            Button(
+            IconButton(
                 modifier = Modifier
-                    .height(56.dp)
-                    .width(56.dp),
+                    .height(52.dp)
+                    .width(52.dp)
+                    .semantics {
+                        contentDescription = if (actionIsStop) "停止生成" else "发送"
+                    },
                 onClick = when {
                     actionIsStop -> onStopGeneration
                     else -> onSend
@@ -1936,12 +2298,23 @@ private fun Composer(
                     actionIsStop -> true
                     else -> inputEnabled && input.isNotBlank()
                 },
-                contentPadding = PaddingValues(0.dp),
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = when {
+                        actionIsStop -> semanticColors.busy
+                        inputEnabled && input.isNotBlank() -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    contentColor = when {
+                        actionIsStop -> semanticColors.onBusy
+                        inputEnabled && input.isNotBlank() -> MaterialTheme.colorScheme.onPrimary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.52f)
+                    },
+                ),
             ) {
-                when {
-                    actionIsStop -> Text("停止")
-                    else -> Text("发送")
-                }
+                Icon(
+                    imageVector = if (actionIsStop) Icons.Filled.Stop else Icons.AutoMirrored.Filled.Send,
+                    contentDescription = null,
+                )
             }
         }
     }

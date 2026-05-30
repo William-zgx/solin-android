@@ -28,12 +28,13 @@ class MainActivitySmokeTest {
 
         composeRule.onNodeWithText("模型管理").assertIsDisplayed()
         composeRule.waitForText("当前模型")
+        composeRule.onNodeWithTag("model_tab_advanced").performClick()
         composeRule.waitForText("生成参数")
         composeRule.waitForText("Temperature · 创造性")
+        composeRule.onNodeWithTag("model_tab_models").performClick()
         composeRule.waitForText("推荐模型")
         composeRule.waitForText("添加模型")
         composeRule.waitForTag("custom_model_download_button")
-        composeRule.waitForText("导入本地文件")
     }
 
     @Test
@@ -43,6 +44,7 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("top_model_button").performClick()
         composeRule.waitForTag("model_manager_sheet")
 
+        composeRule.onNodeWithTag("model_tab_models").performClick()
         composeRule.waitForTag("custom_model_url_input")
         composeRule.waitForTag("custom_model_download_button")
     }
