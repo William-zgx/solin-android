@@ -64,8 +64,8 @@ class MainActivity : ComponentActivity() {
                     onDownloadSetupModels = viewModel::startSetupModelDownload,
                     onSkipFirstRunSetup = viewModel::skipFirstRunSetup,
                     onMemoryEnabledChanged = viewModel::updateMemoryEnabled,
-                    onConfirmActionDraft = viewModel::confirmActionDraft,
-                    onDismissActionDraft = viewModel::dismissActionDraft,
+                    onConfirmAgentConfirmation = viewModel::confirmAgentConfirmation,
+                    onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
                     onSendMessage = viewModel::sendMessage,
                     onStopGeneration = viewModel::stopGeneration,
                 )

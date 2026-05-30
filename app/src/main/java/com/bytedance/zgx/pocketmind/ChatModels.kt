@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
+import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
@@ -62,6 +63,14 @@ data class ChatSessionSummary(
     val messageCount: Int,
 )
 
+data class PendingAgentConfirmation(
+    val runId: String?,
+    val draft: ActionDraft,
+    val toolRequest: ToolRequest?,
+    val plannedByModel: Boolean,
+    val fallbackReason: String?,
+)
+
 data class InstalledModelSummary(
     val id: String,
     val displayName: String,
@@ -94,7 +103,7 @@ data class ChatUiState(
     val showFirstRunSetup: Boolean = false,
     val memoryEnabled: Boolean = true,
     val memoryHits: List<MemoryHit> = emptyList(),
-    val pendingActionDraft: ActionDraft? = null,
+    val pendingConfirmation: PendingAgentConfirmation? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,
     val remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),
     val backend: BackendChoice = BackendChoice.GPU,

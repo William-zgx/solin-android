@@ -103,6 +103,7 @@ import com.bytedance.zgx.pocketmind.InstalledModelSummary
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.RecommendedModel
+import com.bytedance.zgx.pocketmind.PendingAgentConfirmation
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.action.ActionDraft
@@ -137,8 +138,8 @@ fun PocketMindScreen(
     onDownloadSetupModels: () -> Unit,
     onSkipFirstRunSetup: () -> Unit,
     onMemoryEnabledChanged: (Boolean) -> Unit,
-    onConfirmActionDraft: (ActionDraft) -> Unit,
-    onDismissActionDraft: () -> Unit,
+    onConfirmAgentConfirmation: (PendingAgentConfirmation) -> Unit,
+    onDismissAgentConfirmation: () -> Unit,
     onSendMessage: (String) -> Unit,
     onStopGeneration: () -> Unit,
 ) {
@@ -297,15 +298,15 @@ fun PocketMindScreen(
             }
         }
 
-        state.pendingActionDraft?.let { draft ->
+        state.pendingConfirmation?.let { confirmation ->
             ModalBottomSheet(
                 sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                onDismissRequest = onDismissActionDraft,
+                onDismissRequest = onDismissAgentConfirmation,
             ) {
                 ActionDraftSheet(
-                    draft = draft,
-                    onConfirm = { onConfirmActionDraft(draft) },
-                    onDismiss = onDismissActionDraft,
+                    draft = confirmation.draft,
+                    onConfirm = { onConfirmAgentConfirmation(confirmation) },
+                    onDismiss = onDismissAgentConfirmation,
                 )
             }
         }

@@ -580,9 +580,36 @@ class PocketMindViewModel(
                             it.copy(
                                 isBusy = false,
                                 isGenerating = false,
-                                pendingActionDraft = route.draft,
+                                pendingConfirmation = PendingAgentConfirmation(
+                                    runId = route.runId,
+                                    draft = route.draft,
+                                    toolRequest = route.toolRequest,
+                                    plannedByModel = route.plannedByModel,
+                                    fallbackReason = route.fallbackReason,
+                                ),
                                 memoryHits = emptyList(),
                                 statusText = "动作草稿待确认 · $planningLabel",
+                            )
+                        }
+                        rebuildMemoryIndex()
+                        return@launch
+                    }
+
+                    is AssistantRoute.ToolRejected -> {
+                        val assistantMessage = ChatMessage(
+                            role = MessageRole.Assistant,
+                            text = "无法准备这个动作：${route.summary}",
+                        )
+                        replaceActiveSessionMessages(
+                            stateBeforeSend.messages + userMessage + assistantMessage,
+                            persistNow = true,
+                        )
+                        _uiState.update {
+                            it.copy(
+                                isBusy = false,
+                                isGenerating = false,
+                                memoryHits = emptyList(),
+                                statusText = "动作不可执行",
                             )
                         }
                         rebuildMemoryIndex()
@@ -744,23 +771,39 @@ class PocketMindViewModel(
         finishStoppedGeneration()
     }
 
-    fun confirmActionDraft(draft: ActionDraft) {
-        val executed = actionExecutor.executeConfirmed(draft)
+    fun confirmAgentConfirmation(confirmation: PendingAgentConfirmation) {
+        val executed = actionExecutor.executeConfirmed(confirmation.draft)
         _uiState.update {
             it.copy(
-                pendingActionDraft = null,
+                pendingConfirmation = null,
                 statusText = if (executed) "已打开系统确认页" else "无法执行这个动作",
             )
         }
     }
 
-    fun dismissActionDraft() {
+    fun dismissAgentConfirmation() {
         _uiState.update {
             it.copy(
-                pendingActionDraft = null,
+                pendingConfirmation = null,
                 statusText = "已取消动作草稿",
             )
         }
+    }
+
+    fun confirmActionDraft(draft: ActionDraft) {
+        confirmAgentConfirmation(
+            PendingAgentConfirmation(
+                runId = null,
+                draft = draft,
+                toolRequest = null,
+                plannedByModel = false,
+                fallbackReason = null,
+            ),
+        )
+    }
+
+    fun dismissActionDraft() {
+        dismissAgentConfirmation()
     }
 
     override fun onCleared() {
