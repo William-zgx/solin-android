@@ -78,12 +78,14 @@ import com.bytedance.zgx.pocketmind.ModelCatalog
 import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.GenerationStats
 import com.bytedance.zgx.pocketmind.InferenceMode
+import com.bytedance.zgx.pocketmind.InstalledModelSummary
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.isUsable
 import com.bytedance.zgx.pocketmind.label
 import java.util.Locale
@@ -173,11 +175,6 @@ fun PocketMindScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        if (state.memoryHits.isNotEmpty()) {
-                            item(key = "memory_context") {
-                                MemoryContextStrip(state.memoryHits.size)
-                            }
-                        }
                         items(
                             items = state.messages,
                             key = { it.id },
@@ -191,6 +188,15 @@ fun PocketMindScreen(
                         }
                     }
                 }
+            }
+
+            if (state.memoryHits.isNotEmpty()) {
+                MemoryContextStrip(
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("memory_context_strip"),
+                    hitCount = state.memoryHits.size,
+                )
             }
 
             Composer(
@@ -573,7 +579,7 @@ private fun FirstRunSetupSheet(
     ) {
         SectionTitle(
             text = "准备基础能力包",
-            subtitle = "默认安装对话、记忆和动作模型；也可以取消任意项，之后再补装。",
+            subtitle = "默认只安装对话模型；记忆和动作当前是本地轻量助手，可稍后补装实验模型资产。",
         )
         state.basicSetupModels.forEach { model ->
             val selected = model.id in state.setupSelectedModelIds
@@ -588,6 +594,7 @@ private fun FirstRunSetupSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(
+                        modifier = Modifier.testTag("first_run_model_${model.id}"),
                         checked = selected,
                         enabled = !state.isBusy && !state.isModelInstalled(model.id),
                         onCheckedChange = { onSetupModelToggled(model.id, it) },
@@ -633,7 +640,7 @@ private fun FirstRunSetupSheet(
             onClick = onDownloadSetupModels,
             enabled = !state.isBusy && state.setupSelectedModelIds.isNotEmpty(),
         ) {
-            Text("下载选中的基础包")
+            Text("下载选中的模型")
         }
         TextButton(
             modifier = Modifier.fillMaxWidth(),
@@ -679,13 +686,17 @@ private fun ActionDraftSheet(
             }
         }
         Button(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("action_confirm_button"),
             onClick = onConfirm,
         ) {
             Text("确认并打开")
         }
         OutlinedButton(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("action_dismiss_button"),
             onClick = onDismiss,
         ) {
             Text("取消")
@@ -819,7 +830,8 @@ private fun ModelManagerSheet(
                 state.installedModels.forEach { model ->
                     ModelRow(
                         title = model.displayName,
-                        subtitle = "${capabilityLabel(model.capability)} · ${model.fileName} · ${ModelCatalog.formatBytes(model.fileBytes)}",
+                        subtitle = "${capabilityLabel(model.capability)} · ${model.fileName} · " +
+                            "${ModelCatalog.formatBytes(model.fileBytes)} · ${model.verificationLabel()}",
                         selected = model.id == state.activeInstalledModelId,
                         enabled = !state.isBusy && model.capability == ModelCapability.Chat,
                         onClick = { onInstalledModelSelected(model.id) },
@@ -892,7 +904,9 @@ private fun ModelManagerSheet(
                 Text("从链接下载")
             }
             OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("import_model_button"),
                 onClick = onPickModel,
                 enabled = !state.isBusy,
             ) {
@@ -942,12 +956,14 @@ private fun CurrentModelPanel(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BackendChip(
+                    modifier = Modifier.testTag("inference_local_chip"),
                     label = InferenceMode.Local.label(),
                     selected = state.inferenceMode == InferenceMode.Local,
                     enabled = !state.isBusy,
                     onClick = { onInferenceModeSelected(InferenceMode.Local) },
                 )
                 BackendChip(
+                    modifier = Modifier.testTag("inference_remote_chip"),
                     label = InferenceMode.Remote.label(),
                     selected = usingRemote,
                     enabled = !state.isBusy,
@@ -957,12 +973,14 @@ private fun CurrentModelPanel(
             if (!usingRemote) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     BackendChip(
+                        modifier = Modifier.testTag("backend_gpu_chip"),
                         label = "GPU",
                         selected = state.backend == BackendChoice.GPU,
                         enabled = !state.isBusy,
                         onClick = { onBackendSelected(BackendChoice.GPU) },
                     )
                     BackendChip(
+                        modifier = Modifier.testTag("backend_cpu_chip"),
                         label = "CPU",
                         selected = state.backend == BackendChoice.CPU,
                         enabled = !state.isBusy,
@@ -1022,9 +1040,10 @@ private fun RemoteModelPanel(
             ) {
                 SectionTitle(
                     text = "远程模型",
-                    subtitle = "兼容 /v1/chat/completions 的服务地址。",
+                    subtitle = "兼容 /v1/chat/completions；远程模式会发送当前对话上下文。",
                 )
                 Switch(
+                    modifier = Modifier.testTag("remote_mode_switch"),
                     checked = state.inferenceMode == InferenceMode.Remote,
                     enabled = !state.isBusy,
                     onCheckedChange = {
@@ -1035,7 +1054,9 @@ private fun RemoteModelPanel(
                 )
             }
             OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_base_url_input"),
                 value = config.baseUrl,
                 onValueChange = {
                     onRemoteModelConfigChanged(config.copy(baseUrl = it))
@@ -1046,7 +1067,9 @@ private fun RemoteModelPanel(
                 label = { Text("服务地址") },
             )
             OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_model_name_input"),
                 value = config.modelName,
                 onValueChange = {
                     onRemoteModelConfigChanged(config.copy(modelName = it))
@@ -1057,7 +1080,9 @@ private fun RemoteModelPanel(
                 label = { Text("模型名") },
             )
             OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_api_key_input"),
                 value = config.apiKey,
                 onValueChange = {
                     onRemoteModelConfigChanged(config.copy(apiKey = it))
@@ -1069,11 +1094,7 @@ private fun RemoteModelPanel(
                 visualTransformation = PasswordVisualTransformation(),
             )
             Text(
-                text = if (config.isConfigured) {
-                    "远程配置已保存"
-                } else {
-                    "填写服务地址和模型名后可切换远程模型"
-                },
+                text = remoteConfigStatusText(config),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1081,13 +1102,27 @@ private fun RemoteModelPanel(
     }
 }
 
+private fun remoteConfigStatusText(config: RemoteModelConfig): String =
+    when {
+        config.isConfigured && config.usesLocalInsecureTransport ->
+            "远程配置已保存；HTTP 仅允许本机调试地址，API Key 会加密保存在本机。"
+
+        config.isConfigured ->
+            "远程配置已保存；API Key 会加密保存在本机。"
+
+        config.baseUrl.startsWith("http://") ->
+            "非本机 HTTP 地址不可用；请使用 HTTPS 或本机调试地址。"
+
+        else ->
+            "填写 HTTPS 服务地址和模型名后可切换远程模型"
+    }
+
 @Composable
 private fun MemoryTogglePanel(
     state: ChatUiState,
     enabled: Boolean,
     onMemoryEnabledChanged: (Boolean) -> Unit,
 ) {
-    val memoryModelInstalled = ModelCapability.MemoryEmbedding in state.installedCapabilities
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -1108,19 +1143,16 @@ private fun MemoryTogglePanel(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = if (memoryModelInstalled) {
-                        "启用后会从本机会话中召回相关片段。"
-                    } else {
-                        "安装本地记忆模型后可开启语义召回。"
-                    },
+                    text = "启用后用本地轻量索引从已保存会话中召回相关片段。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Switch(
-                checked = state.memoryEnabled && memoryModelInstalled,
+                modifier = Modifier.testTag("memory_switch"),
+                checked = state.memoryEnabled,
                 onCheckedChange = onMemoryEnabledChanged,
-                enabled = enabled && memoryModelInstalled,
+                enabled = enabled,
             )
         }
     }
@@ -1171,7 +1203,9 @@ private fun SessionManagerSheet(
         }
         if (state.sessions.size > 1) {
             OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("session_delete_button"),
                 onClick = onDeleteSession,
                 enabled = !state.isBusy,
             ) {
@@ -1392,6 +1426,14 @@ private fun capabilityLabel(capability: ModelCapability): String =
         ModelCapability.MobileAction -> "动作"
     }
 
+private fun InstalledModelSummary.verificationLabel(): String =
+    when (verificationStatus) {
+        ModelVerificationStatus.VerifiedRecommended -> "SHA-256 已校验"
+        ModelVerificationStatus.UnverifiedCustom -> "自定义未校验"
+        ModelVerificationStatus.LegacyUnverified -> "旧文件未校验"
+        ModelVerificationStatus.FailedVerification -> "校验失败"
+    }
+
 @Composable
 private fun ChatUiState.pendingSelectedChatDownloadBytes(): Long =
     if (isModelInstalled(selectedRecommendedModel.id)) {
@@ -1407,7 +1449,7 @@ private fun ChatUiState.pendingSetupDownloadBytes(): Long =
 
 private fun ChatUiState.pendingBasicDownloadBytes(): Long =
     basicSetupModels
-        .filterNot { isModelInstalled(it.id) }
+        .filter { it.id in setupSelectedModelIds && !isModelInstalled(it.id) }
         .sumOf { it.byteSize }
 
 @Composable
@@ -1548,12 +1590,14 @@ private fun ProgressBlock(state: ChatUiState) {
 
 @Composable
 private fun BackendChip(
+    modifier: Modifier = Modifier,
     label: String,
     selected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
     FilterChip(
+        modifier = modifier,
         selected = selected,
         enabled = enabled,
         onClick = onClick,
@@ -1670,9 +1714,12 @@ private fun ParameterSlider(
 }
 
 @Composable
-private fun MemoryContextStrip(hitCount: Int) {
+private fun MemoryContextStrip(
+    modifier: Modifier = Modifier,
+    hitCount: Int,
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.58f),
     ) {
@@ -1904,7 +1951,8 @@ private fun Composer(
             OutlinedTextField(
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 56.dp),
+                    .heightIn(min = 56.dp)
+                    .testTag("composer_input"),
                 value = input,
                 onValueChange = onInputChanged,
                 enabled = inputEnabled,
@@ -1916,7 +1964,8 @@ private fun Composer(
             OutlinedButton(
                 modifier = Modifier
                     .height(56.dp)
-                    .width(64.dp),
+                    .width(64.dp)
+                    .testTag("composer_model_button"),
                 onClick = onOpenModelManager,
                 enabled = !state.isBusy,
                 contentPadding = PaddingValues(0.dp),
@@ -1927,7 +1976,8 @@ private fun Composer(
             Button(
                 modifier = Modifier
                     .height(56.dp)
-                    .width(56.dp),
+                    .width(56.dp)
+                    .testTag("composer_send_button"),
                 onClick = when {
                     actionIsStop -> onStopGeneration
                     else -> onSend

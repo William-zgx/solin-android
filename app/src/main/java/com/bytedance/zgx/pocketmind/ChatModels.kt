@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
@@ -67,6 +68,8 @@ data class InstalledModelSummary(
     val path: String,
     val fileBytes: Long,
     val recommendedModelId: String?,
+    val verifiedSha256: String? = null,
+    val verificationStatus: ModelVerificationStatus = ModelVerificationStatus.UnverifiedCustom,
 ) {
     val fileName: String
         get() = File(path).name

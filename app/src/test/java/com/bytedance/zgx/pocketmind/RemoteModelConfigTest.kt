@@ -23,7 +23,18 @@ class RemoteModelConfigTest {
     fun isConfiguredRequiresHttpUrlAndModelName() {
         assertTrue(RemoteModelConfig("https://api.example.com/v1", "model-a").isConfigured)
         assertTrue(RemoteModelConfig("http://10.0.2.2:8000/v1", "model-a").isConfigured)
+        assertTrue(RemoteModelConfig("http://localhost:8000/v1", "model-a").isConfigured)
+        assertTrue(RemoteModelConfig("http://127.0.0.1:8000/v1", "model-a").isConfigured)
         assertFalse(RemoteModelConfig("ftp://api.example.com/v1", "model-a").isConfigured)
+        assertFalse(RemoteModelConfig("http://api.example.com/v1", "model-a").isConfigured)
+        assertFalse(RemoteModelConfig("https:foo", "model-a").isConfigured)
         assertFalse(RemoteModelConfig("https://api.example.com/v1", "").isConfigured)
+    }
+
+    @Test
+    fun usesLocalInsecureTransportOnlyForLocalDebugHosts() {
+        assertTrue(RemoteModelConfig("http://10.0.2.2:8000/v1", "model-a").usesLocalInsecureTransport)
+        assertFalse(RemoteModelConfig("https://api.example.com/v1", "model-a").usesLocalInsecureTransport)
+        assertFalse(RemoteModelConfig("http://api.example.com/v1", "model-a").usesLocalInsecureTransport)
     }
 }
