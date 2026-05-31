@@ -116,6 +116,9 @@ class AgentLoopRuntime(
         }
     }
 
+    fun failStaleInFlightRuns(reason: String): Int =
+        traceStore.failStaleInFlightRuns(reason)
+
     fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.AwaitingUserConfirmation) return run

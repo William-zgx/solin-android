@@ -47,6 +47,8 @@ interface AssistantRouter : AutoCloseable {
 
     fun requestRecoveryAction(action: AgentRecoveryAction): AssistantRoute
 
+    fun failStaleInFlightRuns(reason: String): Int
+
     fun confirmToolRequest(runId: String, requestId: String): AgentRun?
 
     fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult?
@@ -95,6 +97,9 @@ class AssistantOrchestrator(
     override fun requestRecoveryAction(action: AgentRecoveryAction): AssistantRoute =
         agentLoopRuntime.requestRecoveryAction(action)?.toAssistantRoute()
             ?: AssistantRoute.ToolRejected("撤销动作不可用")
+
+    override fun failStaleInFlightRuns(reason: String): Int =
+        agentLoopRuntime.failStaleInFlightRuns(reason)
 
     override fun confirmToolRequest(runId: String, requestId: String): AgentRun? =
         agentLoopRuntime.confirmToolRequest(runId, requestId)

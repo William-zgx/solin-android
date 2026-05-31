@@ -467,6 +467,11 @@ Current status:
   awaiting tool confirmation and may hold the tool arguments needed for an
   explicit later confirmation. It is separate from trace/audit summaries and is
   cleared when the request is confirmed, cancelled, or found stale.
+- On startup, persisted in-flight Agent runs that cannot be safely resumed
+  after process death (`Created`, context loading, planning, executing,
+  observing, retrying, or model generation) are marked `Failed` with a trace
+  failure step. `AwaitingUserConfirmation` runs are not failed because their
+  pending confirmation snapshot remains the explicit recovery boundary.
 - Audit summary sanitization removes key-like tokens, bearer credentials, and
   email addresses before truncation. The in-memory audit sink stores the same
   redacted copy as the Room-backed repository so tests cannot accidentally
@@ -483,6 +488,7 @@ Tests:
 - `ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess`
 - `SessionRepositoryTest`
 - `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
+- `AgentTraceStoreTest.roomStoreFailsStaleInFlightRunsButKeepsPendingConfirmationsOnStartup`
 
 ## Memory
 

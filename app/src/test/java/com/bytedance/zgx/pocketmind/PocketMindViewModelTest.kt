@@ -1965,6 +1965,8 @@ class PocketMindViewModelTest {
             )
         }
 
+        override fun failStaleInFlightRuns(reason: String): Int = 0
+
         override fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
             confirmCallCount += 1
             return confirmedRunsById[runId] ?: confirmedRun

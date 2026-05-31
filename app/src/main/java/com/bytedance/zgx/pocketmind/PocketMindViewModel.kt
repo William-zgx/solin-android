@@ -69,6 +69,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 private const val MAX_VOICE_TRANSCRIPT_CHARS = 2_000
+private const val STALE_AGENT_RUN_STARTUP_REASON =
+    "App restarted before this Agent step completed."
 
 class PocketMindViewModel(
     private val modelRepository: ModelRepositoryFacade,
@@ -111,6 +113,7 @@ class PocketMindViewModel(
         rebuildMemoryIndex()
         _uiState.update { it.copy(longTermMemories = loadLongTermMemories()) }
         verifyLegacyModelsOnStartup(skipModelRuntimeWork)
+        failStaleAgentRunsOnStartup()
 
         if (skipModelRuntimeWork) {
             if (_uiState.value.inferenceMode == InferenceMode.Remote) {
@@ -2153,6 +2156,14 @@ class PocketMindViewModel(
                 isGenerating = false,
                 statusText = "动作草稿待确认 · 已恢复",
             )
+        }
+    }
+
+    private fun failStaleAgentRunsOnStartup() {
+        val failedCount = assistantOrchestrator.failStaleInFlightRuns(STALE_AGENT_RUN_STARTUP_REASON)
+        if (failedCount <= 0) return
+        _uiState.update {
+            it.copy(agentTraceRuns = loadAgentTraceRuns())
         }
     }
 

@@ -65,6 +65,7 @@ interface AgentTraceStore {
     fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot)
     fun latestPendingConfirmation(): PendingToolConfirmationSnapshot?
     fun clearPendingConfirmation(runId: String, requestId: String): Boolean
+    fun failStaleInFlightRuns(reason: String): Int
 }
 
 class InMemoryAgentTraceStore(
@@ -161,6 +162,17 @@ class InMemoryAgentTraceStore(
                 pendingConfirmations.remove(runId)
                 true
             } ?: false
+
+    override fun failStaleInFlightRuns(reason: String): Int {
+        val staleRuns = runs.values
+            .filter { run -> run.state.isStaleAfterProcessRestart() }
+        staleRuns.forEach { run ->
+            appendStep(run.id, AgentStep.Failed(reason))
+            updateState(run.id, AgentRunState.Failed)
+            pendingConfirmations.remove(run.id)
+        }
+        return staleRuns.size
+    }
 }
 
 class RoomAgentTraceStore(
@@ -264,6 +276,17 @@ class RoomAgentTraceStore(
     override fun clearPendingConfirmation(runId: String, requestId: String): Boolean =
         traceDao.deletePendingConfirmation(runId, requestId) > 0
 
+    override fun failStaleInFlightRuns(reason: String): Int {
+        val staleRuns = traceDao.recentRuns(Int.MAX_VALUE)
+            .map { entity -> entity.toDomain() }
+            .filter { run -> run.state.isStaleAfterProcessRestart() }
+        staleRuns.forEach { run ->
+            appendStep(run.id, AgentStep.Failed(reason))
+            updateState(run.id, AgentRunState.Failed)
+        }
+        return staleRuns.size
+    }
+
     private fun hydrateLivePendingSteps(snapshot: PendingToolConfirmationSnapshot) {
         val steps = liveSteps.getOrPut(snapshot.run.id) { mutableListOf() }
         snapshot.skillPlan?.let { plan ->
@@ -290,6 +313,17 @@ class RoomAgentTraceStore(
         }
     }
 }
+
+private fun AgentRunState.isStaleAfterProcessRestart(): Boolean =
+    this in setOf(
+        AgentRunState.Created,
+        AgentRunState.LoadingContext,
+        AgentRunState.Planning,
+        AgentRunState.ExecutingTool,
+        AgentRunState.RetryingTool,
+        AgentRunState.Observing,
+        AgentRunState.GeneratingAnswer,
+    )
 
 private fun AgentRun.toEntity(): AgentRunEntity =
     AgentRunEntity(

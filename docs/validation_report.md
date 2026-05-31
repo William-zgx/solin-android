@@ -1,5 +1,42 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Agent stale in-flight recovery 增量验证
+
+本轮覆盖项：
+
+- `AgentTraceStore.failStaleInFlightRuns()` 会在进程重启恢复边界把无法安全继续的
+  `Created` / `LoadingContext` / `Planning` / `ExecutingTool` / `RetryingTool` /
+  `Observing` / `GeneratingAnswer` run 标记为 `Failed`，并追加 `Failed`
+  trace step。
+- `AwaitingUserConfirmation` 不会被清理，因为它有 `pending_agent_confirmations`
+  作为明确恢复快照，仍可恢复到待确认 UI。
+- `PocketMindViewModel.restoreStartupState()` 启动时执行该 stale run 清理，
+  避免 Agent trace UI 长期展示已经不可能继续的运行中状态。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsStaleInFlightRunsButKeepsPendingConfirmationsOnStartup'
+
+./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
+./gradlew :app:lintDebug
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+git diff --check
+rg credential-pattern scan excluding build and .gradle outputs
+adb devices -l
+```
+
+结果：
+
+- 通过：targeted JVM stale in-flight Agent run 恢复边界测试。
+- 通过：完整 `:app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest`。
+- 通过：`:app:lintDebug`。
+- 通过：`:app:assembleDebug :app:assembleDebugAndroidTest`。
+- 通过：`git diff --check`。
+- 通过：敏感配置扫描无匹配。
+- 未执行模拟器回归：当前环境缺少 `adb` 命令。
+
 ## 2026-05-31 Reminder recovery confirmation entry 增量验证
 
 本轮覆盖项：

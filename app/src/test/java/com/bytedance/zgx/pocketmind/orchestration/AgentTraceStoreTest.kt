@@ -387,6 +387,56 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreFailsStaleInFlightRunsButKeepsPendingConfirmationsOnStartup() {
+        var now = 5_000L
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { now++ },
+            runIdFactory = { "run-${now}" },
+        )
+        val staleRun = store.createRun("总结剪贴板并分享")
+        store.updateState(staleRun.id, AgentRunState.GeneratingAnswer)
+        val pendingRun = store.createRun("打开 Wi-Fi 设置")
+        val waitingRun = store.updateState(pendingRun.id, AgentRunState.AwaitingUserConfirmation)
+        val request = ToolRequest(
+            id = "request-wifi",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = "Open Wi-Fi settings",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "将打开系统 Wi-Fi 设置页。",
+            parameters = emptyMap(),
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = draft,
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao, clockMillis = { now++ })
+        val failedCount = restartedStore.failStaleInFlightRuns("process restarted")
+
+        assertEquals(1, failedCount)
+        assertEquals(AgentRunState.Failed, restartedStore.run(staleRun.id)?.state)
+        assertTrue(restartedStore.steps(staleRun.id).any { step ->
+            step is AgentStep.Failed && step.reason == "process restarted"
+        })
+        val restoredPending = restartedStore.latestPendingConfirmation()
+        requireNotNull(restoredPending)
+        assertEquals(waitingRun.id, restoredPending.run.id)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, restoredPending.run.state)
+        assertEquals(request.id, restoredPending.request.id)
+    }
+
+    @Test
     fun pendingConfirmationIsIgnoredWhenRunIsNoLongerAwaitingConfirmation() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(
