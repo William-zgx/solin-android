@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.action
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.provider.Settings
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTask
@@ -258,6 +259,42 @@ class ActionExecutorTest {
     }
 
     @Test
+    fun opensAllowlistedAppDeepTargetWithPinnedPackageAndUri() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-app-details",
+                toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                arguments = mapOf(
+                    "targetId" to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
+                    "packageName" to "com.example.app",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertExternalActivityOpened(result.data, "AppDeepTarget", Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+        assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, result.data["targetId"])
+        assertEquals("com.example.app", result.data["targetPackage"])
+        assertTrue(result.data["rawPayloadIncluded"] == "false")
+        assertTrue(!result.data.containsKey("targetUriScheme"))
+        val launch = launches.single()
+        assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, launch.action)
+        assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, launch.targetId)
+        assertEquals("com.example.app", launch.packageName)
+        assertEquals("package:com.example.app", launch.uri)
+    }
+
+    @Test
     fun reportsActivityNotFoundAsNotStartedExternalCompletion() {
         val executor = ActionExecutor(
             context = null,
@@ -376,6 +413,63 @@ class ActionExecutorTest {
                 arguments = mapOf(
                     "packageName" to "com.example.app",
                     "data" to "file:///sdcard/private.txt",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.InvalidRequest, result.error?.code)
+        assertTrue(launches.isEmpty())
+    }
+
+    @Test
+    fun rejectsUnknownAppDeepTargetBeforeStartingActivity() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-app-target",
+                toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                arguments = mapOf(
+                    "targetId" to "arbitrary_activity",
+                    "packageName" to "com.example.app",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.InvalidRequest, result.error?.code)
+        assertTrue(launches.isEmpty())
+    }
+
+    @Test
+    fun rejectsAppDeepTargetExtrasBeforeStartingActivity() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-app-target-extra",
+                toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                arguments = mapOf(
+                    "targetId" to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
+                    "packageName" to "com.example.app",
+                    "uri" to "package:com.example.app/private",
                 ),
                 reason = "test",
             ),

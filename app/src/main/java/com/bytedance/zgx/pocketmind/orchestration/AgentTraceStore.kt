@@ -41,6 +41,7 @@ private val toolObservedCompletionMetadataAllowlist = listOf(
     "rawPayloadIncluded",
     "settingsAction",
     "targetKind",
+    "targetId",
     "targetPackage",
     "targetUriHost",
     "targetUriPort",

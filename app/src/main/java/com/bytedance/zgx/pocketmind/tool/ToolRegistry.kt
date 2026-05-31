@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.tool
 
+import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import org.json.JSONObject
 
@@ -501,6 +502,26 @@ private val openAppIntentSchemaJson = """
     }
 """.trimIndent()
 
+private val openAppDeepTargetSchemaJson = """
+    {
+      "type": "object",
+      "required": ["targetId", "packageName"],
+      "properties": {
+        "targetId": {
+          "type": "string",
+          "enum": ["${AppDeepTargets.APP_DETAILS_SETTINGS_ID}"]
+        },
+        "packageName": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 255,
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_]*(?:\\.[a-zA-Z0-9_]+)+$"
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
 private val calendarAvailabilitySchemaJson = """
     {
       "type": "object",
@@ -673,6 +694,16 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             title = "打开应用 Intent",
             description = "仅通过 packageName 打开指定应用启动页；不会传入额外 Intent 参数。",
             inputSchemaJson = openAppIntentSchemaJson,
+            capability = ToolCapability.ExternalNavigation,
+            permissions = setOf(ToolPermission.StartsExternalActivity),
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+            title = "打开应用深层目标",
+            description = "仅通过 allowlisted targetId 打开固定应用目标；不会接受任意 action、URI、activity 或 extras。",
+            inputSchemaJson = openAppDeepTargetSchemaJson,
             capability = ToolCapability.ExternalNavigation,
             permissions = setOf(ToolPermission.StartsExternalActivity),
         ),

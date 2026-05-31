@@ -237,6 +237,9 @@ class ActionExecutor(
             MobileActionFunctions.OPEN_APP_INTENT ->
                 appIntentCandidates(request)
 
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
+                listOf(appDeepTargetFor(request).buildIntent(request.arguments))
+
             else -> null
         }
 
@@ -270,6 +273,7 @@ class ActionExecutor(
             MobileActionFunctions.SHARE_TEXT -> "已打开系统分享面板"
             MobileActionFunctions.OPEN_DEEP_LINK -> "已打开深链"
             MobileActionFunctions.OPEN_APP_INTENT -> "已打开应用"
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> "已打开应用深层目标"
             else -> "工具已执行"
         }
 
@@ -298,6 +302,7 @@ class ActionExecutor(
             }
 
             MobileActionFunctions.OPEN_APP_INTENT -> validateOpenAppIntentRequest(request)
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> validateOpenAppDeepTargetRequest(request)
             else -> null
         }
 
@@ -307,6 +312,37 @@ class ActionExecutor(
         val invalidReason = when {
             unknownArguments.isNotEmpty() -> "打开应用 Intent 仅支持 packageName 参数"
             !PACKAGE_NAME_PATTERN.matches(packageName) -> "应用包名无效"
+            else -> null
+        }
+        return invalidReason?.let { reason ->
+            request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = reason,
+                retryable = false,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+    }
+
+    private fun validateOpenAppDeepTargetRequest(request: ToolRequest): ToolResult? {
+        val targetId = request.arguments[AppDeepTargets.TARGET_ID_ARGUMENT].orEmpty()
+        val target = AppDeepTargets.targetOrNull(targetId)
+            ?: return request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = "应用深层目标 targetId 不在允许列表中",
+                retryable = false,
+                data = mapOf("toolName" to request.toolName),
+            )
+        val allowedArguments = setOf(AppDeepTargets.TARGET_ID_ARGUMENT) + target.requiredArguments
+        val unknownArguments = request.arguments.keys - allowedArguments
+        val packageName = request.arguments[AppDeepTargets.PACKAGE_NAME_ARGUMENT].orEmpty()
+        val missingArguments = target.requiredArguments
+            .filter { request.arguments[it].isNullOrBlank() }
+        val invalidReason = when {
+            unknownArguments.isNotEmpty() -> "应用深层目标不接受参数：${unknownArguments.sorted().joinToString()}"
+            missingArguments.isNotEmpty() -> "应用深层目标缺少参数：${missingArguments.sorted().joinToString()}"
+            AppDeepTargets.PACKAGE_NAME_ARGUMENT in target.requiredArguments &&
+                !PACKAGE_NAME_PATTERN.matches(packageName) -> "应用包名无效"
             else -> null
         }
         return invalidReason?.let { reason ->
@@ -358,6 +394,17 @@ class ActionExecutor(
                 action = Intent.ACTION_MAIN,
                 packageName = request.arguments.getValue("packageName"),
             )
+
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> {
+                val target = appDeepTargetFor(request)
+                ExternalActivityLaunch(
+                    toolName = request.toolName,
+                    action = target.intentAction,
+                    uri = "package:${request.arguments.getValue(AppDeepTargets.PACKAGE_NAME_ARGUMENT)}",
+                    packageName = request.arguments.getValue(AppDeepTargets.PACKAGE_NAME_ARGUMENT),
+                    targetId = target.id,
+                )
+            }
 
             MobileActionFunctions.SHARE_TEXT -> ExternalActivityLaunch(
                 toolName = request.toolName,
@@ -543,6 +590,18 @@ class ActionExecutor(
                 safeData = mapOf("targetPackage" to arguments["packageName"].orEmpty()),
             )
 
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> {
+                val target = appDeepTargetFor(this)
+                ExternalActivityMetadata(
+                    targetKind = target.targetKind,
+                    intentAction = action,
+                    safeData = mapOf(
+                        "targetId" to target.id,
+                        "targetPackage" to arguments[AppDeepTargets.PACKAGE_NAME_ARGUMENT].orEmpty(),
+                    ),
+                )
+            }
+
             else -> ExternalActivityMetadata(
                 targetKind = "ExternalActivity",
                 intentAction = action,
@@ -563,6 +622,15 @@ class ActionExecutor(
                 targetKind = "AndroidPackage",
                 intentAction = action,
                 safeData = mapOf("targetPackage" to packageName.orEmpty()),
+            )
+
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> ExternalActivityMetadata(
+                targetKind = AppDeepTargets.targetOrNull(targetId.orEmpty())?.targetKind ?: "AppDeepTarget",
+                intentAction = action,
+                safeData = mapOf(
+                    "targetId" to targetId.orEmpty(),
+                    "targetPackage" to packageName.orEmpty(),
+                ),
             )
 
             MobileActionFunctions.SHARE_TEXT -> ExternalActivityMetadata(
@@ -612,8 +680,13 @@ class ActionExecutor(
             MobileActionFunctions.SHARE_TEXT -> Intent.ACTION_CHOOSER
             MobileActionFunctions.OPEN_DEEP_LINK -> Intent.ACTION_VIEW
             MobileActionFunctions.OPEN_APP_INTENT -> Intent.ACTION_MAIN
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
+                AppDeepTargets.requireTarget(AppDeepTargets.APP_DETAILS_SETTINGS_ID).intentAction
             else -> ""
         }
+
+    private fun appDeepTargetFor(request: ToolRequest): AppDeepTarget =
+        AppDeepTargets.requireTarget(request.arguments.getValue(AppDeepTargets.TARGET_ID_ARGUMENT))
 
     private fun startInjectedExternalActivity(
         starter: (ExternalActivityLaunch) -> Boolean,
@@ -691,4 +764,5 @@ data class ExternalActivityLaunch(
     val action: String,
     val uri: String? = null,
     val packageName: String? = null,
+    val targetId: String? = null,
 )

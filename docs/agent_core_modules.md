@@ -36,7 +36,7 @@ Current status:
   confirmed clipboard text reads, outbound system sharing for text, current
   foreground app summaries, contact lookup, recent notification summaries,
   calendar availability, recent file metadata summaries, safe HTTPS deep-link
-  navigation, and package-level app launches.
+  navigation, package-level app launches, and allowlisted app deep targets.
 - Tools that may require runtime permissions declare that requirement in
   `ToolSpec`. The Activity boundary maps pending tool confirmations to Android
   runtime permission requests before handing the same confirmation back to the
@@ -308,13 +308,17 @@ Current status:
   safe HTTPS links with `ACTION_VIEW`, and `open_app_intent` only opens an app
   launcher by package name. Arbitrary Intent extras, activities, actions, data
   URIs, and non-HTTPS schemes are intentionally not exposed.
+- Implemented `open_app_deep_target` for fixed allowlisted app targets. The
+  first target opens Android's application details settings for a package using
+  a fixed system action and `package:` URI; the tool accepts only `targetId`
+  and target-declared arguments, not arbitrary Intent payloads.
 - External Activity tool results now make this launch-only completion explicit
   with allowlisted metadata: `completionState`, `completionVerified=false`,
   `externalOutcome=Unknown`, `targetKind`, and safe target identifiers such as
-  URI scheme/host or package name. Agent trace persists only that allowlisted
-  metadata, not raw payload text or original URI paths/query strings.
-- Broad permission flows, allowlisted app-specific deep targets, and
-  result-confirmation callbacks are pending.
+  URI scheme/host, package name, or app target id. Agent trace persists only
+  that allowlisted metadata, not raw payload text or original URI paths/query
+  strings.
+- Broad permission flows and result-confirmation callbacks are pending.
 
 Tests:
 

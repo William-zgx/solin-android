@@ -92,6 +92,9 @@ class MobileActionPlanner : ActionPlanner {
             isOpenDeepLinkRequest(input) ->
                 MobileActionFunctions.OPEN_DEEP_LINK.toDraft(mapOf("uri" to extractUri(input)))
 
+            isOpenAppDeepTargetRequest(input) ->
+                MobileActionFunctions.OPEN_APP_DEEP_TARGET.toDraft(openAppDeepTargetParameters(input))
+
             isOpenAppIntentRequest(input) ->
                 MobileActionFunctions.OPEN_APP_INTENT.toDraft(openAppIntentParameters(input))
 
@@ -163,6 +166,7 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.CANCEL_REMINDER -> "取消提醒"
             MobileActionFunctions.OPEN_DEEP_LINK -> "打开深链"
             MobileActionFunctions.OPEN_APP_INTENT -> "打开应用"
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> "打开应用深层目标"
             MobileActionFunctions.QUERY_FOREGROUND_APP -> "查询当前前台应用"
             MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS -> "查询最近通知"
             MobileActionFunctions.QUERY_RECENT_FILES -> "查询最近文件"
@@ -190,8 +194,9 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.OPEN_DEEP_LINK ->
                 "将打开深度链接：${parameters["uri"].orEmpty()}"
             MobileActionFunctions.OPEN_APP_INTENT ->
-                "将打开应用：${parameters["packageName"].orEmpty()}" +
-                    (parameters["activityClass"]?.takeIf { it.isNotBlank() }?.let { "（$it）" } ?: "")
+                "将打开应用启动页：${parameters["packageName"].orEmpty()}"
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
+                "将打开应用详情设置：${parameters["packageName"].orEmpty()}"
             MobileActionFunctions.QUERY_FOREGROUND_APP ->
                 "将读取当前前台应用信息（包名与应用名）。"
             MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS -> {
@@ -481,6 +486,13 @@ class MobileActionPlanner : ActionPlanner {
         return hasTrigger && (hasKnownPackage || hasPackageLike)
     }
 
+    private fun isOpenAppDeepTargetRequest(input: String): Boolean {
+        val hasTrigger = APP_INTENT_TRIGGER_PATTERN.containsMatchIn(input)
+        val hasKnownPackage = knownPackageFromInput(input) != null
+        val hasPackageLike = APP_INTENT_PACKAGE_PATTERN.containsMatchIn(input)
+        return hasTrigger && isAppDetailsSettingsTarget(input) && (hasKnownPackage || hasPackageLike)
+    }
+
     private fun openAppIntentParameters(input: String): Map<String, String> {
         val packageName = knownPackageFromInput(input)
             ?: APP_INTENT_PACKAGE_PATTERN.find(input)?.value
@@ -488,11 +500,33 @@ class MobileActionPlanner : ActionPlanner {
         return mapOf("packageName" to packageName)
     }
 
+    private fun openAppDeepTargetParameters(input: String): Map<String, String> {
+        val packageName = knownPackageFromInput(input)
+            ?: APP_INTENT_PACKAGE_PATTERN.find(input)?.value
+            ?: return emptyMap()
+        return mapOf(
+            AppDeepTargets.TARGET_ID_ARGUMENT to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
+            AppDeepTargets.PACKAGE_NAME_ARGUMENT to packageName,
+        )
+    }
+
     private fun knownPackageFromInput(input: String): String? {
         val normalized = input.lowercase()
         return KNOWN_APP_PACKAGES.entries.firstNotNullOfOrNull { (alias, packageName) ->
             if (normalized.contains(alias.lowercase())) packageName else null
         }
+    }
+
+    private fun isAppDetailsSettingsTarget(input: String): Boolean {
+        val normalized = input.lowercase()
+        return listOf(
+            "应用详情",
+            "应用信息",
+            "应用设置",
+            "app info",
+            "app settings",
+            "application details",
+        ).any { it in normalized }
     }
 
     private fun cleanUri(raw: String): String =

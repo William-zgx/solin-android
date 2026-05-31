@@ -188,6 +188,24 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun infersAppDeepTargetDraftForKnownAlias() {
+        val plan = planner.plan("打开微信应用详情设置")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.OPEN_APP_DEEP_TARGET, plan.draft?.functionName)
+        assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, plan.draft?.parameters?.get("targetId"))
+        assertEquals("com.tencent.mm", plan.draft?.parameters?.get("packageName"))
+        assertTrue(plan.draft?.summary.orEmpty().contains("应用详情设置"))
+    }
+
+    @Test
+    fun doesNotInferAppDeepTargetForAmbiguousTargetPhrase() {
+        val plan = planner.plan("打开应用详情设置")
+
+        assertEquals(ActionPlanKind.NoAction, plan.kind)
+    }
+
+    @Test
     fun parsesAppIntentCallOutputWithPackageName() {
         val draft = planner.parseModelOutput(
             """call:open_app_intent{"packageName":"com.example.app"}""",
@@ -197,6 +215,19 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.OPEN_APP_INTENT, draft.functionName)
         assertEquals("com.example.app", draft.parameters["packageName"])
         assertEquals(setOf("packageName"), draft.parameters.keys)
+    }
+
+    @Test
+    fun parsesAppDeepTargetCallOutputWithAllowlistedTargetId() {
+        val draft = planner.parseModelOutput(
+            """call:open_app_deep_target{"targetId":"android_app_details_settings","packageName":"com.example.app"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.OPEN_APP_DEEP_TARGET, draft.functionName)
+        assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, draft.parameters["targetId"])
+        assertEquals("com.example.app", draft.parameters["packageName"])
+        assertEquals(setOf("targetId", "packageName"), draft.parameters.keys)
     }
 
     @Test

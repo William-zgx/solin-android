@@ -130,6 +130,7 @@ internal fun actionPrompt(input: String): String =
     - share_text {"text":"...","title":"..."} 仅打开系统分享面板，不直接发送
     - open_deep_link {"uri":"https://..."} 仅用于打开 https 外部链接
     - open_app_intent {"packageName":"..."} 仅用于打开特定应用启动页
+    - open_app_deep_target {"targetId":"android_app_details_settings","packageName":"..."} 仅用于打开允许列表中的固定应用目标
     - cancel_reminder {"taskId":"..."} 仅用于取消已安排的提醒任务
     - query_foreground_app {} 仅用于返回当前前台应用的包名与名称
     - query_calendar_availability {"start":"...","end":"..."} 仅用于查询指定时间窗日历忙闲

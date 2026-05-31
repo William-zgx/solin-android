@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.tool
 
+import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -130,7 +131,19 @@ class ToolRegistryTest {
         assertTrue(!appIntentSpec.description.contains("activityClass"))
         assertTrue(!appIntentSpec.description.contains("data Uri"))
         assertTrue(appIntentSpec.inputSchemaJson.contains("\"packageName\""))
+        assertTrue(!appIntentSpec.inputSchemaJson.contains("\"targetId\""))
         assertTrue(!appIntentSpec.inputSchemaJson.contains("\"activityClass\""))
+
+        val appDeepTargetSpec = registry.specFor(MobileActionFunctions.OPEN_APP_DEEP_TARGET)
+        assertNotNull(appDeepTargetSpec)
+        requireNotNull(appDeepTargetSpec)
+        assertEquals(ToolCapability.ExternalNavigation, appDeepTargetSpec.capability)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, appDeepTargetSpec.riskLevel)
+        assertTrue(ToolPermission.StartsExternalActivity in appDeepTargetSpec.permissions)
+        assertTrue(appDeepTargetSpec.inputSchemaJson.contains("\"targetId\""))
+        assertTrue(appDeepTargetSpec.inputSchemaJson.contains("\"packageName\""))
+        assertTrue(appDeepTargetSpec.inputSchemaJson.contains(AppDeepTargets.APP_DETAILS_SETTINGS_ID))
+        assertTrue(!appDeepTargetSpec.inputSchemaJson.contains("\"activityClass\""))
     }
 
     @Test
@@ -215,6 +228,7 @@ class ToolRegistryTest {
             MobileActionFunctions.SHARE_TEXT to "text",
             MobileActionFunctions.OPEN_DEEP_LINK to "uri",
             MobileActionFunctions.OPEN_APP_INTENT to "packageName",
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET to "targetId",
         )
 
         requiredArgumentsByTool.forEach { (toolName, requiredArgument) ->
@@ -304,6 +318,50 @@ class ToolRegistryTest {
         assertNotNull(invalidData)
         requireNotNull(invalidData)
         assertTrue(invalidData.summary.contains("data"))
+
+        val invalidTarget = registry.validate(
+            ToolRequest(
+                id = "request-invalid-intent-target",
+                toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                arguments = mapOf(
+                    "targetId" to "arbitrary_activity",
+                    "packageName" to "com.example.app",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidTarget)
+        requireNotNull(invalidTarget)
+        assertTrue(invalidTarget.summary.contains("target"))
+
+        val invalidTargetExtra = registry.validate(
+            ToolRequest(
+                id = "request-invalid-intent-target-extra",
+                toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                arguments = mapOf(
+                    "targetId" to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
+                    "packageName" to "com.example.app",
+                    "uri" to "package:com.example.app/private",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidTargetExtra)
+        requireNotNull(invalidTargetExtra)
+        assertTrue(invalidTargetExtra.summary.contains("uri"))
+
+        val validAppTarget = registry.validate(
+            ToolRequest(
+                id = "request-app-details-target",
+                toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                arguments = mapOf(
+                    "targetId" to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
+                    "packageName" to "com.example.app",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNull(validAppTarget)
     }
 
     @Test

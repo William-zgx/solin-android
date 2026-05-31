@@ -90,14 +90,15 @@ class AgentTraceStoreTest {
                 ToolResult(
                     requestId = "request-open",
                     status = ToolStatus.Succeeded,
-                    summary = "已打开应用",
+                    summary = "已打开应用深层目标",
                     data = mapOf(
-                        "toolName" to MobileActionFunctions.OPEN_APP_INTENT,
+                        "toolName" to MobileActionFunctions.OPEN_APP_DEEP_TARGET,
                         "completionState" to "ExternalActivityOpened",
                         "completionVerified" to "false",
                         "externalOutcome" to "Unknown",
-                        "targetKind" to "AndroidPackage",
-                        "intentAction" to "android.intent.action.MAIN",
+                        "targetKind" to "AppDeepTarget",
+                        "intentAction" to "android.settings.APPLICATION_DETAILS_SETTINGS",
+                        "targetId" to "android_app_details_settings",
                         "targetPackage" to "com.example.app",
                         "metadataPolicy" to "AllowlistedCompletionMetadata",
                         "rawPayloadIncluded" to "false",
@@ -115,8 +116,9 @@ class AgentTraceStoreTest {
         assertEquals("ExternalActivityOpened", metadata.getString("completionState"))
         assertEquals("false", metadata.getString("completionVerified"))
         assertEquals("Unknown", metadata.getString("externalOutcome"))
-        assertEquals("AndroidPackage", metadata.getString("targetKind"))
-        assertEquals("android.intent.action.MAIN", metadata.getString("intentAction"))
+        assertEquals("AppDeepTarget", metadata.getString("targetKind"))
+        assertEquals("android.settings.APPLICATION_DETAILS_SETTINGS", metadata.getString("intentAction"))
+        assertEquals("android_app_details_settings", metadata.getString("targetId"))
         assertEquals("com.example.app", metadata.getString("targetPackage"))
         assertEquals("AllowlistedCompletionMetadata", metadata.getString("metadataPolicy"))
         assertEquals("false", metadata.getString("rawPayloadIncluded"))

@@ -102,6 +102,15 @@ class AgentRuntimePermissionPolicyTest {
                 arguments = mapOf("packageName" to "com.example.app"),
             ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty(),
         )
+        assertTrue(
+            confirmationFor(
+                toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                arguments = mapOf(
+                    "targetId" to "android_app_details_settings",
+                    "packageName" to "com.example.app",
+                ),
+            ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty(),
+        )
     }
 
     @Test

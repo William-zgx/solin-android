@@ -1,5 +1,33 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Allowlisted App Deep Target 增量验证
+
+本轮覆盖项：
+
+- 新增 `open_app_deep_target` 工具，参数只接受 allowlisted `targetId` 和该
+  target 声明的参数；首个 target 为 `android_app_details_settings`，使用固定
+  Android 应用详情设置 action 和 `package:` URI。
+- `open_app_intent` 保持 package launcher 语义，不接受 `targetId`、任意
+  activity/action/data/extras；应用深层目标和启动页目标分离。
+- `ActionExecutor` 对未知 target、额外 URI/action/extras、非法包名在启动外部
+  Activity 前拒绝；结果 metadata 只包含 `targetId`、`targetPackage`、completion
+  状态和 allowlist policy，不保存 raw URI path/query。
+- `MobileActionPlanner` 只在用户明确指定 App/包名和“应用详情设置”时生成
+  deep target 草稿；模糊“打开应用详情设置”不自动执行。
+- Agent trace 的 `ToolObserved` completion metadata allowlist 新增 `targetId`，
+  仍过滤 raw payload。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStorePersistsOnlyAllowlistedToolObservationCompletionMetadata' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.deepLinkAndAppIntentDoNotRequestRuntimePermissions'
+```
+
 ## 2026-05-31 语义记忆运行时边界增量验证
 
 本轮覆盖项：
@@ -161,10 +189,11 @@ git diff --check
   `externalOutcome=Unknown`，说明当前只验证外部页面/chooser 已打开。
 - `ActivityNotFoundException` 仍返回 `NoActivityFound`；其他启动异常返回
   `ExecutionFailed`，并带 `completionState=NotStarted` 与 `exceptionType`。
-- `share_text`、深链和 package launcher 结果只输出 allowlisted metadata；
+- `share_text`、深链、package launcher 和 app deep target 结果只输出 allowlisted metadata；
   不把分享文本、URI path/query 等 raw payload 写入 `ToolResult.data`。
 - Agent trace 的 `ToolObserved` 只持久化 completion metadata allowlist，
-  不保存 raw payload；`open_app_intent` 描述与 package-only schema 对齐。
+  不保存 raw payload；`open_app_intent` 描述与 package-only schema 对齐，深层目标
+  使用单独 `open_app_deep_target` schema。
 
 验证命令：
 
@@ -899,7 +928,7 @@ ANDROID_SERIAL=emulator-5554 \
 说明：
 
 - 用户提供的 DeepSeek 远程配置仅作为可选手工验证输入，未写入仓库、测试代码或文档。
-- 当前仍未完成的核心能力包括屏幕理解、周期性后台任务策略、LiteRT embedding adapter 参与记忆检索、allowlisted app-specific deep targets、通用权限请求、截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
+- 当前仍未完成的核心能力包括屏幕理解、LiteRT embedding adapter 参与记忆检索、broad permission flows、截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
 
 ## 历史验证记录
 
