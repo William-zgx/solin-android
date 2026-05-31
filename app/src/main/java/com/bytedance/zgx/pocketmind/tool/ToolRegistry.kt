@@ -427,6 +427,7 @@ private val recentFilesSchemaJson = """
       "properties": {
         "kind": {
           "type": "string",
+          "description": "文件类别。Android 13 及以上的 all 只包含已授权媒体；documents/downloads/others 需要系统文件选择器授权，不能通过宽泛文件权限直接读取。",
           "enum": ["all", "screenshots", "images", "videos", "audio", "documents", "downloads", "others"]
         },
         "maxCount": {
@@ -780,7 +781,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
         spec = ToolSpec(
             name = MobileActionFunctions.QUERY_RECENT_FILES,
             title = "查询最近文件",
-            description = "读取本机最近文件摘要，仅返回文件名与文件类型等最小信息。",
+            description = "读取本机最近文件摘要，仅返回文件名与文件类型等最小信息。Android 13 及以上仅直接支持已授权媒体；文档、下载与其他非媒体文件需要系统文件选择器授权。",
             inputSchemaJson = recentFilesSchemaJson,
             capability = ToolCapability.DeviceContext,
             permissions = setOf(

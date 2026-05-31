@@ -104,8 +104,62 @@ data class RecentFileItem(
 
 sealed class RecentFileReadResult {
     data class Available(val items: List<RecentFileItem>) : RecentFileReadResult()
-    data class PermissionDenied(val reason: String) : RecentFileReadResult()
+    data class PermissionDenied(
+        val reason: String,
+        val retryable: Boolean = true,
+    ) : RecentFileReadResult()
     data class Failed(val reason: String) : RecentFileReadResult()
+}
+
+internal data class RecentFileRow(
+    val id: Long,
+    val name: String?,
+    val mimeType: String?,
+    val sizeBytes: Long,
+    val lastModifiedSeconds: Long,
+)
+
+internal data class RecentFileKindFilter(
+    val allowedKind: String,
+    val outputKind: String? = null,
+    val selection: String? = null,
+    val selectionArgs: Array<String>? = null,
+)
+
+internal fun collectRecentFileItems(
+    rows: Sequence<RecentFileRow>,
+    filter: RecentFileKindFilter,
+    maxCount: Int,
+): List<RecentFileItem> {
+    val files = mutableListOf<RecentFileItem>()
+    val iterator = rows.iterator()
+    while (files.size < maxCount && iterator.hasNext()) {
+        val row = iterator.next()
+        val mimeType = row.mimeType.orEmpty()
+        val kindFromMime = normalizedRecentFileKindFromMimeType(mimeType)
+        if (filter.allowedKind != KIND_ALL && kindFromMime != filter.allowedKind) continue
+
+        files += RecentFileItem(
+            id = row.id,
+            name = row.name.orEmpty().ifBlank { "未命名文件" },
+            mimeType = mimeType.ifBlank { "application/octet-stream" },
+            kind = filter.outputKind ?: kindFromMime,
+            sizeBytes = row.sizeBytes.coerceAtLeast(0L),
+            lastModifiedMillis = row.lastModifiedSeconds.coerceAtLeast(0L) * 1000L,
+        )
+    }
+    return files
+}
+
+private fun normalizedRecentFileKindFromMimeType(mimeType: String): String {
+    val normalized = mimeType.lowercase()
+    return when {
+        normalized.startsWith("image/") -> KIND_IMAGES
+        normalized.startsWith("video/") -> KIND_VIDEOS
+        normalized.startsWith("audio/") -> KIND_AUDIO
+        normalized.startsWith("application/") || normalized.startsWith("text/") -> KIND_DOCUMENTS
+        else -> KIND_OTHERS
+    }
 }
 
 data class RecentImageTextItem(
@@ -358,7 +412,10 @@ class AndroidRecentFileProvider(
     override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult {
         val normalizedKind = normalizeKind(kind)
         if (!hasReadPermissionForKind(normalizedKind)) {
-            return RecentFileReadResult.PermissionDenied(permissionMessageForKind(normalizedKind))
+            return RecentFileReadResult.PermissionDenied(
+                reason = permissionMessageForKind(normalizedKind),
+                retryable = isRuntimePermissionRetryableKind(normalizedKind),
+            )
         }
         val normalizedMaxCount = maxCount.coerceIn(1, MAX_RECENT_FILE_COUNT)
         val filter = buildKindFilter(normalizedKind)
@@ -372,31 +429,30 @@ class AndroidRecentFileProvider(
                 "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC",
             ) ?: return RecentFileReadResult.Failed("文件服务不可用")
 
-            val files = mutableListOf<RecentFileItem>()
-            cursor.use {
+            val files = cursor.use {
                 val idIndex = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
                 val nameIndex = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
                 val mimeTypeIndex = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
                 val sizeIndex = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
                 val modifiedIndex = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
 
-                while (it.moveToNext()) {
-                    val mimeType = it.getString(mimeTypeIndex).orEmpty()
-                    val kindFromMime = normalizedKindFromMimeType(mimeType)
-                    if (filter.allowedKind != KIND_ALL && kindFromMime != filter.allowedKind) continue
-
-                    files += RecentFileItem(
-                        id = it.getLong(idIndex),
-                        name = it.getString(nameIndex).orEmpty().ifBlank { "未命名文件" },
-                        mimeType = mimeType.ifBlank { "application/octet-stream" },
-                        kind = filter.outputKind ?: kindFromMime,
-                        sizeBytes = it.getLong(sizeIndex).coerceAtLeast(0L),
-                        lastModifiedMillis = it.getLong(modifiedIndex).coerceAtLeast(0L) * 1000L,
-                    )
+                val rows = generateSequence {
+                    if (!it.moveToNext()) {
+                        null
+                    } else {
+                        RecentFileRow(
+                            id = it.getLong(idIndex),
+                            name = it.getString(nameIndex),
+                            mimeType = it.getString(mimeTypeIndex),
+                            sizeBytes = it.getLong(sizeIndex),
+                            lastModifiedSeconds = it.getLong(modifiedIndex),
+                        )
+                    }
                 }
+                collectRecentFileItems(rows, filter, normalizedMaxCount)
             }
 
-            RecentFileReadResult.Available(files.take(normalizedMaxCount))
+            RecentFileReadResult.Available(files)
         } catch (_: SecurityException) {
             RecentFileReadResult.PermissionDenied("未授权“读取文件”权限")
         } catch (throwable: Throwable) {
@@ -406,41 +462,41 @@ class AndroidRecentFileProvider(
         }
     }
 
-    private fun buildKindFilter(kind: String): KindFilter =
+    private fun buildKindFilter(kind: String): RecentFileKindFilter =
         when (kind) {
             KIND_ALL ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     mediaFilterForGrantedPermissions()
                 } else {
-                    KindFilter(allowedKind = KIND_ALL)
+                    RecentFileKindFilter(allowedKind = KIND_ALL)
                 }
 
-            KIND_IMAGES -> KindFilter(
+            KIND_IMAGES -> RecentFileKindFilter(
                 allowedKind = KIND_IMAGES,
                 selection = "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?",
                 selectionArgs = arrayOf("image/%"),
             )
 
-            KIND_SCREENSHOTS -> KindFilter(
+            KIND_SCREENSHOTS -> RecentFileKindFilter(
                 allowedKind = KIND_IMAGES,
                 outputKind = KIND_SCREENSHOTS,
                 selection = screenshotSelection(),
                 selectionArgs = screenshotSelectionArgs(),
             )
 
-            KIND_VIDEOS -> KindFilter(
+            KIND_VIDEOS -> RecentFileKindFilter(
                 allowedKind = KIND_VIDEOS,
                 selection = "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?",
                 selectionArgs = arrayOf("video/%"),
             )
 
-            KIND_AUDIO -> KindFilter(
+            KIND_AUDIO -> RecentFileKindFilter(
                 allowedKind = KIND_AUDIO,
                 selection = "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?",
                 selectionArgs = arrayOf("audio/%"),
             )
 
-            KIND_DOCUMENTS -> KindFilter(
+            KIND_DOCUMENTS -> RecentFileKindFilter(
                 allowedKind = KIND_DOCUMENTS,
                 selection = "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ? OR " +
                     "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ? OR " +
@@ -450,24 +506,24 @@ class AndroidRecentFileProvider(
 
             KIND_DOWNLOADS ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    KindFilter(
+                    RecentFileKindFilter(
                         allowedKind = KIND_ALL,
                         selection = "LOWER(${MediaStore.Files.FileColumns.RELATIVE_PATH}) LIKE ?",
                         selectionArgs = arrayOf("%download%"),
                     )
                 } else {
-                    KindFilter(allowedKind = KIND_ALL)
+                    RecentFileKindFilter(allowedKind = KIND_ALL)
                 }
 
-            KIND_OTHERS -> KindFilter(
+            KIND_OTHERS -> RecentFileKindFilter(
                 allowedKind = KIND_OTHERS,
                 selection = "${MediaStore.Files.FileColumns.MIME_TYPE} IS NULL",
             )
 
-            else -> KindFilter(allowedKind = KIND_ALL)
+            else -> RecentFileKindFilter(allowedKind = KIND_ALL)
         }
 
-    private fun mediaFilterForGrantedPermissions(): KindFilter {
+    private fun mediaFilterForGrantedPermissions(): RecentFileKindFilter {
         val clauses = mutableListOf<String>()
         val args = mutableListOf<String>()
         if (hasPermission(Manifest.permission.READ_MEDIA_IMAGES)) {
@@ -482,7 +538,7 @@ class AndroidRecentFileProvider(
             clauses += "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?"
             args += "audio/%"
         }
-        return KindFilter(
+        return RecentFileKindFilter(
             allowedKind = KIND_ALL,
             selection = clauses.joinToString(separator = " OR "),
             selectionArgs = args.toTypedArray(),
@@ -527,6 +583,10 @@ class AndroidRecentFileProvider(
             "未授权“读取文件”权限"
         }
 
+    private fun isRuntimePermissionRetryableKind(kind: String): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            kind !in setOf(KIND_DOCUMENTS, KIND_DOWNLOADS, KIND_OTHERS)
+
     private fun screenshotSelection(): String {
         val nameClauses = SCREENSHOT_MARKERS.joinToString(separator = " OR ") {
             "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ?"
@@ -556,24 +616,6 @@ class AndroidRecentFileProvider(
 
     private fun hasPermission(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
-
-    private fun normalizedKindFromMimeType(mimeType: String): String {
-        val normalized = mimeType.lowercase()
-        return when {
-            normalized.startsWith("image/") -> KIND_IMAGES
-            normalized.startsWith("video/") -> KIND_VIDEOS
-            normalized.startsWith("audio/") -> KIND_AUDIO
-            normalized.startsWith("application/") || normalized.startsWith("text/") -> KIND_DOCUMENTS
-            else -> KIND_OTHERS
-        }
-    }
-
-    private data class KindFilter(
-        val allowedKind: String,
-        val outputKind: String? = null,
-        val selection: String? = null,
-        val selectionArgs: Array<String>? = null,
-    )
 
     private companion object {
         val SCREENSHOT_MARKERS = listOf(

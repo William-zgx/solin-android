@@ -223,12 +223,8 @@ class MobileActionPlanner : ActionPlanner {
             }
             MobileActionFunctions.QUERY_RECENT_FILES -> {
                 val maxCount = parameters["maxCount"]
-                val kind = parameters["kind"].orEmpty().ifBlank { "全部" }
-                if (maxCount.isNullOrBlank()) {
-                    "将读取最近的${kind}文件。"
-                } else {
-                    "将读取最近 ${maxCount} 个${kind}文件。"
-                }
+                val kind = parameters["kind"].orEmpty().ifBlank { "all" }
+                recentFilesSummary(kind, maxCount)
             }
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR ->
                 "将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。"
@@ -242,6 +238,35 @@ class MobileActionPlanner : ActionPlanner {
                 }
             }
             else -> "将打开系统页面完成这个动作。"
+        }
+
+    private fun recentFilesSummary(kind: String, maxCount: String?): String {
+        val label = recentFileKindLabel(kind)
+        val base = if (maxCount.isNullOrBlank()) {
+            "将读取最近的${label}文件摘要"
+        } else {
+            "将读取最近 ${maxCount} 个${label}文件摘要"
+        }
+        val boundary = when (kind) {
+            "all" -> "仅返回文件名、类型、大小和修改时间；Android 13 及以上仅包含已授权的图片、视频或音频媒体"
+            "documents", "downloads", "others" ->
+                "仅返回文件名、类型、大小和修改时间；Android 13 及以上需要通过系统文件选择器授权非媒体文件"
+            else -> "仅返回文件名、类型、大小和修改时间"
+        }
+        return "$base（$boundary）。"
+    }
+
+    private fun recentFileKindLabel(kind: String): String =
+        when (kind) {
+            "all" -> "全部"
+            "screenshots" -> "截图"
+            "images" -> "图片"
+            "videos" -> "视频"
+            "audio" -> "音频"
+            "documents" -> "文档"
+            "downloads" -> "下载"
+            "others" -> "其他"
+            else -> kind
         }
 
     private fun cleanedObject(input: String): String =

@@ -149,6 +149,14 @@ class RoutingAndValidatingToolExecutorTest {
                 reason = "test",
             ),
         )
+        val invalidMinimum = executor.execute(
+            ToolRequest(
+                id = "files-min-range",
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("maxCount" to "0"),
+                reason = "test",
+            ),
+        )
 
         assertEquals(ToolStatus.Rejected, invalidKind.status)
         assertEquals(ToolErrorCode.InvalidRequest, invalidKind.error?.code)
@@ -162,6 +170,10 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals(ToolErrorCode.InvalidRequest, invalidRange.error?.code)
         assertFalse(invalidRange.retryable)
         assertTrue(invalidRange.summary.contains("at most"))
+        assertEquals(ToolStatus.Rejected, invalidMinimum.status)
+        assertEquals(ToolErrorCode.InvalidRequest, invalidMinimum.error?.code)
+        assertFalse(invalidMinimum.retryable)
+        assertTrue(invalidMinimum.summary.contains("at least"))
         assertTrue(delegate.requests.isEmpty())
     }
 

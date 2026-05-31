@@ -346,6 +346,12 @@ Current status:
 - `query_recent_files` supports a `screenshots` kind that filters recent image
   metadata likely belonging to screenshot folders or names. It remains
   metadata-only and returns the same minimal fields as other recent-file reads.
+  The MediaStore cursor stops once the requested number of matching metadata
+  rows is collected, so the provider does not continue reading later file
+  metadata after `maxCount` is satisfied. On Android 13 and above, non-media
+  file kinds such as `documents`, `downloads`, and `others` require system file
+  picker authorization instead of broad MediaStore runtime permissions; those
+  denials are surfaced as non-retryable for the same MediaStore tool.
 - `read_recent_screenshot_ocr` is a separate confirmed tool for explicit
   "识别最近截图文字" requests. It reads only the most recent screenshot, extracts a
   bounded local OCR text excerpt, marks the result `LocalOnly`, and does not

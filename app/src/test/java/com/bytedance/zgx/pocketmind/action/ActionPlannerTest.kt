@@ -58,6 +58,7 @@ class ActionPlannerTest {
         assertEquals("images", draft.parameters["kind"])
         assertEquals("4", draft.parameters["maxCount"])
         assertTrue(draft.summary.contains("最近"))
+        assertTrue(draft.summary.contains("文件名"))
     }
 
     @Test
@@ -236,6 +237,18 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, plan.draft?.functionName)
         assertEquals("images", plan.draft?.parameters?.get("kind"))
         assertEquals("5", plan.draft?.parameters?.get("maxCount"))
+        assertTrue(plan.draft?.summary.orEmpty().contains("文件名"))
+    }
+
+    @Test
+    fun infersRecentDocumentsDraftWithFilePickerBoundary() {
+        val plan = planner.plan("查询最近5个文档")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, plan.draft?.functionName)
+        assertEquals("documents", plan.draft?.parameters?.get("kind"))
+        assertEquals("5", plan.draft?.parameters?.get("maxCount"))
+        assertTrue(plan.draft?.summary.orEmpty().contains("系统文件选择器"))
     }
 
     @Test

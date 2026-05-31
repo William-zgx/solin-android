@@ -1,5 +1,43 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Recent files cursor boundary 增量验证
+
+本轮覆盖项：
+
+- `AndroidRecentFileProvider` 将 MediaStore cursor 行转换为惰性 metadata
+  sequence，并在收集到 `maxCount` 个匹配文件后立即停止读取后续行。
+- `RecentFilesToolExecutor` 保留 provider 返回的 `PermissionDenied(reason)`，
+  因此 Android 13+ 非媒体文件需要系统文件选择器授权时，用户可见失败原因不再被
+  泛化为普通文件权限缺失。
+- `ToolRegistry`、动作规划 prompt 和确认摘要都明确 Android 13+ `all` 只表示
+  已授权媒体，`documents`、`downloads`、`others` 需要系统文件选择器授权；这类
+  非媒体拒绝不会被标记为同一工具可重试。
+- `query_recent_files.maxCount` schema 同时覆盖下界和上界拒绝，避免无效计数进入
+  provider 层。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.device.RecentFileCollectorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+scripts/verify_local.sh
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+```
+
+结果：
+
+- 通过：targeted JVM RecentFile collector、DeviceContext executor、
+  ActionPlanner、Routing/Validating executor 和 ToolRegistry 回归测试。
+- 通过：`scripts/verify_local.sh`，覆盖 `testDebugUnitTest`、`lintDebug`、
+  `assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease` 和 APK 检查。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配。
+
 ## 2026-05-31 Private read safety invariant 增量验证
 
 本轮覆盖项：

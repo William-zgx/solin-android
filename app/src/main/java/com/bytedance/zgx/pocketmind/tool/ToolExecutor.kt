@@ -333,8 +333,8 @@ class RecentFilesToolExecutor(
             is RecentFileReadResult.PermissionDenied ->
                 request.failed(
                     code = ToolErrorCode.PermissionDenied,
-                    summary = "未授权“读取文件”权限，无法读取最近文件",
-                    retryable = true,
+                    summary = "无法读取最近文件：${result.reason}",
+                    retryable = result.retryable,
                     data = request.localOnlyData(),
                 )
 

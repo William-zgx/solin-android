@@ -338,6 +338,35 @@ class DeviceContextToolExecutorTest {
     }
 
     @Test
+    fun recentFilesPermissionDeniedPreservesProviderReason() {
+        val executor = RecentFilesToolExecutor(
+            StaticRecentFileProvider(
+                RecentFileReadResult.PermissionDenied(
+                    reason = "当前 Android 版本需要通过系统文件选择器授权非媒体文件",
+                    retryable = false,
+                ),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "files",
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to "documents"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.PermissionDenied, result.error?.code)
+        assertEquals("无法读取最近文件：当前 Android 版本需要通过系统文件选择器授权非媒体文件", result.summary)
+        assertEquals(result.summary, result.error?.message)
+        assertFalse(result.retryable)
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertFalse(result.data.containsKey("filesJson"))
+    }
+
+    @Test
     fun recentScreenshotOcrSuccessReturnsLocalOnlyTextWithoutImageIdentifiers() {
         val provider = RecordingRecentImageTextProvider(
             RecentImageTextReadResult.Available(

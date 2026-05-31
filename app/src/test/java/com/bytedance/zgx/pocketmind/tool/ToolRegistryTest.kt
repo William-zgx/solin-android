@@ -120,6 +120,10 @@ class ToolRegistryTest {
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"maxCount\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"screenshots\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"documents\""))
+        assertTrue(recentFilesSpec.inputSchemaJson.contains("系统文件选择器"))
+        assertTrue(recentFilesSpec.inputSchemaJson.contains("已授权媒体"))
+        assertTrue(recentFilesSpec.description.contains("Android 13"))
+        assertTrue(recentFilesSpec.description.contains("系统文件选择器"))
 
         val screenshotOcrSpec = registry.specFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
         assertNotNull(screenshotOcrSpec)
