@@ -1,6 +1,9 @@
 package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
+import com.bytedance.zgx.pocketmind.action.EmailDraftActionParser
+import com.bytedance.zgx.pocketmind.action.MapSearchActionParser
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.ReminderActionParser
 import com.bytedance.zgx.pocketmind.action.ShareTextActionParser
@@ -27,6 +30,15 @@ class BuiltInSkillRuntime : SkillRuntime {
     override fun plan(input: String): SkillPlan? =
         when {
             input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
+            MapSearchActionParser.matches(input) ->
+                plan(input, MapSearchActionParser.draft(input).toRequestPair())
+
+            EmailDraftActionParser.matches(input) ->
+                plan(input, EmailDraftActionParser.draft(input).toRequestPair())
+
+            CalendarDraftActionParser.matches(input) ->
+                plan(input, CalendarDraftActionParser.draft(input).toRequestPair())
+
             ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
                 val request = ToolRequest(
@@ -63,6 +75,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             else -> null
         }
+
+    private fun plan(input: String, pair: DraftRequestPair): SkillPlan? =
+        plan(input, pair.draft, pair.request)
 
     override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? {
         if (request.toolName == MobileActionFunctions.READ_CLIPBOARD && input.requestsClipboardSummaryShare()) {
@@ -182,6 +197,21 @@ private fun String.requestsClipboardContext(): Boolean {
     val asksToShare = "分享" in this || Regex("""\bshare\b""").containsMatchIn(normalized)
     return referencesClipboard && asksToRead && !asksToShare
 }
+
+private data class DraftRequestPair(
+    val draft: ActionDraft,
+    val request: ToolRequest,
+)
+
+private fun ActionDraft.toRequestPair(): DraftRequestPair =
+    DraftRequestPair(
+        draft = this,
+        request = ToolRequest(
+            toolName = functionName,
+            arguments = parameters,
+            reason = summary,
+        ),
+    )
 
 private val simpleTextInputSchema = """
     {

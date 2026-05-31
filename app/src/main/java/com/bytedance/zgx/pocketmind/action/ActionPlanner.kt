@@ -96,11 +96,11 @@ class MobileActionPlanner : ActionPlanner {
             isUsageAccessSettingsRequest(input) ->
                 MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS.toDraft(emptyMap())
 
-            "地图" in input || "导航" in input || "map" in normalized ->
-                MobileActionFunctions.SEARCH_MAPS.toDraft(mapOf("query" to cleanedObject(input)))
+            MapSearchActionParser.matches(input) ->
+                MapSearchActionParser.draft(input)
 
-            "邮件" in input || "email" in normalized || "mail" in normalized ->
-                MobileActionFunctions.COMPOSE_EMAIL.toDraft(mapOf("body" to cleanedObject(input)))
+            EmailDraftActionParser.matches(input) ->
+                EmailDraftActionParser.draft(input)
 
             isOpenDeepLinkRequest(input) ->
                 MobileActionFunctions.OPEN_DEEP_LINK.toDraft(mapOf("uri" to extractUri(input)))
@@ -147,8 +147,8 @@ class MobileActionPlanner : ActionPlanner {
             isCancelReminderRequest(input) ->
                 MobileActionFunctions.CANCEL_REMINDER.toDraft(cancelReminderParameters(input))
 
-            "日程" in input || "calendar" in normalized ->
-                MobileActionFunctions.CREATE_CALENDAR_EVENT.toDraft(mapOf("title" to cleanedObject(input)))
+            CalendarDraftActionParser.matches(input) ->
+                CalendarDraftActionParser.draft(input)
 
             "联系人" in input || "contact" in normalized ->
                 MobileActionFunctions.CREATE_CONTACT_DRAFT.toDraft(mapOf("name" to cleanedObject(input)))

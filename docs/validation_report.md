@@ -1,5 +1,30 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Parameterized skill-first draft routing 增量验证
+
+本轮覆盖项：
+
+- `search_maps`、`compose_email`、`create_calendar_event` 的显式命令可由
+  built-in Skill runtime 直接规划为待确认工具，不再依赖 action planner 先抽参。
+- Action planner 与 Skill runtime 复用同一组参数 parser，继续经过 registry
+  validation、safety、audit 和用户确认，不直接执行外部 App。
+- 反例覆盖解释类、否定类和编程语境输入，避免“查到错误原因”“不要发邮件”
+  或 `add event listener` 误触工具确认。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstMapEmailAndCalendarBypassActionPlannerAndRequestConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.validatesRequiredArgumentsForDraftTools' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+```
+
+结果：通过。
+
 ## 2026-06-01 Shared text and scheduled task state boundary 增量验证
 
 本轮覆盖项：

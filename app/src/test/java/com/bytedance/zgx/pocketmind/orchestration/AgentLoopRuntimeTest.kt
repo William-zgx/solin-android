@@ -504,6 +504,95 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstMapEmailAndCalendarBypassActionPlannerAndRequestConfirmation() {
+        val cases = listOf(
+            SkillFirstDraftCase(
+                input = "查去机场的路线",
+                toolName = MobileActionFunctions.SEARCH_MAPS,
+                skillId = BuiltInSkillRuntime.MAP_SEARCH_SKILL,
+                argumentName = "query",
+                argumentValue = "机场的路线",
+            ),
+            SkillFirstDraftCase(
+                input = "帮我写邮件：明天延期到周五",
+                toolName = MobileActionFunctions.COMPOSE_EMAIL,
+                skillId = BuiltInSkillRuntime.EMAIL_DRAFT_SKILL,
+                argumentName = "body",
+                argumentValue = "明天延期到周五",
+            ),
+            SkillFirstDraftCase(
+                input = "帮我建个日程：周五评审",
+                toolName = MobileActionFunctions.CREATE_CALENDAR_EVENT,
+                skillId = BuiltInSkillRuntime.CALENDAR_DRAFT_SKILL,
+                argumentName = "title",
+                argumentValue = "周五评审",
+            ),
+        )
+
+        cases.forEach { testCase ->
+            val auditSink = InMemoryToolAuditSink()
+            val actionRuntime = RecordingActionRuntime(likelyAction = false)
+            val runtime = AgentLoopRuntime(
+                memoryIndex = MemoryRepository(),
+                actionPlanningRuntime = actionRuntime,
+                auditSink = auditSink,
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            )
+
+            val result = runtime.runOnce(
+                input = testCase.input,
+                installedCapabilities = setOf(ModelCapability.Chat),
+                memoryEnabled = false,
+            )
+
+            assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+            require(result.plan is AgentPlan.UseTool)
+            assertEquals(testCase.toolName, result.plan.request.toolName)
+            assertEquals(testCase.argumentValue, result.plan.request.arguments[testCase.argumentName])
+            assertEquals(testCase.skillId, result.plan.skillRequest?.skillId)
+            assertEquals("skill-first", result.plan.fallbackReason)
+            assertEquals(0, actionRuntime.isLikelyActionCallCount)
+            assertEquals(0, actionRuntime.planCallCount)
+            if (testCase.toolName != MobileActionFunctions.SEARCH_MAPS) {
+                assertTrue(auditSink.events.none { event -> event.summary.contains(testCase.argumentValue) })
+            }
+        }
+    }
+
+    @Test
+    fun parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit() {
+        val inputs = listOf(
+            "查到这个错误原因了吗？",
+            "How do I navigate to a Compose screen?",
+            "不要发邮件，只帮我总结这段话",
+            "Do not send email; summarize only",
+            "add event listener to the button",
+        )
+
+        inputs.forEach { input ->
+            val auditSink = InMemoryToolAuditSink()
+            val actionRuntime = RecordingActionRuntime(likelyAction = false)
+            val runtime = AgentLoopRuntime(
+                memoryIndex = MemoryRepository(),
+                actionPlanningRuntime = actionRuntime,
+                auditSink = auditSink,
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            )
+
+            val result = runtime.runOnce(
+                input = input,
+                installedCapabilities = setOf(ModelCapability.Chat),
+                memoryEnabled = false,
+            )
+
+            assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
+            assertTrue(result.plan is AgentPlan.Answer)
+            assertEquals(null, runtime.latestPendingConfirmation())
+            assertTrue(auditSink.events.isEmpty())
+        }
+    }
+
+    @Test
     fun skillFirstPlanStillUsesRegistryAndRejectsInvalidToolArguments() {
         val invalidSkillRuntime = object : SkillRuntime {
             private val manifest = SkillManifest(
@@ -2762,6 +2851,14 @@ class AgentLoopRuntimeTest {
         assertTrue(observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size == 1)
         assertNull(runtime.latestPendingConfirmation())
     }
+
+    private data class SkillFirstDraftCase(
+        val input: String,
+        val toolName: String,
+        val skillId: String,
+        val argumentName: String,
+        val argumentValue: String,
+    )
 
     private class RecordingActionRuntime(
         private val likelyAction: Boolean,

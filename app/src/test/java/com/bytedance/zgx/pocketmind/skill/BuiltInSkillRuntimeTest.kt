@@ -361,6 +361,39 @@ class BuiltInSkillRuntimeTest {
     }
 
     @Test
+    fun plansParameterizedDraftSkillsWithoutActionDraftWhenCommandIsExplicit() {
+        val mapPlan = requireNotNull(runtime.plan("查去机场的路线"))
+        assertEquals(BuiltInSkillRuntime.MAP_SEARCH_SKILL, mapPlan.request.skillId)
+        val mapStep = mapPlan.steps.single()
+        require(mapStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.SEARCH_MAPS, mapStep.request.toolName)
+        assertEquals("机场的路线", mapStep.request.arguments["query"])
+
+        val emailPlan = requireNotNull(runtime.plan("帮我写邮件：明天延期到周五"))
+        assertEquals(BuiltInSkillRuntime.EMAIL_DRAFT_SKILL, emailPlan.request.skillId)
+        val emailStep = emailPlan.steps.single()
+        require(emailStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.COMPOSE_EMAIL, emailStep.request.toolName)
+        assertEquals("明天延期到周五", emailStep.request.arguments["body"])
+
+        val calendarPlan = requireNotNull(runtime.plan("帮我建个日程：周五评审"))
+        assertEquals(BuiltInSkillRuntime.CALENDAR_DRAFT_SKILL, calendarPlan.request.skillId)
+        val calendarStep = calendarPlan.steps.single()
+        require(calendarStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.CREATE_CALENDAR_EVENT, calendarStep.request.toolName)
+        assertEquals("周五评审", calendarStep.request.arguments["title"])
+
+        assertEquals(null, runtime.plan("地图是什么"))
+        assertEquals(null, runtime.plan("查到这个错误原因了吗？"))
+        assertEquals(null, runtime.plan("How do I navigate to a Compose screen?"))
+        assertEquals(null, runtime.plan("邮件是什么意思"))
+        assertEquals(null, runtime.plan("不要发邮件，只帮我总结这段话"))
+        assertEquals(null, runtime.plan("Do not send email; summarize only"))
+        assertEquals(null, runtime.plan("日程这个词怎么理解"))
+        assertEquals(null, runtime.plan("add event listener to the button"))
+    }
+
+    @Test
     fun plansShareTextWithoutActionDraftWhenTextIsExplicit() {
         val plan = runtime.plan("分享这段文字：明天十点开会")
 

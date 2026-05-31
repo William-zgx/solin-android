@@ -123,6 +123,33 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun infersMapEmailAndCalendarDraftsOnlyForExplicitCommands() {
+        val mapPlan = planner.plan("查去机场的路线")
+        assertEquals(ActionPlanKind.Draft, mapPlan.kind)
+        assertEquals(MobileActionFunctions.SEARCH_MAPS, mapPlan.draft?.functionName)
+        assertEquals("机场的路线", mapPlan.draft?.parameters?.get("query"))
+
+        val emailPlan = planner.plan("帮我写邮件：明天延期到周五")
+        assertEquals(ActionPlanKind.Draft, emailPlan.kind)
+        assertEquals(MobileActionFunctions.COMPOSE_EMAIL, emailPlan.draft?.functionName)
+        assertEquals("明天延期到周五", emailPlan.draft?.parameters?.get("body"))
+
+        val calendarPlan = planner.plan("帮我建个日程：周五评审")
+        assertEquals(ActionPlanKind.Draft, calendarPlan.kind)
+        assertEquals(MobileActionFunctions.CREATE_CALENDAR_EVENT, calendarPlan.draft?.functionName)
+        assertEquals("周五评审", calendarPlan.draft?.parameters?.get("title"))
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("地图是什么").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("查到这个错误原因了吗？").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("How do I navigate to a Compose screen?").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("邮件是什么意思").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要发邮件，只帮我总结这段话").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("Do not send email; summarize only").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("日程这个词怎么理解").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("add event listener to the button").kind)
+    }
+
+    @Test
     fun infersUsageAccessSettingsDraft() {
         val plan = planner.plan("打开使用情况访问权限设置")
 

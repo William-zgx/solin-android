@@ -155,8 +155,8 @@ any remote model request is made.
 Agent and skill module responsibilities are documented in
 `docs/agent_core_modules.md`. The current code includes the Tool Registry,
 single-run Agent planning, confirmation, tool observation, built-in one-step,
-skill-first direct text sharing, and one conservative clipboard-summary-share
-composite flow,
+skill-first map/email/calendar/text sharing, and one conservative
+clipboard-summary-share composite flow,
 conservative observe-after-success replanning for explicit next actions, a
 gated skill-run executor, minimal device context
 snapshots, safety policy, persistent tool audit, long-term memory controls,

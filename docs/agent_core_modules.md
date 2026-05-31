@@ -154,13 +154,16 @@ Current status:
   Skill-first path. The reminder skill reuses the same delay/title parser as
   the action planner, then enters the normal confirmation and runtime
   permission boundary before scheduling any AlarmManager work.
+- Explicit map search, email draft, and calendar draft commands now also have a
+  conservative Skill-first path. The built-in Skill runtime reuses the same
+  parameter parsers as the action planner, rejects discussion/negative
+  phrasing, and still routes through registry validation, safety checks, audit,
+  and user confirmation before any external app opens.
 - Skill model-step results can now be consumed generically: when a declarative
   `ToolStep` depends on a `ModelStep`, the model output is bound through the
   tool step's `argumentBindings`, then validated, safety-checked, audited, and
   returned to `AwaitingUserConfirmation`.
-- General Skill-first routing for parameter-heavy skills such as email, calendar
-  drafts, and routes still depends on action-planner extraction.
-  Open-ended model-driven replanning, arbitrary multi-confirmation skill UI
+- Open-ended model-driven replanning, arbitrary multi-confirmation skill UI
   orchestration, and full argument-bearing typed step rehydration are still
   pending.
 
