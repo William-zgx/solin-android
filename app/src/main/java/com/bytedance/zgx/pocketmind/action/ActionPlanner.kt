@@ -117,8 +117,8 @@ class MobileActionPlanner : ActionPlanner {
             "剪贴板" in input || "clipboard" in normalized ->
                 MobileActionFunctions.READ_CLIPBOARD.toDraft(emptyMap())
 
-            isShareTextRequest(input) ->
-                MobileActionFunctions.SHARE_TEXT.toDraft(shareTextParameters(input))
+            ShareTextActionParser.matches(input) ->
+                ShareTextActionParser.draft(input)
 
             isForegroundAppRequest(input) ->
                 MobileActionFunctions.QUERY_FOREGROUND_APP.toDraft(emptyMap())
@@ -327,23 +327,6 @@ class MobileActionPlanner : ActionPlanner {
 
     private fun isReminderRequest(input: String): Boolean =
         ReminderActionParser.matches(input)
-
-    private fun isShareTextRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        return listOf("分享这段", "分享以下", "分享文字", "分享内容", "分享到", "分享出去")
-            .any { it in input } ||
-            Regex("""\bshare\s+(this\s+)?(text|message|content)\b""").containsMatchIn(normalized)
-    }
-
-    private fun shareTextParameters(input: String): Map<String, String> {
-        val cleaned = cleanedObject(input)
-            .replace(Regex("""^分享(这段|以下)?\s*(文字|内容)?\s*(出去|一下)?\s*[:：]?\s*"""), "")
-            .replace(Regex("""^(把|将)?\s*(这段|以下)?\s*(文字|内容)?\s*分享(出去|一下)?\s*[:：]?\s*"""), "")
-            .replace(Regex("""(?i)^share\s+(this\s+)?(text\s+)?"""), "")
-            .trim()
-            .ifBlank { cleanedObject(input) }
-        return mapOf("text" to cleaned)
-    }
 
     private fun isCalendarAvailabilityRequest(input: String): Boolean {
         val normalized = input.lowercase()

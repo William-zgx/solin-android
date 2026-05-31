@@ -1,5 +1,27 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Skill-first direct text sharing 增量验证
+
+本轮覆盖项：
+
+- `share_text` 的显式文本请求（如“分享这段文字：...”）可由 built-in Skill
+  runtime 直接规划为待确认工具，不再依赖 action planner 判定。
+- share 文本解析逻辑抽到 `ShareTextActionParser`，Action planner 与 Skill
+  runtime 复用同一组触发和参数提取规则。
+- 普通讨论类“分享一下你的看法”仍不触发系统分享工具。
+- Agent loop skill-first 路径会进入确认，不执行工具；audit 计划事件不记录待分享原文。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersShareTextDraft' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstShareTextBypassesActionPlannerAndRequestsConfirmation'
+```
+
+结果：通过。
+
 ## 2026-06-01 Tool private-output policy / special-access restore 增量验证
 
 本轮覆盖项：

@@ -435,7 +435,9 @@ Current status:
 - Android share-target ingestion for shared text, bounded `text/*` document
   excerpts, and image/audio/video/PDF/Office/binary metadata is implemented.
 - Implemented outbound `share_text` as a confirmed tool that opens Android's
-  system share panel. Success means the chooser was opened; the app cannot know
+  system share panel. Explicit “分享这段文字...” requests can now enter the
+  confirmation flow through the built-in Skill runtime without waiting for the
+  action planner. Success means the chooser was opened; the app cannot know
   whether the user completed sharing in the destination app.
 - Implemented constrained external navigation: `open_deep_link` only opens
   safe HTTPS links with `ACTION_VIEW`, and `open_app_intent` only opens an app

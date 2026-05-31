@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.skill
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.ReminderActionParser
+import com.bytedance.zgx.pocketmind.action.ShareTextActionParser
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import java.util.UUID
@@ -26,6 +27,16 @@ class BuiltInSkillRuntime : SkillRuntime {
     override fun plan(input: String): SkillPlan? =
         when {
             input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
+            ShareTextActionParser.matches(input) -> {
+                val draft = ShareTextActionParser.draft(input)
+                val request = ToolRequest(
+                    toolName = draft.functionName,
+                    arguments = draft.parameters,
+                    reason = draft.summary,
+                )
+                plan(input, draft, request)
+            }
+
             ReminderActionParser.matches(input) -> {
                 val draft = ReminderActionParser.draft(input)
                 val request = ToolRequest(

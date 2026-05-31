@@ -475,6 +475,35 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstShareTextBypassesActionPlannerAndRequestsConfirmation() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val shareText = "明天十点开会"
+
+        val result = runtime.runOnce(
+            input = "分享这段文字：$shareText",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, result.plan.request.toolName)
+        assertEquals(shareText, result.plan.request.arguments["text"])
+        assertEquals(BuiltInSkillRuntime.SHARE_TEXT_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertTrue(auditSink.events.none { event -> event.summary.contains(shareText) })
+    }
+
+    @Test
     fun skillFirstPlanStillUsesRegistryAndRejectsInvalidToolArguments() {
         val invalidSkillRuntime = object : SkillRuntime {
             private val manifest = SkillManifest(

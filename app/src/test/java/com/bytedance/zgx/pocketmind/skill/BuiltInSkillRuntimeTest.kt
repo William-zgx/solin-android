@@ -361,6 +361,22 @@ class BuiltInSkillRuntimeTest {
     }
 
     @Test
+    fun plansShareTextWithoutActionDraftWhenTextIsExplicit() {
+        val plan = runtime.plan("分享这段文字：明天十点开会")
+
+        requireNotNull(plan)
+        assertEquals(BuiltInSkillRuntime.SHARE_TEXT_SKILL, plan.request.skillId)
+        assertEquals(1, plan.steps.size)
+        val shareStep = plan.steps.single()
+        require(shareStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, shareStep.request.toolName)
+        assertEquals("明天十点开会", shareStep.request.arguments["text"])
+        assertEquals("明天十点开会", shareStep.draft.parameters["text"])
+        assertTrue(shareStep.draft.requiresConfirmation)
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+    }
+
+    @Test
     fun plansShareTextAsShareSheetToolStep() {
         val draft = ActionDraft(
             functionName = MobileActionFunctions.SHARE_TEXT,
