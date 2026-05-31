@@ -348,6 +348,10 @@ Current status:
   URI scheme/host, package name, or app target id. Agent trace persists only
   that allowlisted metadata, not raw payload text or original URI paths/query
   strings.
+- Agent observation, UI status, and audit summaries now consume launch-only
+  metadata directly. When an external activity is opened but completion is not
+  verified, PocketMind reports that boundary explicitly and does not auto-plan
+  a next tool from that unverified result.
 - Usage Access special-app-access flow is modeled for `query_foreground_app`:
   the confirmation UI warns with a special-access requirement and settings
   entry, denial returns structured `specialAccess/settingsAction` recovery
@@ -366,6 +370,9 @@ Tests:
 - `ActionExecutorTest.reportsActivityNotFoundAsNotStartedExternalCompletion`
 - `ActionExecutorTest.reportsExternalActivityExceptionWithExceptionType`
 - `AgentTraceStoreTest.roomStorePersistsOnlyAllowlistedToolObservationCompletionMetadata`
+- `AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool`
+- `ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess`
+- `PocketMindViewModelTest.unverifiedExternalLaunchShowsLaunchOnlyStatus`
 
 ## Safety And Audit
 
@@ -398,6 +405,9 @@ Current status:
   name, status, risk, permission names, and a parameter-free generated summary.
   It does not expose tool arguments, prompts, remote responses, raw clipboard
   text, Authorization headers, or API keys.
+- Launch-only external activity observations are displayed as "opened but
+  unverified" audit records rather than generic success, so audit history does
+  not imply the user completed a share, draft, or target-app action.
 - `pending_agent_confirmations` is a narrower recovery table for the latest
   awaiting tool confirmation and may hold the tool arguments needed for an
   explicit later confirmation. It is separate from trace/audit summaries and is
@@ -414,6 +424,7 @@ Tests:
 
 - `SafetyPolicyTest`
 - `ToolAuditEventTest`
+- `ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess`
 - `SessionRepositoryTest`
 - `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
 

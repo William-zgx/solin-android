@@ -1,5 +1,25 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Launch-only external result 增量验证
+
+本轮覆盖项：
+
+- `ToolResult` 可识别 `completionState=ExternalActivityOpened` 且
+  `completionVerified=false` 的外部界面启动结果。
+- Agent observation 对未验证外部启动使用“外部界面已打开，最终结果未验证”文案，
+  且不会基于该结果自动规划下一步工具。
+- Tool audit 和 ViewModel UI 状态不再把分享面板、草稿页、外部 Activity 启动
+  误写成“工具执行成功”。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool' \
+  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.unverifiedExternalLaunchShowsLaunchOnlyStatus'
+```
+
 ## 2026-05-31 SkillRun cancellation state 增量验证
 
 本轮覆盖项：

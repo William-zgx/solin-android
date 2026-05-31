@@ -5,6 +5,7 @@ import com.bytedance.zgx.pocketmind.data.ToolAuditEventEntity
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
+import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -96,6 +97,24 @@ class ToolAuditRepositoryTest {
 
         assertFalse(record.summary.contains("private query"))
         assertEquals("工具请求已记录，参数内容不在审计视图中展示。", record.summary)
+    }
+
+    @Test
+    fun unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess() {
+        val dao = FakeToolAuditDao()
+        val repository = ToolAuditRepository(dao)
+        dao.insert(
+            entity(
+                id = "launch-only",
+                permissionsCsv = "StartsExternalActivity",
+                summary = "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：已打开系统分享面板",
+                createdAtMillis = 1_000L,
+            ),
+        )
+
+        val record = repository.recentAuditEvents(limit = 1).single()
+
+        assertEquals("外部界面已打开，最终结果未验证。", record.summary)
     }
 
     private class FakeToolAuditDao : ToolAuditDao {

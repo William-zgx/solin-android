@@ -4,6 +4,7 @@ import com.bytedance.zgx.pocketmind.data.ToolAuditDao
 import com.bytedance.zgx.pocketmind.data.ToolAuditEventEntity
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
+import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 
 class ToolAuditRepository(
     private val dao: ToolAuditDao,
@@ -80,7 +81,11 @@ class ToolAuditRepository(
 
     private fun ToolAuditEventEntity.toolObservedDisplaySummary(): String =
         when (status) {
-            ToolStatus.Succeeded.name -> "工具执行成功，结果详情不在审计视图中展示。"
+            ToolStatus.Succeeded.name -> if (summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX)) {
+                "外部界面已打开，最终结果未验证。"
+            } else {
+                "工具执行成功，结果详情不在审计视图中展示。"
+            }
             ToolStatus.Failed.name -> "工具执行失败，错误详情不在审计视图中展示。"
             ToolStatus.Rejected.name -> "工具请求被拒绝。"
             ToolStatus.Cancelled.name -> "工具执行已取消。"

@@ -26,7 +26,9 @@ import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import com.bytedance.zgx.pocketmind.tool.cancelled
+import com.bytedance.zgx.pocketmind.tool.isUnverifiedExternalLaunch
 import com.bytedance.zgx.pocketmind.tool.rejected
+import com.bytedance.zgx.pocketmind.tool.unverifiedExternalLaunchSummary
 
 class AgentLoopRuntime(
     private val memoryIndex: MemoryIndex,
@@ -282,13 +284,14 @@ class AgentLoopRuntime(
                 status = observedResult.status,
                 riskLevel = toolRegistry.specFor(request.toolName)?.riskLevel,
                 permissions = toolRegistry.specFor(request.toolName)?.permissions.orEmpty(),
-                summary = observedResult.summary,
+                summary = observedResult.auditSummaryForObservation(),
             ),
         )
         val assistantMessage = messageForObservation(observedResult, retryAttempt)
         traceStore.appendStep(runId, AgentStep.AssistantResponded(assistantMessage))
         val nextToolPlan = if (
             observedResult.status == ToolStatus.Succeeded &&
+            !observedResult.isUnverifiedExternalLaunch() &&
             retryRequest == null &&
             continuationPrompt == null
         ) {
@@ -675,7 +678,11 @@ class AgentLoopRuntime(
 
     private fun messageForObservation(result: ToolResult, retryAttempt: Int = 0): String =
         when (result.status) {
-            ToolStatus.Succeeded -> "工具执行结果：${result.summary}"
+            ToolStatus.Succeeded -> if (result.isUnverifiedExternalLaunch()) {
+                result.unverifiedExternalLaunchSummary()
+            } else {
+                "工具执行结果：${result.summary}"
+            }
             ToolStatus.Failed -> if (retryAttempt > 0) {
                 "工具执行失败，正在重试（第 $retryAttempt 次）：${result.summary}"
             } else {
@@ -684,6 +691,9 @@ class AgentLoopRuntime(
             ToolStatus.Rejected -> "工具请求已拒绝：${result.summary}"
             ToolStatus.Cancelled -> "工具执行已取消：${result.summary}"
         }
+
+    private fun ToolResult.auditSummaryForObservation(): String =
+        if (isUnverifiedExternalLaunch()) unverifiedExternalLaunchSummary() else summary
 
     private fun nextRetryAttempt(runId: String, result: ToolResult): Int {
         if (result.status != ToolStatus.Failed || !result.retryable) return 0

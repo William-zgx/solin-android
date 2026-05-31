@@ -44,6 +44,8 @@ import com.bytedance.zgx.pocketmind.tool.ToolExecutor
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.failed
+import com.bytedance.zgx.pocketmind.tool.isUnverifiedExternalLaunch
+import com.bytedance.zgx.pocketmind.tool.unverifiedExternalLaunchSummary
 import java.io.File
 import java.util.ArrayDeque
 import kotlinx.coroutines.CancellationException
@@ -1096,7 +1098,7 @@ class PocketMindViewModel(
         var observation = confirmation.runId?.let { runId ->
             assistantOrchestrator.observeToolResult(runId, result)
         }
-        var assistantText = observation?.assistantMessage ?: "工具执行结果：${result.summary}"
+        var assistantText = observation?.assistantMessage ?: result.statusSummaryForUi()
         var observationPrivacy = observation.privacyForObservation()
         var messagesWithObservation = _uiState.value.messages + ChatMessage(
             role = MessageRole.Assistant,
@@ -1116,7 +1118,7 @@ class PocketMindViewModel(
             observation = confirmation.runId?.let { runId ->
                 assistantOrchestrator.observeToolResult(runId, result)
             }
-            assistantText = observation?.assistantMessage ?: "工具执行结果：${result.summary}"
+            assistantText = observation?.assistantMessage ?: result.statusSummaryForUi()
             observationPrivacy = observation.privacyForObservation()
             messagesWithObservation = _uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
@@ -1208,10 +1210,13 @@ class PocketMindViewModel(
                 periodicCheckPolicy = loadPeriodicCheckPolicy(),
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
-                statusText = result.summary,
+                statusText = observation?.assistantMessage ?: result.statusSummaryForUi(),
             )
         }
     }
+
+    private fun com.bytedance.zgx.pocketmind.tool.ToolResult.statusSummaryForUi(): String =
+        if (isUnverifiedExternalLaunch()) unverifiedExternalLaunchSummary() else summary
 
     fun rejectAgentConfirmationForRuntimePermissionDenial(
         confirmation: PendingAgentConfirmation,

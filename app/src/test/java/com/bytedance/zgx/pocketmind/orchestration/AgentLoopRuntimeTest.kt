@@ -27,6 +27,7 @@ import com.bytedance.zgx.pocketmind.skill.SkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillStep
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
+import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import com.bytedance.zgx.pocketmind.tool.ToolError
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
@@ -1274,6 +1275,89 @@ class AgentLoopRuntimeTest {
         requireNotNull(completed)
         assertEquals(AgentRunState.Completed, completed.run.state)
         assertEquals(AgentObservationDecision.Complete, completed.decision)
+    }
+
+    @Test
+    fun unverifiedExternalLaunchDoesNotAutoPlanNextTool() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将在浏览器中搜索：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val nextDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "不应自动规划。",
+            parameters = emptyMap(),
+            requiresConfirmation = true,
+        )
+        var replanCallCount = 0
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner {
+                replanCallCount += 1
+                AgentObservationReplan(
+                    request = ToolRequest(
+                        toolName = nextDraft.functionName,
+                        reason = nextDraft.summary,
+                    ),
+                    draft = nextDraft,
+                    fallbackReason = "should not run",
+                )
+            },
+        )
+        val planned = runtime.runOnce(
+            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = mapOf(
+                    "completionState" to "ExternalActivityOpened",
+                    "completionVerified" to "false",
+                    "externalOutcome" to "Unknown",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertEquals(AgentObservationDecision.Complete, observed.decision)
+        assertEquals(0, replanCallCount)
+        assertTrue(observed.assistantMessage.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
+        assertEquals(1, observed.steps.filterIsInstance<AgentStep.ToolRequested>().size)
+        assertTrue(observed.steps.none { step ->
+            step is AgentStep.UserConfirmationRequested &&
+                step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
+        })
+        val observedAudit = auditSink.events.last { event ->
+            event.eventType == ToolAuditEventType.ToolObserved
+        }
+        assertTrue(observedAudit.summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
     }
 
     @Test

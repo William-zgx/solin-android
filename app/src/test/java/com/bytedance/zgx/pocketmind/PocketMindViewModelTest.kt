@@ -53,6 +53,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
+import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import java.io.File
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -490,6 +491,74 @@ class PocketMindViewModelTest {
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
         assertTrue(sessionStore.messages.last().text.contains("权限"))
         assertEquals("权限被拒，工具未执行", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun unverifiedExternalLaunchShowsLaunchOnlyStatus() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore()
+        val request = ToolRequest(
+            id = "request-share",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "明天十点开会"),
+            reason = "将打开系统分享面板并填入文本。",
+        )
+        val result = ToolResult(
+            requestId = request.id,
+            status = ToolStatus.Succeeded,
+            summary = "已打开系统分享面板",
+            data = mapOf(
+                "completionState" to "ExternalActivityOpened",
+                "completionVerified" to "false",
+                "externalOutcome" to "Unknown",
+            ),
+        )
+        val assistantMessage = "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：${result.summary}"
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-share",
+                toolRequest = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.SHARE_TEXT,
+                    title = "系统分享",
+                    summary = request.reason,
+                    parameters = request.arguments,
+                ),
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.SHARE_TEXT_SKILL,
+            ),
+            confirmedRun = AgentRun("run-share", "分享这段文字", AgentRunState.ExecutingTool, 1L, 2L),
+            toolObservation = AgentObservationResult(
+                run = AgentRun("run-share", "分享这段文字", AgentRunState.Completed, 1L, 3L),
+                result = result,
+                assistantMessage = assistantMessage,
+                decision = AgentObservationDecision.Complete,
+                steps = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            assistantRouter = assistantRouter,
+            actionExecutor = object : ToolExecutor {
+                override fun execute(request: ToolRequest): ToolResult =
+                    result.copy(requestId = request.id)
+            },
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("分享这段文字：明天十点开会")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+
+        viewModel.confirmAgentConfirmation(confirmation)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertTrue(sessionStore.messages.last().text.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
+        assertTrue(viewModel.uiState.value.statusText.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
     }
 
     @Test
