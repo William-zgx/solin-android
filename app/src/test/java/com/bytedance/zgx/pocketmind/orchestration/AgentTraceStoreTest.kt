@@ -100,6 +100,8 @@ class AgentTraceStoreTest {
                         "intentAction" to "android.settings.APPLICATION_DETAILS_SETTINGS",
                         "targetId" to "android_app_details_settings",
                         "targetPackage" to "com.example.app",
+                        "specialAccess" to "usage_stats",
+                        "recoveryToolName" to MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
                         "metadataPolicy" to "AllowlistedCompletionMetadata",
                         "rawPayloadIncluded" to "false",
                         "rawUri" to "https://example.com/private?q=secret",
@@ -120,6 +122,8 @@ class AgentTraceStoreTest {
         assertEquals("android.settings.APPLICATION_DETAILS_SETTINGS", metadata.getString("intentAction"))
         assertEquals("android_app_details_settings", metadata.getString("targetId"))
         assertEquals("com.example.app", metadata.getString("targetPackage"))
+        assertEquals("usage_stats", metadata.getString("specialAccess"))
+        assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, metadata.getString("recoveryToolName"))
         assertEquals("AllowlistedCompletionMetadata", metadata.getString("metadataPolicy"))
         assertEquals("false", metadata.getString("rawPayloadIncluded"))
         assertFalse(persistedStep.json.contains("secret payload"))

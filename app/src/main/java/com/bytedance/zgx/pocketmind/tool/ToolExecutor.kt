@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.tool
 
+import android.provider.Settings
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityProvider
@@ -170,7 +171,11 @@ class ForegroundAppToolExecutor(
                     code = ToolErrorCode.PermissionDenied,
                     summary = "需要“查看应用使用情况”权限来查询前台应用",
                     retryable = true,
-                    data = request.localOnlyData(),
+                    data = request.localOnlyData() + mapOf(
+                        "specialAccess" to "usage_stats",
+                        "settingsAction" to Settings.ACTION_USAGE_ACCESS_SETTINGS,
+                        "recoveryToolName" to MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+                    ),
                 )
 
             is ForegroundAppReadResult.Failed ->

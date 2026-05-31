@@ -3,7 +3,6 @@ package com.bytedance.zgx.pocketmind.device
 import android.Manifest
 import android.app.AppOpsManager
 import android.app.NotificationManager
-import android.app.usage.UsageStats
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -13,7 +12,7 @@ import android.os.Process
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 
-private const val DEFAULT_MAX_NOTIFICATION_LOOKBACK_MS = 15 * 60 * 1000L
+private const val DEFAULT_FOREGROUND_USAGE_LOOKBACK_MS = 15 * 60 * 1000L
 private const val DEFAULT_MAX_NOTIFICATION_COUNT = 5
 private const val DEFAULT_MAX_CONTACT_SUMMARY_COUNT = 5
 private const val DEFAULT_MAX_CONTACT_SUMMARY_LOOKBACK = 20
@@ -162,32 +161,34 @@ class AndroidContactSummaryProvider(
     }
 }
 
-class AndroidForegroundAppProvider(
-    private val context: Context,
+class AndroidForegroundAppProvider internal constructor(
+    private val usageStatsSource: ForegroundUsageStatsSource,
+    private val appLabelResolver: ForegroundAppLabelResolver,
+    private val clockMillis: () -> Long = { System.currentTimeMillis() },
 ) : ForegroundAppProvider {
-    private val usageStatsManager: UsageStatsManager? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
-        } else {
-            null
-        }
-    private val packageManager = context.packageManager
+    constructor(context: Context) : this(
+        usageStatsSource = AndroidForegroundUsageStatsSource(context),
+        appLabelResolver = AndroidForegroundAppLabelResolver(context.packageManager),
+    )
 
     override fun currentForegroundApp(): ForegroundAppReadResult {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || usageStatsManager == null) {
+        if (!usageStatsSource.isSupported) {
             return ForegroundAppReadResult.Failed(
                 "当前系统版本不支持查询前台应用",
             )
         }
-        if (!hasUsageStatsPermission()) {
+        if (!usageStatsSource.hasUsageStatsPermission()) {
             return ForegroundAppReadResult.PermissionDenied("未授权“查看应用使用情况”权限")
         }
-        val now = System.currentTimeMillis()
-        val usages = usageStatsManager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            now - DEFAULT_MAX_NOTIFICATION_LOOKBACK_MS,
-            now,
-        ) ?: emptyList()
+        val now = clockMillis()
+        val usages = try {
+            usageStatsSource.queryUsageStats(
+                startTimeMillis = now - DEFAULT_FOREGROUND_USAGE_LOOKBACK_MS,
+                endTimeMillis = now,
+            )
+        } catch (securityException: SecurityException) {
+            return ForegroundAppReadResult.PermissionDenied("未授权“查看应用使用情况”权限")
+        }
         if (usages.isEmpty()) {
             return ForegroundAppReadResult.Failed("未能查询到应用使用统计")
         }
@@ -197,9 +198,7 @@ class AndroidForegroundAppProvider(
         if (current.packageName.isBlank()) {
             return ForegroundAppReadResult.Failed("当前前台应用包名为空")
         }
-        val appLabel = runCatching {
-            packageManager.getApplicationLabel(packageManager.getApplicationInfo(current.packageName, 0)).toString()
-        }.getOrNull() ?: current.packageName
+        val appLabel = appLabelResolver.labelFor(current.packageName) ?: current.packageName
         return ForegroundAppReadResult.Available(
             ForegroundAppInfo(
                 packageName = current.packageName,
@@ -208,8 +207,37 @@ class AndroidForegroundAppProvider(
             ),
         )
     }
+}
 
-    private fun hasUsageStatsPermission(): Boolean {
+internal data class ForegroundUsageSnapshot(
+    val packageName: String,
+    val lastTimeUsed: Long,
+)
+
+internal interface ForegroundUsageStatsSource {
+    val isSupported: Boolean
+    fun hasUsageStatsPermission(): Boolean
+    fun queryUsageStats(startTimeMillis: Long, endTimeMillis: Long): List<ForegroundUsageSnapshot>
+}
+
+internal interface ForegroundAppLabelResolver {
+    fun labelFor(packageName: String): String?
+}
+
+private class AndroidForegroundUsageStatsSource(
+    private val context: Context,
+) : ForegroundUsageStatsSource {
+    private val usageStatsManager: UsageStatsManager? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+        } else {
+            null
+        }
+
+    override val isSupported: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && usageStatsManager != null
+
+    override fun hasUsageStatsPermission(): Boolean {
         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
         val packageName = context.packageName
         val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -227,6 +255,33 @@ class AndroidForegroundAppProvider(
         }
         return mode == AppOpsManager.MODE_ALLOWED
     }
+
+    override fun queryUsageStats(
+        startTimeMillis: Long,
+        endTimeMillis: Long,
+    ): List<ForegroundUsageSnapshot> =
+        usageStatsManager
+            ?.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY,
+                startTimeMillis,
+                endTimeMillis,
+            )
+            .orEmpty()
+            .map { usage ->
+                ForegroundUsageSnapshot(
+                    packageName = usage.packageName.orEmpty(),
+                    lastTimeUsed = usage.lastTimeUsed,
+                )
+            }
+}
+
+private class AndroidForegroundAppLabelResolver(
+    private val packageManager: PackageManager,
+) : ForegroundAppLabelResolver {
+    override fun labelFor(packageName: String): String? =
+        runCatching {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString()
+        }.getOrNull()
 }
 
 class AndroidNotificationSummaryProvider(

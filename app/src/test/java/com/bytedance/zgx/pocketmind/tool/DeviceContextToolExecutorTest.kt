@@ -75,6 +75,9 @@ class DeviceContextToolExecutorTest {
         assertEquals(ToolErrorCode.PermissionDenied, result.error?.code)
         assertTrue(result.retryable)
         assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals("usage_stats", result.data["specialAccess"])
+        assertEquals("android.settings.USAGE_ACCESS_SETTINGS", result.data["settingsAction"])
+        assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, result.data["recoveryToolName"])
         assertFalse(result.data.containsKey("packageName"))
 
         val failed = ForegroundAppToolExecutor(

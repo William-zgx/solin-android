@@ -21,6 +21,7 @@ data class ActionPlan(
 
 object MobileActionFunctions {
     const val OPEN_WIFI_SETTINGS = "open_wifi_settings"
+    const val OPEN_USAGE_ACCESS_SETTINGS = "open_usage_access_settings"
     const val SEARCH_MAPS = "search_maps"
     const val WEB_SEARCH = "web_search"
     const val COMPOSE_EMAIL = "compose_email"
@@ -42,6 +43,7 @@ object MobileActionFunctions {
 
     val supported: Set<String> = setOf(
         OPEN_WIFI_SETTINGS,
+        OPEN_USAGE_ACCESS_SETTINGS,
         SEARCH_MAPS,
         WEB_SEARCH,
         COMPOSE_EMAIL,

@@ -40,12 +40,14 @@ private val toolObservedCompletionMetadataAllowlist = listOf(
     "payloadMimeType",
     "rawPayloadIncluded",
     "settingsAction",
+    "specialAccess",
     "targetKind",
     "targetId",
     "targetPackage",
     "targetUriHost",
     "targetUriPort",
     "targetUriScheme",
+    "recoveryToolName",
 )
 
 interface AgentTraceStore {

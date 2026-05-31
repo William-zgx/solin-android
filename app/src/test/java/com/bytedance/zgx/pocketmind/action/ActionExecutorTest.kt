@@ -174,6 +174,32 @@ class ActionExecutorTest {
     }
 
     @Test
+    fun opensUsageAccessSettingsAsSystemSettingsIntent() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-usage-access",
+                toolName = MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertExternalActivityOpened(result.data, "SystemSettings", Settings.ACTION_USAGE_ACCESS_SETTINGS)
+        assertEquals("usage_stats", result.data["specialAccess"])
+        assertEquals(Settings.ACTION_USAGE_ACCESS_SETTINGS, result.data["settingsAction"])
+        assertEquals(Settings.ACTION_USAGE_ACCESS_SETTINGS, launches.single().action)
+    }
+
+    @Test
     fun opensAllowedDeepLinkAsActionViewIntent() {
         val launches = mutableListOf<ExternalActivityLaunch>()
         val executor = ActionExecutor(

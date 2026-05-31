@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -118,6 +119,7 @@ import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.runtimePermissionRequirementsFor
+import com.bytedance.zgx.pocketmind.specialAccessRequirementsFor
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckConstraints
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
@@ -165,6 +167,7 @@ fun PocketMindScreen(
     onCancelBackgroundTask: (String) -> Unit,
     onSetPeriodicCheckPolicy: (PeriodicCheckScheduleRequest) -> Unit,
     onDisablePeriodicCheckPolicy: () -> Unit,
+    onOpenSpecialAccessSettings: (String) -> Unit,
     onConfirmAgentConfirmation: (PendingAgentConfirmation) -> Unit,
     onDismissAgentConfirmation: () -> Unit,
     onSendMessage: (String) -> Unit,
@@ -372,6 +375,7 @@ fun PocketMindScreen(
                 ) {
                     ActionDraftSheet(
                         confirmation = confirmation,
+                        onOpenSpecialAccessSettings = onOpenSpecialAccessSettings,
                         onConfirm = { onConfirmAgentConfirmation(confirmation) },
                         onDismiss = onDismissAgentConfirmation,
                     )
@@ -851,11 +855,13 @@ private fun FirstRunSetupSheet(
 @Composable
 private fun ActionDraftSheet(
     confirmation: PendingAgentConfirmation,
+    onOpenSpecialAccessSettings: (String) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val draft = confirmation.draft
     val runtimePermissionRequirements = confirmation.runtimePermissionRequirementsFor()
+    val specialAccessRequirements = confirmation.specialAccessRequirementsFor()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -902,6 +908,42 @@ private fun ActionDraftSheet(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+        }
+        if (specialAccessRequirements.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("special_access_requirements"),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = "可能需要系统特殊授权",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                specialAccessRequirements.forEach { requirement ->
+                    Text(
+                        text = "${requirement.title}：${requirement.rationale}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FilledTonalButton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("open_special_access_${requirement.id}"),
+                        onClick = { onOpenSpecialAccessSettings(requirement.settingsAction) },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("打开系统设置")
+                    }
                 }
             }
         }

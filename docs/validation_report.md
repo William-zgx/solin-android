@@ -1,5 +1,30 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Usage Access 特殊授权增量验证
+
+本轮覆盖项：
+
+- Usage Access (`PACKAGE_USAGE_STATS`) 被建模为 special app access，不进入
+  Android dangerous runtime permission policy，也不展示系统 runtime permission 弹窗。
+- 前台 App 摘要工具仍先经过 Agent 确认；未授权或从设置返回后仍未授权时，返回
+  结构化权限失败和恢复入口，不执行 provider 读取、不自动重试。
+- 授权后的结果保持 `LocalOnly` 最小 metadata；trace/audit 只记录工具名、权限/状态
+  和安全摘要，不保存 usage history 或 App 内容。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.device.ForegroundAppProviderTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest'
+```
+
 ## 2026-05-31 Runtime Permission 说明与策略一致性增量验证
 
 本轮覆盖项：
@@ -951,7 +976,7 @@ ANDROID_SERIAL=emulator-5554 \
 说明：
 
 - 用户提供的 DeepSeek 远程配置仅作为可选手工验证输入，未写入仓库、测试代码或文档。
-- 当前仍未完成的核心能力包括屏幕理解、LiteRT embedding adapter 参与记忆检索、special-access permission flows、截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
+- 当前仍未完成的核心能力包括屏幕理解、LiteRT embedding adapter 参与记忆检索、special-access permission flows beyond Usage Access、截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
 
 ## 历史验证记录
 

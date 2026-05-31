@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind
 
 import android.Manifest
 import android.os.Build
+import android.provider.Settings
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 
 data class RuntimePermissionRequirement(
@@ -9,6 +10,13 @@ data class RuntimePermissionRequirement(
     val title: String,
     val rationale: String,
     val requestable: Boolean = true,
+)
+
+data class SpecialAccessRequirement(
+    val id: String,
+    val title: String,
+    val rationale: String,
+    val settingsAction: String,
 )
 
 fun PendingAgentConfirmation.runtimePermissionsFor(apiLevel: Int = Build.VERSION.SDK_INT): List<String> {
@@ -43,6 +51,14 @@ fun PendingAgentConfirmation.runtimePermissionRequirementsFor(
                 apiLevel = apiLevel,
             )
 
+        else -> emptyList()
+    }
+}
+
+fun PendingAgentConfirmation.specialAccessRequirementsFor(): List<SpecialAccessRequirement> {
+    val toolName = toolRequest?.toolName ?: draft.functionName
+    return when (toolName) {
+        MobileActionFunctions.QUERY_FOREGROUND_APP -> listOf(USAGE_ACCESS_REQUIREMENT)
         else -> emptyList()
     }
 }
@@ -111,3 +127,10 @@ private fun String.friendlyPermissionRationale(): String =
         Manifest.permission.READ_MEDIA_AUDIO -> "用于读取最近音频的最小元数据。"
         else -> "用于执行你确认的本地工具。"
     }
+
+private val USAGE_ACCESS_REQUIREMENT = SpecialAccessRequirement(
+    id = "usage_stats",
+    title = "使用情况访问权限",
+    rationale = "用于只读识别当前前台应用；需要在系统设置中手动开启。",
+    settingsAction = Settings.ACTION_USAGE_ACCESS_SETTINGS,
+)

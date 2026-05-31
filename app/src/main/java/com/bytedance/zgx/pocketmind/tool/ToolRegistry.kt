@@ -555,6 +555,16 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
     ),
     ToolDefinition(
         spec = ToolSpec(
+            name = MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+            title = "打开使用情况访问权限设置",
+            description = "打开 Android 使用情况访问权限设置页，由用户手动为 PocketMind 授权。",
+            inputSchemaJson = emptyObjectSchemaJson,
+            capability = ToolCapability.DeviceSettings,
+            permissions = setOf(ToolPermission.StartsExternalActivity),
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
             name = MobileActionFunctions.SEARCH_MAPS,
             title = "地图搜索",
             description = "使用外部地图应用搜索地点或路线关键词。",

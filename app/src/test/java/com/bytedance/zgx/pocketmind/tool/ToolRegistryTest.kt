@@ -43,6 +43,13 @@ class ToolRegistryTest {
         assertEquals(RiskLevel.MediumDraftOrNavigation, wifiSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, wifiSpec.confirmationPolicy)
 
+        val usageAccessSpec = registry.specFor(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS)
+        assertNotNull(usageAccessSpec)
+        requireNotNull(usageAccessSpec)
+        assertEquals(ToolCapability.DeviceSettings, usageAccessSpec.capability)
+        assertTrue(ToolPermission.StartsExternalActivity in usageAccessSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in usageAccessSpec.permissions)
+
         val webSearchSpec = registry.specFor(MobileActionFunctions.WEB_SEARCH)
         assertNotNull(webSearchSpec)
         requireNotNull(webSearchSpec)

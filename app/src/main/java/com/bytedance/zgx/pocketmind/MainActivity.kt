@@ -124,6 +124,7 @@ class MainActivity : ComponentActivity() {
                     onCancelBackgroundTask = viewModel::cancelBackgroundTask,
                     onSetPeriodicCheckPolicy = viewModel::setPeriodicCheckPolicy,
                     onDisablePeriodicCheckPolicy = viewModel::disablePeriodicCheckPolicy,
+                    onOpenSpecialAccessSettings = ::openSpecialAccessSettings,
                     onConfirmAgentConfirmation = ::confirmAgentConfirmationWithPermissions,
                     onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
                     onSendMessage = viewModel::sendMessage,
@@ -177,6 +178,14 @@ class MainActivity : ComponentActivity() {
             .onFailure {
                 viewModel.reportVoiceInputUnavailable("当前设备没有可用语音识别服务")
             }
+    }
+
+    private fun openSpecialAccessSettings(settingsAction: String) {
+        runCatching {
+            startActivity(Intent(settingsAction))
+        }.onFailure {
+            viewModel.reportSystemSettingsUnavailable("当前设备无法打开对应系统设置")
+        }
     }
 
     private fun confirmAgentConfirmationWithPermissions(confirmation: PendingAgentConfirmation) {

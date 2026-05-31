@@ -13,6 +13,9 @@ class MobileActionPlanner : ActionPlanner {
             "设置",
             "wifi",
             "wi-fi",
+            "使用情况",
+            "usage access",
+            "usage stats",
             "地图",
             "导航",
             "邮件",
@@ -60,7 +63,7 @@ class MobileActionPlanner : ActionPlanner {
             "网页",
             "打开应用",
             "启动应用",
-        ).any { it in normalized } || isWebSearchRequest(input)
+        ).any { it in normalized } || isUsageAccessSettingsRequest(input) || isWebSearchRequest(input)
     }
 
     override fun plan(input: String): ActionPlan =
@@ -82,6 +85,9 @@ class MobileActionPlanner : ActionPlanner {
         return when {
             "wifi" in normalized || "wi-fi" in normalized || "无线" in input ->
                 MobileActionFunctions.OPEN_WIFI_SETTINGS.toDraft(emptyMap())
+
+            isUsageAccessSettingsRequest(input) ->
+                MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS.toDraft(emptyMap())
 
             "地图" in input || "导航" in input || "map" in normalized ->
                 MobileActionFunctions.SEARCH_MAPS.toDraft(mapOf("query" to cleanedObject(input)))
@@ -153,6 +159,7 @@ class MobileActionPlanner : ActionPlanner {
     private fun titleFor(functionName: String): String =
         when (functionName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "打开 Wi-Fi 设置"
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "打开使用情况访问权限设置"
             MobileActionFunctions.SEARCH_MAPS -> "地图搜索"
             MobileActionFunctions.WEB_SEARCH -> "Web 搜索"
             MobileActionFunctions.COMPOSE_EMAIL -> "邮件草稿"
@@ -177,6 +184,7 @@ class MobileActionPlanner : ActionPlanner {
     private fun summaryFor(functionName: String, parameters: Map<String, String>): String =
         when (functionName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "将打开系统 Wi-Fi 设置页。"
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "将打开系统使用情况访问权限设置页，由你手动为 PocketMind 授权。"
             MobileActionFunctions.SEARCH_MAPS -> "将在地图中搜索：${parameters["query"].orEmpty()}"
             MobileActionFunctions.WEB_SEARCH -> "将在浏览器中搜索：${parameters["query"].orEmpty()}"
             MobileActionFunctions.COMPOSE_EMAIL -> "将打开邮件 App 并填入草稿内容。"
@@ -335,6 +343,18 @@ class MobileActionPlanner : ActionPlanner {
             "active app",
         ).any { it in input } ||
             Regex("\\b(foreground|current\\s+app)\\b").containsMatchIn(normalized)
+    }
+
+    private fun isUsageAccessSettingsRequest(input: String): Boolean {
+        val normalized = input.lowercase()
+        return listOf(
+            "使用情况访问权限",
+            "应用使用情况权限",
+            "查看应用使用情况",
+            "usage access",
+            "usage stats permission",
+        ).any { it in normalized } &&
+            listOf("打开", "设置", "开启", "授权", "open", "settings", "grant").any { it in normalized }
     }
 
     private fun isRecentNotificationRequest(input: String): Boolean {

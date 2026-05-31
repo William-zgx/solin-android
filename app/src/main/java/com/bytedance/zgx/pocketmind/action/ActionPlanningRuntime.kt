@@ -119,6 +119,7 @@ internal fun actionPrompt(input: String): String =
     """
     将用户请求转换成一个手机动作调用。支持函数：
     - open_wifi_settings {}
+    - open_usage_access_settings {} 仅用于打开系统“使用情况访问权限”设置页
     - search_maps {"query":"..."}
     - web_search {"query":"..."}
     - compose_email {"body":"..."}

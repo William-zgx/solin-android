@@ -371,6 +371,12 @@ class PocketMindViewModel(
         }
     }
 
+    fun reportSystemSettingsUnavailable(message: String = "系统设置不可用") {
+        _uiState.update {
+            it.copy(statusText = message)
+        }
+    }
+
     fun startCustomModelDownload(downloadUrl: String) {
         val source = modelRepository.createCustomDownloadSource(downloadUrl)
         if (source == null) {

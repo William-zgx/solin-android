@@ -60,6 +60,16 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun parsesUsageAccessSettingsCallOutput() {
+        val draft = planner.parseModelOutput("""call:open_usage_access_settings{}""")
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, draft.functionName)
+        assertTrue(draft.summary.contains("使用情况访问权限"))
+        assertTrue(draft.parameters.isEmpty())
+    }
+
+    @Test
     fun rejectsUnsupportedFunctionCalls() {
         assertNull(planner.parseModelOutput("""call:delete_contact{"name":"A"}"""))
     }
@@ -70,6 +80,20 @@ class ActionPlannerTest {
 
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, plan.draft?.functionName)
+    }
+
+    @Test
+    fun infersUsageAccessSettingsDraft() {
+        val plan = planner.plan("打开使用情况访问权限设置")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, plan.draft?.functionName)
+        assertTrue(plan.draft?.summary.orEmpty().contains("使用情况访问权限"))
+    }
+
+    @Test
+    fun treatsEnglishUsageStatsPermissionAsLikelyAction() {
+        assertTrue(planner.isLikelyAction("open usage stats permission settings"))
     }
 
     @Test

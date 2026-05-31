@@ -42,6 +42,9 @@ Current status:
   concrete Android manifest permission. The Activity boundary maps pending tool
   confirmations to Android runtime permission requests before handing the same
   confirmation back to the ViewModel for execution.
+- Special app access requirements are declared separately from Android runtime
+  permissions. Usage Access (`PACKAGE_USAGE_STATS`) is modeled as a
+  settings-granted capability, not a dangerous runtime permission.
 
 Tests:
 
@@ -261,6 +264,10 @@ Current status:
   busy/free windows, and recent file metadata. Recent file reads return
   `LocalOnly` metadata only: file name, MIME type, coarse kind, size, and last
   modified time. The tool does not return file paths, URIs, or file contents.
+- Foreground app summaries may require Usage Access. Without the grant the tool
+  returns a structured permission failure with the recovery settings action;
+  successful reads remain `LocalOnly` minimal app metadata, not usage history
+  or screen content.
 - `query_recent_files` supports a `screenshots` kind that filters recent image
   metadata likely belonging to screenshot folders or names. It remains
   metadata-only and returns the same minimal fields as other recent-file reads.
@@ -323,7 +330,12 @@ Current status:
   URI scheme/host, package name, or app target id. Agent trace persists only
   that allowlisted metadata, not raw payload text or original URI paths/query
   strings.
-- Broad permission flows and result-confirmation callbacks are pending.
+- Usage Access special-app-access flow is modeled for `query_foreground_app`:
+  the confirmation UI warns with a special-access requirement and settings
+  entry, denial returns structured `specialAccess/settingsAction` recovery
+  metadata, and `open_usage_access_settings` can open Android Usage Access
+  settings. Broad special-access flows beyond Usage Access and
+  result-confirmation callbacks are pending.
 
 Tests:
 

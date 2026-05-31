@@ -177,6 +177,9 @@ class ActionExecutor(
             MobileActionFunctions.OPEN_WIFI_SETTINGS ->
                 listOf(Intent(Settings.ACTION_WIFI_SETTINGS))
 
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS ->
+                listOf(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+
             MobileActionFunctions.SEARCH_MAPS ->
                 listOf(
                     Intent(
@@ -262,6 +265,7 @@ class ActionExecutor(
     private fun successSummaryFor(toolName: String): String =
         when (toolName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "已打开 Wi-Fi 设置页"
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "已打开使用情况访问权限设置页"
             MobileActionFunctions.SEARCH_MAPS -> "已打开地图搜索"
             MobileActionFunctions.WEB_SEARCH -> "已打开网页搜索"
             MobileActionFunctions.COMPOSE_EMAIL -> "已打开邮件草稿页"
@@ -387,6 +391,11 @@ class ActionExecutor(
                 toolName = request.toolName,
                 action = Intent.ACTION_VIEW,
                 uri = request.arguments.getValue("uri"),
+            )
+
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> ExternalActivityLaunch(
+                toolName = request.toolName,
+                action = Settings.ACTION_USAGE_ACCESS_SETTINGS,
             )
 
             MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityLaunch(
@@ -536,6 +545,15 @@ class ActionExecutor(
                 safeData = mapOf("settingsAction" to action),
             )
 
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> ExternalActivityMetadata(
+                targetKind = "SystemSettings",
+                intentAction = action,
+                safeData = mapOf(
+                    "settingsAction" to action,
+                    "specialAccess" to "usage_stats",
+                ),
+            )
+
             MobileActionFunctions.SEARCH_MAPS -> ExternalActivityMetadata(
                 targetKind = "MapSearch",
                 intentAction = action,
@@ -618,6 +636,15 @@ class ActionExecutor(
                 safeData = uri.safeUriMetadata(),
             )
 
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> ExternalActivityMetadata(
+                targetKind = "SystemSettings",
+                intentAction = action,
+                safeData = mapOf(
+                    "settingsAction" to action,
+                    "specialAccess" to "usage_stats",
+                ),
+            )
+
             MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityMetadata(
                 targetKind = "AndroidPackage",
                 intentAction = action,
@@ -671,6 +698,7 @@ class ActionExecutor(
     private fun defaultIntentActionFor(toolName: String): String =
         when (toolName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> Settings.ACTION_WIFI_SETTINGS
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> Settings.ACTION_USAGE_ACCESS_SETTINGS
             MobileActionFunctions.SEARCH_MAPS -> Intent.ACTION_VIEW
             MobileActionFunctions.WEB_SEARCH -> Intent.ACTION_WEB_SEARCH
             MobileActionFunctions.COMPOSE_EMAIL -> Intent.ACTION_SENDTO

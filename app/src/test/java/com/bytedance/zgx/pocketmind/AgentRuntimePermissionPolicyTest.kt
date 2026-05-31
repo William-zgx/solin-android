@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind
 
 import android.Manifest
 import android.os.Build
+import android.provider.Settings
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
@@ -177,6 +178,18 @@ class AgentRuntimePermissionPolicyTest {
             ),
             runtimePermissionTools,
         )
+    }
+
+    @Test
+    fun foregroundAppDeclaresUsageAccessAsSpecialAccessNotRuntimePermission() {
+        val confirmation = confirmationFor(MobileActionFunctions.QUERY_FOREGROUND_APP)
+        val requirements = confirmation.specialAccessRequirementsFor()
+
+        assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
+        assertEquals(1, requirements.size)
+        assertEquals("usage_stats", requirements.single().id)
+        assertEquals("使用情况访问权限", requirements.single().title)
+        assertEquals(Settings.ACTION_USAGE_ACCESS_SETTINGS, requirements.single().settingsAction)
     }
 
     @Test
