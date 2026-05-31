@@ -51,7 +51,7 @@ class AgentLoopRuntime(
         traceStore.updateState(createdRun.id, AgentRunState.LoadingContext)
 
         val memoryHits = if (memoryEnabled) {
-            memoryIndex.search(input, topK = 3)
+            runCatching { memoryIndex.search(input, topK = 3) }.getOrDefault(emptyList())
         } else {
             emptyList()
         }
@@ -654,7 +654,7 @@ class AgentLoopRuntime(
         deviceContext: DeviceContextSnapshot?,
     ): String {
         if (memoryHits.isEmpty() && deviceContext == null) return input
-        val context = memoryIndex.buildContext(memoryHits)
+        val context = runCatching { memoryIndex.buildContext(memoryHits) }.getOrDefault("")
         val memoryBlock = if (context.isBlank()) {
             "无"
         } else {

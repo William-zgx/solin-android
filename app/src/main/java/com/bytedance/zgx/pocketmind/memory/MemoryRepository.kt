@@ -4,6 +4,8 @@ import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.data.MemoryRecordDao
 import com.bytedance.zgx.pocketmind.data.MemoryRecordEntity
+import java.security.MessageDigest
+import java.util.Locale
 import kotlin.math.sqrt
 
 data class MemoryHit(
@@ -75,6 +77,9 @@ class MemoryRepository(
             )
         }
         messages.forEach { message ->
+            if (message.role == MessageRole.User && explicitUserPreferenceFrom(message.text) != null) {
+                return@forEach
+            }
             val rolePrefix = when (message.role) {
                 MessageRole.User -> "用户"
                 MessageRole.Assistant -> "助手"
@@ -83,16 +88,6 @@ class MemoryRepository(
                 id = message.id.toString(),
                 text = "$rolePrefix：${message.text}",
             )
-            if (message.role == MessageRole.User) {
-                extractPreference(message.text)?.let { preference ->
-                    indexRecord(
-                        id = "preference-${message.id}",
-                        text = "用户偏好：$preference",
-                        type = MemoryRecordType.Preference,
-                        persist = false,
-                    )
-                }
-            }
         }
     }
 
@@ -150,31 +145,14 @@ class MemoryRepository(
         }
     }
 
-    private fun extractPreference(text: String): String? {
-        val trimmed = text.trim()
-        val chinesePrefix = Regex("""^(请)?记住[:：]?\s*(.+)$""")
-        chinesePrefix.find(trimmed)?.groupValues?.getOrNull(2)?.trim()?.let { preference ->
-            if (preference.isNotBlank()) return preference
-        }
-
-        val englishPrefix = Regex(
-            pattern = """^(please\s+)?remember\s+(that\s+)?(.+)$""",
-            option = RegexOption.IGNORE_CASE,
-        )
-        return englishPrefix.find(trimmed)
-            ?.groupValues
-            ?.getOrNull(3)
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-    }
-
     override fun search(query: String, topK: Int): List<MemoryHit> {
         if (!enabled || query.isBlank() || topK <= 0 || entries.isEmpty()) return emptyList()
         val queryTokens = tokenize(query).toSet()
         if (queryTokens.isEmpty()) return emptyList()
+        val requiredOverlapTokens = queryTokens.filter { it.length > 1 }.ifEmpty { queryTokens }
         val queryEmbedding = embeddingRuntime.embed(query)
         return entries.values
-            .filter { entry -> entry.tokens.any { it in queryTokens } }
+            .filter { entry -> entry.tokens.any { it in requiredOverlapTokens } }
             .map { entry ->
                 MemoryHit(
                     id = entry.id,
@@ -198,6 +176,34 @@ class MemoryRepository(
         }
         return dot
     }
+}
+
+internal fun explicitUserPreferenceFrom(text: String): String? {
+    val trimmed = text.trim()
+    val chinesePrefix = Regex("""^(请)?记住[:：]?\s*(.+)$""")
+    chinesePrefix.find(trimmed)?.groupValues?.getOrNull(2)?.trim()?.let { preference ->
+        if (preference.isNotBlank()) return preference
+    }
+
+    val englishPrefix = Regex(
+        pattern = """^(please\s+)?remember\s+(that\s+)?(.+)$""",
+        option = RegexOption.IGNORE_CASE,
+    )
+    return englishPrefix.find(trimmed)
+        ?.groupValues
+        ?.getOrNull(3)
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+}
+
+internal fun explicitUserPreferenceRecordId(preference: String): String {
+    val key = preference.trim().replace(Regex("""\s+"""), " ").lowercase(Locale.ROOT)
+    val hash = MessageDigest.getInstance("SHA-256")
+        .digest(key.toByteArray(Charsets.UTF_8))
+        .joinToString(separator = "") { byte ->
+            (byte.toInt() and 0xff).toString(16).padStart(2, '0')
+        }
+    return "preference-${hash.take(16)}"
 }
 
 data class PersistedMemoryRecord(

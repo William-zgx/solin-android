@@ -22,6 +22,7 @@ import com.bytedance.zgx.pocketmind.data.SessionStore
 import com.bytedance.zgx.pocketmind.data.TransferProgress
 import com.bytedance.zgx.pocketmind.download.DownloadInfo
 import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
+import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordStore
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.memory.PersistedMemoryRecord
@@ -626,6 +627,136 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun memoryStoreFailureDoesNotBlockStartupOrRemoteChat() = runTest(dispatcher) {
+        val memoryRepository = MemoryRepository(
+            recordStore = FakeMemoryRecordStore(failure = IllegalStateException("memory db unavailable")),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+        assertEquals("普通远程问题", sessionStore.messages.first().text)
+        assertTrue(viewModel.uiState.value.longTermMemories.isEmpty())
+    }
+
+    @Test
+    fun rememberCommandPersistsPreferenceMemoryOnceForDuplicateCommands() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("记住：我喜欢简洁回答")
+        advanceUntilIdle()
+        viewModel.sendMessage("记住：我喜欢简洁回答")
+        advanceUntilIdle()
+
+        val record = store.records().single()
+        assertTrue(record.id.startsWith("preference-"))
+        assertEquals(MemoryRecordType.Preference, record.type)
+        assertEquals("用户偏好：我喜欢简洁回答", record.text)
+        assertTrue(memoryRepository.search("简洁回答").any { it.id == record.id })
+        assertEquals(listOf(record.id), viewModel.uiState.value.longTermMemories.map { it.id })
+        assertEquals("记住：我喜欢简洁回答", viewModel.uiState.value.messages.first().text)
+        assertEquals(2, remoteRuntime.calls.size)
+    }
+
+    @Test
+    fun rememberCommandPersistsEnglishPreferenceMemory() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("remember that I prefer concise answers")
+        advanceUntilIdle()
+
+        val record = store.records().single()
+        assertEquals(MemoryRecordType.Preference, record.type)
+        assertEquals("用户偏好：I prefer concise answers", record.text)
+        assertTrue(memoryRepository.search("concise answers").any { it.id == record.id })
+        assertEquals(listOf(record.id), viewModel.uiState.value.longTermMemories.map { it.id })
+    }
+
+    @Test
+    fun forgetRememberCommandMemoryDoesNotReindexFromHistory() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("记住：我喜欢简洁回答")
+        advanceUntilIdle()
+        val recordId = store.records().single().id
+
+        viewModel.forgetLongTermMemory(recordId)
+        advanceUntilIdle()
+
+        assertTrue(store.records().isEmpty())
+        assertTrue(viewModel.uiState.value.longTermMemories.isEmpty())
+        val hitsAfterForget = memoryRepository.search("简洁回答")
+        assertTrue(hitsAfterForget.joinToString { "${it.id}:${it.text}" }, hitsAfterForget.isEmpty())
+    }
+
+    @Test
+    fun rememberCommandDoesNotPersistWhenRouteFailsBeforeMessageIsSaved() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            memoryRepository = memoryRepository,
+            assistantRouter = FakeAssistantRouter(routeFailure = IllegalStateException("planner unavailable")),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("记住：我喜欢简洁回答")
+        advanceUntilIdle()
+
+        assertTrue(store.records().isEmpty())
+        assertTrue(sessionStore.messages.isEmpty())
+        assertTrue(viewModel.uiState.value.longTermMemories.isEmpty())
+    }
+
+    @Test
     fun forgetLongTermMemoryRefreshesUiAndMemoryIndex() = runTest(dispatcher) {
         val memoryRepository = MemoryRepository(recordStore = FakeMemoryRecordStore())
         memoryRepository.indexPreference("pref-1", "回答尽量简洁")
@@ -927,6 +1058,7 @@ class PocketMindViewModelTest {
 
     private class FakeAssistantRouter(
         private val routeResult: AssistantRoute? = null,
+        private val routeFailure: Throwable? = null,
         private val confirmedRun: AgentRun? = null,
         private val cancelObservation: AgentObservationResult? = null,
         private val toolObservation: AgentObservationResult? = null,
@@ -954,6 +1086,7 @@ class PocketMindViewModelTest {
             deviceContext: com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot?,
         ): AssistantRoute {
             routeCallCount += 1
+            routeFailure?.let { throw it }
             return routeResult ?:
                 AssistantRoute.Chat(
                     promptForModel = input,
@@ -1030,20 +1163,28 @@ class PocketMindViewModelTest {
         }
     }
 
-    private class FakeMemoryRecordStore : MemoryRecordStore {
+    private class FakeMemoryRecordStore(
+        private val failure: Throwable? = null,
+    ) : MemoryRecordStore {
         private val records = linkedMapOf<String, PersistedMemoryRecord>()
 
-        override fun records(): List<PersistedMemoryRecord> =
-            records.values.toList()
+        override fun records(): List<PersistedMemoryRecord> {
+            failure?.let { throw it }
+            return records.values.toList()
+        }
 
         override fun upsert(record: PersistedMemoryRecord) {
+            failure?.let { throw it }
             records[record.id] = record
         }
 
-        override fun delete(id: String): Boolean =
-            records.remove(id) != null
+        override fun delete(id: String): Boolean {
+            failure?.let { throw it }
+            return records.remove(id) != null
+        }
 
         override fun clear() {
+            failure?.let { throw it }
             records.clear()
         }
     }

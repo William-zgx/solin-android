@@ -390,14 +390,27 @@ Current status:
 - Explicit preference and task-state records are now persisted in Room and
   reloaded during memory rebuild; ordinary conversation-derived memory remains
   rebuilt from saved chat messages instead of duplicated into the memory table.
-- `rebuild` extracts simple explicit user preference statements such as
-  `记住：...` / `remember ...`.
+- `sendMessage` persists explicit user preference statements such as
+  `记住：...` / `remember ...` after the user message is accepted into the
+  session; `rebuild` reloads persisted records and saved non-control session
+  history into the in-memory index.
+- Explicit preference records use deterministic ids derived from normalized
+  preference text, so repeating the same remember command upserts one record
+  instead of creating duplicate long-term memories.
+- Explicit remember control messages are not re-derived from chat history, so
+  forgetting a persisted preference prevents it from being restored by a later
+  memory rebuild.
+- Agent planning treats memory lookup/context formatting as optional: failures
+  fall back to empty memory context and continue ordinary chat/planning.
+- CJK memory recall requires specific multi-character overlap when the query
+  has multi-character tokens, reducing unrelated single-character matches.
 - Dedicated embedding-model semantic memory is still pending.
 
 Tests:
 
 - `MemoryRepositoryTest`
 - `PocketMindViewModelTest`
+- `AgentLoopRuntimeTest`
 
 ## Background Tasks
 

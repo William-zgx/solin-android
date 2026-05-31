@@ -25,6 +25,8 @@ import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
+import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceFrom
+import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceRecordId
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
@@ -668,18 +670,20 @@ class PocketMindViewModel(
         val remoteHistory = stateBeforeSend.messages.remoteEligibleMessages()
         val includePrivateLocalContext = !useRemoteModel
         if (useRemoteModel && messagePrivacy == MessagePrivacy.LocalOnly) {
+            val userMessage = ChatMessage(
+                role = MessageRole.User,
+                text = trimmed,
+                privacy = MessagePrivacy.LocalOnly,
+            )
             replaceActiveSessionMessages(
-                stateBeforeSend.messages + ChatMessage(
-                    role = MessageRole.User,
-                    text = trimmed,
-                    privacy = MessagePrivacy.LocalOnly,
-                ) + ChatMessage(
+                stateBeforeSend.messages + userMessage + ChatMessage(
                     role = MessageRole.Assistant,
                     text = "这条内容已标记为仅本地使用。当前为远程模型模式，我不会把它发送到远程模型。",
                     privacy = MessagePrivacy.LocalOnly,
                 ),
                 persistNow = true,
             )
+            persistExplicitPreferenceMemory(userMessage)
             rebuildMemoryIndex()
             _uiState.update {
                 it.copy(statusText = "已保护本地内容")
@@ -696,17 +700,17 @@ class PocketMindViewModel(
 
         val job = viewModelScope.launch(ioDispatcher) {
             try {
+                val userMessage = ChatMessage(
+                    role = MessageRole.User,
+                    text = trimmed,
+                    privacy = messagePrivacy,
+                )
                 val route = assistantOrchestrator.route(
                     input = trimmed,
                     installedCapabilities = stateBeforeSend.installedCapabilities,
                     memoryEnabled = stateBeforeSend.memoryEnabled && includePrivateLocalContext,
                     actionModelPath = modelRepository.verifiedActionModelPath(),
                     deviceContext = stateBeforeSend.toDeviceContextSnapshot().takeIf { includePrivateLocalContext },
-                )
-                val userMessage = ChatMessage(
-                    role = MessageRole.User,
-                    text = trimmed,
-                    privacy = messagePrivacy,
                 )
                 when (route) {
                     is AssistantRoute.Action -> {
@@ -724,6 +728,7 @@ class PocketMindViewModel(
                             stateBeforeSend.messages + userMessage + assistantMessage,
                             persistNow = true,
                         )
+                        persistExplicitPreferenceMemory(userMessage)
                         _uiState.update {
                             it.copy(
                                 isBusy = false,
@@ -754,6 +759,7 @@ class PocketMindViewModel(
                             stateBeforeSend.messages + userMessage + assistantMessage,
                             persistNow = true,
                         )
+                        persistExplicitPreferenceMemory(userMessage)
                         _uiState.update {
                             it.copy(
                                 isBusy = false,
@@ -781,6 +787,7 @@ class PocketMindViewModel(
                             stateBeforeSend.messages + userMessage + assistantMessage,
                             persistNow = true,
                         )
+                        persistExplicitPreferenceMemory(userMessage)
                         _uiState.update {
                             it.copy(
                                 isBusy = false,
@@ -803,6 +810,7 @@ class PocketMindViewModel(
                             stateBeforeSend.messages + userMessage + assistantPlaceholder,
                             persistNow = true,
                         )
+                        persistExplicitPreferenceMemory(userMessage)
                         _uiState.update {
                             it.copy(
                                 isGenerating = true,
@@ -1780,18 +1788,50 @@ class PocketMindViewModel(
     }
 
     private fun rebuildMemoryIndex() {
-        memoryRepository.enabled = _uiState.value.memoryEnabled
-        memoryRepository.rebuild(sessionRepository.allMessages(limit = 500))
+        runCatching {
+            memoryRepository.enabled = _uiState.value.memoryEnabled
+            memoryRepository.rebuild(sessionRepository.allMessages(limit = 500))
+        }.onFailure {
+            _uiState.update { state ->
+                state.copy(
+                    memoryHits = emptyList(),
+                    longTermMemories = emptyList(),
+                    statusText = "本地记忆暂不可用",
+                )
+            }
+        }
     }
 
     private fun loadLongTermMemories(): List<LongTermMemorySummary> =
-        longTermMemoryControls.savedRecords().map { record ->
-            LongTermMemorySummary(
-                id = record.id,
-                type = record.type,
-                text = record.text,
-            )
+        runCatching {
+            longTermMemoryControls.savedRecords().map { record ->
+                LongTermMemorySummary(
+                    id = record.id,
+                    type = record.type,
+                    text = record.text,
+                )
+            }
+        }.getOrDefault(emptyList())
+
+    private fun persistExplicitPreferenceMemory(message: ChatMessage) {
+        if (message.role != MessageRole.User) return
+        val preference = explicitUserPreferenceFrom(message.text) ?: return
+        runCatching {
+            longTermMemoryControls.indexPreference(explicitUserPreferenceRecordId(preference), preference)
+            loadLongTermMemories()
+        }.onSuccess { records ->
+            _uiState.update { state ->
+                state.copy(longTermMemories = records)
+            }
+        }.onFailure {
+            _uiState.update { state ->
+                state.copy(
+                    longTermMemories = emptyList(),
+                    statusText = "本地记忆暂不可用",
+                )
+            }
         }
+    }
 
     private fun loadBackgroundTasks(): List<BackgroundTaskSummary> =
         backgroundTaskScheduler.scheduledTasks()

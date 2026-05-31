@@ -14,6 +14,8 @@ import com.bytedance.zgx.pocketmind.data.AgentStepEntity
 import com.bytedance.zgx.pocketmind.data.AgentTraceDao
 import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
 import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
+import com.bytedance.zgx.pocketmind.memory.MemoryHit
+import com.bytedance.zgx.pocketmind.memory.MemoryIndex
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
@@ -65,6 +67,61 @@ class AgentLoopRuntimeTest {
         assertTrue(result.steps.any { step ->
             step is AgentStep.ModelPlanned && step.plan is AgentPlan.Answer
         })
+    }
+
+    @Test
+    fun memorySearchFailureFallsBackToEmptyContext() {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = ThrowingMemoryIndex(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "普通问题",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+        )
+
+        assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
+        require(result.plan is AgentPlan.Answer)
+        assertTrue(result.plan.memoryHits.isEmpty())
+        assertEquals("普通问题", result.plan.promptForModel)
+        assertTrue(result.steps.any { step ->
+            step is AgentStep.ContextLoaded && step.memoryHits.isEmpty()
+        })
+    }
+
+    @Test
+    fun memoryContextBuildFailureStillAllowsDeviceContextPrompt() {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = ThrowingMemoryIndex(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val deviceContext = DeviceContextSnapshot(
+            isArm64Supported = true,
+            inferenceMode = "Remote",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+            availableStorageBytes = 512L * 1024L * 1024L,
+            activeSessionId = "session-1",
+            hasPendingConfirmation = false,
+        )
+
+        val result = runtime.runOnce(
+            input = "现在用的是什么推理模式",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+            deviceContext = deviceContext,
+        )
+
+        require(result.plan is AgentPlan.Answer)
+        assertTrue(result.plan.memoryHits.isEmpty())
+        assertTrue(Regex("""本地记忆：\s+无""").containsMatchIn(result.plan.promptForModel))
+        assertTrue(result.plan.promptForModel.contains("Inference mode: Remote"))
     }
 
     @Test
@@ -1760,6 +1817,21 @@ class AgentLoopRuntimeTest {
             pendingConfirmations.remove(runId)
             return 1
         }
+    }
+
+    private class ThrowingMemoryIndex : MemoryIndex {
+        override var enabled: Boolean = true
+
+        override fun rebuild(messages: List<com.bytedance.zgx.pocketmind.ChatMessage>) = Unit
+
+        override fun index(id: String, text: String) = Unit
+
+        override fun search(query: String, topK: Int): List<MemoryHit> {
+            error("memory unavailable")
+        }
+
+        override fun buildContext(hits: List<MemoryHit>): String =
+            error("memory context unavailable")
     }
 }
 

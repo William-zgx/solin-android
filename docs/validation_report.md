@@ -1,5 +1,32 @@
 # PocketMind 验证报告
 
+## 2026-05-31 记忆兜底与显式偏好持久化增量验证
+
+本轮覆盖项：
+
+- `memoryIndex.search` 抛异常时降级为空 `memoryHits`，普通聊天继续生成
+  Answer 计划，trace 记录空记忆上下文。
+- 长期记忆 store 读取或重建失败时不阻断启动、恢复或远程聊天；长期记忆
+  列表降级为空。
+- 用户发送 `记住：...` / `remember ...` 时，显式偏好在 `sendMessage`
+  生产路径的消息落会话后持久化为 Preference 记录；route 失败且消息未保存时
+  不留下孤儿长期记忆。
+- 同一规范化偏好文本使用确定性 id/upsert，重复发送同一句 remember 命令
+  不产生重复长期记忆。
+- 遗忘显式偏好后，`rebuild` 不会从历史 remember 控制消息重新派生同一偏好。
+- CJK 召回收紧为多字符 token 优先匹配，避免 `简洁回答` 被 `远程回复` 的
+  单字重叠误命中。
+- `memoryIndex.buildContext` 异常时也降级为空记忆块，设备上下文仍可进入 prompt。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+```
+
 ## 2026-05-31 外部 Activity 完成语义 Metadata 增量验证
 
 本轮覆盖项：

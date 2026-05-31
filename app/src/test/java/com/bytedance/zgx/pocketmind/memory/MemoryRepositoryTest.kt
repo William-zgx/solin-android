@@ -42,6 +42,16 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun searchRequiresSpecificCjkOverlapWhenQueryHasBigrams() {
+        val repository = MemoryRepository()
+        repository.index("assistant-reply", "助手：远程回复")
+
+        val hits = repository.search("简洁回答")
+
+        assertTrue(hits.isEmpty())
+    }
+
+    @Test
     fun searchIgnoresCommonLatinStopWords() {
         val repository = MemoryRepository()
         repository.index("old", "What is my project")
@@ -69,7 +79,7 @@ class MemoryRepositoryTest {
     }
 
     @Test
-    fun rebuildExtractsExplicitUserPreferenceMemory() {
+    fun rebuildSkipsExplicitPreferenceCommandsWithoutPersistedRecords() {
         val repository = MemoryRepository()
         val message = ChatMessage(
             role = MessageRole.User,
@@ -79,8 +89,22 @@ class MemoryRepositoryTest {
 
         repository.rebuild(listOf(message))
 
-        val hits = repository.search("简洁中文回答", topK = 3)
-        assertTrue(hits.any { it.id == "preference-7" })
+        assertTrue(repository.search("简洁中文回答", topK = 3).isEmpty())
+    }
+
+    @Test
+    fun explicitPreferenceExtractorSupportsChineseAndEnglishCommands() {
+        assertEquals("我喜欢简洁的中文回答", explicitUserPreferenceFrom("请记住：我喜欢简洁的中文回答"))
+        assertEquals("I prefer concise answers", explicitUserPreferenceFrom("please remember that I prefer concise answers"))
+        assertEquals(null, explicitUserPreferenceFrom("我们讨论一下记忆系统"))
+    }
+
+    @Test
+    fun explicitPreferenceRecordIdIsStableForNormalizedText() {
+        assertEquals(
+            explicitUserPreferenceRecordId("I prefer concise answers"),
+            explicitUserPreferenceRecordId("  i   prefer   concise answers  "),
+        )
     }
 
     @Test
@@ -97,7 +121,7 @@ class MemoryRepositoryTest {
         repository.rebuild(listOf(firstRestore))
         repository.rebuild(listOf(secondRestore))
 
-        assertTrue(repository.search("简洁中文回答", topK = 3).isNotEmpty())
+        assertTrue(repository.search("简洁中文回答", topK = 3).isEmpty())
         assertTrue(store.records().isEmpty())
         assertTrue(repository.savedRecords().isEmpty())
     }
