@@ -110,6 +110,9 @@ Current status:
   restored on startup as UI confirmation state only. Restoration does not
   execute tools; explicit user confirmation is still required before Android
   execution can continue.
+- Completed persisted runs now rehydrate summary-only `RestoredSummary` steps
+  from the trace store. This keeps typed timeline inspection available after a
+  restart without restoring raw tool arguments or private payloads.
 - Recent Agent run timeline summaries can now be restored from the persisted
   trace store and shown in the background activity surface. The UI reads only
   `AgentTraceStepSummary` type/summary metadata and does not parse or display
@@ -117,8 +120,8 @@ Current status:
 - General Skill-first routing for parameter-heavy skills such as email, calendar
   drafts, routes, and reminders still depends on action-planner extraction.
   General model-driven next-step planning, generalized multi-step skill UI
-  orchestration beyond the clipboard summary share flow, and generalized typed
-  step rehydration for completed runs are still pending.
+  orchestration beyond the clipboard summary share flow, and full argument-
+  bearing typed step rehydration are still pending.
 
 Tests:
 

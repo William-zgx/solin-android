@@ -201,7 +201,8 @@ class RoomAgentTraceStore(
     }
 
     override fun steps(runId: String): List<AgentStep> =
-        liveSteps[runId].orEmpty().toList()
+        liveSteps[runId]?.toList()
+            ?: traceDao.steps(runId).map { entity -> entity.toRestoredStep() }
 
     override fun stepSummaries(runId: String): List<AgentTraceStepSummary> =
         traceDao.steps(runId).map { entity -> entity.toSummary() }
@@ -326,6 +327,13 @@ private fun AgentStepEntity.toSummary(): AgentTraceStepSummary =
         summary = summary,
         json = json,
         createdAtMillis = createdAtMillis,
+    )
+
+private fun AgentStepEntity.toRestoredStep(): AgentStep.RestoredSummary =
+    AgentStep.RestoredSummary(
+        persistedType = type,
+        summary = summary,
+        json = json,
     )
 
 private fun PendingToolConfirmationSnapshot.toEntity(now: Long): PendingAgentConfirmationEntity =
@@ -568,6 +576,7 @@ private fun AgentStep.traceType(): String =
         is AgentStep.AssistantResponded -> "AssistantResponded"
         is AgentStep.ToolRejected -> "ToolRejected"
         is AgentStep.Failed -> "Failed"
+        is AgentStep.RestoredSummary -> persistedType
     }
 
 private fun AgentStep.traceSummary(): String =
@@ -590,6 +599,7 @@ private fun AgentStep.traceSummary(): String =
         is AgentStep.AssistantResponded -> "Assistant responded: ${text.shortTraceText()}"
         is AgentStep.ToolRejected -> "Rejected tool result ${result.requestId}: ${result.summary.shortTraceText()}"
         is AgentStep.Failed -> "Failed: ${reason.shortTraceText()}"
+        is AgentStep.RestoredSummary -> summary
     }
 
 private fun AgentPlan.traceSummary(): String =
@@ -673,6 +683,12 @@ private fun AgentStep.traceJson(type: String): JSONObject {
             .put("summary", result.summary.shortTraceText())
 
         is AgentStep.Failed -> json.put("reason", reason.shortTraceText())
+
+        is AgentStep.RestoredSummary -> runCatching { JSONObject(this.json) }.getOrElse {
+            json
+                .put("persistedType", persistedType)
+                .put("summary", summary.shortTraceText())
+        }
     }
     return json
 }

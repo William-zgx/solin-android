@@ -71,7 +71,12 @@ class AgentTraceStoreTest {
 
         val restartedStore = RoomAgentTraceStore(traceDao = dao)
         assertEquals(AgentRunState.Planning, restartedStore.run(run.id)?.state)
-        assertEquals(emptyList<AgentStep>(), restartedStore.steps(run.id))
+        val restoredStep = restartedStore.steps(run.id).single()
+        require(restoredStep is AgentStep.RestoredSummary)
+        assertEquals("ToolRequested", restoredStep.persistedType)
+        assertTrue(restoredStep.summary.contains("share_text"))
+        assertTrue(restoredStep.json.contains("argumentKeys"))
+        assertFalse(restoredStep.json.contains("raw text that should stay out"))
         assertEquals(listOf(persistedStep), restartedStore.stepSummaries(run.id))
     }
 

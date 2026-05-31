@@ -1,5 +1,23 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Persisted Trace Summary Rehydration 增量验证
+
+本轮覆盖项：
+
+- `RoomAgentTraceStore.steps()` 在无 live steps 时可从已持久化 trace rows 恢复
+  summary-only `AgentStep.RestoredSummary`。
+- 恢复出的 step 保留 persisted type、summary 和已脱敏 trace JSON，不恢复
+  `ToolRequested` 的原始 arguments，也不会伪装成可继续执行的 pending request。
+- pending confirmation 仍走独立 `pending_agent_confirmations` 恢复链路；完成 run 的
+  summary-only rehydration 不改变确认/观察执行边界。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest'
+```
+
 ## 2026-05-31 Usage Access 特殊授权增量验证
 
 本轮覆盖项：

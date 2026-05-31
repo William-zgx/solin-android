@@ -125,6 +125,12 @@ sealed class AgentStep {
     data class Failed(
         val reason: String,
     ) : AgentStep()
+
+    data class RestoredSummary(
+        val persistedType: String,
+        val summary: String,
+        val json: String,
+    ) : AgentStep()
 }
 
 data class AgentLoopResult(
