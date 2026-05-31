@@ -47,6 +47,19 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun parsesRecentFilesCallOutput() {
+        val draft = planner.parseModelOutput(
+            """call:query_recent_files{"kind":"images","maxCount":"4"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, draft.functionName)
+        assertEquals("images", draft.parameters["kind"])
+        assertEquals("4", draft.parameters["maxCount"])
+        assertTrue(draft.summary.contains("最近"))
+    }
+
+    @Test
     fun rejectsUnsupportedFunctionCalls() {
         assertNull(planner.parseModelOutput("""call:delete_contact{"name":"A"}"""))
     }
@@ -106,6 +119,26 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, plan.draft?.functionName)
         assertEquals("2026-06-01T09:00:00Z", plan.draft?.parameters?.get("start"))
         assertEquals("2026-06-01T10:00:00Z", plan.draft?.parameters?.get("end"))
+    }
+
+    @Test
+    fun infersRecentFilesDraftWithKindAndCount() {
+        val plan = planner.plan("查询最近5个图片文件列表")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, plan.draft?.functionName)
+        assertEquals("images", plan.draft?.parameters?.get("kind"))
+        assertEquals("5", plan.draft?.parameters?.get("maxCount"))
+    }
+
+    @Test
+    fun infersRecentFilesDraftForCountedChineseMediaPhrase() {
+        val plan = planner.plan("最近 3 张图片")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, plan.draft?.functionName)
+        assertEquals("images", plan.draft?.parameters?.get("kind"))
+        assertEquals("3", plan.draft?.parameters?.get("maxCount"))
     }
 
     @Test

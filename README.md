@@ -18,7 +18,7 @@ Google AI Edge LiteRT-LM.
 - Lightweight local memory recall over previous conversation context.
 - Experimental local mobile action planning with deterministic rule fallback and explicit confirmation.
 - Schema-driven tool validation plus Agent run tracing for plan-confirm-observe execution, safety checks, bounded retry, and persistent audit events.
-- Minimal device context snapshots and confirmed clipboard text reads for controlled context access.
+- Minimal device context snapshots plus confirmed clipboard, calendar, contact, notification, foreground-app, and recent-file metadata reads for controlled context access.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map search, information lookup, device settings, local reminders, clipboard context, and system sharing.
 - A conservative clipboard-summary-share composite flow that keeps summarization local and asks again before opening the Android share sheet.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
@@ -93,9 +93,9 @@ one conservative clipboard-summary-share composite flow, conservative
 observe-after-success replanning for explicit next actions, a gated skill-run
 executor, minimal device context
 snapshots, safety policy, persistent tool audit, long-term memory controls,
-local reminder scheduling, confirmed clipboard reads, outbound text sharing, and
-Android share intent metadata ingestion. Rich
-device readers, recurring background policies, and actual image/audio/document
+local reminder scheduling, confirmed clipboard/device-context reads, outbound
+text sharing, and Android share intent metadata ingestion. Broad screen
+understanding, direct file-content parsing, and actual image/audio/document
 understanding are tracked there as pending core modules.
 
 ## Recommended Models

@@ -24,6 +24,22 @@ class MobileActionPlanner : ActionPlanner {
             "小时后",
             "剪贴板",
             "分享",
+            "前台",
+            "当前应用",
+            "当前 app",
+            "当前app",
+            "app",
+            "应用",
+            "文件",
+            "最近文件",
+            "文件列表",
+            "图片",
+            "视频",
+            "音频",
+            "文档",
+            "通知",
+            "通知栏",
+            "提醒",
             "忙闲",
             "空闲",
             "有空",
@@ -36,6 +52,14 @@ class MobileActionPlanner : ActionPlanner {
             "share",
             "availability",
             "free/busy",
+            "取消",
+            "取消提醒",
+            "撤销",
+            "链接",
+            "网址",
+            "网页",
+            "打开应用",
+            "启动应用",
         ).any { it in normalized } || isWebSearchRequest(input)
     }
 
@@ -65,6 +89,12 @@ class MobileActionPlanner : ActionPlanner {
             "邮件" in input || "email" in normalized || "mail" in normalized ->
                 MobileActionFunctions.COMPOSE_EMAIL.toDraft(mapOf("body" to cleanedObject(input)))
 
+            isOpenDeepLinkRequest(input) ->
+                MobileActionFunctions.OPEN_DEEP_LINK.toDraft(mapOf("uri" to extractUri(input)))
+
+            isOpenAppIntentRequest(input) ->
+                MobileActionFunctions.OPEN_APP_INTENT.toDraft(openAppIntentParameters(input))
+
             isReminderRequest(input) ->
                 MobileActionFunctions.SCHEDULE_REMINDER.toDraft(reminderParameters(input))
 
@@ -74,8 +104,23 @@ class MobileActionPlanner : ActionPlanner {
             isShareTextRequest(input) ->
                 MobileActionFunctions.SHARE_TEXT.toDraft(shareTextParameters(input))
 
+            isForegroundAppRequest(input) ->
+                MobileActionFunctions.QUERY_FOREGROUND_APP.toDraft(emptyMap())
+
+            isRecentNotificationRequest(input) ->
+                MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS.toDraft(recentNotificationParameters(input))
+
+            isRecentFilesRequest(input) ->
+                MobileActionFunctions.QUERY_RECENT_FILES.toDraft(recentFilesParameters(input))
+
             isCalendarAvailabilityRequest(input) && calendarWindowParameters != null ->
                 MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY.toDraft(calendarWindowParameters)
+
+            isContactQueryRequest(input) ->
+                MobileActionFunctions.QUERY_CONTACTS.toDraft(contactQueryParameters(input))
+
+            isCancelReminderRequest(input) ->
+                MobileActionFunctions.CANCEL_REMINDER.toDraft(cancelReminderParameters(input))
 
             "日程" in input || "calendar" in normalized || "提醒" in input ->
                 MobileActionFunctions.CREATE_CALENDAR_EVENT.toDraft(mapOf("title" to cleanedObject(input)))
@@ -115,6 +160,13 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.READ_CLIPBOARD -> "读取剪贴板"
             MobileActionFunctions.SHARE_TEXT -> "系统分享"
             MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY -> "查询日历忙闲"
+            MobileActionFunctions.CANCEL_REMINDER -> "取消提醒"
+            MobileActionFunctions.OPEN_DEEP_LINK -> "打开深链"
+            MobileActionFunctions.OPEN_APP_INTENT -> "打开应用"
+            MobileActionFunctions.QUERY_FOREGROUND_APP -> "查询当前前台应用"
+            MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS -> "查询最近通知"
+            MobileActionFunctions.QUERY_RECENT_FILES -> "查询最近文件"
+            MobileActionFunctions.QUERY_CONTACTS -> "查询联系人"
             else -> "动作草稿"
         }
 
@@ -133,6 +185,41 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.SHARE_TEXT -> "将打开系统分享面板并填入文本。"
             MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY ->
                 "将只读查询本机日历忙闲：${parameters["start"].orEmpty()} 到 ${parameters["end"].orEmpty()}"
+            MobileActionFunctions.CANCEL_REMINDER ->
+                "将取消提醒任务：${parameters["taskId"].orEmpty()}"
+            MobileActionFunctions.OPEN_DEEP_LINK ->
+                "将打开深度链接：${parameters["uri"].orEmpty()}"
+            MobileActionFunctions.OPEN_APP_INTENT ->
+                "将打开应用：${parameters["packageName"].orEmpty()}" +
+                    (parameters["activityClass"]?.takeIf { it.isNotBlank() }?.let { "（$it）" } ?: "")
+            MobileActionFunctions.QUERY_FOREGROUND_APP ->
+                "将读取当前前台应用信息（包名与应用名）。"
+            MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS -> {
+                val maxCount = parameters["maxCount"]
+                if (maxCount.isNullOrBlank()) {
+                    "将读取最近未读通知的摘要。"
+                } else {
+                    "将读取最近 ${maxCount} 条通知的摘要。"
+                }
+            }
+            MobileActionFunctions.QUERY_RECENT_FILES -> {
+                val maxCount = parameters["maxCount"]
+                val kind = parameters["kind"].orEmpty().ifBlank { "全部" }
+                if (maxCount.isNullOrBlank()) {
+                    "将读取最近的${kind}文件。"
+                } else {
+                    "将读取最近 ${maxCount} 个${kind}文件。"
+                }
+            }
+            MobileActionFunctions.QUERY_CONTACTS -> {
+                val maxCount = parameters["maxCount"]
+                val query = parameters["query"].orEmpty().ifBlank { "联系人" }
+                if (maxCount.isNullOrBlank()) {
+                    "将按“$query”查询联系人。"
+                } else {
+                    "将按“$query”查询最多 ${maxCount} 个联系人。"
+                }
+            }
             else -> "将打开系统页面完成这个动作。"
         }
 
@@ -229,6 +316,203 @@ class MobileActionPlanner : ActionPlanner {
                 .containsMatchIn(normalized)
     }
 
+    private fun isCancelReminderRequest(input: String): Boolean {
+        return ("取消" in input || "撤销" in input) &&
+            TASK_ID_PATTERN.containsMatchIn(input)
+    }
+
+    private fun isForegroundAppRequest(input: String): Boolean {
+        val normalized = input.lowercase()
+        return listOf(
+            "前台",
+            "当前应用",
+            "current app",
+            "active app",
+        ).any { it in input } ||
+            Regex("\\b(foreground|current\\s+app)\\b").containsMatchIn(normalized)
+    }
+
+    private fun isRecentNotificationRequest(input: String): Boolean {
+        val normalized = input.lowercase()
+        return listOf(
+            "最近通知",
+            "最近的通知",
+            "通知列表",
+            "通知摘要",
+            "通知栏",
+            "最近通知栏",
+        ).any { it in input } || Regex("\\b(notifications?|notification)\\b").containsMatchIn(normalized)
+            || Regex("""最近\d{1,2}条""").containsMatchIn(normalized.replace(" ", ""))
+    }
+
+    private fun isRecentFilesRequest(input: String): Boolean {
+        val normalized = input.lowercase()
+        return listOf(
+            "最近文件",
+            "最近文档",
+            "最近图片",
+            "最近视频",
+            "最近音频",
+            "最近下载",
+            "查询文件",
+            "文件列表",
+            "最近文件列表",
+        ).any { it in input } ||
+            Regex("""最近\s*\d{0,2}\s*(?:个|份|条|张)?\s*(文件|文档|图片|照片|视频|音频|下载)""")
+                .containsMatchIn(input) ||
+            Regex("""\b(recent|latest)\b.*\b(files?|documents?|images?|videos?|audios?|photos?)\b""")
+                .containsMatchIn(normalized)
+    }
+
+    private fun isContactQueryRequest(input: String): Boolean {
+        val normalized = input.lowercase()
+        return listOf(
+            "查询联系人",
+            "查联系人",
+            "查找联系人",
+            "搜索联系人",
+            "找联系人",
+            "联系人查询",
+        ).any { it in input } ||
+            Regex("""\b(contact|contacts)\b""").containsMatchIn(normalized) &&
+                Regex("""(查询|查找|搜索|找|find|search)""").containsMatchIn(normalized)
+    }
+
+    private fun recentNotificationParameters(input: String): Map<String, String> {
+        val cleaned = input.replace(Regex("\\s+"), "")
+        val match = Regex("最近(\\d{1,2})条(消息|通知|讯息)?").find(cleaned)
+            ?: Regex("notification|notifications?\\s*(?:recent|last)\\s+(\\d{1,2})").find(input.lowercase())
+        val rawCount = match?.groupValues?.getOrNull(1) ?: return emptyMap()
+        val maxCount = rawCount.toIntOrNull() ?: return emptyMap()
+        return if (maxCount <= 0) emptyMap() else mapOf("maxCount" to maxCount.toString())
+    }
+
+    private fun recentFilesParameters(input: String): Map<String, String> {
+        val normalized = input.lowercase()
+        val cleaned = input.replace(Regex("\\s+"), "")
+        val countMatch = Regex("最近(\\d{1,2})条?(?:个|份)?").find(cleaned)
+            ?: Regex("(?:recent|latest)\\s+(\\d{1,2})\\s+(?:files?|documents?|images?|videos?|audios?|photos?)")
+                .find(normalized)
+
+        val maxCount = countMatch?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?.takeIf { it > 0 }
+            ?.toString()
+
+        val kind = when {
+            "图片" in input || "image" in normalized || "photo" in normalized -> "images"
+            "视频" in input || "video" in normalized || "vid" in normalized -> "videos"
+            "音频" in input || "audio" in normalized -> "audio"
+            "文档" in input || "document" in normalized || "doc" in normalized -> "documents"
+            "下载" in input || "download" in normalized -> "downloads"
+            "其他" in input || "other" in normalized -> "others"
+            else -> "all"
+        }
+
+        return buildMap {
+            if (maxCount != null) {
+                put("maxCount", maxCount)
+            }
+            if (kind != "all") {
+                put("kind", kind)
+            }
+        }
+    }
+
+    private fun contactQueryParameters(input: String): Map<String, String> {
+        val cleaned = cleanedObject(input)
+        val normalizedForCount = cleaned.replace(Regex("\\s+"), "")
+        val maxMatch = Regex("""(?:前|最多)\s*(\d{1,2})\s*(个|位|条)""")
+            .find(normalizedForCount)
+        val maxCount = maxMatch?.groupValues?.getOrNull(1)
+            ?.toIntOrNull()
+            ?.takeIf { it > 0 }
+            ?.toString()
+        val query = cleaned
+            .replace(
+                Regex(
+                    """^请?\s*(?:帮我\s*)?(?:查询|查找|查|搜索|找)\s*联系人\s*""",
+                    RegexOption.IGNORE_CASE,
+                ),
+                "",
+            )
+            .replace(
+                Regex("""\b(contact|contacts)\b""", RegexOption.IGNORE_CASE),
+                "",
+            )
+            .replace(
+                Regex(
+                    """(?:^|[\s，,;；]*)?(?:前|最多)\s*\d{1,2}\s*(?:个|位|条)""",
+                ),
+                "",
+            )
+            .replace(Regex("""\bcontacts?\s*""", RegexOption.IGNORE_CASE), "")
+            .trim()
+            .ifBlank { "联系人" }
+
+        return if (maxCount == null) {
+            mapOf("query" to query)
+        } else {
+            mapOf(
+                "query" to query,
+                "maxCount" to maxCount,
+            )
+        }
+    }
+
+    private fun isOpenDeepLinkRequest(input: String): Boolean {
+        return DEEP_LINK_PATTERN.containsMatchIn(input)
+    }
+
+    private fun isOpenAppIntentRequest(input: String): Boolean {
+        val hasTrigger = APP_INTENT_TRIGGER_PATTERN.containsMatchIn(input)
+        val hasKnownPackage = knownPackageFromInput(input) != null
+        val hasPackageLike = APP_INTENT_PACKAGE_PATTERN.containsMatchIn(input)
+        return hasTrigger && (hasKnownPackage || hasPackageLike)
+    }
+
+    private fun openAppIntentParameters(input: String): Map<String, String> {
+        val packageName = knownPackageFromInput(input)
+            ?: APP_INTENT_PACKAGE_PATTERN.find(input)?.value
+            ?: return emptyMap()
+        val action = APP_INTENT_ACTION_PATTERN.find(input)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+        val activityClass =
+            APP_INTENT_ACTIVITY_CLASS_PATTERN.find(input)?.groupValues?.getOrNull(1)?.trim()
+                ?.takeIf { it.isNotBlank() }
+        val data = APP_INTENT_DATA_PATTERN.find(input)?.groupValues?.getOrNull(1)?.trim()
+            ?.takeIf { it.isNotBlank() }
+        return buildMap {
+            put("packageName", packageName)
+            action?.let { put("action", it) }
+            activityClass?.let { put("activityClass", it) }
+            data?.let { put("data", cleanUri(it)) }
+        }
+    }
+
+    private fun knownPackageFromInput(input: String): String? {
+        val normalized = input.lowercase()
+        return KNOWN_APP_PACKAGES.entries.firstNotNullOfOrNull { (alias, packageName) ->
+            if (normalized.contains(alias.lowercase())) packageName else null
+        }
+    }
+
+    private fun cleanUri(raw: String): String =
+        raw.trim().trimEnd(*TRAILING_URI_PUNCTUATION.toCharArray())
+
+    private fun extractUri(input: String): String {
+        val directMatch = DEEP_LINK_PATTERN.find(input)?.value
+        if (directMatch != null) {
+            return cleanUri(directMatch)
+        }
+        return cleanedObject(input)
+    }
+
+    private fun cancelReminderParameters(input: String): Map<String, String> {
+        val taskId = TASK_ID_PATTERN.find(input)?.value.orEmpty()
+        return mapOf("taskId" to taskId)
+    }
+
     private fun calendarAvailabilityParameters(input: String): Map<String, String>? {
         val matches = ISO_OFFSET_DATE_TIME_PATTERN.findAll(input).map { it.value }.take(2).toList()
         if (matches.size < 2) return null
@@ -254,5 +538,29 @@ class MobileActionPlanner : ActionPlanner {
         val REMINDER_HOURS_PATTERN = Regex("""(\d+)\s*(小时|hours?|hrs?)""", RegexOption.IGNORE_CASE)
         val ISO_OFFSET_DATE_TIME_PATTERN =
             Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})""")
+        val TASK_ID_PATTERN = Regex("task-[A-Za-z0-9_-]+")
+        val DEEP_LINK_PATTERN = Regex("""\b(?:https?|mailto|tel|sms|smsto|geo):\S+""", RegexOption.IGNORE_CASE)
+        val APP_INTENT_TRIGGER_PATTERN = Regex("""(打开|打开并|启动|启动并)\s*(?:应用|app|应用程序)?""")
+        val APP_INTENT_PACKAGE_PATTERN = Regex("""\b[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+\b""")
+        val APP_INTENT_ACTION_PATTERN = Regex("""(?:动作|action)\s*[:：]?\s*([A-Za-z0-9_./-]+)""", RegexOption.IGNORE_CASE)
+        val APP_INTENT_ACTIVITY_CLASS_PATTERN =
+            Regex("""(?:类名|activity|界面)\s*[:：]?\s*([A-Za-z0-9_$]+(?:\.[A-Za-z0-9_$]+)*(?:\$[A-Za-z0-9_$]+)?)""", RegexOption.IGNORE_CASE)
+        val APP_INTENT_DATA_PATTERN =
+            Regex("""(?:uri|data)\s*[:：]?\s*((?:https?|mailto|tel|sms|smsto|geo):\S+)""", RegexOption.IGNORE_CASE)
+        val KNOWN_APP_PACKAGES = mapOf(
+            "微信" to "com.tencent.mm",
+            "wechat" to "com.tencent.mm",
+            "支付宝" to "com.eg.android.AlipayGphone",
+            "alipay" to "com.eg.android.AlipayGphone",
+            "抖音" to "com.ss.android.ugc.aweme",
+            "douyin" to "com.ss.android.ugc.aweme",
+            "哔哩哔哩" to "tv.danmaku.bili",
+            "bilibili" to "tv.danmaku.bili",
+            "淘宝" to "com.taobao.taobao",
+            "taobao" to "com.taobao.taobao",
+            "美团" to "com.sankuai.meituan",
+            "meituan" to "com.sankuai.meituan",
+        )
+        val TRAILING_URI_PUNCTUATION = ".,;:!?)]}。！）；】"
     }
 }

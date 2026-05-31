@@ -1,5 +1,41 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Recent Files 设备上下文工具增量验证
+
+本轮覆盖项：
+
+- 从 `query_recent_files` stash 候选实现中提取可用部分，并按当前主线分层
+  重新接入 `ToolRegistry`、`RoutingToolExecutor`、`MobileActionPlanner` 和
+  `PocketMindAppContainer`。
+- 新增 `ReadsFiles` 权限声明与 Android 文件读取权限 manifest 声明；工具仍需
+  用户确认，并把结果标记为 `LocalOnly`。
+- `RecentFilesToolExecutor` 只返回文件名、MIME、粗粒度 kind、大小和修改时间，
+  不返回 MediaStore id、路径、URI 或文件内容。
+- `AndroidRecentFileProvider` 在 Android 13+ 下只查询已授权的媒体类型；
+  非媒体文件类型在缺少系统文件选择器授权时返回结构化 `PermissionDenied`。
+- Planner 覆盖 “查询最近5个图片文件列表” 和 “最近 3 张图片” 这类中文路由。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:lintDebug
+git diff --check
+```
+
+结果：通过。
+
+补充检查：
+
+- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+  Authorization Bearer token 被写入文件。
+- 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
+
 ## 2026-05-31 长期记忆持久化增量验证
 
 本轮覆盖项：

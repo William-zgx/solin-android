@@ -33,7 +33,9 @@ Current status:
   checks.
 - Current tools cover Wi-Fi settings, flashlight settings, map search, web
   search, email draft, calendar draft, contact draft, local reminders,
-  confirmed clipboard text reads, and outbound system sharing for text.
+  confirmed clipboard text reads, outbound system sharing for text, current
+  foreground app summaries, contact lookup, recent notification summaries,
+  calendar availability, and recent file metadata summaries.
 - Tools that may require runtime permissions declare that requirement in
   `ToolSpec`. The reminder confirmation path requests notification permission
   before execution when Android requires it.
@@ -199,8 +201,12 @@ Current status:
   generation settings, remote settings, downloads, memory, tool execution, and
   assistant routing so privacy behavior can be regression-tested without
   Android-bound concrete repositories.
-- Screen understanding, current app, notification readers, files, calendar, and
-  contacts readers are still pending.
+- Implemented confirmed, read-only device context tools for current foreground
+  app metadata, current-app notification summaries, contact lookup, calendar
+  busy/free windows, and recent file metadata. Recent file reads return
+  `LocalOnly` metadata only: file name, MIME type, coarse kind, size, and last
+  modified time. The tool does not return file paths, URIs, or file contents.
+- Broad screen understanding and direct file-content readers are still pending.
 
 ## Execution Boundary
 

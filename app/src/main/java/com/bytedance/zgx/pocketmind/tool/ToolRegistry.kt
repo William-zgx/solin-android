@@ -72,21 +72,22 @@ private data class ToolArgumentValidator(
         }
 
         val missingArguments = requiredArguments
-            .filter { request.arguments[it].isNullOrBlank() }
+            .filter { argumentName ->
+                val argumentValue = request.arguments[argumentName]
+                val expectedType = properties[argumentName]?.type
+                if (expectedType == "boolean") {
+                    argumentValue == null
+                } else {
+                    argumentValue.isNullOrBlank()
+                }
+            }
         if (missingArguments.isNotEmpty()) {
             return "Tool ${request.toolName} requires argument(s): ${missingArguments.sorted().joinToString()}"
         }
 
         request.arguments.forEach { (name, value) ->
             val rule = properties[name] ?: return@forEach
-            val minLength = rule.minLength
-            if (minLength != null && value.trim().length < minLength) {
-                return "Tool ${request.toolName} argument $name must have at least $minLength character(s)"
-            }
-            val pattern = rule.pattern
-            if (pattern != null && !pattern.matches(value)) {
-                return "Tool ${request.toolName} argument $name does not match required pattern"
-            }
+            rule.validate(request.toolName, name, value)?.let { return it }
         }
 
         return null
@@ -102,8 +103,15 @@ private data class ToolArgumentValidator(
             val properties = propertiesJson.keysSet().associateWith { propertyName ->
                 val propertyJson = propertiesJson.optJSONObject(propertyName) ?: JSONObject()
                 PropertyRule(
+                    type = propertyJson.optStringOrNull("type"),
                     minLength = propertyJson.optIntOrNull("minLength"),
+                    maxLength = propertyJson.optIntOrNull("maxLength"),
                     pattern = propertyJson.optStringOrNull("pattern")?.let(::Regex),
+                    enum = propertyJson.optStringSetOrNull("enum")?.toSet(),
+                    minimum = propertyJson.optDoubleOrNull("minimum"),
+                    maximum = propertyJson.optDoubleOrNull("maximum"),
+                    exclusiveMinimum = propertyJson.optDoubleOrNull("exclusiveMinimum"),
+                    exclusiveMaximum = propertyJson.optDoubleOrNull("exclusiveMaximum"),
                 )
             }
             val requiredArguments = schema.optStringSet("required")
@@ -121,9 +129,118 @@ private data class ToolArgumentValidator(
 }
 
 private data class PropertyRule(
+    val type: String?,
     val minLength: Int?,
+    val maxLength: Int?,
     val pattern: Regex?,
-)
+    val enum: Set<String>?,
+    val minimum: Double?,
+    val maximum: Double?,
+    val exclusiveMinimum: Double?,
+    val exclusiveMaximum: Double?,
+) {
+    fun validate(toolName: String, argumentName: String, value: String): String? {
+        if (enum != null && !enum.contains(value)) {
+            return "Tool ${toolName} argument $argumentName has invalid value"
+        }
+
+        return when (type?.lowercase()) {
+            "string" -> {
+                val minLength = this.minLength
+                if (minLength != null && value.trim().length < minLength) {
+                    "Tool $toolName argument $argumentName must have at least $minLength character(s)"
+                } else {
+                    val maxLength = this.maxLength
+                    if (maxLength != null && value.length > maxLength) {
+                        "Tool $toolName argument $argumentName must have at most $maxLength character(s)"
+                    } else {
+                        val pattern = this.pattern
+                        if (pattern != null && !pattern.matches(value)) {
+                            "Tool $toolName argument $argumentName does not match required pattern"
+                        } else {
+                            null
+                        }
+                    }
+                }
+            }
+
+            "integer" -> {
+                val numeric = value.toLongOrNull()
+                if (numeric == null) {
+                    "Tool $toolName argument $argumentName must be an integer"
+                } else {
+                    validateNumericRange(toolName, argumentName, numeric.toDouble())
+                }
+            }
+
+            "number" -> {
+                val numeric = value.toDoubleOrNull()
+                if (numeric == null) {
+                    "Tool $toolName argument $argumentName must be a number"
+                } else {
+                    validateNumericRange(toolName, argumentName, numeric)
+                }
+            }
+
+            "boolean" -> {
+                if (value.toBooleanStrictOrNull() == null) {
+                    "Tool $toolName argument $argumentName must be true or false"
+                } else {
+                    null
+                }
+            }
+
+            "array" -> {
+                try {
+                    org.json.JSONArray(value)
+                    null
+                } catch (_: Exception) {
+                    "Tool $toolName argument $argumentName must be an array"
+                }
+            }
+
+            "object" -> {
+                try {
+                    JSONObject(value)
+                    null
+                } catch (_: Exception) {
+                    "Tool $toolName argument $argumentName must be an object"
+                }
+            }
+
+            null -> null
+            else -> null
+        }
+    }
+
+    private fun validateNumericRange(
+        toolName: String,
+        argumentName: String,
+        numeric: Double,
+    ): String? {
+        minimum?.let { min ->
+            if (numeric < min) {
+                return "Tool $toolName argument $argumentName must be at least $min"
+            }
+        }
+        maximum?.let { max ->
+            if (numeric > max) {
+                return "Tool $toolName argument $argumentName must be at most $max"
+            }
+        }
+        exclusiveMinimum?.let { min ->
+            if (numeric <= min) {
+                return "Tool $toolName argument $argumentName must be greater than $min"
+            }
+        }
+        exclusiveMaximum?.let { max ->
+            if (numeric >= max) {
+                return "Tool $toolName argument $argumentName must be less than $max"
+            }
+        }
+        return null
+    }
+}
 
 private fun JSONObject.keysSet(): Set<String> {
     val result = linkedSetOf<String>()
@@ -149,6 +266,20 @@ private fun JSONObject.optIntOrNull(name: String): Int? =
 private fun JSONObject.optStringOrNull(name: String): String? =
     if (!has(name) || isNull(name)) null else optString(name)
 
+private fun JSONObject.optDoubleOrNull(name: String): Double? {
+    if (!has(name) || isNull(name)) return null
+    return optDouble(name)
+}
+
+private fun JSONObject.optStringSetOrNull(name: String): Set<String>? {
+    val array = optJSONArray(name) ?: return null
+    return buildSet {
+        for (index in 0 until array.length()) {
+            add(array.getString(index))
+        }
+    }
+}
+
 private fun definitionsFor(supportedActions: Set<String>): List<ToolDefinition> {
     val missingDefinitions = supportedActions - toolDefinitionsByName.keys
     require(missingDefinitions.isEmpty()) {
@@ -173,6 +304,10 @@ private val querySchemaJson = """
         "query": {
           "type": "string",
           "minLength": 1
+        },
+        "searchMode": {
+          "type": "string",
+          "enum": ["general", "local"]
         }
       },
       "additionalProperties": false
@@ -233,6 +368,24 @@ private val contactDraftSchemaJson = """
     }
 """.trimIndent()
 
+private val contactQuerySchemaJson = """
+    {
+      "type": "object",
+      "required": ["query"],
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        },
+        "maxCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
 private val reminderSchemaJson = """
     {
       "type": "object",
@@ -246,8 +399,53 @@ private val reminderSchemaJson = """
           "type": "string"
         },
         "delayMinutes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val recentNotificationSchemaJson = """
+    {
+      "type": "object",
+      "properties": {
+        "maxCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val recentFilesSchemaJson = """
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
           "type": "string",
-          "pattern": "^[1-9][0-9]*$"
+          "enum": ["all", "images", "videos", "audio", "documents", "downloads", "others"]
+        },
+        "maxCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val cancelReminderSchemaJson = """
+    {
+      "type": "object",
+      "required": ["taskId"],
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": false
@@ -265,6 +463,48 @@ private val shareTextSchemaJson = """
         },
         "title": {
           "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val openDeepLinkSchemaJson = """
+    {
+      "type": "object",
+      "required": ["uri"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(https?|mailto|tel|sms|smsto|geo):.+"
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val openAppIntentSchemaJson = """
+    {
+      "type": "object",
+      "required": ["packageName"],
+      "properties": {
+        "packageName": {
+          "type": "string",
+          "minLength": 3,
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_]*(?:\\.[a-zA-Z0-9_]+)+$"
+        },
+        "activityClass": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": false
@@ -363,6 +603,22 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
     ),
     ToolDefinition(
         spec = ToolSpec(
+            name = MobileActionFunctions.QUERY_CONTACTS,
+            title = "查询联系人",
+            description = "读取通讯录中的联系人名称与电话，返回最小字段以辅助用户决策。",
+            inputSchemaJson = contactQuerySchemaJson,
+            capability = ToolCapability.DeviceContext,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsContacts,
+                ToolPermission.RequiresAndroidRuntimePermission,
+            ),
+            riskLevel = RiskLevel.LowReadOnly,
+            confirmationPolicy = ConfirmationPolicy.Required,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
             name = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
             title = "打开手电筒设置",
             description = "打开系统设置页，由用户手动完成手电筒相关操作。",
@@ -413,6 +669,26 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
     ),
     ToolDefinition(
         spec = ToolSpec(
+            name = MobileActionFunctions.OPEN_DEEP_LINK,
+            title = "打开深链",
+            description = "打开外部链接或深度链接，用户可在跳转后的应用继续操作。",
+            inputSchemaJson = openDeepLinkSchemaJson,
+            capability = ToolCapability.ExternalNavigation,
+            permissions = setOf(ToolPermission.StartsExternalActivity),
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.OPEN_APP_INTENT,
+            title = "打开应用 Intent",
+            description = "打开指定应用（可选传入 activityClass、action 或 data Uri）进行更精细化跳转。",
+            inputSchemaJson = openAppIntentSchemaJson,
+            capability = ToolCapability.ExternalNavigation,
+            permissions = setOf(ToolPermission.StartsExternalActivity),
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
             name = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
             title = "查询日历忙闲",
             description = "只读查询本机日历在指定 ISO 时间窗口内的忙闲区间，不读取标题、地点或参与人。",
@@ -424,6 +700,63 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
                 ToolPermission.RequiresAndroidRuntimePermission,
             ),
             riskLevel = RiskLevel.LowReadOnly,
+            confirmationPolicy = ConfirmationPolicy.Required,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.QUERY_FOREGROUND_APP,
+            title = "查询当前前台应用",
+            description = "读取当前前台应用的应用名与包名（用户当前界面可见应用）。",
+            inputSchemaJson = emptyObjectSchemaJson,
+            capability = ToolCapability.DeviceContext,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.RequiresAndroidRuntimePermission,
+            ),
+            riskLevel = RiskLevel.LowReadOnly,
+            confirmationPolicy = ConfirmationPolicy.Required,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+            title = "查询近期通知",
+            description = "读取当前应用最近一段时间的通知摘要，默认返回最近 5 条。",
+            inputSchemaJson = recentNotificationSchemaJson,
+            capability = ToolCapability.DeviceContext,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+            ),
+            riskLevel = RiskLevel.LowReadOnly,
+            confirmationPolicy = ConfirmationPolicy.Required,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.QUERY_RECENT_FILES,
+            title = "查询最近文件",
+            description = "读取本机最近文件摘要，仅返回文件名与文件类型等最小信息。",
+            inputSchemaJson = recentFilesSchemaJson,
+            capability = ToolCapability.DeviceContext,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsFiles,
+                ToolPermission.RequiresAndroidRuntimePermission,
+            ),
+            riskLevel = RiskLevel.LowReadOnly,
+            confirmationPolicy = ConfirmationPolicy.Required,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.CANCEL_REMINDER,
+            title = "取消提醒",
+            description = "在已安排的提醒列表中取消指定提醒任务，不再触发该提醒。",
+            inputSchemaJson = cancelReminderSchemaJson,
+            capability = ToolCapability.BackgroundTask,
+            permissions = setOf(ToolPermission.RequiresAndroidRuntimePermission),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
         ),
     ),

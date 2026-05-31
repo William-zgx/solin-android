@@ -82,6 +82,18 @@ class ToolRegistryTest {
         assertTrue(calendarAvailabilitySpec.inputSchemaJson.contains("\"start\""))
         assertTrue(calendarAvailabilitySpec.inputSchemaJson.contains("\"end\""))
         assertTrue(calendarAvailabilitySpec.inputSchemaJson.contains("31 days"))
+
+        val recentFilesSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_FILES)
+        assertNotNull(recentFilesSpec)
+        requireNotNull(recentFilesSpec)
+        assertEquals(ToolCapability.DeviceContext, recentFilesSpec.capability)
+        assertEquals(RiskLevel.LowReadOnly, recentFilesSpec.riskLevel)
+        assertTrue(ToolPermission.ReadsDeviceContext in recentFilesSpec.permissions)
+        assertTrue(ToolPermission.ReadsFiles in recentFilesSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission in recentFilesSpec.permissions)
+        assertTrue(recentFilesSpec.inputSchemaJson.contains("\"kind\""))
+        assertTrue(recentFilesSpec.inputSchemaJson.contains("\"maxCount\""))
+        assertTrue(recentFilesSpec.inputSchemaJson.contains("\"documents\""))
     }
 
     @Test

@@ -7,6 +7,9 @@ import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityQuery
 import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityReadResult
 import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityWindow
 import com.bytedance.zgx.pocketmind.device.CalendarBusyInterval
+import com.bytedance.zgx.pocketmind.device.RecentFileItem
+import com.bytedance.zgx.pocketmind.device.RecentFileProvider
+import com.bytedance.zgx.pocketmind.device.RecentFileReadResult
 import java.time.Instant
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
@@ -93,6 +96,70 @@ class CalendarAvailabilityToolExecutorTest {
         assertEquals(0, provider.queryCount)
     }
 
+    @Test
+    fun recentFilesReturnsLocalOnlyMinimalFileMetadata() {
+        val executor = RecentFilesToolExecutor(
+            FakeRecentFileProvider(
+                RecentFileReadResult.Available(
+                    listOf(
+                        RecentFileItem(
+                            id = 42L,
+                            name = "brief.pdf",
+                            mimeType = "application/pdf",
+                            kind = "documents",
+                            sizeBytes = 1024L,
+                            lastModifiedMillis = 1_000L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-files",
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf(
+                    "kind" to "documents",
+                    "maxCount" to "3",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals("true", result.data["requiresLocalModel"])
+        assertEquals("1", result.data["fileCount"])
+        val files = JSONArray(result.data.getValue("filesJson"))
+        val file = files.getJSONObject(0)
+        assertEquals("brief.pdf", file.getString("name"))
+        assertEquals("application/pdf", file.getString("mimeType"))
+        assertEquals(setOf("name", "mimeType", "kind", "sizeBytes", "lastModifiedMillis"), file.keysSet())
+    }
+
+    @Test
+    fun recentFilesReportsPermissionDeniedAsRetryableLocalFailure() {
+        val executor = RecentFilesToolExecutor(
+            FakeRecentFileProvider(
+                RecentFileReadResult.PermissionDenied("未授权“读取文件”权限"),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-files",
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.PermissionDenied, result.error?.code)
+        assertTrue(result.retryable)
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+    }
+
     private fun calendarRequest(
         start: String = "2026-06-01T09:00:00Z",
         end: String = "2026-06-01T13:00:00Z",
@@ -120,6 +187,12 @@ class CalendarAvailabilityToolExecutorTest {
             lastWindow = window
             return resultFactory(window)
         }
+    }
+
+    private class FakeRecentFileProvider(
+        private val result: RecentFileReadResult,
+    ) : RecentFileProvider {
+        override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult = result
     }
 
     private fun org.json.JSONObject.keysSet(): Set<String> {

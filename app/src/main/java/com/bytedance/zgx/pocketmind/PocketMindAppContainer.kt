@@ -20,6 +20,10 @@ import com.bytedance.zgx.pocketmind.data.PreferenceSettingsStore
 import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
 import com.bytedance.zgx.pocketmind.data.SessionRepository
 import com.bytedance.zgx.pocketmind.device.AndroidCalendarAvailabilityProvider
+import com.bytedance.zgx.pocketmind.device.AndroidContactSummaryProvider
+import com.bytedance.zgx.pocketmind.device.AndroidForegroundAppProvider
+import com.bytedance.zgx.pocketmind.device.AndroidNotificationSummaryProvider
+import com.bytedance.zgx.pocketmind.device.AndroidRecentFileProvider
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.memory.RoomMemoryRecordStore
@@ -27,6 +31,7 @@ import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.pocketmind.orchestration.RoomAgentTraceStore
 import com.bytedance.zgx.pocketmind.runtime.OkHttpRemoteChatRuntime
 import com.bytedance.zgx.pocketmind.runtime.RealLiteRtRuntime
+import com.bytedance.zgx.pocketmind.tool.ValidatingToolExecutor
 import com.bytedance.zgx.pocketmind.tool.RoutingToolExecutor
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
 
@@ -47,7 +52,7 @@ class PocketMindAppContainer(context: Context) {
     private val memoryRepository: MemoryRepository
     private val toolAuditRepository: ToolAuditRepository
     private val scheduledTaskRepository: ScheduledTaskRepository
-    private val backgroundTaskScheduler: AndroidBackgroundTaskScheduler
+    private val backgroundTaskSchedulerInternal: AndroidBackgroundTaskScheduler
     private val reminderNotificationHelper: ReminderNotificationHelper
     private val actionPlanningRuntime: HybridActionPlanningRuntime
     private val actionExecutor: ToolExecutor
@@ -75,15 +80,21 @@ class PocketMindAppContainer(context: Context) {
         )
         toolAuditRepository = ToolAuditRepository(database.toolAuditDao())
         scheduledTaskRepository = ScheduledTaskRepository(database.scheduledTaskDao())
-        backgroundTaskScheduler = AndroidBackgroundTaskScheduler(appContext, scheduledTaskRepository)
+        backgroundTaskSchedulerInternal = AndroidBackgroundTaskScheduler(appContext, scheduledTaskRepository)
         reminderNotificationHelper = ReminderNotificationHelper(appContext)
         actionPlanningRuntime = HybridActionPlanningRuntime(appContext.cacheDir)
-        actionExecutor = RoutingToolExecutor(
-            calendarAvailabilityProvider = AndroidCalendarAvailabilityProvider(appContext),
-            delegate = ActionExecutor(
-                context = appContext,
-                backgroundTaskScheduler = backgroundTaskScheduler,
-                canPostReminderNotifications = reminderNotificationHelper::canPostNotifications,
+        actionExecutor = ValidatingToolExecutor(
+            delegate = RoutingToolExecutor(
+                calendarAvailabilityProvider = AndroidCalendarAvailabilityProvider(appContext),
+                foregroundAppProvider = AndroidForegroundAppProvider(appContext),
+                contactSummaryProvider = AndroidContactSummaryProvider(appContext),
+                notificationSummaryProvider = AndroidNotificationSummaryProvider(appContext),
+                recentFileProvider = AndroidRecentFileProvider(appContext),
+                delegate = ActionExecutor(
+                    context = appContext,
+                    backgroundTaskScheduler = backgroundTaskSchedulerInternal,
+                    canPostReminderNotifications = reminderNotificationHelper::canPostNotifications,
+                ),
             ),
         )
         assistantOrchestrator = AssistantOrchestrator(
@@ -111,6 +122,9 @@ class PocketMindAppContainer(context: Context) {
                 Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
             },
         )
+
+    val backgroundTaskScheduler: AndroidBackgroundTaskScheduler
+        get() = backgroundTaskSchedulerInternal
 }
 
 private class PocketMindViewModelFactory(

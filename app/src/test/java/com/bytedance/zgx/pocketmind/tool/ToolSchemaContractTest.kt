@@ -104,11 +104,17 @@ class ToolSchemaContractTest {
     }
 
     private fun validValueFor(property: JSONObject): String {
+        property.optStringSet("enum").firstOrNull()?.let { return it }
+
         val pattern = property.optStringOrNull("pattern")
         if (pattern != null) {
-            return listOf("1", "10", "abc", "value")
+            return listOf("1", "10", "abc", "value", "https://example.com", "com.example.app")
                 .firstOrNull { Regex(pattern).matches(it) }
                 ?: error("No test fixture value matches pattern $pattern")
+        }
+
+        if (property.optStringOrNull("type") == "integer") {
+            return (property.optIntOrNull("minimum") ?: 1).coerceAtLeast(1).toString()
         }
 
         val minLength = property.optIntOrNull("minLength") ?: 1

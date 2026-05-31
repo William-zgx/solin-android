@@ -56,6 +56,8 @@ enum class ToolPermission {
     ReadsDeviceContext,
     ReadsClipboard,
     ReadsCalendar,
+    ReadsContacts,
+    ReadsFiles,
     RequiresAndroidRuntimePermission,
     SchedulesBackgroundWork,
     PostsNotification,
