@@ -32,6 +32,9 @@ class AndroidBackgroundTaskScheduler(
     override fun scheduledTasks(limit: Int): List<ScheduledTask> =
         repository.scheduledOrRunning(limit)
 
+    override fun recentTasks(limit: Int): List<ScheduledTask> =
+        repository.recent(limit)
+
     override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> =
         runCatching {
             val normalized = request.normalized()

@@ -107,6 +107,11 @@ class ScheduledTaskRemovalCoordinatorTest {
                 .sortedBy { it.triggerAtMillis }
                 .take(limit)
 
+        override fun recent(limit: Int): List<ScheduledTaskEntity> =
+            tasks.values
+                .sortedWith(compareByDescending<ScheduledTaskEntity> { it.updatedAtMillis }.thenBy { it.id })
+                .take(limit)
+
         override fun upsert(task: ScheduledTaskEntity) {
             tasks[task.id] = task
         }

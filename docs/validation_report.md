@@ -1,5 +1,30 @@
 # PocketMind 验证报告
 
+## 2026-05-31 后台任务历史查看增量验证
+
+本轮覆盖项：
+
+- `ScheduledTaskRepository` 新增最近任务查询，按 `updatedAtMillis`
+  倒序返回全部状态，用于历史视图而不影响运行中任务查询。
+- ViewModel 启动、刷新和取消后台任务后同时刷新运行中列表与最近历史；运行中
+  只保留 `Scheduled`，历史只展示 `Delivered` / `Cancelled` / `Deleted` /
+  `Failed`。
+- 后台任务面板新增只读“最近后台任务”区域；已结束任务不会显示取消按钮，
+  不会被误当成仍在运行。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelRunningBackgroundTaskFailureKeepsTaskVisible'
+```
+
 ## 2026-05-31 记忆兜底与显式偏好持久化增量验证
 
 本轮覆盖项：

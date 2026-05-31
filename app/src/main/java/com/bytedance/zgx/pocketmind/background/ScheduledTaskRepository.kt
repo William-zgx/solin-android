@@ -49,6 +49,13 @@ class ScheduledTaskRepository(
     fun scheduledReminders(limit: Int = 100): List<ScheduledTask> =
         dao.scheduledByType(ScheduledTaskType.Reminder.name, limit).map { it.toModel() }
 
+    fun recent(limit: Int = 20): List<ScheduledTask> =
+        if (limit <= 0) {
+            emptyList()
+        } else {
+            dao.recent(limit).map { it.toModel() }
+        }
+
     fun periodicCheck(): ScheduledTask? =
         dao.task(PeriodicCheckScheduleRequest.TASK_ID)?.toModel()
 

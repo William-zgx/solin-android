@@ -203,6 +203,9 @@ interface ScheduledTaskDao {
     @Query("SELECT * FROM scheduled_tasks WHERE status = 'Scheduled' AND type = :type ORDER BY triggerAtMillis ASC LIMIT :limit")
     fun scheduledByType(type: String, limit: Int): List<ScheduledTaskEntity>
 
+    @Query("SELECT * FROM scheduled_tasks ORDER BY updatedAtMillis DESC, id ASC LIMIT :limit")
+    fun recent(limit: Int): List<ScheduledTaskEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsert(task: ScheduledTaskEntity)
 }

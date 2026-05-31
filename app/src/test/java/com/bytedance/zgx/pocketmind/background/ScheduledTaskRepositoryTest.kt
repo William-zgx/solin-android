@@ -72,6 +72,39 @@ class ScheduledTaskRepositoryTest {
     }
 
     @Test
+    fun recentReturnsAllStatusesByUpdatedTime() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000L })
+        dao.upsert(
+            entity(
+                id = "old-delivered",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Delivered,
+                updatedAtMillis = 2_000L,
+            ),
+        )
+        dao.upsert(
+            entity(
+                id = "new-failed",
+                type = ScheduledTaskType.PeriodicCheck,
+                status = ScheduledTaskStatus.Failed,
+                updatedAtMillis = 3_000L,
+            ),
+        )
+        dao.upsert(
+            entity(
+                id = "scheduled",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Scheduled,
+                updatedAtMillis = 1_000L,
+            ),
+        )
+
+        assertEquals(listOf("new-failed", "old-delivered"), repository.recent(limit = 2).map { it.id })
+        assertTrue(repository.recent(limit = 0).isEmpty())
+    }
+
+    @Test
     fun scheduledOrRunningIncludesKnownRunningPeriodicTask() {
         val dao = FakeScheduledTaskDao()
         val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000L })
@@ -274,6 +307,11 @@ class ScheduledTaskRepositoryTest {
                 .sortedBy { it.triggerAtMillis }
                 .take(limit)
 
+        override fun recent(limit: Int): List<ScheduledTaskEntity> =
+            tasks.values
+                .sortedWith(compareByDescending<ScheduledTaskEntity> { it.updatedAtMillis }.thenBy { it.id })
+                .take(limit)
+
         override fun upsert(task: ScheduledTaskEntity) {
             tasks[task.id] = task
         }
@@ -283,7 +321,8 @@ class ScheduledTaskRepositoryTest {
         id: String,
         type: ScheduledTaskType,
         status: ScheduledTaskStatus,
-        triggerAtMillis: Long,
+        triggerAtMillis: Long = 1_000L,
+        updatedAtMillis: Long = 1_000L,
     ): ScheduledTaskEntity =
         ScheduledTaskEntity(
             id = id,
@@ -293,6 +332,6 @@ class ScheduledTaskRepositoryTest {
             triggerAtMillis = triggerAtMillis,
             status = status.name,
             createdAtMillis = 1_000L,
-            updatedAtMillis = 1_000L,
+            updatedAtMillis = updatedAtMillis,
         )
 }

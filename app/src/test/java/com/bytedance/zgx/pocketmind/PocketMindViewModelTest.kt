@@ -815,7 +815,18 @@ class PocketMindViewModelTest {
         val scheduler = FakeBackgroundTaskScheduler(
             scheduledTasks = listOf(
                 scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled),
-                scheduledTask("task-2", ScheduledTaskType.Reminder, ScheduledTaskStatus.Delivered),
+                scheduledTask(
+                    id = "task-2",
+                    type = ScheduledTaskType.Reminder,
+                    status = ScheduledTaskStatus.Delivered,
+                    updatedAtMillis = 2_000L,
+                ),
+                scheduledTask(
+                    id = "task-3",
+                    type = ScheduledTaskType.Reminder,
+                    status = ScheduledTaskStatus.Failed,
+                    updatedAtMillis = 3_000L,
+                ),
             ),
         )
         val remoteRuntime = RecordingRemoteChatRuntime()
@@ -830,6 +841,7 @@ class PocketMindViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTasks.map { it.id })
+        assertEquals(listOf("task-3", "task-2"), viewModel.uiState.value.backgroundTaskHistory.map { it.id })
         assertTrue(remoteRuntime.calls.isEmpty())
         assertTrue(executor.executedRequests.isEmpty())
     }
@@ -922,6 +934,7 @@ class PocketMindViewModelTest {
 
         assertEquals(listOf("task-1"), scheduler.cancelledTaskIds)
         assertTrue(viewModel.uiState.value.backgroundTasks.isEmpty())
+        assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTaskHistory.map { it.id })
         assertEquals("后台任务已取消", viewModel.uiState.value.statusText)
     }
 
@@ -1203,6 +1216,11 @@ class PocketMindViewModelTest {
         override fun scheduledTasks(limit: Int): List<ScheduledTask> =
             tasks.values.sortedBy { it.triggerAtMillis }.take(limit)
 
+        override fun recentTasks(limit: Int): List<ScheduledTask> =
+            tasks.values
+                .sortedWith(compareByDescending<ScheduledTask> { it.updatedAtMillis }.thenBy { it.id })
+                .take(limit)
+
         override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> {
             val task = ScheduledTask(
                 id = "task-${tasks.size + 1}",
@@ -1374,6 +1392,7 @@ class PocketMindViewModelTest {
         status: ScheduledTaskStatus,
         title: String = id,
         body: String = "测试后台任务",
+        updatedAtMillis: Long = 1_000L,
     ): ScheduledTask =
         ScheduledTask(
             id = id,
@@ -1383,7 +1402,7 @@ class PocketMindViewModelTest {
             triggerAtMillis = 2_000L,
             status = status,
             createdAtMillis = 1_000L,
-            updatedAtMillis = 1_000L,
+            updatedAtMillis = updatedAtMillis,
         )
 
     private fun toolAuditRecord(

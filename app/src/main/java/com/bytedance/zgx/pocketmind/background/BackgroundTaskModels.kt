@@ -126,6 +126,7 @@ enum class PeriodicCheckSkipReason {
 
 interface BackgroundTaskScheduler {
     fun scheduledTasks(limit: Int = 100): List<ScheduledTask> = emptyList()
+    fun recentTasks(limit: Int = 20): List<ScheduledTask> = emptyList()
     fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask>
     fun cancel(taskId: String): Result<Unit>
     fun cancelScheduledTask(taskId: String): Result<Unit> = cancel(taskId)

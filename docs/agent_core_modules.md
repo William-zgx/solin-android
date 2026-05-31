@@ -458,7 +458,10 @@ Current status:
   The UI shows pending task metadata and exposes explicit
   cancellation that cancels the platform schedule, updates local task state to
   `Cancelled`, and removes it from the running-task list.
-- Periodic check policy UX and historical task review are pending.
+- Implemented recent background task history in the same review surface for
+  terminal `Delivered`, `Cancelled`, `Deleted`, and `Failed` tasks. History rows
+  are read-only and cannot be mistaken for still-running tasks.
+- Periodic check policy UX is pending.
 
 Tests:
 

@@ -8,6 +8,7 @@ import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionExecutor
 import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.ScheduledTask
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupRepository
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupStore
@@ -241,7 +242,10 @@ class PocketMindViewModel(
 
     fun refreshBackgroundTasks() {
         _uiState.update {
-            it.copy(backgroundTasks = loadBackgroundTasks())
+            it.copy(
+                backgroundTasks = loadBackgroundTasks(),
+                backgroundTaskHistory = loadBackgroundTaskHistory(),
+            )
         }
     }
 
@@ -253,6 +257,7 @@ class PocketMindViewModel(
                     _uiState.update { state ->
                         state.copy(
                             backgroundTasks = loadBackgroundTasks(),
+                            backgroundTaskHistory = loadBackgroundTaskHistory(),
                             statusText = "后台任务已取消",
                         )
                     }
@@ -1128,6 +1133,7 @@ class PocketMindViewModel(
             it.copy(
                 pendingConfirmation = null,
                 backgroundTasks = loadBackgroundTasks(),
+                backgroundTaskHistory = loadBackgroundTaskHistory(),
                 auditEvents = loadAuditEvents(),
                 statusText = result.summary,
             )
@@ -1717,6 +1723,7 @@ class PocketMindViewModel(
             memoryEnabled = firstRunSetupRepository.isMemoryEnabled(),
             longTermMemories = loadLongTermMemories(),
             backgroundTasks = loadBackgroundTasks(),
+            backgroundTaskHistory = loadBackgroundTaskHistory(),
             auditEvents = loadAuditEvents(),
             generationParameters = generationParametersRepository.load(),
             sessions = sessionRepository.summaries(),
@@ -1836,16 +1843,27 @@ class PocketMindViewModel(
     private fun loadBackgroundTasks(): List<BackgroundTaskSummary> =
         backgroundTaskScheduler.scheduledTasks()
             .filter { task -> task.status == ScheduledTaskStatus.Scheduled }
-            .map { task ->
-                BackgroundTaskSummary(
-                    id = task.id,
-                    type = task.type,
-                    title = task.title,
-                    body = task.body,
-                    triggerAtMillis = task.triggerAtMillis,
-                    status = task.status,
-                )
+            .map { task -> task.toSummary() }
+
+    private fun loadBackgroundTaskHistory(): List<BackgroundTaskSummary> =
+        backgroundTaskScheduler.recentTasks()
+            .filter { task ->
+                task.status == ScheduledTaskStatus.Delivered ||
+                    task.status == ScheduledTaskStatus.Cancelled ||
+                    task.status == ScheduledTaskStatus.Deleted ||
+                    task.status == ScheduledTaskStatus.Failed
             }
+            .map { task -> task.toSummary() }
+
+    private fun ScheduledTask.toSummary(): BackgroundTaskSummary =
+        BackgroundTaskSummary(
+            id = id,
+            type = type,
+            title = title,
+            body = body,
+            triggerAtMillis = triggerAtMillis,
+            status = status,
+        )
 
     private fun loadAuditEvents(): List<AuditEventSummary> =
         toolAuditLog.recentAuditEvents().map { event ->

@@ -149,6 +149,7 @@ data class ChatUiState(
     val memoryHits: List<MemoryHit> = emptyList(),
     val longTermMemories: List<LongTermMemorySummary> = emptyList(),
     val backgroundTasks: List<BackgroundTaskSummary> = emptyList(),
+    val backgroundTaskHistory: List<BackgroundTaskSummary> = emptyList(),
     val auditEvents: List<AuditEventSummary> = emptyList(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,

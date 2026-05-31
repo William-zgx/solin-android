@@ -1738,6 +1738,25 @@ private fun BackgroundTaskSheet(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
 
+        SectionTitle(
+            text = "最近后台任务",
+            subtitle = "已结束任务只展示状态，不提供再次执行入口。",
+        )
+
+        if (state.backgroundTaskHistory.isEmpty()) {
+            EmptyPanelText("暂无后台任务历史")
+        } else {
+            state.backgroundTaskHistory.forEach { task ->
+                BackgroundTaskRow(
+                    task = task,
+                    enabled = !state.isBusy,
+                    onCancel = null,
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1839,7 +1858,7 @@ private fun AuditEventSummary.auditTimeLabel(): String =
 private fun BackgroundTaskRow(
     task: BackgroundTaskSummary,
     enabled: Boolean,
-    onCancel: () -> Unit,
+    onCancel: (() -> Unit)?,
 ) {
     val shape = MaterialTheme.shapes.medium
     Surface(
@@ -1887,15 +1906,17 @@ private fun BackgroundTaskRow(
                     )
                 }
             }
-            IconButton(
-                modifier = Modifier.testTag("background_task_cancel_${task.id}"),
-                onClick = onCancel,
-                enabled = enabled,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "取消后台任务",
-                )
+            if (onCancel != null) {
+                IconButton(
+                    modifier = Modifier.testTag("background_task_cancel_${task.id}"),
+                    onClick = onCancel,
+                    enabled = enabled,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "取消后台任务",
+                    )
+                }
             }
         }
     }
