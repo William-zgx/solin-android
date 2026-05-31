@@ -1,5 +1,45 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Generic Skill model continuation 增量验证
+
+本轮覆盖项：
+
+- `AgentLoopRuntime` 不再只为 clipboard/OCR 生成硬编码 continuation；当
+  当前工具属于恢复后的 `SkillPlan` 且后续存在依赖该工具的 `ModelStep` 时，
+  会从工具结果绑定模型输入、生成下一段模型 prompt，并继续进入
+  `GeneratingAnswer`。
+- 模型输出仍通过 `SkillRunProgressor.nextToolAfterModelOutput()` 绑定到后续
+  `ToolStep.argumentBindings`，然后重新进入 `AwaitingUserConfirmation`；后续工具
+  不会被自动执行。
+- 本轮保持既有隐私边界：不持久化完整原始 `SkillRunContinuation` 对象；Room 只
+  恢复 active pending confirmation snapshot + `SkillPlan`，私密
+  `outputs/privateOutputRefs/trace` 不进入持久层。
+- 新增多段回归覆盖 `web_search -> model -> share_text -> model ->
+  open_wifi_settings`，并在第二个确认点重建 `RoomAgentTraceStore`，证明恢复后的
+  pending Skill 仍可继续到下一段模型和第三个工具确认。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest'
+scripts/verify_local.sh
+git diff --check
+rg -n --hidden -S \
+  "(AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN (RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----|password\s*=\s*['\"][^'\"]+['\"]|secret\s*=\s*['\"][^'\"]+['\"]|token\s*=\s*['\"][^'\"]+['\"])" \
+  --glob '!build/**' --glob '!**/.gradle/**' --glob '!app/build/**' \
+  --glob '!**/src/test/**' --glob '!**/src/androidTest/**' .
+```
+
+结果：
+
+- 通过：targeted JVM AgentLoopRuntime 和 SkillRunProgressor 回归测试。
+- 通过：`scripts/verify_local.sh`，覆盖 `testDebugUnitTest`、`lintDebug`、
+  `assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease` 和 APK 检查。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配。
+
 ## 2026-05-31 Reminder PendingIntent identity 增量验证
 
 本轮覆盖项：

@@ -17,6 +17,7 @@ import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.safety.SafetyPolicy
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillModelOutputProgression
+import com.bytedance.zgx.pocketmind.skill.SkillModelStepBinding
 import com.bytedance.zgx.pocketmind.skill.SkillPlan
 import com.bytedance.zgx.pocketmind.skill.SkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillRunProgressor
@@ -273,7 +274,9 @@ class AgentLoopRuntime(
         }
         val request = toolRequestFor(runId, result.requestId) ?: return null
         traceStore.updateState(runId, AgentRunState.Observing)
-        val continuationPrompt = promptForToolObservation(run, request, result)
+        val continuation = continuationForToolObservation(run, request, result)
+        val continuationPrompt = continuation?.prompt
+        val continuationRequiresLocalModel = continuation?.requiresLocalModel ?: false
         val observedResult = result.redactedForTrace(request)
         val retryAttempt = nextRetryAttempt(runId, observedResult)
         val retryRequest = if (retryAttempt > 0) request else null
@@ -310,6 +313,7 @@ class AgentLoopRuntime(
             retryRequest = retryRequest,
             retryAttempt = retryAttempt,
             continuationPrompt = continuationPrompt,
+            continuationRequiresLocalModel = continuationRequiresLocalModel,
             nextToolPlan = nextToolPlan,
         )
         when (decision) {
@@ -358,8 +362,7 @@ class AgentLoopRuntime(
             decision = decision,
             recoveryAction = recoveryAction,
             continuationPromptForModel = continuationPrompt,
-            continuationRequiresLocalModel = continuationPrompt != null &&
-                request.toolName in localOnlyContinuationTools,
+            continuationRequiresLocalModel = continuationRequiresLocalModel,
             retryRequest = retryRequest,
             retryAttempt = retryAttempt,
             steps = traceStore.steps(runId),
@@ -372,6 +375,7 @@ class AgentLoopRuntime(
         retryRequest: ToolRequest?,
         retryAttempt: Int,
         continuationPrompt: String?,
+        continuationRequiresLocalModel: Boolean,
         nextToolPlan: NextObservationPlan,
     ): AgentObservationDecision =
         when {
@@ -383,7 +387,7 @@ class AgentLoopRuntime(
 
             result.status == ToolStatus.Succeeded && continuationPrompt != null ->
                 AgentObservationDecision.ContinueWithModel(
-                    requiresLocalModel = request.toolName in localOnlyContinuationTools,
+                    requiresLocalModel = continuationRequiresLocalModel,
                     reason = result.summary,
                 )
 
@@ -818,17 +822,18 @@ class AgentLoopRuntime(
         return completedAttempts + 1
     }
 
-    private fun promptForToolObservation(
+    private fun continuationForToolObservation(
         run: AgentRun,
         request: ToolRequest?,
         result: ToolResult,
-    ): String? {
+    ): ToolObservationContinuation? {
         if (result.status != ToolStatus.Succeeded) return null
         return when (request?.toolName) {
             MobileActionFunctions.READ_CLIPBOARD -> {
                 val clipboardText = result.data["text"]?.takeIf { it.isNotBlank() } ?: return null
                 val truncated = result.data["truncated"]?.toBooleanStrictOrNull() ?: false
-                """
+                ToolObservationContinuation(
+                    prompt = """
                     用户已经确认读取剪贴板。请根据用户原始请求处理剪贴板文本。
                     如果用户没有明确要求逐字复述，不要完整抄回剪贴板原文；优先总结、改写、提取信息或回答问题。
                     不要使用与当前请求无关的隐私内容。
@@ -837,13 +842,16 @@ class AgentLoopRuntime(
                     工具观察：${result.summary}
                     剪贴板文本${if (truncated) "（已截断）" else ""}：
                     $clipboardText
-                """.trimIndent()
+                    """.trimIndent(),
+                    requiresLocalModel = true,
+                )
             }
 
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> {
                 val ocrText = result.data["ocrText"]?.takeIf { it.isNotBlank() } ?: return null
                 val truncated = result.data["truncated"]?.toBooleanStrictOrNull() ?: false
-                """
+                ToolObservationContinuation(
+                    prompt = """
                     用户已经确认读取最近截图并在本地提取 OCR 文本。请根据用户原始请求处理 OCR 摘录。
                     这不是当前屏幕捕获，也不是图片语义理解；只使用已提取的截图文字。
                     如果用户没有明确要求逐字复述，不要完整抄回 OCR 原文；优先总结、改写、提取信息或回答问题。
@@ -852,12 +860,70 @@ class AgentLoopRuntime(
                     工具观察：${result.summary}
                     最近截图 OCR 文本${if (truncated) "（已截断）" else ""}：
                     $ocrText
-                """.trimIndent()
+                    """.trimIndent(),
+                    requiresLocalModel = true,
+                )
             }
 
-            else -> null
+            else -> skillModelContinuationAfterToolObservation(run, request, result)
         }
     }
+
+    private fun skillModelContinuationAfterToolObservation(
+        run: AgentRun,
+        request: ToolRequest?,
+        result: ToolResult,
+    ): ToolObservationContinuation? {
+        request ?: return null
+        val skillPlan = latestSkillPlan(run.id) ?: return null
+        val currentStepIndex = skillPlan.steps.indexOfFirst { step ->
+            step is SkillStep.ToolStep && step.request.id == request.id
+        }
+        if (currentStepIndex < 0) return null
+        val currentStep = skillPlan.steps[currentStepIndex] as SkillStep.ToolStep
+        val requestedStepIds = skillPlan.steps
+            .filterIsInstance<SkillStep.ToolStep>()
+            .filter { step -> toolRequestFor(run.id, step.request.id) != null }
+            .mapTo(mutableSetOf()) { step -> step.id }
+        val nextModelStep = skillPlan.steps
+            .drop(currentStepIndex + 1)
+            .filterIsInstance<SkillStep.ModelStep>()
+            .firstOrNull { step ->
+                currentStep.id in step.dependsOn && step.dependsOn.all { dependency -> dependency in requestedStepIds }
+            } ?: return null
+        val outputs = skillProgressor.initialOutputs(skillPlan)
+        outputs[currentStep.id] = skillProgressor.outputForToolResult(result, currentStep.draft)
+        val inputs = when (val binding = skillProgressor.bindModelStep(nextModelStep, outputs)) {
+            is SkillModelStepBinding.Bound -> binding.inputs
+            is SkillModelStepBinding.Missing -> return null
+        }
+        val privateRefs = skillProgressor.privateOutputRefsFor(currentStep.id, request.toolName)
+        val requiresLocalModel = nextModelStep.keepsSensitiveInputLocal ||
+            nextModelStep.inputBindings.values.any { sourceRef -> sourceRef in privateRefs } ||
+            request.toolName in localOnlyContinuationTools
+        val inputBlock = inputs.entries.joinToString(separator = "\n\n") { (name, value) ->
+            "$name:\n$value"
+        }
+        return ToolObservationContinuation(
+            prompt = """
+                继续执行本地 Skill：${skillPlan.manifest.title}
+                用户原始请求：${run.input}
+                当前模型步骤：${nextModelStep.title}
+                步骤指令：${nextModelStep.instruction}
+
+                可用输入：
+                $inputBlock
+
+                只输出 `${nextModelStep.outputKey}` 对应的文本，不要输出 JSON 或额外说明。
+            """.trimIndent(),
+            requiresLocalModel = requiresLocalModel,
+        )
+    }
+
+    private data class ToolObservationContinuation(
+        val prompt: String,
+        val requiresLocalModel: Boolean,
+    )
 
     private fun ToolResult.redactedForTrace(request: ToolRequest?): ToolResult {
         return when (request?.toolName) {

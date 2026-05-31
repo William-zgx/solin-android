@@ -1693,6 +1693,105 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun restoredMultiModelSkillPendingContinuesToNextModelAndToolConfirmation() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = MultiModelSkillRuntime(),
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-multi-model-skill" },
+            ),
+        )
+        val planned = initialRuntime.runOnce(
+            input = "multi model skill",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
+
+        initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val searchObserved = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "搜索结果摘要",
+            ),
+        )
+        requireNotNull(searchObserved)
+        assertEquals(AgentRunState.GeneratingAnswer, searchObserved.run.state)
+        require(searchObserved.decision is AgentObservationDecision.ContinueWithModel)
+        assertFalse(searchObserved.decision.requiresLocalModel)
+        assertFalse(searchObserved.continuationRequiresLocalModel)
+        assertTrue(searchObserved.continuationPromptForModel.orEmpty().contains("整理搜索结果"))
+        assertTrue(searchObserved.continuationPromptForModel.orEmpty().contains("搜索结果摘要"))
+
+        val sharePlanned = initialRuntime.observeModelResult(
+            runId = planned.run.id,
+            text = "可分享的搜索摘要",
+        )
+        requireNotNull(sharePlanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, sharePlanned.run.state)
+        require(sharePlanned.decision is AgentObservationDecision.PlanNextTool)
+        val shareRequest = sharePlanned.decision.plan.request
+        assertEquals(MobileActionFunctions.SHARE_TEXT, shareRequest.toolName)
+        assertEquals("可分享的搜索摘要", shareRequest.arguments["text"])
+
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = MultiModelSkillRuntime(),
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 2_000L },
+            ),
+        )
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(restoredPending)
+        assertEquals(shareRequest.id, restoredPending.request.id)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, restoredPending.request.toolName)
+        assertEquals(MultiModelSkillRuntime.SKILL_ID, restoredPending.skillId)
+
+        restoredRuntime.confirmToolRequest(planned.run.id, shareRequest.id)
+        val shareObserved = restoredRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = shareRequest.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开系统分享面板",
+            ),
+        )
+        requireNotNull(shareObserved)
+        assertEquals(AgentRunState.GeneratingAnswer, shareObserved.run.state)
+        require(shareObserved.decision is AgentObservationDecision.ContinueWithModel)
+        assertFalse(shareObserved.decision.requiresLocalModel)
+        assertFalse(shareObserved.continuationRequiresLocalModel)
+        assertTrue(shareObserved.continuationPromptForModel.orEmpty().contains("决定是否打开设置"))
+        assertTrue(shareObserved.continuationPromptForModel.orEmpty().contains("已打开系统分享面板"))
+
+        val wifiPlanned = restoredRuntime.observeModelResult(
+            runId = planned.run.id,
+            text = "继续打开设置",
+        )
+
+        requireNotNull(wifiPlanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, wifiPlanned.run.state)
+        require(wifiPlanned.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wifiPlanned.decision.plan.request.toolName)
+        assertEquals(MultiModelSkillRuntime.SKILL_ID, wifiPlanned.decision.plan.skillRequest?.skillId)
+        val persistedTrace = dao.steps(planned.run.id).joinToString("\n") { step ->
+            "${step.summary}\n${step.json}"
+        }
+        assertFalse(persistedTrace.contains("可分享的搜索摘要"))
+        assertFalse(persistedTrace.contains("继续打开设置"))
+    }
+
+    @Test
     fun successfulObservationCanPlanNextToolAndRequestConfirmationAgain() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(
@@ -2534,6 +2633,128 @@ class AgentLoopRuntimeTest {
 
         companion object {
             const val SKILL_ID = "custom_clipboard_transform_skill"
+        }
+    }
+
+    private class MultiModelSkillRuntime : SkillRuntime {
+        private val manifest = SkillManifest(
+            id = SKILL_ID,
+            version = 1,
+            title = "Multi model skill",
+            description = "Test-only multi model skill",
+            triggerExamples = listOf("multi model skill"),
+            requiredTools = listOf(
+                MobileActionFunctions.WEB_SEARCH,
+                MobileActionFunctions.SHARE_TEXT,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            ),
+            inputSchemaJson = """
+                {
+                  "type": "object",
+                  "required": ["input"],
+                  "properties": {
+                    "input": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
+            """.trimIndent(),
+            riskLevel = RiskLevel.HighExternalSend,
+        )
+
+        override fun manifests(): List<SkillManifest> = listOf(manifest)
+
+        override fun plan(input: String): SkillPlan? {
+            if (input != "multi model skill") return null
+            val searchDraft = ActionDraft(
+                functionName = MobileActionFunctions.WEB_SEARCH,
+                title = "Web 搜索",
+                summary = "将在浏览器中搜索：Kotlin",
+                parameters = mapOf("query" to "Kotlin"),
+                requiresConfirmation = true,
+            )
+            val shareDraft = ActionDraft(
+                functionName = MobileActionFunctions.SHARE_TEXT,
+                title = "分享摘要",
+                summary = "将分享搜索摘要。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            val wifiDraft = ActionDraft(
+                functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                title = "打开 Wi-Fi 设置",
+                summary = "将打开系统 Wi-Fi 设置页。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            return SkillPlan(
+                request = SkillRequest(
+                    id = "multi-model-skill-request",
+                    skillId = SKILL_ID,
+                    arguments = mapOf("input" to input),
+                    reason = input,
+                ),
+                manifest = manifest,
+                steps = listOf(
+                    SkillStep.ToolStep(
+                        id = "search",
+                        request = ToolRequest(
+                            id = "multi-search-request",
+                            toolName = MobileActionFunctions.WEB_SEARCH,
+                            arguments = mapOf("query" to "Kotlin"),
+                            reason = searchDraft.summary,
+                        ),
+                        draft = searchDraft,
+                    ),
+                    SkillStep.ModelStep(
+                        id = "summarize_search",
+                        dependsOn = listOf("search"),
+                        title = "整理搜索结果",
+                        instruction = "把搜索结果整理成适合分享的一句话。",
+                        inputBindings = mapOf("searchSummary" to "search.summary"),
+                        outputKey = "shareText",
+                        keepsSensitiveInputLocal = false,
+                    ),
+                    SkillStep.ToolStep(
+                        id = "share_search",
+                        dependsOn = listOf("summarize_search"),
+                        request = ToolRequest(
+                            id = "multi-share-request",
+                            toolName = MobileActionFunctions.SHARE_TEXT,
+                            reason = shareDraft.summary,
+                        ),
+                        draft = shareDraft,
+                        argumentBindings = mapOf("text" to "summarize_search.shareText"),
+                    ),
+                    SkillStep.ModelStep(
+                        id = "decide_settings",
+                        dependsOn = listOf("share_search"),
+                        title = "决定是否打开设置",
+                        instruction = "根据分享工具结果输出下一步确认说明。",
+                        inputBindings = mapOf("shareSummary" to "share_search.summary"),
+                        outputKey = "nextStep",
+                        keepsSensitiveInputLocal = false,
+                    ),
+                    SkillStep.ToolStep(
+                        id = "open_wifi",
+                        dependsOn = listOf("decide_settings"),
+                        request = ToolRequest(
+                            id = "multi-wifi-request",
+                            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                            reason = wifiDraft.summary,
+                        ),
+                        draft = wifiDraft,
+                    ),
+                ),
+            )
+        }
+
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+
+        companion object {
+            const val SKILL_ID = "multi_model_skill"
         }
     }
 

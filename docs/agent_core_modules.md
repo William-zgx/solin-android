@@ -87,10 +87,12 @@ Current status:
 - Confirmed clipboard observations can now create a follow-up model prompt so
   the assistant can answer from the just-read tool result instead of stopping at
   a generic "tool succeeded" message.
-- `clipboard_summary_share_skill` now has a constrained app-level continuation:
-  after the confirmed clipboard read and local model summary, the loop binds the
-  model output into a `share_text` request and returns to
-  `AwaitingUserConfirmation`. It does not execute the share step directly.
+- Model-step Skills now have an app-level continuation path: after a confirmed
+  tool step, the loop can build the next model-step prompt from that tool
+  result, then bind the model output into the next `ToolStep` and return to
+  `AwaitingUserConfirmation`. It does not execute follow-up tools directly.
+  Private reads such as clipboard and recent screenshot OCR still require local
+  model continuation and redact private payloads from persisted trace/audit.
 - Retryable tool failures now schedule one bounded retry on the already
   confirmed request, record a `ToolRetryScheduled` trace/audit event, and only
   fail the run after the retry budget is exhausted.
@@ -258,9 +260,12 @@ Current status:
   continuations. Cancelling a multi-step skill stops before the pending tool,
   preserves only public outputs, and records a cancellation trace without
   exposing private tool outputs.
-- App-level persistence now covers the active pending tool confirmation produced
-  by model-bound continuations; full persisted `SkillRunContinuation` support
-  for arbitrary multi-confirmation skill runner state is still pending.
+- App-level persistence covers the active pending tool confirmation produced by
+  model-bound continuations, including the pending request/draft and `SkillPlan`
+  needed to resume from that confirmation boundary after restart. The raw
+  `SkillRunContinuation` object is still not persisted, so private
+  `outputs/privateOutputRefs/trace` remain outside Room; broad arbitrary
+  skill-runner state persistence is still pending.
 - Room restore validates that a persisted pending confirmation with an attached
   `SkillPlan` still points at a tool step in that plan before restoring the UI.
   Corrupt or stale rows are skipped instead of reviving an unexplainable skill
