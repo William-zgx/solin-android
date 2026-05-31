@@ -2,10 +2,12 @@ package com.bytedance.zgx.pocketmind.background
 
 import com.bytedance.zgx.pocketmind.data.ScheduledTaskDao
 import com.bytedance.zgx.pocketmind.data.ScheduledTaskEntity
+import java.util.UUID
 
 class ScheduledTaskRepository(
     private val dao: ScheduledTaskDao,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val reminderIdFactory: () -> String = { "task-${UUID.randomUUID()}" },
 ) {
     fun createReminder(
         title: String,
@@ -14,7 +16,7 @@ class ScheduledTaskRepository(
     ): ScheduledTask {
         val now = clockMillis()
         val task = ScheduledTask(
-            id = "task-$now-${title.hashCode().toUInt()}",
+            id = nextReminderTaskId(),
             type = ScheduledTaskType.Reminder,
             title = title,
             body = body,
@@ -25,6 +27,19 @@ class ScheduledTaskRepository(
         )
         dao.upsert(task.toEntity())
         return task
+    }
+
+    private fun nextReminderTaskId(): String {
+        repeat(MAX_TASK_ID_ATTEMPTS) {
+            val candidate = reminderIdFactory().trim()
+            if (candidate.isNotBlank() && dao.task(candidate) == null) {
+                return candidate
+            }
+        }
+        while (true) {
+            val candidate = "task-${UUID.randomUUID()}"
+            if (dao.task(candidate) == null) return candidate
+        }
     }
 
     fun task(taskId: String): ScheduledTask? =
@@ -236,4 +251,8 @@ class ScheduledTaskRepository(
             storageSummary(),
             lastRunSummary?.takeIf { it.isNotBlank() },
         ).joinToString(separator = ";")
+
+    private companion object {
+        const val MAX_TASK_ID_ATTEMPTS = 8
+    }
 }

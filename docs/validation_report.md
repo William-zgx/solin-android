@@ -1,5 +1,34 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Reminder task id collision 增量验证
+
+本轮覆盖项：
+
+- `ScheduledTaskRepository.createReminder()` 不再用 `task-$timestamp-$titleHash`
+  生成 id，避免同一毫秒、同标题提醒覆盖同一条本地记录。
+- reminder task id 改为由 `UUID` 风格工厂生成，并在持久化前检查本地碰撞；测试
+  注入始终重复的 id factory 时，第二条提醒会重试并保留为独立记录。
+- rollback/recovery metadata 继续只暴露不透明 task id，但不再因标题相同而指向
+  被覆盖的提醒。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest'
+scripts/verify_local.sh
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+```
+
+结果：
+
+- 通过：targeted JVM ScheduledTaskRepository reminder id collision 回归测试。
+- 通过：`scripts/verify_local.sh`，覆盖 `testDebugUnitTest`、`lintDebug`、
+  `assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease` 和 APK 检查。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配。
+
 ## 2026-05-31 Stale reminder alarm delivery 增量验证
 
 本轮覆盖项：

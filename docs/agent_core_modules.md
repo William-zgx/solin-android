@@ -610,6 +610,9 @@ Current status:
 - Implemented `ScheduledTaskRepository`, `AndroidBackgroundTaskScheduler`, a
   reminder notification channel, `ReminderAlarmReceiver`, and
   `ReminderBootReceiver`.
+- Reminder task ids are generated independently of title/body text and retry on
+  local collisions before persistence, so two same-title reminders created in
+  the same clock tick do not overwrite each other or share rollback ids.
 - The scheduler uses `AlarmManager.setAndAllowWhileIdle`; triggered reminders
   first move through `Running`, then post a local notification when notification
   permission is available and update the task status to `Delivered` or

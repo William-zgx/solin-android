@@ -4,6 +4,7 @@ import com.bytedance.zgx.pocketmind.data.ScheduledTaskDao
 import com.bytedance.zgx.pocketmind.data.ScheduledTaskEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,6 +29,33 @@ class ScheduledTaskRepositoryTest {
 
         assertEquals(ScheduledTaskStatus.Delivered, repository.task(task.id)?.status)
         assertEquals(emptyList<ScheduledTask>(), repository.scheduled())
+    }
+
+    @Test
+    fun createReminderDoesNotOverwriteSameMillisecondSameTitleTasks() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(
+            dao = dao,
+            clockMillis = { 1_000L },
+            reminderIdFactory = { "task-fixed" },
+        )
+
+        val first = repository.createReminder(
+            title = "喝水",
+            body = "第一次",
+            triggerAtMillis = 2_000L,
+        )
+        val second = repository.createReminder(
+            title = "喝水",
+            body = "第二次",
+            triggerAtMillis = 3_000L,
+        )
+
+        assertNotEquals(first.id, second.id)
+        assertEquals(
+            listOf("第一次", "第二次"),
+            repository.scheduled().sortedBy { it.triggerAtMillis }.map { it.body },
+        )
     }
 
     @Test
