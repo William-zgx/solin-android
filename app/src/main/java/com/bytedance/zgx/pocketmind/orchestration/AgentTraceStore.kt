@@ -1,8 +1,17 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
+import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.data.AgentRunEntity
 import com.bytedance.zgx.pocketmind.data.AgentStepEntity
 import com.bytedance.zgx.pocketmind.data.AgentTraceDao
+import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
+import com.bytedance.zgx.pocketmind.skill.SkillManifest
+import com.bytedance.zgx.pocketmind.skill.SkillPlan
+import com.bytedance.zgx.pocketmind.skill.SkillRequest
+import com.bytedance.zgx.pocketmind.skill.SkillStep
+import com.bytedance.zgx.pocketmind.tool.RiskLevel
+import com.bytedance.zgx.pocketmind.tool.ToolRequest
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicLong
 import java.util.UUID
@@ -23,6 +32,9 @@ interface AgentTraceStore {
     fun appendStep(runId: String, step: AgentStep)
     fun steps(runId: String): List<AgentStep>
     fun stepSummaries(runId: String): List<AgentTraceStepSummary>
+    fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot)
+    fun latestPendingConfirmation(): PendingToolConfirmationSnapshot?
+    fun clearPendingConfirmation(runId: String, requestId: String): Boolean
 }
 
 class InMemoryAgentTraceStore(
@@ -32,6 +44,7 @@ class InMemoryAgentTraceStore(
     private val runs = linkedMapOf<String, AgentRun>()
     private val runSteps = linkedMapOf<String, MutableList<AgentStep>>()
     private val runStepSummaries = linkedMapOf<String, MutableList<AgentTraceStepSummary>>()
+    private val pendingConfirmations = linkedMapOf<String, PendingToolConfirmationSnapshot>()
 
     override fun createRun(input: String): AgentRun {
         val now = clockMillis()
@@ -78,6 +91,33 @@ class InMemoryAgentTraceStore(
 
     override fun stepSummaries(runId: String): List<AgentTraceStepSummary> =
         runStepSummaries[runId].orEmpty().toList()
+
+    override fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot) {
+        pendingConfirmations[snapshot.run.id] = snapshot
+    }
+
+    override fun latestPendingConfirmation(): PendingToolConfirmationSnapshot? =
+        pendingConfirmations.values
+            .sortedByDescending { snapshot -> snapshot.run.updatedAtMillis }
+            .firstNotNullOfOrNull { snapshot ->
+                val run = runs[snapshot.run.id]
+                when (run?.state) {
+                    AgentRunState.AwaitingUserConfirmation -> snapshot.copy(run = run)
+                    null -> null
+                    else -> {
+                        pendingConfirmations.remove(snapshot.run.id)
+                        null
+                    }
+                }
+            }
+
+    override fun clearPendingConfirmation(runId: String, requestId: String): Boolean =
+        pendingConfirmations[runId]
+            ?.takeIf { snapshot -> snapshot.request.id == requestId }
+            ?.let {
+                pendingConfirmations.remove(runId)
+                true
+            } ?: false
 }
 
 class RoomAgentTraceStore(
@@ -126,6 +166,59 @@ class RoomAgentTraceStore(
 
     override fun stepSummaries(runId: String): List<AgentTraceStepSummary> =
         traceDao.steps(runId).map { entity -> entity.toSummary() }
+
+    override fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot) {
+        val now = clockMillis()
+        traceDao.upsertPendingConfirmation(snapshot.toEntity(now))
+    }
+
+    override fun latestPendingConfirmation(): PendingToolConfirmationSnapshot? {
+        for (entity in traceDao.pendingConfirmations()) {
+            val run = traceDao.run(entity.runId)?.toDomain()
+            if (run == null || run.state != AgentRunState.AwaitingUserConfirmation) {
+                traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
+                continue
+            }
+            val snapshot = try {
+                entity.toSnapshot(run)
+            } catch (_: Exception) {
+                traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
+                null
+            } ?: continue
+            hydrateLivePendingSteps(snapshot)
+            return snapshot
+        }
+        return null
+    }
+
+    override fun clearPendingConfirmation(runId: String, requestId: String): Boolean =
+        traceDao.deletePendingConfirmation(runId, requestId) > 0
+
+    private fun hydrateLivePendingSteps(snapshot: PendingToolConfirmationSnapshot) {
+        val steps = liveSteps.getOrPut(snapshot.run.id) { mutableListOf() }
+        snapshot.skillPlan?.let { plan ->
+            if (steps.none { step -> step is AgentStep.SkillPlanned && step.request.id == plan.request.id }) {
+                val toolIndex = steps.indexOfFirst { step ->
+                    step is AgentStep.ToolRequested && step.request.id == snapshot.request.id
+                }
+                val skillStep = AgentStep.SkillPlanned(plan.request, plan)
+                if (toolIndex >= 0) {
+                    steps.add(toolIndex, skillStep)
+                } else {
+                    steps += skillStep
+                }
+            }
+        }
+        if (steps.none { step -> step is AgentStep.ToolRequested && step.request.id == snapshot.request.id }) {
+            steps += AgentStep.ToolRequested(snapshot.request, snapshot.draft)
+        }
+        if (steps.none { step ->
+                step is AgentStep.UserConfirmationRequested && step.request.id == snapshot.request.id
+            }
+        ) {
+            steps += AgentStep.UserConfirmationRequested(snapshot.request, snapshot.draft)
+        }
+    }
 }
 
 private fun AgentRun.toEntity(): AgentRunEntity =
@@ -183,6 +276,220 @@ private fun AgentStepEntity.toSummary(): AgentTraceStepSummary =
         json = json,
         createdAtMillis = createdAtMillis,
     )
+
+private fun PendingToolConfirmationSnapshot.toEntity(now: Long): PendingAgentConfirmationEntity =
+    PendingAgentConfirmationEntity(
+        runId = run.id,
+        requestId = request.id,
+        toolName = request.toolName,
+        argumentsJson = request.arguments.toJsonObject().toString(),
+        reason = request.reason,
+        draftFunctionName = draft.functionName,
+        draftTitle = draft.title,
+        draftSummary = draft.summary,
+        draftParametersJson = draft.parameters.toJsonObject().toString(),
+        skillId = skillId,
+        skillPlanJson = skillPlan?.toJsonObject()?.toString(),
+        plannedByModel = plannedByModel,
+        fallbackReason = fallbackReason,
+        createdAtMillis = now,
+        updatedAtMillis = now,
+    )
+
+private fun PendingAgentConfirmationEntity.toSnapshot(run: AgentRun): PendingToolConfirmationSnapshot =
+    PendingToolConfirmationSnapshot(
+        run = run,
+        request = ToolRequest(
+            id = requestId,
+            toolName = toolName,
+            arguments = argumentsJson.toStringMap(),
+            reason = reason,
+        ),
+        draft = ActionDraft(
+            functionName = draftFunctionName,
+            title = draftTitle,
+            summary = draftSummary,
+            parameters = draftParametersJson.toStringMap(),
+        ),
+        skillId = skillId,
+        skillPlan = skillPlanJson?.toSkillPlanOrNull(),
+        plannedByModel = plannedByModel,
+        fallbackReason = fallbackReason,
+    )
+
+private fun Map<String, String>.toJsonObject(): JSONObject {
+    val json = JSONObject()
+    entries.sortedBy { it.key }.forEach { (key, value) ->
+        json.put(key, value)
+    }
+    return json
+}
+
+private fun String.toStringMap(): Map<String, String> =
+    JSONObject(this).toStringMap()
+
+private fun JSONObject.toStringMap(): Map<String, String> {
+    return buildMap {
+        val keys = keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            put(key, optString(key))
+        }
+    }
+}
+
+private fun SkillPlan.toJsonObject(): JSONObject =
+    JSONObject()
+        .put("request", request.toJsonObject())
+        .put("manifest", manifest.toJsonObject())
+        .put(
+            "steps",
+            JSONArray().also { array ->
+                steps.forEach { step -> array.put(step.toJsonObject()) }
+            },
+        )
+
+private fun String.toSkillPlanOrNull(): SkillPlan? =
+    runCatching { JSONObject(this).toSkillPlan() }.getOrNull()
+
+private fun JSONObject.toSkillPlan(): SkillPlan =
+    SkillPlan(
+        request = getJSONObject("request").toSkillRequest(),
+        manifest = getJSONObject("manifest").toSkillManifest(),
+        steps = getJSONArray("steps").toSkillSteps(),
+    )
+
+private fun SkillRequest.toJsonObject(): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("skillId", skillId)
+        .put("arguments", arguments.toJsonObject())
+        .put("reason", reason)
+
+private fun JSONObject.toSkillRequest(): SkillRequest =
+    SkillRequest(
+        id = getString("id"),
+        skillId = getString("skillId"),
+        arguments = getJSONObject("arguments").toStringMap(),
+        reason = optString("reason"),
+    )
+
+private fun SkillManifest.toJsonObject(): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("version", version)
+        .put("title", title)
+        .put("description", description)
+        .put("triggerExamples", triggerExamples.toJsonArray())
+        .put("requiredTools", requiredTools.toJsonArray())
+        .put("inputSchemaJson", inputSchemaJson)
+        .put("riskLevel", riskLevel.name)
+
+private fun JSONObject.toSkillManifest(): SkillManifest =
+    SkillManifest(
+        id = getString("id"),
+        version = getInt("version"),
+        title = getString("title"),
+        description = getString("description"),
+        triggerExamples = getJSONArray("triggerExamples").toStringList(),
+        requiredTools = getJSONArray("requiredTools").toStringList(),
+        inputSchemaJson = getString("inputSchemaJson"),
+        riskLevel = RiskLevel.valueOf(getString("riskLevel")),
+    )
+
+private fun SkillStep.toJsonObject(): JSONObject =
+    when (this) {
+        is SkillStep.ToolStep -> JSONObject()
+            .put("type", "tool")
+            .put("id", id)
+            .put("dependsOn", dependsOn.toJsonArray())
+            .put("request", request.toJsonObject())
+            .put("draft", draft.toJsonObject())
+            .put("argumentBindings", argumentBindings.toJsonObject())
+
+        is SkillStep.ModelStep -> JSONObject()
+            .put("type", "model")
+            .put("id", id)
+            .put("dependsOn", dependsOn.toJsonArray())
+            .put("title", title)
+            .put("instruction", instruction)
+            .put("inputBindings", inputBindings.toJsonObject())
+            .put("outputKey", outputKey)
+            .put("keepsSensitiveInputLocal", keepsSensitiveInputLocal)
+    }
+
+private fun JSONArray.toSkillSteps(): List<SkillStep> =
+    buildList {
+        for (index in 0 until length()) {
+            val step = getJSONObject(index)
+            add(step.toSkillStep())
+        }
+    }
+
+private fun JSONObject.toSkillStep(): SkillStep =
+    when (getString("type")) {
+        "tool" -> SkillStep.ToolStep(
+            id = getString("id"),
+            dependsOn = getJSONArray("dependsOn").toStringList(),
+            request = getJSONObject("request").toToolRequest(),
+            draft = getJSONObject("draft").toActionDraft(),
+            argumentBindings = getJSONObject("argumentBindings").toStringMap(),
+        )
+
+        "model" -> SkillStep.ModelStep(
+            id = getString("id"),
+            dependsOn = getJSONArray("dependsOn").toStringList(),
+            title = getString("title"),
+            instruction = getString("instruction"),
+            inputBindings = getJSONObject("inputBindings").toStringMap(),
+            outputKey = getString("outputKey"),
+            keepsSensitiveInputLocal = optBoolean("keepsSensitiveInputLocal", true),
+        )
+
+        else -> error("Unknown skill step type: ${getString("type")}")
+    }
+
+private fun ToolRequest.toJsonObject(): JSONObject =
+    JSONObject()
+        .put("id", id)
+        .put("toolName", toolName)
+        .put("arguments", arguments.toJsonObject())
+        .put("reason", reason)
+
+private fun JSONObject.toToolRequest(): ToolRequest =
+    ToolRequest(
+        id = getString("id"),
+        toolName = getString("toolName"),
+        arguments = getJSONObject("arguments").toStringMap(),
+        reason = optString("reason"),
+    )
+
+private fun ActionDraft.toJsonObject(): JSONObject =
+    JSONObject()
+        .put("functionName", functionName)
+        .put("title", title)
+        .put("summary", summary)
+        .put("parameters", parameters.toJsonObject())
+        .put("requiresConfirmation", requiresConfirmation)
+
+private fun JSONObject.toActionDraft(): ActionDraft =
+    ActionDraft(
+        functionName = getString("functionName"),
+        title = getString("title"),
+        summary = getString("summary"),
+        parameters = getJSONObject("parameters").toStringMap(),
+        requiresConfirmation = optBoolean("requiresConfirmation", true),
+    )
+
+private fun List<String>.toJsonArray(): JSONArray =
+    JSONArray().also { array -> forEach { value -> array.put(value) } }
+
+private fun JSONArray.toStringList(): List<String> =
+    buildList {
+        for (index in 0 until length()) {
+            add(optString(index))
+        }
+    }
 
 private fun AgentStep.traceType(): String =
     when (this) {

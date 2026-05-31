@@ -458,7 +458,8 @@ enum class RiskLevel {
 任务：
 
 - Room 新增 `agent_runs`, `agent_steps`, `tool_invocations`, `skill_runs`。
-- UI state 从持久化 run 恢复 `pendingConfirmation`。
+- UI state 从持久化 run 恢复 `pendingConfirmation`。最新待确认工具的恢复快照
+  已落地；完整 typed run timeline 恢复仍待后续扩展。
 - trace 可被导出为调试文本，默认不含敏感字段。
 
 验收：

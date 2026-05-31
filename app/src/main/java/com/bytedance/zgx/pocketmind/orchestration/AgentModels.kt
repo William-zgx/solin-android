@@ -176,3 +176,13 @@ data class AgentModelObservationResult(
     val decision: AgentObservationDecision,
     val steps: List<AgentStep>,
 )
+
+data class PendingToolConfirmationSnapshot(
+    val run: AgentRun,
+    val request: ToolRequest,
+    val draft: ActionDraft,
+    val skillId: String?,
+    val skillPlan: SkillPlan? = null,
+    val plannedByModel: Boolean,
+    val fallbackReason: String?,
+)

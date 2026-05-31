@@ -323,6 +323,52 @@ class PocketMindViewModelTest {
         assertEquals(1, assistantRouter.confirmCallCount)
     }
 
+    @Test
+    fun restoreStartupStateRestoresPendingAgentConfirmationWithoutExecutingTool() = runTest(dispatcher) {
+        val request = ToolRequest(
+            id = "request-restored",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = "Open Wi-Fi",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "将打开系统 Wi-Fi 设置页。",
+            parameters = emptyMap(),
+        )
+        val executor = RecordingToolExecutor()
+        val assistantRouter = FakeAssistantRouter(
+            restoredPendingRoute = AssistantRoute.Action(
+                runId = "run-restored",
+                toolRequest = request,
+                draft = draft,
+                plannedByModel = false,
+                fallbackReason = "restored",
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+            ),
+        )
+        val viewModel = createViewModel(
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        val restored = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(restored)
+        assertEquals("run-restored", restored.runId)
+        assertEquals("request-restored", restored.toolRequest?.id)
+        assertTrue(executor.executedRequests.isEmpty())
+
+        viewModel.sendMessage("不应越过恢复的待确认动作")
+        advanceUntilIdle()
+
+        assertEquals("请先确认或取消待执行动作", viewModel.uiState.value.statusText)
+        assertTrue(executor.executedRequests.isEmpty())
+    }
+
     private fun createViewModel(
         sessionStore: FakeSessionStore = FakeSessionStore(),
         modelRepository: FakeModelRepository = FakeModelRepository(),
@@ -436,6 +482,7 @@ class PocketMindViewModelTest {
         private val cancelObservation: AgentObservationResult? = null,
         private val toolObservation: AgentObservationResult? = null,
         private val modelObservation: AgentModelObservationResult? = null,
+        private val restoredPendingRoute: AssistantRoute.Action? = null,
     ) : AssistantRouter {
         var routeCallCount: Int = 0
             private set
@@ -468,6 +515,8 @@ class PocketMindViewModelTest {
         override fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? = toolObservation
 
         override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? = modelObservation
+
+        override fun restorePendingAction(): AssistantRoute.Action? = restoredPendingRoute
 
         override fun close() = Unit
     }

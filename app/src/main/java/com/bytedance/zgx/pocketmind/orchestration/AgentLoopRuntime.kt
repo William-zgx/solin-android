@@ -78,6 +78,7 @@ class AgentLoopRuntime(
                     summary = toolPlan.safetyDecision.reason,
                 )
                 val waitingRun = traceStore.updateState(createdRun.id, AgentRunState.AwaitingUserConfirmation)
+                traceStore.savePendingConfirmation(toolPlan.toPendingSnapshot(waitingRun))
                 return AgentLoopResult(
                     run = waitingRun,
                     plan = toolPlan,
@@ -118,16 +119,23 @@ class AgentLoopRuntime(
     fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.AwaitingUserConfirmation) return run
-        val request = latestPendingToolRequest(runId)
-            ?.takeIf { request -> request.id == requestId }
+        val request = pendingToolRequest(runId, requestId)
             ?: return run
-        val spec = toolRegistry.specFor(request.toolName) ?: return run
+        val spec = toolRegistry.specFor(request.toolName)
+        if (spec == null) {
+            val rejection = request.rejected("Unknown tool: ${request.toolName}")
+            traceStore.appendStep(runId, AgentStep.ToolRejected(rejection))
+            auditRejectedTool(runId, rejection)
+            traceStore.clearPendingConfirmation(runId, requestId)
+            return traceStore.updateState(runId, AgentRunState.Failed)
+        }
         val safetyDecision = safetyPolicy.evaluate(spec, request, SafetyContext(userConfirmed = true))
         if (safetyDecision.outcome == SafetyOutcome.Reject) {
             val rejection = request.rejected(safetyDecision.reason)
             traceStore.appendStep(runId, AgentStep.SafetyChecked(safetyDecision))
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejection))
             auditRejectedTool(runId, rejection)
+            traceStore.clearPendingConfirmation(runId, requestId)
             return traceStore.updateState(runId, AgentRunState.Failed)
         }
         traceStore.appendStep(runId, AgentStep.SafetyChecked(safetyDecision))
@@ -139,14 +147,14 @@ class AgentLoopRuntime(
             status = null,
             summary = safetyDecision.reason,
         )
+        traceStore.clearPendingConfirmation(runId, requestId)
         return traceStore.updateState(runId, AgentRunState.ExecutingTool)
     }
 
     fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.AwaitingUserConfirmation) return null
-        val request = latestPendingToolRequest(runId)
-            ?.takeIf { pendingRequest -> pendingRequest.id == requestId }
+        val request = pendingToolRequest(runId, requestId)
             ?: return null
         traceStore.appendStep(runId, AgentStep.UserRejected(requestId))
         auditToolRequest(
@@ -156,6 +164,7 @@ class AgentLoopRuntime(
             status = ToolStatus.Cancelled,
             summary = "User cancelled tool request before execution.",
         )
+        traceStore.clearPendingConfirmation(runId, requestId)
         return observeToolResultInternal(
             runId = runId,
             result = request.cancelled("用户取消了工具请求"),
@@ -205,6 +214,9 @@ class AgentLoopRuntime(
             is AgentObservationDecision.RetryTool -> AgentRunState.RetryingTool
         }
         val updatedRun = traceStore.updateState(runId, finalState)
+        if (decision is AgentObservationDecision.PlanNextTool) {
+            traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
+        }
         return AgentModelObservationResult(
             run = updatedRun,
             decision = decision,
@@ -300,6 +312,9 @@ class AgentLoopRuntime(
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
         }
         val updatedRun = traceStore.updateState(runId, finalState)
+        if (decision is AgentObservationDecision.PlanNextTool) {
+            traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
+        }
         return AgentObservationResult(
             run = updatedRun,
             result = observedResult,
@@ -491,6 +506,20 @@ class AgentLoopRuntime(
             summary = plan.safetyDecision.reason,
         )
     }
+
+    fun latestPendingConfirmation(): PendingToolConfirmationSnapshot? =
+        traceStore.latestPendingConfirmation()
+
+    private fun AgentPlan.UseTool.toPendingSnapshot(run: AgentRun): PendingToolConfirmationSnapshot =
+        PendingToolConfirmationSnapshot(
+            run = run,
+            request = request,
+            draft = draft,
+            skillId = skillRequest?.skillId,
+            skillPlan = skillPlan,
+            plannedByModel = plannedByModel,
+            fallbackReason = fallbackReason,
+        )
 
     private sealed class NextObservationPlan {
         data object None : NextObservationPlan()
@@ -689,6 +718,15 @@ class AgentLoopRuntime(
             .asSequence()
             .mapNotNull { step -> (step as? AgentStep.UserConfirmationRequested)?.request }
             .firstOrNull()
+
+    private fun pendingToolRequest(runId: String, requestId: String): ToolRequest? {
+        val liveRequest = latestPendingToolRequest(runId)
+            ?.takeIf { request -> request.id == requestId }
+        if (liveRequest != null) return liveRequest
+        return traceStore.latestPendingConfirmation()
+            ?.takeIf { snapshot -> snapshot.run.id == runId && snapshot.request.id == requestId }
+            ?.request
+    }
 
     private fun latestConfirmedRequestId(runId: String): String? =
         traceStore.steps(runId)

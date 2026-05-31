@@ -41,6 +41,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_3_4,
                 PocketMindDatabase.MIGRATION_4_5,
                 PocketMindDatabase.MIGRATION_5_6,
+                PocketMindDatabase.MIGRATION_6_7,
             )
             .allowMainThreadQueries()
             .build()
@@ -71,7 +72,11 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_4_5, PocketMindDatabase.MIGRATION_5_6)
+            .addMigrations(
+                PocketMindDatabase.MIGRATION_4_5,
+                PocketMindDatabase.MIGRATION_5_6,
+                PocketMindDatabase.MIGRATION_6_7,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -108,7 +113,7 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_5_6)
+            .addMigrations(PocketMindDatabase.MIGRATION_5_6, PocketMindDatabase.MIGRATION_6_7)
             .allowMainThreadQueries()
             .build()
 
@@ -136,6 +141,65 @@ class PocketMindDatabaseMigrationTest {
             assertEquals("Created", database.agentTraceDao().run("run-1")?.state)
             assertEquals("AssistantResponded", database.agentTraceDao().steps("run-1").single().type)
             assertTrue(database.agentTraceTablesExist())
+        } finally {
+            database.close()
+            context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
+    @Test
+    fun migration6To7CreatesPendingAgentConfirmationsTableAndRoomCanOpen() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB_NAME)
+        val dbFile = context.getDatabasePath(TEST_DB_NAME)
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createVersion6Schema(db)
+            db.version = 6
+        }
+
+        val database = Room.databaseBuilder(
+            context,
+            PocketMindDatabase::class.java,
+            TEST_DB_NAME,
+        )
+            .addMigrations(PocketMindDatabase.MIGRATION_6_7)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            database.agentTraceDao().upsertRun(
+                AgentRunEntity(
+                    id = "run-1",
+                    input = "open wifi",
+                    state = "AwaitingUserConfirmation",
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 1L,
+                ),
+            )
+            database.agentTraceDao().upsertPendingConfirmation(
+                PendingAgentConfirmationEntity(
+                    runId = "run-1",
+                    requestId = "request-1",
+                    toolName = "open_wifi_settings",
+                    argumentsJson = "{}",
+                    reason = "Open Wi-Fi",
+                    draftFunctionName = "open_wifi_settings",
+                    draftTitle = "Wi-Fi",
+                    draftSummary = "Open Wi-Fi",
+                    draftParametersJson = "{}",
+                    skillId = null,
+                    skillPlanJson = null,
+                    plannedByModel = false,
+                    fallbackReason = null,
+                    createdAtMillis = 2L,
+                    updatedAtMillis = 2L,
+                ),
+            )
+
+            val pending = database.agentTraceDao().latestPendingConfirmation()
+            assertEquals("request-1", pending?.requestId)
+            assertTrue(database.pendingAgentConfirmationsTableExists())
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
@@ -264,6 +328,35 @@ class PocketMindDatabaseMigrationTest {
         )
     }
 
+    private fun createVersion6Schema(db: SQLiteDatabase) {
+        createVersion5Schema(db)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `agent_runs` (
+                `id` TEXT NOT NULL,
+                `input` TEXT NOT NULL,
+                `state` TEXT NOT NULL,
+                `createdAtMillis` INTEGER NOT NULL,
+                `updatedAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `agent_steps` (
+                `runId` TEXT NOT NULL,
+                `position` INTEGER NOT NULL,
+                `type` TEXT NOT NULL,
+                `summary` TEXT NOT NULL,
+                `json` TEXT NOT NULL,
+                `createdAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`runId`, `position`)
+            )
+            """.trimIndent(),
+        )
+    }
+
     private fun PocketMindDatabase.agentTraceTablesExist(): Boolean {
         val tables = mutableSetOf<String>()
         openHelper.writableDatabase.query(
@@ -274,6 +367,14 @@ class PocketMindDatabaseMigrationTest {
             }
         }
         return tables == setOf("agent_runs", "agent_steps")
+    }
+
+    private fun PocketMindDatabase.pendingAgentConfirmationsTableExists(): Boolean {
+        openHelper.writableDatabase.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'pending_agent_confirmations'",
+        ).use { cursor ->
+            return cursor.moveToNext()
+        }
     }
 
     private companion object {

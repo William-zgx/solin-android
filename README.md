@@ -95,9 +95,11 @@ observe-after-success replanning for explicit next actions, a gated skill-run
 executor, minimal device context
 snapshots, safety policy, persistent tool audit, long-term memory controls,
 local reminder scheduling, confirmed clipboard/device-context reads, outbound
-text sharing, and Android share intent metadata ingestion. Broad screen
-understanding, direct file-content parsing, and actual image/audio/document
-understanding are tracked there as pending core modules.
+text sharing, Android share intent metadata ingestion, and restart restoration
+for the latest pending tool confirmation without auto-execution. Broad screen
+understanding, generalized typed run recovery, direct file-content parsing, and
+actual image/audio/document understanding are tracked there as pending core
+modules.
 
 ## Recommended Models
 

@@ -92,9 +92,13 @@ Current status:
   request id, so stale request ids from earlier steps cannot advance the run.
 - Implemented trace steps for skill planning, user confirmation, tool
   observation, assistant response, rejection, cancellation, and failure.
+- Pending tool confirmations are persisted separately from the trace, then
+  restored on startup as UI confirmation state only. Restoration does not
+  execute tools; explicit user confirmation is still required before Android
+  execution can continue.
 - General model-driven next-step planning, generalized multi-step skill UI
-  orchestration beyond the clipboard summary share flow, and persisted run
-  recovery are still pending.
+  orchestration beyond the clipboard summary share flow, and generalized typed
+  run timeline recovery are still pending.
 
 Tests:
 
@@ -105,6 +109,8 @@ Tests:
 - `AgentLoopRuntimeTest.replannedToolCannotReuseExistingRequestId`
 - `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
 - `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
+- `AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace`
+- `PocketMindViewModelTest.restoreStartupStateRestoresPendingAgentConfirmationWithoutExecutingTool`
 - `AssistantOrchestratorTest.defaultSequentialReplannerPlansExplicitNextActionAfterObservation`
 - `AssistantOrchestratorTest.clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation`
 
@@ -234,6 +240,8 @@ Current status:
   recent-media-file, and reminder tools. Permission prompts are issued only
   after the user confirms the Agent tool request; denial returns through the
   normal structured tool result path.
+- Startup restoration can rehydrate the latest pending Agent confirmation from
+  Room without invoking Android execution or runtime permission requests.
 - Android share-target ingestion for text/images/audio/video/PDF metadata is
   implemented.
 - Implemented outbound `share_text` as a confirmed tool that opens Android's
@@ -268,6 +276,10 @@ Current status:
 - Audit events store request metadata, status, risk, permission names, and a
   short sanitized summary. They intentionally do not store tool arguments,
   prompts, remote responses, or secrets.
+- `pending_agent_confirmations` is a narrower recovery table for the latest
+  awaiting tool confirmation and may hold the tool arguments needed for an
+  explicit later confirmation. It is separate from trace/audit summaries and is
+  cleared when the request is confirmed, cancelled, or found stale.
 - Audit summary sanitization removes key-like tokens, bearer credentials, and
   email addresses before truncation. The in-memory audit sink stores the same
   redacted copy as the Room-backed repository so tests cannot accidentally

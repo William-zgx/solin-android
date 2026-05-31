@@ -1,12 +1,16 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.data.AgentRunEntity
 import com.bytedance.zgx.pocketmind.data.AgentStepEntity
 import com.bytedance.zgx.pocketmind.data.AgentTraceDao
+import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
+import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -68,9 +72,217 @@ class AgentTraceStoreTest {
         assertEquals(listOf(persistedStep), restartedStore.stepSummaries(run.id))
     }
 
+    @Test
+    fun roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace() {
+        var now = 3_000L
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { now++ },
+            runIdFactory = { "run-pending" },
+        )
+        val run = store.createRun("share draft")
+        val waitingRun = store.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
+        val request = ToolRequest(
+            id = "request-pending",
+            toolName = "share_text",
+            arguments = mapOf("text" to "private pending text"),
+            reason = "Share pending text",
+        )
+        val draft = ActionDraft(
+            functionName = "share_text",
+            title = "Share",
+            summary = "Share pending text",
+            parameters = request.arguments,
+        )
+        store.appendStep(waitingRun.id, AgentStep.ToolRequested(request, draft))
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = draft,
+                skillId = "share_skill",
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+
+        val persistedStep = store.stepSummaries(run.id).single()
+        assertFalse(persistedStep.json.contains("private pending text"))
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+        val restored = restartedStore.latestPendingConfirmation()
+
+        requireNotNull(restored)
+        assertEquals(waitingRun.id, restored.run.id)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, restored.run.state)
+        assertEquals("request-pending", restored.request.id)
+        assertEquals("private pending text", restored.request.arguments["text"])
+        assertEquals("share_skill", restored.skillId)
+        assertTrue(restartedStore.steps(waitingRun.id).any { step ->
+            step is AgentStep.ToolRequested && step.request.id == "request-pending"
+        })
+        assertTrue(restartedStore.steps(waitingRun.id).any { step ->
+            step is AgentStep.UserConfirmationRequested && step.request.id == "request-pending"
+        })
+
+        assertTrue(restartedStore.clearPendingConfirmation(waitingRun.id, request.id))
+        assertNull(restartedStore.latestPendingConfirmation())
+    }
+
+    @Test
+    fun roomStoreRestoresPendingSkillPlanForContinuation() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-skill" },
+        )
+        val request = ToolRequest(
+            id = "request-read-clipboard",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "Read clipboard for summary",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CLIPBOARD,
+            title = "读取剪贴板",
+            summary = "将读取当前剪贴板文本。",
+            parameters = emptyMap(),
+        )
+        val skillPlan = BuiltInSkillRuntime().planClipboardSummaryShare(
+            input = "总结剪贴板并分享",
+            readRequest = request,
+            readDraft = draft,
+        )
+        val run = store.createRun("总结剪贴板并分享")
+        val waitingRun = store.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = draft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+        val restored = restartedStore.latestPendingConfirmation()
+
+        requireNotNull(restored)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, restored.skillPlan?.request?.skillId)
+        assertEquals(3, restored.skillPlan?.steps?.size)
+        val hydratedSteps = restartedStore.steps(waitingRun.id)
+        val skillIndex = hydratedSteps.indexOfFirst { step -> step is AgentStep.SkillPlanned }
+        val toolIndex = hydratedSteps.indexOfFirst { step -> step is AgentStep.ToolRequested }
+        assertTrue(skillIndex >= 0)
+        assertTrue(toolIndex >= 0)
+        assertTrue(skillIndex < toolIndex)
+    }
+
+    @Test
+    fun pendingConfirmationIsIgnoredWhenRunIsNoLongerAwaitingConfirmation() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-old" },
+        )
+        val run = store.createRun("open wifi")
+        val waitingRun = store.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
+        val request = ToolRequest(
+            id = "request-old",
+            toolName = "open_wifi_settings",
+            reason = "Open Wi-Fi",
+        )
+        val draft = ActionDraft(
+            functionName = "open_wifi_settings",
+            title = "Wi-Fi",
+            summary = "Open Wi-Fi",
+            parameters = emptyMap(),
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = draft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+            ),
+        )
+        store.updateState(run.id, AgentRunState.Completed)
+
+        assertNull(store.latestPendingConfirmation())
+    }
+
+    @Test
+    fun latestPendingConfirmationSkipsStaleRowsAndRestoresOlderAwaitingRun() {
+        var nextRun = 0
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-${++nextRun}" },
+        )
+        val validRun = store.updateState(store.createRun("open wifi").id, AgentRunState.AwaitingUserConfirmation)
+        val validRequest = ToolRequest(
+            id = "request-valid",
+            toolName = "open_wifi_settings",
+            reason = "Open Wi-Fi",
+        )
+        val validDraft = ActionDraft(
+            functionName = "open_wifi_settings",
+            title = "Wi-Fi",
+            summary = "Open Wi-Fi",
+            parameters = emptyMap(),
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = validRun,
+                request = validRequest,
+                draft = validDraft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+            ),
+        )
+
+        val staleRun = store.updateState(store.createRun("share").id, AgentRunState.AwaitingUserConfirmation)
+        val staleRequest = ToolRequest(
+            id = "request-stale",
+            toolName = "share_text",
+            arguments = mapOf("text" to "stale"),
+            reason = "Share stale text",
+        )
+        val staleDraft = ActionDraft(
+            functionName = "share_text",
+            title = "Share",
+            summary = "Share stale text",
+            parameters = staleRequest.arguments,
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = staleRun,
+                request = staleRequest,
+                draft = staleDraft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+            ),
+        )
+        store.updateState(staleRun.id, AgentRunState.Completed)
+
+        val restored = store.latestPendingConfirmation()
+
+        requireNotNull(restored)
+        assertEquals(validRun.id, restored.run.id)
+        assertEquals(validRequest.id, restored.request.id)
+    }
+
     private class FakeAgentTraceDao : AgentTraceDao {
         private val runs = linkedMapOf<String, AgentRunEntity>()
         private val steps = mutableListOf<AgentStepEntity>()
+        private val pendingConfirmations = linkedMapOf<String, PendingAgentConfirmationEntity>()
 
         override fun run(runId: String): AgentRunEntity? =
             runs[runId]
@@ -108,5 +320,26 @@ class AgentTraceStoreTest {
             steps
                 .filter { step -> step.runId == runId }
                 .sortedBy { step -> step.position }
+
+        override fun pendingConfirmations(): List<PendingAgentConfirmationEntity> =
+            pendingConfirmations.values.sortedWith(
+                compareByDescending<PendingAgentConfirmationEntity> { pending -> pending.updatedAtMillis }
+                    .thenByDescending { pending -> pending.createdAtMillis }
+                    .thenByDescending { pending -> pending.runId },
+            )
+
+        override fun latestPendingConfirmation(): PendingAgentConfirmationEntity? =
+            pendingConfirmations().firstOrNull()
+
+        override fun upsertPendingConfirmation(pending: PendingAgentConfirmationEntity) {
+            pendingConfirmations[pending.runId] = pending
+        }
+
+        override fun deletePendingConfirmation(runId: String, requestId: String): Int {
+            val existing = pendingConfirmations[runId] ?: return 0
+            if (existing.requestId != requestId) return 0
+            pendingConfirmations.remove(runId)
+            return 1
+        }
     }
 }

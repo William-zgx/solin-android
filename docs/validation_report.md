@@ -1,5 +1,42 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Pending Agent Confirmation Recovery 增量验证
+
+本轮覆盖项：
+
+- 新增 `pending_agent_confirmations` Room 表，用于保存最新待确认工具请求的
+  恢复快照；普通 Agent trace/audit 仍不写入原始工具参数。
+- `RoomAgentTraceStore` 重启后只恢复仍处于 `AwaitingUserConfirmation` 的
+  pending run，并跳过/清理 stale pending；查询顺序加入稳定 tie-breaker。
+- 恢复会补回确认所需的 typed live steps，包括多步骤 skill 的
+  `SkillPlanned`，保证 “总结剪贴板并分享” 这类后续模型观察还能继续规划
+  第二个待确认工具。
+- `PocketMindViewModel.restoreStartupState` 只恢复 UI confirmation state，
+  不执行工具，也不触发 Android runtime permission；新消息仍会被待确认动作
+  拦截。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest'
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:lintDebug
+git diff --check
+```
+
+结果：通过。
+
+补充检查：
+
+- `stash@{0}` 的 recent-files 候选实现未直接应用；当前主线已覆盖其核心能力，
+  且补强了编译、权限请求和最小化返回字段。
+- 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
+
 ## 2026-05-31 Runtime Permission Request 增量验证
 
 本轮覆盖项：

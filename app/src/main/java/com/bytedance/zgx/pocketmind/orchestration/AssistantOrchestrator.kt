@@ -52,6 +52,8 @@ interface AssistantRouter : AutoCloseable {
     fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult?
 
     fun observeModelResult(runId: String, text: String): AgentModelObservationResult?
+
+    fun restorePendingAction(): AssistantRoute.Action?
 }
 
 class AssistantOrchestrator(
@@ -96,7 +98,20 @@ class AssistantOrchestrator(
     override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? =
         agentLoopRuntime.observeModelResult(runId, text)
 
+    override fun restorePendingAction(): AssistantRoute.Action? =
+        agentLoopRuntime.latestPendingConfirmation()?.toAssistantRoute()
+
     override fun close() {
         (actionPlanningRuntime as? AutoCloseable)?.close()
     }
 }
+
+private fun PendingToolConfirmationSnapshot.toAssistantRoute(): AssistantRoute.Action =
+    AssistantRoute.Action(
+        runId = run.id,
+        draft = draft,
+        plannedByModel = plannedByModel,
+        fallbackReason = fallbackReason,
+        toolRequest = request,
+        skillId = skillId,
+    )

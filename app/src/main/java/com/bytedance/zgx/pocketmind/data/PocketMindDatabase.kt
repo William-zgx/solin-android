@@ -110,6 +110,25 @@ data class AgentStepEntity(
     val createdAtMillis: Long,
 )
 
+@Entity(tableName = "pending_agent_confirmations")
+data class PendingAgentConfirmationEntity(
+    @PrimaryKey val runId: String,
+    val requestId: String,
+    val toolName: String,
+    val argumentsJson: String,
+    val reason: String,
+    val draftFunctionName: String,
+    val draftTitle: String,
+    val draftSummary: String,
+    val draftParametersJson: String,
+    val skillId: String?,
+    val skillPlanJson: String?,
+    val plannedByModel: Boolean,
+    val fallbackReason: String?,
+    val createdAtMillis: Long,
+    val updatedAtMillis: Long,
+)
+
 @Dao
 interface SessionDao {
     @Query("SELECT * FROM chat_sessions ORDER BY updatedAtMillis DESC")
@@ -228,6 +247,18 @@ interface AgentTraceDao {
 
     @Query("SELECT * FROM agent_steps WHERE runId = :runId ORDER BY position ASC")
     fun steps(runId: String): List<AgentStepEntity>
+
+    @Query("SELECT * FROM pending_agent_confirmations ORDER BY updatedAtMillis DESC, createdAtMillis DESC, runId DESC")
+    fun pendingConfirmations(): List<PendingAgentConfirmationEntity>
+
+    @Query("SELECT * FROM pending_agent_confirmations ORDER BY updatedAtMillis DESC, createdAtMillis DESC, runId DESC LIMIT 1")
+    fun latestPendingConfirmation(): PendingAgentConfirmationEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsertPendingConfirmation(pending: PendingAgentConfirmationEntity)
+
+    @Query("DELETE FROM pending_agent_confirmations WHERE runId = :runId AND requestId = :requestId")
+    fun deletePendingConfirmation(runId: String, requestId: String): Int
 }
 
 @Database(
@@ -241,8 +272,9 @@ interface AgentTraceDao {
         MemoryRecordEntity::class,
         AgentRunEntity::class,
         AgentStepEntity::class,
+        PendingAgentConfirmationEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class PocketMindDatabase : RoomDatabase() {
@@ -356,6 +388,33 @@ abstract class PocketMindDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `pending_agent_confirmations` (
+                        `runId` TEXT NOT NULL,
+                        `requestId` TEXT NOT NULL,
+                        `toolName` TEXT NOT NULL,
+                        `argumentsJson` TEXT NOT NULL,
+                        `reason` TEXT NOT NULL,
+                        `draftFunctionName` TEXT NOT NULL,
+                        `draftTitle` TEXT NOT NULL,
+                        `draftSummary` TEXT NOT NULL,
+                        `draftParametersJson` TEXT NOT NULL,
+                        `skillId` TEXT,
+                        `skillPlanJson` TEXT,
+                        `plannedByModel` INTEGER NOT NULL,
+                        `fallbackReason` TEXT,
+                        `createdAtMillis` INTEGER NOT NULL,
+                        `updatedAtMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`runId`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun get(context: Context): PocketMindDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -363,7 +422,14 @@ abstract class PocketMindDatabase : RoomDatabase() {
                     PocketMindDatabase::class.java,
                     "pocketmind.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7,
+                    )
                     .allowMainThreadQueries()
                     .build()
                     .also { INSTANCE = it }

@@ -92,6 +92,7 @@ class PocketMindViewModel(
                     it.copy(statusText = "已找到模型，点击加载模型")
                 }
             }
+            restorePendingAgentConfirmationIfAny()
             return
         }
 
@@ -126,6 +127,7 @@ class PocketMindViewModel(
                 loadModel()
             }
         }
+        restorePendingAgentConfirmationIfAny()
     }
 
     fun startModelDownload() {
@@ -1617,6 +1619,25 @@ class PocketMindViewModel(
     private fun rebuildMemoryIndex() {
         memoryRepository.enabled = _uiState.value.memoryEnabled
         memoryRepository.rebuild(sessionRepository.allMessages(limit = 500))
+    }
+
+    private fun restorePendingAgentConfirmationIfAny() {
+        val route = assistantOrchestrator.restorePendingAction() ?: return
+        _uiState.update {
+            it.copy(
+                pendingConfirmation = PendingAgentConfirmation(
+                    runId = route.runId,
+                    draft = route.draft,
+                    toolRequest = route.toolRequest,
+                    skillId = route.skillId,
+                    plannedByModel = route.plannedByModel,
+                    fallbackReason = route.fallbackReason,
+                ),
+                isBusy = false,
+                isGenerating = false,
+                statusText = "动作草稿待确认 · 已恢复",
+            )
+        }
     }
 
     private fun isArm64Device(): Boolean =
