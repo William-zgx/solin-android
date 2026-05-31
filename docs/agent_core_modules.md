@@ -366,12 +366,19 @@ Current status:
 - Reminder confirmation requests notification permission before execution on
   Android versions that require it. If permission is still unavailable,
   execution fails with a structured `PermissionDenied` tool result.
-- Periodic check policies, WorkManager-backed recurring jobs, runtime
-  task review UI are pending.
+- Implemented runtime background task review UI for still-`Scheduled` tasks.
+  The UI shows pending task metadata and exposes explicit
+  cancellation that cancels the platform schedule, updates local task state to
+  `Cancelled`, and removes it from the running-task list.
+- Periodic check policy UX and historical task review are pending.
 
 Tests:
 
 - `ScheduledTaskRepositoryTest`
+- `PeriodicCheckSchedulerTest`
+- `PocketMindViewModelTest.restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork`
+- `PocketMindViewModelTest.cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler`
+- `MainActivitySmokeTest.backgroundTaskManagerShowsEmptyState`
 - `ActionExecutorTest`
 - `ActionPlannerTest.infersReminderDraftWithDelayMinutes`
 - `ToolRegistryTest.validatesReminderDelayMinutesAsPositiveInteger`

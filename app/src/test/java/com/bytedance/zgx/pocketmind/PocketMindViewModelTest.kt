@@ -3,6 +3,11 @@ package com.bytedance.zgx.pocketmind
 import android.net.Uri
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
+import com.bytedance.zgx.pocketmind.background.ScheduledTask
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupStore
 import com.bytedance.zgx.pocketmind.data.GenerationParametersStore
 import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
@@ -449,6 +454,65 @@ class PocketMindViewModelTest {
         assertEquals("长期记忆已清空", viewModel.uiState.value.statusText)
     }
 
+    @Test
+    fun restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork() = runTest(dispatcher) {
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled),
+                scheduledTask("task-2", ScheduledTaskType.Reminder, ScheduledTaskStatus.Delivered),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val executor = RecordingToolExecutor()
+        val viewModel = createViewModel(
+            backgroundTaskScheduler = scheduler,
+            remoteRuntime = remoteRuntime,
+            actionExecutor = executor,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTasks.map { it.id })
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertTrue(executor.executedRequests.isEmpty())
+    }
+
+    @Test
+    fun cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler() = runTest(dispatcher) {
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled)),
+        )
+        val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.cancelBackgroundTask("task-1")
+        advanceUntilIdle()
+
+        assertEquals(listOf("task-1"), scheduler.cancelledTaskIds)
+        assertTrue(viewModel.uiState.value.backgroundTasks.isEmpty())
+        assertEquals("后台任务已取消", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun cancelRunningBackgroundTaskFailureKeepsTaskVisible() = runTest(dispatcher) {
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled)),
+            cancelFailure = IllegalStateException("alarm unavailable"),
+        )
+        val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.cancelBackgroundTask("task-1")
+        advanceUntilIdle()
+
+        assertEquals(listOf("task-1"), scheduler.cancelledTaskIds)
+        assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTasks.map { it.id })
+        assertTrue(viewModel.uiState.value.statusText.contains("后台任务取消失败"))
+    }
+
     private fun createViewModel(
         sessionStore: FakeSessionStore = FakeSessionStore(),
         modelRepository: FakeModelRepository = FakeModelRepository(),
@@ -459,6 +523,7 @@ class PocketMindViewModelTest {
         runtime: FakeLiteRtRuntime = FakeLiteRtRuntime(),
         remoteRuntime: RecordingRemoteChatRuntime = RecordingRemoteChatRuntime(),
         memoryRepository: MemoryRepository = MemoryRepository(),
+        backgroundTaskScheduler: BackgroundTaskScheduler = FakeBackgroundTaskScheduler(),
         assistantRouter: FakeAssistantRouter = FakeAssistantRouter(),
         actionExecutor: ToolExecutor = object : ToolExecutor {
             override fun execute(request: ToolRequest): ToolResult =
@@ -480,6 +545,7 @@ class PocketMindViewModelTest {
             remoteRuntime = remoteRuntime,
             memoryRepository = memoryRepository,
             longTermMemoryControls = memoryRepository,
+            backgroundTaskScheduler = backgroundTaskScheduler,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantRouter,
             isArm64DeviceProvider = { true },
@@ -653,6 +719,45 @@ class PocketMindViewModelTest {
         }
     }
 
+    private class FakeBackgroundTaskScheduler(
+        scheduledTasks: List<ScheduledTask> = emptyList(),
+        private val cancelFailure: Throwable? = null,
+    ) : BackgroundTaskScheduler {
+        private val tasks = linkedMapOf<String, ScheduledTask>()
+        val cancelledTaskIds = mutableListOf<String>()
+
+        init {
+            scheduledTasks.forEach { task -> tasks[task.id] = task }
+        }
+
+        override fun scheduledTasks(limit: Int): List<ScheduledTask> =
+            tasks.values.sortedBy { it.triggerAtMillis }.take(limit)
+
+        override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> {
+            val task = ScheduledTask(
+                id = "task-${tasks.size + 1}",
+                type = ScheduledTaskType.Reminder,
+                title = request.title,
+                body = request.body,
+                triggerAtMillis = 2_000L,
+                status = ScheduledTaskStatus.Scheduled,
+                createdAtMillis = 1_000L,
+                updatedAtMillis = 1_000L,
+            )
+            tasks[task.id] = task
+            return Result.success(task)
+        }
+
+        override fun cancel(taskId: String): Result<Unit> {
+            cancelledTaskIds += taskId
+            cancelFailure?.let { return Result.failure(it) }
+            tasks[taskId]?.let { existing ->
+                tasks[taskId] = existing.copy(status = ScheduledTaskStatus.Cancelled)
+            }
+            return Result.success(Unit)
+        }
+    }
+
     private class FakeModelRepository(
         activeModelPath: String? = null,
     ) : ModelRepositoryFacade {
@@ -781,4 +886,22 @@ class PocketMindViewModelTest {
 
         override fun query(downloadId: Long): DownloadInfo? = null
     }
+
+    private fun scheduledTask(
+        id: String,
+        type: ScheduledTaskType,
+        status: ScheduledTaskStatus,
+        title: String = id,
+        body: String = "测试后台任务",
+    ): ScheduledTask =
+        ScheduledTask(
+            id = id,
+            type = type,
+            title = title,
+            body = body,
+            triggerAtMillis = 2_000L,
+            status = status,
+            createdAtMillis = 1_000L,
+            updatedAtMillis = 1_000L,
+        )
 }

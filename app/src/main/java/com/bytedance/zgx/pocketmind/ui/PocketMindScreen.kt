@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Storage
@@ -97,6 +98,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.bytedance.zgx.pocketmind.BackendChoice
+import com.bytedance.zgx.pocketmind.BackgroundTaskSummary
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.ChatUiState
 import com.bytedance.zgx.pocketmind.ModelCatalog
@@ -112,11 +114,15 @@ import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.isUsable
 import com.bytedance.zgx.pocketmind.label
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.ui.theme.LocalPocketMindColors
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -146,6 +152,8 @@ fun PocketMindScreen(
     onMemoryEnabledChanged: (Boolean) -> Unit,
     onForgetLongTermMemory: (String) -> Unit,
     onClearLongTermMemory: () -> Unit,
+    onRefreshBackgroundTasks: () -> Unit,
+    onCancelBackgroundTask: (String) -> Unit,
     onConfirmAgentConfirmation: (PendingAgentConfirmation) -> Unit,
     onDismissAgentConfirmation: () -> Unit,
     onSendMessage: (String) -> Unit,
@@ -159,6 +167,7 @@ fun PocketMindScreen(
     var customModelUrl by rememberSaveable { mutableStateOf("") }
     var showModelManager by rememberSaveable { mutableStateOf(false) }
     var showSessions by rememberSaveable { mutableStateOf(false) }
+    var showBackgroundTasks by rememberSaveable { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val lastMessageId = state.messages.lastOrNull()?.id
 
@@ -186,6 +195,10 @@ fun PocketMindScreen(
                     state = state,
                     onOpenModelManager = { showModelManager = true },
                     onOpenSessions = { showSessions = true },
+                    onOpenBackgroundTasks = {
+                        onRefreshBackgroundTasks()
+                        showBackgroundTasks = true
+                    },
                     onCreateSession = onCreateSession,
                 )
 
@@ -300,6 +313,19 @@ fun PocketMindScreen(
                 }
             }
 
+            if (showBackgroundTasks) {
+                ModalBottomSheet(
+                    sheetState = sheetState,
+                    onDismissRequest = { showBackgroundTasks = false },
+                ) {
+                    BackgroundTaskSheet(
+                        state = state,
+                        onRefreshBackgroundTasks = onRefreshBackgroundTasks,
+                        onCancelBackgroundTask = onCancelBackgroundTask,
+                    )
+                }
+            }
+
             if (state.showFirstRunSetup) {
                 ModalBottomSheet(
                     sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -345,6 +371,7 @@ private fun ChatTopBar(
     state: ChatUiState,
     onOpenModelManager: () -> Unit,
     onOpenSessions: () -> Unit,
+    onOpenBackgroundTasks: () -> Unit,
     onCreateSession: () -> Unit,
 ) {
     Surface(
@@ -397,6 +424,12 @@ private fun ChatTopBar(
                     icon = Icons.Filled.Tune,
                     label = "模型管理",
                     onClick = onOpenModelManager,
+                )
+                TopActionButton(
+                    modifier = Modifier.testTag("top_background_tasks_button"),
+                    icon = Icons.Filled.Notifications,
+                    label = "后台任务",
+                    onClick = onOpenBackgroundTasks,
                 )
                 TopActionButton(
                     modifier = Modifier.testTag("top_session_button"),
@@ -1624,6 +1657,146 @@ private fun SessionManagerSheet(
         }
     }
 }
+
+@Composable
+private fun BackgroundTaskSheet(
+    state: ChatUiState,
+    onRefreshBackgroundTasks: () -> Unit,
+    onCancelBackgroundTask: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("background_task_manager_title"),
+                text = "后台任务",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            TextButton(
+                modifier = Modifier.testTag("background_task_refresh_button"),
+                onClick = onRefreshBackgroundTasks,
+                enabled = !state.isBusy,
+            ) {
+                Text("刷新")
+            }
+        }
+
+        if (state.backgroundTasks.isEmpty()) {
+            EmptyPanelText("暂无运行中的后台任务")
+        } else {
+            state.backgroundTasks.forEach { task ->
+                BackgroundTaskRow(
+                    task = task,
+                    enabled = !state.isBusy,
+                    onCancel = { onCancelBackgroundTask(task.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundTaskRow(
+    task: BackgroundTaskSummary,
+    enabled: Boolean,
+    onCancel: () -> Unit,
+) {
+    val shape = MaterialTheme.shapes.medium
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("background_task_${task.id}"),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f),
+        ),
+        tonalElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = task.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${task.type.label()} · ${task.status.label()} · ${task.triggerLabel()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (task.body.isNotBlank()) {
+                    Text(
+                        text = task.body,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            IconButton(
+                modifier = Modifier.testTag("background_task_cancel_${task.id}"),
+                onClick = onCancel,
+                enabled = enabled,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "取消后台任务",
+                )
+            }
+        }
+    }
+}
+
+private fun BackgroundTaskSummary.triggerLabel(): String {
+    val prefix = when (type) {
+        ScheduledTaskType.Reminder -> "触发"
+        ScheduledTaskType.PeriodicCheck -> "下次允许检查"
+    }
+    return "$prefix ${SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(triggerAtMillis))}"
+}
+
+private fun ScheduledTaskType.label(): String =
+    when (this) {
+        ScheduledTaskType.Reminder -> "提醒"
+        ScheduledTaskType.PeriodicCheck -> "周期检查"
+    }
+
+private fun ScheduledTaskStatus.label(): String =
+    when (this) {
+        ScheduledTaskStatus.Scheduled -> "运行中"
+        ScheduledTaskStatus.Running -> "执行中"
+        ScheduledTaskStatus.Delivered -> "已送达"
+        ScheduledTaskStatus.Cancelled -> "已取消"
+        ScheduledTaskStatus.Deleted -> "已删除"
+        ScheduledTaskStatus.Failed -> "失败"
+    }
 
 @Composable
 private fun RecommendedModelCard(

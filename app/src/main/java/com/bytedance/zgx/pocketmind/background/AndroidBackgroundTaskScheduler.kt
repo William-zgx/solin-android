@@ -21,6 +21,17 @@ class AndroidBackgroundTaskScheduler(
         )
     }
 
+    private val removalCoordinator: ScheduledTaskRemovalCoordinator by lazy {
+        ScheduledTaskRemovalCoordinator(
+            repository = repository,
+            cancelReminderAlarm = ::cancelReminderAlarm,
+            cancelPeriodicWork = { periodicCheckScheduler.cancelPeriodicWork() },
+        )
+    }
+
+    override fun scheduledTasks(limit: Int): List<ScheduledTask> =
+        repository.scheduledOrRunning(limit)
+
     override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> =
         runCatching {
             val normalized = request.normalized()
@@ -37,13 +48,13 @@ class AndroidBackgroundTaskScheduler(
         }
 
     override fun cancel(taskId: String): Result<Unit> =
-        runCatching {
-            val task = repository.task(taskId) ?: return@runCatching
-            pendingIntentFor(task, PendingIntent.FLAG_NO_CREATE)?.let { pendingIntent ->
-                alarmManager?.cancel(pendingIntent)
-            }
-            repository.markCancelled(taskId)
-        }
+        cancelScheduledTask(taskId)
+
+    override fun cancelScheduledTask(taskId: String): Result<Unit> =
+        removalCoordinator.cancelScheduled(taskId)
+
+    override fun deleteScheduledTask(taskId: String): Result<Unit> =
+        removalCoordinator.deleteScheduled(taskId)
 
     fun rescheduleScheduledReminders(limit: Int = 100): Result<ReminderRescheduleReport> =
         runCatching {
@@ -69,6 +80,13 @@ class AndroidBackgroundTaskScheduler(
                 triggerAtMillis,
                 pendingIntent,
             ) ?: error("AlarmManager unavailable")
+        }
+
+    private fun cancelReminderAlarm(task: ScheduledTask): Result<Unit> =
+        runCatching {
+            pendingIntentFor(task, PendingIntent.FLAG_NO_CREATE)?.let { pendingIntent ->
+                alarmManager?.cancel(pendingIntent)
+            }
         }
 
     private fun pendingIntentFor(task: ScheduledTask, flag: Int): PendingIntent? {

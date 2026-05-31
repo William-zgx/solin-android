@@ -1,5 +1,48 @@
 # PocketMind 验证报告
 
+## 2026-05-31 运行中后台任务查看/取消 UI 增量验证
+
+本轮覆盖项：
+
+- `BackgroundTaskScheduler` 新增运行中任务读取与 type-aware 取消边界；
+  reminder 取消会撤销 AlarmManager `PendingIntent`，periodic check 取消会撤销
+  WorkManager unique work。
+- `ScheduledTaskRepository` 可区分 `Scheduled`、`Running`、`Delivered`、
+  `Cancelled`、`Deleted` 和 `Failed`，并只把仍处于 `Scheduled` 的任务暴露给
+  当前 UI 的运行中列表。
+- `ActionExecutor` 补齐 `cancel_reminder` 执行分支，Tool Registry 中已注册的
+  取消提醒工具现在能返回结构化取消结果或失败原因。
+- `PocketMindViewModel` 新增运行中后台任务状态、刷新和取消事件；启动时读取
+  活跃任务，不展示历史完成/失败/取消记录，取消失败时保留原任务并显示失败提示。
+- UI 新增“后台任务”入口，显示任务标题、触发/检查时间、状态和取消入口；空
+  列表显示“暂无运行中的后台任务”。
+- 该 UI 只管理已确认创建的后台任务，不绕过 `schedule_reminder` 的 Agent 确认
+  和 Android 通知权限链路。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest'
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:lintDebug
+git diff --check
+```
+
+结果：通过。
+
+补充检查：
+
+- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+  Authorization Bearer token 被写入文件。
+- 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
+
 ## 2026-05-31 长期记忆查看/遗忘控制增量验证
 
 本轮覆盖项：

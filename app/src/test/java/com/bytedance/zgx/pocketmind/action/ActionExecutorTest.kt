@@ -32,6 +32,71 @@ class ActionExecutorTest {
     }
 
     @Test
+    fun cancelsReminderThroughBackgroundScheduler() {
+        val scheduler = RecordingBackgroundTaskScheduler()
+        val executor = ActionExecutor(
+            context = null,
+            backgroundTaskScheduler = scheduler,
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-cancel-reminder",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                arguments = mapOf("taskId" to "task-1"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals("task-1", result.data["taskId"])
+        assertEquals("task-1", scheduler.lastCancelledTaskId)
+    }
+
+    @Test
+    fun rejectsReminderCancellationWithoutTaskId() {
+        val executor = ActionExecutor(
+            context = null,
+            backgroundTaskScheduler = RecordingBackgroundTaskScheduler(),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-cancel-reminder",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                arguments = mapOf("taskId" to " "),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.InvalidRequest, result.error?.code)
+    }
+
+    @Test
+    fun reportsReminderCancellationFailureAsStructuredToolResult() {
+        val executor = ActionExecutor(
+            context = null,
+            backgroundTaskScheduler = RecordingBackgroundTaskScheduler(
+                failure = IllegalStateException("cancel unavailable"),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-cancel-reminder",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                arguments = mapOf("taskId" to "task-1"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
+        assertTrue(result.summary.contains("cancel unavailable"))
+    }
+
+    @Test
     fun rejectsReminderWhenNotificationPermissionIsMissing() {
         val executor = ActionExecutor(
             context = null,
@@ -257,6 +322,8 @@ class ActionExecutorTest {
     ) : BackgroundTaskScheduler {
         var lastReminderRequest: ReminderScheduleRequest? = null
             private set
+        var lastCancelledTaskId: String? = null
+            private set
 
         override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> {
             lastReminderRequest = request
@@ -276,6 +343,11 @@ class ActionExecutorTest {
         }
 
         override fun cancel(taskId: String): Result<Unit> =
-            Result.success(Unit)
+            if (failure == null) {
+                lastCancelledTaskId = taskId
+                Result.success(Unit)
+            } else {
+                Result.failure(failure)
+            }
     }
 }

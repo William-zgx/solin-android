@@ -22,7 +22,7 @@ class PeriodicCheckScheduler(
         runCatching {
             val normalized = request.normalized()
             if (!normalized.enabled) {
-                workClient.cancel().getOrThrow()
+                cancelPeriodicWork().getOrThrow()
                 return@runCatching repository.disablePeriodicCheck()
             }
 
@@ -37,9 +37,12 @@ class PeriodicCheckScheduler(
 
     fun disablePeriodicCheck(): Result<Unit> =
         runCatching {
-            workClient.cancel().getOrThrow()
+            cancelPeriodicWork().getOrThrow()
             repository.disablePeriodicCheck()
         }
+
+    fun cancelPeriodicWork(): Result<Unit> =
+        workClient.cancel()
 }
 
 class WorkManagerPeriodicCheckClient(

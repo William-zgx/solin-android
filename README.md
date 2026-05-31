@@ -24,6 +24,7 @@ Google AI Edge LiteRT-LM.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map search, information lookup, device settings, local reminders, clipboard context, and system sharing.
 - A conservative clipboard-summary-share composite flow that keeps summarization local and asks again before opening the Android share sheet.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
+- Running background task review for still-scheduled reminders and periodic checks, including explicit cancellation.
 - Android share-target entry for text, image, audio, video, and PDF metadata, plus confirmed outbound system sharing for text.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
 - Local chat sessions with create, switch, and delete actions.
@@ -32,8 +33,8 @@ Google AI Edge LiteRT-LM.
 
 ## Screens And Model Flow
 
-PocketMind opens directly into the chat surface. The top bar exposes model and
-session management:
+PocketMind opens directly into the chat surface. The top bar exposes model,
+background task, and session management:
 
 1. Open **Model**.
 2. Pick a recommended model, paste a custom `.litertlm` URL, or import a local
@@ -72,7 +73,9 @@ Reminder requests such as “提醒我 15 分钟后喝水” become confirmed
 `schedule_reminder` tool calls and are persisted before being handed to Android
 AlarmManager. Pending reminders are restored after device reboot; reminders
 that became due while the device was off are rescheduled with a short catch-up
-delay.
+delay. The running background tasks view lists still-scheduled tasks; canceling
+one cancels the pending AlarmManager or WorkManager work, marks the local
+record as `Cancelled`, and removes it from the running list.
 Clipboard requests such as “读取剪贴板” become confirmed `read_clipboard`
 tool calls. After confirmation, clipboard text is used only for the immediate
 local follow-up answer and is redacted from trace, audit, and persisted chat
@@ -99,10 +102,11 @@ one conservative clipboard-summary-share composite flow, conservative
 observe-after-success replanning for explicit next actions, a gated skill-run
 executor, minimal device context
 snapshots, safety policy, persistent tool audit, long-term memory controls,
-local reminder scheduling, confirmed clipboard/device-context reads, outbound
-text sharing, safe HTTPS deep-link navigation, package-level app launches,
-Android share intent metadata ingestion, and restart restoration for the latest
-pending tool confirmation without auto-execution. Broad screen understanding,
+local reminder scheduling, running background task review/cancellation,
+confirmed clipboard/device-context reads, outbound text sharing, safe HTTPS
+deep-link navigation, package-level app launches, Android share intent metadata
+ingestion, and restart restoration for the latest pending tool confirmation
+without auto-execution. Broad screen understanding,
 generalized typed run recovery, direct file-content parsing, and actual
 image/audio/document understanding are tracked there as pending core modules.
 

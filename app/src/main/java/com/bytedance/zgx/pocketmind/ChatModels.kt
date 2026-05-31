@@ -1,6 +1,8 @@
 package com.bytedance.zgx.pocketmind
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
@@ -79,6 +81,15 @@ data class LongTermMemorySummary(
     val text: String,
 )
 
+data class BackgroundTaskSummary(
+    val id: String,
+    val type: ScheduledTaskType,
+    val title: String,
+    val body: String,
+    val triggerAtMillis: Long,
+    val status: ScheduledTaskStatus,
+)
+
 data class PendingAgentConfirmation(
     val runId: String?,
     val draft: ActionDraft,
@@ -121,6 +132,7 @@ data class ChatUiState(
     val memoryEnabled: Boolean = true,
     val memoryHits: List<MemoryHit> = emptyList(),
     val longTermMemories: List<LongTermMemorySummary> = emptyList(),
+    val backgroundTasks: List<BackgroundTaskSummary> = emptyList(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,
     val remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),

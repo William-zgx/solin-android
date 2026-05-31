@@ -18,8 +18,10 @@ enum class ScheduledTaskType {
 
 enum class ScheduledTaskStatus {
     Scheduled,
+    Running,
     Delivered,
     Cancelled,
+    Deleted,
     Failed,
 }
 
@@ -123,8 +125,11 @@ enum class PeriodicCheckSkipReason {
 }
 
 interface BackgroundTaskScheduler {
+    fun scheduledTasks(limit: Int = 100): List<ScheduledTask> = emptyList()
     fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask>
     fun cancel(taskId: String): Result<Unit>
+    fun cancelScheduledTask(taskId: String): Result<Unit> = cancel(taskId)
+    fun deleteScheduledTask(taskId: String): Result<Unit> = cancelScheduledTask(taskId)
 }
 
 data class ReminderRescheduleReport(

@@ -118,6 +118,7 @@ class PocketMindAppContainer(context: Context) {
             remoteRuntime = remoteRuntime,
             memoryRepository = memoryRepository,
             longTermMemoryControls = memoryRepository,
+            backgroundTaskScheduler = backgroundTaskSchedulerInternal,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = {
@@ -140,6 +141,7 @@ private class PocketMindViewModelFactory(
     private val remoteRuntime: OkHttpRemoteChatRuntime,
     private val memoryRepository: MemoryRepository,
     private val longTermMemoryControls: LongTermMemoryControls,
+    private val backgroundTaskScheduler: AndroidBackgroundTaskScheduler,
     private val actionExecutor: ToolExecutor,
     private val assistantOrchestrator: AssistantOrchestrator,
     private val isArm64DeviceProvider: () -> Boolean,
@@ -160,6 +162,7 @@ private class PocketMindViewModelFactory(
             remoteRuntime = remoteRuntime,
             memoryRepository = memoryRepository,
             longTermMemoryControls = longTermMemoryControls,
+            backgroundTaskScheduler = backgroundTaskScheduler,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = isArm64DeviceProvider,

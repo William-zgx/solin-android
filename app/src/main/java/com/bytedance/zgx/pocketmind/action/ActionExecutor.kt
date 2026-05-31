@@ -40,6 +40,9 @@ class ActionExecutor(
         if (request.toolName == MobileActionFunctions.SCHEDULE_REMINDER) {
             return scheduleReminder(request)
         }
+        if (request.toolName == MobileActionFunctions.CANCEL_REMINDER) {
+            return cancelReminder(request)
+        }
         if (request.toolName == MobileActionFunctions.READ_CLIPBOARD) {
             return readClipboard(request)
         }
@@ -143,6 +146,43 @@ class ActionExecutor(
                 )
             },
         )
+    }
+
+    private fun cancelReminder(request: ToolRequest): ToolResult {
+        val taskId = request.arguments["taskId"].orEmpty().trim()
+        if (taskId.isBlank()) {
+            return request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = "提醒任务 id 不能为空",
+                retryable = false,
+            )
+        }
+        val scheduler = backgroundTaskScheduler
+            ?: return request.failed(
+                code = ToolErrorCode.ExecutionFailed,
+                summary = "后台任务调度器不可用",
+                retryable = true,
+            )
+        return scheduler.cancelScheduledTask(taskId)
+            .fold(
+                onSuccess = {
+                    request.succeeded(
+                        summary = "已取消后台任务：$taskId",
+                        data = mapOf(
+                            "toolName" to request.toolName,
+                            "taskId" to taskId,
+                        ),
+                    )
+                },
+                onFailure = { throwable ->
+                    request.failed(
+                        code = ToolErrorCode.ExecutionFailed,
+                        summary = "后台任务取消失败：${throwable.cleanMessage()}",
+                        retryable = true,
+                        data = mapOf("toolName" to request.toolName),
+                    )
+                },
+            )
     }
 
     private fun intentsFor(request: ToolRequest): List<Intent>? =

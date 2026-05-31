@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionExecutor
+import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupRepository
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupStore
 import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
@@ -61,6 +63,7 @@ class PocketMindViewModel(
     private val remoteRuntime: RemoteChatRuntime,
     private val memoryRepository: MemoryIndex,
     private val longTermMemoryControls: LongTermMemoryControls,
+    private val backgroundTaskScheduler: BackgroundTaskScheduler,
     private val actionExecutor: ToolExecutor,
     private val assistantOrchestrator: AssistantRouter,
     private val isArm64DeviceProvider: () -> Boolean,
@@ -225,6 +228,32 @@ class PocketMindViewModel(
                 statusText = "长期记忆已清空",
             )
         }
+    }
+
+    fun refreshBackgroundTasks() {
+        _uiState.update {
+            it.copy(backgroundTasks = loadBackgroundTasks())
+        }
+    }
+
+    fun cancelBackgroundTask(taskId: String) {
+        if (_uiState.value.isBusy) return
+        backgroundTaskScheduler.cancelScheduledTask(taskId)
+            .fold(
+                onSuccess = {
+                    _uiState.update { state ->
+                        state.copy(
+                            backgroundTasks = loadBackgroundTasks(),
+                            statusText = "后台任务已取消",
+                        )
+                    }
+                },
+                onFailure = { throwable ->
+                    _uiState.update {
+                        it.copy(statusText = "后台任务取消失败：${throwable.cleanMessage()}")
+                    }
+                },
+            )
     }
 
     fun startCustomModelDownload(downloadUrl: String) {
@@ -1040,6 +1069,7 @@ class PocketMindViewModel(
         _uiState.update {
             it.copy(
                 pendingConfirmation = null,
+                backgroundTasks = loadBackgroundTasks(),
                 statusText = result.summary,
             )
         }
@@ -1576,6 +1606,7 @@ class PocketMindViewModel(
             showFirstRunSetup = !firstRunSetupRepository.isSetupDismissed(),
             memoryEnabled = firstRunSetupRepository.isMemoryEnabled(),
             longTermMemories = loadLongTermMemories(),
+            backgroundTasks = loadBackgroundTasks(),
             generationParameters = generationParametersRepository.load(),
             sessions = sessionRepository.summaries(),
             activeSessionId = sessionRepository.activeSessionId,
@@ -1658,6 +1689,20 @@ class PocketMindViewModel(
                 text = record.text,
             )
         }
+
+    private fun loadBackgroundTasks(): List<BackgroundTaskSummary> =
+        backgroundTaskScheduler.scheduledTasks()
+            .filter { task -> task.status == ScheduledTaskStatus.Scheduled }
+            .map { task ->
+                BackgroundTaskSummary(
+                    id = task.id,
+                    type = task.type,
+                    title = task.title,
+                    body = task.body,
+                    triggerAtMillis = task.triggerAtMillis,
+                    status = task.status,
+                )
+            }
 
     private fun restorePendingAgentConfirmationIfAny() {
         val route = assistantOrchestrator.restorePendingAction() ?: return

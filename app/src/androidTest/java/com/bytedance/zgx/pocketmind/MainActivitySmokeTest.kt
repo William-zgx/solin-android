@@ -60,6 +60,17 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("session_create_button").assertIsDisplayed()
     }
 
+    @Test
+    fun backgroundTaskManagerShowsEmptyState() {
+        dismissFirstRunSetupIfPresent()
+
+        composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+        composeRule.waitForTag("background_task_manager_title")
+
+        composeRule.onNodeWithText("后台任务").assertIsDisplayed()
+        composeRule.onNodeWithText("暂无运行中的后台任务").assertIsDisplayed()
+    }
+
     private fun ComposeTestRule.waitForTag(tag: String) {
         waitUntil(timeoutMillis = 5_000) {
             onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()

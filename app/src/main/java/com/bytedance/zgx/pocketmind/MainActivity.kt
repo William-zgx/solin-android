@@ -79,6 +79,8 @@ class MainActivity : ComponentActivity() {
                     onMemoryEnabledChanged = viewModel::updateMemoryEnabled,
                     onForgetLongTermMemory = viewModel::forgetLongTermMemory,
                     onClearLongTermMemory = viewModel::clearLongTermMemory,
+                    onRefreshBackgroundTasks = viewModel::refreshBackgroundTasks,
+                    onCancelBackgroundTask = viewModel::cancelBackgroundTask,
                     onConfirmAgentConfirmation = ::confirmAgentConfirmationWithPermissions,
                     onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
                     onSendMessage = viewModel::sendMessage,

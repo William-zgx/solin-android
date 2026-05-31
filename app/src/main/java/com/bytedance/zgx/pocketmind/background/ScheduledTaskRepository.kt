@@ -33,6 +33,19 @@ class ScheduledTaskRepository(
     fun scheduled(limit: Int = 100): List<ScheduledTask> =
         dao.scheduled(limit).map { it.toModel() }
 
+    fun scheduledOrRunning(limit: Int = 100): List<ScheduledTask> {
+        if (limit <= 0) return emptyList()
+        val scheduledTasks = scheduled(limit)
+        val scheduledTaskIds = scheduledTasks.mapTo(mutableSetOf()) { it.id }
+        val runningKnownTasks = listOfNotNull(periodicCheck())
+            .filter { task ->
+                task.status == ScheduledTaskStatus.Running && task.id !in scheduledTaskIds
+            }
+        return (scheduledTasks + runningKnownTasks)
+            .sortedWith(compareBy<ScheduledTask> { it.triggerAtMillis }.thenBy { it.id })
+            .take(limit)
+    }
+
     fun scheduledReminders(limit: Int = 100): List<ScheduledTask> =
         dao.scheduledByType(ScheduledTaskType.Reminder.name, limit).map { it.toModel() }
 
@@ -103,8 +116,30 @@ class ScheduledTaskRepository(
         updateStatus(taskId, ScheduledTaskStatus.Cancelled)
     }
 
+    fun cancelScheduled(taskId: String): Boolean =
+        updateScheduledStatus(taskId, ScheduledTaskStatus.Cancelled)
+
+    fun deleteScheduled(taskId: String): Boolean =
+        updateScheduledStatus(taskId, ScheduledTaskStatus.Deleted)
+
+    fun markRunning(taskId: String) {
+        updateStatus(taskId, ScheduledTaskStatus.Running)
+    }
+
     fun markFailed(taskId: String) {
         updateStatus(taskId, ScheduledTaskStatus.Failed)
+    }
+
+    private fun updateScheduledStatus(taskId: String, status: ScheduledTaskStatus): Boolean {
+        val existing = dao.task(taskId) ?: return false
+        if (existing.status != ScheduledTaskStatus.Scheduled.name) return false
+        dao.upsert(
+            existing.copy(
+                status = status.name,
+                updatedAtMillis = clockMillis(),
+            ),
+        )
+        return true
     }
 
     private fun updateStatus(taskId: String, status: ScheduledTaskStatus) {

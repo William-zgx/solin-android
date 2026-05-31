@@ -92,6 +92,15 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun infersCancelReminderDraftWithTaskId() {
+        val plan = planner.plan("取消提醒 task-123")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, plan.draft?.functionName)
+        assertEquals("task-123", plan.draft?.parameters?.get("taskId"))
+    }
+
+    @Test
     fun infersClipboardReadDraftOnlyWhenClipboardIsNamed() {
         val plan = planner.plan("读取剪贴板并总结")
 

@@ -57,6 +57,13 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.PostsNotification in reminderSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission in reminderSpec.permissions)
 
+        val cancelReminderSpec = registry.specFor(MobileActionFunctions.CANCEL_REMINDER)
+        assertNotNull(cancelReminderSpec)
+        requireNotNull(cancelReminderSpec)
+        assertEquals(ToolCapability.BackgroundTask, cancelReminderSpec.capability)
+        assertEquals(ConfirmationPolicy.Required, cancelReminderSpec.confirmationPolicy)
+        assertTrue(cancelReminderSpec.inputSchemaJson.contains("taskId"))
+
         val clipboardSpec = registry.specFor(MobileActionFunctions.READ_CLIPBOARD)
         assertNotNull(clipboardSpec)
         requireNotNull(clipboardSpec)
@@ -200,6 +207,7 @@ class ToolRegistryTest {
             MobileActionFunctions.SEARCH_MAPS to "query",
             MobileActionFunctions.WEB_SEARCH to "query",
             MobileActionFunctions.SCHEDULE_REMINDER to "title",
+            MobileActionFunctions.CANCEL_REMINDER to "taskId",
             MobileActionFunctions.SHARE_TEXT to "text",
             MobileActionFunctions.OPEN_DEEP_LINK to "uri",
             MobileActionFunctions.OPEN_APP_INTENT to "packageName",
@@ -335,6 +343,31 @@ class ToolRegistryTest {
                     "body" to "提醒我喝水",
                     "delayMinutes" to "15",
                 ),
+                reason = "test",
+            ),
+        )
+        assertNull(valid)
+    }
+
+    @Test
+    fun validatesCancelReminderTaskId() {
+        val blank = registry.validate(
+            ToolRequest(
+                id = "request-cancel-reminder-blank",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                arguments = mapOf("taskId" to " "),
+                reason = "test",
+            ),
+        )
+        assertNotNull(blank)
+        requireNotNull(blank)
+        assertTrue(blank.summary.contains("taskId"))
+
+        val valid = registry.validate(
+            ToolRequest(
+                id = "request-cancel-reminder-valid",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                arguments = mapOf("taskId" to "task-1"),
                 reason = "test",
             ),
         )
