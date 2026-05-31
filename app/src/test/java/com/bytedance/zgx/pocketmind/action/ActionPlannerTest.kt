@@ -116,6 +116,57 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun infersReminderDelayFromMatchedRelativeDelayPhrase() {
+        val plan = planner.plan("提醒我 30 分钟后检查 2 小时后开始的会议资料")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, plan.draft?.functionName)
+        assertEquals("30", plan.draft?.parameters?.get("delayMinutes"))
+        assertEquals("检查 2 小时后开始的会议资料", plan.draft?.parameters?.get("title"))
+    }
+
+    @Test
+    fun infersReminderDraftWithChineseVariantDelay() {
+        val plan = planner.plan("提醒我在15分钟以后喝水")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, plan.draft?.functionName)
+        assertEquals("15", plan.draft?.parameters?.get("delayMinutes"))
+        assertEquals("喝水", plan.draft?.parameters?.get("title"))
+    }
+
+    @Test
+    fun infersReminderDraftWithDecimalHourDelay() {
+        val plan = planner.plan("提醒我 1.5 小时后喝水")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, plan.draft?.functionName)
+        assertEquals("90", plan.draft?.parameters?.get("delayMinutes"))
+        assertEquals("喝水", plan.draft?.parameters?.get("title"))
+    }
+
+    @Test
+    fun infersReminderDraftForPoliteEnglishCommand() {
+        val plan = planner.plan("could you remind me in 10 minutes to stretch")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, plan.draft?.functionName)
+        assertEquals("10", plan.draft?.parameters?.get("delayMinutes"))
+        assertEquals("stretch", plan.draft?.parameters?.get("title"))
+    }
+
+    @Test
+    fun rejectsReminderTimingDiscussionsAsNoAction() {
+        assertEquals(ActionPlanKind.NoAction, planner.plan("提醒我一下，15 分钟英文怎么说").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("提醒我一下，“15 分钟后”是什么意思").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("请解释“提醒我 15 分钟后喝水”这句话").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("remind me what a 1 hour SLA means").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("remind me what \"in 15 minutes\" means").kind)
+        assertEquals(false, planner.isLikelyAction("请解释“提醒我 15 分钟后喝水”这句话"))
+        assertEquals(false, planner.isLikelyAction("remind me what \"in 15 minutes\" means"))
+    }
+
+    @Test
     fun infersCancelReminderDraftWithTaskId() {
         val plan = planner.plan("取消提醒 task-123")
 

@@ -7,6 +7,7 @@ import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
 import com.bytedance.zgx.pocketmind.audit.InMemoryToolAuditSink
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEventType
 import com.bytedance.zgx.pocketmind.data.AgentRunEntity
@@ -25,6 +26,7 @@ import com.bytedance.zgx.pocketmind.skill.SkillRequest
 import com.bytedance.zgx.pocketmind.skill.SkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillStep
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
+import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolError
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
@@ -261,6 +263,119 @@ class AgentLoopRuntimeTest {
         assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, result.plan.request.toolName)
         assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, result.plan.skillRequest?.skillId)
         assertEquals(SafetyOutcome.RequireConfirmation, result.plan.safetyDecision.outcome)
+    }
+
+    @Test
+    fun skillFirstReminderBypassesActionPlannerAndRequestsConfirmation() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "提醒我 15 分钟后喝水",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, result.plan.request.toolName)
+        assertEquals("15", result.plan.request.arguments["delayMinutes"])
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertTrue(result.steps.any { step ->
+            step is AgentStep.SkillPlanned &&
+                step.plan?.request?.skillId == BuiltInSkillRuntime.REMINDER_SKILL
+        })
+        assertEquals(
+            listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
+            auditSink.events.map { it.eventType },
+        )
+        assertTrue(auditSink.events.all { event ->
+            event.toolName == MobileActionFunctions.SCHEDULE_REMINDER &&
+                event.skillId == BuiltInSkillRuntime.REMINDER_SKILL &&
+                ToolPermission.SchedulesBackgroundWork in event.permissions &&
+                ToolPermission.PostsNotification in event.permissions &&
+                ToolPermission.RequiresAndroidRuntimePermission in event.permissions
+        })
+    }
+
+    @Test
+    fun skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation() {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "remind me in 1 hour to check build status",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, result.plan.request.toolName)
+        assertEquals("60", result.plan.request.arguments["delayMinutes"])
+        assertEquals("check build status", result.plan.request.arguments["title"])
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+    }
+
+    @Test
+    fun reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation() {
+        val input = "提醒我一下，“15 分钟后”是什么意思"
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = MobileActionPlanner().isLikelyAction(input),
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.SCHEDULE_REMINDER,
+                        title = "should not be used",
+                        summary = "should not be used",
+                        parameters = mapOf(
+                            "title" to "wrong",
+                            "body" to "wrong",
+                            "delayMinutes" to "15",
+                        ),
+                    ),
+                ),
+                usedModel = true,
+                fallbackReason = null,
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = input,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
+        assertTrue(result.plan is AgentPlan.Answer)
+        assertEquals(1, actionRuntime.isLikelyActionCallCount)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
+        assertTrue(auditSink.events.isEmpty())
     }
 
     @Test
@@ -1684,10 +1799,15 @@ class AgentLoopRuntimeTest {
             fallbackReason = null,
         ),
     ) : ActionPlanningRuntime {
+        var isLikelyActionCallCount: Int = 0
+            private set
         var planCallCount: Int = 0
             private set
 
-        override fun isLikelyAction(input: String): Boolean = likelyAction
+        override fun isLikelyAction(input: String): Boolean {
+            isLikelyActionCallCount += 1
+            return likelyAction
+        }
 
         override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
             planCallCount += 1

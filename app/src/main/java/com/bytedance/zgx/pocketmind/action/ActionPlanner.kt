@@ -22,9 +22,6 @@ class MobileActionPlanner : ActionPlanner {
             "日程",
             "联系人",
             "手电筒",
-            "提醒我",
-            "分钟后",
-            "小时后",
             "剪贴板",
             "分享",
             "前台",
@@ -42,7 +39,6 @@ class MobileActionPlanner : ActionPlanner {
             "文档",
             "通知",
             "通知栏",
-            "提醒",
             "忙闲",
             "空闲",
             "有空",
@@ -50,7 +46,6 @@ class MobileActionPlanner : ActionPlanner {
             "email",
             "map",
             "contact",
-            "remind",
             "clipboard",
             "share",
             "availability",
@@ -63,7 +58,11 @@ class MobileActionPlanner : ActionPlanner {
             "网页",
             "打开应用",
             "启动应用",
-        ).any { it in normalized } || isUsageAccessSettingsRequest(input) || isWebSearchRequest(input)
+        ).any { it in normalized } ||
+            isReminderRequest(input) ||
+            isCancelReminderRequest(input) ||
+            isUsageAccessSettingsRequest(input) ||
+            isWebSearchRequest(input)
     }
 
     override fun plan(input: String): ActionPlan =
@@ -105,7 +104,7 @@ class MobileActionPlanner : ActionPlanner {
                 MobileActionFunctions.OPEN_APP_INTENT.toDraft(openAppIntentParameters(input))
 
             isReminderRequest(input) ->
-                MobileActionFunctions.SCHEDULE_REMINDER.toDraft(reminderParameters(input))
+                ReminderActionParser.draft(input)
 
             "剪贴板" in input || "clipboard" in normalized ->
                 MobileActionFunctions.READ_CLIPBOARD.toDraft(emptyMap())
@@ -131,7 +130,7 @@ class MobileActionPlanner : ActionPlanner {
             isCancelReminderRequest(input) ->
                 MobileActionFunctions.CANCEL_REMINDER.toDraft(cancelReminderParameters(input))
 
-            "日程" in input || "calendar" in normalized || "提醒" in input ->
+            "日程" in input || "calendar" in normalized ->
                 MobileActionFunctions.CREATE_CALENDAR_EVENT.toDraft(mapOf("title" to cleanedObject(input)))
 
             "联系人" in input || "contact" in normalized ->
@@ -272,37 +271,7 @@ class MobileActionPlanner : ActionPlanner {
     }
 
     private fun isReminderRequest(input: String): Boolean =
-        ("提醒" in input || "remind" in input.lowercase()) &&
-            (REMINDER_MINUTES_PATTERN.containsMatchIn(input) || REMINDER_HOURS_PATTERN.containsMatchIn(input))
-
-    private fun reminderParameters(input: String): Map<String, String> {
-        val delayMinutes = extractDelayMinutes(input)
-        val title = cleanedReminderTitle(input)
-        return mapOf(
-            "title" to title,
-            "body" to input.trim(),
-            "delayMinutes" to delayMinutes.toString(),
-        )
-    }
-
-    private fun extractDelayMinutes(input: String): Long {
-        REMINDER_HOURS_PATTERN.find(input)?.groupValues?.getOrNull(1)?.toLongOrNull()?.let { hours ->
-            return (hours * 60L).coerceAtLeast(1L)
-        }
-        REMINDER_MINUTES_PATTERN.find(input)?.groupValues?.getOrNull(1)?.toLongOrNull()?.let { minutes ->
-            return minutes.coerceAtLeast(1L)
-        }
-        return 1L
-    }
-
-    private fun cleanedReminderTitle(input: String): String =
-        input.trim()
-            .replace(Regex("""^(请)?(帮我)?提醒我\s*"""), "")
-            .replace(Regex("""\d+\s*(分钟|小时)后"""), "")
-            .replace(Regex("""(?i)remind me (in )?"""), "")
-            .replace(Regex("""(?i)in \d+\s*(minutes?|hours?)"""), "")
-            .trim { it <= ' ' || it == '，' || it == ',' || it == ':' || it == '：' }
-            .ifBlank { cleanedObject(input) }
+        ReminderActionParser.matches(input)
 
     private fun isShareTextRequest(input: String): Boolean {
         val normalized = input.lowercase()
@@ -586,8 +555,6 @@ class MobileActionPlanner : ActionPlanner {
     private companion object {
         val CALL_PATTERN = Regex("""^call:([a-zA-Z0-9_]+)\s*(\{.*\})$""", RegexOption.DOT_MATCHES_ALL)
         val KEY_VALUE_PATTERN = Regex(""""([^"]+)"\s*:\s*"([^"]*)"""")
-        val REMINDER_MINUTES_PATTERN = Regex("""(\d+)\s*(分钟|minutes?|mins?)""", RegexOption.IGNORE_CASE)
-        val REMINDER_HOURS_PATTERN = Regex("""(\d+)\s*(小时|hours?|hrs?)""", RegexOption.IGNORE_CASE)
         val ISO_OFFSET_DATE_TIME_PATTERN =
             Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})""")
         val TASK_ID_PATTERN = Regex("task-[A-Za-z0-9_-]+")

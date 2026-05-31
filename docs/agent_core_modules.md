@@ -117,8 +117,12 @@ Current status:
   trace store and shown in the background activity surface. The UI reads only
   `AgentTraceStepSummary` type/summary metadata and does not parse or display
   persisted trace JSON or tool arguments.
+- Background reminder requests with explicit relative delays now also have a
+  Skill-first path. The reminder skill reuses the same delay/title parser as
+  the action planner, then enters the normal confirmation and runtime
+  permission boundary before scheduling any AlarmManager work.
 - General Skill-first routing for parameter-heavy skills such as email, calendar
-  drafts, routes, and reminders still depends on action-planner extraction.
+  drafts, and routes still depends on action-planner extraction.
   General model-driven next-step planning, generalized multi-step skill UI
   orchestration beyond the clipboard summary share flow, and full argument-
   bearing typed step rehydration are still pending.
@@ -133,12 +137,19 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstClipboardSummaryShareBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstClipboardContextBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstPlanStillUsesRegistryAndRejectsInvalidToolArguments`
+- `AgentLoopRuntimeTest.skillFirstReminderBypassesActionPlannerAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation`
 - `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
 - `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
 - `AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace`
 - `AgentTraceStoreTest.roomStoreReturnsRecentRunSummariesWithStepLimit`
 - `PocketMindViewModelTest.restoreStartupStateRestoresPendingAgentConfirmationWithoutExecutingTool`
 - `PocketMindViewModelTest.refreshAuditEventsAlsoLoadsAgentTraceSummaries`
+- `BuiltInSkillRuntimeTest.plansReminderSkillFirstWithoutActionDraft`
+- `BuiltInSkillRuntimeTest.plansEnglishReminderSkillFirstWithoutActionDraft`
+- `BuiltInSkillRuntimeTest.plansReminderSkillFirstWithVariantDelayPhrases`
+- `BuiltInSkillRuntimeTest.reminderSkillFirstRejectsTimingDiscussionFalsePositives`
 - `AssistantOrchestratorTest.defaultSequentialReplannerPlansExplicitNextActionAfterObservation`
 - `AssistantOrchestratorTest.clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation`
 - `AssistantOrchestratorTest.skillFirstClipboardSummaryShareRoutesEvenWhenActionRuntimeDoesNotClassifyAction`
@@ -526,8 +537,17 @@ Tests:
 - `MainActivitySmokeTest.backgroundTaskManagerShowsEmptyState`
 - `ActionExecutorTest`
 - `ActionPlannerTest.infersReminderDraftWithDelayMinutes`
+- `ActionPlannerTest.infersReminderDelayFromMatchedRelativeDelayPhrase`
+- `ActionPlannerTest.infersReminderDraftWithChineseVariantDelay`
+- `ActionPlannerTest.infersReminderDraftWithDecimalHourDelay`
+- `ActionPlannerTest.infersReminderDraftForPoliteEnglishCommand`
+- `ActionPlannerTest.rejectsReminderTimingDiscussionsAsNoAction`
 - `ToolRegistryTest.validatesReminderDelayMinutesAsPositiveInteger`
 - `BuiltInSkillRuntimeTest.plansReminderAsBackgroundToolStep`
+- `BuiltInSkillRuntimeTest.plansReminderSkillFirstWithoutActionDraft`
+- `BuiltInSkillRuntimeTest.plansEnglishReminderSkillFirstWithoutActionDraft`
+- `BuiltInSkillRuntimeTest.plansReminderSkillFirstWithVariantDelayPhrases`
+- `BuiltInSkillRuntimeTest.reminderSkillFirstRejectsTimingDiscussionFalsePositives`
 
 ## Multimodal Inputs
 

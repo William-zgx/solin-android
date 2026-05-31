@@ -226,6 +226,67 @@ class BuiltInSkillRuntimeTest {
     }
 
     @Test
+    fun plansReminderSkillFirstWithoutActionDraft() {
+        val plan = runtime.plan("提醒我 15 分钟后喝水")
+
+        requireNotNull(plan)
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, plan.request.skillId)
+        assertTrue(plan.validateStructure().isValid)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, step.request.toolName)
+        assertEquals("15", step.request.arguments["delayMinutes"])
+        assertEquals("喝水", step.request.arguments["title"])
+        assertEquals("提醒我 15 分钟后喝水", step.request.arguments["body"])
+        assertEquals(step.request.arguments, step.draft.parameters)
+    }
+
+    @Test
+    fun plansEnglishReminderSkillFirstWithoutActionDraft() {
+        val plan = runtime.plan("remind me in 1 hour to check build status")
+
+        requireNotNull(plan)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, step.request.toolName)
+        assertEquals("60", step.request.arguments["delayMinutes"])
+        assertEquals("check build status", step.request.arguments["title"])
+    }
+
+    @Test
+    fun plansReminderSkillFirstWithVariantDelayPhrases() {
+        val chinesePlan = runtime.plan("提醒我在15分钟以后喝水")
+        requireNotNull(chinesePlan)
+        val chineseStep = chinesePlan.steps.single()
+        require(chineseStep is SkillStep.ToolStep)
+        assertEquals("15", chineseStep.request.arguments["delayMinutes"])
+        assertEquals("喝水", chineseStep.request.arguments["title"])
+
+        val englishPlan = runtime.plan("please set a reminder in 1.5 hours to stretch")
+        requireNotNull(englishPlan)
+        val englishStep = englishPlan.steps.single()
+        require(englishStep is SkillStep.ToolStep)
+        assertEquals("90", englishStep.request.arguments["delayMinutes"])
+        assertEquals("stretch", englishStep.request.arguments["title"])
+
+        val politeEnglishPlan = runtime.plan("could you remind me in 10 minutes to stretch")
+        requireNotNull(politeEnglishPlan)
+        val politeEnglishStep = politeEnglishPlan.steps.single()
+        require(politeEnglishStep is SkillStep.ToolStep)
+        assertEquals("10", politeEnglishStep.request.arguments["delayMinutes"])
+        assertEquals("stretch", politeEnglishStep.request.arguments["title"])
+    }
+
+    @Test
+    fun reminderSkillFirstRejectsTimingDiscussionFalsePositives() {
+        assertEquals(null, runtime.plan("提醒我一下，15 分钟英文怎么说"))
+        assertEquals(null, runtime.plan("提醒我一下，“15 分钟后”是什么意思"))
+        assertEquals(null, runtime.plan("请解释“提醒我 15 分钟后喝水”这句话"))
+        assertEquals(null, runtime.plan("remind me what a 1 hour SLA means"))
+        assertEquals(null, runtime.plan("remind me what \"in 15 minutes\" means"))
+    }
+
+    @Test
     fun plansClipboardReadAsContextToolStep() {
         val draft = ActionDraft(
             functionName = MobileActionFunctions.READ_CLIPBOARD,

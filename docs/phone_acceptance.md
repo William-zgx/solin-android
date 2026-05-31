@@ -136,7 +136,7 @@ adb devices -l
 - “帮我建个明天下午开会的日程” 应进入日程 Skill，最终使用 `create_calendar_event` 工具且仍需确认。
 - “查去机场的路线” 应进入地图 Skill，最终使用 `search_maps` 工具且仍需确认。
 - “搜一下 Kotlin 协程” 应进入信息查找 Skill，最终使用 `web_search` 工具且仍需确认。
-- “提醒我 15 分钟后喝水” 应进入后台提醒 Skill，最终使用 `schedule_reminder` 工具且仍需确认。
+- “提醒我 15 分钟后喝水” 应可由后台提醒 Skill 直接规划，不依赖动作模型先分类；最终使用 `schedule_reminder` 工具且仍需确认。
 - “读取剪贴板” 应进入剪贴板上下文 Skill，最终使用 `read_clipboard` 工具且仍需确认。
 - “分享这段文字：明天十点开会” 应进入系统分享 Skill，最终使用 `share_text` 工具且仍需确认。
 - “总结剪贴板并分享” 即使不先进入普通动作草稿识别，也应进入剪贴板摘要分享 Skill：先确认 `read_clipboard`，本地摘要后再确认 `share_text`。

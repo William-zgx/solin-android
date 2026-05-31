@@ -1,5 +1,31 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Reminder Skill-first 增量验证
+
+本轮覆盖项：
+
+- 提醒请求的相对时间解析抽到共享 `ReminderActionParser`，ActionPlanner 和
+  Built-in Reminder Skill 共用同一套 `title/body/delayMinutes` 参数边界。
+- “提醒我 15 分钟后喝水” / `remind me in 1 hour ...` 可在 action runtime 未分类为
+  likely action 时直接由 `BuiltInSkillRuntime.plan(input)` 生成 `schedule_reminder`
+  ToolStep。
+- 多时间片段时只使用选中的相对延迟作为 `delayMinutes`，不删除标题里的第二个
+  时间描述；“15 分钟后是什么意思”这类 timing discussion 不会触发 reminder
+  或 calendar 确认。
+- Skill-first reminder 仍进入 `AwaitingUserConfirmation`，走 ToolRegistry 校验、
+  SafetyPolicy、runtime permission policy 和后续 AlarmManager 执行边界。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstReminderBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest'
+```
+
 ## 2026-05-31 Persisted Trace Summary Rehydration 增量验证
 
 本轮覆盖项：
