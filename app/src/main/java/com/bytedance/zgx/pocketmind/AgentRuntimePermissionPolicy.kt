@@ -4,24 +4,39 @@ import android.Manifest
 import android.os.Build
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 
+data class RuntimePermissionRequirement(
+    val permissions: List<String>,
+    val title: String,
+    val rationale: String,
+    val requestable: Boolean = true,
+)
+
 fun PendingAgentConfirmation.runtimePermissionsFor(apiLevel: Int = Build.VERSION.SDK_INT): List<String> {
+    return runtimePermissionRequirementsFor(apiLevel)
+        .flatMap { it.permissions }
+        .distinct()
+}
+
+fun PendingAgentConfirmation.runtimePermissionRequirementsFor(
+    apiLevel: Int = Build.VERSION.SDK_INT,
+): List<RuntimePermissionRequirement> {
     val toolName = toolRequest?.toolName ?: draft.functionName
     return when (toolName) {
         MobileActionFunctions.SCHEDULE_REMINDER ->
             if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
-                listOf(Manifest.permission.POST_NOTIFICATIONS)
+                listOf(Manifest.permission.POST_NOTIFICATIONS.requirement())
             } else {
                 emptyList()
             }
 
         MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY ->
-            listOf(Manifest.permission.READ_CALENDAR)
+            listOf(Manifest.permission.READ_CALENDAR.requirement())
 
         MobileActionFunctions.QUERY_CONTACTS ->
-            listOf(Manifest.permission.READ_CONTACTS)
+            listOf(Manifest.permission.READ_CONTACTS.requirement())
 
         MobileActionFunctions.QUERY_RECENT_FILES ->
-            recentFilePermissionsFor(
+            recentFilePermissionRequirementsFor(
                 kind = toolRequest?.arguments?.get("kind")
                     ?: draft.parameters["kind"]
                     ?: "all",
@@ -42,20 +57,57 @@ fun PendingAgentConfirmation.deniedRuntimePermissionsAfterGrantResult(
             grantResults[permission] == true || hasRuntimePermission(permission)
         }
 
-private fun recentFilePermissionsFor(kind: String, apiLevel: Int): List<String> {
+fun runtimePermissionDenialSummary(permissions: List<String>): String =
+    permissions
+        .map { it.friendlyPermissionTitle() }
+        .distinct()
+        .joinToString()
+
+private fun recentFilePermissionRequirementsFor(kind: String, apiLevel: Int): List<RuntimePermissionRequirement> {
     if (apiLevel < Build.VERSION_CODES.TIRAMISU) {
-        return listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        return listOf(Manifest.permission.READ_EXTERNAL_STORAGE.requirement())
     }
     return when (kind.lowercase()) {
-        "screenshots" -> listOf(Manifest.permission.READ_MEDIA_IMAGES)
-        "images" -> listOf(Manifest.permission.READ_MEDIA_IMAGES)
-        "videos" -> listOf(Manifest.permission.READ_MEDIA_VIDEO)
-        "audio" -> listOf(Manifest.permission.READ_MEDIA_AUDIO)
+        "screenshots" -> listOf(Manifest.permission.READ_MEDIA_IMAGES.requirement())
+        "images" -> listOf(Manifest.permission.READ_MEDIA_IMAGES.requirement())
+        "videos" -> listOf(Manifest.permission.READ_MEDIA_VIDEO.requirement())
+        "audio" -> listOf(Manifest.permission.READ_MEDIA_AUDIO.requirement())
         "all" -> listOf(
-            Manifest.permission.READ_MEDIA_IMAGES,
-            Manifest.permission.READ_MEDIA_VIDEO,
-            Manifest.permission.READ_MEDIA_AUDIO,
+            Manifest.permission.READ_MEDIA_IMAGES.requirement(),
+            Manifest.permission.READ_MEDIA_VIDEO.requirement(),
+            Manifest.permission.READ_MEDIA_AUDIO.requirement(),
         )
         else -> emptyList()
     }
 }
+
+private fun String.requirement(): RuntimePermissionRequirement =
+    RuntimePermissionRequirement(
+        permissions = listOf(this),
+        title = friendlyPermissionTitle(),
+        rationale = friendlyPermissionRationale(),
+    )
+
+private fun String.friendlyPermissionTitle(): String =
+    when (this) {
+        Manifest.permission.POST_NOTIFICATIONS -> "通知权限"
+        Manifest.permission.READ_CALENDAR -> "日历权限"
+        Manifest.permission.READ_CONTACTS -> "联系人权限"
+        Manifest.permission.READ_EXTERNAL_STORAGE -> "文件读取权限"
+        Manifest.permission.READ_MEDIA_IMAGES -> "照片和图片权限"
+        Manifest.permission.READ_MEDIA_VIDEO -> "视频权限"
+        Manifest.permission.READ_MEDIA_AUDIO -> "音频权限"
+        else -> this
+    }
+
+private fun String.friendlyPermissionRationale(): String =
+    when (this) {
+        Manifest.permission.POST_NOTIFICATIONS -> "用于到点发送本地提醒通知。"
+        Manifest.permission.READ_CALENDAR -> "用于只读查询忙闲时间段。"
+        Manifest.permission.READ_CONTACTS -> "用于只读查询联系人摘要。"
+        Manifest.permission.READ_EXTERNAL_STORAGE -> "用于读取最近文件的最小元数据。"
+        Manifest.permission.READ_MEDIA_IMAGES -> "用于读取最近图片或截图的最小元数据。"
+        Manifest.permission.READ_MEDIA_VIDEO -> "用于读取最近视频的最小元数据。"
+        Manifest.permission.READ_MEDIA_AUDIO -> "用于读取最近音频的最小元数据。"
+        else -> "用于执行你确认的本地工具。"
+    }

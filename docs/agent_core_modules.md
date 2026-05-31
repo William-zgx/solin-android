@@ -38,9 +38,10 @@ Current status:
   calendar availability, recent file metadata summaries, safe HTTPS deep-link
   navigation, package-level app launches, and allowlisted app deep targets.
 - Tools that may require runtime permissions declare that requirement in
-  `ToolSpec`. The Activity boundary maps pending tool confirmations to Android
-  runtime permission requests before handing the same confirmation back to the
-  ViewModel for execution.
+  `ToolSpec` only when the current runtime permission policy can request a
+  concrete Android manifest permission. The Activity boundary maps pending tool
+  confirmations to Android runtime permission requests before handing the same
+  confirmation back to the ViewModel for execution.
 
 Tests:
 
@@ -297,6 +298,10 @@ Current status:
   normal structured tool result path without executing the tool. Permission
   denial is treated as non-auto-retryable at the Agent loop boundary even when
   a lower-level provider marks the failure as retryable.
+- Runtime permission requirements are now modeled with user-facing labels and
+  rationales. Pending confirmation UI can show which Android runtime
+  permissions may be requested before the system prompt appears, while
+  structured failure data still preserves the raw manifest permission names.
 - Startup restoration can rehydrate the latest pending Agent confirmation from
   Room without invoking Android execution or runtime permission requests.
 - Android share-target ingestion for shared text, bounded `text/*` document

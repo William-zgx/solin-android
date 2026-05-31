@@ -4,7 +4,9 @@ import android.Manifest
 import android.os.Build
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -89,6 +91,52 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
+    fun runtimePermissionRequirementsExposeFriendlyLabelsAndRationales() {
+        val requirements = confirmationFor(MobileActionFunctions.QUERY_CONTACTS)
+            .runtimePermissionRequirementsFor()
+
+        assertEquals(1, requirements.size)
+        assertEquals(listOf(Manifest.permission.READ_CONTACTS), requirements.single().permissions)
+        assertEquals("联系人权限", requirements.single().title)
+        assertTrue(requirements.single().rationale.contains("只读查询联系人"))
+        assertEquals("联系人权限", runtimePermissionDenialSummary(listOf(Manifest.permission.READ_CONTACTS)))
+    }
+
+    @Test
+    fun runtimePermissionRequirementsCoverNotificationCalendarMediaAndLegacyStorage() {
+        assertEquals(
+            "通知权限",
+            confirmationFor(MobileActionFunctions.SCHEDULE_REMINDER)
+                .runtimePermissionRequirementsFor(apiLevel = Build.VERSION_CODES.TIRAMISU)
+                .single()
+                .title,
+        )
+        assertEquals(
+            "日历权限",
+            confirmationFor(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY)
+                .runtimePermissionRequirementsFor()
+                .single()
+                .title,
+        )
+        assertEquals(
+            listOf("照片和图片权限", "视频权限", "音频权限"),
+            confirmationFor(MobileActionFunctions.QUERY_RECENT_FILES)
+                .runtimePermissionRequirementsFor(apiLevel = Build.VERSION_CODES.TIRAMISU)
+                .map { it.title },
+        )
+        assertEquals(
+            "文件读取权限",
+            confirmationFor(
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to "downloads"),
+            )
+                .runtimePermissionRequirementsFor(apiLevel = Build.VERSION_CODES.S)
+                .single()
+                .title,
+        )
+    }
+
+    @Test
     fun deepLinkAndAppIntentDoNotRequestRuntimePermissions() {
         assertTrue(
             confirmationFor(
@@ -110,6 +158,24 @@ class AgentRuntimePermissionPolicyTest {
                     "packageName" to "com.example.app",
                 ),
             ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty(),
+        )
+    }
+
+    @Test
+    fun runtimePermissionRegistryMarkerMatchesPolicyTools() {
+        val runtimePermissionTools = ToolRegistry().specs()
+            .filter { ToolPermission.RequiresAndroidRuntimePermission in it.permissions }
+            .map { it.name }
+            .toSet()
+
+        assertEquals(
+            setOf(
+                MobileActionFunctions.SCHEDULE_REMINDER,
+                MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+                MobileActionFunctions.QUERY_CONTACTS,
+                MobileActionFunctions.QUERY_RECENT_FILES,
+            ),
+            runtimePermissionTools,
         )
     }
 

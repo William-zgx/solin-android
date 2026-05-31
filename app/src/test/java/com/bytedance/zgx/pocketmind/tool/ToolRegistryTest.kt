@@ -63,6 +63,7 @@ class ToolRegistryTest {
         requireNotNull(cancelReminderSpec)
         assertEquals(ToolCapability.BackgroundTask, cancelReminderSpec.capability)
         assertEquals(ConfirmationPolicy.Required, cancelReminderSpec.confirmationPolicy)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in cancelReminderSpec.permissions)
         assertTrue(cancelReminderSpec.inputSchemaJson.contains("taskId"))
 
         val clipboardSpec = registry.specFor(MobileActionFunctions.READ_CLIPBOARD)
@@ -112,6 +113,13 @@ class ToolRegistryTest {
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"maxCount\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"screenshots\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"documents\""))
+
+        val foregroundAppSpec = registry.specFor(MobileActionFunctions.QUERY_FOREGROUND_APP)
+        assertNotNull(foregroundAppSpec)
+        requireNotNull(foregroundAppSpec)
+        assertEquals(ToolCapability.DeviceContext, foregroundAppSpec.capability)
+        assertTrue(ToolPermission.ReadsDeviceContext in foregroundAppSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in foregroundAppSpec.permissions)
 
         val deepLinkSpec = registry.specFor(MobileActionFunctions.OPEN_DEEP_LINK)
         assertNotNull(deepLinkSpec)

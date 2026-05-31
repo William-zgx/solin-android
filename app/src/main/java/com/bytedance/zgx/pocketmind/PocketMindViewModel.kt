@@ -1223,14 +1223,16 @@ class PocketMindViewModel(
             arguments = confirmation.draft.parameters,
             reason = confirmation.draft.summary,
         )
-        val deniedSummary = deniedPermissions.distinct().joinToString()
+        val deniedSummary = runtimePermissionDenialSummary(deniedPermissions)
+        val deniedPermissionNames = deniedPermissions.distinct().joinToString()
         val result = request.failed(
             code = ToolErrorCode.PermissionDenied,
             summary = "用户拒绝了所需权限，工具未执行：$deniedSummary",
             retryable = false,
             data = mapOf(
                 "toolName" to request.toolName,
-                "deniedPermissions" to deniedSummary,
+                "deniedPermissions" to deniedPermissionNames,
+                "deniedPermissionLabels" to deniedSummary,
             ),
         )
         val observation = confirmation.runId?.let { runId ->

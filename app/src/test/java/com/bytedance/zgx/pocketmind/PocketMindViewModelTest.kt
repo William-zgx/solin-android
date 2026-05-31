@@ -481,6 +481,12 @@ class PocketMindViewModelTest {
         assertEquals(1, assistantRouter.failPendingCallCount)
         assertEquals(request.id, assistantRouter.lastFailedPendingResult?.requestId)
         assertEquals(ToolErrorCode.PermissionDenied, assistantRouter.lastFailedPendingResult?.error?.code)
+        assertTrue(assistantRouter.lastFailedPendingResult?.summary.orEmpty().contains("联系人权限"))
+        assertEquals(
+            "android.permission.READ_CONTACTS",
+            assistantRouter.lastFailedPendingResult?.data?.get("deniedPermissions"),
+        )
+        assertEquals("联系人权限", assistantRouter.lastFailedPendingResult?.data?.get("deniedPermissionLabels"))
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
         assertTrue(sessionStore.messages.last().text.contains("权限"))
         assertEquals("权限被拒，工具未执行", viewModel.uiState.value.statusText)

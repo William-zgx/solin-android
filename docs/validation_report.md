@@ -1,5 +1,28 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Runtime Permission 说明与策略一致性增量验证
+
+本轮覆盖项：
+
+- `AgentRuntimePermissionPolicy` 新增 `RuntimePermissionRequirement`，在保留
+  raw manifest permission 请求链路的同时，提供确认卡可展示的友好权限名和用途说明。
+- 待确认动作 Sheet 会在执行前展示“确认后可能请求系统权限”，覆盖联系人、日历、
+  通知、媒体和 legacy storage 等当前可请求 runtime permission。
+- 权限拒绝后的结构化 `ToolResult.data` 同时保留 raw `deniedPermissions` 和友好
+  `deniedPermissionLabels`；用户文案不再只拼接 `android.permission.*`。
+- Registry 的 `RequiresAndroidRuntimePermission` 标记与实际 runtime policy 对齐：
+  `query_foreground_app` 和 `cancel_reminder` 不再伪装为 Android dangerous runtime
+  permission flow。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+```
+
 ## 2026-05-31 Allowlisted App Deep Target 增量验证
 
 本轮覆盖项：
@@ -928,7 +951,7 @@ ANDROID_SERIAL=emulator-5554 \
 说明：
 
 - 用户提供的 DeepSeek 远程配置仅作为可选手工验证输入，未写入仓库、测试代码或文档。
-- 当前仍未完成的核心能力包括屏幕理解、LiteRT embedding adapter 参与记忆检索、broad permission flows、截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
+- 当前仍未完成的核心能力包括屏幕理解、LiteRT embedding adapter 参与记忆检索、special-access permission flows、截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
 
 ## 历史验证记录
 

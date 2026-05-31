@@ -117,7 +117,7 @@ import com.bytedance.zgx.pocketmind.PendingAgentConfirmation
 import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.SetupTier
-import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.runtimePermissionRequirementsFor
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckConstraints
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
@@ -371,7 +371,7 @@ fun PocketMindScreen(
                     onDismissRequest = onDismissAgentConfirmation,
                 ) {
                     ActionDraftSheet(
-                        draft = confirmation.draft,
+                        confirmation = confirmation,
                         onConfirm = { onConfirmAgentConfirmation(confirmation) },
                         onDismiss = onDismissAgentConfirmation,
                     )
@@ -850,10 +850,12 @@ private fun FirstRunSetupSheet(
 
 @Composable
 private fun ActionDraftSheet(
-    draft: ActionDraft,
+    confirmation: PendingAgentConfirmation,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val draft = confirmation.draft
+    val runtimePermissionRequirements = confirmation.runtimePermissionRequirementsFor()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -875,6 +877,28 @@ private fun ActionDraftSheet(
                 draft.parameters.forEach { (key, value) ->
                     Text(
                         text = "$key: $value",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        if (runtimePermissionRequirements.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("runtime_permission_requirements"),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = "确认后可能请求系统权限",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                runtimePermissionRequirements.forEach { requirement ->
+                    Text(
+                        text = "${requirement.title}：${requirement.rationale}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -733,7 +733,6 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             capability = ToolCapability.DeviceContext,
             permissions = setOf(
                 ToolPermission.ReadsDeviceContext,
-                ToolPermission.RequiresAndroidRuntimePermission,
             ),
             riskLevel = RiskLevel.LowReadOnly,
             confirmationPolicy = ConfirmationPolicy.Required,
@@ -776,7 +775,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             description = "在已安排的提醒列表中取消指定提醒任务，不再触发该提醒。",
             inputSchemaJson = cancelReminderSchemaJson,
             capability = ToolCapability.BackgroundTask,
-            permissions = setOf(ToolPermission.RequiresAndroidRuntimePermission),
+            permissions = emptySet(),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
         ),
