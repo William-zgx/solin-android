@@ -5,6 +5,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import com.bytedance.zgx.pocketmind.data.PocketMindDatabase
+import kotlinx.coroutines.CancellationException
 
 class PeriodicCheckWorker(
     appContext: Context,
@@ -21,9 +22,10 @@ class PeriodicCheckWorker(
                 notifier = AndroidLocalPeriodicCheckNotifier(ReminderNotificationHelper(applicationContext)),
             ).runOnce(request)
             ListenableWorker.Result.success()
-        } catch (_: IllegalArgumentException) {
-            ListenableWorker.Result.failure()
-        } catch (_: IllegalStateException) {
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            markPeriodicCheckFailed()
             ListenableWorker.Result.failure()
         }
 
@@ -55,5 +57,13 @@ class PeriodicCheckWorker(
         const val KEY_OVERDUE_GRACE_MINUTES = "overdue_grace_minutes"
         const val KEY_REQUIRES_BATTERY_NOT_LOW = "requires_battery_not_low"
         const val KEY_REQUIRES_CHARGING = "requires_charging"
+    }
+
+    private fun markPeriodicCheckFailed() {
+        runCatching {
+            ScheduledTaskRepository(
+                PocketMindDatabase.get(applicationContext).scheduledTaskDao(),
+            ).markFailed(PeriodicCheckScheduleRequest.TASK_ID)
+        }
     }
 }

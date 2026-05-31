@@ -412,8 +412,9 @@ Current status:
   reminder notification channel, `ReminderAlarmReceiver`, and
   `ReminderBootReceiver`.
 - The scheduler uses `AlarmManager.setAndAllowWhileIdle`; triggered reminders
-  post a local notification when notification permission is available and update
-  the task status to `Delivered` or `Failed`.
+  first move through `Running`, then post a local notification when notification
+  permission is available and update the task status to `Delivered` or
+  `Failed`.
 - `ReminderBootReceiver` listens for `BOOT_COMPLETED` and asks
   `ReminderRescheduler` to restore every still-`Scheduled` reminder after the
   system clears alarms on reboot. Past-due reminders are rescheduled with a
@@ -424,6 +425,12 @@ Current status:
 - Reminder confirmation requests notification permission before execution on
   Android versions that require it. If permission is still unavailable,
   execution fails with a structured `PermissionDenied` tool result.
+- Periodic checks now enter `Running` for each worker execution and settle back
+  to `Scheduled` after a successful scan. Runner or Worker exceptions mark the
+  periodic task `Failed` so local state no longer claims a healthy scheduled
+  check.
+- `schedule_reminder` and `cancel_reminder` tool results include `taskStatus`
+  metadata for downstream observation and debugging.
 - Implemented runtime background task review UI for still-`Scheduled` tasks.
   The UI shows pending task metadata and exposes explicit
   cancellation that cancels the platform schedule, updates local task state to
@@ -434,6 +441,7 @@ Tests:
 
 - `ScheduledTaskRepositoryTest`
 - `PeriodicCheckSchedulerTest`
+- `ReminderAlarmReceiverTest`
 - `PocketMindViewModelTest.restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork`
 - `PocketMindViewModelTest.cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler`
 - `MainActivitySmokeTest.backgroundTaskManagerShowsEmptyState`

@@ -1,5 +1,29 @@
 # PocketMind 验证报告
 
+## 2026-05-31 后台任务运行态生命周期增量验证
+
+本轮覆盖项：
+
+- 周期检查 Worker 执行前将 `periodic-check-local` 标记为 `Running`；
+  成功扫描后回到 `Scheduled`，执行异常时标记为 `Failed`。
+- Worker 层异常兜底会再次尝试把周期检查任务标记为 `Failed`，避免
+  WorkManager failure 后本地状态仍显示为健康 scheduled。
+- 提醒 alarm 回调通过 `ReminderAlarmDeliveryHandler` 先进入 `Running`；
+  通知投递成功标记为 `Delivered`，通知被阻止或抛异常标记为 `Failed`。
+- `schedule_reminder` / `cancel_reminder` 工具结果增加 `taskStatus`
+  metadata，便于 Agent observation 和调试确认任务状态。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest'
+```
+
+结果：targeted JVM 后台生命周期与提醒工具结果测试通过。
+
 ## 2026-05-31 Skill 执行恢复与输入契约增量验证
 
 本轮覆盖项：

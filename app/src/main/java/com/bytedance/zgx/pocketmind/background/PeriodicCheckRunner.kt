@@ -40,36 +40,42 @@ class PeriodicCheckRunner(
             )
         }
 
-        val nextAllowedRunAtMillis = now + normalized.minNotificationSpacingMinutes * MILLIS_PER_MINUTE
-        val overdueCutoffMillis = now - normalized.overdueGraceMinutes * MILLIS_PER_MINUTE
-        val overdueReminderCount = repository.scheduledReminders(maxReminderScanCount)
-            .count { it.triggerAtMillis <= overdueCutoffMillis }
+        repository.markRunning(PeriodicCheckScheduleRequest.TASK_ID)
+        try {
+            val nextAllowedRunAtMillis = now + normalized.minNotificationSpacingMinutes * MILLIS_PER_MINUTE
+            val overdueCutoffMillis = now - normalized.overdueGraceMinutes * MILLIS_PER_MINUTE
+            val overdueReminderCount = repository.scheduledReminders(maxReminderScanCount)
+                .count { it.triggerAtMillis <= overdueCutoffMillis }
 
-        if (overdueReminderCount == 0) {
+            if (overdueReminderCount == 0) {
+                repository.recordPeriodicCheckRun(
+                    nextAllowedRunAtMillis = nextAllowedRunAtMillis,
+                    summary = "lastRun=ok;overdueReminderCount=0",
+                )
+                return PeriodicCheckRunOutcome.NoLocalReminderNeeded(nextAllowedRunAtMillis)
+            }
+
+            val notification = PeriodicCheckNotification(
+                title = PeriodicCheckScheduleRequest.TITLE,
+                body = "发现 $overdueReminderCount 个可能未触达的本地提醒，请打开应用确认。",
+                overdueReminderCount = overdueReminderCount,
+            )
+
+            val posted = notifier.post(notification)
             repository.recordPeriodicCheckRun(
                 nextAllowedRunAtMillis = nextAllowedRunAtMillis,
-                summary = "lastRun=ok;overdueReminderCount=0",
+                summary = "lastRun=${if (posted) "notified" else "notificationBlocked"};" +
+                    "overdueReminderCount=$overdueReminderCount",
             )
-            return PeriodicCheckRunOutcome.NoLocalReminderNeeded(nextAllowedRunAtMillis)
-        }
 
-        val notification = PeriodicCheckNotification(
-            title = PeriodicCheckScheduleRequest.TITLE,
-            body = "发现 $overdueReminderCount 个可能未触达的本地提醒，请打开应用确认。",
-            overdueReminderCount = overdueReminderCount,
-        )
-
-        val posted = notifier.post(notification)
-        repository.recordPeriodicCheckRun(
-            nextAllowedRunAtMillis = nextAllowedRunAtMillis,
-            summary = "lastRun=${if (posted) "notified" else "notificationBlocked"};" +
-                "overdueReminderCount=$overdueReminderCount",
-        )
-
-        return if (posted) {
-            PeriodicCheckRunOutcome.Notified(overdueReminderCount, nextAllowedRunAtMillis)
-        } else {
-            PeriodicCheckRunOutcome.NotificationBlocked(overdueReminderCount, nextAllowedRunAtMillis)
+            return if (posted) {
+                PeriodicCheckRunOutcome.Notified(overdueReminderCount, nextAllowedRunAtMillis)
+            } else {
+                PeriodicCheckRunOutcome.NotificationBlocked(overdueReminderCount, nextAllowedRunAtMillis)
+            }
+        } catch (exception: Exception) {
+            repository.markFailed(PeriodicCheckScheduleRequest.TASK_ID)
+            throw exception
         }
     }
 

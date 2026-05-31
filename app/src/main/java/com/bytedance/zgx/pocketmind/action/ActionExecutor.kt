@@ -133,6 +133,7 @@ class ActionExecutor(
                     data = mapOf(
                         "toolName" to request.toolName,
                         "taskId" to task.id,
+                        "taskStatus" to task.status.name,
                         "triggerAtMillis" to task.triggerAtMillis.toString(),
                     ),
                 )
@@ -171,6 +172,7 @@ class ActionExecutor(
                         data = mapOf(
                             "toolName" to request.toolName,
                             "taskId" to taskId,
+                            "taskStatus" to "Cancelled",
                         ),
                     )
                 },

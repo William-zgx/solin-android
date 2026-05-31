@@ -27,6 +27,7 @@ class ActionExecutorTest {
 
         assertEquals(ToolStatus.Succeeded, result.status)
         assertEquals("task-1", result.data["taskId"])
+        assertEquals("Scheduled", result.data["taskStatus"])
         assertEquals("喝水", scheduler.lastReminderRequest?.title)
         assertEquals(15L, scheduler.lastReminderRequest?.delayMinutes)
     }
@@ -50,6 +51,7 @@ class ActionExecutorTest {
 
         assertEquals(ToolStatus.Succeeded, result.status)
         assertEquals("task-1", result.data["taskId"])
+        assertEquals("Cancelled", result.data["taskStatus"])
         assertEquals("task-1", scheduler.lastCancelledTaskId)
     }
 

@@ -113,6 +113,49 @@ class PeriodicCheckSchedulerTest {
         assertEquals(ScheduledTaskStatus.Scheduled, repository.task("overdue-reminder")?.status)
         assertEquals(ScheduledTaskStatus.Scheduled, repository.task("future-reminder")?.status)
         assertEquals(10_000L + 60L * 60_000L, repository.periodicCheck()?.triggerAtMillis)
+        assertEquals(
+            listOf(
+                ScheduledTaskStatus.Scheduled,
+                ScheduledTaskStatus.Running,
+                ScheduledTaskStatus.Scheduled,
+            ),
+            dao.statusHistory(PeriodicCheckScheduleRequest.TASK_ID),
+        )
+    }
+
+    @Test
+    fun runnerMarksPeriodicTaskFailedWhenExecutionThrows() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 10_000L })
+        val runner = PeriodicCheckRunner(
+            repository = repository,
+            notifier = FakeLocalPeriodicCheckNotifier(failure = IllegalStateException("notify unavailable")),
+            clockMillis = { 10_000L },
+        )
+        repository.createOrUpdatePeriodicCheck(PeriodicCheckScheduleRequest(overdueGraceMinutes = 5L))
+        dao.upsert(
+            entity(
+                id = "overdue-reminder",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Scheduled,
+                triggerAtMillis = 10_000L - 6L * 60_000L,
+            ),
+        )
+
+        val result = runCatching {
+            runner.runOnce(PeriodicCheckScheduleRequest(overdueGraceMinutes = 5L))
+        }
+
+        assertTrue(result.isFailure)
+        assertEquals(ScheduledTaskStatus.Failed, repository.periodicCheck()?.status)
+        assertEquals(
+            listOf(
+                ScheduledTaskStatus.Scheduled,
+                ScheduledTaskStatus.Running,
+                ScheduledTaskStatus.Failed,
+            ),
+            dao.statusHistory(PeriodicCheckScheduleRequest.TASK_ID),
+        )
     }
 
     @Test
@@ -160,10 +203,13 @@ class PeriodicCheckSchedulerTest {
         }
     }
 
-    private class FakeLocalPeriodicCheckNotifier : LocalPeriodicCheckNotifier {
+    private class FakeLocalPeriodicCheckNotifier(
+        private val failure: RuntimeException? = null,
+    ) : LocalPeriodicCheckNotifier {
         val notifications = mutableListOf<PeriodicCheckNotification>()
 
         override fun post(notification: PeriodicCheckNotification): Boolean {
+            failure?.let { throw it }
             notifications += notification
             return true
         }
@@ -171,6 +217,7 @@ class PeriodicCheckSchedulerTest {
 
     private class FakeScheduledTaskDao : ScheduledTaskDao {
         val tasks = linkedMapOf<String, ScheduledTaskEntity>()
+        private val upsertedStatuses = mutableMapOf<String, MutableList<ScheduledTaskStatus>>()
 
         override fun task(taskId: String): ScheduledTaskEntity? =
             tasks[taskId]
@@ -189,7 +236,12 @@ class PeriodicCheckSchedulerTest {
 
         override fun upsert(task: ScheduledTaskEntity) {
             tasks[task.id] = task
+            upsertedStatuses.getOrPut(task.id) { mutableListOf() } +=
+                ScheduledTaskStatus.valueOf(task.status)
         }
+
+        fun statusHistory(taskId: String): List<ScheduledTaskStatus> =
+            upsertedStatuses[taskId].orEmpty()
     }
 
     private fun entity(
