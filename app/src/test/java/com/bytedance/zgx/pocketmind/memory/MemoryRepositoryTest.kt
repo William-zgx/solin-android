@@ -42,6 +42,37 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun hashRuntimeStillRequiresTokenOverlapBeforeVectorScoring() {
+        val repository = MemoryRepository()
+        repository.indexPreference("pref", "I prefer concise answers")
+
+        val hits = repository.search("brief replies")
+
+        assertTrue(hits.isEmpty())
+    }
+
+    @Test
+    fun semanticRuntimeCanRecallWithoutTokenOverlap() {
+        val repository = MemoryRepository(embeddingRuntime = ConceptEmbeddingRuntime())
+        repository.indexPreference("pref", "I prefer concise answers")
+
+        val hits = repository.search("brief replies")
+
+        assertEquals(listOf("pref"), hits.map { it.id })
+        assertEquals(MemoryRecallMode.Semantic, hits.first().recallMode)
+    }
+
+    @Test
+    fun semanticRuntimeHonorsScoreThresholdWithoutTokenOverlap() {
+        val repository = MemoryRepository(embeddingRuntime = ConceptEmbeddingRuntime())
+        repository.indexPreference("pref", "I prefer concise answers")
+
+        val hits = repository.search("nearby replies")
+
+        assertTrue(hits.isEmpty())
+    }
+
+    @Test
     fun searchRequiresSpecificCjkOverlapWhenQueryHasBigrams() {
         val repository = MemoryRepository()
         repository.index("assistant-reply", "助手：远程回复")
@@ -208,6 +239,21 @@ class MemoryRepositoryTest {
 
         override fun clear() {
             records.clear()
+        }
+    }
+
+    private class ConceptEmbeddingRuntime : EmbeddingRuntime {
+        override val supportsSemanticRecall: Boolean = true
+        override val semanticScoreThreshold: Float = 0.9f
+
+        override fun embed(text: String): FloatArray {
+            val lower = text.lowercase()
+            return when {
+                "concise" in lower -> floatArrayOf(1f, 0f)
+                "brief" in lower -> floatArrayOf(1f, 0f)
+                "nearby" in lower -> floatArrayOf(0.8f, 0f)
+                else -> floatArrayOf(0f, 1f)
+            }
         }
     }
 }

@@ -138,7 +138,7 @@ class MainActivityComprehensiveTest {
         composeRule.onNodeWithTag("inference_remote_chip").performScrollTo().performClick()
         composeRule.onNodeWithTag("model_tab_advanced").performClick()
         composeRule.waitForText("Temperature · 创造性")
-        composeRule.waitForText("安装本地记忆模型后可开启语义召回。")
+        composeRule.waitForText("当前使用本地轻量索引；可补装记忆模型资产。")
 
         composeRule.onNodeWithTag("model_tab_models").performClick()
         composeRule.replaceTaggedText("custom_model_url_input", "ftp://bad-model.litertlm")

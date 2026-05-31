@@ -8,10 +8,16 @@ import java.security.MessageDigest
 import java.util.Locale
 import kotlin.math.sqrt
 
+enum class MemoryRecallMode {
+    Lexical,
+    Semantic,
+}
+
 data class MemoryHit(
     val id: String,
     val text: String,
     val score: Float,
+    val recallMode: MemoryRecallMode = MemoryRecallMode.Lexical,
 )
 
 enum class MemoryRecordType {
@@ -21,6 +27,12 @@ enum class MemoryRecordType {
 }
 
 interface EmbeddingRuntime {
+    val supportsSemanticRecall: Boolean
+        get() = false
+
+    val semanticScoreThreshold: Float
+        get() = 0.72f
+
     fun embed(text: String): FloatArray
 }
 
@@ -151,16 +163,29 @@ class MemoryRepository(
         if (queryTokens.isEmpty()) return emptyList()
         val requiredOverlapTokens = queryTokens.filter { it.length > 1 }.ifEmpty { queryTokens }
         val queryEmbedding = embeddingRuntime.embed(query)
+        val supportsSemanticRecall = embeddingRuntime.supportsSemanticRecall
+        val semanticScoreThreshold = embeddingRuntime.semanticScoreThreshold
         return entries.values
-            .filter { entry -> entry.tokens.any { it in requiredOverlapTokens } }
-            .map { entry ->
+            .mapNotNull { entry ->
+                val hasLexicalOverlap = entry.tokens.any { it in requiredOverlapTokens }
+                if (!hasLexicalOverlap && !supportsSemanticRecall) return@mapNotNull null
+                val score = cosine(queryEmbedding, entry.embedding)
+                if (score <= 0f) return@mapNotNull null
+                val recallMode = if (hasLexicalOverlap) {
+                    MemoryRecallMode.Lexical
+                } else {
+                    MemoryRecallMode.Semantic
+                }
+                if (recallMode == MemoryRecallMode.Semantic && score < semanticScoreThreshold) {
+                    return@mapNotNull null
+                }
                 MemoryHit(
                     id = entry.id,
                     text = entry.text,
-                    score = cosine(queryEmbedding, entry.embedding),
+                    score = score,
+                    recallMode = recallMode,
                 )
             }
-            .filter { it.score > 0f }
             .sortedByDescending { it.score }
             .take(topK)
     }

@@ -1,5 +1,29 @@
 # PocketMind 验证报告
 
+## 2026-05-31 语义记忆运行时边界增量验证
+
+本轮覆盖项：
+
+- `MemoryRepository` 将默认轻量 token/hash 召回与真正 semantic runtime
+  边界拆开：hash runtime 仍要求词项重叠，声明支持 semantic recall 的 runtime
+  才能用高分阈值召回无词项重叠命中。
+- `MemoryHit` 标记命中来源为 `Lexical` 或 `Semantic`，便于后续接入 LiteRT
+  embedding adapter 后验证真实语义召回路径。
+- 模型管理高级页的本地记忆开关不再绑定 memory model asset 安装状态；文案明确
+  当前使用本地轻量索引，安装 asset 不等于 embedding runtime 参与检索。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest.injectsMemoryContextWhenMemoryIsEnabledWithoutRequiringEmbeddingModel' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeCompatibilityTest.memoryContextRemainsCompatibleWithoutEmbeddingCapability'
+
+./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin
+git diff --check
+```
+
 ## 2026-05-31 最近 Agent 轨迹摘要增量验证
 
 本轮覆盖项：
@@ -113,6 +137,10 @@
 - 遗忘显式偏好后，`rebuild` 不会从历史 remember 控制消息重新派生同一偏好。
 - CJK 召回收紧为多字符 token 优先匹配，避免 `简洁回答` 被 `远程回复` 的
   单字重叠误命中。
+- 当前默认本地记忆检索仍是轻量 token/hash 索引；`MemoryRepository`
+  保留真正 semantic runtime 接入点，语义命中可跳过词项重叠过滤，但 LiteRT
+  embedding adapter 尚未接入。
+- 安装或补装 memory model asset 本身不代表 embedding runtime 已参与检索。
 - `memoryIndex.buildContext` 异常时也降级为空记忆块，设备上下文仍可进入 prompt。
 
 验证命令：
@@ -871,7 +899,7 @@ ANDROID_SERIAL=emulator-5554 \
 说明：
 
 - 用户提供的 DeepSeek 远程配置仅作为可选手工验证输入，未写入仓库、测试代码或文档。
-- 当前仍未完成的核心能力包括屏幕理解、周期性后台任务策略、专用语义记忆模型接入、allowlisted app-specific deep targets、通用权限请求、截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
+- 当前仍未完成的核心能力包括屏幕理解、周期性后台任务策略、LiteRT embedding adapter 参与记忆检索、allowlisted app-specific deep targets、通用权限请求、截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
 
 ## 历史验证记录
 
@@ -889,17 +917,22 @@ ANDROID_SERIAL=emulator-5554 \
 模型补齐结果：
 
 - `gemma-4-E2B-it.litertlm`：已安装，约 2.4 GB。
-- `embeddinggemma-300m.litertlm`：已补装，约 171 MB。
+- `embeddinggemma-300m.litertlm`：已补装，约 171 MB；该 asset 仅表示文件已安装，
+  不表示 LiteRT embedding adapter 已参与记忆检索。
 - `mobile-actions_q8_ekv1024.litertlm`：已补装，约 271 MB。
-- 模型管理页确认三类能力均出现在“本地模型”，设备检查在基础能力齐全后显示 `待下载：已就绪`。
+- 模型管理页确认三类推荐资产均出现在“本地模型”，设备检查在基础能力齐全后显示 `待下载：已就绪`。
 
 真实交互覆盖：
 
 - 普通聊天：保留既有 `用三句话解释端侧大模型` 成功回答验证。
-- 记忆增强：新会话发送 `Remember my rcode is xb83`，停止生成后会重建记忆索引；追问 `What is my rcode` 时 UI 显示 `已引用本地记忆 1 条`，回答 `你的 rcode 是 xb83。`
+- 记忆增强：新会话发送 `Remember my rcode is xb83`，停止生成后会重建本地轻量
+  token/hash 记忆索引；追问 `What is my rcode` 时 UI 显示 `已引用本地记忆 1 条`，
+  回答 `你的 rcode 是 xb83。`
 - 动作草稿：发送 `open wifi settings` 后只展示确认 Sheet；未确认时仍停留在 App；点击 `确认并打开` 后进入系统 Wi-Fi 设置页。
 - 会话管理：会话列表展示当前会话、消息数量和历史会话，入口可正常打开。
-- 模型管理：推荐模型区支持基础对话、记忆、动作模型逐项补装/重下；Top K 滑条不再展示密集刻度点；下载完成后不再残留旧进度条。
+- 模型管理：推荐模型区支持基础对话、记忆 asset、动作模型逐项补装/重下；
+  记忆 asset 的安装不代表 runtime 参与；Top K 滑条不再展示密集刻度点；
+  下载完成后不再残留旧进度条。
 
 修复项：
 

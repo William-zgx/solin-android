@@ -394,7 +394,9 @@ Responsibilities:
 
 Current status:
 
-- Implemented lightweight token/hash memory over saved sessions.
+- Default local memory uses a lightweight token/hash index over saved sessions
+  and explicit persisted records; it does not require a dedicated memory model
+  asset to be installed.
 - Added explicit long-term memory controls for reviewing saved records,
   forgetting a single record, and clearing explicit memory records.
 - Explicit preference and task-state records are now persisted in Room and
@@ -413,8 +415,13 @@ Current status:
 - Agent planning treats memory lookup/context formatting as optional: failures
   fall back to empty memory context and continue ordinary chat/planning.
 - CJK memory recall requires specific multi-character overlap when the query
-  has multi-character tokens, reducing unrelated single-character matches.
-- Dedicated embedding-model semantic memory is still pending.
+  has multi-character tokens, reducing unrelated single-character matches on
+  the lightweight index.
+- `MemoryRepository` has a semantic runtime extension point: a true semantic
+  runtime can return semantic hits without the lightweight term-overlap gate.
+- The LiteRT embedding adapter is still not wired into runtime retrieval; a
+  downloaded memory model asset alone does not mean embedding semantics are
+  participating.
 
 Tests:
 

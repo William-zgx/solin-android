@@ -1493,9 +1493,9 @@ private fun MemoryTogglePanel(
                     )
                     Text(
                         text = if (memoryModelInstalled) {
-                            "启用后会从本机会话中召回相关片段。"
+                            "记忆模型资产已安装；当前使用本地轻量索引召回。"
                         } else {
-                            "安装本地记忆模型后可开启语义召回。"
+                            "当前使用本地轻量索引；可补装记忆模型资产。"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1503,9 +1503,9 @@ private fun MemoryTogglePanel(
                 }
                 Switch(
                     modifier = Modifier.testTag("memory_switch"),
-                    checked = state.memoryEnabled && memoryModelInstalled,
+                    checked = state.memoryEnabled,
                     onCheckedChange = onMemoryEnabledChanged,
-                    enabled = enabled && memoryModelInstalled,
+                    enabled = enabled,
                 )
             }
 
