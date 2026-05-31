@@ -455,8 +455,14 @@ Current status:
   not imply the user completed a share, draft, or target-app action.
 - Successful reminder observations can now promote allowlisted recovery
   metadata into a typed `AgentRecoveryAction`. The typed action is limited to
-  `schedule_reminder -> cancel_reminder(taskId)`, is surfaced through UI state,
-  and does not include reminder title or body content.
+  `schedule_reminder -> cancel_reminder(taskId)`, is surfaced through UI state
+  as a local recovery entry, and does not include reminder title or body
+  content.
+- Tapping the reminder recovery entry does not cancel the task directly. It asks
+  the Agent runtime to create a new audited `cancel_reminder` pending tool
+  confirmation, reruns tool validation and safety policy, persists the pending
+  confirmation for restore, and only executes after the user confirms the normal
+  action sheet.
 - `pending_agent_confirmations` is a narrower recovery table for the latest
   awaiting tool confirmation and may hold the tool arguments needed for an
   explicit later confirmation. It is separate from trace/audit summaries and is
@@ -467,8 +473,8 @@ Current status:
   depend on raw private data.
 - The first local-only privacy boundary is implemented for shared input,
   clipboard-derived continuations, and remote chat history. Reminder rollback
-  now has a typed Agent/UI-state handoff, while a visible one-tap recovery UI,
-  broader taint propagation, and richer per-tool privacy policies are pending.
+  now has a visible Agent/UI confirmation handoff, while broader taint
+  propagation and richer per-tool privacy policies are pending.
 
 Tests:
 

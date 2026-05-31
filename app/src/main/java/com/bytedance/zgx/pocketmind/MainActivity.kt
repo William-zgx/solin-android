@@ -127,6 +127,7 @@ class MainActivity : ComponentActivity() {
                     onOpenSpecialAccessSettings = ::openSpecialAccessSettings,
                     onConfirmAgentConfirmation = ::confirmAgentConfirmationWithPermissions,
                     onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
+                    onOpenRecoveryAction = viewModel::requestRecoveryActionConfirmation,
                     onSendMessage = viewModel::sendMessage,
                     onStartVoiceInput = ::startVoiceInput,
                     onPickSharedAttachment = {

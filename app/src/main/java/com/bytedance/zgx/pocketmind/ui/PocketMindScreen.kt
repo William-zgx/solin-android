@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
@@ -129,6 +130,7 @@ import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.isUsable
 import com.bytedance.zgx.pocketmind.label
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
+import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.ui.theme.LocalPocketMindColors
 import java.text.SimpleDateFormat
@@ -170,6 +172,7 @@ fun PocketMindScreen(
     onOpenSpecialAccessSettings: (String) -> Unit,
     onConfirmAgentConfirmation: (PendingAgentConfirmation) -> Unit,
     onDismissAgentConfirmation: () -> Unit,
+    onOpenRecoveryAction: (AgentRecoveryAction) -> Unit,
     onSendMessage: (String) -> Unit,
     onStartVoiceInput: () -> Unit,
     onPickSharedAttachment: () -> Unit,
@@ -268,6 +271,17 @@ fun PocketMindScreen(
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                             .testTag("memory_context_strip"),
                         hitCount = state.memoryHits.size,
+                    )
+                }
+
+                state.latestRecoveryAction?.takeIf { state.pendingConfirmation == null }?.let { recoveryAction ->
+                    RecoveryActionEntry(
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .testTag("latest_recovery_action_entry"),
+                        action = recoveryAction,
+                        enabled = !state.isBusy,
+                        onClick = { onOpenRecoveryAction(recoveryAction) },
                     )
                 }
 
@@ -2904,6 +2918,70 @@ private fun MemoryContextStrip(
                 text = "已引用本地记忆 $hitCount 条",
                 style = MaterialTheme.typography.labelMedium,
                 color = semanticColors.onMemoryContainer,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecoveryActionEntry(
+    action: AgentRecoveryAction,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        enabled = enabled,
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.82f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)),
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .semantics {
+                    contentDescription = action.draft.title
+                },
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                modifier = Modifier.size(18.dp),
+                imageVector = Icons.AutoMirrored.Filled.Undo,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = action.draft.title,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = action.draft.summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = "确认",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (enabled) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.52f)
+                },
                 fontWeight = FontWeight.SemiBold,
             )
         }

@@ -62,31 +62,7 @@ class AgentLoopRuntime(
 
         when (val toolPlan = planToolIfSupported(input, actionModelPath)) {
             is AgentPlan.UseTool -> {
-                traceStore.appendStep(createdRun.id, AgentStep.ModelPlanned(toolPlan))
-                toolPlan.skillRequest?.let { skillRequest ->
-                    traceStore.appendStep(createdRun.id, AgentStep.SkillPlanned(skillRequest, toolPlan.skillPlan))
-                }
-                traceStore.appendStep(createdRun.id, AgentStep.SafetyChecked(toolPlan.safetyDecision))
-                traceStore.appendStep(createdRun.id, AgentStep.ToolRequested(toolPlan.request, toolPlan.draft))
-                auditToolEvent(createdRun.id, toolPlan, ToolAuditEventType.ToolPlanned, null, toolPlan.request.reason)
-                traceStore.appendStep(
-                    createdRun.id,
-                    AgentStep.UserConfirmationRequested(toolPlan.request, toolPlan.draft),
-                )
-                auditToolEvent(
-                    runId = createdRun.id,
-                    plan = toolPlan,
-                    eventType = ToolAuditEventType.ConfirmationRequested,
-                    status = null,
-                    summary = toolPlan.safetyDecision.reason,
-                )
-                val waitingRun = traceStore.updateState(createdRun.id, AgentRunState.AwaitingUserConfirmation)
-                traceStore.savePendingConfirmation(toolPlan.toPendingSnapshot(waitingRun))
-                return AgentLoopResult(
-                    run = waitingRun,
-                    plan = toolPlan,
-                    steps = traceStore.steps(createdRun.id),
-                )
+                return requestToolConfirmation(createdRun, toolPlan)
             }
 
             is AgentPlan.RejectedTool -> {
@@ -117,6 +93,27 @@ class AgentLoopRuntime(
             plan = answerPlan,
             steps = traceStore.steps(createdRun.id),
         )
+    }
+
+    fun requestRecoveryAction(action: AgentRecoveryAction): AgentLoopResult? {
+        val recovery = action.normalizedReminderRecovery() ?: return null
+        val createdRun = traceStore.createRun("撤销提醒任务：${recovery.taskId}")
+        traceStore.updateState(createdRun.id, AgentRunState.LoadingContext)
+        traceStore.appendStep(createdRun.id, AgentStep.ContextLoaded(emptyList()))
+        traceStore.updateState(createdRun.id, AgentRunState.Planning)
+        return when (
+            val plan = buildInitialToolPlan(
+                request = recovery.request,
+                draft = recovery.draft,
+                plannedByModel = false,
+                fallbackReason = "typed recovery action",
+                skillPlan = null,
+            )
+        ) {
+            is AgentPlan.UseTool -> requestToolConfirmation(createdRun, plan)
+            is AgentPlan.RejectedTool -> rejectToolPlan(createdRun, plan)
+            else -> null
+        }
     }
 
     fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
@@ -560,6 +557,35 @@ class AgentLoopRuntime(
         )
     }
 
+    private fun requestToolConfirmation(
+        run: AgentRun,
+        plan: AgentPlan.UseTool,
+    ): AgentLoopResult {
+        appendToolPlanSteps(run.id, plan)
+        val waitingRun = traceStore.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
+        traceStore.savePendingConfirmation(plan.toPendingSnapshot(waitingRun))
+        return AgentLoopResult(
+            run = waitingRun,
+            plan = plan,
+            steps = traceStore.steps(run.id),
+        )
+    }
+
+    private fun rejectToolPlan(
+        run: AgentRun,
+        plan: AgentPlan.RejectedTool,
+    ): AgentLoopResult {
+        traceStore.appendStep(run.id, AgentStep.ModelPlanned(plan))
+        traceStore.appendStep(run.id, AgentStep.ToolRejected(plan.result))
+        auditRejectedTool(run.id, plan.result)
+        val failedRun = traceStore.updateState(run.id, AgentRunState.Failed)
+        return AgentLoopResult(
+            run = failedRun,
+            plan = plan,
+            steps = traceStore.steps(run.id),
+        )
+    }
+
     fun latestPendingConfirmation(): PendingToolConfirmationSnapshot? =
         traceStore.latestPendingConfirmation()
 
@@ -751,6 +777,39 @@ class AgentLoopRuntime(
 
     private fun String.isSafeRecoveryTaskId(): Boolean =
         matches(Regex("""task-[A-Za-z0-9_-]+"""))
+
+    private data class NormalizedReminderRecovery(
+        val taskId: String,
+        val request: ToolRequest,
+        val draft: ActionDraft,
+    )
+
+    private fun AgentRecoveryAction.normalizedReminderRecovery(): NormalizedReminderRecovery? {
+        if (sourceRequestId.isBlank()) return null
+        if (sourceToolName != MobileActionFunctions.SCHEDULE_REMINDER) return null
+        if (request.id.isBlank()) return null
+        if (request.toolName != MobileActionFunctions.CANCEL_REMINDER) return null
+        if (draft.functionName != MobileActionFunctions.CANCEL_REMINDER) return null
+        val taskId = request.arguments["taskId"]?.takeIf { it.isSafeRecoveryTaskId() } ?: return null
+        val arguments = mapOf("taskId" to taskId)
+        val normalizedRequest = request.copy(
+            toolName = MobileActionFunctions.CANCEL_REMINDER,
+            arguments = arguments,
+            reason = "撤销提醒任务：$taskId",
+        )
+        val normalizedDraft = ActionDraft(
+            functionName = MobileActionFunctions.CANCEL_REMINDER,
+            title = "撤销提醒",
+            summary = "将取消提醒任务：$taskId",
+            parameters = arguments,
+            requiresConfirmation = true,
+        )
+        return NormalizedReminderRecovery(
+            taskId = taskId,
+            request = normalizedRequest,
+            draft = normalizedDraft,
+        )
+    }
 
     private fun AgentRecoveryAction.recoveryHintForObservation(): String? =
         when (request.toolName) {

@@ -1,5 +1,45 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Reminder recovery confirmation entry 增量验证
+
+本轮覆盖项：
+
+- 聊天输入区上方新增 latest recovery entry，展示最近一次提醒 observation 提供的
+  `AgentRecoveryAction`，点击后只进入确认流程，不直接调用后台任务取消。
+- `AssistantRouter.requestRecoveryAction()` 会为 typed reminder recovery 创建新的
+  Agent run，重新执行工具 schema 校验、安全策略、`ToolPlanned` /
+  `ConfirmationRequested` audit，并保存 `pending_agent_confirmations`。
+- ViewModel 将 recovery route 转成普通 `PendingAgentConfirmation`；确认前不执行
+  `cancel_reminder`，确认后才走现有 `confirmAgentConfirmation()`、
+  `UserConfirmed`、`ToolObserved` 链路。
+- 工具 observation 完成后补齐 `isBusy=false` / `isGenerating=false`，避免已完成的
+  工具结果阻塞后续 recovery 入口。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.reminderRecoveryActionRequestsAuditedCancelConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.reminderUndoEntryCreatesPendingCancelConfirmationAndDoesNotExecuteUntilConfirmed'
+
+./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
+./gradlew :app:lintDebug
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+git diff --check
+rg credential-pattern scan excluding build and .gradle outputs
+adb devices -l
+```
+
+结果：
+
+- 通过：targeted JVM reminder recovery confirmation entry 回归测试。
+- 通过：完整 `:app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest`。
+- 通过：`:app:lintDebug`。
+- 通过：`:app:assembleDebug :app:assembleDebugAndroidTest`。
+- 通过：`git diff --check`。
+- 通过：敏感配置扫描无匹配。
+- 未执行模拟器回归：当前环境缺少 `adb` 命令。
+
 ## 2026-05-31 Semantic memory runtime boundary 增量验证
 
 本轮覆盖项：

@@ -1216,6 +1216,86 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun reminderRecoveryActionRequestsAuditedCancelConfirmation() {
+        val auditSink = InMemoryToolAuditSink()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val action = AgentRecoveryAction(
+            sourceRequestId = "request-reminder",
+            sourceToolName = MobileActionFunctions.SCHEDULE_REMINDER,
+            request = ToolRequest(
+                id = "request-recovery",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                arguments = mapOf("taskId" to "task-1"),
+                reason = "unsafe source reason should be normalized",
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.CANCEL_REMINDER,
+                title = "unsafe title",
+                summary = "unsafe reminder body: 喝水",
+                parameters = mapOf("taskId" to "task-1"),
+                requiresConfirmation = true,
+            ),
+        )
+
+        val requested = runtime.requestRecoveryAction(action)
+
+        requireNotNull(requested)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, requested.run.state)
+        require(requested.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, requested.plan.request.toolName)
+        assertEquals(mapOf("taskId" to "task-1"), requested.plan.request.arguments)
+        assertEquals("撤销提醒", requested.plan.draft.title)
+        assertEquals("将取消提醒任务：task-1", requested.plan.draft.summary)
+        assertFalse(requested.plan.draft.summary.contains("喝水"))
+        val pending = runtime.latestPendingConfirmation()
+        requireNotNull(pending)
+        assertEquals(requested.run.id, pending.run.id)
+        assertEquals("request-recovery", pending.request.id)
+        assertEquals(
+            listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
+            auditSink.events.map { it.eventType },
+        )
+        assertTrue(auditSink.events.all { event ->
+            event.toolName == MobileActionFunctions.CANCEL_REMINDER &&
+                event.riskLevel == RiskLevel.MediumDraftOrNavigation &&
+                event.permissions.isEmpty()
+        })
+
+        val executing = runtime.confirmToolRequest(requested.run.id, requested.plan.request.id)
+        requireNotNull(executing)
+        assertEquals(AgentRunState.ExecutingTool, executing.state)
+        val observed = runtime.observeToolResult(
+            runId = requested.run.id,
+            result = ToolResult(
+                requestId = requested.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已取消后台任务：task-1",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.CANCEL_REMINDER,
+                    "taskId" to "task-1",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertEquals(
+            listOf(
+                ToolAuditEventType.ToolPlanned,
+                ToolAuditEventType.ConfirmationRequested,
+                ToolAuditEventType.UserConfirmed,
+                ToolAuditEventType.ToolObserved,
+            ),
+            auditSink.events.map { it.eventType },
+        )
+    }
+
+    @Test
     fun reminderObservationIgnoresUnsafeRecoveryMetadata() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),

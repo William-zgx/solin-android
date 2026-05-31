@@ -37,6 +37,7 @@ import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
+import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.orchestration.AgentTraceRunSummary
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
@@ -709,6 +710,7 @@ class PocketMindViewModel(
                 sessions = sessionRepository.summaries(),
                 activeSessionId = sessionRepository.activeSessionId,
                 messages = emptyList(),
+                latestRecoveryAction = null,
                 statusText = if (!runtime.isLoaded) "新会话" else "正在开启新会话",
             )
         }
@@ -724,6 +726,7 @@ class PocketMindViewModel(
             it.copy(
                 activeSessionId = sessionRepository.activeSessionId,
                 messages = messages,
+                latestRecoveryAction = null,
                 statusText = if (!runtime.isLoaded) "已切换会话" else "正在恢复会话",
             )
         }
@@ -740,6 +743,7 @@ class PocketMindViewModel(
                 sessions = sessionRepository.summaries(),
                 activeSessionId = sessionRepository.activeSessionId,
                 messages = messages,
+                latestRecoveryAction = null,
                 statusText = if (!runtime.isLoaded) "已删除会话" else "正在恢复会话",
             )
         }
@@ -1078,6 +1082,76 @@ class PocketMindViewModel(
         finishStoppedGeneration()
     }
 
+    fun requestRecoveryActionConfirmation(action: AgentRecoveryAction) {
+        val state = _uiState.value
+        if (state.pendingConfirmation != null) {
+            _uiState.update {
+                it.copy(statusText = "请先确认或取消待执行动作")
+            }
+            return
+        }
+        if (state.isBusy || generationJob?.isActive == true) {
+            _uiState.update {
+                it.copy(statusText = "请稍后再撤销提醒")
+            }
+            return
+        }
+        if (state.latestRecoveryAction != action) {
+            _uiState.update {
+                it.copy(statusText = "撤销入口已过期")
+            }
+            return
+        }
+        when (val route = assistantOrchestrator.requestRecoveryAction(action)) {
+            is AssistantRoute.Action -> {
+                val runId = route.runId
+                val request = route.toolRequest
+                if (runId == null || request == null) {
+                    _uiState.update {
+                        it.copy(
+                            latestRecoveryAction = null,
+                            statusText = "撤销动作不可执行",
+                        )
+                    }
+                    return
+                }
+                _uiState.update {
+                    it.copy(
+                        pendingConfirmation = PendingAgentConfirmation(
+                            runId = runId,
+                            draft = route.draft,
+                            toolRequest = request,
+                            skillId = route.skillId,
+                            plannedByModel = route.plannedByModel,
+                            fallbackReason = route.fallbackReason,
+                        ),
+                        latestRecoveryAction = null,
+                        auditEvents = loadAuditEvents(),
+                        agentTraceRuns = loadAgentTraceRuns(),
+                        statusText = "撤销提醒待确认",
+                    )
+                }
+            }
+
+            is AssistantRoute.ToolRejected -> {
+                _uiState.update {
+                    it.copy(
+                        latestRecoveryAction = null,
+                        auditEvents = loadAuditEvents(),
+                        agentTraceRuns = loadAgentTraceRuns(),
+                        statusText = "撤销动作不可执行：${route.summary}",
+                    )
+                }
+            }
+
+            else -> {
+                _uiState.update {
+                    it.copy(statusText = "撤销动作不可执行")
+                }
+            }
+        }
+    }
+
     fun confirmAgentConfirmation(confirmation: PendingAgentConfirmation) {
         val pendingConfirmation = _uiState.value.pendingConfirmation
         if (pendingConfirmation == null || !pendingConfirmation.matchesExecution(confirmation)) {
@@ -1242,6 +1316,8 @@ class PocketMindViewModel(
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
                 latestRecoveryAction = observation?.recoveryAction,
+                isBusy = false,
+                isGenerating = false,
                 statusText = observation?.assistantMessage ?: result.statusSummaryForUi(),
             )
         }
