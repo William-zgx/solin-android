@@ -4,15 +4,17 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.Locale
 
+private const val MAX_SHARED_TEXT_CHARS = 4_000
+
 data class SharedInput(
     val text: String,
     val attachments: List<SharedAttachment>,
 ) {
     val isEmpty: Boolean
-        get() = text.isBlank() && attachments.isEmpty()
+        get() = text.toBoundedSharedText().text.isBlank() && attachments.isEmpty()
 
     fun toPrompt(): String {
-        val trimmedText = text.trim()
+        val sharedText = text.toBoundedSharedText()
         val attachmentBlock = attachments
             .take(MAX_ATTACHMENTS_IN_PROMPT)
             .mapIndexed { index, attachment ->
@@ -32,8 +34,11 @@ data class SharedInput(
             }
             .joinToString(separator = "\n")
         return buildString {
-            if (trimmedText.isNotBlank()) {
-                append(trimmedText)
+            if (sharedText.text.isNotBlank()) {
+                if (sharedText.truncated) {
+                    append("分享文本（已截断）：\n")
+                }
+                append(sharedText.text)
             } else if (attachments.isNotEmpty()) {
                 append("请根据我分享的附件信息进行处理。")
             }
@@ -48,6 +53,24 @@ data class SharedInput(
     private companion object {
         const val MAX_ATTACHMENTS_IN_PROMPT = 5
     }
+}
+
+private data class BoundedSharedText(
+    val text: String,
+    val truncated: Boolean,
+)
+
+private fun String.toBoundedSharedText(): BoundedSharedText {
+    val normalized = replace("\r\n", "\n")
+        .replace('\r', '\n')
+        .filter { char -> !char.isISOControl() || char == '\n' || char == '\t' }
+        .replace(Regex("""\n{3,}"""), "\n\n")
+        .trim()
+    val text = normalized.take(MAX_SHARED_TEXT_CHARS).trim()
+    return BoundedSharedText(
+        text = text,
+        truncated = normalized.length > MAX_SHARED_TEXT_CHARS,
+    )
 }
 
 data class SharedAttachment(

@@ -35,7 +35,7 @@ Google AI Edge LiteRT-LM.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
 - Running background task review for still-scheduled reminders and periodic checks, including explicit cancellation.
 - Recent tool audit review from the background task entry, limited to redacted event metadata.
-- Android share-target and in-app attachment picker entries for shared text,
+- Android share-target and in-app attachment picker entries for bounded shared text,
   bounded local `text/*` document excerpts, and bounded local OCR excerpts from
   user-provided `image/*` attachments; audio, video, PDF, Office, and binary
   attachments remain metadata-only, plus confirmed outbound system sharing for
@@ -138,7 +138,7 @@ Requests such as “分享这段文字...” open Android's system share panel t
 `share_text`; destination selection stays with the user.
 Shared text or attachments from other Android apps, as well as files selected
 through the in-app attachment picker, are ingested as privacy-minimal
-multimodal prompts: PocketMind records user-visible shared text, may produce
+multimodal prompts: PocketMind records bounded user-visible shared text, may produce
 bounded local text excerpts for `text/*` documents, may produce bounded local
 OCR excerpts for user-provided `image/*` attachments, and keeps attachment
 metadata for local processing. Binary, audio, video, PDF, Office, and other

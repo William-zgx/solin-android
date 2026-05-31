@@ -1,5 +1,32 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Shared text and scheduled task state boundary 增量验证
+
+本轮覆盖项：
+
+- `SharedInput` 对 Android share intent / in-app picker 的直传文本做换行归一、
+  控制字符过滤和 4000 字符上限。
+- 超长直传文本在 prompt 中显式标记“分享文本（已截断）”；普通短文本不增加额外前缀。
+- 附件 `text/*` 摘录、image OCR 摘录、PDF/Office metadata-only 边界保持不变。
+- `cancelScheduled` / `deleteScheduled` 改为 Scheduled-only 条件更新，避免旧快照
+  覆盖已进入 `Running` / `Delivered` 等状态的后台任务。
+- Fake DAO 与 Room DAO 使用相同条件更新语义，新增取消与提醒投递竞争的回归测试。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest' \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt'
+```
+
+结果：通过。
+
 ## 2026-06-01 Skill-first direct text sharing 增量验证
 
 本轮覆盖项：

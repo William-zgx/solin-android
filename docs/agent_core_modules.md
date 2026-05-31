@@ -684,6 +684,9 @@ Current status:
   `Reminder`, and is still `Scheduled`, then posts using the stored title/body.
   Missing, cancelled, deleted, or failed tasks are ignored without changing
   state or posting stale notifications.
+- Reminder cancellation and deletion now use a conditional Scheduled-only
+  database update so a stale cancellation path cannot overwrite a task that has
+  already moved to `Running`, `Delivered`, `Failed`, or another terminal state.
 - `ReminderBootReceiver` listens for `BOOT_COMPLETED` and asks
   `ReminderRescheduler` to restore every still-`Scheduled` reminder after the
   system clears alarms on reboot. Past-due reminders are rescheduled with a
@@ -785,8 +788,9 @@ Current status:
 - Implemented a composer attachment entry that launches Android's system
   document picker for user-selected text, image, audio, video, PDF, and Office
   files. Picked files reuse the same `SharedInput` path as share intents.
-- Implemented privacy-minimal `SharedInput` prompts for text plus attachment
-  metadata such as kind, MIME type, display name, and byte size.
+- Implemented privacy-minimal `SharedInput` prompts for bounded direct shared
+  text plus attachment metadata such as kind, MIME type, display name, and byte
+  size.
 - Implemented bounded local text excerpts for user-initiated shared `text/*`
   documents and bounded local OCR text excerpts for user-provided `image/*`
   attachments. Excerpts are user-visible and limited to the local shared-input

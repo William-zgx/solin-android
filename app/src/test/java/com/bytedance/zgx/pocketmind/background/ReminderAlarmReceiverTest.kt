@@ -216,6 +216,22 @@ class ReminderAlarmReceiverTest {
             return 1
         }
 
+        override fun updateScheduledStatusIfScheduled(
+            taskId: String,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.status != ScheduledTaskStatus.Scheduled.name) return 0
+            upsert(
+                existing.copy(
+                    status = status,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
         override fun upsert(task: ScheduledTaskEntity) {
             tasks[task.id] = task
             upsertedStatuses.getOrPut(task.id) { mutableListOf() } +=

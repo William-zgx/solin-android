@@ -302,6 +302,23 @@ class ScheduledTaskRepositoryTest {
     }
 
     @Test
+    fun cancelScheduledDoesNotOverwriteRunningTaskWhenConditionalUpdateLosesRace() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 2_000L })
+        val task = repository.createReminder(
+            title = "取消竞争",
+            body = "旧快照不能覆盖投递中状态",
+            triggerAtMillis = 10_000L,
+        )
+        dao.beforeUpdateScheduledStatusIfScheduled = {
+            dao.markReminderRunningIfScheduled(task.id, updatedAtMillis = 1_500L)
+        }
+
+        assertFalse(repository.cancelScheduled(task.id))
+        assertEquals(ScheduledTaskStatus.Running, repository.task(task.id)?.status)
+    }
+
+    @Test
     fun reschedulerSchedulesFutureAndCatchUpPastDueReminders() {
         val dao = FakeScheduledTaskDao()
         val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000L })
@@ -372,6 +389,7 @@ class ScheduledTaskRepositoryTest {
 
     private class FakeScheduledTaskDao : ScheduledTaskDao {
         private val tasks = linkedMapOf<String, ScheduledTaskEntity>()
+        var beforeUpdateScheduledStatusIfScheduled: (() -> Unit)? = null
 
         override fun task(taskId: String): ScheduledTaskEntity? =
             tasks[taskId]
@@ -402,6 +420,23 @@ class ScheduledTaskRepositoryTest {
             }
             tasks[taskId] = existing.copy(
                 status = ScheduledTaskStatus.Running.name,
+                updatedAtMillis = updatedAtMillis,
+            )
+            return 1
+        }
+
+        override fun updateScheduledStatusIfScheduled(
+            taskId: String,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val beforeUpdate = beforeUpdateScheduledStatusIfScheduled
+            beforeUpdateScheduledStatusIfScheduled = null
+            beforeUpdate?.invoke()
+            val existing = tasks[taskId] ?: return 0
+            if (existing.status != ScheduledTaskStatus.Scheduled.name) return 0
+            tasks[taskId] = existing.copy(
+                status = status,
                 updatedAtMillis = updatedAtMillis,
             )
             return 1

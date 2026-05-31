@@ -215,6 +215,19 @@ interface ScheduledTaskDao {
     )
     fun markReminderRunningIfScheduled(taskId: String, updatedAtMillis: Long): Int
 
+    @Query(
+        """
+        UPDATE scheduled_tasks
+        SET status = :status, updatedAtMillis = :updatedAtMillis
+        WHERE id = :taskId AND status = 'Scheduled'
+        """,
+    )
+    fun updateScheduledStatusIfScheduled(
+        taskId: String,
+        status: String,
+        updatedAtMillis: Long,
+    ): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsert(task: ScheduledTaskEntity)
 }

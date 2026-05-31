@@ -175,13 +175,11 @@ class ScheduledTaskRepository(
     private fun updateScheduledStatus(taskId: String, status: ScheduledTaskStatus): Boolean {
         val existing = dao.task(taskId) ?: return false
         if (existing.status != ScheduledTaskStatus.Scheduled.name) return false
-        dao.upsert(
-            existing.copy(
-                status = status.name,
-                updatedAtMillis = clockMillis(),
-            ),
-        )
-        return true
+        return dao.updateScheduledStatusIfScheduled(
+            taskId = taskId,
+            status = status.name,
+            updatedAtMillis = clockMillis(),
+        ) > 0
     }
 
     private fun updateStatus(taskId: String, status: ScheduledTaskStatus) {

@@ -32,6 +32,22 @@ class SharedInputTest {
     }
 
     @Test
+    fun directSharedTextIsSanitizedAndBounded() {
+        val input = SharedInput(
+            text = "开头\u0000\r\n" + "内".repeat(4_100) + "尾部",
+            attachments = emptyList(),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.startsWith("分享文本（已截断）：\n开头\n"))
+        assertFalse(prompt.contains("\u0000"))
+        assertFalse(prompt.contains("尾部"))
+        assertTrue(prompt.length <= "分享文本（已截断）：\n".length + 4_000)
+        assertTrue(SharedInput(text = "\u0000\r", attachments = emptyList()).isEmpty)
+    }
+
+    @Test
     fun promptIncludesTextPreviewForTextAttachment() {
         val input = SharedInput(
             text = "请总结文档",
