@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
@@ -150,6 +151,7 @@ data class ChatUiState(
     val longTermMemories: List<LongTermMemorySummary> = emptyList(),
     val backgroundTasks: List<BackgroundTaskSummary> = emptyList(),
     val backgroundTaskHistory: List<BackgroundTaskSummary> = emptyList(),
+    val periodicCheckPolicy: PeriodicCheckPolicySummary = PeriodicCheckPolicySummary.disabled(),
     val auditEvents: List<AuditEventSummary> = emptyList(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,

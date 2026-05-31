@@ -117,6 +117,9 @@ import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckConstraints
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
@@ -158,6 +161,8 @@ fun PocketMindScreen(
     onRefreshBackgroundTasks: () -> Unit,
     onRefreshAuditEvents: () -> Unit,
     onCancelBackgroundTask: (String) -> Unit,
+    onSetPeriodicCheckPolicy: (PeriodicCheckScheduleRequest) -> Unit,
+    onDisablePeriodicCheckPolicy: () -> Unit,
     onConfirmAgentConfirmation: (PendingAgentConfirmation) -> Unit,
     onDismissAgentConfirmation: () -> Unit,
     onSendMessage: (String) -> Unit,
@@ -338,6 +343,8 @@ fun PocketMindScreen(
                         onRefreshBackgroundTasks = onRefreshBackgroundTasks,
                         onRefreshAuditEvents = onRefreshAuditEvents,
                         onCancelBackgroundTask = onCancelBackgroundTask,
+                        onSetPeriodicCheckPolicy = onSetPeriodicCheckPolicy,
+                        onDisablePeriodicCheckPolicy = onDisablePeriodicCheckPolicy,
                     )
                 }
             }
@@ -1690,6 +1697,8 @@ private fun BackgroundTaskSheet(
     onRefreshBackgroundTasks: () -> Unit,
     onRefreshAuditEvents: () -> Unit,
     onCancelBackgroundTask: (String) -> Unit,
+    onSetPeriodicCheckPolicy: (PeriodicCheckScheduleRequest) -> Unit,
+    onDisablePeriodicCheckPolicy: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -1723,6 +1732,15 @@ private fun BackgroundTaskSheet(
                 Text("刷新")
             }
         }
+
+        PeriodicCheckPolicySection(
+            policy = state.periodicCheckPolicy,
+            enabled = !state.isBusy,
+            onSetPeriodicCheckPolicy = onSetPeriodicCheckPolicy,
+            onDisablePeriodicCheckPolicy = onDisablePeriodicCheckPolicy,
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
 
         if (state.backgroundTasks.isEmpty()) {
             EmptyPanelText("暂无运行中的后台任务")
@@ -1781,6 +1799,188 @@ private fun BackgroundTaskSheet(
         } else {
             state.auditEvents.forEach { event ->
                 AuditEventRow(event)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PeriodicCheckPolicySection(
+    policy: PeriodicCheckPolicySummary,
+    enabled: Boolean,
+    onSetPeriodicCheckPolicy: (PeriodicCheckScheduleRequest) -> Unit,
+    onDisablePeriodicCheckPolicy: () -> Unit,
+) {
+    val request = policy.request.normalized()
+    val policyKey = listOf(
+        policy.updatedAtMillis?.toString().orEmpty(),
+        policy.taskStatus?.name.orEmpty(),
+        request.storageSummary(),
+    ).joinToString(separator = "|")
+    var policyEnabled by rememberSaveable(policyKey) { mutableStateOf(policy.isSwitchEnabled()) }
+    var intervalMinutes by rememberSaveable(policyKey) { mutableStateOf(request.intervalMinutes) }
+    var minSpacingMinutes by rememberSaveable(policyKey) { mutableStateOf(request.minNotificationSpacingMinutes) }
+    var overdueGraceMinutes by rememberSaveable(policyKey) { mutableStateOf(request.overdueGraceMinutes) }
+    var requiresBatteryNotLow by rememberSaveable(policyKey) {
+        mutableStateOf(request.constraints.requiresBatteryNotLow)
+    }
+    var requiresCharging by rememberSaveable(policyKey) {
+        mutableStateOf(request.constraints.requiresCharging)
+    }
+    val controlsEnabled = enabled && policyEnabled
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("periodic_check_policy_section"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        SectionTitle(
+            text = "周期检查策略",
+            subtitle = policy.statusLine(),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                modifier = Modifier.weight(1f),
+                text = "启用本地提醒巡检",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Switch(
+                modifier = Modifier.testTag("periodic_check_policy_switch"),
+                checked = policyEnabled,
+                onCheckedChange = { policyEnabled = it },
+                enabled = enabled,
+            )
+        }
+        PeriodicCheckChoiceRow(
+            label = "检查间隔",
+            options = periodicCheckIntervalOptions,
+            selectedValue = intervalMinutes,
+            enabled = controlsEnabled,
+            onSelected = { intervalMinutes = it },
+        )
+        PeriodicCheckChoiceRow(
+            label = "最小通知间隔",
+            options = periodicCheckIntervalOptions,
+            selectedValue = minSpacingMinutes,
+            enabled = controlsEnabled,
+            onSelected = { minSpacingMinutes = it },
+        )
+        PeriodicCheckChoiceRow(
+            label = "过期宽限",
+            options = periodicCheckGraceOptions,
+            selectedValue = overdueGraceMinutes,
+            enabled = controlsEnabled,
+            onSelected = { overdueGraceMinutes = it },
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(
+                checked = requiresBatteryNotLow,
+                onCheckedChange = { requiresBatteryNotLow = it },
+                enabled = controlsEnabled,
+            )
+            Text(
+                modifier = Modifier.weight(1f),
+                text = "低电量时暂停",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(
+                checked = requiresCharging,
+                onCheckedChange = { requiresCharging = it },
+                enabled = controlsEnabled,
+            )
+            Text(
+                modifier = Modifier.weight(1f),
+                text = "仅充电时运行",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("periodic_check_disable_button"),
+                onClick = onDisablePeriodicCheckPolicy,
+                enabled = enabled,
+            ) {
+                Text("关闭检查")
+            }
+            Button(
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("periodic_check_save_button"),
+                onClick = {
+                    if (policyEnabled) {
+                        onSetPeriodicCheckPolicy(
+                            PeriodicCheckScheduleRequest(
+                                enabled = true,
+                                intervalMinutes = intervalMinutes,
+                                minNotificationSpacingMinutes = minSpacingMinutes,
+                                overdueGraceMinutes = overdueGraceMinutes,
+                                constraints = PeriodicCheckConstraints(
+                                    requiresBatteryNotLow = requiresBatteryNotLow,
+                                    requiresCharging = requiresCharging,
+                                ),
+                            ),
+                        )
+                    } else {
+                        onDisablePeriodicCheckPolicy()
+                    }
+                },
+                enabled = enabled,
+            ) {
+                Text("保存策略")
+            }
+        }
+    }
+}
+
+@Composable
+private fun PeriodicCheckChoiceRow(
+    label: String,
+    options: List<Pair<Long, String>>,
+    selectedValue: Long,
+    enabled: Boolean,
+    onSelected: (Long) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            options.forEach { (value, optionLabel) ->
+                FilterChip(
+                    selected = selectedValue == value,
+                    onClick = { onSelected(value) },
+                    label = { Text(optionLabel) },
+                    enabled = enabled,
+                )
             }
         }
     }
@@ -1853,6 +2053,35 @@ private fun AuditEventRow(event: AuditEventSummary) {
 
 private fun AuditEventSummary.auditTimeLabel(): String =
     SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(createdAtMillis))
+
+private val periodicCheckIntervalOptions = listOf(
+    PeriodicCheckScheduleRequest.MIN_INTERVAL_MINUTES to "1 小时",
+    PeriodicCheckScheduleRequest.DEFAULT_INTERVAL_MINUTES to "6 小时",
+    12L * 60L to "12 小时",
+    PeriodicCheckScheduleRequest.MAX_INTERVAL_MINUTES to "24 小时",
+)
+
+private val periodicCheckGraceOptions = listOf(
+    PeriodicCheckScheduleRequest.MIN_OVERDUE_GRACE_MINUTES to "5 分钟",
+    PeriodicCheckScheduleRequest.DEFAULT_OVERDUE_GRACE_MINUTES to "30 分钟",
+    60L to "1 小时",
+)
+
+private fun PeriodicCheckPolicySummary.statusLine(): String {
+    val policyLabel = if (isSwitchEnabled()) "已启用" else "未启用"
+    val statusLabel = taskStatus?.label()?.let { "状态 $it" }
+    val nextCheckLabel = nextAllowedRunAtMillis?.let {
+        "下次允许检查 ${SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(it))}"
+    }
+    val lastRunLabel = lastRunSummary?.takeIf { it.isNotBlank() }?.let { "最近 $it" }
+    return listOfNotNull(policyLabel, statusLabel, nextCheckLabel, lastRunLabel)
+        .joinToString(separator = " · ")
+}
+
+private fun PeriodicCheckPolicySummary.isSwitchEnabled(): Boolean =
+    request.enabled &&
+        taskStatus != ScheduledTaskStatus.Cancelled &&
+        taskStatus != ScheduledTaskStatus.Deleted
 
 @Composable
 private fun BackgroundTaskRow(

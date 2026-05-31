@@ -59,6 +59,9 @@ class ScheduledTaskRepository(
     fun periodicCheck(): ScheduledTask? =
         dao.task(PeriodicCheckScheduleRequest.TASK_ID)?.toModel()
 
+    fun periodicCheckPolicy(): PeriodicCheckPolicySummary =
+        periodicCheck()?.toPeriodicCheckPolicySummary() ?: PeriodicCheckPolicySummary.disabled()
+
     fun createOrUpdatePeriodicCheck(request: PeriodicCheckScheduleRequest): ScheduledTask {
         val normalized = request.normalized()
         val now = clockMillis()
@@ -67,7 +70,7 @@ class ScheduledTaskRepository(
             id = PeriodicCheckScheduleRequest.TASK_ID,
             type = ScheduledTaskType.PeriodicCheck,
             title = PeriodicCheckScheduleRequest.TITLE,
-            body = normalized.storageSummary(),
+            body = normalized.storageSummaryWithLastRun(existing?.lastRunSummary()),
             triggerAtMillis = existing?.triggerAtMillis?.coerceAtLeast(now) ?: now,
             status = ScheduledTaskStatus.Scheduled,
             createdAtMillis = existing?.createdAtMillis ?: now,
@@ -84,11 +87,13 @@ class ScheduledTaskRepository(
     ): ScheduledTask {
         val now = clockMillis()
         val existing = periodicCheck()
+        val request = existing?.periodicCheckRequest()
+            ?: PeriodicCheckScheduleRequest()
         val task = ScheduledTask(
             id = PeriodicCheckScheduleRequest.TASK_ID,
             type = ScheduledTaskType.PeriodicCheck,
             title = PeriodicCheckScheduleRequest.TITLE,
-            body = summary,
+            body = request.storageSummaryWithLastRun(summary),
             triggerAtMillis = nextAllowedRunAtMillis,
             status = status,
             createdAtMillis = existing?.createdAtMillis ?: now,
@@ -101,11 +106,13 @@ class ScheduledTaskRepository(
     fun disablePeriodicCheck(): ScheduledTask {
         val now = clockMillis()
         val existing = periodicCheck()
+        val request = (existing?.periodicCheckRequest() ?: PeriodicCheckScheduleRequest())
+            .copy(enabled = false)
         val task = ScheduledTask(
             id = PeriodicCheckScheduleRequest.TASK_ID,
             type = ScheduledTaskType.PeriodicCheck,
             title = PeriodicCheckScheduleRequest.TITLE,
-            body = "enabled=false",
+            body = request.storageSummaryWithLastRun(existing?.lastRunSummary()),
             triggerAtMillis = now,
             status = ScheduledTaskStatus.Cancelled,
             createdAtMillis = existing?.createdAtMillis ?: now,
@@ -182,4 +189,38 @@ class ScheduledTaskRepository(
             createdAtMillis = createdAtMillis,
             updatedAtMillis = updatedAtMillis,
         )
+
+    private fun ScheduledTask.toPeriodicCheckPolicySummary(): PeriodicCheckPolicySummary {
+        val request = periodicCheckRequest()
+        val activeRequest = if (status == ScheduledTaskStatus.Cancelled || status == ScheduledTaskStatus.Deleted) {
+            request.copy(enabled = false).normalized()
+        } else {
+            request
+        }
+        return PeriodicCheckPolicySummary(
+            request = activeRequest,
+            taskStatus = status,
+            nextAllowedRunAtMillis = triggerAtMillis,
+            lastRunSummary = lastRunSummary(),
+            updatedAtMillis = updatedAtMillis,
+        )
+    }
+
+    private fun ScheduledTask.periodicCheckRequest(): PeriodicCheckScheduleRequest {
+        val fallback = if (status == ScheduledTaskStatus.Cancelled || status == ScheduledTaskStatus.Deleted) {
+            PeriodicCheckScheduleRequest(enabled = false)
+        } else {
+            PeriodicCheckScheduleRequest()
+        }
+        return PeriodicCheckScheduleRequest.fromStorageSummary(body, fallback)
+    }
+
+    private fun ScheduledTask.lastRunSummary(): String? =
+        periodicCheckLastRunSummaryFromStorageSummary(body)
+
+    private fun PeriodicCheckScheduleRequest.storageSummaryWithLastRun(lastRunSummary: String?): String =
+        listOfNotNull(
+            storageSummary(),
+            lastRunSummary?.takeIf { it.isNotBlank() },
+        ).joinToString(separator = ";")
 }

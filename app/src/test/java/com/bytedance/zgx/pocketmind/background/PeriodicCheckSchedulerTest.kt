@@ -51,6 +51,8 @@ class PeriodicCheckSchedulerTest {
         assertEquals(ScheduledTaskStatus.Cancelled, disabled.status)
         assertEquals(1, workClient.cancelCount)
         assertEquals(ScheduledTaskStatus.Cancelled, repository.periodicCheck()?.status)
+        assertEquals(false, repository.periodicCheckPolicy().request.enabled)
+        assertEquals(ScheduledTaskStatus.Cancelled, repository.periodicCheckPolicy().taskStatus)
     }
 
     @Test
@@ -113,6 +115,9 @@ class PeriodicCheckSchedulerTest {
         assertEquals(ScheduledTaskStatus.Scheduled, repository.task("overdue-reminder")?.status)
         assertEquals(ScheduledTaskStatus.Scheduled, repository.task("future-reminder")?.status)
         assertEquals(10_000L + 60L * 60_000L, repository.periodicCheck()?.triggerAtMillis)
+        assertEquals(60L, repository.periodicCheckPolicy().request.minNotificationSpacingMinutes)
+        assertEquals(5L, repository.periodicCheckPolicy().request.overdueGraceMinutes)
+        assertEquals("lastRun=notified;overdueReminderCount=1", repository.periodicCheckPolicy().lastRunSummary)
         assertEquals(
             listOf(
                 ScheduledTaskStatus.Scheduled,

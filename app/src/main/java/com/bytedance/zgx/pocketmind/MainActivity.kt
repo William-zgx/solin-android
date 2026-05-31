@@ -122,6 +122,8 @@ class MainActivity : ComponentActivity() {
                     onRefreshBackgroundTasks = viewModel::refreshBackgroundTasks,
                     onRefreshAuditEvents = viewModel::refreshAuditEvents,
                     onCancelBackgroundTask = viewModel::cancelBackgroundTask,
+                    onSetPeriodicCheckPolicy = viewModel::setPeriodicCheckPolicy,
+                    onDisablePeriodicCheckPolicy = viewModel::disablePeriodicCheckPolicy,
                     onConfirmAgentConfirmation = ::confirmAgentConfirmationWithPermissions,
                     onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
                     onSendMessage = viewModel::sendMessage,

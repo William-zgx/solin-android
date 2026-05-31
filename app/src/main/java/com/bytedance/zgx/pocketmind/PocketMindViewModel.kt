@@ -8,6 +8,8 @@ import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionExecutor
 import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTask
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupRepository
@@ -245,6 +247,7 @@ class PocketMindViewModel(
             it.copy(
                 backgroundTasks = loadBackgroundTasks(),
                 backgroundTaskHistory = loadBackgroundTaskHistory(),
+                periodicCheckPolicy = loadPeriodicCheckPolicy(),
             )
         }
     }
@@ -258,6 +261,7 @@ class PocketMindViewModel(
                         state.copy(
                             backgroundTasks = loadBackgroundTasks(),
                             backgroundTaskHistory = loadBackgroundTaskHistory(),
+                            periodicCheckPolicy = loadPeriodicCheckPolicy(),
                             statusText = "后台任务已取消",
                         )
                     }
@@ -265,6 +269,60 @@ class PocketMindViewModel(
                 onFailure = { throwable ->
                     _uiState.update {
                         it.copy(statusText = "后台任务取消失败：${throwable.cleanMessage()}")
+                    }
+                },
+            )
+    }
+
+    fun setPeriodicCheckPolicy(request: PeriodicCheckScheduleRequest) {
+        if (_uiState.value.isBusy) return
+        backgroundTaskScheduler.setPeriodicCheckPolicy(request)
+            .fold(
+                onSuccess = { policy ->
+                    _uiState.update { state ->
+                        state.copy(
+                            backgroundTasks = loadBackgroundTasks(),
+                            backgroundTaskHistory = loadBackgroundTaskHistory(),
+                            periodicCheckPolicy = policy,
+                            statusText = "周期检查策略已保存",
+                        )
+                    }
+                },
+                onFailure = { throwable ->
+                    _uiState.update {
+                        it.copy(
+                            backgroundTasks = loadBackgroundTasks(),
+                            backgroundTaskHistory = loadBackgroundTaskHistory(),
+                            periodicCheckPolicy = loadPeriodicCheckPolicy(),
+                            statusText = "周期检查策略保存失败：${throwable.cleanMessage()}",
+                        )
+                    }
+                },
+            )
+    }
+
+    fun disablePeriodicCheckPolicy() {
+        if (_uiState.value.isBusy) return
+        backgroundTaskScheduler.disablePeriodicCheckPolicy()
+            .fold(
+                onSuccess = { policy ->
+                    _uiState.update { state ->
+                        state.copy(
+                            backgroundTasks = loadBackgroundTasks(),
+                            backgroundTaskHistory = loadBackgroundTaskHistory(),
+                            periodicCheckPolicy = policy,
+                            statusText = "周期检查已关闭",
+                        )
+                    }
+                },
+                onFailure = { throwable ->
+                    _uiState.update {
+                        it.copy(
+                            backgroundTasks = loadBackgroundTasks(),
+                            backgroundTaskHistory = loadBackgroundTaskHistory(),
+                            periodicCheckPolicy = loadPeriodicCheckPolicy(),
+                            statusText = "周期检查关闭失败：${throwable.cleanMessage()}",
+                        )
                     }
                 },
             )
@@ -1134,6 +1192,7 @@ class PocketMindViewModel(
                 pendingConfirmation = null,
                 backgroundTasks = loadBackgroundTasks(),
                 backgroundTaskHistory = loadBackgroundTaskHistory(),
+                periodicCheckPolicy = loadPeriodicCheckPolicy(),
                 auditEvents = loadAuditEvents(),
                 statusText = result.summary,
             )
@@ -1724,6 +1783,7 @@ class PocketMindViewModel(
             longTermMemories = loadLongTermMemories(),
             backgroundTasks = loadBackgroundTasks(),
             backgroundTaskHistory = loadBackgroundTaskHistory(),
+            periodicCheckPolicy = loadPeriodicCheckPolicy(),
             auditEvents = loadAuditEvents(),
             generationParameters = generationParametersRepository.load(),
             sessions = sessionRepository.summaries(),
@@ -1854,6 +1914,11 @@ class PocketMindViewModel(
                     task.status == ScheduledTaskStatus.Failed
             }
             .map { task -> task.toSummary() }
+
+    private fun loadPeriodicCheckPolicy(): PeriodicCheckPolicySummary =
+        runCatching {
+            backgroundTaskScheduler.periodicCheckPolicy()
+        }.getOrDefault(PeriodicCheckPolicySummary.disabled())
 
     private fun ScheduledTask.toSummary(): BackgroundTaskSummary =
         BackgroundTaskSummary(

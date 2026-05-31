@@ -59,6 +59,15 @@ class AndroidBackgroundTaskScheduler(
     override fun deleteScheduledTask(taskId: String): Result<Unit> =
         removalCoordinator.deleteScheduled(taskId)
 
+    override fun periodicCheckPolicy(): PeriodicCheckPolicySummary =
+        periodicCheckScheduler.periodicCheckPolicy()
+
+    override fun setPeriodicCheckPolicy(request: PeriodicCheckScheduleRequest): Result<PeriodicCheckPolicySummary> =
+        periodicCheckScheduler.setPeriodicCheckPolicy(request)
+
+    override fun disablePeriodicCheckPolicy(): Result<PeriodicCheckPolicySummary> =
+        periodicCheckScheduler.disablePeriodicCheckPolicy()
+
     fun rescheduleScheduledReminders(limit: Int = 100): Result<ReminderRescheduleReport> =
         runCatching {
             ReminderRescheduler(

@@ -6,6 +6,8 @@ import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
 import com.bytedance.zgx.pocketmind.audit.ToolAuditRecord
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTask
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
@@ -956,6 +958,107 @@ class PocketMindViewModelTest {
         assertTrue(viewModel.uiState.value.statusText.contains("后台任务取消失败"))
     }
 
+    @Test
+    fun setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi() = runTest(dispatcher) {
+        val scheduler = FakeBackgroundTaskScheduler()
+        val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.setPeriodicCheckPolicy(PeriodicCheckScheduleRequest())
+        advanceUntilIdle()
+
+        assertEquals(listOf(PeriodicCheckScheduleRequest.TASK_ID), viewModel.uiState.value.backgroundTasks.map { it.id })
+        val request = scheduler.periodicPolicyRequests.single()
+        assertEquals(PeriodicCheckScheduleRequest.DEFAULT_INTERVAL_MINUTES, request.intervalMinutes)
+        assertEquals(
+            PeriodicCheckScheduleRequest.DEFAULT_MIN_NOTIFICATION_SPACING_MINUTES,
+            request.minNotificationSpacingMinutes,
+        )
+        assertEquals(PeriodicCheckScheduleRequest.DEFAULT_OVERDUE_GRACE_MINUTES, request.overdueGraceMinutes)
+        assertTrue(viewModel.uiState.value.periodicCheckPolicy.request.enabled)
+        assertEquals(ScheduledTaskStatus.Scheduled, viewModel.uiState.value.periodicCheckPolicy.taskStatus)
+        assertEquals("周期检查策略已保存", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun setPeriodicCheckPolicyFailureDoesNotShowHealthyRunningTask() = runTest(dispatcher) {
+        val scheduler = FakeBackgroundTaskScheduler(
+            periodicSetFailure = IllegalStateException("work enqueue unavailable"),
+        )
+        val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.setPeriodicCheckPolicy(PeriodicCheckScheduleRequest())
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.backgroundTasks.isEmpty())
+        assertEquals(
+            listOf(PeriodicCheckScheduleRequest.TASK_ID),
+            viewModel.uiState.value.backgroundTaskHistory.map { it.id },
+        )
+        assertEquals(ScheduledTaskStatus.Failed, viewModel.uiState.value.periodicCheckPolicy.taskStatus)
+        assertTrue(viewModel.uiState.value.statusText.contains("周期检查策略保存失败"))
+    }
+
+    @Test
+    fun disablePeriodicCheckPolicyMovesTaskToHistory() = runTest(dispatcher) {
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask(
+                    id = PeriodicCheckScheduleRequest.TASK_ID,
+                    type = ScheduledTaskType.PeriodicCheck,
+                    status = ScheduledTaskStatus.Scheduled,
+                    title = PeriodicCheckScheduleRequest.TITLE,
+                    body = PeriodicCheckScheduleRequest().storageSummary(),
+                ),
+            ),
+        )
+        val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.disablePeriodicCheckPolicy()
+        advanceUntilIdle()
+
+        assertEquals(1, scheduler.disablePeriodicCheckCount)
+        assertTrue(viewModel.uiState.value.backgroundTasks.isEmpty())
+        assertEquals(
+            listOf(PeriodicCheckScheduleRequest.TASK_ID),
+            viewModel.uiState.value.backgroundTaskHistory.map { it.id },
+        )
+        assertFalse(viewModel.uiState.value.periodicCheckPolicy.request.enabled)
+        assertEquals(ScheduledTaskStatus.Cancelled, viewModel.uiState.value.periodicCheckPolicy.taskStatus)
+        assertEquals("周期检查已关闭", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun disablePeriodicCheckPolicyFailureKeepsRunningTaskVisible() = runTest(dispatcher) {
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask(
+                    id = PeriodicCheckScheduleRequest.TASK_ID,
+                    type = ScheduledTaskType.PeriodicCheck,
+                    status = ScheduledTaskStatus.Scheduled,
+                    title = PeriodicCheckScheduleRequest.TITLE,
+                    body = PeriodicCheckScheduleRequest().storageSummary(),
+                ),
+            ),
+            periodicDisableFailure = IllegalStateException("work cancel unavailable"),
+        )
+        val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.disablePeriodicCheckPolicy()
+        advanceUntilIdle()
+
+        assertEquals(listOf(PeriodicCheckScheduleRequest.TASK_ID), viewModel.uiState.value.backgroundTasks.map { it.id })
+        assertEquals(ScheduledTaskStatus.Scheduled, viewModel.uiState.value.periodicCheckPolicy.taskStatus)
+        assertTrue(viewModel.uiState.value.statusText.contains("周期检查关闭失败"))
+    }
+
     private fun createViewModel(
         sessionStore: FakeSessionStore = FakeSessionStore(),
         modelRepository: FakeModelRepository = FakeModelRepository(),
@@ -1205,9 +1308,13 @@ class PocketMindViewModelTest {
     private class FakeBackgroundTaskScheduler(
         scheduledTasks: List<ScheduledTask> = emptyList(),
         private val cancelFailure: Throwable? = null,
+        private val periodicSetFailure: Throwable? = null,
+        private val periodicDisableFailure: Throwable? = null,
     ) : BackgroundTaskScheduler {
         private val tasks = linkedMapOf<String, ScheduledTask>()
         val cancelledTaskIds = mutableListOf<String>()
+        val periodicPolicyRequests = mutableListOf<PeriodicCheckScheduleRequest>()
+        var disablePeriodicCheckCount = 0
 
         init {
             scheduledTasks.forEach { task -> tasks[task.id] = task }
@@ -1220,6 +1327,43 @@ class PocketMindViewModelTest {
             tasks.values
                 .sortedWith(compareByDescending<ScheduledTask> { it.updatedAtMillis }.thenBy { it.id })
                 .take(limit)
+
+        override fun periodicCheckPolicy(): PeriodicCheckPolicySummary =
+            tasks[PeriodicCheckScheduleRequest.TASK_ID]?.toPeriodicCheckPolicySummary()
+                ?: PeriodicCheckPolicySummary.disabled()
+
+        override fun setPeriodicCheckPolicy(
+            request: PeriodicCheckScheduleRequest,
+        ): Result<PeriodicCheckPolicySummary> {
+            val normalized = request.normalized()
+            periodicPolicyRequests += normalized
+            if (!normalized.enabled) return disablePeriodicCheckPolicy()
+
+            val task = periodicCheckTask(
+                request = normalized,
+                status = ScheduledTaskStatus.Scheduled,
+            )
+            tasks[task.id] = task
+            periodicSetFailure?.let { throwable ->
+                tasks[task.id] = task.copy(status = ScheduledTaskStatus.Failed)
+                return Result.failure(throwable)
+            }
+            return Result.success(periodicCheckPolicy())
+        }
+
+        override fun disablePeriodicCheckPolicy(): Result<PeriodicCheckPolicySummary> {
+            disablePeriodicCheckCount += 1
+            periodicDisableFailure?.let { return Result.failure(it) }
+            val existingRequest = tasks[PeriodicCheckScheduleRequest.TASK_ID]
+                ?.let { PeriodicCheckScheduleRequest.fromStorageSummary(it.body) }
+                ?: PeriodicCheckScheduleRequest()
+            val task = periodicCheckTask(
+                request = existingRequest.copy(enabled = false).normalized(),
+                status = ScheduledTaskStatus.Cancelled,
+            )
+            tasks[task.id] = task
+            return Result.success(periodicCheckPolicy())
+        }
 
         override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> {
             val task = ScheduledTask(
@@ -1243,6 +1387,45 @@ class PocketMindViewModelTest {
                 tasks[taskId] = existing.copy(status = ScheduledTaskStatus.Cancelled)
             }
             return Result.success(Unit)
+        }
+
+        private fun periodicCheckTask(
+            request: PeriodicCheckScheduleRequest,
+            status: ScheduledTaskStatus,
+        ): ScheduledTask {
+            val existing = tasks[PeriodicCheckScheduleRequest.TASK_ID]
+            return ScheduledTask(
+                id = PeriodicCheckScheduleRequest.TASK_ID,
+                type = ScheduledTaskType.PeriodicCheck,
+                title = PeriodicCheckScheduleRequest.TITLE,
+                body = request.storageSummary(),
+                triggerAtMillis = existing?.triggerAtMillis ?: 2_000L,
+                status = status,
+                createdAtMillis = existing?.createdAtMillis ?: 1_000L,
+                updatedAtMillis = (existing?.updatedAtMillis ?: 1_000L) + 1L,
+            )
+        }
+
+        private fun ScheduledTask.toPeriodicCheckPolicySummary(): PeriodicCheckPolicySummary {
+            val request = PeriodicCheckScheduleRequest.fromStorageSummary(
+                body,
+                fallback = if (status == ScheduledTaskStatus.Cancelled) {
+                    PeriodicCheckScheduleRequest(enabled = false)
+                } else {
+                    PeriodicCheckScheduleRequest()
+                },
+            )
+            return PeriodicCheckPolicySummary(
+                request = if (status == ScheduledTaskStatus.Cancelled) {
+                    request.copy(enabled = false).normalized()
+                } else {
+                    request
+                },
+                taskStatus = status,
+                nextAllowedRunAtMillis = triggerAtMillis,
+                lastRunSummary = null,
+                updatedAtMillis = updatedAtMillis,
+            )
         }
     }
 

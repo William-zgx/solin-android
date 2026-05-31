@@ -1,5 +1,32 @@
 # PocketMind 验证报告
 
+## 2026-05-31 周期检查策略 UX 增量验证
+
+本轮覆盖项：
+
+- 后台任务面板新增周期检查策略区域，展示 enabled、interval、min
+  notification spacing、overdue grace、battery constraints、next allowed check、
+  task status 和 latest run summary。
+- `BackgroundTaskScheduler` 暴露 typed periodic check policy summary；ViewModel
+  保存或关闭策略后刷新运行中任务、最近历史和策略状态。
+- `ScheduledTaskRepository.recordPeriodicCheckRun()` 保留已保存策略字段，只追加
+  latest run summary，避免 Worker 跑完后 UI 读不回用户策略。
+- 关闭策略成功后 `periodic-check-local` 进入 `Cancelled` 历史；关闭失败时保留原
+  running 状态并显示失败提示。
+- 周期检查 UI 只管理本地提醒巡检策略，不执行聊天任务、不读取远程内容、不绕过通知
+  权限和 WorkManager 约束。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.setPeriodicCheckPolicyFailureDoesNotShowHealthyRunningTask' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.disablePeriodicCheckPolicyMovesTaskToHistory' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.disablePeriodicCheckPolicyFailureKeepsRunningTaskVisible' \
+  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest'
+```
+
 ## 2026-05-31 最近截图元数据查询增量验证
 
 本轮覆盖项：

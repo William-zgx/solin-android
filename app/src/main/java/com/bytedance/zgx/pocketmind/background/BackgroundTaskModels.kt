@@ -88,6 +88,45 @@ data class PeriodicCheckScheduleRequest(
         const val DEFAULT_OVERDUE_GRACE_MINUTES = 30L
         const val MIN_OVERDUE_GRACE_MINUTES = 5L
         const val MAX_OVERDUE_GRACE_MINUTES = 7L * 24L * 60L
+
+        fun fromStorageSummary(
+            summary: String,
+            fallback: PeriodicCheckScheduleRequest = PeriodicCheckScheduleRequest(),
+        ): PeriodicCheckScheduleRequest {
+            val fields = summary.toSummaryFields()
+            return fallback.copy(
+                enabled = fields["enabled"]?.toBooleanStrictOrNull() ?: fallback.enabled,
+                intervalMinutes = fields["intervalMinutes"]?.toLongOrNull() ?: fallback.intervalMinutes,
+                minNotificationSpacingMinutes = fields["minNotificationSpacingMinutes"]?.toLongOrNull()
+                    ?: fallback.minNotificationSpacingMinutes,
+                overdueGraceMinutes = fields["overdueGraceMinutes"]?.toLongOrNull() ?: fallback.overdueGraceMinutes,
+                constraints = PeriodicCheckConstraints(
+                    requiresBatteryNotLow = fields["requiresBatteryNotLow"]?.toBooleanStrictOrNull()
+                        ?: fallback.constraints.requiresBatteryNotLow,
+                    requiresCharging = fields["requiresCharging"]?.toBooleanStrictOrNull()
+                        ?: fallback.constraints.requiresCharging,
+                ),
+            ).normalized()
+        }
+    }
+}
+
+data class PeriodicCheckPolicySummary(
+    val request: PeriodicCheckScheduleRequest,
+    val taskStatus: ScheduledTaskStatus?,
+    val nextAllowedRunAtMillis: Long?,
+    val lastRunSummary: String?,
+    val updatedAtMillis: Long?,
+) {
+    companion object {
+        fun disabled(): PeriodicCheckPolicySummary =
+            PeriodicCheckPolicySummary(
+                request = PeriodicCheckScheduleRequest(enabled = false).normalized(),
+                taskStatus = null,
+                nextAllowedRunAtMillis = null,
+                lastRunSummary = null,
+                updatedAtMillis = null,
+            )
     }
 }
 
@@ -127,6 +166,13 @@ enum class PeriodicCheckSkipReason {
 interface BackgroundTaskScheduler {
     fun scheduledTasks(limit: Int = 100): List<ScheduledTask> = emptyList()
     fun recentTasks(limit: Int = 20): List<ScheduledTask> = emptyList()
+    fun periodicCheckPolicy(): PeriodicCheckPolicySummary = PeriodicCheckPolicySummary.disabled()
+    fun setPeriodicCheckPolicy(request: PeriodicCheckScheduleRequest): Result<PeriodicCheckPolicySummary> =
+        Result.failure(UnsupportedOperationException("Periodic check scheduler unavailable"))
+
+    fun disablePeriodicCheckPolicy(): Result<PeriodicCheckPolicySummary> =
+        Result.failure(UnsupportedOperationException("Periodic check scheduler unavailable"))
+
     fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask>
     fun cancel(taskId: String): Result<Unit>
     fun cancelScheduledTask(taskId: String): Result<Unit> = cancel(taskId)
@@ -138,3 +184,23 @@ data class ReminderRescheduleReport(
     val scheduled: Int,
     val failed: Int,
 )
+
+internal fun String.toSummaryFields(): Map<String, String> =
+    split(";")
+        .mapNotNull { field ->
+            val index = field.indexOf("=")
+            if (index <= 0) {
+                null
+            } else {
+                field.substring(0, index) to field.substring(index + 1)
+            }
+        }
+        .toMap()
+
+internal fun periodicCheckLastRunSummaryFromStorageSummary(summary: String): String? {
+    val fields = summary.toSummaryFields()
+    return listOfNotNull(
+        fields["lastRun"]?.let { "lastRun=$it" },
+        fields["overdueReminderCount"]?.let { "overdueReminderCount=$it" },
+    ).takeIf { it.isNotEmpty() }?.joinToString(separator = ";")
+}

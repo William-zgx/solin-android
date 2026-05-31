@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Rule
 import org.junit.Test
 
@@ -70,9 +71,10 @@ class MainActivitySmokeTest {
         composeRule.waitForTag("background_task_manager_title")
 
         composeRule.onNodeWithText("后台任务").assertIsDisplayed()
-        composeRule.onNodeWithText("暂无运行中的后台任务").assertIsDisplayed()
-        composeRule.onNodeWithText("最近审计日志").assertIsDisplayed()
-        composeRule.onNodeWithText("暂无审计记录").assertIsDisplayed()
+        composeRule.onNodeWithTag("periodic_check_policy_section").assertIsDisplayed()
+        composeRule.onNodeWithText("暂无运行中的后台任务").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("最近审计日志").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("暂无审计记录").performScrollTo().assertIsDisplayed()
     }
 
     private fun ComposeTestRule.waitForTag(tag: String) {

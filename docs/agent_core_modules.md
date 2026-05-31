@@ -465,7 +465,15 @@ Current status:
 - Implemented recent background task history in the same review surface for
   terminal `Delivered`, `Cancelled`, `Deleted`, and `Failed` tasks. History rows
   are read-only and cannot be mistaken for still-running tasks.
-- Periodic check policy UX is pending.
+- Implemented periodic check policy UX in the background task surface. Users
+  can inspect and save the local reminder patrol policy, including enabled
+  state, interval, minimum notification spacing, overdue grace, battery
+  constraints, task status, next allowed check time, and latest run summary.
+  Policy changes are persisted through the singleton `periodic-check-local`
+  task and remain separate from one-shot reminder scheduling.
+- Periodic check run summaries preserve the saved policy fields instead of
+  replacing them, so the UI reads typed policy state from the background layer
+  rather than parsing task history rows.
 
 Tests:
 
@@ -474,6 +482,10 @@ Tests:
 - `ReminderAlarmReceiverTest`
 - `PocketMindViewModelTest.restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork`
 - `PocketMindViewModelTest.cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler`
+- `PocketMindViewModelTest.setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi`
+- `PocketMindViewModelTest.setPeriodicCheckPolicyFailureDoesNotShowHealthyRunningTask`
+- `PocketMindViewModelTest.disablePeriodicCheckPolicyMovesTaskToHistory`
+- `PocketMindViewModelTest.disablePeriodicCheckPolicyFailureKeepsRunningTaskVisible`
 - `MainActivitySmokeTest.backgroundTaskManagerShowsEmptyState`
 - `ActionExecutorTest`
 - `ActionPlannerTest.infersReminderDraftWithDelayMinutes`

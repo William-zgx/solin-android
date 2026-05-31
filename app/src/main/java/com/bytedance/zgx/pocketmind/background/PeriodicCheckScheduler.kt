@@ -18,6 +18,15 @@ class PeriodicCheckScheduler(
     private val repository: ScheduledTaskRepository,
     private val workClient: PeriodicCheckWorkClient,
 ) {
+    fun periodicCheckPolicy(): PeriodicCheckPolicySummary =
+        repository.periodicCheckPolicy()
+
+    fun setPeriodicCheckPolicy(request: PeriodicCheckScheduleRequest): Result<PeriodicCheckPolicySummary> =
+        setPeriodicCheck(request).map { repository.periodicCheckPolicy() }
+
+    fun disablePeriodicCheckPolicy(): Result<PeriodicCheckPolicySummary> =
+        disablePeriodicCheck().map { repository.periodicCheckPolicy() }
+
     fun setPeriodicCheck(request: PeriodicCheckScheduleRequest): Result<ScheduledTask> =
         runCatching {
             val normalized = request.normalized()
