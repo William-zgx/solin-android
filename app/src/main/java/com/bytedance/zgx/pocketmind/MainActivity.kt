@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind
 import android.Manifest
 import android.app.Activity
 import android.app.AppOpsManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Process
+import android.provider.Settings
 import android.speech.RecognizerIntent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
@@ -19,6 +21,7 @@ import androidx.activity.viewModels
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import com.bytedance.zgx.pocketmind.device.PocketMindAccessibilityService
 import com.bytedance.zgx.pocketmind.multimodal.ShareIntentReader
 import com.bytedance.zgx.pocketmind.ui.PocketMindScreen
 import com.bytedance.zgx.pocketmind.ui.theme.PocketMindTheme
@@ -229,6 +232,7 @@ class MainActivity : ComponentActivity() {
     private fun hasSpecialAccess(requirement: SpecialAccessRequirement): Boolean =
         when (requirement.id) {
             SPECIAL_ACCESS_USAGE_STATS -> hasUsageStatsAccess()
+            SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT -> hasAccessibilityScreenTextAccess()
             else -> false
         }
 
@@ -251,6 +255,21 @@ class MainActivity : ComponentActivity() {
             }
         }.getOrDefault(AppOpsManager.MODE_ERRORED)
         return mode == AppOpsManager.MODE_ALLOWED
+    }
+
+    private fun hasAccessibilityScreenTextAccess(): Boolean {
+        val enabledServices = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+        ).orEmpty()
+        val target = ComponentName(this, PocketMindAccessibilityService::class.java).flattenToString()
+        return enabledServices
+            .split(':')
+            .any { enabled ->
+                ComponentName.unflattenFromString(enabled)
+                    ?.flattenToString()
+                    ?.equals(target, ignoreCase = true) == true
+            }
     }
 
     companion object {

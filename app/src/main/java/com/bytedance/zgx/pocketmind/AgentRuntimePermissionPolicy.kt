@@ -20,6 +20,7 @@ data class SpecialAccessRequirement(
 )
 
 const val SPECIAL_ACCESS_USAGE_STATS = "usage_stats"
+const val SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT = "accessibility_screen_text"
 
 fun PendingAgentConfirmation.runtimePermissionsFor(apiLevel: Int = Build.VERSION.SDK_INT): List<String> {
     return runtimePermissionRequirementsFor(apiLevel)
@@ -73,6 +74,7 @@ fun PendingAgentConfirmation.specialAccessRequirementsFor(): List<SpecialAccessR
     val toolName = toolRequest?.toolName ?: draft.functionName
     return when (toolName) {
         MobileActionFunctions.QUERY_FOREGROUND_APP -> listOf(USAGE_ACCESS_REQUIREMENT)
+        MobileActionFunctions.READ_CURRENT_SCREEN_TEXT -> listOf(ACCESSIBILITY_SCREEN_TEXT_REQUIREMENT)
         else -> emptyList()
     }
 }
@@ -158,4 +160,11 @@ private val USAGE_ACCESS_REQUIREMENT = SpecialAccessRequirement(
     title = "使用情况访问权限",
     rationale = "用于只读识别当前前台应用；需要在系统设置中手动开启。",
     settingsAction = Settings.ACTION_USAGE_ACCESS_SETTINGS,
+)
+
+private val ACCESSIBILITY_SCREEN_TEXT_REQUIREMENT = SpecialAccessRequirement(
+    id = SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
+    title = "无障碍屏幕文本权限",
+    rationale = "用于在你确认后只读获取当前屏幕暴露的可访问文本；不会点击、控制设备或读取截图像素。",
+    settingsAction = Settings.ACTION_ACCESSIBILITY_SETTINGS,
 )

@@ -141,6 +141,8 @@ ANDROID_SERIAL=emulator-5554 scripts/install_and_test_device.sh
 - 需要 Android runtime permission 的工具应在确认卡提前展示友好权限名和用途；如果用户在系统权限弹窗中拒绝权限，不应执行工具、不应自动重试，应显示结构化权限失败并清除待确认状态，同时保留 raw manifest permission 供审计。
 - 需要 Usage Access 的前台 App 摘要不应触发 Android runtime permission 弹窗；确认卡应说明系统“使用情况访问权限 / Usage Access”设置入口，未授权时不应读取数据、不应自动重试，应返回结构化权限失败。
 - 授予 Usage Access 后再次触发前台 App 摘要，只应返回最小 App metadata；不应展示完整使用历史、通知正文、窗口内容或自动上传到远程模型。
+- 通过受确认保护的当前屏幕 Accessibility 文本快照工具读取当前屏幕文字时，应只在用户确认后读取当前 Accessibility 文本节点快照；结果应标记为 `LocalOnly`，raw `screenText` 不应进入 trace、audit、持久消息或远程 runtime。
+- 当前屏幕 Accessibility 文本快照不等于截图、OCR、像素读取或语义屏幕理解；无 Accessibility 服务授权或节点读取失败时，应返回结构化失败，不应自动退化为截图/OCR/屏幕扫描。
 - “打开链接 https://example.com” 应先出现确认；确认后只打开 HTTPS 链接，`http`、`file`、`content`、`javascript` 和自定义 scheme 应被拒绝。
 - “启动微信” 或指定合法包名的 App 启动请求应先出现确认；确认后只打开应用启动页，不接受任意 activity/action/data/extras。
 - “打开微信应用详情设置” 或指定合法包名的 `android_app_details_settings` 请求应先出现确认；确认后只打开白名单固定目标，不接受任意 targetId、URI、activity/action/data/extras。
@@ -203,5 +205,5 @@ ANDROID_SERIAL=emulator-5554 scripts/install_and_test_device.sh
 - 通过受确认保护的 `query_recent_files(kind="screenshots")` 查询最近截图时，只应展示截图候选文件的文件名、MIME、大小、修改时间等元数据；不应读取图片像素、文件路径、URI 或截图内容。
 - 通过受确认保护的 `read_recent_screenshot_ocr` 识别最近截图文字时，App 只应读取最近 1 张截图并在本地生成 OCR 摘录；结果应标记为 `LocalOnly`，不应在 trace/audit/持久消息里保存截图 URI、路径、原始像素或 OCR 原文。
 - 通过受确认保护的 `read_recent_image_ocr` 识别最近图片/照片文字时，App 最多扫描最近 3 张图片并在本地返回第一条有界 OCR 摘录；结果应标记为 `LocalOnly`，不应在 trace/audit/持久消息里保存图片 URI、路径、原始像素或 OCR 原文。
-- 远程模型模式下，最近截图 OCR 和最近图片 OCR 的后续回答不应自动调用远程 runtime；UI 应提示已保护对应 OCR 内容，并要求切换本地模型或由用户手动粘贴愿意上传的内容。
-- 当前只验收分享入口、系统文件选择入口、语音入口、`text/*` 有界摘录、用户主动提供 `image/*` 的本地 OCR 有界摘录、最近截图 metadata 查询、最近 1 张截图确认式 OCR、最近 3 张图片确认式 OCR 与 metadata-only/LocalOnly 边界；截图捕获、屏幕理解、Office/PDF 解析、图片语义理解、任意媒体 OCR 和媒体内容理解仍是待实现项。
+- 远程模型模式下，最近截图 OCR、最近图片 OCR 和当前屏幕 Accessibility 文本快照的后续回答不应自动调用远程 runtime；UI 应提示已保护对应本地内容，并要求切换本地模型或由用户手动粘贴愿意上传的内容。
+- 当前只验收分享入口、系统文件选择入口、语音入口、`text/*` 有界摘录、用户主动提供 `image/*` 的本地 OCR 有界摘录、最近截图 metadata 查询、最近 1 张截图确认式 OCR、最近 3 张图片确认式 OCR、受确认当前屏幕 Accessibility 文本节点快照与 metadata-only/LocalOnly 边界；截图捕获、语义屏幕理解、Office/PDF 解析、图片语义理解、任意媒体 OCR 和媒体内容理解仍是待实现项。

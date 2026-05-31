@@ -9,6 +9,9 @@ import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityWindow
 import com.bytedance.zgx.pocketmind.device.ContactSummaryItem
 import com.bytedance.zgx.pocketmind.device.ContactSummaryProvider
 import com.bytedance.zgx.pocketmind.device.ContactSummaryReadResult
+import com.bytedance.zgx.pocketmind.device.CurrentScreenTextProvider
+import com.bytedance.zgx.pocketmind.device.CurrentScreenTextReadResult
+import com.bytedance.zgx.pocketmind.device.CurrentScreenTextSnapshot
 import com.bytedance.zgx.pocketmind.device.ForegroundAppInfo
 import com.bytedance.zgx.pocketmind.device.ForegroundAppProvider
 import com.bytedance.zgx.pocketmind.device.ForegroundAppReadResult
@@ -75,6 +78,12 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf("maxCount" to "3"),
                 reason = "test",
             ) to "ocrText",
+            ToolRequest(
+                id = "screen-text",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                arguments = mapOf("maxChars" to "1000"),
+                reason = "test",
+            ) to "screenText",
         )
 
         requests.forEach { (request, routedDataKey) ->
@@ -261,6 +270,35 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     @Test
+    fun validatingExecutorAcceptsCurrentScreenTextMaxCharsOneToFourThousandOnly() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(delegate)
+
+        val accepted = executor.execute(
+            ToolRequest(
+                id = "screen-text",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                arguments = mapOf("maxChars" to "4000"),
+                reason = "test",
+            ),
+        )
+        val rejectedRange = executor.execute(
+            ToolRequest(
+                id = "screen-text-range",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                arguments = mapOf("maxChars" to "4001"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, accepted.status)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, delegate.requests.single().toolName)
+        assertEquals(ToolStatus.Rejected, rejectedRange.status)
+        assertEquals(ToolErrorCode.InvalidRequest, rejectedRange.error?.code)
+        assertTrue(rejectedRange.summary.contains("at most"))
+    }
+
+    @Test
     fun validatingExecutorWrapsDelegateExceptionAsRetryableExecutionFailure() {
         val executor = ValidatingToolExecutor(
             ThrowingDelegate(IllegalStateException("boom")),
@@ -389,6 +427,18 @@ class RoutingAndValidatingToolExecutorTest {
                             truncated = false,
                         ),
                         scannedCount = 1,
+                    )
+            },
+            currentScreenTextProvider = object : CurrentScreenTextProvider {
+                override fun currentScreenText(maxChars: Int): CurrentScreenTextReadResult =
+                    CurrentScreenTextReadResult.Available(
+                        CurrentScreenTextSnapshot(
+                            text = "current screen text",
+                            packageName = "com.example.app",
+                            capturedAtMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
+                            nodeCount = 3,
+                            truncated = false,
+                        ),
                     )
             },
         )

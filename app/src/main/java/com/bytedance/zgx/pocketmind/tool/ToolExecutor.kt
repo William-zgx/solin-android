@@ -12,6 +12,8 @@ import com.bytedance.zgx.pocketmind.device.ForegroundAppReadResult
 import com.bytedance.zgx.pocketmind.device.ContactSummaryItem
 import com.bytedance.zgx.pocketmind.device.ContactSummaryProvider
 import com.bytedance.zgx.pocketmind.device.ContactSummaryReadResult
+import com.bytedance.zgx.pocketmind.device.CurrentScreenTextProvider
+import com.bytedance.zgx.pocketmind.device.CurrentScreenTextReadResult
 import com.bytedance.zgx.pocketmind.device.NotificationSummaryItem
 import com.bytedance.zgx.pocketmind.device.NotificationSummaryProvider
 import com.bytedance.zgx.pocketmind.device.NotificationSummaryReadResult
@@ -35,6 +37,7 @@ class RoutingToolExecutor(
     private val recentFileProvider: RecentFileProvider,
     private val delegate: ToolExecutor,
     private val recentImageTextProvider: RecentImageTextProvider? = null,
+    private val currentScreenTextProvider: CurrentScreenTextProvider? = null,
 ) : ToolExecutor {
     private val calendarAvailabilityToolExecutor =
         CalendarAvailabilityToolExecutor(calendarAvailabilityProvider)
@@ -45,6 +48,8 @@ class RoutingToolExecutor(
     private val recentFilesToolExecutor = RecentFilesToolExecutor(recentFileProvider)
     private val recentScreenshotOcrToolExecutor =
         recentImageTextProvider?.let(::RecentScreenshotOcrToolExecutor)
+    private val currentScreenTextToolExecutor =
+        currentScreenTextProvider?.let(::CurrentScreenTextToolExecutor)
 
     override fun execute(request: ToolRequest): ToolResult =
         when (request.toolName) {
@@ -64,6 +69,15 @@ class RoutingToolExecutor(
                     ?: request.failed(
                         code = ToolErrorCode.ExecutionFailed,
                         summary = "图片 OCR 服务不可用",
+                        retryable = true,
+                        data = request.localOnlyData(),
+                    )
+
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT ->
+                currentScreenTextToolExecutor?.execute(request)
+                    ?: request.failed(
+                        code = ToolErrorCode.ExecutionFailed,
+                        summary = "当前屏幕文本服务不可用",
                         retryable = true,
                         data = request.localOnlyData(),
                     )
@@ -442,6 +456,85 @@ class RecentScreenshotOcrToolExecutor(
 
             else -> null
         }
+}
+
+class CurrentScreenTextToolExecutor(
+    private val provider: CurrentScreenTextProvider,
+) : ToolExecutor {
+    override fun execute(request: ToolRequest): ToolResult {
+        if (request.toolName != MobileActionFunctions.READ_CURRENT_SCREEN_TEXT) {
+            return request.failed(
+                code = ToolErrorCode.UnknownTool,
+                summary = "Unknown tool: ${request.toolName}",
+                retryable = false,
+            )
+        }
+
+        val maxChars = (request.arguments["maxChars"]?.trim()?.toIntOrNull() ?: DEFAULT_MAX_SCREEN_TEXT_CHARS)
+            .coerceIn(1, MAX_SCREEN_TEXT_CHARS)
+        return when (val result = provider.currentScreenText(maxChars)) {
+            is CurrentScreenTextReadResult.Available -> {
+                val snapshot = result.snapshot
+                if (snapshot.text.isBlank()) {
+                    request.succeeded(
+                        summary = "当前屏幕未暴露可访问文本。",
+                        data = request.localOnlyData() + mapOf(
+                            "source" to "accessibility_active_window",
+                            "maxChars" to maxChars.toString(),
+                            "capturedAtMillis" to snapshot.capturedAtMillis.toString(),
+                            "nodeCount" to snapshot.nodeCount.toString(),
+                            "truncated" to snapshot.truncated.toString(),
+                            "screenTextIncluded" to false.toString(),
+                            "rawTreeIncluded" to false.toString(),
+                            "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
+                        ) + snapshot.packageNameData(),
+                    )
+                } else {
+                    request.succeeded(
+                        summary = "已读取当前屏幕 ${snapshot.text.length} 个字符的可访问文本快照。",
+                        data = request.localOnlyData() + mapOf(
+                            "source" to "accessibility_active_window",
+                            "maxChars" to maxChars.toString(),
+                            "capturedAtMillis" to snapshot.capturedAtMillis.toString(),
+                            "nodeCount" to snapshot.nodeCount.toString(),
+                            "screenText" to snapshot.text,
+                            "truncated" to snapshot.truncated.toString(),
+                            "screenTextIncluded" to true.toString(),
+                            "rawTreeIncluded" to false.toString(),
+                            "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
+                        ) + snapshot.packageNameData(),
+                    )
+                }
+            }
+
+            is CurrentScreenTextReadResult.PermissionDenied ->
+                request.failed(
+                    code = ToolErrorCode.PermissionDenied,
+                    summary = "需要开启 PocketMind 无障碍服务才能读取当前屏幕文本",
+                    retryable = true,
+                    data = request.localOnlyData() + mapOf(
+                        "specialAccess" to "accessibility_screen_text",
+                        "settingsAction" to Settings.ACTION_ACCESSIBILITY_SETTINGS,
+                    ),
+                )
+
+            is CurrentScreenTextReadResult.Failed ->
+                request.failed(
+                    code = ToolErrorCode.ExecutionFailed,
+                    summary = "当前屏幕文本读取失败",
+                    retryable = true,
+                    data = request.localOnlyData(),
+                )
+        }
+    }
+
+    private fun com.bytedance.zgx.pocketmind.device.CurrentScreenTextSnapshot.packageNameData(): Map<String, String> =
+        packageName?.takeIf { it.isNotBlank() }?.let { mapOf("packageName" to it) }.orEmpty()
+
+    private companion object {
+        const val DEFAULT_MAX_SCREEN_TEXT_CHARS = 2_000
+        const val MAX_SCREEN_TEXT_CHARS = 4_000
+    }
 }
 
 private fun List<ContactSummaryItem>.toContactsJsonString(): String {

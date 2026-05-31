@@ -1,5 +1,59 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Current-screen Accessibility text snapshot 增量验证
+
+本轮覆盖项：
+
+- 新增受确认保护的 `read_current_screen_text` 工具；它通过 Android
+  Accessibility service 读取当前 Accessibility 文本节点快照，并将结果标记为
+  `LocalOnly` / `requiresLocalModel=true`。
+- 该能力不是截图、不是 OCR、不是像素读取，也不是视觉或语义屏幕理解；
+  失败时不应自动退化为截图、OCR 或屏幕扫描。
+- raw `screenText` 不进入 Agent trace、tool audit、持久工具观察消息或远程
+  模型 prompt；远程模式应阻断自动 continuation，并提示用户切换本地模型或
+  手动粘贴愿意上传的内容。
+- Accessibility 授权按 special access 建模，不进入 Android runtime permission；
+  Manifest 只声明受系统绑定的 `AccessibilityService`，不请求手势、截图或按键过滤能力。
+- Skill private-output fence 禁止将 `screenText` 直接绑定到分享或外部工具参数。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.currentScreenTextObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest'
+
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest'
+
+bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+git diff --check
+scripts/verify_local.sh
+```
+
+设备验证：
+
+```bash
+scripts/install_and_test_device.sh
+```
+
+结果：当前环境没有连接已授权 Android 设备，脚本在执行安装前以
+`Connect exactly one authorized Android device, or set ANDROID_SERIAL to select one.`
+退出。
+
 ## 2026-06-01 Recent image OCR tool 增量验证
 
 本轮覆盖项：
@@ -1917,7 +1971,7 @@ ANDROID_SERIAL=emulator-5554 \
 说明：
 
 - 用户提供的 DeepSeek 远程配置仅作为可选手工验证输入，未写入仓库、测试代码或文档。
-- 当前仍未完成的核心能力包括屏幕理解、LiteRT embedding adapter 参与记忆检索、special-access permission flows beyond Usage Access、当前屏幕捕获、任意媒体 OCR 和实际图片/文档语义理解；状态见 `docs/agent_core_modules.md`。
+- 当前仍未完成的核心能力包括语义屏幕理解、LiteRT embedding adapter 参与记忆检索、special-access permission flows beyond Usage Access、当前屏幕像素/截图捕获、任意媒体 OCR 和实际图片/文档语义理解；状态见 `docs/agent_core_modules.md`。
 
 ## 历史验证记录
 

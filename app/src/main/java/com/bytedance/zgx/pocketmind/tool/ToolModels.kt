@@ -69,6 +69,7 @@ enum class ToolPermission {
     ReadsCalendar,
     ReadsContacts,
     ReadsFiles,
+    ReadsAccessibilityText,
     RequiresAndroidRuntimePermission,
     SchedulesBackgroundWork,
     PostsNotification,

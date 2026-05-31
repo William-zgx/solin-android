@@ -75,6 +75,7 @@ class SafetyPolicy {
             ToolPermission.ReadsContacts,
             ToolPermission.ReadsFiles,
             ToolPermission.ReadsCalendar,
+            ToolPermission.ReadsAccessibilityText,
             ToolPermission.ReadsDeviceContext,
         )
     }

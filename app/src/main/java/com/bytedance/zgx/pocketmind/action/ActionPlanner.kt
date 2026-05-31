@@ -37,6 +37,11 @@ class MobileActionPlanner : ActionPlanner {
             "截图文字",
             "ocr",
             "OCR",
+            "当前屏幕",
+            "当前界面",
+            "屏幕文字",
+            "screen text",
+            "current screen",
             "视频",
             "音频",
             "文档",
@@ -127,6 +132,9 @@ class MobileActionPlanner : ActionPlanner {
             isRecentImageOcrRequest(input) ->
                 MobileActionFunctions.READ_RECENT_IMAGE_OCR.toDraft(recentImageOcrParameters(input))
 
+            isCurrentScreenTextRequest(input) ->
+                MobileActionFunctions.READ_CURRENT_SCREEN_TEXT.toDraft(currentScreenTextParameters(input))
+
             isRecentFilesRequest(input) ->
                 MobileActionFunctions.QUERY_RECENT_FILES.toDraft(recentFilesParameters(input))
 
@@ -187,6 +195,7 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.QUERY_RECENT_FILES -> "查询最近文件"
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> "读取最近截图 OCR"
             MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "读取最近图片 OCR"
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT -> "读取当前屏幕文本"
             MobileActionFunctions.QUERY_CONTACTS -> "查询联系人"
             else -> "动作草稿"
         }
@@ -235,6 +244,10 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.READ_RECENT_IMAGE_OCR -> {
                 val maxCount = parameters["maxCount"].orEmpty().ifBlank { "3" }
                 "将扫描最近 ${maxCount} 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。"
+            }
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT -> {
+                val maxChars = parameters["maxChars"].orEmpty().ifBlank { "2000" }
+                "将读取当前屏幕的可访问文本快照（最多 ${maxChars} 字符）；不会读取截图、像素、坐标或完整节点树。"
             }
             MobileActionFunctions.QUERY_CONTACTS -> {
                 val maxCount = parameters["maxCount"]
@@ -439,6 +452,54 @@ class MobileActionPlanner : ActionPlanner {
         return mentionsRecentImage && asksForTextExtraction
     }
 
+    private fun isCurrentScreenTextRequest(input: String): Boolean {
+        val normalized = input.lowercase()
+        val mentionsCurrentScreen = listOf(
+            "当前屏幕",
+            "当前界面",
+            "现在屏幕",
+            "屏幕内容",
+            "屏幕文字",
+            "屏幕文本",
+            "这个界面",
+            "这页",
+            "页面内容",
+        ).any { marker -> marker in input } ||
+            Regex("""\b(current|active|this)\s+(screen|page|window|view)\b""")
+                .containsMatchIn(normalized)
+        val asksForAccessibleText = listOf(
+            "文字",
+            "文本",
+            "内容",
+            "读取",
+            "读一下",
+            "总结",
+            "摘要",
+            "提取",
+            "识别",
+            "text",
+            "summarize",
+            "summary",
+            "read",
+            "extract",
+        ).any { marker -> marker in normalized }
+        val asksForVisualOnly = listOf(
+            "截图",
+            "截屏",
+            "拍屏",
+            "像素",
+            "图片",
+            "照片",
+            "ocr",
+            "screenshot",
+            "screen capture",
+            "image",
+            "photo",
+            "pixel",
+        ).any { marker -> marker in normalized }
+        return mentionsCurrentScreen && asksForAccessibleText && !asksForVisualOnly
+    }
+
     private fun isContactQueryRequest(input: String): Boolean {
         val normalized = input.lowercase()
         return listOf(
@@ -510,6 +571,9 @@ class MobileActionPlanner : ActionPlanner {
     private fun recentImageOcrParameters(input: String): Map<String, String> =
         mapOf("maxCount" to (recentCountFrom(input)?.coerceIn(1, 3) ?: 3).toString())
 
+    private fun currentScreenTextParameters(input: String): Map<String, String> =
+        mapOf("maxChars" to (maxCharsFrom(input)?.coerceIn(1, 4000) ?: 2000).toString())
+
     private fun recentCountFrom(input: String): Int? {
         val normalized = input.lowercase()
         val cleaned = input.replace(Regex("\\s+"), "")
@@ -518,6 +582,20 @@ class MobileActionPlanner : ActionPlanner {
             ?.getOrNull(1)
             ?.toIntOrNull()
             ?: Regex("""(?:recent|latest)\s+(\d{1,2})""")
+                .find(normalized)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.toIntOrNull()
+    }
+
+    private fun maxCharsFrom(input: String): Int? {
+        val normalized = input.lowercase()
+        val cleaned = input.replace(Regex("\\s+"), "")
+        return Regex("""最多(\d{1,5})字""").find(cleaned)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?: Regex("""(?:max|limit)\s*(\d{1,5})\s*(?:chars?|characters?)""")
                 .find(normalized)
                 ?.groupValues
                 ?.getOrNull(1)

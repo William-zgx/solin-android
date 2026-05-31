@@ -87,6 +87,19 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun parsesCurrentScreenTextCallOutput() {
+        val draft = planner.parseModelOutput(
+            """call:read_current_screen_text{"maxChars":"1200"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, draft.functionName)
+        assertEquals("1200", draft.parameters["maxChars"])
+        assertTrue(draft.summary.contains("当前屏幕"))
+        assertTrue(draft.summary.contains("不会读取截图"))
+    }
+
+    @Test
     fun parsesUsageAccessSettingsCallOutput() {
         val draft = planner.parseModelOutput("""call:open_usage_access_settings{}""")
 
@@ -209,6 +222,17 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.READ_CLIPBOARD, plan.draft?.functionName)
         assertTrue(plan.draft?.parameters.orEmpty().isEmpty())
+    }
+
+    @Test
+    fun infersCurrentScreenTextOnlyForAccessibleTextRequests() {
+        val plan = planner.plan("总结当前屏幕文字，最多1200字")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, plan.draft?.functionName)
+        assertEquals("1200", plan.draft?.parameters?.get("maxChars"))
+        assertEquals(ActionPlanKind.NoAction, planner.plan("看看当前屏幕").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("识别当前屏幕截图文字").kind)
     }
 
     @Test

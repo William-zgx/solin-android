@@ -468,6 +468,20 @@ private val recentImageOcrSchemaJson = """
     }
 """.trimIndent()
 
+private val currentScreenTextSchemaJson = """
+    {
+      "type": "object",
+      "properties": {
+        "maxChars": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4000
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
 private val cancelReminderSchemaJson = """
     {
       "type": "object",
@@ -834,6 +848,21 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
                 ToolPermission.ReadsDeviceContext,
                 ToolPermission.ReadsFiles,
                 ToolPermission.RequiresAndroidRuntimePermission,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            title = "读取当前屏幕文本",
+            description = "在用户确认后读取当前屏幕的 Accessibility 可访问文本快照；不读取截图、像素、坐标、节点 ID 或完整节点树。",
+            inputSchemaJson = currentScreenTextSchemaJson,
+            capability = ToolCapability.DeviceContext,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsAccessibilityText,
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,

@@ -230,7 +230,93 @@ class SkillRunProgressorTest {
     }
 
     @Test
-    fun publicOutputsRedactClipboardScreenshotAndImageOcrPrivateFields() {
+    fun rejectsCurrentScreenTextPrivateOutputBindingToToolArgument() {
+        val screenDraft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            title = "读取当前屏幕文本",
+            summary = "读取当前屏幕文本",
+            parameters = emptyMap(),
+        )
+        val shareDraft = ActionDraft(
+            functionName = MobileActionFunctions.SHARE_TEXT,
+            title = "分享屏幕文本",
+            summary = "分享屏幕文本摘要",
+            parameters = emptyMap(),
+        )
+        val screenStep = SkillStep.ToolStep(
+            id = "read_screen",
+            request = ToolRequest(
+                id = "read-screen-request",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            ),
+            draft = screenDraft,
+        )
+        val modelStep = SkillStep.ModelStep(
+            id = "summarize_screen",
+            dependsOn = listOf("read_screen"),
+            title = "整理屏幕文本",
+            instruction = "整理屏幕文本。",
+            inputBindings = mapOf("screenText" to "read_screen.screenText"),
+            outputKey = "summary",
+        )
+        val shareStep = SkillStep.ToolStep(
+            id = "share_screen",
+            dependsOn = listOf("summarize_screen"),
+            request = ToolRequest(
+                id = "share-screen-request",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+            ),
+            draft = shareDraft,
+            argumentBindings = mapOf("text" to "read_screen.screenText"),
+        )
+        val plan = SkillPlan(
+            request = SkillRequest(
+                id = "screen-skill-request",
+                skillId = "screen_share_skill",
+                arguments = mapOf("input" to "分享当前屏幕文本"),
+                reason = "分享当前屏幕文本",
+            ),
+            manifest = SkillManifest(
+                id = "screen_share_skill",
+                version = 1,
+                title = "Screen share skill",
+                description = "Test skill",
+                triggerExamples = listOf("分享当前屏幕文本"),
+                requiredTools = listOf(
+                    MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                    MobileActionFunctions.SHARE_TEXT,
+                ),
+                inputSchemaJson = """
+                    {
+                      "type": "object",
+                      "required": ["input"],
+                      "properties": {
+                        "input": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                """.trimIndent(),
+                riskLevel = RiskLevel.HighExternalSend,
+            ),
+            steps = listOf(screenStep, modelStep, shareStep),
+        )
+
+        val progression = progressor.nextToolAfterModelOutput(
+            skillPlan = plan,
+            requestedRequestIds = setOf(screenStep.request.id),
+            modelOutput = "安全屏幕摘要",
+        )
+
+        require(progression is SkillModelOutputProgression.Rejected)
+        assertTrue(progression.reason.contains("private tool output cannot be bound directly"))
+        assertTrue(progression.reason.contains("read_screen.screenText"))
+    }
+
+    @Test
+    fun publicOutputsRedactClipboardScreenshotImageOcrAndScreenTextPrivateFields() {
         val outputs = linkedMapOf<String, Map<String, String>>()
         val privateRefs = mutableSetOf<String>()
         val clipboardStep = SkillStep.ToolStep(
@@ -272,6 +358,19 @@ class SkillRunProgressorTest {
                 parameters = emptyMap(),
             ),
         )
+        val screenStep = SkillStep.ToolStep(
+            id = "read_screen",
+            request = ToolRequest(
+                id = "screen",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                title = "读取当前屏幕文本",
+                summary = "读取当前屏幕文本",
+                parameters = emptyMap(),
+            ),
+        )
 
         outputs[clipboardStep.id] = progressor.outputForToolResult(
             result = ToolResult(
@@ -303,15 +402,27 @@ class SkillRunProgressorTest {
             draft = imageStep.draft,
         )
         privateRefs += progressor.privateOutputRefsFor(imageStep.id, imageStep.request.toolName)
+        outputs[screenStep.id] = progressor.outputForToolResult(
+            result = ToolResult(
+                requestId = "screen",
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕文本",
+                data = mapOf("screenText" to "私密屏幕文本", "screenTextIncluded" to "true"),
+            ),
+            draft = screenStep.draft,
+        )
+        privateRefs += progressor.privateOutputRefsFor(screenStep.id, screenStep.request.toolName)
 
         val publicOutputs = progressor.publicOutputs(outputs, privateRefs)
 
         assertFalse(publicOutputs.toString().contains("私密剪贴板"))
         assertFalse(publicOutputs.toString().contains("私密截图文字"))
         assertFalse(publicOutputs.toString().contains("私密图片文字"))
+        assertFalse(publicOutputs.toString().contains("私密屏幕文本"))
         assertEquals("false", publicOutputs[clipboardStep.id]?.get("truncated"))
         assertEquals("true", publicOutputs[screenshotStep.id]?.get("ocrTextIncluded"))
         assertEquals("true", publicOutputs[imageStep.id]?.get("ocrTextIncluded"))
+        assertEquals("true", publicOutputs[screenStep.id]?.get("screenTextIncluded"))
     }
 
     @Test

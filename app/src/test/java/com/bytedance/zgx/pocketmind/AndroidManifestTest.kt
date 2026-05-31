@@ -13,6 +13,21 @@ class AndroidManifestTest {
     }
 
     @Test
+    fun declaresAccessibilityServiceForCurrentScreenTextSpecialAccess() {
+        val manifest = readManifest()
+        val serviceConfig = readMainFile("res/xml/pocketmind_accessibility_service.xml")
+
+        assertTrue(manifest.contains(""".device.PocketMindAccessibilityService"""))
+        assertTrue(manifest.contains("""android.permission.BIND_ACCESSIBILITY_SERVICE"""))
+        assertTrue(manifest.contains("""android.accessibilityservice.AccessibilityService"""))
+        assertTrue(manifest.contains("""@xml/pocketmind_accessibility_service"""))
+        assertTrue(serviceConfig.contains("""android:canRetrieveWindowContent="true""""))
+        assertTrue(serviceConfig.contains("""typeWindowStateChanged|typeWindowContentChanged|typeWindowsChanged"""))
+        assertTrue(!serviceConfig.contains("""canPerformGestures="true""""))
+        assertTrue(!serviceConfig.contains("""canTakeScreenshot="true""""))
+    }
+
+    @Test
     fun shareTargetsAcceptPickerSupportedDocumentMimeTypes() {
         val manifest = readManifest()
         val sendFilter = manifest.intentFilterFor("android.intent.action.SEND")
@@ -28,9 +43,13 @@ class AndroidManifestTest {
     }
 
     private fun readManifest(): String {
+        return readMainFile("AndroidManifest.xml")
+    }
+
+    private fun readMainFile(relativePath: String): String {
         val manifestFile = listOf(
-            File("src/main/AndroidManifest.xml"),
-            File("app/src/main/AndroidManifest.xml"),
+            File("src/main/$relativePath"),
+            File("app/src/main/$relativePath"),
         ).first { it.isFile }
         return manifestFile.readText()
     }

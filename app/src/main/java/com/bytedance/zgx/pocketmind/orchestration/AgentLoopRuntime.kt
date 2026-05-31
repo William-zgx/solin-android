@@ -878,6 +878,24 @@ class AgentLoopRuntime(
                 )
             }
 
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT -> {
+                val screenText = result.data["screenText"]?.takeIf { it.isNotBlank() } ?: return null
+                val truncated = result.data["truncated"]?.toBooleanStrictOrNull() ?: false
+                ToolObservationContinuation(
+                    prompt = """
+                    用户已经确认读取当前屏幕的 Accessibility 可访问文本快照。请根据用户原始请求处理这段屏幕文本。
+                    这不是截图捕获、不是 OCR、不是图片语义理解；只使用当前屏幕暴露的可访问文本。
+                    如果用户没有明确要求逐字复述，不要完整抄回屏幕文本；优先总结、提取信息或回答问题。
+
+                    用户原始请求：${run.input}
+                    工具观察：${result.summary}
+                    当前屏幕文本${if (truncated) "（已截断）" else ""}：
+                    $screenText
+                    """.trimIndent(),
+                    requiresLocalModel = true,
+                )
+            }
+
             else -> skillModelContinuationAfterToolObservation(run, request, result)
         }
     }
@@ -977,6 +995,16 @@ class AgentLoopRuntime(
                     this
                 }
 
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT ->
+                if ("screenText" in data) {
+                    copy(
+                        summary = "已读取当前屏幕可访问文本快照",
+                        data = data + ("screenText" to "[redacted]"),
+                    )
+                } else {
+                    this
+                }
+
             else -> this
         }
     }
@@ -985,6 +1013,7 @@ class AgentLoopRuntime(
         MobileActionFunctions.READ_CLIPBOARD,
         MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
         MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+        MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
     )
 
     private fun String?.recentImageOcrContentLabel(): String =

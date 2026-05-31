@@ -149,6 +149,19 @@ class ToolRegistryTest {
         assertTrue(imageOcrSpec.inputSchemaJson.contains("\"maximum\": 3"))
         assertTrue(imageOcrSpec.description.contains("不保存 URI"))
 
+        val currentScreenTextSpec = registry.specFor(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT)
+        assertNotNull(currentScreenTextSpec)
+        requireNotNull(currentScreenTextSpec)
+        assertEquals(ToolCapability.DeviceContext, currentScreenTextSpec.capability)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, currentScreenTextSpec.riskLevel)
+        assertEquals(ConfirmationPolicy.Required, currentScreenTextSpec.confirmationPolicy)
+        assertTrue(ToolPermission.ReadsDeviceContext in currentScreenTextSpec.permissions)
+        assertTrue(ToolPermission.ReadsAccessibilityText in currentScreenTextSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in currentScreenTextSpec.permissions)
+        assertTrue(currentScreenTextSpec.inputSchemaJson.contains("\"maximum\": 4000"))
+        assertTrue(currentScreenTextSpec.description.contains("Accessibility"))
+        assertTrue(currentScreenTextSpec.description.contains("不读取截图"))
+
         val recentNotificationSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS)
         assertNotNull(recentNotificationSpec)
         requireNotNull(recentNotificationSpec)
@@ -214,6 +227,7 @@ class ToolRegistryTest {
             ToolPermission.ReadsContacts,
             ToolPermission.ReadsFiles,
             ToolPermission.ReadsCalendar,
+            ToolPermission.ReadsAccessibilityText,
             ToolPermission.ReadsDeviceContext,
         )
         val privateReadSpecs = registry.specs()

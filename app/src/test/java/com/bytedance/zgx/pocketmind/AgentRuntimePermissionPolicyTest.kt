@@ -239,6 +239,19 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
+    fun currentScreenTextDeclaresAccessibilityAsSpecialAccessNotRuntimePermission() {
+        val confirmation = confirmationFor(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT)
+        val requirements = confirmation.specialAccessRequirementsFor()
+
+        assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
+        assertEquals(1, requirements.size)
+        assertEquals(SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT, requirements.single().id)
+        assertEquals("无障碍屏幕文本权限", requirements.single().title)
+        assertTrue(requirements.single().rationale.contains("当前屏幕"))
+        assertEquals(Settings.ACTION_ACCESSIBILITY_SETTINGS, requirements.single().settingsAction)
+    }
+
+    @Test
     fun deniedGrantResultKeepsToolFromExecutingUntilPermissionIsActuallyGranted() {
         val confirmation = confirmationFor(MobileActionFunctions.QUERY_CONTACTS)
         val permission = Manifest.permission.READ_CONTACTS

@@ -5,6 +5,9 @@ import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.device.ContactSummaryItem
 import com.bytedance.zgx.pocketmind.device.ContactSummaryProvider
 import com.bytedance.zgx.pocketmind.device.ContactSummaryReadResult
+import com.bytedance.zgx.pocketmind.device.CurrentScreenTextProvider
+import com.bytedance.zgx.pocketmind.device.CurrentScreenTextReadResult
+import com.bytedance.zgx.pocketmind.device.CurrentScreenTextSnapshot
 import com.bytedance.zgx.pocketmind.device.ForegroundAppInfo
 import com.bytedance.zgx.pocketmind.device.ForegroundAppProvider
 import com.bytedance.zgx.pocketmind.device.ForegroundAppReadResult
@@ -521,6 +524,119 @@ class DeviceContextToolExecutorTest {
     }
 
     @Test
+    fun currentScreenTextSuccessReturnsLocalOnlyTextWithoutNodeTree() {
+        val provider = RecordingCurrentScreenTextProvider(
+            CurrentScreenTextReadResult.Available(
+                CurrentScreenTextSnapshot(
+                    text = "标题\n按钮",
+                    packageName = "com.example.app",
+                    capturedAtMillis = 9_000L,
+                    nodeCount = 4,
+                    truncated = true,
+                ),
+            ),
+        )
+        val executor = CurrentScreenTextToolExecutor(provider)
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "screen-text",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                arguments = mapOf("maxChars" to "1200"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(null, result.error)
+        assertFalse(result.retryable)
+        assertEquals(1200, provider.lastMaxChars)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, result.data["toolName"])
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals("true", result.data["requiresLocalModel"])
+        assertEquals("accessibility_active_window", result.data["source"])
+        assertEquals("com.example.app", result.data["packageName"])
+        assertEquals("9000", result.data["capturedAtMillis"])
+        assertEquals("4", result.data["nodeCount"])
+        assertEquals("标题\n按钮", result.data["screenText"])
+        assertEquals("true", result.data["truncated"])
+        assertEquals("true", result.data["screenTextIncluded"])
+        assertEquals("false", result.data["rawTreeIncluded"])
+        assertEquals(
+            "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
+            result.data["metadataPolicy"],
+        )
+        assertFalse(result.data.containsKey("nodeTree"))
+        assertFalse(result.data.containsKey("viewId"))
+        assertFalse(result.data.containsKey("bounds"))
+        assertFalse(result.data.containsKey("pixels"))
+    }
+
+    @Test
+    fun currentScreenTextNoTextPermissionDeniedAndFailureAreStructured() {
+        val empty = CurrentScreenTextToolExecutor(
+            StaticCurrentScreenTextProvider(
+                CurrentScreenTextReadResult.Available(
+                    CurrentScreenTextSnapshot(
+                        text = "",
+                        packageName = null,
+                        capturedAtMillis = 10_000L,
+                        nodeCount = 0,
+                        truncated = false,
+                    ),
+                ),
+            ),
+        ).execute(
+            ToolRequest(
+                id = "screen-empty",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                reason = "test",
+            ),
+        )
+        assertEquals(ToolStatus.Succeeded, empty.status)
+        assertEquals(MessagePrivacy.LocalOnly.name, empty.data["privacy"])
+        assertEquals("false", empty.data["screenTextIncluded"])
+        assertFalse(empty.data.containsKey("screenText"))
+
+        val denied = CurrentScreenTextToolExecutor(
+            StaticCurrentScreenTextProvider(
+                CurrentScreenTextReadResult.PermissionDenied("accessibility disabled"),
+            ),
+        ).execute(
+            ToolRequest(
+                id = "screen-denied",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                reason = "test",
+            ),
+        )
+        assertEquals(ToolStatus.Failed, denied.status)
+        assertEquals(ToolErrorCode.PermissionDenied, denied.error?.code)
+        assertTrue(denied.retryable)
+        assertEquals(MessagePrivacy.LocalOnly.name, denied.data["privacy"])
+        assertEquals("accessibility_screen_text", denied.data["specialAccess"])
+        assertEquals("android.settings.ACCESSIBILITY_SETTINGS", denied.data["settingsAction"])
+        assertFalse(denied.data.containsKey("screenText"))
+
+        val failed = CurrentScreenTextToolExecutor(
+            StaticCurrentScreenTextProvider(
+                CurrentScreenTextReadResult.Failed("node dump private text"),
+            ),
+        ).execute(
+            ToolRequest(
+                id = "screen-failed",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                reason = "test",
+            ),
+        )
+        assertEquals(ToolStatus.Failed, failed.status)
+        assertEquals(ToolErrorCode.ExecutionFailed, failed.error?.code)
+        assertTrue(failed.retryable)
+        assertFalse(failed.summary.contains("node dump private text"))
+        assertEquals(MessagePrivacy.LocalOnly.name, failed.data["privacy"])
+        assertFalse(failed.data.containsKey("screenText"))
+    }
+
+    @Test
     fun directDeviceContextExecutorsRejectWrongToolName() {
         val request = ToolRequest(
             id = "wrong",
@@ -552,6 +668,11 @@ class DeviceContextToolExecutorTest {
             RecentScreenshotOcrToolExecutor(
                 StaticRecentImageTextProvider(
                     RecentImageTextReadResult.Failed("not used"),
+                ),
+            ).execute(request),
+            CurrentScreenTextToolExecutor(
+                StaticCurrentScreenTextProvider(
+                    CurrentScreenTextReadResult.Failed("not used"),
                 ),
             ).execute(request),
         )
@@ -640,6 +761,24 @@ class DeviceContextToolExecutorTest {
         override fun extractRecentImageText(kind: String, maxCount: Int): RecentImageTextReadResult {
             lastKind = kind
             lastMaxCount = maxCount
+            return result
+        }
+    }
+
+    private class StaticCurrentScreenTextProvider(
+        private val result: CurrentScreenTextReadResult,
+    ) : CurrentScreenTextProvider {
+        override fun currentScreenText(maxChars: Int): CurrentScreenTextReadResult = result
+    }
+
+    private class RecordingCurrentScreenTextProvider(
+        private val result: CurrentScreenTextReadResult,
+    ) : CurrentScreenTextProvider {
+        var lastMaxChars: Int? = null
+            private set
+
+        override fun currentScreenText(maxChars: Int): CurrentScreenTextReadResult {
+            lastMaxChars = maxChars
             return result
         }
     }

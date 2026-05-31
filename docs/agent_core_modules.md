@@ -38,6 +38,10 @@ Current status:
   calendar availability, recent file metadata summaries, confirmed recent
   screenshot OCR, safe HTTPS deep-link navigation, package-level app launches,
   and allowlisted app deep targets.
+- The current-screen Accessibility text snapshot tool belongs to this
+  tool boundary as a confirmed, `LocalOnly` device-context read. It may expose
+  only a bounded current Accessibility text-node snapshot, not screenshots, OCR
+  output, pixels, or semantic screen understanding.
 - Tools that may require runtime permissions declare that requirement in
   `ToolSpec` only when the current runtime permission policy can request a
   concrete Android manifest permission. The Activity boundary maps pending tool
@@ -91,12 +95,13 @@ Current status:
   tool step, the loop can build the next model-step prompt from that tool
   result, then bind the model output into the next `ToolStep` and return to
   `AwaitingUserConfirmation`. It does not execute follow-up tools directly.
-  If a private read such as clipboard or recent screenshot OCR belongs to a
-  `SkillPlan` with a following `ModelStep`, the Skill-defined model title and
-  instruction take precedence over the legacy hard-coded prompt; those
-  continuations still require a local model and redact private payloads from
-  persisted trace/audit. The hard-coded clipboard/OCR prompts remain as fallback
-  for one-off private reads without a declarative model step.
+  If a private read such as clipboard, recent screenshot OCR, or a
+  current-screen Accessibility text snapshot belongs to a `SkillPlan` with a
+  following `ModelStep`, the Skill-defined model title and instruction take
+  precedence over the legacy hard-coded prompt; those continuations still
+  require a local model and redact private payloads from persisted trace/audit.
+  The hard-coded clipboard/OCR prompts remain as fallback for one-off private
+  reads without a declarative model step.
 - Generic Skill model continuations also honor tool-result privacy metadata:
   `privacy=LocalOnly` or `requiresLocalModel=true` forces the continuation to
   stay local even when the `ModelStep` is otherwise marked remote-eligible.
@@ -376,13 +381,23 @@ Current status:
   same trace/audit redaction, remote-mode protection, and private Skill output
   boundary as screenshot OCR. Plain `query_recent_files(kind="images")` remains
   metadata-only and does not read pixels.
+- The current-screen Accessibility text snapshot tool is a separate
+  confirmed Device Context read for explicit current-screen text requests. It
+  reads only the current Accessibility text nodes exposed by Android
+  accessibility services at confirmation time, returns a bounded `screenText`
+  snapshot marked
+  `LocalOnly` / `requiresLocalModel=true`, and stops remote-mode automatic
+  continuation. It must not capture a screenshot, run OCR, inspect pixels,
+  infer visual or semantic screen state, or persist/expose raw `screenText` in
+  trace, audit, persisted tool-observation messages, or remote model prompts.
 - JVM executor matrix tests cover foreground app, notification summary, contact
   summary, calendar availability, recent file metadata, recent screenshot OCR,
   and recent image OCR success, permission denied, provider failure, LocalOnly,
   and minimal-field boundaries.
-- Broad screen understanding, screenshot capture, complete document parsing,
-  Office/PDF parsing, arbitrary image/media OCR, image pixel analysis, and media
-  content understanding are still pending.
+- Broad screen semantic understanding, screenshot capture, complete document
+  parsing, Office/PDF parsing, arbitrary image/media OCR, image pixel analysis,
+  and media content understanding are still pending. The Accessibility text
+  snapshot boundary does not complete any of those modules.
 
 ## Execution Boundary
 
@@ -499,7 +514,7 @@ Current status:
   activity entry. The UI is intentionally metadata-only: time, event type, tool
   name, status, risk, permission names, and a parameter-free generated summary.
   It does not expose tool arguments, prompts, remote responses, raw clipboard
-  text, Authorization headers, or API keys.
+  text, raw `screenText`, Authorization headers, or API keys.
 - Launch-only external activity observations are displayed as "opened but
   unverified" audit records rather than generic success, so audit history does
   not imply the user completed a share, draft, or target-app action.
@@ -527,9 +542,11 @@ Current status:
   redacted copy as the Room-backed repository so tests cannot accidentally
   depend on raw private data.
 - The first local-only privacy boundary is implemented for shared input,
-  clipboard-derived continuations, and remote chat history. Reminder rollback
-  now has a visible Agent/UI confirmation handoff, while broader taint
-  propagation and richer per-tool privacy policies are pending.
+  clipboard-derived continuations, and remote chat history. The same
+  `LocalOnly` boundary is required for current-screen Accessibility text
+  snapshots. Reminder rollback now has a visible Agent/UI confirmation handoff,
+  while broader taint propagation and richer per-tool privacy policies are
+  pending.
 
 Tests:
 
@@ -784,12 +801,14 @@ Current status:
   history. Remote mode rejects automatically generated shared-input prompts
   before calling a remote backend.
 - The voice entry does not read or parse audio files. Recent screenshot OCR and
-  recent image OCR are implemented as confirmed Device Context tools, not as
-  automatic shared-input ingestion. Screenshot capture, screen understanding,
-  Office/PDF parsing, image semantic understanding, and media content
-  understanding are pending. Image OCR is limited to user-provided `image/*`
-  attachments, the user-confirmed recent screenshot OCR tool, or the
-  user-confirmed recent image OCR tool, and produces text excerpts only.
+  recent image OCR are implemented as confirmed Device Context tools, not
+  automatic shared-input ingestion. The current-screen Accessibility
+  text snapshot tool follows the same Device Context boundary and reads text
+  nodes only; screenshot capture, screen semantic understanding, Office/PDF
+  parsing, image semantic understanding, and media content understanding are
+  pending. Image OCR is limited to user-provided `image/*` attachments, the
+  user-confirmed recent screenshot OCR tool, or the user-confirmed recent image
+  OCR tool, and produces text excerpts only.
 
 Tests:
 

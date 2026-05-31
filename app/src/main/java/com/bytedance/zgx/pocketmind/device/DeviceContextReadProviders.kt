@@ -22,8 +22,10 @@ private const val DEFAULT_MAX_CONTACT_SUMMARY_COUNT = 5
 private const val DEFAULT_MAX_CONTACT_SUMMARY_LOOKBACK = 20
 private const val DEFAULT_MAX_RECENT_FILE_COUNT = 5
 private const val DEFAULT_MAX_RECENT_IMAGE_TEXT_SCAN_COUNT = 3
+private const val DEFAULT_MAX_CURRENT_SCREEN_TEXT_CHARS = 2_000
 private const val MAX_RECENT_FILE_COUNT = 50
 private const val MAX_RECENT_IMAGE_TEXT_SCAN_COUNT = 10
+private const val MAX_CURRENT_SCREEN_TEXT_CHARS = 4_000
 
 private const val KIND_ALL = "all"
 private const val KIND_SCREENSHOTS = "screenshots"
@@ -55,6 +57,10 @@ interface RecentImageTextProvider {
         kind: String = KIND_SCREENSHOTS,
         maxCount: Int = DEFAULT_MAX_RECENT_IMAGE_TEXT_SCAN_COUNT,
     ): RecentImageTextReadResult
+}
+
+interface CurrentScreenTextProvider {
+    fun currentScreenText(maxChars: Int = DEFAULT_MAX_CURRENT_SCREEN_TEXT_CHARS): CurrentScreenTextReadResult
 }
 
 data class ForegroundAppInfo(
@@ -180,6 +186,27 @@ sealed class RecentImageTextReadResult {
 
     data class PermissionDenied(val reason: String) : RecentImageTextReadResult()
     data class Failed(val reason: String) : RecentImageTextReadResult()
+}
+
+data class CurrentScreenTextSnapshot(
+    val text: String,
+    val packageName: String?,
+    val capturedAtMillis: Long,
+    val nodeCount: Int,
+    val truncated: Boolean,
+)
+
+sealed class CurrentScreenTextReadResult {
+    data class Available(val snapshot: CurrentScreenTextSnapshot) : CurrentScreenTextReadResult()
+    data class PermissionDenied(val reason: String) : CurrentScreenTextReadResult()
+    data class Failed(val reason: String) : CurrentScreenTextReadResult()
+}
+
+class AndroidCurrentScreenTextProvider : CurrentScreenTextProvider {
+    override fun currentScreenText(maxChars: Int): CurrentScreenTextReadResult =
+        PocketMindAccessibilityService.readCurrentScreenText(
+            maxChars = maxChars.coerceIn(1, MAX_CURRENT_SCREEN_TEXT_CHARS),
+        )
 }
 
 class AndroidContactSummaryProvider(

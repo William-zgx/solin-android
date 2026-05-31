@@ -41,6 +41,7 @@ object MobileActionFunctions {
     const val QUERY_RECENT_FILES = "query_recent_files"
     const val READ_RECENT_SCREENSHOT_OCR = "read_recent_screenshot_ocr"
     const val READ_RECENT_IMAGE_OCR = "read_recent_image_ocr"
+    const val READ_CURRENT_SCREEN_TEXT = "read_current_screen_text"
     const val CANCEL_REMINDER = "cancel_reminder"
 
     val supported: Set<String> = setOf(
@@ -55,6 +56,7 @@ object MobileActionFunctions {
         QUERY_RECENT_FILES,
         READ_RECENT_SCREENSHOT_OCR,
         READ_RECENT_IMAGE_OCR,
+        READ_CURRENT_SCREEN_TEXT,
         OPEN_FLASHLIGHT_SETTINGS,
         SCHEDULE_REMINDER,
         READ_CLIPBOARD,

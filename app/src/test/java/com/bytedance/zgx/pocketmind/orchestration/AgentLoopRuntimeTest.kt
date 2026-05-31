@@ -739,6 +739,74 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun currentScreenTextObservationBuildsLocalPromptAndRedactsTrace() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                        title = "读取当前屏幕文本",
+                        summary = "将读取当前屏幕的可访问文本快照。",
+                        parameters = mapOf("maxChars" to "1200"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val rawScreenText = "当前屏幕里的私密验证码 654321"
+        val planned = runtime.runOnce(
+            input = "总结当前屏幕文字",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕 17 个字符的可访问文本快照。",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                    "privacy" to "LocalOnly",
+                    "requiresLocalModel" to "true",
+                    "screenText" to rawScreenText,
+                    "truncated" to "false",
+                    "screenTextIncluded" to "true",
+                    "rawTreeIncluded" to "false",
+                    "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains(rawScreenText))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("Accessibility"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("不是截图捕获"))
+        assertEquals("[redacted]", observed.result.data["screenText"])
+        val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
+        assertEquals("[redacted]", toolObserved.result.data["screenText"])
+        assertTrue(!observed.steps.toString().contains(rawScreenText))
+        assertTrue(!auditSink.events.toString().contains(rawScreenText))
+    }
+
+    @Test
     fun clipboardSummarySharePlansShareAfterLocalModelResult() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(

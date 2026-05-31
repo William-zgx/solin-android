@@ -627,6 +627,108 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation() = runTest(dispatcher) {
+        val rawScreenText = "当前屏幕里的私密验证码 654321"
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val readRequest = ToolRequest(
+            toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            arguments = mapOf("maxChars" to "1200"),
+        )
+        val readDraft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            title = "读取当前屏幕文本",
+            summary = "将读取当前屏幕的可访问文本快照。",
+            parameters = readRequest.arguments,
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-screen-text",
+                toolRequest = readRequest,
+                draft = readDraft,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = null,
+            ),
+            confirmedRun = AgentRun(
+                "run-screen-text",
+                "总结当前屏幕文字",
+                AgentRunState.ExecutingTool,
+                1L,
+                2L,
+            ),
+            toolObservation = AgentObservationResult(
+                run = AgentRun(
+                    "run-screen-text",
+                    "总结当前屏幕文字",
+                    AgentRunState.GeneratingAnswer,
+                    1L,
+                    3L,
+                ),
+                result = ToolResult(
+                    requestId = readRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取当前屏幕可访问文本快照",
+                    data = mapOf(
+                        "screenText" to "[redacted]",
+                        "screenTextIncluded" to "true",
+                        "privacy" to "LocalOnly",
+                    ),
+                ),
+                assistantMessage = "工具执行结果：已读取当前屏幕可访问文本快照",
+                decision = AgentObservationDecision.ContinueWithModel(
+                    requiresLocalModel = true,
+                    reason = "当前屏幕文本仅可在本地继续处理。",
+                ),
+                continuationPromptForModel = "请根据当前屏幕文本回答：$rawScreenText",
+                continuationRequiresLocalModel = true,
+                steps = emptyList(),
+            ),
+        )
+        val actionExecutor = object : ToolExecutor {
+            override fun execute(request: ToolRequest): ToolResult =
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取当前屏幕可访问文本快照",
+                    data = mapOf(
+                        "screenText" to rawScreenText,
+                        "screenTextIncluded" to "true",
+                        "privacy" to "LocalOnly",
+                    ),
+                )
+        }
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            actionExecutor = actionExecutor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("总结当前屏幕文字")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, confirmation.draft.functionName)
+
+        viewModel.confirmAgentConfirmation(confirmation)
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals("已保护当前屏幕文本", viewModel.uiState.value.statusText)
+        assertTrue(sessionStore.messages.last().text.contains("不会自动发送当前屏幕文本到远程模型"))
+        assertTrue(sessionStore.messages.none { message -> message.text.contains(rawScreenText) })
+    }
+
+    @Test
     fun remoteModeProtectsGenericLocalOnlyContinuationAsLocalToolResult() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()

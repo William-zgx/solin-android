@@ -23,7 +23,8 @@ Google AI Edge LiteRT-LM.
   context outputs.
 - Minimal device context snapshots plus confirmed clipboard, calendar, contact,
   notification, foreground-app, recent-file metadata, and recent-screenshot OCR
-  plus recent-image OCR reads for controlled context access.
+  plus recent-image OCR reads, with a documented confirmed current-screen
+  Accessibility text snapshot boundary for controlled context access.
 - Confirmed Android runtime permission requests for tools that need calendar, contact, media, or notification access.
 - Runtime permission denial is observed as a structured tool failure without
   executing or automatically retrying the tool.
@@ -67,8 +68,9 @@ model manager responsive while browsing models or switching CPU/GPU; use
 Remote chat uses the same conversation and action routing surface as local
 chat, but private local context is stricter: memory recall, device context,
 clipboard, recent-screenshot OCR, and recent-image OCR continuations, Android
-share-intent text, generated shared-input text excerpts, and attachment
-metadata are not automatically sent to the configured backend. HTTPS is
+share-intent text, generated shared-input text excerpts, current-screen
+Accessibility text snapshots, and attachment metadata are not automatically
+sent to the configured backend. HTTPS is
 required except for local debug hosts such as `localhost`, `127.0.0.1`, and
 Android emulator `10.0.2.2`.
 API keys are stored with Android Keystore-backed encryption and are removed
@@ -121,6 +123,13 @@ Android media permissions, extracts the first bounded local OCR text excerpt,
 and uses the same LocalOnly, trace/audit redaction, and remote-mode protection
 as screenshot OCR. Plain “最近图片” requests still use metadata-only
 `query_recent_files(kind="images")`.
+Requests such as “读取当前屏幕文字” are reserved for a confirmed current-screen
+Accessibility text snapshot tool. After confirmation, it may read only the
+current Accessibility text-node snapshot exposed by Android accessibility
+services, mark the result `LocalOnly`, and use it only for immediate local
+continuation. It is not screenshot capture, OCR, pixel analysis, or semantic
+screen understanding; raw `screenText` must not enter trace, audit, persisted
+tool-observation messages, or remote model requests.
 Requests such as “总结剪贴板并分享” use one constrained composite flow: after
 the user confirms the clipboard read, PocketMind summarizes locally, then opens
 a second confirmation for `share_text` with the generated summary. The share
@@ -155,12 +164,13 @@ confirmed clipboard/device-context reads, outbound text sharing, safe HTTPS
 deep-link navigation, package-level app launches, Android share intent and
 in-app picker text plus bounded `text/*` document excerpt ingestion, system
 speech-recognition input, confirmed recent screenshot/image OCR, and restart
-restoration for the latest pending tool confirmation without auto-execution.
-Broad screen understanding, generalized typed run recovery, complete document
-parsing, screenshot capture/current-screen understanding, Office/PDF parsing,
-image semantic understanding, arbitrary-media OCR beyond confirmed recent-image
-reads, and media content understanding are tracked there as pending core
-modules.
+restoration for the latest pending tool confirmation without auto-execution,
+plus confirmed current-screen Accessibility text snapshot reads.
+Broad semantic screen understanding, generalized typed run recovery, complete
+document parsing, screenshot capture/current-screen semantic understanding,
+Office/PDF parsing, image semantic understanding, arbitrary-media OCR beyond
+confirmed recent-image reads, and media content understanding are tracked there
+as pending core modules.
 
 ## Recommended Models
 

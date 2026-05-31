@@ -22,6 +22,7 @@ import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
 import com.bytedance.zgx.pocketmind.data.SessionRepository
 import com.bytedance.zgx.pocketmind.device.AndroidCalendarAvailabilityProvider
 import com.bytedance.zgx.pocketmind.device.AndroidContactSummaryProvider
+import com.bytedance.zgx.pocketmind.device.AndroidCurrentScreenTextProvider
 import com.bytedance.zgx.pocketmind.device.AndroidForegroundAppProvider
 import com.bytedance.zgx.pocketmind.device.AndroidNotificationSummaryProvider
 import com.bytedance.zgx.pocketmind.device.AndroidRecentImageTextProvider
@@ -99,6 +100,7 @@ class PocketMindAppContainer(context: Context) {
                     canPostReminderNotifications = reminderNotificationHelper::canPostNotifications,
                 ),
                 recentImageTextProvider = AndroidRecentImageTextProvider(appContext),
+                currentScreenTextProvider = AndroidCurrentScreenTextProvider(),
             ),
         )
         assistantOrchestrator = AssistantOrchestrator(

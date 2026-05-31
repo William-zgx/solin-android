@@ -154,6 +154,7 @@ class SkillRunProgressor(
             MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to setOf("ocrText"),
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to setOf("ocrText"),
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("screenText"),
         )
     }
 }
