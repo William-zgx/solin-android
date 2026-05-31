@@ -22,6 +22,7 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("app_title").assertIsDisplayed()
         composeRule.onNodeWithTag("top_model_button").assertIsDisplayed()
         composeRule.onNodeWithTag("top_session_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("composer_attachment_button").assertIsDisplayed()
         composeRule.onNodeWithTag("composer_voice_button").assertIsDisplayed()
 
         composeRule.onNodeWithTag("top_model_button").performClick()

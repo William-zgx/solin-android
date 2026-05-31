@@ -55,6 +55,11 @@ class MainActivity : ComponentActivity() {
             viewModel.acceptVoiceTranscript(transcript)
         }
     }
+    private val sharedAttachmentLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        handlePickedSharedUris(uris)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,6 +114,9 @@ class MainActivity : ComponentActivity() {
                     onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
                     onSendMessage = viewModel::sendMessage,
                     onStartVoiceInput = ::startVoiceInput,
+                    onPickSharedAttachment = {
+                        sharedAttachmentLauncher.launch(SHARED_ATTACHMENT_MIME_TYPES)
+                    },
                     onVoiceInputConsumed = viewModel::consumeVoiceInputDraft,
                     onStopGeneration = viewModel::stopGeneration,
                 )
@@ -132,6 +140,16 @@ class MainActivity : ComponentActivity() {
         shareIntentScope.launch {
             val sharedInput = withContext(Dispatchers.IO) {
                 ShareIntentReader(applicationContext).read(sharedIntent)
+            }
+            sharedInput?.let(viewModel::ingestSharedInput)
+        }
+    }
+
+    private fun handlePickedSharedUris(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        shareIntentScope.launch {
+            val sharedInput = withContext(Dispatchers.IO) {
+                ShareIntentReader(applicationContext).readUris(uris)
             }
             sharedInput?.let(viewModel::ingestSharedInput)
         }
@@ -171,6 +189,20 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK =
             "com.bytedance.zgx.pocketmind.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK"
+        private val SHARED_ATTACHMENT_MIME_TYPES = arrayOf(
+            "text/*",
+            "image/*",
+            "audio/*",
+            "video/*",
+            "application/pdf",
+            "application/rtf",
+            "application/msword",
+            "application/vnd.ms-excel",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        )
 
         private fun isRunningUnderAndroidTest(): Boolean =
             runCatching {

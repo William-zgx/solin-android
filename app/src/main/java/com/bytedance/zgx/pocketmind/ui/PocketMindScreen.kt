@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
@@ -161,6 +162,7 @@ fun PocketMindScreen(
     onDismissAgentConfirmation: () -> Unit,
     onSendMessage: (String) -> Unit,
     onStartVoiceInput: () -> Unit,
+    onPickSharedAttachment: () -> Unit,
     onVoiceInputConsumed: (Long) -> Unit,
     onStopGeneration: () -> Unit,
 ) {
@@ -265,6 +267,7 @@ fun PocketMindScreen(
                     onInputChanged = { input = it },
                     onOpenModelManager = { showModelManager = true },
                     onStartVoiceInput = onStartVoiceInput,
+                    onPickSharedAttachment = onPickSharedAttachment,
                     onSend = {
                         val message = input
                         input = ""
@@ -2701,10 +2704,12 @@ private fun Composer(
     onInputChanged: (String) -> Unit,
     onOpenModelManager: () -> Unit,
     onStartVoiceInput: () -> Unit,
+    onPickSharedAttachment: () -> Unit,
     onSend: () -> Unit,
     onStopGeneration: () -> Unit,
 ) {
     val inputEnabled = state.isReady && !state.isBusy
+    val attachmentEnabled = !state.isBusy
     val actionIsStop = state.isGenerating
     val semanticColors = LocalPocketMindColors.current
     val placeholder = when {
@@ -2804,6 +2809,22 @@ private fun Composer(
                 minLines = 1,
                 maxLines = 5,
                 placeholder = { Text(placeholder) },
+                leadingIcon = {
+                    IconButton(
+                        modifier = Modifier
+                            .testTag("composer_attachment_button")
+                            .semantics {
+                                contentDescription = "选择附件"
+                            },
+                        onClick = onPickSharedAttachment,
+                        enabled = attachmentEnabled,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AttachFile,
+                            contentDescription = null,
+                        )
+                    }
+                },
             )
 
             IconButton(

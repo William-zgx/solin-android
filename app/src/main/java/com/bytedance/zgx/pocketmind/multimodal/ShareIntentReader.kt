@@ -20,9 +20,17 @@ class ShareIntentReader(
             Intent.ACTION_SEND_MULTIPLE -> intent.streamUris()
             else -> emptyList()
         }
+        return readUris(uris = uris, text = text, intentMimeType = intent.type)
+    }
+
+    fun readUris(
+        uris: List<Uri>,
+        text: String = "",
+        intentMimeType: String? = null,
+    ): SharedInput? {
         val attachments = uris
             .take(MAX_SHARED_ATTACHMENTS)
-            .map { uri -> uri.toSharedAttachment(intent.type) }
+            .map { uri -> uri.toSharedAttachment(intentMimeType) }
         return SharedInput(text = text, attachments = attachments)
             .takeUnless { it.isEmpty }
     }

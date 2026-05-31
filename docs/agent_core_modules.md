@@ -396,11 +396,12 @@ Code:
 
 - `app/src/main/java/com/bytedance/zgx/pocketmind/multimodal/`
 - `MainActivity` share intent handling
+- `MainActivity` in-app attachment picker handling
 
 Responsibilities:
 
 - Accept user-initiated shared text, bounded `text/*` document excerpts, and
-  attachment metadata from Android.
+  attachment metadata from Android share targets and the in-app picker.
 - Classify attachments by MIME type; keep non-text files metadata-only.
 - Keep multimodal source handling separate from chat generation and tools.
 
@@ -408,6 +409,9 @@ Current status:
 
 - Implemented Android share-target entry for `ACTION_SEND` and
   `ACTION_SEND_MULTIPLE`.
+- Implemented a composer attachment entry that launches Android's system
+  document picker for user-selected text, image, audio, video, PDF, and Office
+  files. Picked files reuse the same `SharedInput` path as share intents.
 - Implemented privacy-minimal `SharedInput` prompts for text plus attachment
   metadata such as kind, MIME type, display name, and byte size.
 - Implemented bounded local text excerpts for user-initiated shared `text/*`
@@ -425,8 +429,8 @@ Current status:
   history. Remote mode rejects automatically generated shared-input prompts
   before calling a remote backend.
 - The voice entry does not read or parse audio files. Screenshot capture,
-  gallery picker, complete document parsing, OCR, Office/PDF parsing, image
-  understanding, and media content understanding are pending.
+  complete document parsing, OCR, Office/PDF parsing, image understanding, and
+  media content understanding are pending.
 
 Tests:
 
@@ -434,7 +438,7 @@ Tests:
 - `PocketMindViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory`
 - `PocketMindViewModelTest.remoteModeRejectsLocalOnlyPromptBeforeCallingRemoteRuntime`
 - `PocketMindViewModelTest.voiceTranscriptDraftIsOneShotAndDoesNotSendMessage`
-- `MainActivitySmokeTest` composer voice entry visibility
+- `MainActivitySmokeTest` composer attachment and voice entry visibility
 
 ## Regression Strategy
 
