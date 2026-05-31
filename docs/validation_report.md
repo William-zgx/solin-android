@@ -1,6 +1,6 @@
 # PocketMind 验证报告
 
-## 2026-05-31 Skill Manifest 输入契约增量验证
+## 2026-05-31 Skill 执行恢复与输入契约增量验证
 
 本轮覆盖项：
 
@@ -12,6 +12,11 @@
 - 缺失 required、空白 required string、额外字段、类型错误、enum、pattern 和
   数值范围错误会让 Skill plan 在确认或执行前拒绝。
 - `SkillRunExecutor` 在非法 Skill 输入时不会执行工具或模型步骤。
+- `SkillRunExecutor` 在需要用户确认的 tool step 处返回
+  `SkillRunContinuation`；确认后的 `ToolResult` 可从该 step 继续执行后续
+  model/tool step，不会重跑已完成步骤。
+- 多确认 Skill 可在第二个确认点再次停下；错误 `requestId` 的结果会被拒绝，
+  不进入后续 model step。
 - action-planner 附加的 Skill plan 与 observation replan 附加的 Skill plan
   也必须通过 manifest 输入契约，不能只靠 tool registry 校验。
 

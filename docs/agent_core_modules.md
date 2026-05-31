@@ -180,6 +180,10 @@ Current status:
   safety policy before execution. Steps that require user confirmation return
   `AwaitingConfirmation` instead of calling the injected `ToolExecutor`
   directly.
+- `SkillRunExecutor` now returns an opaque `SkillRunContinuation` at
+  confirmation boundaries. A confirmed `ToolResult` can resume from the pending
+  tool step, continue through model transforms, and stop again at the next
+  confirmation without re-running earlier steps or exposing private tool output.
 - General app-level UI orchestration for arbitrary multi-confirmation skill
   runs, richer skill cancellation state, and persisted skill runs are still
   pending.
@@ -197,6 +201,9 @@ Tests:
 - `BuiltInSkillRuntimeTest.validateStructureRejectsSkillRequestArgumentsOutsideManifestSchema`
 - `SkillRunExecutorTest`
 - `SkillRunExecutorTest.failsBeforeExecutingWhenSkillArgumentsDoNotMatchManifestSchema`
+- `SkillRunExecutorTest.resumesAfterConfirmedToolResultAndStopsAtNextConfirmation`
+- `SkillRunExecutorTest.resumesAgainAfterSecondConfirmationAndCompletesSkill`
+- `SkillRunExecutorTest.resumeRejectsToolResultThatDoesNotMatchPendingRequest`
 - `AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `ToolSchemaContractTest`

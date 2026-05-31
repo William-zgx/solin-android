@@ -18,6 +18,84 @@ class SkillRunExecutor(
     private val maxSteps: Int = DEFAULT_MAX_STEPS,
 ) {
     fun execute(plan: SkillPlan): SkillRunResult {
+        validatePlanForExecution(plan)?.let { return it }
+        return runSteps(
+            plan = plan,
+            startIndex = 0,
+            outputs = linkedMapOf(INPUT_OUTPUT_KEY to plan.request.arguments),
+            privateOutputRefs = mutableSetOf(),
+            trace = mutableListOf(),
+        )
+    }
+
+    fun resume(
+        plan: SkillPlan,
+        continuation: SkillRunContinuation,
+        result: ToolResult,
+    ): SkillRunResult {
+        validatePlanForExecution(plan)?.let { return it }
+        if (continuation.planRequestId != plan.request.id || continuation.skillId != plan.request.skillId) {
+            return SkillRunResult(
+                state = SkillRunState.Failed,
+                outputs = emptyMap(),
+                trace = continuation.trace + SkillRunTrace.Failed("skill continuation does not match plan"),
+                error = "skill continuation does not match plan",
+            )
+        }
+        val step = plan.steps.getOrNull(continuation.pendingStepIndex) as? SkillStep.ToolStep
+            ?: return SkillRunResult(
+                state = SkillRunState.Failed,
+                outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+                trace = continuation.trace + SkillRunTrace.Failed("pending skill step is missing"),
+                error = "pending skill step is missing",
+            )
+        if (step.id != continuation.pendingStepId) {
+            return SkillRunResult(
+                state = SkillRunState.Failed,
+                outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+                trace = continuation.trace + SkillRunTrace.Failed("pending skill step changed"),
+                error = "pending skill step changed",
+            )
+        }
+        if (result.requestId != continuation.pendingToolRequest.id) {
+            return SkillRunResult(
+                state = SkillRunState.Failed,
+                outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+                trace = continuation.trace + SkillRunTrace.Failed("tool result does not match pending skill step"),
+                error = "tool result does not match pending skill step",
+            )
+        }
+
+        val outputs = continuation.outputs.deepMutableCopy()
+        val privateOutputRefs = continuation.privateOutputRefs.toMutableSet()
+        val trace = continuation.trace.toMutableList()
+        trace += SkillRunTrace.ToolFinished(
+            stepId = step.id,
+            toolName = continuation.pendingToolRequest.toolName,
+            status = result.status,
+            summary = result.summary,
+        )
+        if (result.status != ToolStatus.Succeeded) {
+            return SkillRunResult(
+                state = SkillRunState.Failed,
+                outputs = outputs.withoutInput().publicOnly(privateOutputRefs),
+                trace = trace,
+                error = result.summary,
+            )
+        }
+
+        outputs[step.id] = outputForToolResult(result, continuation.pendingDraft)
+        privateOutputRefs += privateOutputRefsFor(step.id, continuation.pendingToolRequest.toolName)
+        return runSteps(
+            plan = plan,
+            startIndex = continuation.pendingStepIndex + 1,
+            outputs = outputs,
+            privateOutputRefs = privateOutputRefs,
+            trace = trace,
+        )
+    }
+
+    private fun validatePlanForExecution(plan: SkillPlan): SkillRunResult? {
         val validation = plan.validateStructure()
         if (!validation.isValid) {
             return SkillRunResult(
@@ -35,14 +113,18 @@ class SkillRunExecutor(
                 error = "skill step limit exceeded",
             )
         }
+        return null
+    }
 
-        val outputs = linkedMapOf<String, Map<String, String>>(
-            INPUT_OUTPUT_KEY to plan.request.arguments,
-        )
-        val privateOutputRefs = mutableSetOf<String>()
-        val trace = mutableListOf<SkillRunTrace>()
-
-        plan.steps.forEach { step ->
+    private fun runSteps(
+        plan: SkillPlan,
+        startIndex: Int,
+        outputs: MutableMap<String, Map<String, String>>,
+        privateOutputRefs: MutableSet<String>,
+        trace: MutableList<SkillRunTrace>,
+    ): SkillRunResult {
+        plan.steps.drop(startIndex).forEachIndexed { relativeIndex, step ->
+            val stepIndex = startIndex + relativeIndex
             trace += SkillRunTrace.StepStarted(step.id)
             when (step) {
                 is SkillStep.ToolStep -> {
@@ -60,6 +142,17 @@ class SkillRunExecutor(
                                 trace = trace,
                                 error = gateDecision.reason,
                                 pendingToolRequest = request,
+                                continuation = SkillRunContinuation(
+                                    planRequestId = plan.request.id,
+                                    skillId = plan.request.skillId,
+                                    pendingStepIndex = stepIndex,
+                                    pendingStepId = step.id,
+                                    pendingToolRequest = request,
+                                    pendingDraft = draft,
+                                    outputs = outputs.deepCopy(),
+                                    privateOutputRefs = privateOutputRefs.toSet(),
+                                    trace = trace.toList(),
+                                ),
                             )
                         }
 
@@ -77,7 +170,7 @@ class SkillRunExecutor(
                     if (result.status != ToolStatus.Succeeded) {
                         return SkillRunResult(
                             state = SkillRunState.Failed,
-                            outputs = outputs.withoutInput(),
+                            outputs = outputs.withoutInput().publicOnly(privateOutputRefs),
                             trace = trace,
                             error = result.summary,
                         )
@@ -179,6 +272,26 @@ class SkillRunExecutor(
     }
 }
 
+class SkillRunContinuation internal constructor(
+    internal val planRequestId: String,
+    internal val skillId: String,
+    internal val pendingStepIndex: Int,
+    val pendingStepId: String,
+    val pendingToolRequest: ToolRequest,
+    internal val pendingDraft: ActionDraft,
+    internal val outputs: Map<String, Map<String, String>>,
+    internal val privateOutputRefs: Set<String>,
+    internal val trace: List<SkillRunTrace>,
+) {
+    override fun toString(): String =
+        "SkillRunContinuation(" +
+            "skillId=$skillId, " +
+            "pendingStepId=$pendingStepId, " +
+            "pendingTool=${pendingToolRequest.toolName}, " +
+            "outputStepIds=${outputs.keys.sorted()}" +
+            ")"
+}
+
 fun interface SkillModelStepExecutor {
     fun execute(step: SkillStep.ModelStep, inputs: Map<String, String>): Result<String>
 }
@@ -237,6 +350,7 @@ data class SkillRunResult(
     val trace: List<SkillRunTrace>,
     val error: String?,
     val pendingToolRequest: ToolRequest? = null,
+    val continuation: SkillRunContinuation? = null,
 )
 
 sealed class SkillRunTrace {
@@ -271,3 +385,9 @@ sealed class SkillRunTrace {
         val reason: String,
     ) : SkillRunTrace()
 }
+
+private fun Map<String, Map<String, String>>.deepCopy(): Map<String, Map<String, String>> =
+    mapValues { (_, values) -> values.toMap() }
+
+private fun Map<String, Map<String, String>>.deepMutableCopy(): MutableMap<String, Map<String, String>> =
+    mapValuesTo(linkedMapOf()) { (_, values) -> values.toMap() }
