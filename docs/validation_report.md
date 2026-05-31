@@ -1,5 +1,47 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Skill progression boundary 增量验证
+
+本轮覆盖项：
+
+- 新增纯 Kotlin `SkillRunProgressor`，集中处理 Skill plan 校验、step limit、
+  tool/model argument binding、工具结果输出整理和 private output fence。
+- `SkillRunExecutor` 改为复用 `SkillRunProgressor`，保留工具执行、模型执行、
+  safety/registry gate、trace 和 continuation 这些副作用边界。
+- `AgentLoopRuntime.observeModelResult()` 的模型输出续跑改为复用
+  `SkillRunProgressor.nextToolAfterModelOutput()`，不再维护独立的
+  `nextToolStepForModelOutput` / binding parser。
+- `read_clipboard.text` 与 `read_recent_screenshot_ocr.ocrText` 都由 progressor
+  统一标记为私有工具输出，不能直接绑定到后续工具参数。
+- 该切片不持久化完整 `SkillRunContinuation`，仍沿用现有 pending confirmation
+  snapshot 恢复边界。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.blankCompositeModelResultFailsWithoutPlanningShare'
+
+scripts/verify_local.sh
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+```
+
+结果：
+
+- 通过：targeted JVM Skill progressor、Skill executor 和 Agent loop model-output
+  progression 回归测试。
+- 通过：`scripts/verify_local.sh`，覆盖 `testDebugUnitTest`、`lintDebug`、
+  `assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease` 和 APK 检查。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配。
+
 ## 2026-05-31 本地验证脚本分层增量验证
 
 本轮覆盖项：

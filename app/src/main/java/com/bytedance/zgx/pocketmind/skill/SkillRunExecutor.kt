@@ -1,7 +1,6 @@
 package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
-import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.safety.SafetyContext
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.safety.SafetyPolicy
@@ -15,14 +14,16 @@ class SkillRunExecutor(
     private val toolExecutor: ToolExecutor,
     private val modelExecutor: SkillModelStepExecutor,
     private val toolGate: SkillToolGate = RegistrySkillToolGate(),
-    private val maxSteps: Int = DEFAULT_MAX_STEPS,
+    maxSteps: Int = DEFAULT_MAX_STEPS,
 ) {
+    private val progressor = SkillRunProgressor(maxSteps = maxSteps)
+
     fun execute(plan: SkillPlan): SkillRunResult {
         validatePlanForExecution(plan)?.let { return it }
         return runSteps(
             plan = plan,
             startIndex = 0,
-            outputs = linkedMapOf(INPUT_OUTPUT_KEY to plan.request.arguments),
+            outputs = progressor.initialOutputs(plan),
             privateOutputRefs = mutableSetOf(),
             trace = mutableListOf(),
         )
@@ -45,14 +46,14 @@ class SkillRunExecutor(
         val step = plan.steps.getOrNull(continuation.pendingStepIndex) as? SkillStep.ToolStep
             ?: return SkillRunResult(
                 state = SkillRunState.Failed,
-                outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+                outputs = progressor.publicOutputs(continuation.outputs, continuation.privateOutputRefs),
                 trace = continuation.trace + SkillRunTrace.Failed("pending skill step is missing"),
                 error = "pending skill step is missing",
             )
         if (step.id != continuation.pendingStepId) {
             return SkillRunResult(
                 state = SkillRunState.Failed,
-                outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+                outputs = progressor.publicOutputs(continuation.outputs, continuation.privateOutputRefs),
                 trace = continuation.trace + SkillRunTrace.Failed("pending skill step changed"),
                 error = "pending skill step changed",
             )
@@ -60,7 +61,7 @@ class SkillRunExecutor(
         if (result.requestId != continuation.pendingToolRequest.id) {
             return SkillRunResult(
                 state = SkillRunState.Failed,
-                outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+                outputs = progressor.publicOutputs(continuation.outputs, continuation.privateOutputRefs),
                 trace = continuation.trace + SkillRunTrace.Failed("tool result does not match pending skill step"),
                 error = "tool result does not match pending skill step",
             )
@@ -78,14 +79,14 @@ class SkillRunExecutor(
         if (result.status != ToolStatus.Succeeded) {
             return SkillRunResult(
                 state = SkillRunState.Failed,
-                outputs = outputs.withoutInput().publicOnly(privateOutputRefs),
+                outputs = progressor.publicOutputs(outputs, privateOutputRefs),
                 trace = trace,
                 error = result.summary,
             )
         }
 
-        outputs[step.id] = outputForToolResult(result, continuation.pendingDraft)
-        privateOutputRefs += privateOutputRefsFor(step.id, continuation.pendingToolRequest.toolName)
+        outputs[step.id] = progressor.outputForToolResult(result, continuation.pendingDraft)
+        privateOutputRefs += progressor.privateOutputRefsFor(step.id, continuation.pendingToolRequest.toolName)
         return runSteps(
             plan = plan,
             startIndex = continuation.pendingStepIndex + 1,
@@ -112,14 +113,14 @@ class SkillRunExecutor(
         val step = plan.steps.getOrNull(continuation.pendingStepIndex) as? SkillStep.ToolStep
             ?: return SkillRunResult(
                 state = SkillRunState.Failed,
-                outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+                outputs = progressor.publicOutputs(continuation.outputs, continuation.privateOutputRefs),
                 trace = continuation.trace + SkillRunTrace.Failed("pending skill step is missing"),
                 error = "pending skill step is missing",
             )
         if (step.id != continuation.pendingStepId) {
             return SkillRunResult(
                 state = SkillRunState.Failed,
-                outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+                outputs = progressor.publicOutputs(continuation.outputs, continuation.privateOutputRefs),
                 trace = continuation.trace + SkillRunTrace.Failed("pending skill step changed"),
                 error = "pending skill step changed",
             )
@@ -127,7 +128,7 @@ class SkillRunExecutor(
 
         return SkillRunResult(
             state = SkillRunState.Cancelled,
-            outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+            outputs = progressor.publicOutputs(continuation.outputs, continuation.privateOutputRefs),
             trace = continuation.trace + SkillRunTrace.Cancelled(
                 stepId = step.id,
                 toolName = continuation.pendingToolRequest.toolName,
@@ -138,21 +139,18 @@ class SkillRunExecutor(
     }
 
     private fun validatePlanForExecution(plan: SkillPlan): SkillRunResult? {
-        val validation = plan.validateStructure()
-        if (!validation.isValid) {
+        val validationError = progressor.validateForExecution(plan)
+        if (validationError != null) {
+            val traceReason = if (validationError == "skill step limit exceeded") {
+                validationError
+            } else {
+                "invalid plan: $validationError"
+            }
             return SkillRunResult(
                 state = SkillRunState.Failed,
                 outputs = emptyMap(),
-                trace = listOf(SkillRunTrace.Failed("invalid plan: ${validation.errors.joinToString()}")),
-                error = validation.errors.joinToString(),
-            )
-        }
-        if (plan.steps.size > maxSteps) {
-            return SkillRunResult(
-                state = SkillRunState.Failed,
-                outputs = emptyMap(),
-                trace = listOf(SkillRunTrace.Failed("skill step limit exceeded")),
-                error = "skill step limit exceeded",
+                trace = listOf(SkillRunTrace.Failed(traceReason)),
+                error = validationError,
             )
         }
         return null
@@ -170,20 +168,22 @@ class SkillRunExecutor(
             trace += SkillRunTrace.StepStarted(step.id)
             when (step) {
                 is SkillStep.ToolStep -> {
-                    rejectPrivateToolArgumentBindings(step.argumentBindings, privateOutputRefs)?.let { message ->
-                        return failed(step.id, message, outputs, privateOutputRefs, trace)
+                    val binding = when (val result = progressor.bindToolStep(step, outputs, privateOutputRefs)) {
+                        is SkillToolStepBinding.Bound -> result
+                        is SkillToolStepBinding.Missing ->
+                            return failed(step.id, result.reason, outputs, privateOutputRefs, trace)
+                        is SkillToolStepBinding.Rejected ->
+                            return failed(step.id, result.reason, outputs, privateOutputRefs, trace)
                     }
-                    val boundArguments = resolveBindings(step.argumentBindings, outputs)
-                        ?: return failed(step.id, "missing tool argument binding", outputs, privateOutputRefs, trace)
-                    val request = step.request.copy(arguments = step.request.arguments + boundArguments)
-                    val draft = step.draft.copy(parameters = step.draft.parameters + boundArguments)
+                    val request = binding.request
+                    val draft = binding.draft
                     when (val gateDecision = toolGate.evaluate(step, request)) {
                         SkillToolGateDecision.Allow -> Unit
                         is SkillToolGateDecision.AwaitingConfirmation -> {
                             trace += SkillRunTrace.AwaitingConfirmation(step.id, request.toolName, gateDecision.reason)
                             return SkillRunResult(
                                 state = SkillRunState.AwaitingConfirmation,
-                                outputs = outputs.withoutInput().publicOnly(privateOutputRefs),
+                                outputs = progressor.publicOutputs(outputs, privateOutputRefs),
                                 trace = trace,
                                 error = gateDecision.reason,
                                 pendingToolRequest = request,
@@ -215,18 +215,21 @@ class SkillRunExecutor(
                     if (result.status != ToolStatus.Succeeded) {
                         return SkillRunResult(
                             state = SkillRunState.Failed,
-                            outputs = outputs.withoutInput().publicOnly(privateOutputRefs),
+                            outputs = progressor.publicOutputs(outputs, privateOutputRefs),
                             trace = trace,
                             error = result.summary,
                         )
                     }
-                    outputs[step.id] = outputForToolResult(result, draft)
-                    privateOutputRefs += privateOutputRefsFor(step.id, request.toolName)
+                    outputs[step.id] = progressor.outputForToolResult(result, draft)
+                    privateOutputRefs += progressor.privateOutputRefsFor(step.id, request.toolName)
                 }
 
                 is SkillStep.ModelStep -> {
-                    val inputs = resolveBindings(step.inputBindings, outputs)
-                        ?: return failed(step.id, "missing model input binding", outputs, privateOutputRefs, trace)
+                    val inputs = when (val binding = progressor.bindModelStep(step, outputs)) {
+                        is SkillModelStepBinding.Bound -> binding.inputs
+                        is SkillModelStepBinding.Missing ->
+                            return failed(step.id, binding.reason, outputs, privateOutputRefs, trace)
+                    }
                     val modelResult = modelExecutor.execute(step, inputs)
                     if (modelResult.isFailure) {
                         val message = modelResult.exceptionOrNull()?.message ?: "model step failed"
@@ -244,7 +247,7 @@ class SkillRunExecutor(
 
         return SkillRunResult(
             state = SkillRunState.Succeeded,
-            outputs = outputs.withoutInput().publicOnly(privateOutputRefs),
+            outputs = progressor.publicOutputs(outputs, privateOutputRefs),
             trace = trace,
             error = null,
         )
@@ -260,75 +263,14 @@ class SkillRunExecutor(
         trace += SkillRunTrace.StepFailed(stepId, message)
         return SkillRunResult(
             state = SkillRunState.Failed,
-            outputs = outputs.withoutInput().publicOnly(privateOutputRefs),
+            outputs = progressor.publicOutputs(outputs, privateOutputRefs),
             trace = trace,
             error = message,
         )
     }
 
-    private fun resolveBindings(
-        bindings: Map<String, String>,
-        outputs: Map<String, Map<String, String>>,
-    ): Map<String, String>? {
-        val resolved = linkedMapOf<String, String>()
-        bindings.forEach { (targetName, sourceRef) ->
-            val sourceStepId = sourceRef.substringBefore('.', missingDelimiterValue = "")
-            val sourceKey = sourceRef.substringAfter('.', missingDelimiterValue = "")
-            if (sourceStepId.isBlank() || sourceKey.isBlank()) return null
-            val value = outputs[sourceStepId]?.get(sourceKey) ?: return null
-            resolved[targetName] = value
-        }
-        return resolved
-    }
-
-    private fun rejectPrivateToolArgumentBindings(
-        bindings: Map<String, String>,
-        privateOutputRefs: Set<String>,
-    ): String? {
-        val privateBindings = bindings.values
-            .filter { sourceRef -> sourceRef in privateOutputRefs }
-            .sorted()
-        return privateBindings
-            .takeIf { it.isNotEmpty() }
-            ?.joinToString(
-                prefix = "private tool output cannot be bound directly to tool argument: ",
-            )
-    }
-
-    private fun outputForToolResult(
-        result: ToolResult,
-        draft: ActionDraft,
-    ): Map<String, String> =
-        buildMap {
-            putAll(result.data)
-            put("summary", result.summary)
-            draft.parameters.forEach { (key, value) ->
-                putIfAbsent(key, value)
-            }
-        }
-
-    private fun Map<String, Map<String, String>>.withoutInput(): Map<String, Map<String, String>> =
-        filterKeys { it != INPUT_OUTPUT_KEY }
-
-    private fun Map<String, Map<String, String>>.publicOnly(
-        privateOutputRefs: Set<String>,
-    ): Map<String, Map<String, String>> =
-        mapValues { (stepId, values) ->
-            values.filterKeys { key -> "$stepId.$key" !in privateOutputRefs }
-        }
-
-    private fun privateOutputRefsFor(stepId: String, toolName: String): Set<String> =
-        PRIVATE_OUTPUT_KEYS_BY_TOOL[toolName]
-            ?.mapTo(mutableSetOf()) { key -> "$stepId.$key" }
-            .orEmpty()
-
     private companion object {
         const val DEFAULT_MAX_STEPS = 8
-        const val INPUT_OUTPUT_KEY = "input"
-        val PRIVATE_OUTPUT_KEYS_BY_TOOL = mapOf(
-            MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
-            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to setOf("ocrText"),
-        )
     }
 }
 

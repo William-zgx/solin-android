@@ -896,7 +896,7 @@ class AgentLoopRuntimeTest {
         requireNotNull(modelObserved)
         assertEquals(AgentRunState.Failed, modelObserved.run.state)
         require(modelObserved.decision is AgentObservationDecision.Fail)
-        assertTrue(modelObserved.decision.reason.contains("Missing model output binding"))
+        assertTrue(modelObserved.decision.reason.contains("private tool output cannot be bound directly"))
         assertTrue(modelObserved.steps.none { step ->
             step is AgentStep.UserConfirmationRequested &&
                 step.request.toolName == MobileActionFunctions.SHARE_TEXT

@@ -237,6 +237,11 @@ Current status:
 - Added `SkillRunExecutor` as the first executable multi-step skill runner. It
   validates the plan, resolves step output bindings, enforces a step limit, and
   separates private binding outputs from the public result/trace.
+- Added `SkillRunProgressor` as the pure Kotlin skill progression boundary for
+  plan validation, argument binding, model-output-to-tool progression, and
+  private tool output fences. `SkillRunExecutor` and Agent model-result
+  replanning now share this progression logic instead of maintaining separate
+  binding implementations.
 - `SkillRunExecutor` now rejects direct `ToolStep.argumentBindings` from private
   tool outputs such as `read_clipboard.text` into later tool arguments. Private
   values can feed local model steps, but external tool payloads must come from
@@ -273,6 +278,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`
 - `BuiltInSkillRuntimeTest.validateStructureRejectsSkillRequestArgumentsOutsideManifestSchema`
 - `SkillRunExecutorTest`
+- `SkillRunProgressorTest`
 - `SkillRunExecutorTest.failsBeforeExecutingWhenSkillArgumentsDoNotMatchManifestSchema`
 - `SkillRunExecutorTest.resumesAfterConfirmedToolResultAndStopsAtNextConfirmation`
 - `SkillRunExecutorTest.resumesAgainAfterSecondConfirmationAndCompletesSkill`

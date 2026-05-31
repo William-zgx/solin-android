@@ -16,8 +16,10 @@ import com.bytedance.zgx.pocketmind.safety.SafetyContext
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.safety.SafetyPolicy
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
+import com.bytedance.zgx.pocketmind.skill.SkillModelOutputProgression
 import com.bytedance.zgx.pocketmind.skill.SkillPlan
 import com.bytedance.zgx.pocketmind.skill.SkillRuntime
+import com.bytedance.zgx.pocketmind.skill.SkillRunProgressor
 import com.bytedance.zgx.pocketmind.skill.SkillStep
 import com.bytedance.zgx.pocketmind.skill.validateStructure
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
@@ -41,6 +43,8 @@ class AgentLoopRuntime(
     private val observationReplanner: AgentObservationReplanner = NoOpAgentObservationReplanner,
     private val maxToolRetryAttempts: Int = 1,
 ) {
+    private val skillProgressor = SkillRunProgressor()
+
     @Suppress("UNUSED_PARAMETER")
     fun runOnce(
         input: String,
@@ -426,52 +430,45 @@ class AgentLoopRuntime(
         text: String,
     ): NextObservationPlan {
         val skillPlan = latestSkillPlan(run.id) ?: return NextObservationPlan.None
-        val validation = skillPlan.validateStructure()
-        if (!validation.isValid) {
-            return NextObservationPlan.Rejected("Invalid skill plan: ${validation.errors.joinToString()}")
+        val requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id }
+        return when (val progression = skillProgressor.nextToolAfterModelOutput(
+            skillPlan = skillPlan,
+            requestedRequestIds = requestedRequestIds,
+            modelOutput = text,
+        )) {
+            SkillModelOutputProgression.None -> NextObservationPlan.None
+            is SkillModelOutputProgression.Rejected ->
+                rejectNextToolPlan(
+                    run.id,
+                    requestForSkillProgressionRejection(skillPlan, requestedRequestIds, progression.reason),
+                )
+            is SkillModelOutputProgression.BoundTool ->
+                buildNextToolPlan(
+                    runId = run.id,
+                    request = progression.request,
+                    draft = progression.draft,
+                    plannedByModel = false,
+                    fallbackReason = "skill model step",
+                    skillPlan = skillPlan,
+                )
         }
-        val nextStep = nextToolStepForModelOutput(
-            skillPlan = skillPlan,
-            requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id },
-        ) ?: return NextObservationPlan.None
-        val boundArguments = resolveSkillBindings(
-            bindings = nextStep.toolStep.argumentBindings,
-            outputs = mapOf(nextStep.modelStep.id to mapOf(nextStep.modelStep.outputKey to text)),
-        ) ?: return rejectNextToolPlan(
-            run.id,
-            nextStep.toolStep.request.rejected("Missing model output binding for skill step."),
-        )
-        val request = nextStep.toolStep.request.copy(arguments = nextStep.toolStep.request.arguments + boundArguments)
-        val draft = nextStep.toolStep.draft.copy(parameters = nextStep.toolStep.draft.parameters + boundArguments)
-        return buildNextToolPlan(
-            runId = run.id,
-            request = request,
-            draft = draft,
-            plannedByModel = false,
-            fallbackReason = "skill model step",
-            skillPlan = skillPlan,
-        )
     }
 
-    private fun nextToolStepForModelOutput(
+    private fun requestForSkillProgressionRejection(
         skillPlan: SkillPlan,
         requestedRequestIds: Set<String>,
-    ): ModelOutputToolStep? {
-        val modelSteps = skillPlan.steps.filterIsInstance<SkillStep.ModelStep>()
-        return skillPlan.steps
+        reason: String,
+    ): ToolResult {
+        val rejectedRequest = skillPlan.steps
             .filterIsInstance<SkillStep.ToolStep>()
-            .firstNotNullOfOrNull { toolStep ->
-                if (toolStep.request.id in requestedRequestIds) return@firstNotNullOfOrNull null
-                val modelStep = modelSteps.lastOrNull { step -> step.id in toolStep.dependsOn }
-                    ?: return@firstNotNullOfOrNull null
-                ModelOutputToolStep(modelStep, toolStep)
-            }
+            .firstOrNull { step -> step.request.id !in requestedRequestIds }
+            ?.request
+            ?: ToolRequest(
+                toolName = skillPlan.manifest.requiredTools.firstOrNull().orEmpty().ifBlank { "skill" },
+                reason = skillPlan.request.reason,
+            )
+        return rejectedRequest.rejected(reason)
     }
-
-    private data class ModelOutputToolStep(
-        val modelStep: SkillStep.ModelStep,
-        val toolStep: SkillStep.ToolStep,
-    )
 
     private fun buildNextToolPlan(
         runId: String,
@@ -522,21 +519,6 @@ class AgentLoopRuntime(
         traceStore.appendStep(runId, AgentStep.ToolRejected(result))
         auditRejectedTool(runId, result)
         return NextObservationPlan.Rejected(result.summary)
-    }
-
-    private fun resolveSkillBindings(
-        bindings: Map<String, String>,
-        outputs: Map<String, Map<String, String>>,
-    ): Map<String, String>? {
-        val resolved = linkedMapOf<String, String>()
-        bindings.forEach { (targetName, sourceRef) ->
-            val sourceStepId = sourceRef.substringBefore('.', missingDelimiterValue = "")
-            val sourceKey = sourceRef.substringAfter('.', missingDelimiterValue = "")
-            if (sourceStepId.isBlank() || sourceKey.isBlank()) return null
-            val value = outputs[sourceStepId]?.get(sourceKey) ?: return null
-            resolved[targetName] = value
-        }
-        return resolved
     }
 
     private fun appendToolPlanSteps(
