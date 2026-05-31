@@ -12,6 +12,9 @@
   记忆会被遗忘；手动创建的非 auto-managed task-state 记录不受此同步清理。
 - Room-backed Agent trace 会在持久化 `agent_runs.input` 时脱敏原始 prompt；
   当前进程内仍保留 raw run input，保证确认、观察和 replan 不被打断。
+- 持久 trace 的 summary、JSON 预览与 allowlisted metadata value 复用 audit
+  redactor，对工具 reason、draft title、工具观察 summary、assistant preview
+  中的 key/token/email/bearer 片段做脱敏。
 
 验证命令：
 
@@ -22,7 +25,10 @@
   --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory' \
   --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelBackgroundTaskForgetsTaskStateMemory' \
   --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.refreshBackgroundTasksDropsTerminalTaskStateMemory' \
+  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditEventTest.sanitizedSummaryRedactsGenericTokenAndKeyAssignments' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRedactsAllowlistedCompletionMetadataValues' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace'
 ```
 

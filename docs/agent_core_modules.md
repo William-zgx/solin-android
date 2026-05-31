@@ -130,6 +130,11 @@ Current status:
   boundary. The current process keeps raw run input only in memory so
   confirmation, observation, and replanning can continue without writing the
   full prompt to Room or recent trace summaries.
+- Persisted trace summaries and JSON previews now reuse the audit redactor for
+  credential-like assignments, bearer values, API-key-shaped strings, and email
+  addresses before truncation. This covers tool reasons, draft titles, observed
+  summaries, retry/failure reasons, assistant text previews, and allowlisted
+  completion metadata values.
 - Background reminder requests with explicit relative delays now also have a
   Skill-first path. The reminder skill reuses the same delay/title parser as
   the action planner, then enters the normal confirmation and runtime
@@ -165,6 +170,8 @@ Tests:
 - `AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation`
 - `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare`
 - `AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments`
+- `AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson`
+- `AgentTraceStoreTest.roomStoreRedactsAllowlistedCompletionMetadataValues`
 - `AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace`
 - `AgentTraceStoreTest.roomStoreReturnsRecentRunSummariesWithStepLimit`
 - `PocketMindViewModelTest.restoreStartupStateRestoresPendingAgentConfirmationWithoutExecutingTool`

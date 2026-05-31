@@ -48,6 +48,27 @@ class ToolAuditEventTest {
     }
 
     @Test
+    fun sanitizedSummaryRedactsGenericTokenAndKeyAssignments() {
+        val tokenValue = "private-token-" + "e".repeat(20)
+        val keyValue = "private-key-" + "f".repeat(20)
+        val event = ToolAuditEvent(
+            runId = "run-1",
+            requestId = "request-1",
+            toolName = "web_search",
+            skillId = null,
+            eventType = ToolAuditEventType.ToolObserved,
+            summary = "token=$tokenValue key: $keyValue",
+        )
+
+        val sanitized = event.sanitizedSummary()
+
+        assertFalse(sanitized.contains(tokenValue))
+        assertFalse(sanitized.contains(keyValue))
+        assertTrue(sanitized.contains("token=[redacted]"))
+        assertTrue(sanitized.contains("key=[redacted]"))
+    }
+
+    @Test
     fun inMemorySinkStoresRedactedAuditCopy() {
         val secret = "sk-" + "c".repeat(32)
         val sink = InMemoryToolAuditSink()

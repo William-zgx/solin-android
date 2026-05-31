@@ -87,6 +87,57 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-redacted-trace" },
+        )
+        val apiKey = "sk-" + "c".repeat(32)
+        val bearer = "Bearer " + "d".repeat(32)
+        val email = "alice@example.com"
+        val run = store.createRun("private prompt")
+        val request = ToolRequest(
+            id = "request-redacted",
+            toolName = "share_text",
+            arguments = mapOf("text" to "raw argument should stay out"),
+            reason = "api_key=$apiKey email $email",
+        )
+        val draft = ActionDraft(
+            functionName = "share_text",
+            title = "Authorization: $bearer",
+            summary = "Share sensitive text",
+            parameters = request.arguments,
+        )
+
+        store.appendStep(run.id, AgentStep.ToolRequested(request, draft))
+        store.appendStep(
+            run.id,
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Failed,
+                    summary = "failed with token $apiKey and owner $email",
+                ),
+            ),
+        )
+        store.appendStep(run.id, AgentStep.AssistantResponded("remote said $bearer for $email"))
+
+        val persistedTrace = store.stepSummaries(run.id).joinToString("\n") { step ->
+            "${step.summary}\n${step.json}"
+        }
+        assertFalse(persistedTrace.contains(apiKey))
+        assertFalse(persistedTrace.contains(bearer))
+        assertFalse(persistedTrace.contains(email))
+        assertFalse(persistedTrace.contains("raw argument should stay out"))
+        assertTrue(persistedTrace.contains("api_key=[redacted]"))
+        assertTrue(persistedTrace.contains("Authorization=[redacted]"))
+        assertTrue(persistedTrace.contains("sk-[redacted]"))
+        assertTrue(persistedTrace.contains("Bearer [redacted]"))
+        assertTrue(persistedTrace.contains("[email]"))
+    }
+
+    @Test
     fun roomStorePersistsOnlyAllowlistedToolObservationCompletionMetadata() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(
@@ -141,6 +192,43 @@ class AgentTraceStoreTest {
         assertFalse(persistedStep.json.contains("private?q=secret"))
         assertFalse(metadata.has("rawText"))
         assertFalse(metadata.has("rawUri"))
+    }
+
+    @Test
+    fun roomStoreRedactsAllowlistedCompletionMetadataValues() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-metadata-redacted" },
+        )
+        val email = "owner@example.com"
+        val tokenValue = "private-token-" + "e".repeat(20)
+        val run = store.createRun("open app")
+
+        store.appendStep(
+            run.id,
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = "request-open",
+                    status = ToolStatus.Succeeded,
+                    summary = "opened",
+                    data = mapOf(
+                        "targetId" to email,
+                        "recoveryTaskId" to "token=$tokenValue",
+                        "targetPackage" to "com.example.app",
+                    ),
+                ),
+            ),
+        )
+
+        val metadata = JSONObject(store.stepSummaries(run.id).single().json)
+            .getJSONObject("completionMetadata")
+
+        assertEquals("[email]", metadata.getString("targetId"))
+        assertEquals("token=[redacted]", metadata.getString("recoveryTaskId"))
+        assertEquals("com.example.app", metadata.getString("targetPackage"))
+        assertFalse(metadata.toString().contains(email))
+        assertFalse(metadata.toString().contains(tokenValue))
     }
 
     @Test

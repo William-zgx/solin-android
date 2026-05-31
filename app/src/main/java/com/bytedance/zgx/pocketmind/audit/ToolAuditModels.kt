@@ -50,7 +50,7 @@ data class ToolAuditRecord(
 
 object ToolAuditSummaryRedactor {
     private const val CREDENTIAL_LABELS =
-        """api[_ -]?key|authorization|auth[_ -]?token|access[_ -]?token|refresh[_ -]?token|secret|password"""
+        """api[_ -]?key|authorization|auth[_ -]?token|access[_ -]?token|refresh[_ -]?token|token|key|secret|password"""
 
     private val credentialAssignment = Regex(
         pattern = """\b($CREDENTIAL_LABELS)\s*[:=]\s*(?:Bearer\s+)?["']?[^"'\s,;]+["']?""",

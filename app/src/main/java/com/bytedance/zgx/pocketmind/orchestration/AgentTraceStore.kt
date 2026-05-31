@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.audit.ToolAuditSummaryRedactor
 import com.bytedance.zgx.pocketmind.data.AgentRunEntity
 import com.bytedance.zgx.pocketmind.data.AgentStepEntity
 import com.bytedance.zgx.pocketmind.data.AgentTraceDao
@@ -418,7 +419,7 @@ private fun Map<String, String>.allowlistedCompletionMetadataJson(): JSONObject 
     val json = JSONObject()
     toolObservedCompletionMetadataAllowlist.forEach { key ->
         this[key]?.takeIf { value -> value.isNotBlank() }?.let { value ->
-            json.put(key, value)
+            json.put(key, value.shortTraceText())
         }
     }
     return json
@@ -775,5 +776,6 @@ private fun String.shortTraceText(maxLength: Int = 160): String {
         .joinToString(" ") { line -> line.trim() }
         .replace(Regex("\\s+"), " ")
         .trim()
-    return if (compact.length <= maxLength) compact else compact.take(maxLength - 3) + "..."
+    val redacted = ToolAuditSummaryRedactor.redact(compact)
+    return if (redacted.length <= maxLength) redacted else redacted.take(maxLength - 3) + "..."
 }
