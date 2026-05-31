@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
+import com.bytedance.zgx.pocketmind.action.DeviceSettingsActionParser
 import com.bytedance.zgx.pocketmind.action.EmailDraftActionParser
 import com.bytedance.zgx.pocketmind.action.MapSearchActionParser
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
@@ -38,6 +39,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             CalendarDraftActionParser.matches(input) ->
                 plan(input, CalendarDraftActionParser.draft(input).toRequestPair())
+
+            DeviceSettingsActionParser.matches(input) ->
+                plan(input, DeviceSettingsActionParser.draft(input).toRequestPair())
 
             ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)

@@ -108,12 +108,97 @@ internal object CalendarDraftActionParser {
     }
 }
 
+internal object DeviceSettingsActionParser {
+    private val wifiPattern =
+        Regex("""(?i)\b(?:wi[-\s]?fi|wifi|wlan|wireless)\b""")
+    private val englishWifiSettingsPattern =
+        Regex("""\b(?:(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:wi[-\s]?fi|wifi|wlan|wireless)\s+(?:settings?|preferences?)|(?:wi[-\s]?fi|wifi|wlan|wireless)\s+(?:settings?|preferences?))\b""", RegexOption.IGNORE_CASE)
+    private val englishFlashlightSettingsPattern =
+        Regex("""\b(?:(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:flashlight|torch)\s+(?:settings?|preferences?)|(?:flashlight|torch)\s+(?:settings?|preferences?))\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean = targetTool(input) != null
+
+    fun draft(input: String): ActionDraft {
+        val toolName = targetTool(input) ?: MobileActionFunctions.OPEN_WIFI_SETTINGS
+        return when (toolName) {
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> ActionDraft(
+                functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+                title = "打开手电筒设置",
+                summary = "将打开系统设置，由你手动确认手电筒相关操作。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            else -> ActionDraft(
+                functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                title = "打开 Wi-Fi 设置",
+                summary = "将打开系统 Wi-Fi 设置页。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+        }
+    }
+
+    private fun targetTool(input: String): String? {
+        if (input.looksLikeDiscussion() || input.looksLikeDeviceSettingsNonAction()) return null
+        return when {
+            input.requestsWifiSettings() -> MobileActionFunctions.OPEN_WIFI_SETTINGS
+            input.requestsFlashlightSettings() -> MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS
+            else -> null
+        }
+    }
+
+    private fun String.requestsWifiSettings(): Boolean {
+        val normalized = lowercase()
+        val referencesWifi = wifiPattern.containsMatchIn(normalized) || "无线" in this
+        val referencesSettings = "设置" in this ||
+            Regex("""\b(settings?|preferences?)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        return referencesWifi && referencesSettings && (
+            listOf("打开", "进入", "跳转", "前往", "去", "设置").any { it in this } ||
+                englishWifiSettingsPattern.containsMatchIn(normalized)
+            )
+    }
+
+    private fun String.requestsFlashlightSettings(): Boolean {
+        val normalized = lowercase()
+        val referencesFlashlight = "手电筒" in this ||
+            Regex("""\b(flashlight|torch)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        val referencesSettings = "设置" in this ||
+            Regex("""\b(settings?|preferences?)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        return referencesFlashlight && referencesSettings && (
+            listOf("打开", "进入", "跳转", "前往", "去", "设置").any { it in this } ||
+                englishFlashlightSettingsPattern.containsMatchIn(normalized)
+            )
+    }
+}
+
 private fun String.looksLikeDiscussion(): Boolean {
     val normalized = lowercase()
     return listOf("什么意思", "什么含义", "怎么说", "如何表达", "解释", "怎么理解", "怎么写", "是什么")
         .any { it in this } ||
         listOf("错误原因", "日志", "算法", "数据结构", "功能测试", "路线图", "导航栏").any { it in this } ||
         normalized.contains(Regex("""\b(how\s+do\s+i|what\s+does|what\s+is|explain|meaning|parser|tests?|listener|handler|schema|stream)\b"""))
+}
+
+private fun String.looksLikeDeviceSettingsNonAction(): Boolean {
+    val normalized = lowercase()
+    return listOf(
+        "不要打开",
+        "别打开",
+        "不要进入",
+        "别进入",
+        "不要去",
+        "在哪里",
+        "在哪",
+        "哪里",
+        "怎么实现",
+        "如何实现",
+        "怎么设计",
+        "代码",
+        "组件",
+        "接口",
+    ).any { it in this } ||
+        normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:open|show|go\s+to|launch)\b""")) ||
+        normalized.contains(Regex("""\b(how\s+to|implement|design|api|code|compose)\b"""))
 }
 
 private fun cleanedObject(input: String): String =

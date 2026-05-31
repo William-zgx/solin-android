@@ -123,6 +123,37 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun infersDeviceSettingsDraftsOnlyForExplicitSettingsCommands() {
+        val wifiPlan = planner.plan("帮我打开 Wi-Fi 设置")
+        assertEquals(ActionPlanKind.Draft, wifiPlan.kind)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wifiPlan.draft?.functionName)
+        assertTrue(wifiPlan.draft?.parameters.orEmpty().isEmpty())
+
+        val wirelessPlan = planner.plan("进入无线设置")
+        assertEquals(ActionPlanKind.Draft, wirelessPlan.kind)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wirelessPlan.draft?.functionName)
+
+        val flashlightPlan = planner.plan("打开手电筒设置")
+        assertEquals(ActionPlanKind.Draft, flashlightPlan.kind)
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, flashlightPlan.draft?.functionName)
+
+        val englishWifiPlan = planner.plan("open Wi-Fi settings")
+        assertEquals(ActionPlanKind.Draft, englishWifiPlan.kind)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, englishWifiPlan.draft?.functionName)
+
+        val englishFlashlightPlan = planner.plan("open flashlight settings")
+        assertEquals(ActionPlanKind.Draft, englishFlashlightPlan.kind)
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, englishFlashlightPlan.draft?.functionName)
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("Wi-Fi 是什么").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("Wi-Fi 设置页面怎么设计").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要打开 Wi-Fi 设置，只解释一下").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("Do not open Wi-Fi settings; explain only").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("手电筒 API 怎么用").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开手电筒").kind)
+    }
+
+    @Test
     fun infersMapEmailAndCalendarDraftsOnlyForExplicitCommands() {
         val mapPlan = planner.plan("查去机场的路线")
         assertEquals(ActionPlanKind.Draft, mapPlan.kind)

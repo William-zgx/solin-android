@@ -1,5 +1,31 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Device settings skill-first routing 增量验证
+
+本轮覆盖项：
+
+- `open_wifi_settings`、`open_flashlight_settings` 的显式设置入口请求可由
+  built-in Skill runtime 直接规划为待确认工具，不再依赖 action planner。
+- Action planner 与 Skill runtime 复用同一组设备设置 parser，继续经过 registry
+  validation、safety、audit 和用户确认，不直接打开系统设置页。
+- 反例覆盖解释类、实现类、否定类输入，避免“Wi-Fi 是什么”“Wi-Fi 设置页面怎么设计”
+  或“不要打开 Wi-Fi 设置”误触工具确认。
+- 原 Wi-Fi action-planner fallback 测试保留，通过关闭 direct `plan(input)` 的
+  test skill runtime 继续验证 action draft 附加 SkillPlan 的兼容路径。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.wifiActionInputRequestsConfirmationBeforeExecution' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit'
+```
+
+结果：通过。
+
 ## 2026-06-01 Parameterized skill-first draft routing 增量验证
 
 本轮覆盖项：

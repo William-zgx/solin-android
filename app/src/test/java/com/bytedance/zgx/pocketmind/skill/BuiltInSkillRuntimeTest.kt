@@ -394,6 +394,36 @@ class BuiltInSkillRuntimeTest {
     }
 
     @Test
+    fun plansDeviceSettingsWithoutActionDraftWhenCommandIsExplicit() {
+        val wifiPlan = requireNotNull(runtime.plan("打开 Wi-Fi 设置"))
+        assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, wifiPlan.request.skillId)
+        assertEquals(mapOf("input" to "打开 Wi-Fi 设置"), wifiPlan.request.arguments)
+        val wifiStep = wifiPlan.steps.single()
+        require(wifiStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wifiStep.request.toolName)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wifiStep.draft.functionName)
+        assertTrue(wifiStep.request.arguments.isEmpty())
+        assertTrue(wifiPlan.validateStructure().errors.joinToString(), wifiPlan.validateStructure().isValid)
+
+        val flashlightPlan = requireNotNull(runtime.plan("打开手电筒设置"))
+        assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, flashlightPlan.request.skillId)
+        assertEquals(mapOf("input" to "打开手电筒设置"), flashlightPlan.request.arguments)
+        val flashlightStep = flashlightPlan.steps.single()
+        require(flashlightStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, flashlightStep.request.toolName)
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, flashlightStep.draft.functionName)
+        assertTrue(flashlightStep.request.arguments.isEmpty())
+        assertTrue(flashlightPlan.validateStructure().errors.joinToString(), flashlightPlan.validateStructure().isValid)
+
+        assertEquals(null, runtime.plan("Wi-Fi 是什么"))
+        assertEquals(null, runtime.plan("Wi-Fi 设置页面怎么设计"))
+        assertEquals(null, runtime.plan("不要打开 Wi-Fi 设置，只解释一下"))
+        assertEquals(null, runtime.plan("Do not open Wi-Fi settings; explain only"))
+        assertEquals(null, runtime.plan("手电筒 API 怎么用"))
+        assertEquals(null, runtime.plan("打开手电筒"))
+    }
+
+    @Test
     fun plansShareTextWithoutActionDraftWhenTextIsExplicit() {
         val plan = runtime.plan("分享这段文字：明天十点开会")
 

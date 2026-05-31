@@ -90,8 +90,8 @@ class MobileActionPlanner : ActionPlanner {
         val normalized = input.lowercase()
         val calendarWindowParameters = calendarAvailabilityParameters(input)
         return when {
-            "wifi" in normalized || "wi-fi" in normalized || "无线" in input ->
-                MobileActionFunctions.OPEN_WIFI_SETTINGS.toDraft(emptyMap())
+            DeviceSettingsActionParser.matches(input) ->
+                DeviceSettingsActionParser.draft(input)
 
             isUsageAccessSettingsRequest(input) ->
                 MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS.toDraft(emptyMap())
@@ -152,9 +152,6 @@ class MobileActionPlanner : ActionPlanner {
 
             "联系人" in input || "contact" in normalized ->
                 MobileActionFunctions.CREATE_CONTACT_DRAFT.toDraft(mapOf("name" to cleanedObject(input)))
-
-            "手电筒" in input || "flashlight" in normalized ->
-                MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS.toDraft(emptyMap())
 
             isWebSearchRequest(input) ->
                 MobileActionFunctions.WEB_SEARCH.toDraft(mapOf("query" to cleanedWebSearchQuery(input)))

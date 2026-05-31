@@ -159,6 +159,11 @@ Current status:
   parameter parsers as the action planner, rejects discussion/negative
   phrasing, and still routes through registry validation, safety checks, audit,
   and user confirmation before any external app opens.
+- Explicit Wi-Fi and flashlight settings commands now also have a conservative
+  Skill-first path. The shared device-settings parser accepts only settings
+  navigation requests, rejects explanation/implementation/negative phrasing,
+  and still routes through registry validation, safety checks, audit, and user
+  confirmation before any system settings page opens.
 - Skill model-step results can now be consumed generically: when a declarative
   `ToolStep` depends on a `ModelStep`, the model output is bound through the
   tool step's `argumentBindings`, then validated, safety-checked, audited, and
@@ -179,6 +184,7 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstPlanStillUsesRegistryAndRejectsInvalidToolArguments`
 - `AgentLoopRuntimeTest.skillFirstReminderBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation`
 - `AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation`
 - `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
@@ -293,6 +299,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.routesClipboardSummaryShareInputToCompositePlan`
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareWithoutActionDraft`
 - `BuiltInSkillRuntimeTest.plansClipboardContextWithoutActionDraft`
+- `BuiltInSkillRuntimeTest.plansDeviceSettingsWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.skillFirstPlannerDoesNotTreatOrdinaryShareDiscussionAsShareTool`
 - `BuiltInSkillRuntimeTest.validateStructureRejectsUnorderedOrInvalidCompositePlan`
 - `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`

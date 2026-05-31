@@ -185,6 +185,16 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
+            skillRuntime = object : SkillRuntime {
+                private val delegate = BuiltInSkillRuntime()
+
+                override fun manifests(): List<SkillManifest> = delegate.manifests()
+
+                override fun plan(input: String): SkillPlan? = null
+
+                override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? =
+                    delegate.plan(input, draft, request)
+            },
             traceStore = traceStore,
         )
 
@@ -504,6 +514,43 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation() {
+        val cases = listOf(
+            "打开 Wi-Fi 设置" to MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            "打开手电筒设置" to MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+        )
+
+        cases.forEach { (input, toolName) ->
+            val actionRuntime = RecordingActionRuntime(likelyAction = false)
+            val runtime = AgentLoopRuntime(
+                memoryIndex = MemoryRepository(),
+                actionPlanningRuntime = actionRuntime,
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            )
+
+            val result = runtime.runOnce(
+                input = input,
+                installedCapabilities = setOf(ModelCapability.Chat),
+                memoryEnabled = false,
+            )
+
+            assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+            require(result.plan is AgentPlan.UseTool)
+            assertEquals(toolName, result.plan.request.toolName)
+            assertTrue(result.plan.request.arguments.isEmpty())
+            assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, result.plan.skillRequest?.skillId)
+            assertEquals("skill-first", result.plan.fallbackReason)
+            assertEquals(0, actionRuntime.isLikelyActionCallCount)
+            assertEquals(0, actionRuntime.planCallCount)
+            assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, runtime.latestPendingConfirmation()?.skillId)
+            assertTrue(result.steps.any { step ->
+                step is AgentStep.SkillPlanned &&
+                    step.request.skillId == BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL
+            })
+        }
+    }
+
+    @Test
     fun skillFirstMapEmailAndCalendarBypassActionPlannerAndRequestConfirmation() {
         val cases = listOf(
             SkillFirstDraftCase(
@@ -567,6 +614,11 @@ class AgentLoopRuntimeTest {
             "不要发邮件，只帮我总结这段话",
             "Do not send email; summarize only",
             "add event listener to the button",
+            "Wi-Fi 设置页面怎么设计",
+            "不要打开 Wi-Fi 设置，只解释一下",
+            "Do not open Wi-Fi settings; explain only",
+            "手电筒 API 怎么用",
+            "打开手电筒",
         )
 
         inputs.forEach { input ->
