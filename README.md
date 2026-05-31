@@ -178,9 +178,14 @@ expected byte size plus SHA-256 metadata. See `docs/model_manifest.md`.
 
 ## Requirements
 
-- Android Studio or command-line Android SDK.
+Local verification:
+
 - Android SDK 36.
 - JDK 17 or newer.
+
+Device or emulator validation:
+
+- Android Studio or command-line Android SDK with platform-tools/adb.
 - An arm64-v8a Android device for model execution.
 - USB debugging enabled for device installation and instrumentation tests.
 
@@ -228,6 +233,14 @@ Run local verification:
 ```bash
 scripts/doctor.sh
 scripts/verify_local.sh
+```
+
+`scripts/doctor.sh` checks the local JVM/Android SDK/Gradle toolchain by
+default and does not require `adb`. Device or emulator validation uses the
+stricter device mode:
+
+```bash
+scripts/doctor.sh --device
 ```
 
 Recommended model URL provenance is checked only when explicitly requested:

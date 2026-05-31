@@ -1,5 +1,7 @@
 # 真机验收清单
 
+本页用于 device/emulator 验收，要求 Android SDK 中存在 `adb` 并连接一台已授权设备或模拟器。本地 JVM/lint/build 验证见 README 的 Testing 章节，不要求 `adb`。
+
 ## 连接手机
 
 1. 手机设置里连续点 7 次“版本号”，打开开发者选项。
@@ -18,7 +20,17 @@ adb devices -l
 
 ## 自动验收
 
+本地 JVM/lint/build 验证不要求连接设备，也不要求 `adb` 在 PATH：
+
 ```bash
+scripts/doctor.sh
+scripts/verify_local.sh
+```
+
+真机或模拟器验收要求 Android SDK 中存在 `adb`，并连接一台已授权设备：
+
+```bash
+scripts/doctor.sh --device
 scripts/install_and_test_device.sh
 ```
 

@@ -6,15 +6,16 @@ cd "$ROOT_DIR"
 
 ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
-AAPT="$(find "$ANDROID_SDK/build-tools" -name aapt -type f 2>/dev/null | sort | tail -n 1)"
 MAX_RELEASE_APK_BYTES=$((75 * 1024 * 1024))
 
+scripts/doctor.sh --local
+
+AAPT="$(find "$ANDROID_SDK/build-tools" -name aapt -type f 2>/dev/null | sort | tail -n 1)"
 if [[ -z "${AAPT:-}" || ! -x "$AAPT" ]]; then
   echo "Android SDK build-tools/aapt not found. Set ANDROID_SDK_ROOT or ANDROID_HOME." >&2
   exit 1
 fi
 
-scripts/doctor.sh
 "$GRADLE_CMD" testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease
 
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"

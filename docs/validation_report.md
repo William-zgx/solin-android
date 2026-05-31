@@ -1,5 +1,51 @@
 # PocketMind 验证报告
 
+## 2026-05-31 本地验证脚本分层增量验证
+
+本轮覆盖项：
+
+- `scripts/doctor.sh` 默认进入 local 模式，只检查 JDK、Android SDK 36、
+  build-tools/aapt 和 Gradle wrapper，不再要求 `adb`。
+- `scripts/doctor.sh --device` 保留设备/模拟器验收前的 `adb` 检查。
+- `scripts/verify_local.sh` 调用 `doctor --local`，让 JVM 单测、lint、APK 构建和
+  APK 内容检查不被缺失 `adb` 阻断。
+- `scripts/install_and_test_device.sh` 先调用 `doctor --device`，继续要求
+  Android SDK platform-tools/adb、单台已授权设备、arm64-v8a 和设备空间。
+- README 与真机验收文档同步区分 local verification 与 device/emulator validation。
+
+验证命令：
+
+```bash
+for f in scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh; do bash -n "$f"; done
+scripts/doctor.sh
+scripts/doctor.sh --local
+scripts/doctor.sh --device
+# 临时 SDK fixture：仅复制 android-36 与 aapt，不提供 platform-tools/adb。
+ANDROID_SDK_ROOT="$TMP_SDK" ANDROID_HOME="$TMP_SDK" scripts/doctor.sh --local
+ANDROID_SDK_ROOT="$TMP_SDK" ANDROID_HOME="$TMP_SDK" scripts/doctor.sh --device
+scripts/verify_local.sh
+scripts/install_and_test_device.sh
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+```
+
+结果：
+
+- 通过：三个脚本 `bash -n`。
+- 通过：`scripts/doctor.sh`、`scripts/doctor.sh --local` 和
+  `scripts/doctor.sh --device`；当前 SDK 下存在
+  `/Users/bytedance/Library/Android/sdk/platform-tools/adb`。
+- 通过：临时 SDK 中只提供 Android platform 与 `aapt`、不提供 platform-tools/adb
+  时，`doctor --local` 通过。
+- 预期失败：同一临时 SDK 下 `doctor --device` 报告缺少 `adb`，证明设备模式仍保留硬性检查。
+- 通过：`scripts/verify_local.sh`，覆盖 `testDebugUnitTest`、`lintDebug`、
+  `assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease`、APK model
+  artifact 检查、badging 检查、release size 检查、immutable model URL 检查和
+  plaintext remote API key 检查。
+- 预期失败：`scripts/install_and_test_device.sh` 通过 device doctor 后因当前没有已授权设备而停止，没有进入安装或 instrumentation。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配。
+
 ## 2026-05-31 最近截图 OCR 增量验证
 
 本轮覆盖项：

@@ -6,11 +6,37 @@ cd "$ROOT_DIR"
 
 ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 REQUIRED_SDK="android-36"
+MODE="${1:---local}"
 
 fail() {
   echo "doctor: $*" >&2
   exit 1
 }
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: scripts/doctor.sh [--local|--device]
+
+--local   Check the local build/test toolchain. Does not require adb.
+--device  Check the local toolchain plus adb for device/emulator validation.
+EOF
+  exit 1
+}
+
+case "$MODE" in
+  --local|local)
+    REQUIRE_ADB=0
+    ;;
+  --device|device)
+    REQUIRE_ADB=1
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    usage
+    ;;
+esac
 
 command -v java >/dev/null 2>&1 || fail "java not found; install JDK 17 or newer."
 JAVA_VERSION="$(java -version 2>&1 | awk -F '"' '/version/ {print $2; exit}')"
@@ -26,12 +52,22 @@ AAPT="$(find "$ANDROID_SDK/build-tools" -name aapt -type f 2>/dev/null | sort | 
 [[ -n "${AAPT:-}" && -x "$AAPT" ]] || fail "Android SDK build-tools/aapt not found."
 
 ADB="$ANDROID_SDK/platform-tools/adb"
-[[ -x "$ADB" ]] || fail "adb not found at $ADB."
+if [[ "$REQUIRE_ADB" == "1" ]]; then
+  [[ -x "$ADB" ]] || fail "adb not found at $ADB."
+fi
 
 [[ -x ./gradlew ]] || fail "Gradle wrapper is missing or not executable."
 
-echo "PocketMind Android environment OK"
+if [[ "$REQUIRE_ADB" == "1" ]]; then
+  echo "PocketMind Android device environment OK"
+else
+  echo "PocketMind Android local environment OK"
+fi
 echo "JDK: $JAVA_VERSION"
 echo "Android SDK: $ANDROID_SDK"
 echo "aapt: $AAPT"
-echo "adb: $ADB"
+if [[ "$REQUIRE_ADB" == "1" ]]; then
+  echo "adb: $ADB"
+else
+  echo "adb: not required for local verification"
+fi

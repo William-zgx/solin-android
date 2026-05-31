@@ -11,10 +11,7 @@ GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 ADB="${ANDROID_SDK}/platform-tools/adb"
 CLEAN_DEVICE="${CLEAN_DEVICE:-0}"
 
-if [[ ! -x "$ADB" ]]; then
-  echo "adb not found. Set ANDROID_SDK_ROOT or ANDROID_HOME." >&2
-  exit 1
-fi
+scripts/doctor.sh --device
 
 DEVICE_COUNT="$("$ADB" devices | awk 'NR > 1 && $2 == "device" {count += 1} END{print count + 0}')"
 if [[ "$DEVICE_COUNT" != "1" ]]; then
