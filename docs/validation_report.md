@@ -1,5 +1,39 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Recent image OCR tool 增量验证
+
+本轮覆盖项：
+
+- 新增独立受确认保护的 `read_recent_image_ocr` 工具，用于用户明确要求
+  识别最近图片/照片文字时扫描最近图片像素并在本地提取 OCR 摘录。
+- `query_recent_files(kind="images")` 继续保持 metadata-only；图片 OCR
+  是单独工具，不返回 MediaStore id、URI、路径、原图或像素。
+- 默认/最大扫描窗口限制为最近 3 张图片，返回第一条有界 OCR 摘录；
+  结果标记 `LocalOnly` / `requiresLocalModel=true`。
+- Agent observation 会用本地模型 continuation 处理图片 OCR；远程模式
+  阻断自动 continuation，并提示已保护图片 OCR 内容。
+- trace/audit 会把 `ocrText` 脱敏；Skill runner 将
+  `read_recent_image_ocr.ocrText` 视为私有输出，不能直接绑定到后续
+  `share_text` 等外发工具参数。
+- Android 13+ 只请求 `READ_MEDIA_IMAGES`，Android 12- 使用
+  `READ_EXTERNAL_STORAGE`；权限 rationale 明确像素读取和 OCR 边界。
+- 该能力不声明当前屏幕捕获、图片语义理解、任意媒体 OCR 或媒体内容理解。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsRecentImageOcrBeforeRemoteContinuation'
+```
+
 ## 2026-06-01 Preference memory conflict resolution 增量验证
 
 本轮覆盖项：

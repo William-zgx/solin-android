@@ -144,7 +144,93 @@ class SkillRunProgressorTest {
     }
 
     @Test
-    fun publicOutputsRedactClipboardAndScreenshotOcrPrivateFields() {
+    fun rejectsImageOcrPrivateOutputBindingToToolArgument() {
+        val ocrDraft = ActionDraft(
+            functionName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+            title = "读取图片 OCR",
+            summary = "读取图片 OCR",
+            parameters = emptyMap(),
+        )
+        val shareDraft = ActionDraft(
+            functionName = MobileActionFunctions.SHARE_TEXT,
+            title = "分享 OCR",
+            summary = "分享 OCR 摘要",
+            parameters = emptyMap(),
+        )
+        val ocrStep = SkillStep.ToolStep(
+            id = "read_image",
+            request = ToolRequest(
+                id = "read-image-request",
+                toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+            ),
+            draft = ocrDraft,
+        )
+        val modelStep = SkillStep.ModelStep(
+            id = "summarize_image",
+            dependsOn = listOf("read_image"),
+            title = "整理图片 OCR",
+            instruction = "整理 OCR。",
+            inputBindings = mapOf("ocrText" to "read_image.ocrText"),
+            outputKey = "summary",
+        )
+        val shareStep = SkillStep.ToolStep(
+            id = "share_image",
+            dependsOn = listOf("summarize_image"),
+            request = ToolRequest(
+                id = "share-image-request",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+            ),
+            draft = shareDraft,
+            argumentBindings = mapOf("text" to "read_image.ocrText"),
+        )
+        val plan = SkillPlan(
+            request = SkillRequest(
+                id = "image-ocr-skill-request",
+                skillId = "image_ocr_share_skill",
+                arguments = mapOf("input" to "分享图片 OCR"),
+                reason = "分享图片 OCR",
+            ),
+            manifest = SkillManifest(
+                id = "image_ocr_share_skill",
+                version = 1,
+                title = "Image OCR share skill",
+                description = "Test skill",
+                triggerExamples = listOf("分享图片 OCR"),
+                requiredTools = listOf(
+                    MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+                    MobileActionFunctions.SHARE_TEXT,
+                ),
+                inputSchemaJson = """
+                    {
+                      "type": "object",
+                      "required": ["input"],
+                      "properties": {
+                        "input": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                """.trimIndent(),
+                riskLevel = RiskLevel.HighExternalSend,
+            ),
+            steps = listOf(ocrStep, modelStep, shareStep),
+        )
+
+        val progression = progressor.nextToolAfterModelOutput(
+            skillPlan = plan,
+            requestedRequestIds = setOf(ocrStep.request.id),
+            modelOutput = "安全 OCR 摘要",
+        )
+
+        require(progression is SkillModelOutputProgression.Rejected)
+        assertTrue(progression.reason.contains("private tool output cannot be bound directly"))
+        assertTrue(progression.reason.contains("read_image.ocrText"))
+    }
+
+    @Test
+    fun publicOutputsRedactClipboardScreenshotAndImageOcrPrivateFields() {
         val outputs = linkedMapOf<String, Map<String, String>>()
         val privateRefs = mutableSetOf<String>()
         val clipboardStep = SkillStep.ToolStep(
@@ -173,6 +259,19 @@ class SkillRunProgressorTest {
                 parameters = emptyMap(),
             ),
         )
+        val imageStep = SkillStep.ToolStep(
+            id = "read_image",
+            request = ToolRequest(
+                id = "image",
+                toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+                title = "读取图片 OCR",
+                summary = "读取图片 OCR",
+                parameters = emptyMap(),
+            ),
+        )
 
         outputs[clipboardStep.id] = progressor.outputForToolResult(
             result = ToolResult(
@@ -194,13 +293,25 @@ class SkillRunProgressorTest {
             draft = screenshotStep.draft,
         )
         privateRefs += progressor.privateOutputRefsFor(screenshotStep.id, screenshotStep.request.toolName)
+        outputs[imageStep.id] = progressor.outputForToolResult(
+            result = ToolResult(
+                requestId = "image",
+                status = ToolStatus.Succeeded,
+                summary = "已读取图片 OCR",
+                data = mapOf("ocrText" to "私密图片文字", "ocrTextIncluded" to "true"),
+            ),
+            draft = imageStep.draft,
+        )
+        privateRefs += progressor.privateOutputRefsFor(imageStep.id, imageStep.request.toolName)
 
         val publicOutputs = progressor.publicOutputs(outputs, privateRefs)
 
         assertFalse(publicOutputs.toString().contains("私密剪贴板"))
         assertFalse(publicOutputs.toString().contains("私密截图文字"))
+        assertFalse(publicOutputs.toString().contains("私密图片文字"))
         assertEquals("false", publicOutputs[clipboardStep.id]?.get("truncated"))
         assertEquals("true", publicOutputs[screenshotStep.id]?.get("ocrTextIncluded"))
+        assertEquals("true", publicOutputs[imageStep.id]?.get("ocrTextIncluded"))
     }
 
     @Test

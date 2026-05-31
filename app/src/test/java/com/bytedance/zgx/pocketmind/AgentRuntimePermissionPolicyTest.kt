@@ -57,6 +57,11 @@ class AgentRuntimePermissionPolicyTest {
             confirmationFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
                 .runtimePermissionsFor(apiLevel = Build.VERSION_CODES.S),
         )
+        assertEquals(
+            listOf(Manifest.permission.READ_EXTERNAL_STORAGE),
+            confirmationFor(MobileActionFunctions.READ_RECENT_IMAGE_OCR)
+                .runtimePermissionsFor(apiLevel = Build.VERSION_CODES.S),
+        )
     }
 
     @Test
@@ -78,6 +83,11 @@ class AgentRuntimePermissionPolicyTest {
         assertEquals(
             listOf(Manifest.permission.READ_MEDIA_IMAGES),
             confirmationFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
+                .runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU),
+        )
+        assertEquals(
+            listOf(Manifest.permission.READ_MEDIA_IMAGES),
+            confirmationFor(MobileActionFunctions.READ_RECENT_IMAGE_OCR)
                 .runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU),
         )
         assertEquals(
@@ -123,6 +133,18 @@ class AgentRuntimePermissionPolicyTest {
         assertEquals("照片和图片权限", requirement.title)
         assertTrue(requirement.rationale.contains("读取最近 1 张截图像素"))
         assertTrue(requirement.rationale.contains("OCR 文本"))
+    }
+
+    @Test
+    fun recentImageOcrPermissionRationaleDisclosesBoundedPixelAndOcrRead() {
+        val requirement = confirmationFor(MobileActionFunctions.READ_RECENT_IMAGE_OCR)
+            .runtimePermissionRequirementsFor(apiLevel = Build.VERSION_CODES.TIRAMISU)
+            .single()
+
+        assertEquals(listOf(Manifest.permission.READ_MEDIA_IMAGES), requirement.permissions)
+        assertEquals("照片和图片权限", requirement.title)
+        assertTrue(requirement.rationale.contains("最多扫描最近 3 张图片像素"))
+        assertTrue(requirement.rationale.contains("第一条 OCR 文本"))
     }
 
     @Test
@@ -198,6 +220,7 @@ class AgentRuntimePermissionPolicyTest {
                 MobileActionFunctions.QUERY_CONTACTS,
                 MobileActionFunctions.QUERY_RECENT_FILES,
                 MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                MobileActionFunctions.READ_RECENT_IMAGE_OCR,
             ),
             runtimePermissionTools,
         )

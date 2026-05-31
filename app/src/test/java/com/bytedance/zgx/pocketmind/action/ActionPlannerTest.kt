@@ -74,6 +74,19 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun parsesRecentImageOcrCallOutput() {
+        val draft = planner.parseModelOutput(
+            """call:read_recent_image_ocr{"maxCount":"3"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.READ_RECENT_IMAGE_OCR, draft.functionName)
+        assertEquals("3", draft.parameters["maxCount"])
+        assertTrue(draft.summary.contains("最近 3 张图片"))
+        assertTrue(draft.summary.contains("本地提取"))
+    }
+
+    @Test
     fun parsesUsageAccessSettingsCallOutput() {
         val draft = planner.parseModelOutput("""call:open_usage_access_settings{}""")
 
@@ -288,6 +301,26 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, plan.draft?.functionName)
         assertEquals("1", plan.draft?.parameters?.get("maxCount"))
         assertTrue(plan.draft?.summary.orEmpty().contains("不会保存图片"))
+    }
+
+    @Test
+    fun infersRecentImageOcrOnlyWhenTextExtractionIsExplicit() {
+        val plan = planner.plan("识别最近2张照片文字")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.READ_RECENT_IMAGE_OCR, plan.draft?.functionName)
+        assertEquals("2", plan.draft?.parameters?.get("maxCount"))
+        assertTrue(plan.draft?.summary.orEmpty().contains("最近 2 张图片"))
+        assertTrue(plan.draft?.summary.orEmpty().contains("不会保存图片"))
+    }
+
+    @Test
+    fun keepsPlainRecentImagesAsMetadataQuery() {
+        val plan = planner.plan("最近图片")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, plan.draft?.functionName)
+        assertEquals("images", plan.draft?.parameters?.get("kind"))
     }
 
     @Test

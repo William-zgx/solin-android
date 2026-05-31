@@ -124,6 +124,9 @@ class MobileActionPlanner : ActionPlanner {
             isRecentScreenshotOcrRequest(input) ->
                 MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR.toDraft(recentScreenshotOcrParameters(input))
 
+            isRecentImageOcrRequest(input) ->
+                MobileActionFunctions.READ_RECENT_IMAGE_OCR.toDraft(recentImageOcrParameters(input))
+
             isRecentFilesRequest(input) ->
                 MobileActionFunctions.QUERY_RECENT_FILES.toDraft(recentFilesParameters(input))
 
@@ -183,6 +186,7 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS -> "查询最近通知"
             MobileActionFunctions.QUERY_RECENT_FILES -> "查询最近文件"
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> "读取最近截图 OCR"
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "读取最近图片 OCR"
             MobileActionFunctions.QUERY_CONTACTS -> "查询联系人"
             else -> "动作草稿"
         }
@@ -228,6 +232,10 @@ class MobileActionPlanner : ActionPlanner {
             }
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR ->
                 "将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。"
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR -> {
+                val maxCount = parameters["maxCount"].orEmpty().ifBlank { "3" }
+                "将扫描最近 ${maxCount} 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。"
+            }
             MobileActionFunctions.QUERY_CONTACTS -> {
                 val maxCount = parameters["maxCount"]
                 val query = parameters["query"].orEmpty().ifBlank { "联系人" }
@@ -413,6 +421,24 @@ class MobileActionPlanner : ActionPlanner {
         return mentionsRecentScreenshot && asksForTextExtraction
     }
 
+    private fun isRecentImageOcrRequest(input: String): Boolean {
+        val normalized = input.lowercase()
+        val mentionsRecentImage = ("最近" in input && ("图片" in input || "照片" in input || "相册" in input)) ||
+            Regex("""\b(recent|latest)\b.*\b(images?|photos?|pictures?)\b""")
+                .containsMatchIn(normalized)
+        val asksForTextExtraction = listOf(
+            "识别",
+            "提取",
+            "摘录",
+            "读取文字",
+            "文字",
+            "文本",
+            "ocr",
+            "text",
+        ).any { marker -> marker in normalized }
+        return mentionsRecentImage && asksForTextExtraction
+    }
+
     private fun isContactQueryRequest(input: String): Boolean {
         val normalized = input.lowercase()
         return listOf(
@@ -480,6 +506,23 @@ class MobileActionPlanner : ActionPlanner {
         } else {
             emptyMap()
         }
+
+    private fun recentImageOcrParameters(input: String): Map<String, String> =
+        mapOf("maxCount" to (recentCountFrom(input)?.coerceIn(1, 3) ?: 3).toString())
+
+    private fun recentCountFrom(input: String): Int? {
+        val normalized = input.lowercase()
+        val cleaned = input.replace(Regex("\\s+"), "")
+        return Regex("最近(\\d{1,2})(?:个|张|条|份)?").find(cleaned)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?: Regex("""(?:recent|latest)\s+(\d{1,2})""")
+                .find(normalized)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.toIntOrNull()
+    }
 
     private fun contactQueryParameters(input: String): Map<String, String> {
         val cleaned = cleanedObject(input)

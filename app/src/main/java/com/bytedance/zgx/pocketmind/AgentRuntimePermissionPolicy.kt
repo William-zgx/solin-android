@@ -54,7 +54,16 @@ fun PendingAgentConfirmation.runtimePermissionRequirementsFor(
             )
 
         MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR ->
-            recentScreenshotOcrPermissionRequirementsFor(apiLevel = apiLevel)
+            recentImageOcrPermissionRequirementsFor(
+                apiLevel = apiLevel,
+                rationale = "用于在你确认后读取最近 1 张截图像素，并在本地提取 OCR 文本。",
+            )
+
+        MobileActionFunctions.READ_RECENT_IMAGE_OCR ->
+            recentImageOcrPermissionRequirementsFor(
+                apiLevel = apiLevel,
+                rationale = "用于在你确认后最多扫描最近 3 张图片像素，并在本地提取第一条 OCR 文本。",
+            )
 
         else -> emptyList()
     }
@@ -102,8 +111,10 @@ private fun recentFilePermissionRequirementsFor(kind: String, apiLevel: Int): Li
     }
 }
 
-private fun recentScreenshotOcrPermissionRequirementsFor(apiLevel: Int): List<RuntimePermissionRequirement> {
-    val rationale = "用于在你确认后读取最近 1 张截图像素，并在本地提取 OCR 文本。"
+private fun recentImageOcrPermissionRequirementsFor(
+    apiLevel: Int,
+    rationale: String,
+): List<RuntimePermissionRequirement> {
     return if (apiLevel < Build.VERSION_CODES.TIRAMISU) {
         listOf(Manifest.permission.READ_EXTERNAL_STORAGE.requirement(rationale = rationale))
     } else {

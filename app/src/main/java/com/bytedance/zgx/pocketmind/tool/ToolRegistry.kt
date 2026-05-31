@@ -454,6 +454,20 @@ private val recentScreenshotOcrSchemaJson = """
     }
 """.trimIndent()
 
+private val recentImageOcrSchemaJson = """
+    {
+      "type": "object",
+      "properties": {
+        "maxCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
 private val cancelReminderSchemaJson = """
     {
       "type": "object",
@@ -799,6 +813,22 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             title = "读取最近截图 OCR",
             description = "在用户确认后读取最近 1 张截图像素并在本地提取 OCR 文本；不保存 URI、路径、原图或像素。",
             inputSchemaJson = recentScreenshotOcrSchemaJson,
+            capability = ToolCapability.DeviceContext,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsFiles,
+                ToolPermission.RequiresAndroidRuntimePermission,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+            title = "读取最近图片 OCR",
+            description = "在用户确认后扫描最近图片像素并在本地提取第一条 OCR 文本；不保存 URI、路径、原图或像素。",
+            inputSchemaJson = recentImageOcrSchemaJson,
             capability = ToolCapability.DeviceContext,
             permissions = setOf(
                 ToolPermission.ReadsDeviceContext,

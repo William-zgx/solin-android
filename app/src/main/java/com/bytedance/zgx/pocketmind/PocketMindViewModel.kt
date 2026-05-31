@@ -1581,6 +1581,7 @@ class PocketMindViewModel(
         when (toolName) {
             MobileActionFunctions.READ_CLIPBOARD -> "剪贴板内容"
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> "截图 OCR 内容"
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "图片 OCR 内容"
             else -> "本地工具结果"
         }
 

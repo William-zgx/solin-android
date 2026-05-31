@@ -414,6 +414,50 @@ class DeviceContextToolExecutorTest {
     }
 
     @Test
+    fun recentImageOcrSuccessScansImagesAndReturnsLocalOnlyTextWithoutImageIdentifiers() {
+        val provider = RecordingRecentImageTextProvider(
+            RecentImageTextReadResult.Available(
+                item = RecentImageTextItem(
+                    name = "IMG_20260531.jpg",
+                    mimeType = "image/jpeg",
+                    kind = "images",
+                    sizeBytes = 4_096L,
+                    lastModifiedMillis = 8_000L,
+                    text = "照片里的文字",
+                    truncated = false,
+                ),
+                scannedCount = 2,
+            ),
+        )
+        val executor = RecentScreenshotOcrToolExecutor(provider)
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "image-ocr",
+                toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+                arguments = mapOf("maxCount" to "3"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals("images", provider.lastKind)
+        assertEquals(3, provider.lastMaxCount)
+        assertEquals(MobileActionFunctions.READ_RECENT_IMAGE_OCR, result.data["toolName"])
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals("true", result.data["requiresLocalModel"])
+        assertEquals("照片里的文字", result.data["ocrText"])
+        assertEquals("false", result.data["truncated"])
+        assertEquals("true", result.data["ocrTextIncluded"])
+        assertEquals("ocr_text_local_only_no_uri_path_or_pixels_persisted", result.data["metadataPolicy"])
+        assertFalse(result.data.containsKey("id"))
+        assertFalse(result.data.containsKey("path"))
+        assertFalse(result.data.containsKey("uri"))
+        assertFalse(result.data.containsKey("content"))
+        assertFalse(result.data.containsKey("pixels"))
+    }
+
+    @Test
     fun recentScreenshotOcrNoTextIsSuccessfulLocalOnlyMetadata() {
         val executor = RecentScreenshotOcrToolExecutor(
             StaticRecentImageTextProvider(

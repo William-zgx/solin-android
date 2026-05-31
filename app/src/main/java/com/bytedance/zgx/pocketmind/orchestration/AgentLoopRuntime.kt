@@ -853,18 +853,25 @@ class AgentLoopRuntime(
                 )
             }
 
-            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> {
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR -> {
                 val ocrText = result.data["ocrText"]?.takeIf { it.isNotBlank() } ?: return null
                 val truncated = result.data["truncated"]?.toBooleanStrictOrNull() ?: false
+                val contentLabel = request.toolName.recentImageOcrContentLabel()
+                val sourceBoundary = if (request.toolName == MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR) {
+                    "这不是当前屏幕捕获，也不是图片语义理解；只使用已提取的截图文字。"
+                } else {
+                    "这不是当前屏幕捕获，也不是图片语义理解；只使用已提取的图片文字。"
+                }
                 ToolObservationContinuation(
                     prompt = """
-                    用户已经确认读取最近截图并在本地提取 OCR 文本。请根据用户原始请求处理 OCR 摘录。
-                    这不是当前屏幕捕获，也不是图片语义理解；只使用已提取的截图文字。
+                    用户已经确认读取$contentLabel 并在本地提取 OCR 文本。请根据用户原始请求处理 OCR 摘录。
+                    $sourceBoundary
                     如果用户没有明确要求逐字复述，不要完整抄回 OCR 原文；优先总结、改写、提取信息或回答问题。
 
                     用户原始请求：${run.input}
                     工具观察：${result.summary}
-                    最近截图 OCR 文本${if (truncated) "（已截断）" else ""}：
+                    $contentLabel OCR 文本${if (truncated) "（已截断）" else ""}：
                     $ocrText
                     """.trimIndent(),
                     requiresLocalModel = true,
@@ -959,10 +966,11 @@ class AgentLoopRuntime(
                     this
                 }
 
-            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR ->
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR ->
                 if ("ocrText" in data) {
                     copy(
-                        summary = "已读取最近截图 OCR 摘录",
+                        summary = "已读取${request.toolName.recentImageOcrContentLabel()} OCR 摘录",
                         data = data + ("ocrText" to "[redacted]"),
                     )
                 } else {
@@ -976,7 +984,14 @@ class AgentLoopRuntime(
     private val localOnlyContinuationTools = setOf(
         MobileActionFunctions.READ_CLIPBOARD,
         MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+        MobileActionFunctions.READ_RECENT_IMAGE_OCR,
     )
+
+    private fun String?.recentImageOcrContentLabel(): String =
+        when (this) {
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "最近图片"
+            else -> "最近截图"
+        }
 
     private fun auditToolEvent(
         runId: String,

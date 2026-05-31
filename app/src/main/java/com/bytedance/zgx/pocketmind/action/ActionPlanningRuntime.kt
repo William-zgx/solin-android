@@ -139,6 +139,7 @@ internal fun actionPrompt(input: String): String =
     - query_recent_notifications {"maxCount":"..."} 仅用于返回当前应用最近通知的简要信息（可选）
     - query_recent_files {"kind":"...","maxCount":"..."} 仅用于返回最近文件摘要（kind 可为 all/screenshots/images/videos/audio/documents/downloads/others，maxCount 可选；Android 13 及以上 all 仅包含已授权媒体，documents/downloads/others 需要系统文件选择器授权）
     - read_recent_screenshot_ocr {"maxCount":"1"} 仅用于用户明确要求识别最近截图文字时，本地读取最近 1 张截图并提取 OCR 摘录
+    - read_recent_image_ocr {"maxCount":"1..3"} 仅用于用户明确要求识别最近图片/照片文字时，本地扫描最近图片并提取第一条 OCR 摘录
 
     用户请求：$input
     """.trimIndent()

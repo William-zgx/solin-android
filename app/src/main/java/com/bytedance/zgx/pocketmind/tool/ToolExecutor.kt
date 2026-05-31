@@ -58,11 +58,12 @@ class RoutingToolExecutor(
                 notificationSummaryToolExecutor.execute(request)
             MobileActionFunctions.QUERY_RECENT_FILES ->
                 recentFilesToolExecutor.execute(request)
-            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR ->
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR ->
                 recentScreenshotOcrToolExecutor?.execute(request)
                     ?: request.failed(
                         code = ToolErrorCode.ExecutionFailed,
-                        summary = "截图 OCR 服务不可用",
+                        summary = "图片 OCR 服务不可用",
                         retryable = true,
                         data = request.localOnlyData(),
                     )
@@ -353,23 +354,22 @@ class RecentScreenshotOcrToolExecutor(
     private val provider: RecentImageTextProvider,
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
-        if (request.toolName != MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR) {
-            return request.failed(
-                code = ToolErrorCode.UnknownTool,
-                summary = "Unknown tool: ${request.toolName}",
-                retryable = false,
-            )
-        }
+        val config = recentImageOcrToolConfigFor(request.toolName) ?: return request.failed(
+            code = ToolErrorCode.UnknownTool,
+            summary = "Unknown tool: ${request.toolName}",
+            retryable = false,
+        )
 
-        val maxCount = (request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: 1).coerceIn(1, 1)
-        return when (val result = provider.extractRecentImageText(kind = "screenshots", maxCount = maxCount)) {
+        val maxCount = (request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: config.defaultMaxCount)
+            .coerceIn(1, config.maxMaxCount)
+        return when (val result = provider.extractRecentImageText(kind = config.kind, maxCount = maxCount)) {
             is RecentImageTextReadResult.Available -> {
                 val item = result.item
                 if (item == null) {
                     request.succeeded(
-                        summary = "未能在最近 ${result.scannedCount} 张截图中识别出文字。",
+                        summary = "未能在最近 ${result.scannedCount} 张${config.sourceLabel}中识别出文字。",
                         data = request.localOnlyData() + mapOf(
-                            "source" to "screenshots",
+                            "source" to config.kind,
                             "maxCount" to maxCount.toString(),
                             "scannedCount" to result.scannedCount.toString(),
                             "ocrTextIncluded" to false.toString(),
@@ -379,9 +379,9 @@ class RecentScreenshotOcrToolExecutor(
                     )
                 } else {
                     request.succeeded(
-                        summary = "已从最近截图提取 ${item.text.length} 个字符的本地 OCR 摘录。",
+                        summary = "已从最近${config.sourceLabel}提取 ${item.text.length} 个字符的本地 OCR 摘录。",
                         data = request.localOnlyData() + mapOf(
-                            "source" to "screenshots",
+                            "source" to config.kind,
                             "maxCount" to maxCount.toString(),
                             "scannedCount" to result.scannedCount.toString(),
                             "name" to item.name,
@@ -402,7 +402,7 @@ class RecentScreenshotOcrToolExecutor(
             is RecentImageTextReadResult.PermissionDenied ->
                 request.failed(
                     code = ToolErrorCode.PermissionDenied,
-                    summary = "未授权“读取图片”权限，无法识别最近截图文字",
+                    summary = "未授权“读取图片”权限，无法识别最近${config.sourceLabel}文字",
                     retryable = true,
                     data = request.localOnlyData(),
                 )
@@ -410,12 +410,38 @@ class RecentScreenshotOcrToolExecutor(
             is RecentImageTextReadResult.Failed ->
                 request.failed(
                     code = ToolErrorCode.ExecutionFailed,
-                    summary = "最近截图 OCR 失败",
+                    summary = "最近${config.sourceLabel} OCR 失败",
                     retryable = true,
                     data = request.localOnlyData(),
                 )
         }
     }
+
+    private data class RecentImageOcrToolConfig(
+        val kind: String,
+        val sourceLabel: String,
+        val defaultMaxCount: Int,
+        val maxMaxCount: Int,
+    )
+
+    private fun recentImageOcrToolConfigFor(toolName: String): RecentImageOcrToolConfig? =
+        when (toolName) {
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> RecentImageOcrToolConfig(
+                kind = "screenshots",
+                sourceLabel = "截图",
+                defaultMaxCount = 1,
+                maxMaxCount = 1,
+            )
+
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR -> RecentImageOcrToolConfig(
+                kind = "images",
+                sourceLabel = "图片",
+                defaultMaxCount = 3,
+                maxMaxCount = 3,
+            )
+
+            else -> null
+        }
 }
 
 private fun List<ContactSummaryItem>.toContactsJsonString(): String {

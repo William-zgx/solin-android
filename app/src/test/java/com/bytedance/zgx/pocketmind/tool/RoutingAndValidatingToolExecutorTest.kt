@@ -69,6 +69,12 @@ class RoutingAndValidatingToolExecutorTest {
                 toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
                 reason = "test",
             ) to "ocrText",
+            ToolRequest(
+                id = "image-ocr",
+                toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+                arguments = mapOf("maxCount" to "3"),
+                reason = "test",
+            ) to "ocrText",
         )
 
         requests.forEach { (request, routedDataKey) ->
@@ -220,6 +226,35 @@ class RoutingAndValidatingToolExecutorTest {
 
         assertEquals(ToolStatus.Succeeded, accepted.status)
         assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, delegate.requests.single().toolName)
+        assertEquals(ToolStatus.Rejected, rejectedRange.status)
+        assertEquals(ToolErrorCode.InvalidRequest, rejectedRange.error?.code)
+        assertTrue(rejectedRange.summary.contains("at most"))
+    }
+
+    @Test
+    fun validatingExecutorAcceptsRecentImageOcrMaxCountOneToThreeOnly() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(delegate)
+
+        val accepted = executor.execute(
+            ToolRequest(
+                id = "image-ocr",
+                toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+                arguments = mapOf("maxCount" to "3"),
+                reason = "test",
+            ),
+        )
+        val rejectedRange = executor.execute(
+            ToolRequest(
+                id = "image-ocr-range",
+                toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+                arguments = mapOf("maxCount" to "4"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, accepted.status)
+        assertEquals(MobileActionFunctions.READ_RECENT_IMAGE_OCR, delegate.requests.single().toolName)
         assertEquals(ToolStatus.Rejected, rejectedRange.status)
         assertEquals(ToolErrorCode.InvalidRequest, rejectedRange.error?.code)
         assertTrue(rejectedRange.summary.contains("at most"))

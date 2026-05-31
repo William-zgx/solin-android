@@ -370,10 +370,16 @@ Current status:
   persist or expose the MediaStore id, URI, path, original image, or raw pixels.
   Remote mode treats the OCR continuation like other protected local context and
   stops before sending it to a configured backend.
+- `read_recent_image_ocr` is a separate confirmed tool for explicit
+  "识别最近图片/照片文字" requests. It scans up to 3 recent images, returns the first
+  bounded local OCR text excerpt, marks the result `LocalOnly`, and reuses the
+  same trace/audit redaction, remote-mode protection, and private Skill output
+  boundary as screenshot OCR. Plain `query_recent_files(kind="images")` remains
+  metadata-only and does not read pixels.
 - JVM executor matrix tests cover foreground app, notification summary, contact
-  summary, calendar availability, recent file metadata, and recent screenshot
-  OCR success, permission denied, provider failure, LocalOnly, and minimal-field
-  boundaries.
+  summary, calendar availability, recent file metadata, recent screenshot OCR,
+  and recent image OCR success, permission denied, provider failure, LocalOnly,
+  and minimal-field boundaries.
 - Broad screen understanding, screenshot capture, complete document parsing,
   Office/PDF parsing, arbitrary image/media OCR, image pixel analysis, and media
   content understanding are still pending.
@@ -777,12 +783,13 @@ Current status:
   excerpts, attachment metadata, or local assistant responses into remote chat
   history. Remote mode rejects automatically generated shared-input prompts
   before calling a remote backend.
-- The voice entry does not read or parse audio files. Recent screenshot OCR is
-  implemented as a confirmed Device Context tool, not as automatic shared-input
-  ingestion. Screenshot capture, screen understanding, Office/PDF parsing, image
-  semantic understanding, and media content understanding are pending. Image OCR
-  is limited to user-provided `image/*` attachments or the user-confirmed recent
-  screenshot OCR tool, and produces text excerpts only.
+- The voice entry does not read or parse audio files. Recent screenshot OCR and
+  recent image OCR are implemented as confirmed Device Context tools, not as
+  automatic shared-input ingestion. Screenshot capture, screen understanding,
+  Office/PDF parsing, image semantic understanding, and media content
+  understanding are pending. Image OCR is limited to user-provided `image/*`
+  attachments, the user-confirmed recent screenshot OCR tool, or the
+  user-confirmed recent image OCR tool, and produces text excerpts only.
 
 Tests:
 
@@ -790,6 +797,7 @@ Tests:
 - `PocketMindViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory`
 - `PocketMindViewModelTest.remoteModeRejectsLocalOnlyPromptBeforeCallingRemoteRuntime`
 - `PocketMindViewModelTest.remoteModeProtectsRecentScreenshotOcrBeforeRemoteContinuation`
+- `PocketMindViewModelTest.remoteModeProtectsRecentImageOcrBeforeRemoteContinuation`
 - `PocketMindViewModelTest.voiceTranscriptDraftIsOneShotAndDoesNotSendMessage`
 - `MainActivitySmokeTest` composer attachment and voice entry visibility
 
