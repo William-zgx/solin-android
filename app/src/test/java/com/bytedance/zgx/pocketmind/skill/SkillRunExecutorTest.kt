@@ -180,6 +180,47 @@ class SkillRunExecutorTest {
     }
 
     @Test
+    fun cancelStopsPendingSkillWithoutExecutingOrLeakingPrivateOutputs() {
+        val rawClipboardText = "私密剪贴板内容"
+        val summaryText = "公开摘要"
+        val toolExecutor = RecordingToolExecutor(emptyList())
+        val executor = SkillRunExecutor(
+            toolExecutor = toolExecutor,
+            modelExecutor = SkillModelStepExecutor { _, _ -> Result.success(summaryText) },
+        )
+        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val awaitingRead = executor.execute(plan)
+        val awaitingShare = executor.resume(
+            plan = plan,
+            continuation = requireNotNull(awaitingRead.continuation),
+            result = ToolResult(
+                requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = mapOf("text" to rawClipboardText),
+            ),
+        )
+
+        val cancelled = executor.cancel(
+            plan = plan,
+            continuation = requireNotNull(awaitingShare.continuation),
+            reason = "用户取消分享",
+        )
+
+        assertEquals(SkillRunState.Cancelled, cancelled.state)
+        assertEquals("用户取消分享", cancelled.error)
+        assertEquals(summaryText, cancelled.outputs["summarize_clipboard"]?.get("shareText"))
+        assertTrue(toolExecutor.requests.isEmpty())
+        assertFalse(cancelled.outputs.toString().contains(rawClipboardText))
+        assertFalse(cancelled.trace.toString().contains(rawClipboardText))
+        assertTrue(cancelled.trace.any { trace ->
+            trace is SkillRunTrace.Cancelled &&
+                trace.stepId == "share_summary" &&
+                trace.toolName == MobileActionFunctions.SHARE_TEXT
+        })
+    }
+
+    @Test
     fun failsBeforeExecutingWhenPlanStructureIsInvalid() {
         val validPlan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
         val invalidPlan = validPlan.copy(steps = listOf(validPlan.steps[2], validPlan.steps[0]))

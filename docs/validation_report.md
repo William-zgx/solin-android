@@ -1,5 +1,20 @@
 # PocketMind 验证报告
 
+## 2026-05-31 SkillRun cancellation state 增量验证
+
+本轮覆盖项：
+
+- `SkillRunExecutor` 新增显式 `Cancelled` 状态，pending continuation 可以被取消而不是被记录为失败。
+- 多步 Skill 取消会停在当前待确认工具前，不调用 `ToolExecutor` 执行后续工具。
+- 取消后的公开 outputs/trace 仍过滤私密工具输出，例如已确认读取过的剪贴板原文不会从取消结果泄漏。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest'
+```
+
 ## 2026-05-31 Reminder Skill-first 增量验证
 
 本轮覆盖项：

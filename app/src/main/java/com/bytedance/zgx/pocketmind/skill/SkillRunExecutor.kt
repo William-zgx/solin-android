@@ -95,6 +95,48 @@ class SkillRunExecutor(
         )
     }
 
+    fun cancel(
+        plan: SkillPlan,
+        continuation: SkillRunContinuation,
+        reason: String = "user cancelled skill run",
+    ): SkillRunResult {
+        validatePlanForExecution(plan)?.let { return it }
+        if (continuation.planRequestId != plan.request.id || continuation.skillId != plan.request.skillId) {
+            return SkillRunResult(
+                state = SkillRunState.Failed,
+                outputs = emptyMap(),
+                trace = continuation.trace + SkillRunTrace.Failed("skill continuation does not match plan"),
+                error = "skill continuation does not match plan",
+            )
+        }
+        val step = plan.steps.getOrNull(continuation.pendingStepIndex) as? SkillStep.ToolStep
+            ?: return SkillRunResult(
+                state = SkillRunState.Failed,
+                outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+                trace = continuation.trace + SkillRunTrace.Failed("pending skill step is missing"),
+                error = "pending skill step is missing",
+            )
+        if (step.id != continuation.pendingStepId) {
+            return SkillRunResult(
+                state = SkillRunState.Failed,
+                outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+                trace = continuation.trace + SkillRunTrace.Failed("pending skill step changed"),
+                error = "pending skill step changed",
+            )
+        }
+
+        return SkillRunResult(
+            state = SkillRunState.Cancelled,
+            outputs = continuation.outputs.withoutInput().publicOnly(continuation.privateOutputRefs),
+            trace = continuation.trace + SkillRunTrace.Cancelled(
+                stepId = step.id,
+                toolName = continuation.pendingToolRequest.toolName,
+                reason = reason,
+            ),
+            error = reason,
+        )
+    }
+
     private fun validatePlanForExecution(plan: SkillPlan): SkillRunResult? {
         val validation = plan.validateStructure()
         if (!validation.isValid) {
@@ -341,6 +383,7 @@ sealed class SkillToolGateDecision {
 enum class SkillRunState {
     Succeeded,
     AwaitingConfirmation,
+    Cancelled,
     Failed,
 }
 
@@ -382,6 +425,12 @@ sealed class SkillRunTrace {
     ) : SkillRunTrace()
 
     data class Failed(
+        val reason: String,
+    ) : SkillRunTrace()
+
+    data class Cancelled(
+        val stepId: String,
+        val toolName: String,
         val reason: String,
     ) : SkillRunTrace()
 }

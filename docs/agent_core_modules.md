@@ -208,9 +208,12 @@ Current status:
   confirmation boundaries. A confirmed `ToolResult` can resume from the pending
   tool step, continue through model transforms, and stop again at the next
   confirmation without re-running earlier steps or exposing private tool output.
+- `SkillRunExecutor` now has an explicit `Cancelled` state for pending skill
+  continuations. Cancelling a multi-step skill stops before the pending tool,
+  preserves only public outputs, and records a cancellation trace without
+  exposing private tool outputs.
 - General app-level UI orchestration for arbitrary multi-confirmation skill
-  runs, richer skill cancellation state, and persisted skill runs are still
-  pending.
+  runs and persisted skill runs are still pending.
 
 Tests:
 
@@ -228,6 +231,7 @@ Tests:
 - `SkillRunExecutorTest.resumesAfterConfirmedToolResultAndStopsAtNextConfirmation`
 - `SkillRunExecutorTest.resumesAgainAfterSecondConfirmationAndCompletesSkill`
 - `SkillRunExecutorTest.resumeRejectsToolResultThatDoesNotMatchPendingRequest`
+- `SkillRunExecutorTest.cancelStopsPendingSkillWithoutExecutingOrLeakingPrivateOutputs`
 - `AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `ToolSchemaContractTest`
