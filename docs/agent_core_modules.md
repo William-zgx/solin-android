@@ -758,9 +758,17 @@ Local verification:
 Emulator regression:
 
 ```bash
-adb devices
-./gradlew :app:connectedDebugAndroidTest
+adb devices -l
+scripts/install_and_test_device.sh
 ```
+
+Use `ANDROID_SERIAL=<serial> scripts/install_and_test_device.sh` when multiple
+authorized devices or emulators are connected. The helper exits before Gradle,
+APK install, or instrumentation if it cannot identify exactly one authorized
+target or if the selected serial is not in `device` state. A full regression
+report should record the target serial or AVD name, API level, ABI, whether
+`CLEAN_DEVICE=1` was used, and the current
+instrumentation test count.
 
 Full device validation remains required for LiteRT-LM model execution because
 emulators usually do not expose the same GPU backend behavior as physical

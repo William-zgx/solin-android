@@ -34,14 +34,19 @@ scripts/doctor.sh --device
 scripts/install_and_test_device.sh
 ```
 
+`doctor --device` 只确认 SDK 里的 `adb` 工具可用；是否存在可执行验收的设备由
+`install_and_test_device.sh` 检查。没有已授权设备、设备为 `offline` /
+`unauthorized`，或多台已授权设备同时连接且没有指定目标时，脚本会在 Gradle
+构建、APK 安装和 instrumentation 前退出。
+
 脚本会检查：
 
-- 只连接了一台已授权设备。
+- 只连接了一台已授权设备；或通过 `ANDROID_SERIAL` 选择其中一台。
 - 设备支持 `arm64-v8a`。
 - `/data` 分区大致有 3 GB 以上可用空间。
 - Debug APK 可以安装。
 - AndroidTest APK 可以安装。
-- 首屏 Compose 冒烟测试通过。
+- 当前 9 个 instrumentation 测试通过。
 - App 可以被启动。
 
 默认情况下，脚本不会在测试后删除 App，也不会清空 App 数据；通过后会保留 debug App 并启动它。需要做干净首启验收时，显式运行：
@@ -68,7 +73,14 @@ adb devices -l
 ```
 
 3. 验证首屏、模型管理、会话入口和动作确认 UI 都能打开。
-4. 如果连接了多台设备，先指定 `ANDROID_SERIAL`，避免 instrumentation 跑到真机或错误模拟器。
+4. 如果连接了多台设备，先指定 `ANDROID_SERIAL`，避免 instrumentation 跑到真机或错误模拟器：
+
+```bash
+ANDROID_SERIAL=emulator-5554 scripts/install_and_test_device.sh
+```
+
+完整回归记录至少包含设备序列号或 AVD 名称、API、ABI、是否设置
+`CLEAN_DEVICE=1`、执行命令和 instrumentation 测试总数。
 
 ## 手动模型验收
 

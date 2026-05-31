@@ -237,7 +237,8 @@ scripts/verify_local.sh
 
 `scripts/doctor.sh` checks the local JVM/Android SDK/Gradle toolchain by
 default and does not require `adb`. Device or emulator validation uses the
-stricter device mode:
+stricter device mode, which verifies the SDK `adb` binary but does not prove a
+device is connected:
 
 ```bash
 scripts/doctor.sh --device
@@ -256,6 +257,12 @@ adb devices
 scripts/install_and_test_device.sh
 ```
 
+When more than one authorized device is connected, select the target explicitly:
+
+```bash
+ANDROID_SERIAL=emulator-5554 scripts/install_and_test_device.sh
+```
+
 Convenience scripts are also available:
 
 ```bash
@@ -267,6 +274,11 @@ scripts/install_and_test_device.sh
 successful run and preserves app data by default. Use
 `CLEAN_DEVICE=1 scripts/install_and_test_device.sh` only when you intentionally
 want a clean first-launch validation.
+If there is no authorized device, or if multiple authorized devices are
+connected without `ANDROID_SERIAL`, the script exits before Gradle build, APK
+install, or instrumentation. The current instrumentation suite has 9 tests;
+record that count together with the device serial/API/ABI in full regression
+reports.
 
 Avoid `./gradlew :app:connectedDebugAndroidTest` when you need to keep the app
 installed on the device. The Android Gradle Plugin may clean up test packages
@@ -306,6 +318,7 @@ scripts/
   doctor.sh                 Local Android/JDK environment checker
   verify_local.sh           Local build/test helper
   install_and_test_device.sh Device install and smoke-test helper
+  test_validation_scripts.sh Shell preflight regression tests
 ```
 
 ## Development Notes

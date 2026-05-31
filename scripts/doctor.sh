@@ -18,7 +18,8 @@ usage() {
 Usage: scripts/doctor.sh [--local|--device]
 
 --local   Check the local build/test toolchain. Does not require adb.
---device  Check the local toolchain plus adb for device/emulator validation.
+--device  Check the local toolchain plus SDK adb for device/emulator validation.
+          Connected-device state is checked by install_and_test_device.sh.
 EOF
   exit 1
 }
@@ -59,7 +60,7 @@ fi
 [[ -x ./gradlew ]] || fail "Gradle wrapper is missing or not executable."
 
 if [[ "$REQUIRE_ADB" == "1" ]]; then
-  echo "PocketMind Android device environment OK"
+  echo "PocketMind Android device toolchain OK"
 else
   echo "PocketMind Android local environment OK"
 fi
@@ -68,6 +69,7 @@ echo "Android SDK: $ANDROID_SDK"
 echo "aapt: $AAPT"
 if [[ "$REQUIRE_ADB" == "1" ]]; then
   echo "adb: $ADB"
+  echo "device: checked by scripts/install_and_test_device.sh"
 else
   echo "adb: not required for local verification"
 fi

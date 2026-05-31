@@ -1,5 +1,54 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Device validation serial selection 增量验证
+
+本轮覆盖项：
+
+- `scripts/install_and_test_device.sh` 支持通过 `ANDROID_SERIAL` 在多台已授权
+  设备/模拟器中选择目标；所有后续 `adb shell`、安装、instrumentation 和启动命令
+  都绑定到该序列号。
+- 未指定 `ANDROID_SERIAL` 时仍要求恰好一台 `device` 状态目标；无已授权
+  设备或多台已授权设备会在 Gradle 构建、APK 安装和 instrumentation 前退出。
+- 指定 `ANDROID_SERIAL` 时，目标必须存在且状态为 `device`；`unauthorized` /
+  `offline` / missing serial 都会在 Gradle 构建、APK 安装和 instrumentation 前
+  退出。
+- `scripts/doctor.sh --device` 的输出收窄为 device toolchain check，避免把
+  SDK `adb` 存在误读为“已连接可验收设备”。
+- README、真机验收清单和 Agent core 文档同步说明无设备预期行为、
+  `ANDROID_SERIAL` 用法，以及完整回归报告需要记录当前 9 个 instrumentation
+  测试的通过结果。
+
+验证命令：
+
+```bash
+bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/doctor.sh
+scripts/doctor.sh --device
+scripts/install_and_test_device.sh
+scripts/verify_local.sh
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+```
+
+结果：
+
+- 通过：`bash -n` 覆盖 `doctor.sh`、`verify_local.sh`、
+  `install_and_test_device.sh` 和 `test_validation_scripts.sh`。
+- 通过：`scripts/test_validation_scripts.sh`，覆盖 fake SDK 下 local doctor 无
+  adb 通过、device doctor 缺 adb 失败、无设备 / unauthorized / offline /
+  多已授权设备 / missing serial 都不调用 Gradle，以及单设备和
+  `ANDROID_SERIAL` 选择设备的 happy path。
+- 通过：`scripts/doctor.sh`。
+- 通过：`scripts/doctor.sh --device`，确认 SDK `adb` 存在且输出为 device
+  toolchain check。
+- 预期失败：`scripts/install_and_test_device.sh` 在当前真实环境无已授权设备时
+  退出；输出设备列表后停止，没有进入 Gradle 构建、APK 安装或 instrumentation。
+- 通过：`scripts/verify_local.sh`，覆盖 `testDebugUnitTest`、`lintDebug`、
+  `assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease` 和 APK 检查。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配。
+
 ## 2026-05-31 Skill progression boundary 增量验证
 
 本轮覆盖项：
