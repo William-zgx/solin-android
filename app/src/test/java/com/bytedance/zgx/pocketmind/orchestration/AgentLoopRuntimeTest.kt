@@ -1308,6 +1308,154 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare() {
+        val dao = FakeAgentTraceDao()
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-restored-share" },
+            ),
+        )
+        val rawClipboardText = "重启后不应重新进入 trace 的剪贴板原文"
+        val modelSummary = "摘要：恢复后可分享的安全内容"
+        val planned = initialRuntime.runOnce(
+            input = "总结剪贴板并分享",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        val readRequestId = planned.plan.request.id
+        initialRuntime.confirmToolRequest(planned.run.id, readRequestId)
+        val readObserved = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = readRequestId,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+                    "text" to rawClipboardText,
+                    "truncated" to "false",
+                ),
+            ),
+        )
+        requireNotNull(readObserved)
+        assertEquals(AgentRunState.GeneratingAnswer, readObserved.run.state)
+
+        val modelObserved = initialRuntime.observeModelResult(planned.run.id, modelSummary)
+
+        requireNotNull(modelObserved)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, modelObserved.run.state)
+        require(modelObserved.decision is AgentObservationDecision.PlanNextTool)
+        val shareRequestId = modelObserved.decision.plan.request.id
+        assertEquals(MobileActionFunctions.SHARE_TEXT, modelObserved.decision.plan.request.toolName)
+        assertEquals(modelSummary, modelObserved.decision.plan.request.arguments["text"])
+        val readConfirmCountBeforeRestart = dao.steps(planned.run.id).count { step ->
+            step.type == "UserConfirmed" && step.json.contains(readRequestId)
+        }
+
+        val restoredTraceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 2_000L },
+        )
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = restoredTraceStore,
+        )
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(restoredPending)
+        assertEquals(planned.run.id, restoredPending.run.id)
+        assertEquals(shareRequestId, restoredPending.request.id)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, restoredPending.request.toolName)
+        assertEquals(modelSummary, restoredPending.request.arguments["text"])
+        assertEquals(modelSummary, restoredPending.draft.parameters["text"])
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, restoredPending.skillId)
+        assertEquals(false, restoredPending.plannedByModel)
+        assertEquals("skill model step", restoredPending.fallbackReason)
+        val restoredSkillPlan = requireNotNull(restoredPending.skillPlan)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, restoredSkillPlan.request.skillId)
+        assertEquals(3, restoredSkillPlan.steps.size)
+        val restoredShareStep = restoredSkillPlan.steps[2] as? SkillStep.ToolStep
+        requireNotNull(restoredShareStep)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, restoredShareStep.request.toolName)
+        assertEquals(mapOf("text" to "summarize_clipboard.shareText"), restoredShareStep.argumentBindings)
+        assertTrue(!restoredTraceStore.clearPendingConfirmation(planned.run.id, readRequestId))
+        assertEquals(shareRequestId, restoredRuntime.latestPendingConfirmation()?.request?.id)
+
+        val staleConfirm = restoredRuntime.confirmToolRequest(planned.run.id, readRequestId)
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, staleConfirm?.state)
+        val stillPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(stillPending)
+        assertEquals(shareRequestId, stillPending.request.id)
+        assertEquals(
+            readConfirmCountBeforeRestart,
+            dao.steps(planned.run.id).count { step ->
+                step.type == "UserConfirmed" && step.json.contains(readRequestId)
+            },
+        )
+        val staleObservationWhileAwaiting = restoredRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = readRequestId,
+                status = ToolStatus.Succeeded,
+                summary = "旧剪贴板观察不应生效",
+                data = mapOf("text" to "不应重新进入模型"),
+            ),
+        )
+        assertNull(staleObservationWhileAwaiting)
+        assertEquals(shareRequestId, restoredRuntime.latestPendingConfirmation()?.request?.id)
+
+        val executing = restoredRuntime.confirmToolRequest(planned.run.id, shareRequestId)
+
+        assertEquals(AgentRunState.ExecutingTool, executing?.state)
+        assertNull(restoredRuntime.latestPendingConfirmation())
+        val staleObservationWhileExecuting = restoredRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = readRequestId,
+                status = ToolStatus.Succeeded,
+                summary = "执行分享时旧剪贴板观察仍不应生效",
+                data = mapOf("text" to "仍不应重新进入模型"),
+            ),
+        )
+        assertNull(staleObservationWhileExecuting)
+
+        val completed = restoredRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = shareRequestId,
+                status = ToolStatus.Succeeded,
+                summary = "已打开系统分享面板",
+            ),
+        )
+
+        requireNotNull(completed)
+        assertEquals(AgentRunState.Completed, completed.run.state)
+        assertEquals(AgentObservationDecision.Complete, completed.decision)
+        assertNull(restoredRuntime.latestPendingConfirmation())
+        assertTrue(dao.pendingConfirmations().isEmpty())
+        assertTrue(completed.steps.any { it is AgentStep.UserConfirmed && it.requestId == shareRequestId })
+        assertTrue(completed.steps.any { it is AgentStep.ToolObserved && it.result.requestId == shareRequestId })
+        assertTrue(!completed.steps.toString().contains(rawClipboardText))
+        val persistedTrace = dao.steps(planned.run.id).joinToString("\n") { step ->
+            "${step.summary}\n${step.json}"
+        }
+        assertTrue(!persistedTrace.contains(rawClipboardText))
+        assertTrue(!persistedTrace.contains(modelSummary))
+        assertTrue(!auditSink.events.toString().contains(rawClipboardText))
+        assertTrue(!auditSink.events.toString().contains(modelSummary))
+    }
+
+    @Test
     fun successfulObservationCanPlanNextToolAndRequestConfirmationAgain() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(

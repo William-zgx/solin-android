@@ -110,6 +110,15 @@ Current status:
   restored on startup as UI confirmation state only. Restoration does not
   execute tools; explicit user confirmation is still required before Android
   execution can continue.
+- Model-bound multi-step Skills that reach a second confirmation persist that
+  second pending tool request as the active pending confirmation. Startup
+  restore keeps the new `share_text` request id and model-produced arguments;
+  confirm or observe calls using the earlier `read_clipboard` request id cannot
+  advance, rerun, or overwrite the current run.
+- `pending_agent_confirmations` may store and restore the model-produced text
+  that is being previewed for an outbound share confirmation. That payload is
+  confirmation UI state, not trace or audit content, and the share panel still
+  opens only after the user confirms the current pending request.
 - Completed persisted runs now rehydrate summary-only `RestoredSummary` steps
   from the trace store. This keeps typed timeline inspection available after a
   restart without restoring raw tool arguments or private payloads.
@@ -149,9 +158,12 @@ Tests:
 - `AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation`
 - `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
+- `AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation`
+- `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare`
 - `AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace`
 - `AgentTraceStoreTest.roomStoreReturnsRecentRunSummariesWithStepLimit`
 - `PocketMindViewModelTest.restoreStartupStateRestoresPendingAgentConfirmationWithoutExecutingTool`
+- `PocketMindViewModelTest.restoredSharePendingPreviewDoesNotExecuteUntilCurrentConfirmation`
 - `PocketMindViewModelTest.refreshAuditEventsAlsoLoadsAgentTraceSummaries`
 - `BuiltInSkillRuntimeTest.plansReminderSkillFirstWithoutActionDraft`
 - `BuiltInSkillRuntimeTest.plansEnglishReminderSkillFirstWithoutActionDraft`
@@ -212,6 +224,10 @@ Current status:
 - Added `SkillRunExecutor` as the first executable multi-step skill runner. It
   validates the plan, resolves step output bindings, enforces a step limit, and
   separates private binding outputs from the public result/trace.
+- `SkillRunExecutor` now rejects direct `ToolStep.argumentBindings` from private
+  tool outputs such as `read_clipboard.text` into later tool arguments. Private
+  values can feed local model steps, but external tool payloads must come from
+  explicit model-step outputs and still pass confirmation.
 - `SkillRunExecutor` now gates every tool step through registry validation and
   safety policy before execution. Steps that require user confirmation return
   `AwaitingConfirmation` instead of calling the injected `ToolExecutor`
@@ -224,8 +240,9 @@ Current status:
   continuations. Cancelling a multi-step skill stops before the pending tool,
   preserves only public outputs, and records a cancellation trace without
   exposing private tool outputs.
-- General app-level UI orchestration for arbitrary multi-confirmation skill
-  runs and persisted skill runs are still pending.
+- App-level persistence now covers the active pending tool confirmation produced
+  by model-bound continuations; full persisted `SkillRunContinuation` support
+  for arbitrary multi-confirmation skill runner state is still pending.
 
 Tests:
 
@@ -243,6 +260,7 @@ Tests:
 - `SkillRunExecutorTest.resumesAfterConfirmedToolResultAndStopsAtNextConfirmation`
 - `SkillRunExecutorTest.resumesAgainAfterSecondConfirmationAndCompletesSkill`
 - `SkillRunExecutorTest.resumeRejectsToolResultThatDoesNotMatchPendingRequest`
+- `SkillRunExecutorTest.privateToolOutputCannotBindDirectlyToLaterToolArgument`
 - `SkillRunExecutorTest.cancelStopsPendingSkillWithoutExecutingOrLeakingPrivateOutputs`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation`

@@ -180,6 +180,54 @@ class SkillRunExecutorTest {
     }
 
     @Test
+    fun privateToolOutputCannotBindDirectlyToLaterToolArgument() {
+        val rawClipboardText = "私密剪贴板内容不应成为分享参数"
+        val modelSummary = "安全摘要"
+        val toolExecutor = RecordingToolExecutor(emptyList())
+        val executor = SkillRunExecutor(
+            toolExecutor = toolExecutor,
+            modelExecutor = SkillModelStepExecutor { _, _ -> Result.success(modelSummary) },
+        )
+        val validPlan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val readStep = validPlan.steps[0]
+        val modelStep = validPlan.steps[1]
+        val shareStep = validPlan.steps[2] as SkillStep.ToolStep
+        val maliciousPlan = validPlan.copy(
+            steps = listOf(
+                readStep,
+                modelStep,
+                shareStep.copy(argumentBindings = mapOf("text" to "read_clipboard.text")),
+            ),
+        )
+        val awaitingRead = executor.execute(maliciousPlan)
+
+        val rejected = executor.resume(
+            plan = maliciousPlan,
+            continuation = requireNotNull(awaitingRead.continuation),
+            result = ToolResult(
+                requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = mapOf("text" to rawClipboardText),
+            ),
+        )
+
+        assertEquals(SkillRunState.Failed, rejected.state)
+        assertTrue(rejected.error.orEmpty().contains("private tool output cannot be bound directly"))
+        assertEquals(null, rejected.pendingToolRequest)
+        assertEquals(null, rejected.continuation)
+        assertEquals(modelSummary, rejected.outputs["summarize_clipboard"]?.get("shareText"))
+        assertTrue(toolExecutor.requests.isEmpty())
+        assertFalse(rejected.trace.any { trace ->
+            trace is SkillRunTrace.AwaitingConfirmation &&
+                trace.toolName == MobileActionFunctions.SHARE_TEXT
+        })
+        assertFalse(rejected.outputs.toString().contains(rawClipboardText))
+        assertFalse(rejected.trace.toString().contains(rawClipboardText))
+        assertFalse(requireNotNull(awaitingRead.continuation).toString().contains(rawClipboardText))
+    }
+
+    @Test
     fun cancelStopsPendingSkillWithoutExecutingOrLeakingPrivateOutputs() {
         val rawClipboardText = "私密剪贴板内容"
         val summaryText = "公开摘要"

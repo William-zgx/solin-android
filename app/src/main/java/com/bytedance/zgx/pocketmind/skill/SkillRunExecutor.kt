@@ -170,6 +170,9 @@ class SkillRunExecutor(
             trace += SkillRunTrace.StepStarted(step.id)
             when (step) {
                 is SkillStep.ToolStep -> {
+                    rejectPrivateToolArgumentBindings(step.argumentBindings, privateOutputRefs)?.let { message ->
+                        return failed(step.id, message, outputs, privateOutputRefs, trace)
+                    }
                     val boundArguments = resolveBindings(step.argumentBindings, outputs)
                         ?: return failed(step.id, "missing tool argument binding", outputs, privateOutputRefs, trace)
                     val request = step.request.copy(arguments = step.request.arguments + boundArguments)
@@ -276,6 +279,20 @@ class SkillRunExecutor(
             resolved[targetName] = value
         }
         return resolved
+    }
+
+    private fun rejectPrivateToolArgumentBindings(
+        bindings: Map<String, String>,
+        privateOutputRefs: Set<String>,
+    ): String? {
+        val privateBindings = bindings.values
+            .filter { sourceRef -> sourceRef in privateOutputRefs }
+            .sorted()
+        return privateBindings
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(
+                prefix = "private tool output cannot be bound directly to tool argument: ",
+            )
     }
 
     private fun outputForToolResult(

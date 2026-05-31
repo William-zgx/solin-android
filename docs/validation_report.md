@@ -12,6 +12,16 @@
   `share_text.text` 不会产生分享确认，也不会把原始剪贴板写入 trace/audit/pending。
 - Orchestrator 恢复第二个待确认动作时保留新的 `share_text` request id 和模型摘要参数，不复用旧
   `read_clipboard` request id。
+- Room-backed pending 恢复覆盖到第二个 `share_text` 确认点：重启后旧
+  `read_clipboard` request id 不能再次确认、观察或清空 pending，确认新的
+  `share_text` request 后可完成 run，持久 trace 不写入原始剪贴板。
+- 恢复出的 `share_text` pending 可以包含模型生成的待分享摘要，用于确认卡预览；
+  该 payload 不进入普通 trace/audit 摘要，且 ViewModel 在恢复或伪造旧确认时
+  不执行工具，只有当前 pending confirmation 才会打开分享面板。
+- `SkillRunExecutor` 同步补上私密输出直绑保护：`read_clipboard.text` 等
+  private output 可以进入本地 model step，但不能通过 `ToolStep.argumentBindings`
+  直接成为后续外发工具参数；违规 plan 会 fail closed，不产生 `share_text`
+  pending，也不暴露原文。
 
 验证命令：
 
@@ -22,7 +32,10 @@
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest.clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation'
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest.clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoredSharePendingPreviewDoesNotExecuteUntilCurrentConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.privateToolOutputCannotBindDirectlyToLaterToolArgument'
 ```
 
 ## 2026-05-31 Launch-only external result 增量验证

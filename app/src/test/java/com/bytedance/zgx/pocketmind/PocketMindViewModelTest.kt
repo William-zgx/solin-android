@@ -682,6 +682,101 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun restoredSharePendingPreviewDoesNotExecuteUntilCurrentConfirmation() = runTest(dispatcher) {
+        val modelSummary = "摘要待分享 canary"
+        val stalePayload = "旧剪贴板 canary"
+        val request = ToolRequest(
+            id = "request-restored-share",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to modelSummary),
+            reason = "分享本地摘要",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.SHARE_TEXT,
+            title = "分享摘要",
+            summary = "将打开系统分享面板。",
+            parameters = request.arguments,
+        )
+        val sessionStore = FakeSessionStore()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val executor = RecordingToolExecutor()
+        val assistantRouter = FakeAssistantRouter(
+            restoredPendingRoute = AssistantRoute.Action(
+                runId = "run-restored-share",
+                toolRequest = request,
+                draft = draft,
+                plannedByModel = false,
+                fallbackReason = "skill model step",
+                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
+            ),
+            confirmedRun = AgentRun(
+                id = "run-restored-share",
+                input = "总结剪贴板并分享",
+                state = AgentRunState.ExecutingTool,
+                createdAtMillis = 1L,
+                updatedAtMillis = 2L,
+            ),
+            toolObservation = AgentObservationResult(
+                run = AgentRun(
+                    id = "run-restored-share",
+                    input = "总结剪贴板并分享",
+                    state = AgentRunState.Completed,
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 3L,
+                ),
+                result = ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开系统分享面板",
+                ),
+                assistantMessage = "外部界面已打开，最终结果未验证。",
+                decision = AgentObservationDecision.Complete,
+                steps = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        val restored = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(restored)
+        assertEquals(modelSummary, restored.draft.parameters["text"])
+        assertEquals(modelSummary, restored.toolRequest?.arguments?.get("text"))
+        assertTrue(executor.executedRequests.isEmpty())
+        assertTrue(remoteRuntime.calls.isEmpty())
+
+        val staleConfirmation = restored.copy(
+            draft = restored.draft.copy(parameters = mapOf("text" to stalePayload)),
+            toolRequest = restored.toolRequest?.copy(arguments = mapOf("text" to stalePayload)),
+        )
+        viewModel.confirmAgentConfirmation(staleConfirmation)
+        advanceUntilIdle()
+
+        assertEquals("工具确认已处理", viewModel.uiState.value.statusText)
+        assertEquals(restored, viewModel.uiState.value.pendingConfirmation)
+        assertTrue(executor.executedRequests.isEmpty())
+        assertEquals(0, assistantRouter.confirmCallCount)
+
+        viewModel.confirmAgentConfirmation(restored)
+        advanceUntilIdle()
+
+        assertEquals(1, executor.executedRequests.size)
+        assertEquals(request.id, executor.executedRequests.single().id)
+        assertEquals(modelSummary, executor.executedRequests.single().arguments["text"])
+        assertEquals(1, assistantRouter.confirmCallCount)
+        assertEquals(1, assistantRouter.observeToolCallCount)
+        assertEquals(request.id, assistantRouter.lastObservedResult?.requestId)
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+    }
+
+    @Test
     fun restoreStartupStateLoadsLongTermMemoryRecordsWithoutRemoteWork() = runTest(dispatcher) {
         val memoryRepository = MemoryRepository(recordStore = FakeMemoryRecordStore())
         memoryRepository.indexPreference("pref-1", "回答尽量简洁")
