@@ -24,6 +24,8 @@ import com.bytedance.zgx.pocketmind.data.SessionStore
 import com.bytedance.zgx.pocketmind.data.TransferProgress
 import com.bytedance.zgx.pocketmind.download.DownloadInfo
 import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
+import com.bytedance.zgx.pocketmind.memory.EmbeddingRuntime
+import com.bytedance.zgx.pocketmind.memory.MemoryRecallMode
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordStore
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
@@ -799,6 +801,32 @@ class PocketMindViewModelTest {
         )
         assertTrue(remoteRuntime.calls.isEmpty())
         assertTrue(executor.executedRequests.isEmpty())
+    }
+
+    @Test
+    fun restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(
+            recordStore = store,
+            semanticRuntimeFactory = { path ->
+                check(path == "/verified/memory.litertlm")
+                ConciseSemanticRuntime()
+            },
+        )
+        memoryRepository.indexPreference("pref-1", "I prefer concise answers")
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = "/verified/memory.litertlm"),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertTrue(memoryRepository.semanticMemoryEnabled)
+        assertEquals("/verified/memory.litertlm", memoryRepository.activeMemoryModelPath)
+        val hits = memoryRepository.search("brief replies")
+        assertEquals(listOf("pref-1"), hits.map { it.id })
+        assertEquals(MemoryRecallMode.Semantic, hits.first().recallMode)
     }
 
     @Test
@@ -1708,6 +1736,20 @@ class PocketMindViewModelTest {
         }
     }
 
+    private class ConciseSemanticRuntime : EmbeddingRuntime {
+        override val supportsSemanticRecall: Boolean = true
+        override val semanticScoreThreshold: Float = 0.9f
+
+        override fun embed(text: String): FloatArray {
+            val lower = text.lowercase()
+            return when {
+                "concise" in lower -> floatArrayOf(1f, 0f)
+                "brief" in lower -> floatArrayOf(1f, 0f)
+                else -> floatArrayOf(0f, 1f)
+            }
+        }
+    }
+
     private class FakeBackgroundTaskScheduler(
         scheduledTasks: List<ScheduledTask> = emptyList(),
         private val cancelFailure: Throwable? = null,
@@ -1845,6 +1887,7 @@ class PocketMindViewModelTest {
 
     private class FakeModelRepository(
         activeModelPath: String? = null,
+        private var memoryEmbeddingModelPath: String? = null,
     ) : ModelRepositoryFacade {
         private var state = ModelSelectionState(
             selectedModelId = DEFAULT_CHAT_MODEL_ID,
@@ -1896,6 +1939,8 @@ class PocketMindViewModelTest {
         override fun resolveModelStorageBytes(): Long = 1024L * 1024L * 1024L
 
         override fun verifiedActionModelPath(): String? = null
+
+        override fun verifiedMemoryEmbeddingModelPath(): String? = memoryEmbeddingModelPath
 
         override fun verifyLegacyRecommendedModels(): Boolean = false
 

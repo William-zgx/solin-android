@@ -1559,7 +1559,7 @@ private fun MemoryTogglePanel(
                     )
                     Text(
                         text = if (memoryModelInstalled) {
-                            "记忆模型资产已安装；当前使用本地轻量索引召回。"
+                            "记忆模型资产已安装；语义运行时待接入，当前仍使用本地轻量索引召回。"
                         } else {
                             "当前使用本地轻量索引；可补装记忆模型资产。"
                         },

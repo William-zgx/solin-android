@@ -1,5 +1,30 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Semantic memory runtime boundary 增量验证
+
+本轮覆盖项：
+
+- `ModelRepository` 暴露 `verifiedMemoryEmbeddingModelPath()`，只返回已存在、已通过
+  recommended 校验且 capability 为 `MemoryEmbedding` 的模型路径；Chat/Action、
+  未校验或缺文件的模型不会被误用为语义记忆 runtime。
+- `MemoryRepository` 新增 `SemanticMemoryRuntimeController`，可在默认 hash runtime
+  与注入的 semantic runtime 间切换；切换时会重算当前 memory entry embedding。
+- 生产默认仍不声明语义召回已启用。安装 memory model asset 不等于 runtime 已接入；
+  只有 controller 成功切到 `supportsSemanticRecall=true` 的 runtime 才产生
+  `MemoryRecallMode.Semantic` 命中。
+- `PocketMindViewModel` 在 memory rebuild 前同步 verified memory model path，确保
+  启动/模型校验后的索引使用当前 runtime 边界，同时不要求聊天模型加载。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.semanticRuntimeControllerSwitchesBetweenFallbackAndSemanticRuntime' \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.memoryModelPathDoesNotEnableSemanticRecallWithoutRuntimeSupport' \
+  --tests 'com.bytedance.zgx.pocketmind.data.ModelRepositoryPathTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex'
+```
+
 ## 2026-05-31 Task-state memory sync 增量验证
 
 本轮覆盖项：

@@ -30,6 +30,7 @@ import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.memory.TASK_STATE_MEMORY_RECORD_PREFIX
+import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeController
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceFrom
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceRecordId
 import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
@@ -79,6 +80,8 @@ class PocketMindViewModel(
     private val remoteRuntime: RemoteChatRuntime,
     private val memoryRepository: MemoryIndex,
     private val longTermMemoryControls: LongTermMemoryControls,
+    private val semanticMemoryRuntimeController: SemanticMemoryRuntimeController? =
+        memoryRepository as? SemanticMemoryRuntimeController,
     private val backgroundTaskScheduler: BackgroundTaskScheduler,
     private val toolAuditLog: ToolAuditLog,
     private val actionExecutor: ToolExecutor,
@@ -1909,6 +1912,7 @@ class PocketMindViewModel(
 
     private fun rebuildMemoryIndex() {
         runCatching {
+            syncSemanticMemoryRuntime()
             memoryRepository.enabled = _uiState.value.memoryEnabled
             memoryRepository.rebuild(sessionRepository.allMessages(limit = 500))
         }.onFailure {
@@ -1920,6 +1924,10 @@ class PocketMindViewModel(
                 )
             }
         }
+    }
+
+    private fun syncSemanticMemoryRuntime() {
+        semanticMemoryRuntimeController?.useMemoryModel(modelRepository.verifiedMemoryEmbeddingModelPath())
     }
 
     private fun syncTaskStateMemories() {

@@ -107,8 +107,8 @@ adb devices -l
 - 长期记忆应支持单条遗忘和清空；删除后不应再从对应显式持久化记录召回，清空不代表删除普通会话历史。
 - 本地记忆不可用时，普通聊天仍应继续；此时不显示记忆命中，长期记忆列表可降级为空。
 - 当前默认记忆召回是本地轻量 token/hash 索引；`MemoryRepository` 支持真正语义 runtime 命中时跳过词项重叠过滤，
-  但 LiteRT embedding adapter 仍未接入。
-- 安装或补装 memory model asset 本身不等于 embedding runtime 参与，也不作为当前真机验收通过条件。
+  但 LiteRT embedding adapter 仍未接入。只有已校验的 memory model path 被 runtime controller 成功切到支持语义召回的 runtime 后，才可认为语义记忆启用。
+- 安装或补装 memory model asset 本身不等于 embedding runtime 参与，也不作为当前真机验收通过条件；UI 不应把“资产已安装”误写成“语义检索已启用”。
 - 未安装或未校验动作模型时，动作请求应显示“规则回退”的待确认草稿。
 - 安装并校验动作模型后，支持的动作请求可以显示“动作模型实验”的待确认草稿；执行前仍必须经过用户确认。
 - 确认动作后，聊天中应追加一条结构化执行结果，例如“工具执行结果：已打开网页搜索”。

@@ -521,6 +521,15 @@ Current status:
   the lightweight index.
 - `MemoryRepository` has a semantic runtime extension point: a true semantic
   runtime can return semantic hits without the lightweight term-overlap gate.
+- `ModelRepository` now exposes a verified memory-embedding model path only
+  for existing `MemoryEmbedding` assets that passed recommended-model
+  verification. `PocketMindViewModel` syncs that path into
+  `SemanticMemoryRuntimeController` before rebuilding memory so runtime
+  switching happens at model verification boundaries.
+- `MemoryRepository` implements the semantic runtime controller and can switch
+  between the default hash runtime and an injected semantic runtime, re-embedding
+  current entries on switch. Production still falls back to hash unless a real
+  semantic runtime declares support for semantic recall.
 - The LiteRT embedding adapter is still not wired into runtime retrieval; a
   downloaded memory model asset alone does not mean embedding semantics are
   participating.
@@ -528,8 +537,12 @@ Current status:
 Tests:
 
 - `MemoryRepositoryTest`
+- `MemoryRepositoryTest.semanticRuntimeControllerSwitchesBetweenFallbackAndSemanticRuntime`
+- `MemoryRepositoryTest.memoryModelPathDoesNotEnableSemanticRecallWithoutRuntimeSupport`
+- `ModelRepositoryPathTest`
 - `MemoryRepositoryTest.taskStateMemoryRecordIdIsStableForWhitespace`
 - `PocketMindViewModelTest`
+- `PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex`
 - `PocketMindViewModelTest.restoreStartupStateIndexesScheduledTasksAsForgettableTaskState`
 - `PocketMindViewModelTest.backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory`
 - `PocketMindViewModelTest.cancelBackgroundTaskForgetsTaskStateMemory`

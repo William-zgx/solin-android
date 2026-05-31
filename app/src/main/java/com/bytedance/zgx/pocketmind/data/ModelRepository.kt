@@ -281,12 +281,10 @@ class ModelRepository(
         }?.id
 
     override fun verifiedActionModelPath(): String? =
-        installedModels().firstOrNull {
-            it.recommendedModelId != null &&
-                ModelCatalog.recommendedModelById(it.recommendedModelId).capability == ModelCapability.MobileAction &&
-                it.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name &&
-                File(it.path).exists()
-        }?.path
+        verifiedRecommendedModelPath(installedModels(), ModelCapability.MobileAction)
+
+    override fun verifiedMemoryEmbeddingModelPath(): String? =
+        verifiedRecommendedModelPath(installedModels(), ModelCapability.MemoryEmbedding)
 
     override fun verifyLegacyRecommendedModels(): Boolean {
         var changed = false
@@ -470,3 +468,14 @@ class ModelRepository(
                 verificationStatus == ModelVerificationStatus.VerifiedRecommended.name
         }
 }
+
+internal fun verifiedRecommendedModelPath(
+    models: List<InstalledModelEntity>,
+    capability: ModelCapability,
+): String? =
+    models.firstOrNull { model ->
+        model.recommendedModelId != null &&
+            ModelCatalog.recommendedModelById(model.recommendedModelId).capability == capability &&
+            model.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name &&
+            File(model.path).exists()
+    }?.path

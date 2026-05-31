@@ -3,6 +3,8 @@ package com.bytedance.zgx.pocketmind.memory
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.MessageRole
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -70,6 +72,46 @@ class MemoryRepositoryTest {
         val hits = repository.search("nearby replies")
 
         assertTrue(hits.isEmpty())
+    }
+
+    @Test
+    fun semanticRuntimeControllerSwitchesBetweenFallbackAndSemanticRuntime() {
+        val repository = MemoryRepository(
+            semanticRuntimeFactory = { path ->
+                check(path == "/verified/memory.litertlm")
+                ConceptEmbeddingRuntime()
+            },
+        )
+        repository.indexPreference("pref", "I prefer concise answers")
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertTrue(repository.search("brief replies").isEmpty())
+
+        repository.useMemoryModel("/verified/memory.litertlm")
+
+        assertTrue(repository.semanticMemoryEnabled)
+        assertEquals("/verified/memory.litertlm", repository.activeMemoryModelPath)
+        val semanticHits = repository.search("brief replies")
+        assertEquals(listOf("pref"), semanticHits.map { it.id })
+        assertEquals(MemoryRecallMode.Semantic, semanticHits.first().recallMode)
+
+        repository.useMemoryModel(null)
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertNull(repository.activeMemoryModelPath)
+        assertTrue(repository.search("brief replies").isEmpty())
+    }
+
+    @Test
+    fun memoryModelPathDoesNotEnableSemanticRecallWithoutRuntimeSupport() {
+        val repository = MemoryRepository()
+        repository.indexPreference("pref", "I prefer concise answers")
+
+        repository.useMemoryModel("/verified/memory.litertlm")
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertNull(repository.activeMemoryModelPath)
+        assertTrue(repository.search("brief replies").isEmpty())
     }
 
     @Test

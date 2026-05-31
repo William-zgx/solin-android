@@ -52,6 +52,12 @@ interface LongTermMemoryControls {
     fun clear()
 }
 
+interface SemanticMemoryRuntimeController {
+    val activeMemoryModelPath: String?
+    val semanticMemoryEnabled: Boolean
+    fun useMemoryModel(path: String?)
+}
+
 class HashingEmbeddingRuntime(
     private val dimensions: Int = 256,
 ) : EmbeddingRuntime {
@@ -72,11 +78,33 @@ class HashingEmbeddingRuntime(
 }
 
 class MemoryRepository(
-    private val embeddingRuntime: EmbeddingRuntime = HashingEmbeddingRuntime(),
+    embeddingRuntime: EmbeddingRuntime = HashingEmbeddingRuntime(),
+    private val semanticRuntimeFactory: (String) -> EmbeddingRuntime? = { null },
     private val recordStore: MemoryRecordStore = NoOpMemoryRecordStore,
-) : MemoryIndex, LongTermMemoryControls {
+) : MemoryIndex, LongTermMemoryControls, SemanticMemoryRuntimeController {
     private val entries = linkedMapOf<String, MemoryEntry>()
+    private val defaultEmbeddingRuntime = embeddingRuntime
+    private var activeEmbeddingRuntime: EmbeddingRuntime = embeddingRuntime
+    override var activeMemoryModelPath: String? = null
+        private set
+    override val semanticMemoryEnabled: Boolean
+        get() = activeMemoryModelPath != null && activeEmbeddingRuntime.supportsSemanticRecall
     override var enabled: Boolean = true
+
+    override fun useMemoryModel(path: String?) {
+        val normalizedPath = path?.trim()?.takeIf { it.isNotBlank() }
+        val semanticRuntime = normalizedPath
+            ?.let { modelPath -> runCatching { semanticRuntimeFactory(modelPath) }.getOrNull() }
+            ?.takeIf { runtime -> runtime.supportsSemanticRecall }
+        if (semanticRuntime == null) {
+            activeMemoryModelPath = null
+            activeEmbeddingRuntime = defaultEmbeddingRuntime
+        } else {
+            activeMemoryModelPath = checkNotNull(normalizedPath)
+            activeEmbeddingRuntime = semanticRuntime
+        }
+        reembedEntries()
+    }
 
     override fun rebuild(messages: List<ChatMessage>) {
         entries.clear()
@@ -144,7 +172,7 @@ class MemoryRepository(
             text = normalized,
             type = type,
             tokens = tokens,
-            embedding = embeddingRuntime.embed(normalized),
+            embedding = activeEmbeddingRuntime.embed(normalized),
         )
         if (persist && type != MemoryRecordType.Conversation) {
             recordStore.upsert(
@@ -162,9 +190,9 @@ class MemoryRepository(
         val queryTokens = tokenize(query).toSet()
         if (queryTokens.isEmpty()) return emptyList()
         val requiredOverlapTokens = queryTokens.filter { it.length > 1 }.ifEmpty { queryTokens }
-        val queryEmbedding = embeddingRuntime.embed(query)
-        val supportsSemanticRecall = embeddingRuntime.supportsSemanticRecall
-        val semanticScoreThreshold = embeddingRuntime.semanticScoreThreshold
+        val queryEmbedding = activeEmbeddingRuntime.embed(query)
+        val supportsSemanticRecall = activeEmbeddingRuntime.supportsSemanticRecall
+        val semanticScoreThreshold = activeEmbeddingRuntime.semanticScoreThreshold
         return entries.values
             .mapNotNull { entry ->
                 val hasLexicalOverlap = entry.tokens.any { it in requiredOverlapTokens }
@@ -192,6 +220,14 @@ class MemoryRepository(
 
     override fun buildContext(hits: List<MemoryHit>): String =
         hits.joinToString(separator = "\n") { "- ${it.text}" }
+
+    private fun reembedEntries() {
+        entries.keys.toList().forEach { id ->
+            entries[id]?.let { entry ->
+                entries[id] = entry.copy(embedding = activeEmbeddingRuntime.embed(entry.text))
+            }
+        }
+    }
 
     private fun cosine(left: FloatArray, right: FloatArray): Float {
         val size = minOf(left.size, right.size)

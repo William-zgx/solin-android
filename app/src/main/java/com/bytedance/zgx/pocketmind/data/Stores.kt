@@ -45,6 +45,7 @@ interface ModelRepositoryFacade : ModelStore, DownloadStore {
     fun downloadedModelFile(fileName: String): File?
     fun resolveModelStorageBytes(): Long
     fun verifiedActionModelPath(): String?
+    fun verifiedMemoryEmbeddingModelPath(): String?
     fun verifyLegacyRecommendedModels(): Boolean
     fun importModel(uri: Uri, onProgress: (TransferProgress) -> Unit): String
 }
