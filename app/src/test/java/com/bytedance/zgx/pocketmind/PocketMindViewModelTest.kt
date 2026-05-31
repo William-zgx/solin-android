@@ -40,6 +40,7 @@ import com.bytedance.zgx.pocketmind.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentPlan
+import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.pocketmind.orchestration.AgentRun
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.orchestration.AgentTraceRunSummary
@@ -608,6 +609,95 @@ class PocketMindViewModelTest {
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
         assertTrue(sessionStore.messages.last().text.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
         assertTrue(viewModel.uiState.value.statusText.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
+    }
+
+    @Test
+    fun reminderObservationStoresTypedRecoveryActionForUi() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore()
+        val request = ToolRequest(
+            id = "request-reminder",
+            toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+            arguments = mapOf(
+                "title" to "喝水",
+                "delayMinutes" to "10",
+            ),
+            reason = "将在 10 分钟后提醒：喝水",
+        )
+        val recoveryRequest = ToolRequest(
+            id = "request-recovery",
+            toolName = MobileActionFunctions.CANCEL_REMINDER,
+            arguments = mapOf("taskId" to "task-1"),
+            reason = "撤销提醒任务：task-1",
+        )
+        val recoveryDraft = ActionDraft(
+            functionName = MobileActionFunctions.CANCEL_REMINDER,
+            title = "撤销提醒",
+            summary = "将取消提醒任务：task-1",
+            parameters = recoveryRequest.arguments,
+        )
+        val recoveryAction = AgentRecoveryAction(
+            sourceRequestId = request.id,
+            sourceToolName = MobileActionFunctions.SCHEDULE_REMINDER,
+            request = recoveryRequest,
+            draft = recoveryDraft,
+        )
+        val result = ToolResult(
+            requestId = request.id,
+            status = ToolStatus.Succeeded,
+            summary = "已安排 10000 触发的后台提醒",
+            data = mapOf(
+                "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
+                "taskId" to "task-1",
+                "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
+                "recoveryTaskId" to "task-1",
+            ),
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-reminder",
+                toolRequest = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.SCHEDULE_REMINDER,
+                    title = "后台提醒",
+                    summary = request.reason,
+                    parameters = request.arguments,
+                ),
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.REMINDER_SKILL,
+            ),
+            confirmedRun = AgentRun("run-reminder", "提醒我 10 分钟后喝水", AgentRunState.ExecutingTool, 1L, 2L),
+            toolObservation = AgentObservationResult(
+                run = AgentRun("run-reminder", "提醒我 10 分钟后喝水", AgentRunState.Completed, 1L, 3L),
+                result = result,
+                assistantMessage = "工具执行结果：已安排 10000 触发的后台提醒\n如需撤销该提醒，请再次确认执行 cancel_reminder，taskId=task-1。",
+                decision = AgentObservationDecision.Complete,
+                recoveryAction = recoveryAction,
+                steps = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            assistantRouter = assistantRouter,
+            actionExecutor = object : ToolExecutor {
+                override fun execute(request: ToolRequest): ToolResult =
+                    result.copy(requestId = request.id)
+            },
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("提醒我 10 分钟后喝水")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+
+        viewModel.confirmAgentConfirmation(confirmation)
+        advanceUntilIdle()
+
+        assertEquals(recoveryAction, viewModel.uiState.value.latestRecoveryAction)
+        assertTrue(sessionStore.messages.last().text.contains("taskId=task-1"))
     }
 
     @Test

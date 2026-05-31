@@ -7,6 +7,7 @@ import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
+import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import java.io.File
@@ -169,6 +170,7 @@ data class ChatUiState(
     val auditEvents: List<AuditEventSummary> = emptyList(),
     val agentTraceRuns: List<AgentTraceRunUiSummary> = emptyList(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
+    val latestRecoveryAction: AgentRecoveryAction? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,
     val remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),
     val backend: BackendChoice = BackendChoice.GPU,

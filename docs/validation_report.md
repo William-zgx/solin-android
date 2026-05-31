@@ -81,6 +81,41 @@
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStorePersistsReminderRecoveryMetadataWithoutReminderContent'
 ```
 
+## 2026-05-31 Reminder typed recovery action 增量验证
+
+本轮覆盖项：
+
+- `schedule_reminder` 成功 observation 会把 allowlisted
+  `recoveryToolName=cancel_reminder` / `recoveryTaskId` 提升为 typed
+  `AgentRecoveryAction`，而不是只停留在通用 `ToolResult.data` 字段。
+- typed recovery action 只接受 `schedule_reminder -> cancel_reminder(taskId)`
+  这一条受控路径；task id 必须是安全的 `task-*` 形式。
+- ViewModel 将最新 typed recovery action 写入 UI state，为后续显式“撤销提醒”
+  入口提供结构化数据源；本轮不声称已完成可点击 UI。
+- observation 文案只展示 bounded task id，不展示提醒标题、正文或其他任务内容。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.reminderObservationSurfacesBoundedRecoveryHint' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.reminderObservationIgnoresUnsafeRecoveryMetadata' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.reminderObservationStoresTypedRecoveryActionForUi'
+
+./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
+git diff --check
+rg credential-pattern scan excluding build and .gradle outputs
+adb devices -l
+```
+
+结果：
+
+- 通过：targeted JVM typed recovery action / unsafe metadata 回归测试。
+- 通过：完整 `:app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest`。
+- 通过：`git diff --check`。
+- 通过：敏感配置扫描无匹配。
+- 未执行模拟器回归：当前环境缺少 `adb` 命令。
+
 ## 2026-05-31 Generic Skill model-step binding 增量验证
 
 本轮覆盖项：

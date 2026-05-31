@@ -34,6 +34,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -1157,6 +1158,96 @@ class AgentLoopRuntimeTest {
         assertTrue(auditSink.events.all { event ->
             event.toolName == null || event.toolName == MobileActionFunctions.WEB_SEARCH
         })
+    }
+
+    @Test
+    fun reminderObservationSurfacesBoundedRecoveryHint() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "提醒我 10 分钟后喝水",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, planned.plan.request.toolName)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已安排 10000 触发的后台提醒",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
+                    "taskId" to "task-1",
+                    "taskStatus" to "Scheduled",
+                    "triggerAtMillis" to "10000",
+                    "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
+                    "recoveryTaskId" to "task-1",
+                    "title" to "喝水",
+                    "body" to "提醒我喝水",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        val recoveryAction = observed.recoveryAction
+        requireNotNull(recoveryAction)
+        assertEquals(planned.plan.request.id, recoveryAction.sourceRequestId)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, recoveryAction.sourceToolName)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, recoveryAction.request.toolName)
+        assertEquals(mapOf("taskId" to "task-1"), recoveryAction.request.arguments)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, recoveryAction.draft.functionName)
+        assertTrue(observed.assistantMessage.contains("如需撤销该提醒"))
+        assertTrue(observed.assistantMessage.contains(MobileActionFunctions.CANCEL_REMINDER))
+        assertTrue(observed.assistantMessage.contains("taskId=task-1"))
+        assertFalse(observed.assistantMessage.contains("提醒我喝水"))
+        assertTrue(observed.steps.any { step ->
+            step is AgentStep.AssistantResponded &&
+                step.text.contains("taskId=task-1") &&
+                !step.text.contains("提醒我喝水")
+        })
+    }
+
+    @Test
+    fun reminderObservationIgnoresUnsafeRecoveryMetadata() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "提醒我 10 分钟后喝水",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已安排 10000 触发的后台提醒",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
+                    "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
+                    "recoveryTaskId" to "token=secret",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(null, observed.recoveryAction)
+        assertFalse(observed.assistantMessage.contains("如需撤销"))
+        assertFalse(observed.assistantMessage.contains("token=secret"))
     }
 
     @Test

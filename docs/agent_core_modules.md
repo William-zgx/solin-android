@@ -453,6 +453,10 @@ Current status:
 - Launch-only external activity observations are displayed as "opened but
   unverified" audit records rather than generic success, so audit history does
   not imply the user completed a share, draft, or target-app action.
+- Successful reminder observations can now promote allowlisted recovery
+  metadata into a typed `AgentRecoveryAction`. The typed action is limited to
+  `schedule_reminder -> cancel_reminder(taskId)`, is surfaced through UI state,
+  and does not include reminder title or body content.
 - `pending_agent_confirmations` is a narrower recovery table for the latest
   awaiting tool confirmation and may hold the tool arguments needed for an
   explicit later confirmation. It is separate from trace/audit summaries and is
@@ -462,8 +466,9 @@ Current status:
   redacted copy as the Room-backed repository so tests cannot accidentally
   depend on raw private data.
 - The first local-only privacy boundary is implemented for shared input,
-  clipboard-derived continuations, and remote chat history. Broader taint
-  propagation, undo/rollback, and richer per-tool privacy policies are pending.
+  clipboard-derived continuations, and remote chat history. Reminder rollback
+  now has a typed Agent/UI-state handoff, while a visible one-tap recovery UI,
+  broader taint propagation, and richer per-tool privacy policies are pending.
 
 Tests:
 
@@ -594,6 +599,10 @@ Current status:
 - Successful `schedule_reminder` results now include bounded rollback metadata:
   `recoveryToolName=cancel_reminder` and the scheduled `recoveryTaskId`. Agent
   trace preserves only this recovery metadata, not reminder title/body content.
+- Agent observation now converts that allowlisted pair into a typed
+  `AgentRecoveryAction` with a fresh `cancel_reminder(taskId)` request/draft.
+  The observation message includes the bounded task id so the user can ask to
+  undo the reminder without exposing reminder body text.
 - `cancel_reminder` reports success only after a still-`Scheduled` task has had
   its platform schedule cancelled and local state moved out of `Scheduled`.
   Missing, already delivered, already cancelled, or concurrently changed tasks

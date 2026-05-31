@@ -287,7 +287,8 @@ class AgentLoopRuntime(
                 summary = observedResult.auditSummaryForObservation(),
             ),
         )
-        val assistantMessage = messageForObservation(observedResult, retryAttempt)
+        val recoveryAction = recoveryActionForObservation(request, observedResult)
+        val assistantMessage = messageForObservation(observedResult, retryAttempt, recoveryAction)
         traceStore.appendStep(runId, AgentStep.AssistantResponded(assistantMessage))
         val nextToolPlan = if (
             observedResult.status == ToolStatus.Succeeded &&
@@ -351,6 +352,7 @@ class AgentLoopRuntime(
             result = observedResult,
             assistantMessage = assistantMessage,
             decision = decision,
+            recoveryAction = recoveryAction,
             continuationPromptForModel = continuationPrompt,
             continuationRequiresLocalModel = continuationPrompt != null &&
                 request.toolName == MobileActionFunctions.READ_CLIPBOARD,
@@ -693,12 +695,22 @@ class AgentLoopRuntime(
         """.trimIndent()
     }
 
-    private fun messageForObservation(result: ToolResult, retryAttempt: Int = 0): String =
+    private fun messageForObservation(
+        result: ToolResult,
+        retryAttempt: Int = 0,
+        recoveryAction: AgentRecoveryAction? = null,
+    ): String =
         when (result.status) {
             ToolStatus.Succeeded -> if (result.isUnverifiedExternalLaunch()) {
                 result.unverifiedExternalLaunchSummary()
             } else {
-                "工具执行结果：${result.summary}"
+                buildString {
+                    append("工具执行结果：${result.summary}")
+                    recoveryAction?.recoveryHintForObservation()?.let { recoveryHint ->
+                        append("\n")
+                        append(recoveryHint)
+                    }
+                }
             }
             ToolStatus.Failed -> if (retryAttempt > 0) {
                 "工具执行失败，正在重试（第 $retryAttempt 次）：${result.summary}"
@@ -707,6 +719,45 @@ class AgentLoopRuntime(
             }
             ToolStatus.Rejected -> "工具请求已拒绝：${result.summary}"
             ToolStatus.Cancelled -> "工具执行已取消：${result.summary}"
+        }
+
+    private fun recoveryActionForObservation(
+        request: ToolRequest,
+        result: ToolResult,
+    ): AgentRecoveryAction? {
+        if (result.status != ToolStatus.Succeeded) return null
+        if (request.toolName != MobileActionFunctions.SCHEDULE_REMINDER) return null
+        val recoveryToolName = result.data["recoveryToolName"]?.takeIf { it.isNotBlank() } ?: return null
+        if (recoveryToolName != MobileActionFunctions.CANCEL_REMINDER) return null
+        val recoveryTaskId = result.data["recoveryTaskId"]?.takeIf { it.isSafeRecoveryTaskId() } ?: return null
+        val recoveryRequest = ToolRequest(
+            toolName = MobileActionFunctions.CANCEL_REMINDER,
+            arguments = mapOf("taskId" to recoveryTaskId),
+            reason = "撤销提醒任务：$recoveryTaskId",
+        )
+        return AgentRecoveryAction(
+            sourceRequestId = result.requestId,
+            sourceToolName = request.toolName,
+            request = recoveryRequest,
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.CANCEL_REMINDER,
+                title = "撤销提醒",
+                summary = "将取消提醒任务：$recoveryTaskId",
+                parameters = recoveryRequest.arguments,
+                requiresConfirmation = true,
+            ),
+        )
+    }
+
+    private fun String.isSafeRecoveryTaskId(): Boolean =
+        matches(Regex("""task-[A-Za-z0-9_-]+"""))
+
+    private fun AgentRecoveryAction.recoveryHintForObservation(): String? =
+        when (request.toolName) {
+            MobileActionFunctions.CANCEL_REMINDER ->
+                "如需撤销该提醒，请再次确认执行 ${request.toolName}，taskId=${request.arguments["taskId"]}。"
+
+            else -> null
         }
 
     private fun ToolResult.auditSummaryForObservation(): String =

@@ -170,6 +170,7 @@ data class AgentObservationResult(
     val result: ToolResult,
     val assistantMessage: String,
     val decision: AgentObservationDecision,
+    val recoveryAction: AgentRecoveryAction? = null,
     val continuationPromptForModel: String? = null,
     val continuationRequiresLocalModel: Boolean = false,
     val retryRequest: ToolRequest? = null,
@@ -181,6 +182,13 @@ data class AgentModelObservationResult(
     val run: AgentRun,
     val decision: AgentObservationDecision,
     val steps: List<AgentStep>,
+)
+
+data class AgentRecoveryAction(
+    val sourceRequestId: String,
+    val sourceToolName: String,
+    val request: ToolRequest,
+    val draft: ActionDraft,
 )
 
 data class PendingToolConfirmationSnapshot(

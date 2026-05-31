@@ -796,6 +796,7 @@ class PocketMindViewModel(
             it.copy(
                 isBusy = true,
                 isGenerating = false,
+                latestRecoveryAction = null,
                 statusText = "处理中",
             )
         }
@@ -1171,6 +1172,7 @@ class PocketMindViewModel(
                         plannedByModel = nextToolPlan.plannedByModel,
                         fallbackReason = nextToolPlan.fallbackReason,
                     ),
+                    latestRecoveryAction = null,
                     isBusy = false,
                     isGenerating = false,
                     statusText = "下一步动作待确认",
@@ -1239,6 +1241,7 @@ class PocketMindViewModel(
                 longTermMemories = loadLongTermMemories(),
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
+                latestRecoveryAction = observation?.recoveryAction,
                 statusText = observation?.assistantMessage ?: result.statusSummaryForUi(),
             )
         }
