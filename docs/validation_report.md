@@ -1,5 +1,36 @@
 # PocketMind 验证报告
 
+## 2026-05-31 JVM 工具执行矩阵增量验证
+
+本轮覆盖项：
+
+- `RoutingToolExecutor` 正确分发设备上下文工具和普通外部动作工具。
+- `ValidatingToolExecutor` 在 delegate 前拒绝未知工具、缺参、错参。
+- delegate 异常会包装为 retryable `ExecutionFailed`，并保留 `toolName`
+  context。
+- foreground app、notification summary、contact summary、calendar
+  availability、recent files executor 覆盖 success、permission denied、provider
+  failure 和 wrong-tool 分支。
+- 设备上下文工具结果保持 `LocalOnly`、最小字段、结构化 error code，不泄露
+  path、URI、通知正文、剪贴板或 API key。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest'
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+git diff --check
+rg credential-pattern scan excluding build and .gradle outputs
+adb devices -l
+```
+
+结果：targeted 工具执行矩阵测试通过；完整 JVM/构建/lint 回归通过；
+`git diff --check` 和敏感扫描通过；当前环境缺少 `adb`，未执行设备列表与模拟器回归。
+
 ## 2026-05-31 Skill-first 剪贴板 Skill 路由增量验证
 
 本轮覆盖项：

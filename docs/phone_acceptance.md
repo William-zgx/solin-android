@@ -45,6 +45,7 @@ CLEAN_DEVICE=1 scripts/install_and_test_device.sh
 ## 模拟器回归
 
 模拟器用于 UI、确认链路、工具失败路径和普通聊天回归；LiteRT-LM 性能和 GPU 行为仍以真机为准。
+工具执行矩阵由 JVM 单测覆盖；模拟器/真机仍用于确认卡、runtime permission 弹窗和 UI 审计入口端到端验证。
 
 1. 启动一个已授权 Android 模拟器。
 2. 在项目根目录运行：
@@ -110,6 +111,7 @@ adb devices -l
 - “打开链接 https://example.com” 应先出现确认；确认后只打开 HTTPS 链接，`http`、`file`、`content`、`javascript` 和自定义 scheme 应被拒绝。
 - “启动微信” 或指定合法包名的 App 启动请求应先出现确认；确认后只打开应用启动页，不接受任意 activity/action/data/extras。
 - 未知工具、缺少参数或没有可处理 Intent 的设备，应显示明确失败原因，不应崩溃。
+- 工具参数错误、权限拒绝或 provider 失败应返回结构化失败；校验拒绝时不应执行 delegate。
 - 支持的动作应能在 Agent trace 中形成 `ToolRequested -> UserConfirmed -> ToolObserved -> AssistantResponded` 顺序。
 - 支持的动作应先经过 `SafetyPolicy`，中高风险或外发文本工具不允许绕过确认。
 - 确认并执行动作后，`tool_audit_events` 应记录计划、请求确认、用户确认和观察结果；记录中不应包含 API Key、完整 prompt 或工具参数明文。

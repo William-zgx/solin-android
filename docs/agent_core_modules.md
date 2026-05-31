@@ -45,6 +45,11 @@ Current status:
 Tests:
 
 - `ToolRegistryTest`
+- `ToolSchemaContractTest`
+- `CalendarAvailabilityToolExecutorTest`
+- `DeviceContextToolExecutorTest`
+- `RoutingAndValidatingToolExecutorTest`
+- `ActionExecutorTest`
 - `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
 
 ## Agent Loop
@@ -231,6 +236,9 @@ Current status:
   busy/free windows, and recent file metadata. Recent file reads return
   `LocalOnly` metadata only: file name, MIME type, coarse kind, size, and last
   modified time. The tool does not return file paths, URIs, or file contents.
+- JVM executor matrix tests cover foreground app, notification summary, contact
+  summary, calendar availability, and recent file metadata success, permission
+  denied, provider failure, LocalOnly, and minimal-field boundaries.
 - Broad screen understanding, complete document parsing, OCR, Office/PDF
   parsing, and media content understanding are still pending.
 

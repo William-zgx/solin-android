@@ -40,7 +40,11 @@ class CalendarAvailabilityToolExecutorTest {
         val result = executor.execute(calendarRequest())
 
         assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(null, result.error)
+        assertFalse(result.retryable)
+        assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, result.data["toolName"])
         assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals("true", result.data["requiresLocalModel"])
         assertEquals("1", result.data["busyBlockCount"])
         assertEquals("2", result.data["freeBlockCount"])
         val blocks = JSONArray(result.data.getValue("blocksJson"))
@@ -65,8 +69,27 @@ class CalendarAvailabilityToolExecutorTest {
 
         assertEquals(ToolStatus.Failed, result.status)
         assertEquals(ToolErrorCode.PermissionDenied, result.error?.code)
+        assertTrue(result.retryable)
         assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertFalse(result.data.containsKey("blocksJson"))
         assertTrue(result.summary.contains("日历读取权限"))
+    }
+
+    @Test
+    fun reportsProviderFailureAsRetryableLocalFailure() {
+        val executor = CalendarAvailabilityToolExecutor(
+            FakeCalendarAvailabilityProvider {
+                CalendarAvailabilityReadResult.Failed("calendar provider down")
+            },
+        )
+
+        val result = executor.execute(calendarRequest())
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
+        assertTrue(result.retryable)
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertFalse(result.data.containsKey("blocksJson"))
     }
 
     @Test
@@ -95,6 +118,27 @@ class CalendarAvailabilityToolExecutorTest {
         assertEquals(ToolStatus.Failed, tooWide.status)
         assertEquals(ToolErrorCode.InvalidRequest, tooWide.error?.code)
         assertFalse(tooWide.retryable)
+        assertEquals(0, provider.queryCount)
+    }
+
+    @Test
+    fun rejectsWrongToolNameWithoutQueryingProvider() {
+        val provider = FakeCalendarAvailabilityProvider {
+            error("Provider should not be called for wrong tool names")
+        }
+        val executor = CalendarAvailabilityToolExecutor(provider)
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "wrong",
+                toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.UnknownTool, result.error?.code)
+        assertFalse(result.retryable)
         assertEquals(0, provider.queryCount)
     }
 

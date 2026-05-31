@@ -18,6 +18,9 @@ Google AI Edge LiteRT-LM.
 - Lightweight local memory recall over previous conversation context.
 - Experimental local mobile action planning with deterministic rule fallback and explicit confirmation.
 - Schema-driven tool validation plus Agent run tracing for plan-confirm-observe execution, safety checks, bounded retry, and persistent audit events.
+- JVM tool executor matrix tests cover registry validation, routing, permission
+  failures, provider failures, structured error codes, and LocalOnly device
+  context outputs.
 - Minimal device context snapshots plus confirmed clipboard, calendar, contact, notification, foreground-app, and recent-file metadata reads for controlled context access.
 - Confirmed Android runtime permission requests for tools that need calendar, contact, media, or notification access.
 - Confirmed external navigation for safe HTTPS deep links and package-level app launches.
@@ -34,6 +37,8 @@ Google AI Edge LiteRT-LM.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
 - Local chat sessions with create, switch, and delete actions.
 - Stop button while a response is being generated.
+- JVM tool and skill contract tests for registry schemas, executor routing,
+  permission/failure paths, audit redaction, and skill gates.
 - Instrumented smoke tests for first launch and model manager entry points.
 
 ## Screens And Model Flow
