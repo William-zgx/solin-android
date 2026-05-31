@@ -34,6 +34,20 @@ data class ToolAuditEvent(
     }
 }
 
+data class ToolAuditRecord(
+    val id: String,
+    val runId: String?,
+    val requestId: String?,
+    val toolName: String?,
+    val skillId: String?,
+    val eventType: String,
+    val status: String?,
+    val riskLevel: String?,
+    val permissions: List<String>,
+    val summary: String,
+    val createdAtMillis: Long,
+)
+
 object ToolAuditSummaryRedactor {
     private const val CREDENTIAL_LABELS =
         """api[_ -]?key|authorization|auth[_ -]?token|access[_ -]?token|refresh[_ -]?token|secret|password"""
@@ -69,6 +83,10 @@ enum class ToolAuditEventType {
 
 interface ToolAuditSink {
     fun record(event: ToolAuditEvent)
+}
+
+interface ToolAuditLog {
+    fun recentAuditEvents(limit: Int = 50): List<ToolAuditRecord>
 }
 
 object NoOpToolAuditSink : ToolAuditSink {

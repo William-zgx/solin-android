@@ -25,6 +25,7 @@ Google AI Edge LiteRT-LM.
 - A conservative clipboard-summary-share composite flow that keeps summarization local and asks again before opening the Android share sheet.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
 - Running background task review for still-scheduled reminders and periodic checks, including explicit cancellation.
+- Recent tool audit review from the background task entry, limited to redacted event metadata.
 - Android share-target entry for text, image, audio, video, and PDF metadata, plus confirmed outbound system sharing for text.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
 - Local chat sessions with create, switch, and delete actions.
@@ -76,6 +77,11 @@ that became due while the device was off are rescheduled with a short catch-up
 delay. The running background tasks view lists still-scheduled tasks; canceling
 one cancels the pending AlarmManager or WorkManager work, marks the local
 record as `Cancelled`, and removes it from the running list.
+The same entry also exposes recent persisted tool audit events for review. The
+audit list shows only event time, event type, tool name, status, risk,
+permission names, and a parameter-free generated summary; it does not show tool
+arguments, prompts, remote responses, raw clipboard text, Authorization
+headers, or API keys.
 Clipboard requests such as “读取剪贴板” become confirmed `read_clipboard`
 tool calls. After confirmation, clipboard text is used only for the immediate
 local follow-up answer and is redacted from trace, audit, and persisted chat

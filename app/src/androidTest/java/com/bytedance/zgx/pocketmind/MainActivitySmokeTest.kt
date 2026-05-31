@@ -69,6 +69,8 @@ class MainActivitySmokeTest {
 
         composeRule.onNodeWithText("后台任务").assertIsDisplayed()
         composeRule.onNodeWithText("暂无运行中的后台任务").assertIsDisplayed()
+        composeRule.onNodeWithText("最近审计日志").assertIsDisplayed()
+        composeRule.onNodeWithText("暂无审计记录").assertIsDisplayed()
     }
 
     private fun ComposeTestRule.waitForTag(tag: String) {

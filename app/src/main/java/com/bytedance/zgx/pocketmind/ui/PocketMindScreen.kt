@@ -98,6 +98,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.bytedance.zgx.pocketmind.BackendChoice
+import com.bytedance.zgx.pocketmind.AuditEventSummary
 import com.bytedance.zgx.pocketmind.BackgroundTaskSummary
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.ChatUiState
@@ -153,6 +154,7 @@ fun PocketMindScreen(
     onForgetLongTermMemory: (String) -> Unit,
     onClearLongTermMemory: () -> Unit,
     onRefreshBackgroundTasks: () -> Unit,
+    onRefreshAuditEvents: () -> Unit,
     onCancelBackgroundTask: (String) -> Unit,
     onConfirmAgentConfirmation: (PendingAgentConfirmation) -> Unit,
     onDismissAgentConfirmation: () -> Unit,
@@ -197,6 +199,7 @@ fun PocketMindScreen(
                     onOpenSessions = { showSessions = true },
                     onOpenBackgroundTasks = {
                         onRefreshBackgroundTasks()
+                        onRefreshAuditEvents()
                         showBackgroundTasks = true
                     },
                     onCreateSession = onCreateSession,
@@ -321,6 +324,7 @@ fun PocketMindScreen(
                     BackgroundTaskSheet(
                         state = state,
                         onRefreshBackgroundTasks = onRefreshBackgroundTasks,
+                        onRefreshAuditEvents = onRefreshAuditEvents,
                         onCancelBackgroundTask = onCancelBackgroundTask,
                     )
                 }
@@ -1662,6 +1666,7 @@ private fun SessionManagerSheet(
 private fun BackgroundTaskSheet(
     state: ChatUiState,
     onRefreshBackgroundTasks: () -> Unit,
+    onRefreshAuditEvents: () -> Unit,
     onCancelBackgroundTask: (String) -> Unit,
 ) {
     Column(
@@ -1687,7 +1692,10 @@ private fun BackgroundTaskSheet(
             )
             TextButton(
                 modifier = Modifier.testTag("background_task_refresh_button"),
-                onClick = onRefreshBackgroundTasks,
+                onClick = {
+                    onRefreshBackgroundTasks()
+                    onRefreshAuditEvents()
+                },
                 enabled = !state.isBusy,
             ) {
                 Text("刷新")
@@ -1705,8 +1713,105 @@ private fun BackgroundTaskSheet(
                 )
             }
         }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SectionTitle(
+                modifier = Modifier.weight(1f),
+                text = "最近审计日志",
+                subtitle = "只显示不含参数的工具活动摘要。",
+            )
+            TextButton(
+                modifier = Modifier.testTag("audit_event_refresh_button"),
+                onClick = onRefreshAuditEvents,
+                enabled = !state.isBusy,
+            ) {
+                Text("刷新")
+            }
+        }
+
+        if (state.auditEvents.isEmpty()) {
+            EmptyPanelText("暂无审计记录")
+        } else {
+            state.auditEvents.forEach { event ->
+                AuditEventRow(event)
+            }
+        }
     }
 }
+
+@Composable
+private fun AuditEventRow(event: AuditEventSummary) {
+    val shape = MaterialTheme.shapes.medium
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("audit_event_${event.id}"),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f),
+        ),
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = event.eventType,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = event.auditTimeLabel(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            val metadata = listOfNotNull(
+                event.toolName,
+                event.status,
+                event.riskLevel,
+                event.permissions.takeIf { it.isNotEmpty() }?.joinToString(separator = ","),
+            ).joinToString(separator = " · ")
+            if (metadata.isNotBlank()) {
+                Text(
+                    text = metadata,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = event.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private fun AuditEventSummary.auditTimeLabel(): String =
+    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(createdAtMillis))
 
 @Composable
 private fun BackgroundTaskRow(
@@ -2011,8 +2116,12 @@ private fun capabilityIcon(capability: ModelCapability): ImageVector =
 private fun SectionTitle(
     text: String,
     subtitle: String? = null,
+    modifier: Modifier = Modifier,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
         Text(
             text = text,
             style = MaterialTheme.typography.titleSmall,

@@ -281,6 +281,11 @@ Current status:
 - Audit events store request metadata, status, risk, permission names, and a
   short sanitized summary. They intentionally do not store tool arguments,
   prompts, remote responses, or secrets.
+- Recent persisted audit events are now visible from the background task
+  activity entry. The UI is intentionally metadata-only: time, event type, tool
+  name, status, risk, permission names, and a parameter-free generated summary.
+  It does not expose tool arguments, prompts, remote responses, raw clipboard
+  text, Authorization headers, or API keys.
 - `pending_agent_confirmations` is a narrower recovery table for the latest
   awaiting tool confirmation and may hold the tool arguments needed for an
   explicit later confirmation. It is separate from trace/audit summaries and is

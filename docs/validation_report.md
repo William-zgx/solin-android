@@ -1,5 +1,37 @@
 # PocketMind 验证报告
 
+## 2026-05-31 最近审计日志可查看 UI 增量验证
+
+本轮覆盖项：
+
+- “后台任务”入口补充最近持久化工具审计事件查看能力，便于在真机上核对
+  Agent 计划、确认、拒绝、取消、观察等工具审计链路。
+- 审计列表保持 metadata-only：只展示时间、事件类型、工具名、状态、风险、
+  权限和不含参数的安全摘要。
+- UI 不展示工具参数、prompt、远程响应、剪贴板原文、Authorization 或 API
+  Key；剪贴板和外部服务相关事件只能看到安全摘要。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditEventTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:lintDebug
+git diff --check
+```
+
+结果：通过。
+
+补充检查：
+
+- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+  Authorization Bearer token 被写入文件。
+- 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
+
 ## 2026-05-31 运行中后台任务查看/取消 UI 增量验证
 
 本轮覆盖项：

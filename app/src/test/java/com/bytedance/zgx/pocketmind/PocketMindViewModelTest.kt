@@ -3,6 +3,8 @@ package com.bytedance.zgx.pocketmind
 import android.net.Uri
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
+import com.bytedance.zgx.pocketmind.audit.ToolAuditRecord
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTask
@@ -479,6 +481,80 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun restoreStartupStateLoadsRecentAuditEventsWithoutRemoteWork() = runTest(dispatcher) {
+        val rawApiKey = "sk-" + "a".repeat(32)
+        val auditLog = FakeToolAuditLog(
+            records = listOf(
+                toolAuditRecord(
+                    id = "audit-newest",
+                    requestId = "request-newest",
+                    toolName = MobileActionFunctions.READ_CLIPBOARD,
+                    summary = "工具观察：sk-[redacted]",
+                    createdAtMillis = 3_000L,
+                ),
+                toolAuditRecord(
+                    id = "audit-older",
+                    requestId = "request-older",
+                    toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                    summary = "已创建提醒",
+                    createdAtMillis = 1_000L,
+                ),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val executor = RecordingToolExecutor()
+        val viewModel = createViewModel(
+            toolAuditLog = auditLog,
+            remoteRuntime = remoteRuntime,
+            actionExecutor = executor,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertEquals(listOf("audit-newest", "audit-older"), viewModel.uiState.value.auditEvents.map { it.id })
+        assertTrue(auditLog.requestedLimits.isNotEmpty())
+        assertTrue(auditLog.requestedLimits.all { it == 50 })
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, viewModel.uiState.value.auditEvents.first().toolName)
+        assertFalse(viewModel.uiState.value.auditEvents.toString().contains(rawApiKey))
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertTrue(executor.executedRequests.isEmpty())
+    }
+
+    @Test
+    fun refreshAuditEventsUpdatesUiState() = runTest(dispatcher) {
+        val auditLog = FakeToolAuditLog()
+        val viewModel = createViewModel(toolAuditLog = auditLog)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.auditEvents.isEmpty())
+
+        auditLog.records = listOf(
+            toolAuditRecord(
+                id = "audit-1",
+                requestId = "request-1",
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                status = "Succeeded",
+                riskLevel = "LowReadOnly",
+                permissions = listOf("ReadsFiles"),
+                summary = "工具执行成功，结果详情不在审计视图中展示。",
+                createdAtMillis = 2_000L,
+            ),
+        )
+
+        viewModel.refreshAuditEvents()
+        advanceUntilIdle()
+
+        val event = viewModel.uiState.value.auditEvents.single()
+        assertEquals("audit-1", event.id)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, event.toolName)
+        assertEquals("Succeeded", event.status)
+        assertEquals("LowReadOnly", event.riskLevel)
+        assertEquals(listOf("ReadsFiles"), event.permissions)
+        assertEquals("工具执行成功，结果详情不在审计视图中展示。", event.summary)
+    }
+
+    @Test
     fun cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler() = runTest(dispatcher) {
         val scheduler = FakeBackgroundTaskScheduler(
             scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled)),
@@ -524,6 +600,7 @@ class PocketMindViewModelTest {
         remoteRuntime: RecordingRemoteChatRuntime = RecordingRemoteChatRuntime(),
         memoryRepository: MemoryRepository = MemoryRepository(),
         backgroundTaskScheduler: BackgroundTaskScheduler = FakeBackgroundTaskScheduler(),
+        toolAuditLog: ToolAuditLog = FakeToolAuditLog(),
         assistantRouter: FakeAssistantRouter = FakeAssistantRouter(),
         actionExecutor: ToolExecutor = object : ToolExecutor {
             override fun execute(request: ToolRequest): ToolResult =
@@ -546,6 +623,7 @@ class PocketMindViewModelTest {
             memoryRepository = memoryRepository,
             longTermMemoryControls = memoryRepository,
             backgroundTaskScheduler = backgroundTaskScheduler,
+            toolAuditLog = toolAuditLog,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantRouter,
             isArm64DeviceProvider = { true },
@@ -758,6 +836,17 @@ class PocketMindViewModelTest {
         }
     }
 
+    private class FakeToolAuditLog(
+        var records: List<ToolAuditRecord> = emptyList(),
+    ) : ToolAuditLog {
+        val requestedLimits = mutableListOf<Int>()
+
+        override fun recentAuditEvents(limit: Int): List<ToolAuditRecord> {
+            requestedLimits += limit
+            return records.take(limit)
+        }
+    }
+
     private class FakeModelRepository(
         activeModelPath: String? = null,
     ) : ModelRepositoryFacade {
@@ -903,5 +992,30 @@ class PocketMindViewModelTest {
             status = status,
             createdAtMillis = 1_000L,
             updatedAtMillis = 1_000L,
+        )
+
+    private fun toolAuditRecord(
+        id: String,
+        requestId: String,
+        toolName: String,
+        eventType: String = "ToolObserved",
+        status: String? = "Succeeded",
+        riskLevel: String? = "LowReadOnly",
+        permissions: List<String> = emptyList(),
+        summary: String,
+        createdAtMillis: Long,
+    ): ToolAuditRecord =
+        ToolAuditRecord(
+            id = id,
+            runId = "run-$id",
+            requestId = requestId,
+            toolName = toolName,
+            skillId = null,
+            eventType = eventType,
+            status = status,
+            riskLevel = riskLevel,
+            permissions = permissions,
+            summary = summary,
+            createdAtMillis = createdAtMillis,
         )
 }

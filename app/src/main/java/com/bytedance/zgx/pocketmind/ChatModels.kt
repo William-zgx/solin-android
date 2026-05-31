@@ -90,6 +90,17 @@ data class BackgroundTaskSummary(
     val status: ScheduledTaskStatus,
 )
 
+data class AuditEventSummary(
+    val id: String,
+    val toolName: String?,
+    val eventType: String,
+    val status: String?,
+    val riskLevel: String?,
+    val permissions: List<String>,
+    val summary: String,
+    val createdAtMillis: Long,
+)
+
 data class PendingAgentConfirmation(
     val runId: String?,
     val draft: ActionDraft,
@@ -133,6 +144,7 @@ data class ChatUiState(
     val memoryHits: List<MemoryHit> = emptyList(),
     val longTermMemories: List<LongTermMemorySummary> = emptyList(),
     val backgroundTasks: List<BackgroundTaskSummary> = emptyList(),
+    val auditEvents: List<AuditEventSummary> = emptyList(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,
     val remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),

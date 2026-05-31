@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.bytedance.zgx.pocketmind.action.ActionExecutor
 import com.bytedance.zgx.pocketmind.action.HybridActionPlanningRuntime
+import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
 import com.bytedance.zgx.pocketmind.audit.ToolAuditRepository
 import com.bytedance.zgx.pocketmind.background.AndroidBackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.ReminderNotificationHelper
@@ -119,6 +120,7 @@ class PocketMindAppContainer(context: Context) {
             memoryRepository = memoryRepository,
             longTermMemoryControls = memoryRepository,
             backgroundTaskScheduler = backgroundTaskSchedulerInternal,
+            toolAuditLog = toolAuditRepository,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = {
@@ -142,6 +144,7 @@ private class PocketMindViewModelFactory(
     private val memoryRepository: MemoryRepository,
     private val longTermMemoryControls: LongTermMemoryControls,
     private val backgroundTaskScheduler: AndroidBackgroundTaskScheduler,
+    private val toolAuditLog: ToolAuditLog,
     private val actionExecutor: ToolExecutor,
     private val assistantOrchestrator: AssistantOrchestrator,
     private val isArm64DeviceProvider: () -> Boolean,
@@ -163,6 +166,7 @@ private class PocketMindViewModelFactory(
             memoryRepository = memoryRepository,
             longTermMemoryControls = longTermMemoryControls,
             backgroundTaskScheduler = backgroundTaskScheduler,
+            toolAuditLog = toolAuditLog,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = isArm64DeviceProvider,

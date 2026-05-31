@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionExecutor
+import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupRepository
@@ -64,6 +65,7 @@ class PocketMindViewModel(
     private val memoryRepository: MemoryIndex,
     private val longTermMemoryControls: LongTermMemoryControls,
     private val backgroundTaskScheduler: BackgroundTaskScheduler,
+    private val toolAuditLog: ToolAuditLog,
     private val actionExecutor: ToolExecutor,
     private val assistantOrchestrator: AssistantRouter,
     private val isArm64DeviceProvider: () -> Boolean,
@@ -254,6 +256,12 @@ class PocketMindViewModel(
                     }
                 },
             )
+    }
+
+    fun refreshAuditEvents() {
+        _uiState.update {
+            it.copy(auditEvents = loadAuditEvents())
+        }
     }
 
     fun startCustomModelDownload(downloadUrl: String) {
@@ -957,6 +965,7 @@ class PocketMindViewModel(
                     pendingConfirmation = null,
                     isBusy = false,
                     isGenerating = false,
+                    auditEvents = loadAuditEvents(),
                     statusText = "工具未执行",
                 )
             }
@@ -1037,6 +1046,7 @@ class PocketMindViewModel(
                         pendingConfirmation = null,
                         isBusy = false,
                         isGenerating = false,
+                        auditEvents = loadAuditEvents(),
                         statusText = "已保护剪贴板内容",
                     )
                 }
@@ -1055,6 +1065,7 @@ class PocketMindViewModel(
                     pendingConfirmation = null,
                     isBusy = true,
                     isGenerating = true,
+                    auditEvents = loadAuditEvents(),
                     statusText = "生成中",
                 )
             }
@@ -1070,6 +1081,7 @@ class PocketMindViewModel(
             it.copy(
                 pendingConfirmation = null,
                 backgroundTasks = loadBackgroundTasks(),
+                auditEvents = loadAuditEvents(),
                 statusText = result.summary,
             )
         }
@@ -1169,6 +1181,7 @@ class PocketMindViewModel(
                             isBusy = false,
                             isGenerating = false,
                             isReady = true,
+                            auditEvents = loadAuditEvents(),
                             statusText = "下一步动作待确认",
                         )
                     }
@@ -1179,6 +1192,7 @@ class PocketMindViewModel(
                         isBusy = false,
                         isGenerating = false,
                         isReady = true,
+                        auditEvents = loadAuditEvents(),
                         statusText = when (modelObservation?.decision) {
                             is AgentObservationDecision.Fail -> "后续动作不可执行"
                             else -> if (useRemoteModel) {
@@ -1234,6 +1248,7 @@ class PocketMindViewModel(
         _uiState.update {
             it.copy(
                 pendingConfirmation = null,
+                auditEvents = loadAuditEvents(),
                 statusText = observation?.assistantMessage ?: "已取消动作草稿",
             )
         }
@@ -1607,6 +1622,7 @@ class PocketMindViewModel(
             memoryEnabled = firstRunSetupRepository.isMemoryEnabled(),
             longTermMemories = loadLongTermMemories(),
             backgroundTasks = loadBackgroundTasks(),
+            auditEvents = loadAuditEvents(),
             generationParameters = generationParametersRepository.load(),
             sessions = sessionRepository.summaries(),
             activeSessionId = sessionRepository.activeSessionId,
@@ -1703,6 +1719,20 @@ class PocketMindViewModel(
                     status = task.status,
                 )
             }
+
+    private fun loadAuditEvents(): List<AuditEventSummary> =
+        toolAuditLog.recentAuditEvents().map { event ->
+            AuditEventSummary(
+                id = event.id,
+                toolName = event.toolName,
+                eventType = event.eventType,
+                status = event.status,
+                riskLevel = event.riskLevel,
+                permissions = event.permissions,
+                summary = event.summary,
+                createdAtMillis = event.createdAtMillis,
+            )
+        }
 
     private fun restorePendingAgentConfirmationIfAny() {
         val route = assistantOrchestrator.restorePendingAction() ?: return
