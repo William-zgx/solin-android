@@ -139,6 +139,8 @@ class MemoryRepository(
         recordStore.records()
 
     override fun indexPreference(id: String, text: String) {
+        if (text.isBlank()) return
+        forgetConflictingPreferences(id, text)
         indexRecord(id, "用户偏好：$text", MemoryRecordType.Preference, persist = true)
     }
 
@@ -229,6 +231,31 @@ class MemoryRepository(
         }
     }
 
+    private fun forgetConflictingPreferences(id: String, text: String) {
+        val conflictKeys = explicitPreferenceConflictKeys(text)
+        if (conflictKeys.isEmpty()) return
+        val inMemoryConflictIds = entries.values
+            .filter { entry ->
+                entry.type == MemoryRecordType.Preference &&
+                    entry.id != id &&
+                    explicitPreferenceConflictKeys(entry.text).any { key -> key in conflictKeys }
+            }
+            .map { entry -> entry.id }
+        val persistedConflictIds = recordStore.records()
+            .filter { record ->
+                record.type == MemoryRecordType.Preference &&
+                    record.id != id &&
+                    explicitPreferenceConflictKeys(record.text).any { key -> key in conflictKeys }
+            }
+            .map { record -> record.id }
+        (inMemoryConflictIds + persistedConflictIds)
+            .distinct()
+            .forEach { conflictId ->
+                entries.remove(conflictId)
+                recordStore.delete(conflictId)
+            }
+    }
+
     private fun cosine(left: FloatArray, right: FloatArray): Float {
         val size = minOf(left.size, right.size)
         var dot = 0f
@@ -265,6 +292,26 @@ internal fun explicitUserPreferenceRecordId(preference: String): String {
             (byte.toInt() and 0xff).toString(16).padStart(2, '0')
         }
     return "preference-${hash.take(16)}"
+}
+
+internal fun explicitPreferenceConflictKey(preference: String): String? {
+    return explicitPreferenceConflictKeys(preference).firstOrNull()
+}
+
+private fun explicitPreferenceConflictKeys(preference: String): Set<String> {
+    val normalized = preference
+        .trim()
+        .removePrefix("用户偏好：")
+        .trim()
+        .lowercase(Locale.ROOT)
+        .replace(Regex("""\s+"""), " ")
+    if (normalized.isBlank() || !normalized.containsAny(RESPONSE_PREFERENCE_TERMS)) {
+        return emptySet()
+    }
+    return buildSet {
+        if (normalized.containsAny(RESPONSE_LENGTH_TERMS)) add("response-length")
+        if (normalized.containsAny(RESPONSE_LANGUAGE_TERMS)) add("response-language")
+    }
 }
 
 internal const val TASK_STATE_MEMORY_RECORD_PREFIX = "task-state-background:"
@@ -387,4 +434,47 @@ private val LATIN_STOP_WORDS = setOf(
     "what",
     "you",
     "your",
+)
+
+private fun String.containsAny(terms: Set<String>): Boolean =
+    terms.any { term -> contains(term) }
+
+private val RESPONSE_PREFERENCE_TERMS = setOf(
+    "answer",
+    "answers",
+    "reply",
+    "replies",
+    "respond",
+    "response",
+    "responses",
+    "答案",
+    "回答",
+    "回复",
+)
+
+private val RESPONSE_LENGTH_TERMS = setOf(
+    "brief",
+    "concise",
+    "detailed",
+    "long",
+    "short",
+    "succinct",
+    "terse",
+    "verbose",
+    "展开",
+    "简洁",
+    "简短",
+    "精炼",
+    "详细",
+    "详尽",
+)
+
+private val RESPONSE_LANGUAGE_TERMS = setOf(
+    "chinese",
+    "english",
+    "mandarin",
+    "中文",
+    "汉语",
+    "英文",
+    "英语",
 )

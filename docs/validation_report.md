@@ -1,5 +1,43 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Preference memory conflict resolution 增量验证
+
+本轮覆盖项：
+
+- `MemoryRepository` 为显式长期偏好新增轻量冲突族识别：回答长短
+  (`response-length`) 与回答语言 (`response-language`)。
+- 新的同族显式偏好会删除旧的同族偏好记录，再写入当前偏好，避免
+  `记住：回答尽量简洁` 与 `记住：回答要详细` 同时进入长期记忆。
+- 不同偏好族仍可共存，例如回答长短和回答语言不会相互覆盖。
+- `PocketMindViewModel` 继续只在用户消息成功进入会话后持久化 `记住` 偏好；
+  冲突替换后长期记忆 UI 和 in-memory 索引同步展示当前偏好。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.explicitPreferenceConflictKeyRecognizesResponseFamilies' \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.conflictingResponseLengthPreferenceReplacesOlderRecord' \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.unrelatedResponsePreferenceFamiliesCanCoexist' \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.combinedResponsePreferenceReplacesBothFamilies' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandReplacesConflictingPreferenceMemory'
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+git diff --check
+```
+
+验证层补充：
+
+- `scripts/verify_local.sh` 现在会先执行 shell 语法检查和
+  `scripts/test_validation_scripts.sh`，避免设备选择、无设备提前退出、
+  `ANDROID_SERIAL` 路径在本地 gate 外悄悄失效。
+- README 与真机验收文档不再硬编码 instrumentation 测试数量，要求记录
+  runner 实际报告的测试总数。
+
 ## 2026-05-31 Skill private-read continuation precedence 增量验证
 
 本轮覆盖项：
@@ -280,8 +318,8 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
 - `scripts/doctor.sh --device` 的输出收窄为 device toolchain check，避免把
   SDK `adb` 存在误读为“已连接可验收设备”。
 - README、真机验收清单和 Agent core 文档同步说明无设备预期行为、
-  `ANDROID_SERIAL` 用法，以及完整回归报告需要记录当前 9 个 instrumentation
-  测试的通过结果。
+  `ANDROID_SERIAL` 用法，以及完整回归报告需要记录 instrumentation runner
+  报告的测试总数和通过结果。
 
 验证命令：
 

@@ -1576,6 +1576,36 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun rememberCommandReplacesConflictingPreferenceMemory() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("记住：回答尽量简洁")
+        advanceUntilIdle()
+        viewModel.sendMessage("记住：回答要详细")
+        advanceUntilIdle()
+
+        val record = store.records().single()
+        assertEquals(MemoryRecordType.Preference, record.type)
+        assertEquals("用户偏好：回答要详细", record.text)
+        assertEquals(listOf(record.id), viewModel.uiState.value.longTermMemories.map { it.id })
+        assertTrue(memoryRepository.search("简洁").isEmpty())
+        assertEquals(record.id, memoryRepository.search("详细回答").first().id)
+        assertEquals(2, remoteRuntime.calls.size)
+    }
+
+    @Test
     fun rememberCommandPersistsEnglishPreferenceMemory() = runTest(dispatcher) {
         val store = FakeMemoryRecordStore()
         val memoryRepository = MemoryRepository(recordStore = store)

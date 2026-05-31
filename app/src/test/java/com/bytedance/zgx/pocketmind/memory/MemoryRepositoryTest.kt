@@ -181,6 +181,13 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun explicitPreferenceConflictKeyRecognizesResponseFamilies() {
+        assertEquals("response-length", explicitPreferenceConflictKey("用户偏好：我喜欢简洁回答"))
+        assertEquals("response-language", explicitPreferenceConflictKey("please reply in English"))
+        assertEquals(null, explicitPreferenceConflictKey("I like green tea"))
+    }
+
+    @Test
     fun taskStateMemoryRecordIdIsStableForWhitespace() {
         assertEquals("task-state-background:task-1", taskStateMemoryRecordId(" task-1 "))
         assertEquals("task-state-background:periodic-check-local", taskStateMemoryRecordId("periodic check local"))
@@ -271,6 +278,45 @@ class MemoryRepositoryTest {
 
         repository.clear()
         assertTrue(repository.savedRecords().isEmpty())
+    }
+
+    @Test
+    fun conflictingResponseLengthPreferenceReplacesOlderRecord() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+
+        repository.indexPreference("pref-short", "回答尽量简洁")
+        repository.indexPreference("pref-detailed", "回答要详细")
+
+        val records = repository.savedRecords()
+        assertEquals(listOf("pref-detailed"), records.map { it.id })
+        assertEquals("用户偏好：回答要详细", records.single().text)
+        assertTrue(repository.search("简洁").isEmpty())
+        assertEquals("pref-detailed", repository.search("详细回答").first().id)
+    }
+
+    @Test
+    fun unrelatedResponsePreferenceFamiliesCanCoexist() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+
+        repository.indexPreference("pref-short", "回答尽量简洁")
+        repository.indexPreference("pref-language", "请用中文回答")
+
+        assertEquals(listOf("pref-short", "pref-language"), repository.savedRecords().map { it.id })
+    }
+
+    @Test
+    fun combinedResponsePreferenceReplacesBothFamilies() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+
+        repository.indexPreference("pref-short", "回答尽量简洁")
+        repository.indexPreference("pref-language", "请用中文回答")
+        repository.indexPreference("pref-combined", "请用详细英文回答")
+
+        assertEquals(listOf("pref-combined"), repository.savedRecords().map { it.id })
+        assertEquals("pref-combined", repository.search("详细英文回答").first().id)
     }
 
     private class FakeMemoryRecordStore : MemoryRecordStore {

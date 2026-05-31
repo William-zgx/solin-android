@@ -73,7 +73,7 @@ case "${1:-}" in
         printf '/dev/block 5000000 1000 4000000 1%% /data\n'
         ;;
       am\ instrument\ -w\ -r*)
-        echo "OK (9 tests)"
+        echo "OK (instrumentation tests)"
         ;;
       am\ start\ -W\ -n*)
         echo "Status: ok"

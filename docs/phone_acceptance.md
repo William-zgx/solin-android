@@ -46,7 +46,7 @@ scripts/install_and_test_device.sh
 - `/data` 分区大致有 3 GB 以上可用空间。
 - Debug APK 可以安装。
 - AndroidTest APK 可以安装。
-- 当前 9 个 instrumentation 测试通过。
+- instrumentation runner 报告的测试总数全部通过。
 - App 可以被启动。
 
 默认情况下，脚本不会在测试后删除 App，也不会清空 App 数据；通过后会保留 debug App 并启动它。需要做干净首启验收时，显式运行：

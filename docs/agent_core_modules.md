@@ -573,6 +573,10 @@ Current status:
 - Explicit preference records use deterministic ids derived from normalized
   preference text, so repeating the same remember command upserts one record
   instead of creating duplicate long-term memories.
+- Explicit response-length and response-language preferences resolve conflicts
+  by replacing older records in the same preference family, so `记住` commands
+  update the user's current answer-style preference instead of keeping
+  contradictory long-term memories.
 - Explicit remember control messages are not re-derived from chat history, so
   forgetting a persisted preference prevents it from being restored by a later
   memory rebuild.
@@ -599,11 +603,15 @@ Current status:
 Tests:
 
 - `MemoryRepositoryTest`
+- `MemoryRepositoryTest.conflictingResponseLengthPreferenceReplacesOlderRecord`
+- `MemoryRepositoryTest.unrelatedResponsePreferenceFamiliesCanCoexist`
+- `MemoryRepositoryTest.combinedResponsePreferenceReplacesBothFamilies`
 - `MemoryRepositoryTest.semanticRuntimeControllerSwitchesBetweenFallbackAndSemanticRuntime`
 - `MemoryRepositoryTest.memoryModelPathDoesNotEnableSemanticRecallWithoutRuntimeSupport`
 - `ModelRepositoryPathTest`
 - `MemoryRepositoryTest.taskStateMemoryRecordIdIsStableForWhitespace`
 - `PocketMindViewModelTest`
+- `PocketMindViewModelTest.rememberCommandReplacesConflictingPreferenceMemory`
 - `PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex`
 - `PocketMindViewModelTest.restoreStartupStateIndexesScheduledTasksAsForgettableTaskState`
 - `PocketMindViewModelTest.backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory`
