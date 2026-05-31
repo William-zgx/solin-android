@@ -156,6 +156,12 @@ Current status:
 - Implemented built-in manifests for email drafts, calendar drafts, map search,
   information lookup, device settings, background reminders, clipboard context,
   and system text sharing.
+- `SkillRequest.arguments` is now validated against
+  `SkillManifest.inputSchemaJson` before confirmation or execution. Missing
+  required inputs, blank required string inputs, extra fields, type mismatches,
+  invalid enum values, regex mismatches, and numeric range failures reject the
+  skill plan. Tool parameters remain owned and validated separately by the Tool
+  Registry.
 - Implemented a minimal declarative composition model for ordered skill steps:
   tool steps can declare stable ids, dependencies, and argument bindings; model
   transform steps can consume prior tool outputs and expose named outputs.
@@ -187,7 +193,12 @@ Tests:
 - `BuiltInSkillRuntimeTest.plansClipboardContextWithoutActionDraft`
 - `BuiltInSkillRuntimeTest.skillFirstPlannerDoesNotTreatOrdinaryShareDiscussionAsShareTool`
 - `BuiltInSkillRuntimeTest.validateStructureRejectsUnorderedOrInvalidCompositePlan`
+- `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`
+- `BuiltInSkillRuntimeTest.validateStructureRejectsSkillRequestArgumentsOutsideManifestSchema`
 - `SkillRunExecutorTest`
+- `SkillRunExecutorTest.failsBeforeExecutingWhenSkillArgumentsDoNotMatchManifestSchema`
+- `AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
+- `AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `ToolSchemaContractTest`
 - `AgentLoopRuntimeTest.wifiActionInputRequestsConfirmationBeforeExecution`
 

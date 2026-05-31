@@ -26,7 +26,7 @@ Google AI Edge LiteRT-LM.
 - Runtime permission denial is observed as a structured tool failure without
   executing or automatically retrying the tool.
 - Confirmed external navigation for safe HTTPS deep links and package-level app launches.
-- Versioned built-in skill manifests for email drafts, calendar drafts, map search, information lookup, device settings, local reminders, clipboard context, and system sharing.
+- Versioned built-in skill manifests for email drafts, calendar drafts, map search, information lookup, device settings, local reminders, clipboard context, and system sharing, with manifest input schemas enforced before confirmation or execution.
 - Skill-first routing for explicit clipboard context and clipboard-summary-share requests that do not need action-planner parameter extraction.
 - A conservative clipboard-summary-share composite flow that keeps summarization local and asks again before opening the Android share sheet.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
@@ -39,8 +39,9 @@ Google AI Edge LiteRT-LM.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
 - Local chat sessions with create, switch, and delete actions.
 - Stop button while a response is being generated.
-- JVM tool and skill contract tests for registry schemas, executor routing,
-  permission/failure paths, audit redaction, and skill gates.
+- JVM tool and skill contract tests for registry schemas, skill manifest input
+  schemas, executor routing, permission/failure paths, audit redaction, and
+  skill gates.
 - Instrumented smoke tests for first launch and model manager entry points.
 
 ## Screens And Model Flow

@@ -1,5 +1,35 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Skill Manifest 输入契约增量验证
+
+本轮覆盖项：
+
+- `SkillPlan.validateStructure()` 会校验 `SkillRequest.skillId` 与 manifest
+  一致，并按 `SkillManifest.inputSchemaJson` 校验 Skill 输入。
+- 内置 Skill 的 `SkillRequest.arguments` 收敛为 `{ "input": 原始用户输入 }`；
+  工具参数继续保留在 `ToolRequest.arguments` / `ActionDraft.parameters`，由
+  Tool Registry 单独校验。
+- 缺失 required、空白 required string、额外字段、类型错误、enum、pattern 和
+  数值范围错误会让 Skill plan 在确认或执行前拒绝。
+- `SkillRunExecutor` 在非法 Skill 输入时不会执行工具或模型步骤。
+- action-planner 附加的 Skill plan 与 observation replan 附加的 Skill plan
+  也必须通过 manifest 输入契约，不能只靠 tool registry 校验。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+```
+
+结果：targeted JVM Skill manifest contract 测试通过；完整 JVM 单测、Debug
+构建、AndroidTest 构建和 lint 通过；`git diff --check` 和敏感扫描通过；当前环境缺少
+`adb`，未执行设备列表与模拟器回归。
+
 ## 2026-05-31 Runtime 权限拒绝执行边界增量验证
 
 本轮覆盖项：

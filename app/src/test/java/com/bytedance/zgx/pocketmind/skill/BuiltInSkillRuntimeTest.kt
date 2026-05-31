@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.skill
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -29,6 +30,149 @@ class BuiltInSkillRuntimeTest {
     }
 
     @Test
+    fun builtInManifestSchemasAreClosedTextInputContracts() {
+        runtime.manifests().forEach { manifest ->
+            val schema = JSONObject(manifest.inputSchemaJson)
+            assertEquals("object", schema.getString("type"))
+            assertEquals(false, schema.getBoolean("additionalProperties"))
+            val required = schema.getJSONArray("required")
+            assertEquals(1, required.length())
+            assertEquals("input", required.getString(0))
+            val inputSchema = schema.getJSONObject("properties").getJSONObject("input")
+            assertEquals("string", inputSchema.getString("type"))
+            assertEquals(1, inputSchema.getInt("minLength"))
+        }
+    }
+
+    @Test
+    fun builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema() {
+        val plans = listOf(
+            "帮我写封邮件" to requireNotNull(
+                runtime.plan(
+                    "帮我写封邮件",
+                    draft(
+                        toolName = MobileActionFunctions.COMPOSE_EMAIL,
+                        parameters = mapOf("body" to "明天延期"),
+                    ),
+                    ToolRequest(
+                        toolName = MobileActionFunctions.COMPOSE_EMAIL,
+                        arguments = mapOf("body" to "明天延期"),
+                    ),
+                ),
+            ),
+            "帮我建个日程" to requireNotNull(
+                runtime.plan(
+                    "帮我建个日程",
+                    draft(
+                        toolName = MobileActionFunctions.CREATE_CALENDAR_EVENT,
+                        parameters = mapOf("title" to "评审"),
+                    ),
+                    ToolRequest(
+                        toolName = MobileActionFunctions.CREATE_CALENDAR_EVENT,
+                        arguments = mapOf("title" to "评审"),
+                    ),
+                ),
+            ),
+            "查去机场的路线" to requireNotNull(
+                runtime.plan(
+                    "查去机场的路线",
+                    draft(
+                        toolName = MobileActionFunctions.SEARCH_MAPS,
+                        parameters = mapOf("query" to "机场"),
+                    ),
+                    ToolRequest(
+                        toolName = MobileActionFunctions.SEARCH_MAPS,
+                        arguments = mapOf("query" to "机场"),
+                    ),
+                ),
+            ),
+            "搜一下 Kotlin 协程" to requireNotNull(
+                runtime.plan(
+                    "搜一下 Kotlin 协程",
+                    draft(
+                        toolName = MobileActionFunctions.WEB_SEARCH,
+                        parameters = mapOf("query" to "Kotlin 协程"),
+                    ),
+                    ToolRequest(
+                        toolName = MobileActionFunctions.WEB_SEARCH,
+                        arguments = mapOf("query" to "Kotlin 协程"),
+                    ),
+                ),
+            ),
+            "打开 Wi-Fi 设置" to requireNotNull(
+                runtime.plan(
+                    "打开 Wi-Fi 设置",
+                    draft(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+                    ToolRequest(toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS),
+                ),
+            ),
+            "提醒我 15 分钟后喝水" to requireNotNull(
+                runtime.plan(
+                    "提醒我 15 分钟后喝水",
+                    draft(
+                        toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                        parameters = mapOf("title" to "喝水", "delayMinutes" to "15"),
+                    ),
+                    ToolRequest(
+                        toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                        arguments = mapOf("title" to "喝水", "delayMinutes" to "15"),
+                    ),
+                ),
+            ),
+            "读取剪贴板" to requireNotNull(runtime.plan("读取剪贴板")),
+            "分享这段文字：明天十点开会" to requireNotNull(
+                runtime.plan(
+                    "分享这段文字：明天十点开会",
+                    draft(
+                        toolName = MobileActionFunctions.SHARE_TEXT,
+                        parameters = mapOf("text" to "明天十点开会"),
+                    ),
+                    ToolRequest(
+                        toolName = MobileActionFunctions.SHARE_TEXT,
+                        arguments = mapOf("text" to "明天十点开会"),
+                    ),
+                ),
+            ),
+            "总结剪贴板并分享" to runtime.planClipboardSummaryShare("总结剪贴板并分享"),
+        )
+
+        plans.forEach { (input, plan) ->
+            assertEquals(mapOf("input" to input), plan.request.arguments)
+            assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+        }
+    }
+
+    @Test
+    fun validateStructureRejectsSkillRequestArgumentsOutsideManifestSchema() {
+        val plan = runtime.planClipboardSummaryShare("总结剪贴板并分享")
+
+        val missingInput = plan.copy(request = plan.request.copy(arguments = emptyMap()))
+        val blankInput = plan.copy(request = plan.request.copy(arguments = mapOf("input" to " ")))
+        val extraArgument = plan.copy(
+            request = plan.request.copy(arguments = mapOf("input" to "总结剪贴板并分享", "toolName" to "read_clipboard")),
+        )
+
+        assertFalse(missingInput.validateStructure().isValid)
+        assertTrue(missingInput.validateStructure().errors.any { it.contains("requires argument(s): input") })
+        assertFalse(blankInput.validateStructure().isValid)
+        assertTrue(blankInput.validateStructure().errors.any { it.contains("requires argument(s): input") })
+        assertFalse(extraArgument.validateStructure().isValid)
+        assertTrue(extraArgument.validateStructure().errors.any { it.contains("does not accept argument(s): toolName") })
+    }
+
+    @Test
+    fun validateStructureRejectsSkillRequestThatDoesNotMatchManifest() {
+        val plan = runtime.planClipboardSummaryShare("总结剪贴板并分享")
+
+        val invalid = plan.copy(
+            request = plan.request.copy(skillId = BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL),
+        )
+
+        assertFalse(invalid.validateStructure().isValid)
+        assertTrue(invalid.validateStructure().errors.any { it.contains("does not match manifest") })
+    }
+
+    @Test
     fun plansEmailDraftAsToolStepWithoutExecutingIt() {
         val draft = ActionDraft(
             functionName = MobileActionFunctions.COMPOSE_EMAIL,
@@ -46,6 +190,7 @@ class BuiltInSkillRuntimeTest {
 
         requireNotNull(plan)
         assertEquals(BuiltInSkillRuntime.EMAIL_DRAFT_SKILL, plan.request.skillId)
+        assertEquals(mapOf("input" to "帮我写封邮件"), plan.request.arguments)
         assertEquals(listOf(MobileActionFunctions.COMPOSE_EMAIL), plan.manifest.requiredTools)
         assertEquals(1, plan.steps.size)
         val step = plan.steps.single()
@@ -226,4 +371,15 @@ class BuiltInSkillRuntimeTest {
         assertTrue(validation.errors.any { it.contains("share_summary depends on missing or later step") })
         assertTrue(validation.errors.any { it.contains("summarize_clipboard depends on missing or later step") })
     }
+
+    private fun draft(
+        toolName: String,
+        parameters: Map<String, String> = emptyMap(),
+    ): ActionDraft =
+        ActionDraft(
+            functionName = toolName,
+            title = "Test",
+            summary = "Test summary",
+            parameters = parameters,
+        )
 }

@@ -57,7 +57,7 @@ class BuiltInSkillRuntime : SkillRuntime {
             request = SkillRequest(
                 id = UUID.randomUUID().toString(),
                 skillId = skillId,
-                arguments = request.arguments,
+                arguments = mapOf("input" to input),
                 reason = draft.summary.ifBlank { input },
             ),
             manifest = manifest,

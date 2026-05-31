@@ -91,6 +91,27 @@ class SkillRunExecutorTest {
     }
 
     @Test
+    fun failsBeforeExecutingWhenSkillArgumentsDoNotMatchManifestSchema() {
+        val validPlan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val invalidPlan = validPlan.copy(
+            request = validPlan.request.copy(arguments = mapOf("toolName" to "read_clipboard")),
+        )
+        val toolExecutor = RecordingToolExecutor(emptyList())
+        val executor = SkillRunExecutor(
+            toolExecutor = toolExecutor,
+            modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("unused") },
+            toolGate = SkillToolGate.allowAllForTests(),
+        )
+
+        val result = executor.execute(invalidPlan)
+
+        assertEquals(SkillRunState.Failed, result.state)
+        assertTrue(result.error.orEmpty().contains("requires argument(s): input"))
+        assertTrue(result.error.orEmpty().contains("does not accept argument(s): toolName"))
+        assertTrue(toolExecutor.requests.isEmpty())
+    }
+
+    @Test
     fun failsWhenStepLimitWouldBeExceeded() {
         val validPlan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
         val executor = SkillRunExecutor(

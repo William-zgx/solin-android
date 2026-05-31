@@ -465,6 +465,9 @@ class AgentLoopRuntime(
                 request.rejected("Replanned tool request id already exists: ${request.id}"),
             )
         }
+        invalidSkillPlanRejection(request, skillPlan)?.let { rejection ->
+            return rejectNextToolPlan(runId, rejection)
+        }
         val rejection = toolRegistry.validate(request)
         if (rejection != null) {
             return rejectNextToolPlan(runId, rejection)
@@ -609,6 +612,9 @@ class AgentLoopRuntime(
         fallbackReason: String?,
         skillPlan: SkillPlan?,
     ): AgentPlan {
+        invalidSkillPlanRejection(request, skillPlan)?.let { rejection ->
+            return AgentPlan.RejectedTool(rejection)
+        }
         val rejection = toolRegistry.validate(request)
         if (rejection != null) return AgentPlan.RejectedTool(rejection)
         val spec = toolRegistry.specFor(request.toolName)
@@ -628,6 +634,18 @@ class AgentLoopRuntime(
             skillPlan = skillPlan,
             safetyDecision = safetyDecision,
         )
+    }
+
+    private fun invalidSkillPlanRejection(
+        request: ToolRequest,
+        skillPlan: SkillPlan?,
+    ): ToolResult? {
+        val validation = skillPlan?.validateStructure() ?: return null
+        return if (validation.isValid) {
+            null
+        } else {
+            request.rejected("Invalid skill plan: ${validation.errors.joinToString()}")
+        }
     }
 
     private fun promptWithContextIfUseful(

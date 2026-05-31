@@ -1351,6 +1351,122 @@ class AgentLoopRuntimeTest {
         })
     }
 
+    @Test
+    fun actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将在浏览器中搜索：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = InvalidSkillRuntime(
+                invalidForTool = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "Kotlin"),
+            ),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "搜一下 Kotlin",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.Failed, result.run.state)
+        require(result.plan is AgentPlan.RejectedTool)
+        assertTrue(result.plan.result.summary.contains("Invalid skill plan"))
+        assertTrue(result.plan.result.summary.contains("requires argument(s): input"))
+        assertTrue(result.plan.result.summary.contains("does not accept argument(s): query"))
+        assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
+        assertNull(runtime.latestPendingConfirmation())
+    }
+
+    @Test
+    fun replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将在浏览器中搜索：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val nextDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "搜索完成后继续打开 Wi-Fi 设置页。",
+            parameters = emptyMap(),
+            requiresConfirmation = true,
+        )
+        val nextRequest = ToolRequest(
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = nextDraft.summary,
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = InvalidSkillRuntime(
+                invalidForTool = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                arguments = emptyMap(),
+            ),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner {
+                AgentObservationReplan(
+                    request = nextRequest,
+                    draft = nextDraft,
+                    fallbackReason = "test replan",
+                )
+            },
+        )
+        val planned = runtime.runOnce(
+            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        require(observed.decision is AgentObservationDecision.Fail)
+        assertTrue(observed.decision.reason.contains("Invalid skill plan"))
+        assertTrue(observed.steps.any { it is AgentStep.ToolRejected })
+        assertTrue(observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size == 1)
+        assertNull(runtime.latestPendingConfirmation())
+    }
+
     private class RecordingActionRuntime(
         private val likelyAction: Boolean,
         private val planningResult: ActionPlanningResult = ActionPlanningResult(
@@ -1385,6 +1501,50 @@ class AgentLoopRuntimeTest {
             usedModel = false,
             fallbackReason = "test fallback",
         )
+
+    private class InvalidSkillRuntime(
+        private val invalidForTool: String,
+        private val arguments: Map<String, String>,
+    ) : SkillRuntime {
+        private val manifest = SkillManifest(
+            id = "invalid_attached_skill",
+            version = 1,
+            title = "Invalid attached skill",
+            description = "Invalid skill for schema contract tests",
+            triggerExamples = listOf("invalid skill"),
+            requiredTools = listOf(invalidForTool),
+            inputSchemaJson = """
+                {
+                  "type": "object",
+                  "required": ["input"],
+                  "properties": {
+                    "input": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
+            """.trimIndent(),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+        )
+
+        override fun manifests(): List<SkillManifest> = listOf(manifest)
+
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? {
+            if (request.toolName != invalidForTool) return null
+            return SkillPlan(
+                request = SkillRequest(
+                    id = "invalid-skill-request",
+                    skillId = manifest.id,
+                    arguments = arguments,
+                    reason = input,
+                ),
+                manifest = manifest,
+                steps = listOf(SkillStep.ToolStep(request, draft)),
+            )
+        }
+    }
 }
 
 /*
