@@ -1,5 +1,43 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Reminder PendingIntent identity 增量验证
+
+本轮覆盖项：
+
+- Reminder alarm `PendingIntent` identity 不再只依赖 `task.id.hashCode()`；
+  新版 alarm 使用固定 requestCode 和包含 URL-escaped opaque task id 的 Intent
+  `data`，因此 `"Aa"` / `"BB"` 这类 Java hash 碰撞 id 不会共享同一个 alarm
+  identity。
+- reminder 取消会同时尝试新的 data URI identity 和旧版 no-data identity，
+  兼容已经由旧构建登记的 alarm。
+- reminder boot reschedule 在登记新版 alarm 后会清理旧版 hash-only identity，
+  避免升级后新旧 alarm 双重触发。
+- 保留 alarm Intent extras 里的 task id 作为 receiver 读取入口；identity 用
+  data URI，投递仍以本地 DB task row 为准。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmIdentityTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest'
+./gradlew :app:assembleDebugAndroidTest
+scripts/verify_local.sh
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+```
+
+结果：
+
+- 通过：targeted JVM ReminderAlarmIdentity 和 ScheduledTaskRepository
+  reschedule cleanup 回归测试。
+- 通过：`assembleDebugAndroidTest`，新增真实 Android `PendingIntent`
+  identity instrumentation 测试编译通过；连接设备执行仍属于后续真机验收。
+- 通过：`scripts/verify_local.sh`，覆盖 `testDebugUnitTest`、`lintDebug`、
+  `assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease` 和 APK 检查。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配。
+
 ## 2026-05-31 Recent files cursor boundary 增量验证
 
 本轮覆盖项：

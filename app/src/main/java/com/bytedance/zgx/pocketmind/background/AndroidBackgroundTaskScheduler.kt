@@ -4,7 +4,10 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 class AndroidBackgroundTaskScheduler(
     private val context: Context,
@@ -74,6 +77,7 @@ class AndroidBackgroundTaskScheduler(
                 repository = repository,
                 scheduleAlarm = ::scheduleAlarm,
                 clockMillis = clockMillis,
+                cleanupLegacyAlarm = ::cancelLegacyReminderAlarm,
             ).reschedulePendingReminders(limit)
         }
 
@@ -96,19 +100,50 @@ class AndroidBackgroundTaskScheduler(
 
     private fun cancelReminderAlarm(task: ScheduledTask): Result<Unit> =
         runCatching {
-            pendingIntentFor(task, PendingIntent.FLAG_NO_CREATE)?.let { pendingIntent ->
-                alarmManager?.cancel(pendingIntent)
-            }
+            val manager = alarmManager
+            cancelPendingIntent(manager, pendingIntentFor(task, PendingIntent.FLAG_NO_CREATE))
+            cancelPendingIntent(manager, legacyPendingIntentFor(task, PendingIntent.FLAG_NO_CREATE))
         }
 
-    private fun pendingIntentFor(task: ScheduledTask, flag: Int): PendingIntent? {
+    private fun cancelLegacyReminderAlarm(task: ScheduledTask): Result<Unit> =
+        runCatching {
+            cancelPendingIntent(alarmManager, legacyPendingIntentFor(task, PendingIntent.FLAG_NO_CREATE))
+        }
+
+    private fun cancelPendingIntent(
+        manager: AlarmManager?,
+        pendingIntent: PendingIntent?,
+    ) {
+        if (pendingIntent == null) return
+        manager?.cancel(pendingIntent)
+        pendingIntent.cancel()
+    }
+
+    private fun pendingIntentFor(task: ScheduledTask, flag: Int): PendingIntent? =
+        pendingIntentFor(task = task, flag = flag, includeUniqueData = true)
+
+    private fun legacyPendingIntentFor(task: ScheduledTask, flag: Int): PendingIntent? =
+        pendingIntentFor(task = task, flag = flag, includeUniqueData = false)
+
+    private fun pendingIntentFor(
+        task: ScheduledTask,
+        flag: Int,
+        includeUniqueData: Boolean,
+    ): PendingIntent? {
         val intent = Intent(context, ReminderAlarmReceiver::class.java).apply {
             action = ReminderAlarmReceiver.ACTION_DELIVER_REMINDER
+            if (includeUniqueData) {
+                data = Uri.parse(reminderAlarmDataUriString(task.id))
+            }
             putExtra(ReminderAlarmReceiver.EXTRA_TASK_ID, task.id)
         }
         return PendingIntent.getBroadcast(
             context,
-            task.id.hashCode(),
+            if (includeUniqueData) {
+                reminderAlarmRequestCode()
+            } else {
+                legacyReminderAlarmRequestCode(task.id)
+            },
             intent,
             flag or immutableFlag(),
         )
@@ -121,3 +156,12 @@ class AndroidBackgroundTaskScheduler(
         const val MILLIS_PER_MINUTE = 60_000L
     }
 }
+
+internal fun reminderAlarmRequestCode(): Int =
+    0
+
+internal fun legacyReminderAlarmRequestCode(taskId: String): Int =
+    taskId.hashCode()
+
+internal fun reminderAlarmDataUriString(taskId: String): String =
+    "pocketmind://reminder?taskId=${URLEncoder.encode(taskId, StandardCharsets.UTF_8.name())}"

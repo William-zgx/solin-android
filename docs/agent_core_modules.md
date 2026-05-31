@@ -628,6 +628,11 @@ Current status:
   first move through `Running`, then post a local notification when notification
   permission is available and update the task status to `Delivered` or
   `Failed`.
+- Reminder alarms use an Intent data URI derived from the opaque task id in
+  addition to the request code, so Java hash collisions between task ids cannot
+  make two reminders share one `PendingIntent`. Cancellation also probes the
+  legacy no-data identity so alarms scheduled by older builds can still be
+  removed.
 - Reminder alarm delivery treats the local `scheduled_tasks` row as the source
   of truth. A fired alarm only carries the opaque task id; delivery ignores
   title/body extras from old alarms, verifies that the task still exists, is a
@@ -637,7 +642,9 @@ Current status:
 - `ReminderBootReceiver` listens for `BOOT_COMPLETED` and asks
   `ReminderRescheduler` to restore every still-`Scheduled` reminder after the
   system clears alarms on reboot. Past-due reminders are rescheduled with a
-  short catch-up delay instead of being silently dropped.
+  short catch-up delay instead of being silently dropped. After registering the
+  new data-URI alarm identity, the rescheduler performs a best-effort cleanup
+  of the legacy hash-only identity to prevent duplicate wakeups after upgrade.
 - If an alarm cannot be scheduled or restored, the task is marked `Failed` so
   repository state does not claim a reminder is still pending when Android has
   no alarm registered.

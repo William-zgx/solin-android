@@ -316,10 +316,16 @@ class ScheduledTaskRepositoryTest {
             triggerAtMillis = 5_000L,
         )
         val scheduledAlarms = linkedMapOf<String, Long>()
+        val events = mutableListOf<String>()
         val rescheduler = ReminderRescheduler(
             repository = repository,
             scheduleAlarm = { task, triggerAtMillis ->
+                events += "schedule:${task.id}"
                 scheduledAlarms[task.id] = triggerAtMillis
+                Result.success(Unit)
+            },
+            cleanupLegacyAlarm = { task ->
+                events += "cleanup:${task.id}"
                 Result.success(Unit)
             },
             clockMillis = { 2_000L },
@@ -331,6 +337,15 @@ class ScheduledTaskRepositoryTest {
         assertEquals(ReminderRescheduleReport(total = 2, scheduled = 2, failed = 0), report)
         assertEquals(2_250L, scheduledAlarms[pastDue.id])
         assertEquals(5_000L, scheduledAlarms[future.id])
+        assertEquals(
+            listOf(
+                "schedule:${pastDue.id}",
+                "schedule:${future.id}",
+                "cleanup:${pastDue.id}",
+                "cleanup:${future.id}",
+            ),
+            events,
+        )
     }
 
     @Test

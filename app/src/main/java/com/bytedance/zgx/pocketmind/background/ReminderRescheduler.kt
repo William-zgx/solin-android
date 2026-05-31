@@ -5,6 +5,7 @@ class ReminderRescheduler(
     private val scheduleAlarm: (ScheduledTask, Long) -> Result<Unit>,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val catchUpDelayMillis: Long = DEFAULT_CATCH_UP_DELAY_MILLIS,
+    private val cleanupLegacyAlarm: (ScheduledTask) -> Result<Unit> = { Result.success(Unit) },
 ) {
     fun reschedulePendingReminders(limit: Int = DEFAULT_LIMIT): ReminderRescheduleReport {
         val now = clockMillis()
@@ -24,6 +25,9 @@ class ReminderRescheduler(
                     failed += 1
                     repository.markFailed(task.id)
                 }
+        }
+        tasks.forEach { task ->
+            cleanupLegacyAlarm(task)
         }
 
         return ReminderRescheduleReport(
