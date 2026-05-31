@@ -35,7 +35,9 @@ import com.bytedance.zgx.pocketmind.orchestration.AssistantRoute
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
+import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
+import com.bytedance.zgx.pocketmind.tool.failed
 import java.io.File
 import java.util.ArrayDeque
 import kotlinx.coroutines.CancellationException
@@ -1120,6 +1122,54 @@ class PocketMindViewModel(
                 backgroundTasks = loadBackgroundTasks(),
                 auditEvents = loadAuditEvents(),
                 statusText = result.summary,
+            )
+        }
+    }
+
+    fun rejectAgentConfirmationForRuntimePermissionDenial(
+        confirmation: PendingAgentConfirmation,
+        deniedPermissions: List<String>,
+    ) {
+        val pendingConfirmation = _uiState.value.pendingConfirmation
+        if (pendingConfirmation == null || !pendingConfirmation.matchesExecution(confirmation)) {
+            _uiState.update {
+                it.copy(statusText = "工具确认已处理")
+            }
+            return
+        }
+        val request = confirmation.toolRequest ?: ToolRequest(
+            toolName = confirmation.draft.functionName,
+            arguments = confirmation.draft.parameters,
+            reason = confirmation.draft.summary,
+        )
+        val deniedSummary = deniedPermissions.distinct().joinToString()
+        val result = request.failed(
+            code = ToolErrorCode.PermissionDenied,
+            summary = "用户拒绝了所需权限，工具未执行：$deniedSummary",
+            retryable = false,
+            data = mapOf(
+                "toolName" to request.toolName,
+                "deniedPermissions" to deniedSummary,
+            ),
+        )
+        val observation = confirmation.runId?.let { runId ->
+            assistantOrchestrator.failPendingToolRequest(runId, request.id, result)
+        }
+        replaceActiveSessionMessages(
+            _uiState.value.messages + ChatMessage(
+                role = MessageRole.Assistant,
+                text = observation?.assistantMessage ?: "工具执行失败：${result.summary}",
+            ),
+            persistNow = true,
+        )
+        rebuildMemoryIndex()
+        _uiState.update {
+            it.copy(
+                pendingConfirmation = null,
+                isBusy = false,
+                isGenerating = false,
+                auditEvents = loadAuditEvents(),
+                statusText = "权限被拒，工具未执行",
             )
         }
     }

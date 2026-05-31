@@ -32,6 +32,16 @@ fun PendingAgentConfirmation.runtimePermissionsFor(apiLevel: Int = Build.VERSION
     }
 }
 
+fun PendingAgentConfirmation.deniedRuntimePermissionsAfterGrantResult(
+    grantResults: Map<String, Boolean>,
+    apiLevel: Int = Build.VERSION.SDK_INT,
+    hasRuntimePermission: (String) -> Boolean,
+): List<String> =
+    runtimePermissionsFor(apiLevel)
+        .filterNot { permission ->
+            grantResults[permission] == true || hasRuntimePermission(permission)
+        }
+
 private fun recentFilePermissionsFor(kind: String, apiLevel: Int): List<String> {
     if (apiLevel < Build.VERSION_CODES.TIRAMISU) {
         return listOf(Manifest.permission.READ_EXTERNAL_STORAGE)

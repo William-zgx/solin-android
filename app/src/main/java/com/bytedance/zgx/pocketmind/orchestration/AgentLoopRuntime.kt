@@ -23,6 +23,7 @@ import com.bytedance.zgx.pocketmind.skill.validateStructure
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
+import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import com.bytedance.zgx.pocketmind.tool.cancelled
 import com.bytedance.zgx.pocketmind.tool.rejected
@@ -168,6 +169,33 @@ class AgentLoopRuntime(
         return observeToolResultInternal(
             runId = runId,
             result = request.cancelled("用户取消了工具请求"),
+            allowedStates = setOf(AgentRunState.AwaitingUserConfirmation),
+        )
+    }
+
+    fun failPendingToolRequest(
+        runId: String,
+        requestId: String,
+        result: ToolResult,
+    ): AgentObservationResult? {
+        val run = traceStore.run(runId) ?: return null
+        if (run.state != AgentRunState.AwaitingUserConfirmation) return null
+        val request = pendingToolRequest(runId, requestId)
+            ?: return null
+        if (result.requestId != request.id) return null
+
+        traceStore.appendStep(runId, AgentStep.UserConfirmed(requestId))
+        auditToolRequest(
+            runId = runId,
+            request = request,
+            eventType = ToolAuditEventType.UserConfirmed,
+            status = null,
+            summary = "User confirmed tool request, but execution was blocked before start.",
+        )
+        traceStore.clearPendingConfirmation(runId, requestId)
+        return observeToolResultInternal(
+            runId = runId,
+            result = result,
             allowedStates = setOf(AgentRunState.AwaitingUserConfirmation),
         )
     }
@@ -641,6 +669,7 @@ class AgentLoopRuntime(
 
     private fun nextRetryAttempt(runId: String, result: ToolResult): Int {
         if (result.status != ToolStatus.Failed || !result.retryable) return 0
+        if (result.error?.code == ToolErrorCode.PermissionDenied) return 0
         val completedAttempts = traceStore.steps(runId)
             .asSequence()
             .filterIsInstance<AgentStep.ToolRetryScheduled>()

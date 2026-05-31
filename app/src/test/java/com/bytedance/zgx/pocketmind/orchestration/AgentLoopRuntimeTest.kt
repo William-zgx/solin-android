@@ -19,6 +19,8 @@ import com.bytedance.zgx.pocketmind.skill.SkillRequest
 import com.bytedance.zgx.pocketmind.skill.SkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillStep
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
+import com.bytedance.zgx.pocketmind.tool.ToolError
+import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
@@ -1090,6 +1092,118 @@ class AgentLoopRuntimeTest {
         assertEquals(0, failed.retryAttempt)
         assertEquals(1, failed.steps.filterIsInstance<AgentStep.ToolRetryScheduled>().size)
         assertTrue(!failed.assistantMessage.contains("正在重试"))
+    }
+
+    @Test
+    fun permissionDeniedToolFailureDoesNotScheduleAutomaticRetry() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将在浏览器中搜索：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "搜一下 Kotlin",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val failed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Failed,
+                summary = "用户拒绝了所需权限",
+                error = ToolError(ToolErrorCode.PermissionDenied, "用户拒绝了所需权限"),
+                retryable = true,
+            ),
+        )
+
+        requireNotNull(failed)
+        assertEquals(AgentRunState.Failed, failed.run.state)
+        require(failed.decision is AgentObservationDecision.Fail)
+        assertNull(failed.retryRequest)
+        assertEquals(0, failed.retryAttempt)
+        assertTrue(failed.steps.none { it is AgentStep.ToolRetryScheduled })
+    }
+
+    @Test
+    fun pendingToolPermissionDenialIsObservedWithoutEnteringExecutionState() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将在浏览器中搜索：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "搜一下 Kotlin",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+
+        val failed = runtime.failPendingToolRequest(
+            runId = planned.run.id,
+            requestId = planned.plan.request.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Failed,
+                summary = "用户拒绝了所需权限",
+                error = ToolError(ToolErrorCode.PermissionDenied, "用户拒绝了所需权限"),
+                retryable = false,
+            ),
+        )
+
+        requireNotNull(failed)
+        assertEquals(AgentRunState.Failed, failed.run.state)
+        require(failed.decision is AgentObservationDecision.Fail)
+        assertTrue(failed.steps.any { it is AgentStep.UserConfirmed })
+        assertTrue(failed.steps.any { step ->
+            step is AgentStep.ToolObserved &&
+                step.result.error?.code == ToolErrorCode.PermissionDenied
+        })
+        assertTrue(failed.steps.none { it is AgentStep.ToolRetryScheduled })
+        assertNull(runtime.latestPendingConfirmation())
+        assertTrue(auditSink.events.any { event ->
+            event.eventType == ToolAuditEventType.ToolObserved &&
+                event.status == ToolStatus.Failed
+        })
     }
 
     @Test

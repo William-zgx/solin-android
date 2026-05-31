@@ -23,6 +23,8 @@ Google AI Edge LiteRT-LM.
   context outputs.
 - Minimal device context snapshots plus confirmed clipboard, calendar, contact, notification, foreground-app, and recent-file metadata reads for controlled context access.
 - Confirmed Android runtime permission requests for tools that need calendar, contact, media, or notification access.
+- Runtime permission denial is observed as a structured tool failure without
+  executing or automatically retrying the tool.
 - Confirmed external navigation for safe HTTPS deep links and package-level app launches.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map search, information lookup, device settings, local reminders, clipboard context, and system sharing.
 - Skill-first routing for explicit clipboard context and clipboard-summary-share requests that do not need action-planner parameter extraction.

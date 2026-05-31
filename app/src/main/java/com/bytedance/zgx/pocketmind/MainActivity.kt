@@ -37,9 +37,21 @@ class MainActivity : ComponentActivity() {
     private var pendingRuntimePermissionConfirmation: PendingAgentConfirmation? = null
     private val runtimePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
-        pendingRuntimePermissionConfirmation?.let(viewModel::confirmAgentConfirmation)
+    ) { grantResults ->
+        val confirmation = pendingRuntimePermissionConfirmation ?: return@registerForActivityResult
         pendingRuntimePermissionConfirmation = null
+        val deniedPermissions = confirmation.deniedRuntimePermissionsAfterGrantResult(
+            grantResults = grantResults,
+            hasRuntimePermission = ::hasRuntimePermission,
+        )
+        if (deniedPermissions.isEmpty()) {
+            viewModel.confirmAgentConfirmation(confirmation)
+        } else {
+            viewModel.rejectAgentConfirmationForRuntimePermissionDenial(
+                confirmation = confirmation,
+                deniedPermissions = deniedPermissions,
+            )
+        }
     }
     private val voiceInputLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),

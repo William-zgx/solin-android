@@ -44,6 +44,7 @@ import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillRequest
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
+import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
@@ -424,6 +425,60 @@ class PocketMindViewModelTest {
         assertEquals(1, executor.executedRequests.size)
         assertEquals(request.id, executor.executedRequests.single().id)
         assertEquals(1, assistantRouter.confirmCallCount)
+    }
+
+    @Test
+    fun deniedRuntimePermissionFailsPendingToolWithoutExecutingIt() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore()
+        val request = ToolRequest(
+            id = "request-contacts",
+            toolName = MobileActionFunctions.QUERY_CONTACTS,
+            arguments = mapOf("query" to "Alice"),
+        )
+        val executor = RecordingToolExecutor()
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-contacts",
+                toolRequest = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.QUERY_CONTACTS,
+                    title = "查询联系人",
+                    summary = "将读取联系人摘要。",
+                    parameters = request.arguments,
+                ),
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = null,
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("查联系人 Alice")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+
+        viewModel.rejectAgentConfirmationForRuntimePermissionDenial(
+            confirmation = confirmation,
+            deniedPermissions = listOf("android.permission.READ_CONTACTS"),
+        )
+        advanceUntilIdle()
+
+        assertTrue(executor.executedRequests.isEmpty())
+        assertEquals(0, assistantRouter.confirmCallCount)
+        assertEquals(1, assistantRouter.failPendingCallCount)
+        assertEquals(request.id, assistantRouter.lastFailedPendingResult?.requestId)
+        assertEquals(ToolErrorCode.PermissionDenied, assistantRouter.lastFailedPendingResult?.error?.code)
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertTrue(sessionStore.messages.last().text.contains("权限"))
+        assertEquals("权限被拒，工具未执行", viewModel.uiState.value.statusText)
     }
 
     @Test
@@ -808,6 +863,10 @@ class PocketMindViewModelTest {
             private set
         var confirmCallCount: Int = 0
             private set
+        var failPendingCallCount: Int = 0
+            private set
+        var lastFailedPendingResult: ToolResult? = null
+            private set
 
         override fun route(
             input: String,
@@ -831,6 +890,22 @@ class PocketMindViewModelTest {
         }
 
         override fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult? = cancelObservation
+
+        override fun failPendingToolRequest(
+            runId: String,
+            requestId: String,
+            result: ToolResult,
+        ): AgentObservationResult? {
+            failPendingCallCount += 1
+            lastFailedPendingResult = result
+            return AgentObservationResult(
+                run = AgentRun(runId, "", AgentRunState.Failed, 1L, 2L),
+                result = result,
+                assistantMessage = "工具执行失败：${result.summary}",
+                decision = AgentObservationDecision.Fail(result.summary),
+                steps = emptyList(),
+            )
+        }
 
         override fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? = toolObservation
 

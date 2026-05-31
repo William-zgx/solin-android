@@ -49,6 +49,8 @@ interface AssistantRouter : AutoCloseable {
 
     fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult?
 
+    fun failPendingToolRequest(runId: String, requestId: String, result: ToolResult): AgentObservationResult?
+
     fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult?
 
     fun observeModelResult(runId: String, text: String): AgentModelObservationResult?
@@ -91,6 +93,13 @@ class AssistantOrchestrator(
 
     override fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult? =
         agentLoopRuntime.cancelToolRequest(runId, requestId)
+
+    override fun failPendingToolRequest(
+        runId: String,
+        requestId: String,
+        result: ToolResult,
+    ): AgentObservationResult? =
+        agentLoopRuntime.failPendingToolRequest(runId, requestId, result)
 
     override fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? =
         agentLoopRuntime.observeToolResult(runId, result)

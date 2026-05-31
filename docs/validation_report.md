@@ -1,5 +1,33 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Runtime 权限拒绝执行边界增量验证
+
+本轮覆盖项：
+
+- Android runtime permission 回调会检查实际 grant result；权限仍缺失时不再
+  调用 `confirmAgentConfirmation`。
+- runtime permission 被拒后，ViewModel 通过 `failPendingToolRequest` 把
+  `PermissionDenied` 作为 Agent observation 回写，清除 pending
+  confirmation，且不执行工具。
+- Agent loop 支持 pending confirmation 阶段的 pre-execution failure
+  observation，用于记录系统权限拒绝等“未开始执行”的失败。
+- `PermissionDenied` 失败不触发自动 retry，即使低层结果误标为
+  `retryable=true`。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.permissionDeniedToolFailureDoesNotScheduleAutomaticRetry' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.pendingToolPermissionDenialIsObservedWithoutEnteringExecutionState'
+```
+
+结果：targeted runtime permission denial 边界测试通过；完整 JVM 单测、Debug
+构建、AndroidTest 构建和 lint 通过；`git diff --check` 和敏感扫描通过；当前环境缺少
+`adb`，未执行设备列表与模拟器回归。
+
 ## 2026-05-31 JVM 工具执行矩阵增量验证
 
 本轮覆盖项：

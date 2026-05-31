@@ -108,6 +108,7 @@ adb devices -l
 - 确认动作后，聊天中应追加一条结构化执行结果，例如“工具执行结果：已打开网页搜索”。
 - 取消动作后，不应打开外部 App 或系统页面，Agent run 应进入 `Cancelled` 并写入审计事件。
 - 出现待确认动作后杀进程并重启 App，应恢复同一个确认 UI；恢复瞬间不应执行工具、不应弹 Android runtime permission，只有再次确认后才继续执行链路。
+- 确认需要 Android runtime permission 的工具后，如果用户在系统权限弹窗中拒绝权限，不应执行工具、不应自动重试，应显示结构化权限失败并清除待确认状态。
 - “打开链接 https://example.com” 应先出现确认；确认后只打开 HTTPS 链接，`http`、`file`、`content`、`javascript` 和自定义 scheme 应被拒绝。
 - “启动微信” 或指定合法包名的 App 启动请求应先出现确认；确认后只打开应用启动页，不接受任意 activity/action/data/extras。
 - 未知工具、缺少参数或没有可处理 Intent 的设备，应显示明确失败原因，不应崩溃。

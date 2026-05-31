@@ -266,7 +266,9 @@ Current status:
   and generalized runtime permission requests for confirmed calendar, contact,
   recent-media-file, and reminder tools. Permission prompts are issued only
   after the user confirms the Agent tool request; denial returns through the
-  normal structured tool result path.
+  normal structured tool result path without executing the tool. Permission
+  denial is treated as non-auto-retryable at the Agent loop boundary even when
+  a lower-level provider marks the failure as retryable.
 - Startup restoration can rehydrate the latest pending Agent confirmation from
   Room without invoking Android execution or runtime permission requests.
 - Android share-target ingestion for shared text, bounded `text/*` document
@@ -280,6 +282,13 @@ Current status:
   URIs, and non-HTTPS schemes are intentionally not exposed.
 - Broad permission flows, allowlisted app-specific deep targets, and
   result-confirmation callbacks are pending.
+
+Tests:
+
+- `AgentRuntimePermissionPolicyTest.deniedGrantResultKeepsToolFromExecutingUntilPermissionIsActuallyGranted`
+- `PocketMindViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt`
+- `AgentLoopRuntimeTest.pendingToolPermissionDenialIsObservedWithoutEnteringExecutionState`
+- `AgentLoopRuntimeTest.permissionDeniedToolFailureDoesNotScheduleAutomaticRetry`
 
 ## Safety And Audit
 

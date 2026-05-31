@@ -92,6 +92,39 @@ class AgentRuntimePermissionPolicyTest {
         )
     }
 
+    @Test
+    fun deniedGrantResultKeepsToolFromExecutingUntilPermissionIsActuallyGranted() {
+        val confirmation = confirmationFor(MobileActionFunctions.QUERY_CONTACTS)
+        val permission = Manifest.permission.READ_CONTACTS
+
+        assertEquals(
+            listOf(permission),
+            confirmation.deniedRuntimePermissionsAfterGrantResult(
+                grantResults = mapOf(permission to false),
+                hasRuntimePermission = { false },
+            ),
+        )
+        assertEquals(
+            listOf(permission),
+            confirmation.deniedRuntimePermissionsAfterGrantResult(
+                grantResults = emptyMap(),
+                hasRuntimePermission = { false },
+            ),
+        )
+        assertTrue(
+            confirmation.deniedRuntimePermissionsAfterGrantResult(
+                grantResults = mapOf(permission to true),
+                hasRuntimePermission = { false },
+            ).isEmpty(),
+        )
+        assertTrue(
+            confirmation.deniedRuntimePermissionsAfterGrantResult(
+                grantResults = emptyMap(),
+                hasRuntimePermission = { it == permission },
+            ).isEmpty(),
+        )
+    }
+
     private fun confirmationFor(
         toolName: String,
         arguments: Map<String, String> = emptyMap(),
