@@ -69,6 +69,23 @@ class SafetyPolicyTest {
         assertEquals(SafetyOutcome.Reject, decision.outcome)
     }
 
+    @Test
+    fun privateReadToolsCannotSkipConfirmationPolicy() {
+        val spec = toolSpec(
+            riskLevel = RiskLevel.LowReadOnly,
+            confirmationPolicy = ConfirmationPolicy.Optional,
+            permissions = setOf(ToolPermission.ReadsDeviceContext, ToolPermission.ReadsContacts),
+        )
+
+        val decision = policy.evaluate(
+            spec = spec,
+            request = ToolRequest(toolName = spec.name),
+            context = SafetyContext(userConfirmed = true),
+        )
+
+        assertEquals(SafetyOutcome.Reject, decision.outcome)
+    }
+
     private fun toolSpec(
         riskLevel: RiskLevel,
         confirmationPolicy: ConfirmationPolicy,

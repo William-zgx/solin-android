@@ -192,6 +192,28 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun privateDeviceReadToolsMustRequireConfirmation() {
+        val privateReadPermissions = setOf(
+            ToolPermission.ReadsClipboard,
+            ToolPermission.ReadsContacts,
+            ToolPermission.ReadsFiles,
+            ToolPermission.ReadsCalendar,
+            ToolPermission.ReadsDeviceContext,
+        )
+        val privateReadSpecs = registry.specs()
+            .filter { spec -> spec.permissions.any { permission -> permission in privateReadPermissions } }
+
+        assertTrue(privateReadSpecs.isNotEmpty())
+        privateReadSpecs.forEach { spec ->
+            assertEquals(
+                "${spec.name} reads private device data and must require confirmation",
+                ConfirmationPolicy.Required,
+                spec.confirmationPolicy,
+            )
+        }
+    }
+
+    @Test
     fun validatesWebSearchQueryArgument() {
         val missingQuery = registry.validate(
             ToolRequest(

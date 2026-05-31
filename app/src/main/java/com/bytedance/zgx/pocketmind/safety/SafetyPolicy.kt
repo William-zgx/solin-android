@@ -44,6 +44,15 @@ class SafetyPolicy {
             )
         }
 
+        if (spec.permissions.any { permission -> permission in privateReadPermissions } &&
+            spec.confirmationPolicy != ConfirmationPolicy.Required
+        ) {
+            return SafetyDecision(
+                outcome = SafetyOutcome.Reject,
+                reason = "Tool ${request.toolName} reads private device data and must require confirmation.",
+            )
+        }
+
         if (!context.userConfirmed && spec.confirmationPolicy == ConfirmationPolicy.Required) {
             return SafetyDecision(
                 outcome = SafetyOutcome.RequireConfirmation,
@@ -59,4 +68,14 @@ class SafetyPolicy {
 
     private fun RiskLevel.requiresHardConfirmation(): Boolean =
         this == RiskLevel.HighExternalSend || this == RiskLevel.CriticalDeviceOrPayment
+
+    private companion object {
+        val privateReadPermissions = setOf(
+            ToolPermission.ReadsClipboard,
+            ToolPermission.ReadsContacts,
+            ToolPermission.ReadsFiles,
+            ToolPermission.ReadsCalendar,
+            ToolPermission.ReadsDeviceContext,
+        )
+    }
 }

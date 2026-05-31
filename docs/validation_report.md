@@ -1,5 +1,35 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Private read safety invariant 增量验证
+
+本轮覆盖项：
+
+- `SafetyPolicy` 对包含 `ReadsClipboard`、`ReadsContacts`、`ReadsFiles`、
+  `ReadsCalendar` 或 `ReadsDeviceContext` 的工具增加强制确认 invariant。
+- 如果未来私密读取工具的 `ToolSpec.confirmationPolicy` 被误配为 `Optional` 或
+  `NotRequired`，SafetyPolicy 会直接 `Reject`，而不是在未确认状态下放行。
+- `ToolRegistryTest` 增加全量 registry invariant，当前所有私密读取工具都必须声明
+  `ConfirmationPolicy.Required`。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.safety.SafetyPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+scripts/verify_local.sh
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+```
+
+结果：
+
+- 通过：targeted JVM SafetyPolicy 和 ToolRegistry 私密读取确认边界回归测试。
+- 通过：`scripts/verify_local.sh`，覆盖 `testDebugUnitTest`、`lintDebug`、
+  `assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease` 和 APK 检查。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配。
+
 ## 2026-05-31 Reminder task id collision 增量验证
 
 本轮覆盖项：
