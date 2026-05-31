@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Hub
@@ -44,6 +45,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -102,6 +104,7 @@ import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.GenerationStats
 import com.bytedance.zgx.pocketmind.InferenceMode
 import com.bytedance.zgx.pocketmind.InstalledModelSummary
+import com.bytedance.zgx.pocketmind.LongTermMemorySummary
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.PendingAgentConfirmation
@@ -112,6 +115,7 @@ import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.isUsable
 import com.bytedance.zgx.pocketmind.label
+import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.ui.theme.LocalPocketMindColors
 import java.util.Locale
 
@@ -140,6 +144,8 @@ fun PocketMindScreen(
     onDownloadSetupModels: () -> Unit,
     onSkipFirstRunSetup: () -> Unit,
     onMemoryEnabledChanged: (Boolean) -> Unit,
+    onForgetLongTermMemory: (String) -> Unit,
+    onClearLongTermMemory: () -> Unit,
     onConfirmAgentConfirmation: (PendingAgentConfirmation) -> Unit,
     onDismissAgentConfirmation: () -> Unit,
     onSendMessage: (String) -> Unit,
@@ -266,6 +272,8 @@ fun PocketMindScreen(
                         onGenerationParametersChanged = onGenerationParametersChanged,
                         onResetGenerationParameters = onResetGenerationParameters,
                         onMemoryEnabledChanged = onMemoryEnabledChanged,
+                        onForgetLongTermMemory = onForgetLongTermMemory,
+                        onClearLongTermMemory = onClearLongTermMemory,
                         onOpenModelPage = onOpenModelPage,
                         onDismiss = { showModelManager = false },
                     )
@@ -891,6 +899,8 @@ private fun ModelManagerSheet(
     onGenerationParametersChanged: (GenerationParameters) -> Unit,
     onResetGenerationParameters: () -> Unit,
     onMemoryEnabledChanged: (Boolean) -> Unit,
+    onForgetLongTermMemory: (String) -> Unit,
+    onClearLongTermMemory: () -> Unit,
     onOpenModelPage: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -979,6 +989,8 @@ private fun ModelManagerSheet(
                 onGenerationParametersChanged = onGenerationParametersChanged,
                 onResetGenerationParameters = onResetGenerationParameters,
                 onMemoryEnabledChanged = onMemoryEnabledChanged,
+                onForgetLongTermMemory = onForgetLongTermMemory,
+                onClearLongTermMemory = onClearLongTermMemory,
             )
         }
 
@@ -1165,6 +1177,8 @@ private fun AdvancedModelPanel(
     onGenerationParametersChanged: (GenerationParameters) -> Unit,
     onResetGenerationParameters: () -> Unit,
     onMemoryEnabledChanged: (Boolean) -> Unit,
+    onForgetLongTermMemory: (String) -> Unit,
+    onClearLongTermMemory: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PanelSurface {
@@ -1179,6 +1193,8 @@ private fun AdvancedModelPanel(
             state = state,
             enabled = !state.isBusy,
             onMemoryEnabledChanged = onMemoryEnabledChanged,
+            onForgetLongTermMemory = onForgetLongTermMemory,
+            onClearLongTermMemory = onClearLongTermMemory,
         )
     }
 }
@@ -1386,42 +1402,171 @@ private fun MemoryTogglePanel(
     state: ChatUiState,
     enabled: Boolean,
     onMemoryEnabledChanged: (Boolean) -> Unit,
+    onForgetLongTermMemory: (String) -> Unit,
+    onClearLongTermMemory: () -> Unit,
 ) {
     val memoryModelInstalled = ModelCapability.MemoryEmbedding in state.installedCapabilities
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
     PanelSurface {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = "本地记忆",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = if (memoryModelInstalled) {
+                            "启用后会从本机会话中召回相关片段。"
+                        } else {
+                            "安装本地记忆模型后可开启语义召回。"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    modifier = Modifier.testTag("memory_switch"),
+                    checked = state.memoryEnabled && memoryModelInstalled,
+                    onCheckedChange = onMemoryEnabledChanged,
+                    enabled = enabled && memoryModelInstalled,
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    SectionTitle(
+                        text = "长期记忆",
+                        subtitle = "已保存 ${state.longTermMemories.size} 条偏好或任务状态。",
+                    )
+                }
+                TextButton(
+                    modifier = Modifier.testTag("long_term_memory_clear_button"),
+                    onClick = { confirmClear = true },
+                    enabled = enabled && state.longTermMemories.isNotEmpty(),
+                ) {
+                    Text("清空")
+                }
+            }
+
+            if (state.longTermMemories.isEmpty()) {
+                EmptyPanelText("还没有已保存的长期记忆。")
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    state.longTermMemories.forEach { memory ->
+                        LongTermMemoryRow(
+                            memory = memory,
+                            enabled = enabled,
+                            onForget = { onForgetLongTermMemory(memory.id) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("清空长期记忆") },
+            text = { Text("只会清空已保存的偏好和任务状态记录，会话历史不会删除。") },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag("long_term_memory_confirm_clear_button"),
+                    enabled = enabled,
+                    onClick = {
+                        confirmClear = false
+                        onClearLongTermMemory()
+                    },
+                ) {
+                    Text("清空")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = false }) {
+                    Text("取消")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun LongTermMemoryRow(
+    memory: LongTermMemorySummary,
+    enabled: Boolean,
+    onForget: () -> Unit,
+) {
+    val shape = MaterialTheme.shapes.medium
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("long_term_memory_record_${memory.id}"),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.72f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f),
+        ),
+        tonalElevation = 0.dp,
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    text = "本地记忆",
-                    style = MaterialTheme.typography.bodyLarge,
+                    text = memory.type.label(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = if (memoryModelInstalled) {
-                        "启用后会从本机会话中召回相关片段。"
-                    } else {
-                        "安装本地记忆模型后可开启语义召回。"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = memory.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Switch(
-                modifier = Modifier.testTag("memory_switch"),
-                checked = state.memoryEnabled && memoryModelInstalled,
-                onCheckedChange = onMemoryEnabledChanged,
-                enabled = enabled && memoryModelInstalled,
-            )
+            IconButton(
+                modifier = Modifier.testTag("long_term_memory_forget_${memory.id}"),
+                onClick = onForget,
+                enabled = enabled,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "遗忘这条记忆",
+                )
+            }
         }
     }
 }
+
+private fun MemoryRecordType.label(): String =
+    when (this) {
+        MemoryRecordType.Preference -> "偏好"
+        MemoryRecordType.TaskState -> "任务状态"
+        MemoryRecordType.Conversation -> "会话"
+    }
 
 @Composable
 private fun SessionManagerSheet(

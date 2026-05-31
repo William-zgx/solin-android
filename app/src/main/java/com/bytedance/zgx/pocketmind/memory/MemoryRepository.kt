@@ -31,6 +31,7 @@ interface MemoryIndex {
 }
 
 interface LongTermMemoryControls {
+    fun savedRecords(): List<PersistedMemoryRecord>
     fun indexPreference(id: String, text: String)
     fun indexTaskState(id: String, text: String)
     fun forget(id: String): Boolean
@@ -98,6 +99,9 @@ class MemoryRepository(
     override fun index(id: String, text: String) {
         indexRecord(id, text, MemoryRecordType.Conversation, persist = false)
     }
+
+    override fun savedRecords(): List<PersistedMemoryRecord> =
+        recordStore.records()
 
     override fun indexPreference(id: String, text: String) {
         indexRecord(id, "用户偏好：$text", MemoryRecordType.Preference, persist = true)

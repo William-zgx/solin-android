@@ -15,7 +15,9 @@ import com.bytedance.zgx.pocketmind.data.SessionStore
 import com.bytedance.zgx.pocketmind.data.TransferProgress
 import com.bytedance.zgx.pocketmind.download.DownloadInfo
 import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
+import com.bytedance.zgx.pocketmind.memory.MemoryRecordStore
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
+import com.bytedance.zgx.pocketmind.memory.PersistedMemoryRecord
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
 import com.bytedance.zgx.pocketmind.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
@@ -369,6 +371,84 @@ class PocketMindViewModelTest {
         assertTrue(executor.executedRequests.isEmpty())
     }
 
+    @Test
+    fun restoreStartupStateLoadsLongTermMemoryRecordsWithoutRemoteWork() = runTest(dispatcher) {
+        val memoryRepository = MemoryRepository(recordStore = FakeMemoryRecordStore())
+        memoryRepository.indexPreference("pref-1", "回答尽量简洁")
+        memoryRepository.indexTaskState("task-1", "等待确认分享摘要")
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val executor = RecordingToolExecutor()
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            actionExecutor = executor,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("pref-1", "task-1"),
+            viewModel.uiState.value.longTermMemories.map { it.id },
+        )
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertTrue(executor.executedRequests.isEmpty())
+    }
+
+    @Test
+    fun forgetLongTermMemoryRefreshesUiAndMemoryIndex() = runTest(dispatcher) {
+        val memoryRepository = MemoryRepository(recordStore = FakeMemoryRecordStore())
+        memoryRepository.indexPreference("pref-1", "回答尽量简洁")
+        memoryRepository.indexTaskState("task-1", "等待确认分享摘要")
+        val viewModel = createViewModel(memoryRepository = memoryRepository)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.forgetLongTermMemory("pref-1")
+        advanceUntilIdle()
+
+        assertEquals(listOf("task-1"), viewModel.uiState.value.longTermMemories.map { it.id })
+        assertTrue(memoryRepository.search("简洁回答").isEmpty())
+        assertEquals("已遗忘这条记忆", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun clearLongTermMemoryDoesNotDeleteSessionOrCallRemoteRuntime() = runTest(dispatcher) {
+        val memoryRepository = MemoryRepository(recordStore = FakeMemoryRecordStore())
+        memoryRepository.indexPreference("pref-1", "回答尽量简洁")
+        val sessionStore = FakeSessionStore().apply {
+            messages = listOf(
+                ChatMessage(
+                    role = MessageRole.User,
+                    text = "普通会话内容",
+                    id = 10L,
+                ),
+            )
+        }
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        val messagesBeforeClear = sessionStore.messages
+        viewModel.clearLongTermMemory()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.longTermMemories.isEmpty())
+        assertTrue(memoryRepository.search("简洁回答").isEmpty())
+        assertEquals(messagesBeforeClear, sessionStore.messages)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals("长期记忆已清空", viewModel.uiState.value.statusText)
+    }
+
     private fun createViewModel(
         sessionStore: FakeSessionStore = FakeSessionStore(),
         modelRepository: FakeModelRepository = FakeModelRepository(),
@@ -378,6 +458,7 @@ class PocketMindViewModelTest {
         downloadClient: FakeModelDownloadClient = FakeModelDownloadClient(),
         runtime: FakeLiteRtRuntime = FakeLiteRtRuntime(),
         remoteRuntime: RecordingRemoteChatRuntime = RecordingRemoteChatRuntime(),
+        memoryRepository: MemoryRepository = MemoryRepository(),
         assistantRouter: FakeAssistantRouter = FakeAssistantRouter(),
         actionExecutor: ToolExecutor = object : ToolExecutor {
             override fun execute(request: ToolRequest): ToolResult =
@@ -397,7 +478,8 @@ class PocketMindViewModelTest {
             downloadService = downloadClient,
             runtime = runtime,
             remoteRuntime = remoteRuntime,
-            memoryRepository = MemoryRepository(),
+            memoryRepository = memoryRepository,
+            longTermMemoryControls = memoryRepository,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantRouter,
             isArm64DeviceProvider = { true },
@@ -550,6 +632,24 @@ class PocketMindViewModelTest {
 
         override fun persistActiveSessionFrom(messages: List<ChatMessage>) {
             this.messages = messages
+        }
+    }
+
+    private class FakeMemoryRecordStore : MemoryRecordStore {
+        private val records = linkedMapOf<String, PersistedMemoryRecord>()
+
+        override fun records(): List<PersistedMemoryRecord> =
+            records.values.toList()
+
+        override fun upsert(record: PersistedMemoryRecord) {
+            records[record.id] = record
+        }
+
+        override fun delete(id: String): Boolean =
+            records.remove(id) != null
+
+        override fun clear() {
+            records.clear()
         }
     }
 

@@ -56,10 +56,13 @@ API keys are stored with Android Keystore-backed encryption and are removed
 when the user clears the key field.
 
 Memory recall is currently a lightweight on-device token/hash index over saved
-sessions. Explicit preference and task-state records are persisted locally in
-Room and can be forgotten through the memory boundary; ordinary conversation
-memory is rebuilt from saved chat messages. Mobile actions can use the verified
-action model as an experimental planner; if it is missing or does not produce a supported
+sessions. Long-term memory now supports reviewing saved records, forgetting a
+single record, and clearing explicit memory records. Its persisted scope is only
+explicit preference and task-state records stored locally in Room; ordinary
+conversation recall is still rebuilt from saved chat-session history, and the
+dedicated embedding-model semantic memory is still pending. Mobile actions can
+use the verified action model as an experimental planner; if it is missing or
+does not produce a supported
 `call:function {...}` draft, PocketMind falls back to deterministic local rules
 and still requires explicit user confirmation before opening Android system
 pages, drafts, HTTPS links, or package-level app launches. After confirmation,

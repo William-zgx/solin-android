@@ -25,6 +25,7 @@ import com.bytedance.zgx.pocketmind.device.AndroidForegroundAppProvider
 import com.bytedance.zgx.pocketmind.device.AndroidNotificationSummaryProvider
 import com.bytedance.zgx.pocketmind.device.AndroidRecentFileProvider
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
+import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.memory.RoomMemoryRecordStore
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
@@ -116,6 +117,7 @@ class PocketMindAppContainer(context: Context) {
             runtime = localRuntime,
             remoteRuntime = remoteRuntime,
             memoryRepository = memoryRepository,
+            longTermMemoryControls = memoryRepository,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = {
@@ -137,6 +139,7 @@ private class PocketMindViewModelFactory(
     private val runtime: RealLiteRtRuntime,
     private val remoteRuntime: OkHttpRemoteChatRuntime,
     private val memoryRepository: MemoryRepository,
+    private val longTermMemoryControls: LongTermMemoryControls,
     private val actionExecutor: ToolExecutor,
     private val assistantOrchestrator: AssistantOrchestrator,
     private val isArm64DeviceProvider: () -> Boolean,
@@ -156,6 +159,7 @@ private class PocketMindViewModelFactory(
             runtime = runtime,
             remoteRuntime = remoteRuntime,
             memoryRepository = memoryRepository,
+            longTermMemoryControls = longTermMemoryControls,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = isArm64DeviceProvider,

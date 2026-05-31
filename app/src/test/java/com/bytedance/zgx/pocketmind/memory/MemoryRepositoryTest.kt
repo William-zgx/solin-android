@@ -99,6 +99,7 @@ class MemoryRepositoryTest {
 
         assertTrue(repository.search("简洁中文回答", topK = 3).isNotEmpty())
         assertTrue(store.records().isEmpty())
+        assertTrue(repository.savedRecords().isEmpty())
     }
 
     @Test
@@ -131,6 +132,41 @@ class MemoryRepositoryTest {
         afterForgetRepository.rebuild(emptyList())
         assertTrue(afterForgetRepository.search("简洁回答").isEmpty())
         assertEquals("task-1", afterForgetRepository.search("分享摘要确认").first().id)
+    }
+
+    @Test
+    fun savedRecordsListsOnlyPersistedLongTermRecords() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+        repository.index("conversation-1", "用户正在讨论京都旅行")
+        repository.indexPreference("pref-1", "回答尽量简洁")
+        repository.indexTaskState("task-1", "等待确认分享摘要")
+
+        val records = repository.savedRecords()
+
+        assertEquals(listOf("pref-1", "task-1"), records.map { it.id })
+        assertEquals(
+            listOf(MemoryRecordType.Preference, MemoryRecordType.TaskState),
+            records.map { it.type },
+        )
+        assertEquals("用户偏好：回答尽量简洁", records.first().text)
+        assertEquals("任务状态：等待确认分享摘要", records.last().text)
+    }
+
+    @Test
+    fun savedRecordsReflectForgetAndClear() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+        repository.indexPreference("pref-1", "回答尽量简洁")
+        repository.indexTaskState("task-1", "等待确认分享摘要")
+
+        assertEquals(2, repository.savedRecords().size)
+
+        assertTrue(repository.forget("pref-1"))
+        assertEquals(listOf("task-1"), repository.savedRecords().map { it.id })
+
+        repository.clear()
+        assertTrue(repository.savedRecords().isEmpty())
     }
 
     private class FakeMemoryRecordStore : MemoryRecordStore {

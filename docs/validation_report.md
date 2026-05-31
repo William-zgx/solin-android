@@ -1,5 +1,39 @@
 # PocketMind 验证报告
 
+## 2026-05-31 长期记忆查看/遗忘控制增量验证
+
+本轮覆盖项：
+
+- `MemoryRepository` 新增已保存长期记忆读取边界，只列出显式持久化的偏好
+  与任务状态记录，不把普通会话索引或历史 `记住：...` 临时抽取项展示为
+  长期记忆。
+- `PocketMindViewModel` 新增长期记忆状态流和单条遗忘/清空事件；遗忘后会
+  同步刷新 UI、内存索引和 Room 记录，清空长期记忆不会删除聊天会话。
+- “模型管理 > 高级 > 本地记忆”现在可查看已保存长期记忆、单条遗忘，并通过
+  二次确认清空显式长期记忆记录。
+- 远程模式下查看、遗忘或清空本地长期记忆不发起远程模型请求，也不会上传
+  记忆内容。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:lintDebug
+git diff --check
+```
+
+结果：通过。
+
+补充检查：
+
+- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+  Authorization Bearer token 被写入文件。
+- 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
+
 ## 2026-05-31 Deep Link / App Intent 执行边界增量验证
 
 本轮覆盖项：

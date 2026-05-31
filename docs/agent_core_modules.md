@@ -317,19 +317,19 @@ Responsibilities:
 Current status:
 
 - Implemented lightweight token/hash memory over saved sessions.
-- Added explicit long-term memory controls for preference records, task-state
-  records, forgetting individual records, and clearing the index.
+- Added explicit long-term memory controls for reviewing saved records,
+  forgetting a single record, and clearing explicit memory records.
 - Explicit preference and task-state records are now persisted in Room and
   reloaded during memory rebuild; ordinary conversation-derived memory remains
   rebuilt from saved chat messages instead of duplicated into the memory table.
 - `rebuild` extracts simple explicit user preference statements such as
   `记住：...` / `remember ...`.
-- Dedicated embedding-model semantic memory and UI controls for reviewing or
-  forgetting saved records are pending.
+- Dedicated embedding-model semantic memory is still pending.
 
 Tests:
 
 - `MemoryRepositoryTest`
+- `PocketMindViewModelTest`
 
 ## Background Tasks
 

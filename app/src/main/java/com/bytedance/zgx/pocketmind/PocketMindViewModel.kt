@@ -20,8 +20,8 @@ import com.bytedance.zgx.pocketmind.data.SessionStore
 import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
 import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
+import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
-import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
@@ -60,6 +60,7 @@ class PocketMindViewModel(
     private val runtime: LiteRtRuntime,
     private val remoteRuntime: RemoteChatRuntime,
     private val memoryRepository: MemoryIndex,
+    private val longTermMemoryControls: LongTermMemoryControls,
     private val actionExecutor: ToolExecutor,
     private val assistantOrchestrator: AssistantRouter,
     private val isArm64DeviceProvider: () -> Boolean,
@@ -195,6 +196,33 @@ class PocketMindViewModel(
                 memoryEnabled = enabled,
                 memoryHits = if (enabled) it.memoryHits else emptyList(),
                 statusText = if (enabled) "本地记忆已开启" else "本地记忆已关闭",
+            )
+        }
+    }
+
+    fun forgetLongTermMemory(memoryId: String) {
+        if (_uiState.value.isBusy) return
+        val removed = longTermMemoryControls.forget(memoryId)
+        rebuildMemoryIndex()
+        val records = loadLongTermMemories()
+        _uiState.update {
+            it.copy(
+                longTermMemories = records,
+                memoryHits = it.memoryHits.filterNot { hit -> hit.id == memoryId },
+                statusText = if (removed) "已遗忘这条记忆" else "未找到这条记忆",
+            )
+        }
+    }
+
+    fun clearLongTermMemory() {
+        if (_uiState.value.isBusy) return
+        longTermMemoryControls.clear()
+        rebuildMemoryIndex()
+        _uiState.update {
+            it.copy(
+                longTermMemories = emptyList(),
+                memoryHits = emptyList(),
+                statusText = "长期记忆已清空",
             )
         }
     }
@@ -1547,6 +1575,7 @@ class PocketMindViewModel(
             backend = generationParametersRepository.loadBackend(),
             showFirstRunSetup = !firstRunSetupRepository.isSetupDismissed(),
             memoryEnabled = firstRunSetupRepository.isMemoryEnabled(),
+            longTermMemories = loadLongTermMemories(),
             generationParameters = generationParametersRepository.load(),
             sessions = sessionRepository.summaries(),
             activeSessionId = sessionRepository.activeSessionId,
@@ -1620,6 +1649,15 @@ class PocketMindViewModel(
         memoryRepository.enabled = _uiState.value.memoryEnabled
         memoryRepository.rebuild(sessionRepository.allMessages(limit = 500))
     }
+
+    private fun loadLongTermMemories(): List<LongTermMemorySummary> =
+        longTermMemoryControls.savedRecords().map { record ->
+            LongTermMemorySummary(
+                id = record.id,
+                type = record.type,
+                text = record.text,
+            )
+        }
 
     private fun restorePendingAgentConfirmationIfAny() {
         val route = assistantOrchestrator.restorePendingAction() ?: return

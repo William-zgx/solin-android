@@ -77,6 +77,8 @@ class MainActivity : ComponentActivity() {
                     onDownloadSetupModels = viewModel::startSetupModelDownload,
                     onSkipFirstRunSetup = viewModel::skipFirstRunSetup,
                     onMemoryEnabledChanged = viewModel::updateMemoryEnabled,
+                    onForgetLongTermMemory = viewModel::forgetLongTermMemory,
+                    onClearLongTermMemory = viewModel::clearLongTermMemory,
                     onConfirmAgentConfirmation = ::confirmAgentConfirmationWithPermissions,
                     onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
                     onSendMessage = viewModel::sendMessage,
