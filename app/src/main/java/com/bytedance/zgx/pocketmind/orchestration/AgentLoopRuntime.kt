@@ -533,6 +533,9 @@ class AgentLoopRuntime(
     }
 
     private fun planToolIfSupported(input: String, actionModelPath: String?): AgentPlan? {
+        skillRuntime.plan(input)?.let { skillPlan ->
+            return buildInitialToolPlanFromSkill(skillPlan)
+        }
         if (!actionPlanningRuntime.isLikelyAction(input)) return null
         val result = actionPlanningRuntime.plan(input, actionModelPath)
         val draft = result.plan.draft
@@ -543,6 +546,41 @@ class AgentLoopRuntime(
             reason = draft.summary,
         )
         val skillPlan = skillRuntime.plan(input, draft, request)
+        return buildInitialToolPlan(
+            request = request,
+            draft = draft,
+            plannedByModel = result.usedModel,
+            fallbackReason = result.fallbackReason,
+            skillPlan = skillPlan,
+        )
+    }
+
+    private fun buildInitialToolPlanFromSkill(skillPlan: SkillPlan): AgentPlan? {
+        val toolStep = skillPlan.steps.firstOrNull() as? SkillStep.ToolStep
+            ?: return null
+        if (toolStep.dependsOn.isNotEmpty()) return null
+        val validation = skillPlan.validateStructure()
+        if (!validation.isValid) {
+            return AgentPlan.RejectedTool(
+                toolStep.request.rejected("Invalid skill plan: ${validation.errors.joinToString()}"),
+            )
+        }
+        return buildInitialToolPlan(
+            request = toolStep.request,
+            draft = toolStep.draft,
+            plannedByModel = false,
+            fallbackReason = "skill-first",
+            skillPlan = skillPlan,
+        )
+    }
+
+    private fun buildInitialToolPlan(
+        request: ToolRequest,
+        draft: ActionDraft,
+        plannedByModel: Boolean,
+        fallbackReason: String?,
+        skillPlan: SkillPlan?,
+    ): AgentPlan {
         val rejection = toolRegistry.validate(request)
         if (rejection != null) return AgentPlan.RejectedTool(rejection)
         val spec = toolRegistry.specFor(request.toolName)
@@ -556,8 +594,8 @@ class AgentLoopRuntime(
         return AgentPlan.UseTool(
             request = request,
             draft = draft,
-            plannedByModel = result.usedModel,
-            fallbackReason = result.fallbackReason,
+            plannedByModel = plannedByModel,
+            fallbackReason = fallbackReason,
             skillRequest = skillPlan?.request,
             skillPlan = skillPlan,
             safetyDecision = safetyDecision,

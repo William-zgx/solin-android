@@ -119,6 +119,42 @@ class BuiltInSkillRuntimeTest {
     }
 
     @Test
+    fun plansClipboardSummaryShareWithoutActionDraft() {
+        val plan = runtime.plan("总结剪贴板并分享")
+
+        requireNotNull(plan)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, plan.request.skillId)
+        assertEquals(3, plan.steps.size)
+        val readStep = plan.steps.first()
+        require(readStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, readStep.request.toolName)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, readStep.draft.functionName)
+        assertTrue(plan.validateStructure().isValid)
+    }
+
+    @Test
+    fun plansClipboardContextWithoutActionDraft() {
+        val plan = runtime.plan("读取剪贴板")
+
+        requireNotNull(plan)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL, plan.request.skillId)
+        assertEquals(1, plan.steps.size)
+        val readStep = plan.steps.single()
+        require(readStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, readStep.request.toolName)
+        assertEquals("将读取当前剪贴板文本。", readStep.request.reason)
+        assertTrue(readStep.draft.requiresConfirmation)
+        assertTrue(plan.validateStructure().isValid)
+    }
+
+    @Test
+    fun skillFirstPlannerDoesNotTreatOrdinaryShareDiscussionAsShareTool() {
+        val plan = runtime.plan("分享一下你对端侧 Agent 的看法")
+
+        assertEquals(null, plan)
+    }
+
+    @Test
     fun plansShareTextAsShareSheetToolStep() {
         val draft = ActionDraft(
             functionName = MobileActionFunctions.SHARE_TEXT,

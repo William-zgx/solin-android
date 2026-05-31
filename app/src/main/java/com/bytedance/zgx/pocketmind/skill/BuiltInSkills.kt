@@ -22,6 +22,26 @@ class BuiltInSkillRuntime : SkillRuntime {
 
     override fun manifests(): List<SkillManifest> = builtInSkillManifests
 
+    override fun plan(input: String): SkillPlan? =
+        when {
+            input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
+            input.requestsClipboardContext() -> {
+                val draft = ActionDraft(
+                    functionName = MobileActionFunctions.READ_CLIPBOARD,
+                    title = "读取剪贴板",
+                    summary = "将读取当前剪贴板文本。",
+                    parameters = emptyMap(),
+                )
+                val request = ToolRequest(
+                    toolName = MobileActionFunctions.READ_CLIPBOARD,
+                    reason = draft.summary,
+                )
+                plan(input, draft, request)
+            }
+
+            else -> null
+        }
+
     override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? {
         if (request.toolName == MobileActionFunctions.READ_CLIPBOARD && input.requestsClipboardSummaryShare()) {
             return planClipboardSummaryShare(
@@ -130,6 +150,15 @@ private fun String.requestsClipboardSummaryShare(): Boolean {
     val asksToShare = "分享" in this ||
         Regex("""\bshare\b""").containsMatchIn(normalized)
     return referencesClipboard && asksForSummary && asksToShare
+}
+
+private fun String.requestsClipboardContext(): Boolean {
+    val normalized = lowercase()
+    val referencesClipboard = "剪贴板" in this || "clipboard" in normalized
+    val asksToRead = listOf("读取", "读一下", "看看", "查看", "总结", "摘要", "概括").any { it in this } ||
+        Regex("""\b(read|summarize|summary|recap)\b""").containsMatchIn(normalized)
+    val asksToShare = "分享" in this || Regex("""\bshare\b""").containsMatchIn(normalized)
+    return referencesClipboard && asksToRead && !asksToShare
 }
 
 private val simpleTextInputSchema = """

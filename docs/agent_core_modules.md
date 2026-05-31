@@ -69,6 +69,10 @@ Non-responsibilities:
 Current status:
 
 - Implemented single-run planning for chat and tool requests.
+- Implemented conservative Skill-first routing for explicit clipboard context
+  and clipboard-summary-share requests. These requests can enter
+  `AwaitingUserConfirmation` without first being classified by the action
+  planner, because their first tool step does not require parameter extraction.
 - Implemented confirmation state and post-confirmation observation.
 - Confirmed clipboard observations can now create a follow-up model prompt so
   the assistant can answer from the just-read tool result instead of stopping at
@@ -97,7 +101,9 @@ Current status:
   restored on startup as UI confirmation state only. Restoration does not
   execute tools; explicit user confirmation is still required before Android
   execution can continue.
-- General model-driven next-step planning, generalized multi-step skill UI
+- General Skill-first routing for parameter-heavy skills such as email, calendar
+  drafts, routes, and reminders still depends on action-planner extraction.
+  General model-driven next-step planning, generalized multi-step skill UI
   orchestration beyond the clipboard summary share flow, and generalized typed
   run timeline recovery are still pending.
 
@@ -108,12 +114,16 @@ Tests:
 - `AgentLoopRuntimeCompatibilityTest`
 - `AgentLoopRuntimeTest.successfulObservationCanPlanNextToolAndRequestConfirmationAgain`
 - `AgentLoopRuntimeTest.replannedToolCannotReuseExistingRequestId`
+- `AgentLoopRuntimeTest.skillFirstClipboardSummaryShareBypassesActionPlannerAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.skillFirstClipboardContextBypassesActionPlannerAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.skillFirstPlanStillUsesRegistryAndRejectsInvalidToolArguments`
 - `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
 - `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
 - `AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace`
 - `PocketMindViewModelTest.restoreStartupStateRestoresPendingAgentConfirmationWithoutExecutingTool`
 - `AssistantOrchestratorTest.defaultSequentialReplannerPlansExplicitNextActionAfterObservation`
 - `AssistantOrchestratorTest.clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation`
+- `AssistantOrchestratorTest.skillFirstClipboardSummaryShareRoutesEvenWhenActionRuntimeDoesNotClassifyAction`
 
 ## Skill Framework
 
@@ -136,6 +146,8 @@ Current status:
 
 - Implemented `SkillManifest`, `SkillRequest`, `SkillPlan`, `SkillStep`, and
   `SkillRuntime`.
+- `SkillRuntime` now exposes an optional Skill-first planner for requests that
+  can safely build their first tool step from the raw user input.
 - Implemented built-in manifests for email drafts, calendar drafts, map search,
   information lookup, device settings, background reminders, clipboard context,
   and system text sharing.
@@ -145,6 +157,8 @@ Current status:
 - Added `clipboard_summary_share_skill` as the first composite skill contract:
   it reads clipboard text after confirmation, keeps the transform local, then
   binds the generated summary into the system share tool.
+- Explicit clipboard context and clipboard-summary-share inputs can now be
+  planned directly by the built-in Skill runtime before action planning.
 - This composite skill is now wired into the app loop for one conservative
   flow: read clipboard, summarize locally, request explicit confirmation for
   the share sheet. Other composite skills still need their own UI orchestration.
@@ -164,6 +178,9 @@ Tests:
 - `BuiltInSkillRuntimeTest`
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareAsOrderedCompositeSkill`
 - `BuiltInSkillRuntimeTest.routesClipboardSummaryShareInputToCompositePlan`
+- `BuiltInSkillRuntimeTest.plansClipboardSummaryShareWithoutActionDraft`
+- `BuiltInSkillRuntimeTest.plansClipboardContextWithoutActionDraft`
+- `BuiltInSkillRuntimeTest.skillFirstPlannerDoesNotTreatOrdinaryShareDiscussionAsShareTool`
 - `BuiltInSkillRuntimeTest.validateStructureRejectsUnorderedOrInvalidCompositePlan`
 - `SkillRunExecutorTest`
 - `ToolSchemaContractTest`

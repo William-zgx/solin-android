@@ -1,5 +1,44 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Skill-first 剪贴板 Skill 路由增量验证
+
+本轮覆盖项：
+
+- `SkillRuntime` 增加可选 Skill-first planner，用于无需 action-planner
+  参数抽取的明确 Skill 请求。
+- 内置 Skill runtime 可直接把“读取剪贴板”和“总结剪贴板并分享”规划为
+  SkillPlan。
+- Agent loop 在 action planner 前尝试 Skill-first；“总结剪贴板并分享”即使
+  `ActionPlanningRuntime.isLikelyAction=false` 也会进入首个 `read_clipboard`
+  确认。
+- Skill-first 仍走 Tool Registry 校验、SafetyPolicy、trace、audit 和
+  pending confirmation，不直接执行工具。
+- 邮件、日程、路线、提醒等需要结构化参数的 Skill 仍依赖 action planner
+  抽取参数。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest'
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+git diff --check
+rg credential-pattern scan excluding build and .gradle outputs
+adb devices -l
+```
+
+结果：
+
+- 通过：targeted `BuiltInSkillRuntimeTest`、`AgentLoopRuntimeTest` 和
+  `AssistantOrchestratorTest`。
+- 通过：完整 `:app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug`。
+- 通过：`git diff --check`。
+- 通过：敏感配置扫描无匹配。
+- 未执行模拟器回归：当前环境缺少 `adb` 命令。
+
 ## 2026-05-31 App 内附件选择入口增量验证
 
 本轮覆盖项：

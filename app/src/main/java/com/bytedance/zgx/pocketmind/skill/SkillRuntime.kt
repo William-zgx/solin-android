@@ -5,5 +5,6 @@ import com.bytedance.zgx.pocketmind.tool.ToolRequest
 
 interface SkillRuntime {
     fun manifests(): List<SkillManifest>
+    fun plan(input: String): SkillPlan? = null
     fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan?
 }

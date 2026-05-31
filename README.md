@@ -22,6 +22,7 @@ Google AI Edge LiteRT-LM.
 - Confirmed Android runtime permission requests for tools that need calendar, contact, media, or notification access.
 - Confirmed external navigation for safe HTTPS deep links and package-level app launches.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map search, information lookup, device settings, local reminders, clipboard context, and system sharing.
+- Skill-first routing for explicit clipboard context and clipboard-summary-share requests that do not need action-planner parameter extraction.
 - A conservative clipboard-summary-share composite flow that keeps summarization local and asks again before opening the Android share sheet.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
 - Running background task review for still-scheduled reminders and periodic checks, including explicit cancellation.
@@ -115,9 +116,9 @@ any remote model request is made.
 Agent and skill module responsibilities are documented in
 `docs/agent_core_modules.md`. The current code includes the Tool Registry,
 single-run Agent planning, confirmation, tool observation, built-in one-step and
-one conservative clipboard-summary-share composite flow, conservative
-observe-after-success replanning for explicit next actions, a gated skill-run
-executor, minimal device context
+one conservative skill-first clipboard-summary-share composite flow,
+conservative observe-after-success replanning for explicit next actions, a
+gated skill-run executor, minimal device context
 snapshots, safety policy, persistent tool audit, long-term memory controls,
 local reminder scheduling, running background task review/cancellation,
 confirmed clipboard/device-context reads, outbound text sharing, safe HTTPS

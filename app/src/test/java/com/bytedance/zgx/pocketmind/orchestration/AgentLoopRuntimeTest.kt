@@ -13,6 +13,12 @@ import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
+import com.bytedance.zgx.pocketmind.skill.SkillManifest
+import com.bytedance.zgx.pocketmind.skill.SkillPlan
+import com.bytedance.zgx.pocketmind.skill.SkillRequest
+import com.bytedance.zgx.pocketmind.skill.SkillRuntime
+import com.bytedance.zgx.pocketmind.skill.SkillStep
+import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
@@ -230,6 +236,126 @@ class AgentLoopRuntimeTest {
         assertEquals(MobileActionFunctions.READ_CLIPBOARD, result.plan.request.toolName)
         assertEquals(BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
         assertEquals(SafetyOutcome.RequireConfirmation, result.plan.safetyDecision.outcome)
+    }
+
+    @Test
+    fun skillFirstClipboardSummaryShareBypassesActionPlannerAndRequestsConfirmation() {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "总结剪贴板并分享",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, result.plan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals(3, result.plan.skillPlan?.steps?.size)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.planCallCount)
+        val pending = runtime.latestPendingConfirmation()
+        requireNotNull(pending)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, pending.skillId)
+        assertEquals(result.plan.skillPlan, pending.skillPlan)
+        assertTrue(result.steps.any { step ->
+            step is AgentStep.SkillPlanned &&
+                step.plan?.request?.skillId == BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL
+        })
+    }
+
+    @Test
+    fun skillFirstClipboardContextBypassesActionPlannerAndRequestsConfirmation() {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "读取剪贴板",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, result.plan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.planCallCount)
+    }
+
+    @Test
+    fun skillFirstPlanStillUsesRegistryAndRejectsInvalidToolArguments() {
+        val invalidSkillRuntime = object : SkillRuntime {
+            private val manifest = SkillManifest(
+                id = "invalid_email_skill",
+                version = 1,
+                title = "Invalid email",
+                description = "Invalid direct skill for test",
+                triggerExamples = listOf("invalid email"),
+                requiredTools = listOf(MobileActionFunctions.COMPOSE_EMAIL),
+                inputSchemaJson = """{"type":"object","additionalProperties":false}""",
+                riskLevel = RiskLevel.MediumDraftOrNavigation,
+            )
+
+            override fun manifests(): List<SkillManifest> = listOf(manifest)
+
+            override fun plan(input: String): SkillPlan =
+                SkillPlan(
+                    request = SkillRequest(
+                        id = "invalid-skill-request",
+                        skillId = manifest.id,
+                        arguments = emptyMap(),
+                        reason = input,
+                    ),
+                    manifest = manifest,
+                    steps = listOf(
+                        SkillStep.ToolStep(
+                            id = "compose_email",
+                            request = ToolRequest(
+                                toolName = MobileActionFunctions.COMPOSE_EMAIL,
+                                arguments = emptyMap(),
+                                reason = "invalid direct skill",
+                            ),
+                            draft = ActionDraft(
+                                functionName = MobileActionFunctions.COMPOSE_EMAIL,
+                                title = "邮件草稿",
+                                summary = "invalid direct skill",
+                                parameters = emptyMap(),
+                            ),
+                        ),
+                    ),
+                )
+
+            override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+        }
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = invalidSkillRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "invalid email",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.Failed, result.run.state)
+        require(result.plan is AgentPlan.RejectedTool)
+        assertEquals(ToolStatus.Rejected, result.plan.result.status)
+        assertTrue(result.plan.result.summary.contains("requires argument"))
+        assertEquals(null, runtime.latestPendingConfirmation())
     }
 
     @Test

@@ -2,11 +2,13 @@ package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.action.ActionPlan
+import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
+import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import org.junit.Assert.assertEquals
@@ -130,6 +132,29 @@ class AssistantOrchestratorTest {
         assertEquals("摘要文本", modelObserved.decision.plan.request.arguments["text"])
     }
 
+    @Test
+    fun skillFirstClipboardSummaryShareRoutesEvenWhenActionRuntimeDoesNotClassifyAction() {
+        val orchestrator = AssistantOrchestrator(MemoryRepository(), NeverActionRuntime())
+
+        val route = orchestrator.route(
+            input = "总结剪贴板并分享",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        require(route is AssistantRoute.Action)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, route.toolRequest?.toolName)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, route.skillId)
+        assertEquals("skill-first", route.fallbackReason)
+        assertTrue(route.runId != null)
+
+        val restored = orchestrator.restorePendingAction()
+        requireNotNull(restored)
+        assertEquals(route.runId, restored.runId)
+        assertEquals(route.toolRequest, restored.toolRequest)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, restored.skillId)
+    }
+
     private class RuleActionRuntime : ActionPlanningRuntime {
         private val planner = MobileActionPlanner()
 
@@ -144,5 +169,16 @@ class AssistantOrchestratorTest {
                 fallbackReason = "test fallback",
             )
         }
+    }
+
+    private class NeverActionRuntime : ActionPlanningRuntime {
+        override fun isLikelyAction(input: String): Boolean = false
+
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
+            ActionPlanningResult(
+                plan = ActionPlan(ActionPlanKind.NoAction),
+                usedModel = false,
+                fallbackReason = null,
+            )
     }
 }
