@@ -142,6 +142,54 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun voiceTranscriptDraftIsOneShotAndDoesNotSendMessage() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val executor = RecordingToolExecutor()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            actionExecutor = executor,
+        )
+
+        viewModel.acceptVoiceTranscript("  帮我\n总结今天会议  ")
+        advanceUntilIdle()
+
+        val draft = viewModel.uiState.value.voiceInputDraft
+        assertEquals("帮我 总结今天会议", draft?.text)
+        assertTrue((draft?.id ?: 0L) > 0L)
+        assertTrue(sessionStore.messages.isEmpty())
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertTrue(executor.executedRequests.isEmpty())
+
+        viewModel.consumeVoiceInputDraft(draft!!.id)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.voiceInputDraft)
+        viewModel.consumeVoiceInputDraft(draft.id)
+        assertEquals(null, viewModel.uiState.value.voiceInputDraft)
+    }
+
+    @Test
+    fun newVoiceTranscriptReplacesUnconsumedDraftAndOldConsumeDoesNotClearIt() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+
+        viewModel.acceptVoiceTranscript("第一段")
+        val first = viewModel.uiState.value.voiceInputDraft!!
+        viewModel.acceptVoiceTranscript("第二段")
+        val second = viewModel.uiState.value.voiceInputDraft!!
+
+        assertTrue(second.id > first.id)
+        assertEquals("第二段", second.text)
+
+        viewModel.consumeVoiceInputDraft(first.id)
+        assertEquals(second, viewModel.uiState.value.voiceInputDraft)
+
+        viewModel.consumeVoiceInputDraft(second.id)
+        assertEquals(null, viewModel.uiState.value.voiceInputDraft)
+    }
+
+    @Test
     fun clipboardSummaryShareShowsSecondConfirmationAfterLocalSummary() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()

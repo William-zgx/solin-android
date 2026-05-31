@@ -53,6 +53,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+private const val MAX_VOICE_TRANSCRIPT_CHARS = 2_000
+
 class PocketMindViewModel(
     private val modelRepository: ModelRepositoryFacade,
     private val sessionRepository: SessionStore,
@@ -78,6 +80,7 @@ class PocketMindViewModel(
     private val setupDownloadQueue = ArrayDeque<ModelDownloadSource>()
     private var setupDownloadInProgress = false
     private var startupRestored = false
+    private var nextVoiceInputDraftId = 0L
 
     private val _uiState = MutableStateFlow(createInitialState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -261,6 +264,39 @@ class PocketMindViewModel(
     fun refreshAuditEvents() {
         _uiState.update {
             it.copy(auditEvents = loadAuditEvents())
+        }
+    }
+
+    fun acceptVoiceTranscript(transcript: String) {
+        val cleaned = transcript
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+            .take(MAX_VOICE_TRANSCRIPT_CHARS)
+        if (cleaned.isBlank()) return
+        _uiState.update {
+            it.copy(
+                voiceInputDraft = VoiceInputDraft(
+                    id = ++nextVoiceInputDraftId,
+                    text = cleaned,
+                ),
+                statusText = "语音已转写",
+            )
+        }
+    }
+
+    fun consumeVoiceInputDraft(draftId: Long) {
+        _uiState.update {
+            if (it.voiceInputDraft?.id == draftId) {
+                it.copy(voiceInputDraft = null)
+            } else {
+                it
+            }
+        }
+    }
+
+    fun reportVoiceInputUnavailable(message: String = "语音输入不可用") {
+        _uiState.update {
+            it.copy(statusText = message)
         }
     }
 

@@ -101,6 +101,11 @@ data class AuditEventSummary(
     val createdAtMillis: Long,
 )
 
+data class VoiceInputDraft(
+    val id: Long,
+    val text: String,
+)
+
 data class PendingAgentConfirmation(
     val runId: String?,
     val draft: ActionDraft,
@@ -163,6 +168,7 @@ data class ChatUiState(
     val sessions: List<ChatSessionSummary> = emptyList(),
     val activeSessionId: String? = null,
     val messages: List<ChatMessage> = emptyList(),
+    val voiceInputDraft: VoiceInputDraft? = null,
 ) {
     val selectedRecommendedModel: RecommendedModel
         get() = ModelCatalog.recommendedChatModelById(selectedModelId)

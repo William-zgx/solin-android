@@ -408,19 +408,25 @@ Current status:
   `ACTION_SEND_MULTIPLE`.
 - Implemented privacy-minimal `SharedInput` prompts for text plus attachment
   metadata such as kind, MIME type, display name, and byte size.
+- Implemented a voice input entry that launches Android system speech
+  recognition and returns the transcript as a one-shot compose-box draft.
+  Transcripts are not auto-sent, do not create chat messages until the user
+  taps send, and do not trigger model generation by themselves.
 - Shared-input prompts are marked `LocalOnly` when generated automatically, so
   local processing can continue without later leaking the prompt or local
   assistant response into remote chat history.
 - The app does not read image, audio, video, PDF, or document bytes yet; it only
-  records metadata in the user-visible prompt. Voice capture, screenshot
-  capture, gallery picker, OCR, image understanding, and document parsing are
-  pending.
+  records metadata in the user-visible prompt. The voice entry does not read or
+  parse audio files. Screenshot capture, gallery picker, OCR, image
+  understanding, and document parsing are pending.
 
 Tests:
 
 - `SharedInputTest`
 - `PocketMindViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory`
 - `PocketMindViewModelTest.remoteModeRejectsLocalOnlyPromptBeforeCallingRemoteRuntime`
+- `PocketMindViewModelTest.voiceTranscriptDraftIsOneShotAndDoesNotSendMessage`
+- `MainActivitySmokeTest` composer voice entry visibility
 
 ## Regression Strategy
 

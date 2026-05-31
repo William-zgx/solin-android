@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
@@ -159,6 +160,8 @@ fun PocketMindScreen(
     onConfirmAgentConfirmation: (PendingAgentConfirmation) -> Unit,
     onDismissAgentConfirmation: () -> Unit,
     onSendMessage: (String) -> Unit,
+    onStartVoiceInput: () -> Unit,
+    onVoiceInputConsumed: (Long) -> Unit,
     onStopGeneration: () -> Unit,
 ) {
     val pickModel = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -177,6 +180,11 @@ fun PocketMindScreen(
         if (state.messages.isNotEmpty()) {
             listState.animateScrollToItem(state.messages.lastIndex)
         }
+    }
+    LaunchedEffect(state.voiceInputDraft?.id) {
+        val draft = state.voiceInputDraft ?: return@LaunchedEffect
+        input = appendComposerInput(input, draft.text)
+        onVoiceInputConsumed(draft.id)
     }
 
     Surface(
@@ -256,6 +264,7 @@ fun PocketMindScreen(
                     input = input,
                     onInputChanged = { input = it },
                     onOpenModelManager = { showModelManager = true },
+                    onStartVoiceInput = onStartVoiceInput,
                     onSend = {
                         val message = input
                         input = ""
@@ -357,6 +366,16 @@ fun PocketMindScreen(
                 }
             }
         }
+    }
+}
+
+private fun appendComposerInput(current: String, addition: String): String {
+    val cleaned = addition.trim()
+    if (cleaned.isBlank()) return current
+    return if (current.isBlank()) {
+        cleaned
+    } else {
+        current.trimEnd() + "\n" + cleaned
     }
 }
 
@@ -2681,6 +2700,7 @@ private fun Composer(
     input: String,
     onInputChanged: (String) -> Unit,
     onOpenModelManager: () -> Unit,
+    onStartVoiceInput: () -> Unit,
     onSend: () -> Unit,
     onStopGeneration: () -> Unit,
 ) {
@@ -2785,6 +2805,34 @@ private fun Composer(
                 maxLines = 5,
                 placeholder = { Text(placeholder) },
             )
+
+            IconButton(
+                modifier = Modifier
+                    .height(52.dp)
+                    .width(52.dp)
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        shape = CircleShape,
+                    )
+                    .testTag("composer_voice_button")
+                    .semantics {
+                        contentDescription = "语音输入"
+                    },
+                onClick = onStartVoiceInput,
+                enabled = inputEnabled,
+                colors = IconButtonDefaults.iconButtonColors(
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.58f),
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.34f),
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Mic,
+                    contentDescription = null,
+                )
+            }
 
             IconButton(
                 modifier = Modifier

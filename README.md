@@ -97,6 +97,9 @@ Shared text or attachments from other Android apps are ingested as
 privacy-minimal multimodal prompts: PocketMind records user-visible text plus
 attachment metadata for local processing, but it does not read file contents
 yet and does not auto-upload shared content in remote mode.
+Voice input uses Android system speech recognition and inserts the transcript
+into the compose box only; sending remains explicit, and PocketMind does not
+read audio files for this path.
 Automatically generated shared-input and clipboard-derived messages are marked
 local-only, filtered from remote history, and rejected as current prompts before
 any remote model request is made.
@@ -111,8 +114,8 @@ snapshots, safety policy, persistent tool audit, long-term memory controls,
 local reminder scheduling, running background task review/cancellation,
 confirmed clipboard/device-context reads, outbound text sharing, safe HTTPS
 deep-link navigation, package-level app launches, Android share intent metadata
-ingestion, and restart restoration for the latest pending tool confirmation
-without auto-execution. Broad screen understanding,
+ingestion, system speech-recognition input, and restart restoration for the
+latest pending tool confirmation without auto-execution. Broad screen understanding,
 generalized typed run recovery, direct file-content parsing, and actual
 image/audio/document understanding are tracked there as pending core modules.
 

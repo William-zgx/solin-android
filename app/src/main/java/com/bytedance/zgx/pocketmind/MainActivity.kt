@@ -1,11 +1,13 @@
 package com.bytedance.zgx.pocketmind
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.speech.RecognizerIntent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -31,6 +33,20 @@ class MainActivity : ComponentActivity() {
     ) {
         pendingRuntimePermissionConfirmation?.let(viewModel::confirmAgentConfirmation)
         pendingRuntimePermissionConfirmation = null
+    }
+    private val voiceInputLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) {
+            viewModel.reportVoiceInputUnavailable("语音输入已取消")
+            return@registerForActivityResult
+        }
+        val transcript = result.data?.recognizedSpeechText()
+        if (transcript.isNullOrBlank()) {
+            viewModel.reportVoiceInputUnavailable("未识别到语音")
+        } else {
+            viewModel.acceptVoiceTranscript(transcript)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,6 +101,8 @@ class MainActivity : ComponentActivity() {
                     onConfirmAgentConfirmation = ::confirmAgentConfirmationWithPermissions,
                     onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
                     onSendMessage = viewModel::sendMessage,
+                    onStartVoiceInput = ::startVoiceInput,
+                    onVoiceInputConsumed = viewModel::consumeVoiceInputDraft,
                     onStopGeneration = viewModel::stopGeneration,
                 )
             }
@@ -99,6 +117,16 @@ class MainActivity : ComponentActivity() {
 
     private fun handleSharedIntent(intent: Intent?) {
         ShareIntentReader(this).read(intent)?.let(viewModel::ingestSharedInput)
+    }
+
+    private fun startVoiceInput() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, "开始说话")
+        runCatching { voiceInputLauncher.launch(intent) }
+            .onFailure {
+                viewModel.reportVoiceInputUnavailable("当前设备没有可用语音识别服务")
+            }
     }
 
     private fun confirmAgentConfirmationWithPermissions(confirmation: PendingAgentConfirmation) {
@@ -133,3 +161,9 @@ class MainActivity : ComponentActivity() {
             }.getOrDefault(false)
     }
 }
+
+private fun Intent.recognizedSpeechText(): String? =
+    getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+        ?.firstOrNull()
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
