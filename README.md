@@ -32,10 +32,11 @@ Google AI Edge LiteRT-LM.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
 - Running background task review for still-scheduled reminders and periodic checks, including explicit cancellation.
 - Recent tool audit review from the background task entry, limited to redacted event metadata.
-- Android share-target and in-app attachment picker entries for shared text and
-  bounded local `text/*` document excerpts; image, audio, video, PDF, Office,
-  and binary attachments remain metadata-only, plus confirmed outbound system
-  sharing for text.
+- Android share-target and in-app attachment picker entries for shared text,
+  bounded local `text/*` document excerpts, and bounded local OCR excerpts from
+  user-provided `image/*` attachments; audio, video, PDF, Office, and binary
+  attachments remain metadata-only, plus confirmed outbound system sharing for
+  text.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
 - Local chat sessions with create, switch, and delete actions.
 - Stop button while a response is being generated.
@@ -109,9 +110,10 @@ Requests such as “分享这段文字...” open Android's system share panel t
 Shared text or attachments from other Android apps, as well as files selected
 through the in-app attachment picker, are ingested as privacy-minimal
 multimodal prompts: PocketMind records user-visible shared text, may produce
-bounded local text excerpts for `text/*` documents, and keeps attachment
-metadata for local processing. Binary, image, audio, video, PDF, Office, and
-other non-text attachments remain metadata-only. Automatically generated
+bounded local text excerpts for `text/*` documents, may produce bounded local
+OCR excerpts for user-provided `image/*` attachments, and keeps attachment
+metadata for local processing. Binary, audio, video, PDF, Office, and other
+unsupported attachments remain metadata-only. Automatically generated
 shared-input excerpts and metadata are marked `LocalOnly` and are not
 auto-uploaded in remote mode.
 Voice input uses Android system speech recognition and inserts the transcript
@@ -134,8 +136,9 @@ deep-link navigation, package-level app launches, Android share intent and
 in-app picker text plus bounded `text/*` document excerpt ingestion, system
 speech-recognition input, and restart restoration for the latest pending tool
 confirmation without auto-execution. Broad screen understanding, generalized
-typed run recovery, complete document parsing, OCR, Office/PDF parsing, and
-media content understanding are tracked there as pending core modules.
+typed run recovery, complete document parsing, screenshot capture/OCR,
+Office/PDF parsing, image semantic understanding, and media content
+understanding are tracked there as pending core modules.
 
 ## Recommended Models
 

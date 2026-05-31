@@ -74,6 +74,8 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.litertlm.android)
+    implementation(libs.mlkit.text.recognition)
+    implementation(libs.mlkit.text.recognition.chinese)
     implementation(libs.okhttp)
 
     ksp(libs.androidx.room.compiler)

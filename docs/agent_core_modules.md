@@ -655,9 +655,11 @@ Code:
 
 Responsibilities:
 
-- Accept user-initiated shared text, bounded `text/*` document excerpts, and
-  attachment metadata from Android share targets and the in-app picker.
-- Classify attachments by MIME type; keep non-text files metadata-only.
+- Accept user-initiated shared text, bounded `text/*` document excerpts,
+  bounded local OCR text excerpts for user-provided `image/*` attachments,
+  and attachment metadata from Android share targets and the in-app picker.
+- Classify attachments by MIME type; keep unsupported non-text files
+  metadata-only.
 - Keep multimodal source handling separate from chat generation and tools.
 
 Current status:
@@ -670,9 +672,10 @@ Current status:
 - Implemented privacy-minimal `SharedInput` prompts for text plus attachment
   metadata such as kind, MIME type, display name, and byte size.
 - Implemented bounded local text excerpts for user-initiated shared `text/*`
-  documents. Excerpts are user-visible and limited to the local shared-input
+  documents and bounded local OCR text excerpts for user-provided `image/*`
+  attachments. Excerpts are user-visible and limited to the local shared-input
   prompt.
-- Binary, image, audio, video, PDF, Office, and other non-text attachments stay
+- Audio, video, PDF, Office, binary, and other unsupported attachments stay
   metadata-only; the app does not parse or embed their bytes into prompts.
 - Implemented a voice input entry that launches Android system speech
   recognition and returns the transcript as a one-shot compose-box draft.
@@ -684,8 +687,9 @@ Current status:
   history. Remote mode rejects automatically generated shared-input prompts
   before calling a remote backend.
 - The voice entry does not read or parse audio files. Screenshot capture,
-  complete document parsing, OCR, Office/PDF parsing, image understanding, and
-  media content understanding are pending.
+  screen understanding, Office/PDF parsing, image semantic understanding, and
+  media content understanding are pending. Image OCR is limited to
+  user-provided `image/*` attachments and produces text excerpts only.
 
 Tests:
 

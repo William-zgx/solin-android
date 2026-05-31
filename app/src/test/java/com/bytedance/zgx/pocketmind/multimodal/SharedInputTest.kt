@@ -57,6 +57,33 @@ class SharedInputTest {
     }
 
     @Test
+    fun promptIncludesOcrPreviewForImageAttachment() {
+        val input = SharedInput(
+            text = "请总结图片",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = "image/png",
+                    displayName = "screen.png",
+                    sizeBytes = 120L,
+                    textPreview = SharedTextPreview(
+                        text = "标题\n正文",
+                        truncated = true,
+                        source = SharedTextPreviewSource.ImageOcr,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("用户主动提供的 image/* 附件"))
+        assertTrue(prompt.contains("图片文字摘录（已截断）"))
+        assertTrue(prompt.contains("标题"))
+        assertTrue(prompt.contains("正文"))
+    }
+
+    @Test
     fun binaryAndRichDocumentAttachmentsRemainMetadataOnlyWithoutPreview() {
         val input = SharedInput(
             text = "",
@@ -76,6 +103,10 @@ class SharedInputTest {
                     mimeType = "image/png",
                     displayName = "screen.png",
                     sizeBytes = 43L,
+                    textPreview = SharedTextPreview(
+                        text = "image text file preview must not leak",
+                        truncated = false,
+                    ),
                 ),
                 SharedAttachment(
                     kind = SharedAttachmentKind.Audio,
@@ -100,6 +131,33 @@ class SharedInputTest {
         assertTrue(prompt.contains("doc.docx"))
         assertFalse(prompt.contains("\n   文本摘录"))
         assertFalse(prompt.contains("must not leak"))
+        assertFalse(prompt.contains("image text file preview must not leak"))
+    }
+
+    @Test
+    fun promptDoesNotIncludeOcrPreviewForNonImageAttachment() {
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/pdf",
+                    displayName = "scan.pdf",
+                    sizeBytes = 42L,
+                    textPreview = SharedTextPreview(
+                        text = "ocr secret",
+                        truncated = false,
+                        source = SharedTextPreviewSource.ImageOcr,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("scan.pdf"))
+        assertFalse(prompt.contains("ocr secret"))
+        assertFalse(prompt.contains("\n   图片文字摘录"))
     }
 
     @Test
@@ -181,6 +239,16 @@ class SharedInputTest {
     }
 
     @Test
+    fun imageTextPreviewReaderOnlyAllowsImageMediaTypes() {
+        assertTrue(canReadImageTextPreviewFor("image/png"))
+        assertTrue(canReadImageTextPreviewFor(" image/jpeg; charset=binary "))
+        assertFalse(canReadImageTextPreviewFor("text/plain"))
+        assertFalse(canReadImageTextPreviewFor("application/pdf"))
+        assertFalse(canReadImageTextPreviewFor("audio/mpeg"))
+        assertFalse(canReadImageTextPreviewFor(null))
+    }
+
+    @Test
     fun textPreviewReaderCleansControlsAndNormalizesNewlines() {
         val preview = TextAttachmentPreviewReader.read(
             "第一\r第二\r\n第三\u0000\u0007\t尾\n\n\n\n结束"
@@ -202,5 +270,21 @@ class SharedInputTest {
         assertNotNull(preview)
         assertEquals(4_000, preview!!.text.length)
         assertTrue(preview.truncated)
+    }
+
+    @Test
+    fun imageTextPreviewReaderCleansControlsAndTruncates() {
+        val preview = ImageTextPreviewReader.fromText(
+            "第一\r第二\r\n第三\u0000\u0007\t尾\n\n\n\n结束",
+        )
+        val truncated = ImageTextPreviewReader.fromText("a".repeat(4_001))
+
+        assertNotNull(preview)
+        assertEquals("第一\n第二\n第三\t尾\n\n结束", preview!!.text)
+        assertEquals(SharedTextPreviewSource.ImageOcr, preview.source)
+        assertFalse(preview.truncated)
+        assertNotNull(truncated)
+        assertEquals(4_000, truncated!!.text.length)
+        assertTrue(truncated.truncated)
     }
 }

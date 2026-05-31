@@ -694,6 +694,38 @@ rg credential-pattern scan excluding build and .gradle outputs
 - 通过：敏感配置扫描无匹配。
 - 未执行模拟器回归：当前环境缺少 `adb` 命令。
 
+## 2026-05-31 用户主动提供 image/* 本地 OCR 摘录增量验证
+
+本轮覆盖项：
+
+- 用户通过 Android 分享入口或 App 内系统文件选择器主动提供 `image/*` 附件时，可以生成用户可见、有界、本地 OCR 文本摘录。
+- OCR 摘录只进入 shared-input prompt，并标记为 `LocalOnly`；远程模型模式不会自动上传 OCR 文本、分享文本、文本摘录或附件元数据。
+- 该能力不读取当前屏幕，不捕获截图，不处理 `query_recent_files(kind="screenshots")` 返回的最近截图候选，也不声明图片语义理解。
+- 音频、视频、PDF、Office、二进制和其他不支持 OCR 的附件继续保持 metadata-only。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt'
+
+./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+git diff --check
+rg credential-pattern scan excluding build and .gradle outputs
+adb devices -l
+```
+
+结果：
+
+- 通过：targeted `SharedInputTest` 与 `remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt`。
+- 通过：完整 `:app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest`。
+- 通过：`:app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug`。
+- 通过：`git diff --check`。
+- 通过：敏感配置扫描无匹配。
+- 未执行模拟器回归：当前环境缺少 `adb` 命令。
+
 ## 2026-05-31 语音输入入口增量验证
 
 本轮覆盖项：

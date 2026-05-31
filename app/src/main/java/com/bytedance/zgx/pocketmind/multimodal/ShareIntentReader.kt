@@ -8,6 +8,7 @@ import android.provider.OpenableColumns
 
 class ShareIntentReader(
     private val context: Context,
+    private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
 ) {
     fun read(intent: Intent?): SharedInput? {
         if (intent == null) return null
@@ -54,13 +55,16 @@ class ShareIntentReader(
     private fun Uri.toSharedAttachment(intentMimeType: String?): SharedAttachment {
         val resolvedMimeType = runCatching { context.contentResolver.getType(this) }.getOrNull() ?: intentMimeType
         val metadata = queryMetadata(this)
-        val textPreview = if (canReadTextPreviewFor(resolvedMimeType)) {
-            readTextPreview()
-        } else {
-            null
+        val kind = sharedAttachmentKindFor(resolvedMimeType)
+        val textPreview = when {
+            canReadTextPreviewFor(resolvedMimeType) -> readTextPreview()
+            kind == SharedAttachmentKind.Image && canReadImageTextPreviewFor(resolvedMimeType) ->
+                imageTextExtractor.extract(this)
+
+            else -> null
         }
         return SharedAttachment(
-            kind = sharedAttachmentKindFor(resolvedMimeType),
+            kind = kind,
             mimeType = resolvedMimeType,
             displayName = metadata.displayName,
             sizeBytes = metadata.sizeBytes,

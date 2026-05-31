@@ -35,6 +35,7 @@ import com.bytedance.zgx.pocketmind.multimodal.SharedAttachment
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachmentKind
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
 import com.bytedance.zgx.pocketmind.multimodal.SharedTextPreview
+import com.bytedance.zgx.pocketmind.multimodal.SharedTextPreviewSource
 import com.bytedance.zgx.pocketmind.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
@@ -155,6 +156,51 @@ class PocketMindViewModelTest {
         assertFalse(sessionStore.messages.single().text.contains("private excerpt"))
         assertFalse(sessionStore.messages.single().text.contains("private.txt"))
         assertTrue(sessionStore.messages.single().text.contains("不会自动发送分享文本、文本摘录或附件元数据"))
+    }
+
+    @Test
+    fun remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.ingestSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Image,
+                        mimeType = "image/png",
+                        displayName = "private-screen.png",
+                        sizeBytes = 12L,
+                        textPreview = SharedTextPreview(
+                            text = "private screenshot text",
+                            truncated = false,
+                            source = SharedTextPreviewSource.ImageOcr,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(1, sessionStore.messages.size)
+        assertEquals(MessageRole.Assistant, sessionStore.messages.single().role)
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
+        assertFalse(sessionStore.messages.single().text.contains("private screenshot text"))
+        assertFalse(sessionStore.messages.single().text.contains("private-screen.png"))
+        assertTrue(sessionStore.messages.single().text.contains("不会自动发送分享文本、文本摘录或附件元数据"))
+        assertTrue(sessionStore.messages.single().text.contains("OCR 摘录同样不会自动发送"))
     }
 
     @Test

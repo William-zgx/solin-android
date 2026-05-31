@@ -21,9 +21,9 @@ data class SharedInput(
                 buildString {
                     append("${index + 1}. ${attachment.kind.label} · $name · ${attachment.mimeType ?: "未知类型"} · $size")
                     val safeTextPreview = attachment.textPreview
-                        ?.takeIf { canReadTextPreviewFor(attachment.mimeType) }
+                        ?.takeIf { canUseTextPreviewFor(attachment) }
                     safeTextPreview?.let { preview ->
-                        append("\n   文本摘录")
+                        append("\n   ${preview.source.label}")
                         if (preview.truncated) append("（已截断）")
                         append("：\n")
                         append(preview.text.lines().joinToString(separator = "\n") { line -> "   $line" })
@@ -39,7 +39,7 @@ data class SharedInput(
             }
             if (attachmentBlock.isNotBlank()) {
                 append("\n\n")
-                append("已分享附件（当前版本默认只读取元数据；text/* 文档会读取受限文本摘录）：\n")
+                append("已分享附件（默认只读取元数据；text/* 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n")
                 append(attachmentBlock)
             }
         }.trim()
@@ -76,7 +76,13 @@ data class SharedAttachment(
 data class SharedTextPreview(
     val text: String,
     val truncated: Boolean,
+    val source: SharedTextPreviewSource = SharedTextPreviewSource.TextFile,
 )
+
+enum class SharedTextPreviewSource(val label: String) {
+    TextFile("文本摘录"),
+    ImageOcr("图片文字摘录"),
+}
 
 enum class SharedAttachmentKind(val label: String) {
     Image("图片"),
@@ -104,6 +110,21 @@ fun canReadTextPreviewFor(mimeType: String?): Boolean =
     when (val normalizedMimeType = mimeType.normalizedMediaType()) {
         null -> false
         else -> normalizedMimeType.startsWith("text/")
+    }
+
+fun canReadImageTextPreviewFor(mimeType: String?): Boolean =
+    when (val normalizedMimeType = mimeType.normalizedMediaType()) {
+        null -> false
+        else -> normalizedMimeType.startsWith("image/")
+    }
+
+fun canUseTextPreviewFor(attachment: SharedAttachment): Boolean =
+    when (attachment.textPreview?.source) {
+        SharedTextPreviewSource.TextFile -> canReadTextPreviewFor(attachment.mimeType)
+        SharedTextPreviewSource.ImageOcr ->
+            attachment.kind == SharedAttachmentKind.Image && canReadImageTextPreviewFor(attachment.mimeType)
+
+        null -> false
     }
 
 private fun String?.normalizedMediaType(): String? =
@@ -152,6 +173,27 @@ object TextAttachmentPreviewReader {
 
     private const val MAX_TEXT_PREVIEW_BYTES = 16 * 1024
     private const val MAX_TEXT_PREVIEW_CHARS = 4_000
+}
+
+object ImageTextPreviewReader {
+    fun fromText(text: String): SharedTextPreview? {
+        val normalized = text
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .filter { char -> !char.isISOControl() || char == '\n' || char == '\t' }
+            .replace(Regex("""\n{3,}"""), "\n\n")
+            .trim()
+        if (normalized.isBlank()) return null
+        val previewText = normalized.take(MAX_IMAGE_TEXT_PREVIEW_CHARS).trim()
+        if (previewText.isBlank()) return null
+        return SharedTextPreview(
+            text = previewText,
+            truncated = normalized.length > MAX_IMAGE_TEXT_PREVIEW_CHARS,
+            source = SharedTextPreviewSource.ImageOcr,
+        )
+    }
+
+    private const val MAX_IMAGE_TEXT_PREVIEW_CHARS = 4_000
 }
 
 private val documentMimeTypes = setOf(
