@@ -1,5 +1,40 @@
 # PocketMind 验证报告
 
+## 2026-05-31 共享 text/* 文档摘录边界增量验证
+
+本轮覆盖项：
+
+- Shared text 和 `text/*` documents 可以产生用户可见、有界、本地文本摘录。
+- 自动生成的 shared-input 文本摘录和附件元数据标记为 `LocalOnly`，只用于本地
+  shared-input prompt。
+- 二进制、图片、音频、视频、PDF、Office 和其他非文本附件保持
+  metadata-only，不读取正文或二进制内容。
+- 远程模式不会自动上传 shared-input 文本、文本摘录或附件元数据；用户必须手动
+  粘贴愿意发送的内容。
+- 完整文档解析、OCR、Office/PDF 解析和媒体内容理解仍待实现。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:lintDebug
+git diff --check
+rg credential-pattern scan excluding build and .gradle outputs
+```
+
+结果：
+
+- 通过：targeted `SharedInputTest` 与 `PocketMindViewModelTest`。
+- 通过：完整 `:app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest`。
+- 通过：`:app:lintDebug`。
+- 通过：`git diff --check`。
+- 通过：敏感配置扫描无匹配。
+- 未执行模拟器回归：当前环境缺少 `adb` 命令。
+
 ## 2026-05-31 语音输入入口增量验证
 
 本轮覆盖项：
@@ -451,10 +486,11 @@ git diff --check
 - Reminder 执行前会请求 Android 通知权限；拒绝后返回结构化 `PermissionDenied`。
 - Device Context 增加受确认保护的 `read_clipboard` 工具和剪贴板上下文 Skill。
 - Clipboard observe 成功后会生成一次本地模型续写 prompt，剪贴板原文只进入即时内存续写链路；trace、audit 和持久化工具观察消息保留脱敏摘要，远程模型模式不会自动上传剪贴板内容。
-- 远程模型普通聊天不再自动注入本地记忆和设备上下文；Android 分享入口在远程模式下不自动上传分享文本或附件元数据。
+- 远程模型普通聊天不再自动注入本地记忆和设备上下文；Android 分享入口在远程模式下不自动上传分享文本、文本摘录或附件元数据。
 - 远程 API Key 清空时会同步清除已加密保存的旧值。
 - Execution Boundary 增加 `share_text` 工具和系统分享 Skill；结果语义为打开系统分享面板。
-- Multimodal Inputs 增加 Android 分享入口，接收文本以及图片/音频/视频/PDF 元数据，不读取文件内容。
+- Multimodal Inputs 增加 Android 分享入口，接收 shared text 和有界 `text/*`
+  文档摘录；图片/音频/视频/PDF/Office/二进制附件保持 metadata-only。
 - 模型管理 sheet 增加显式关闭按钮，避免模拟器回归依赖 Back 键状态。
 - 远程模型回归使用本地 mock OpenAI-compatible 服务，不写入真实 API Key。
 

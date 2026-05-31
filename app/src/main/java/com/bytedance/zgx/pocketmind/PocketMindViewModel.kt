@@ -914,13 +914,12 @@ class PocketMindViewModel(
     }
 
     fun ingestSharedInput(sharedInput: SharedInput) {
-        val prompt = sharedInput.toPrompt()
-        if (prompt.isBlank()) return
+        if (sharedInput.isEmpty) return
         if (_uiState.value.inferenceMode == InferenceMode.Remote) {
             replaceActiveSessionMessages(
                 _uiState.value.messages + ChatMessage(
                     role = MessageRole.Assistant,
-                    text = "已接收分享内容。当前为远程模型模式，为保护隐私，不会自动发送分享文本或附件元数据。请手动粘贴你愿意发送的内容。",
+                    text = "已接收分享内容。当前为远程模型模式，为保护隐私，不会自动发送分享文本、文本摘录或附件元数据。请手动粘贴你愿意发送的内容。",
                     privacy = MessagePrivacy.LocalOnly,
                 ),
                 persistNow = true,
@@ -930,6 +929,8 @@ class PocketMindViewModel(
             }
             return
         }
+        val prompt = sharedInput.toPrompt()
+        if (prompt.isBlank()) return
         if (_uiState.value.isReady && !_uiState.value.isBusy && generationJob?.isActive != true) {
             sendMessage(prompt, messagePrivacy = MessagePrivacy.LocalOnly)
             return
@@ -942,7 +943,7 @@ class PocketMindViewModel(
                 privacy = MessagePrivacy.LocalOnly,
             ) + ChatMessage(
                 role = MessageRole.Assistant,
-                text = "已接收分享内容。请先准备模型后再发送，当前不会读取附件文件内容。",
+                text = "已接收分享内容。请先准备模型后再发送，当前只会读取受限文本摘录和附件元数据。",
                 privacy = MessagePrivacy.LocalOnly,
             ),
             persistNow = true,

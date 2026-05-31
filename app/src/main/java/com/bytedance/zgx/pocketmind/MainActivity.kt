@@ -19,6 +19,12 @@ import androidx.compose.runtime.getValue
 import com.bytedance.zgx.pocketmind.multimodal.ShareIntentReader
 import com.bytedance.zgx.pocketmind.ui.PocketMindScreen
 import com.bytedance.zgx.pocketmind.ui.theme.PocketMindTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val appContainer: PocketMindAppContainer by lazy {
@@ -27,6 +33,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: PocketMindViewModel by viewModels {
         appContainer.viewModelFactory
     }
+    private val shareIntentScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var pendingRuntimePermissionConfirmation: PendingAgentConfirmation? = null
     private val runtimePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -115,8 +122,19 @@ class MainActivity : ComponentActivity() {
         handleSharedIntent(intent)
     }
 
+    override fun onDestroy() {
+        shareIntentScope.cancel()
+        super.onDestroy()
+    }
+
     private fun handleSharedIntent(intent: Intent?) {
-        ShareIntentReader(this).read(intent)?.let(viewModel::ingestSharedInput)
+        val sharedIntent = intent ?: return
+        shareIntentScope.launch {
+            val sharedInput = withContext(Dispatchers.IO) {
+                ShareIntentReader(applicationContext).read(sharedIntent)
+            }
+            sharedInput?.let(viewModel::ingestSharedInput)
+        }
     }
 
     private fun startVoiceInput() {

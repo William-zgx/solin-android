@@ -46,13 +46,26 @@ class ShareIntentReader(
     private fun Uri.toSharedAttachment(intentMimeType: String?): SharedAttachment {
         val resolvedMimeType = runCatching { context.contentResolver.getType(this) }.getOrNull() ?: intentMimeType
         val metadata = queryMetadata(this)
+        val textPreview = if (canReadTextPreviewFor(resolvedMimeType)) {
+            readTextPreview()
+        } else {
+            null
+        }
         return SharedAttachment(
             kind = sharedAttachmentKindFor(resolvedMimeType),
             mimeType = resolvedMimeType,
             displayName = metadata.displayName,
             sizeBytes = metadata.sizeBytes,
+            textPreview = textPreview,
         )
     }
+
+    private fun Uri.readTextPreview(): SharedTextPreview? =
+        runCatching {
+            context.contentResolver.openInputStream(this)?.use { input ->
+                TextAttachmentPreviewReader.read(input)
+            }
+        }.getOrNull()
 
     private fun queryMetadata(uri: Uri): AttachmentMetadata {
         var displayName: String? = null

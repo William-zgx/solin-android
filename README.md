@@ -26,7 +26,9 @@ Google AI Edge LiteRT-LM.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
 - Running background task review for still-scheduled reminders and periodic checks, including explicit cancellation.
 - Recent tool audit review from the background task entry, limited to redacted event metadata.
-- Android share-target entry for text, image, audio, video, and PDF metadata, plus confirmed outbound system sharing for text.
+- Android share-target entry for shared text and bounded local `text/*`
+  document excerpts; image, audio, video, PDF, Office, and binary attachments
+  remain metadata-only, plus confirmed outbound system sharing for text.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
 - Local chat sessions with create, switch, and delete actions.
 - Stop button while a response is being generated.
@@ -51,9 +53,10 @@ model manager responsive while browsing models or switching CPU/GPU; use
 
 Remote chat uses the same conversation and action routing surface as local
 chat, but private local context is stricter: memory recall, device context,
-clipboard continuations, and Android share-intent metadata are not
-automatically sent to the configured backend. HTTPS is required except for local
-debug hosts such as `localhost`, `127.0.0.1`, and Android emulator `10.0.2.2`.
+clipboard continuations, Android share-intent text, generated shared-input text
+excerpts, and attachment metadata are not automatically sent to the configured
+backend. HTTPS is required except for local debug hosts such as `localhost`,
+`127.0.0.1`, and Android emulator `10.0.2.2`.
 API keys are stored with Android Keystore-backed encryption and are removed
 when the user clears the key field.
 
@@ -94,9 +97,12 @@ sheet is never opened without this second confirmation.
 Requests such as “分享这段文字...” open Android's system share panel through
 `share_text`; destination selection stays with the user.
 Shared text or attachments from other Android apps are ingested as
-privacy-minimal multimodal prompts: PocketMind records user-visible text plus
-attachment metadata for local processing, but it does not read file contents
-yet and does not auto-upload shared content in remote mode.
+privacy-minimal multimodal prompts: PocketMind records user-visible shared
+text, may produce bounded local text excerpts for `text/*` documents, and keeps
+attachment metadata for local processing. Binary, image, audio, video, PDF,
+Office, and other non-text attachments remain metadata-only. Automatically
+generated shared-input excerpts and metadata are marked `LocalOnly` and are not
+auto-uploaded in remote mode.
 Voice input uses Android system speech recognition and inserts the transcript
 into the compose box only; sending remains explicit, and PocketMind does not
 read audio files for this path.
@@ -113,11 +119,12 @@ executor, minimal device context
 snapshots, safety policy, persistent tool audit, long-term memory controls,
 local reminder scheduling, running background task review/cancellation,
 confirmed clipboard/device-context reads, outbound text sharing, safe HTTPS
-deep-link navigation, package-level app launches, Android share intent metadata
-ingestion, system speech-recognition input, and restart restoration for the
-latest pending tool confirmation without auto-execution. Broad screen understanding,
-generalized typed run recovery, direct file-content parsing, and actual
-image/audio/document understanding are tracked there as pending core modules.
+deep-link navigation, package-level app launches, Android share intent text and
+bounded `text/*` document excerpt ingestion, system speech-recognition input,
+and restart restoration for the latest pending tool confirmation without
+auto-execution. Broad screen understanding, generalized typed run recovery,
+complete document parsing, OCR, Office/PDF parsing, and media content
+understanding are tracked there as pending core modules.
 
 ## Recommended Models
 
@@ -244,7 +251,7 @@ app/
     device/                  Minimal non-secret device context snapshots
     download/                DownloadManager boundary
     memory/                  Local memory indexing and search
-    multimodal/              Shared text and attachment metadata ingestion
+    multimodal/              Shared text, text excerpts, and attachment metadata ingestion
     orchestration/           Chat, memory, and action route selection
     runtime/                 LiteRT-LM runtime boundary
     safety/                  Tool safety policy and confirmation decisions

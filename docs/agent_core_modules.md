@@ -199,9 +199,9 @@ Current status:
   prompts; it asks the user to switch local or manually provide text they agree
   to upload.
 - Remote model mode also strips memory hits and device context from ordinary
-  chat prompts. Android share-intent text and attachment metadata are held back
-  from automatic remote generation unless the user manually provides the content
-  they are willing to upload.
+  chat prompts. Android share-intent text, generated shared-input text excerpts,
+  and attachment metadata are held back from automatic remote generation unless
+  the user manually provides the content they are willing to upload.
 - Chat history now carries `MessagePrivacy`; messages marked `LocalOnly` are
   persisted for the local conversation but are filtered from remote history, and
   a `LocalOnly` current prompt is rejected before any remote request is made.
@@ -214,7 +214,8 @@ Current status:
   busy/free windows, and recent file metadata. Recent file reads return
   `LocalOnly` metadata only: file name, MIME type, coarse kind, size, and last
   modified time. The tool does not return file paths, URIs, or file contents.
-- Broad screen understanding and direct file-content readers are still pending.
+- Broad screen understanding, complete document parsing, OCR, Office/PDF
+  parsing, and media content understanding are still pending.
 
 ## Execution Boundary
 
@@ -243,8 +244,8 @@ Current status:
   normal structured tool result path.
 - Startup restoration can rehydrate the latest pending Agent confirmation from
   Room without invoking Android execution or runtime permission requests.
-- Android share-target ingestion for text/images/audio/video/PDF metadata is
-  implemented.
+- Android share-target ingestion for shared text, bounded `text/*` document
+  excerpts, and image/audio/video/PDF/Office/binary metadata is implemented.
 - Implemented outbound `share_text` as a confirmed tool that opens Android's
   system share panel. Success means the chooser was opened; the app cannot know
   whether the user completed sharing in the destination app.
@@ -398,8 +399,9 @@ Code:
 
 Responsibilities:
 
-- Accept user-initiated shared text and attachment metadata from Android.
-- Classify attachments by MIME type without reading file content by default.
+- Accept user-initiated shared text, bounded `text/*` document excerpts, and
+  attachment metadata from Android.
+- Classify attachments by MIME type; keep non-text files metadata-only.
 - Keep multimodal source handling separate from chat generation and tools.
 
 Current status:
@@ -408,17 +410,23 @@ Current status:
   `ACTION_SEND_MULTIPLE`.
 - Implemented privacy-minimal `SharedInput` prompts for text plus attachment
   metadata such as kind, MIME type, display name, and byte size.
+- Implemented bounded local text excerpts for user-initiated shared `text/*`
+  documents. Excerpts are user-visible and limited to the local shared-input
+  prompt.
+- Binary, image, audio, video, PDF, Office, and other non-text attachments stay
+  metadata-only; the app does not parse or embed their bytes into prompts.
 - Implemented a voice input entry that launches Android system speech
   recognition and returns the transcript as a one-shot compose-box draft.
   Transcripts are not auto-sent, do not create chat messages until the user
   taps send, and do not trigger model generation by themselves.
 - Shared-input prompts are marked `LocalOnly` when generated automatically, so
-  local processing can continue without later leaking the prompt or local
-  assistant response into remote chat history.
-- The app does not read image, audio, video, PDF, or document bytes yet; it only
-  records metadata in the user-visible prompt. The voice entry does not read or
-  parse audio files. Screenshot capture, gallery picker, OCR, image
-  understanding, and document parsing are pending.
+  local processing can continue without later leaking shared text, generated
+  excerpts, attachment metadata, or local assistant responses into remote chat
+  history. Remote mode rejects automatically generated shared-input prompts
+  before calling a remote backend.
+- The voice entry does not read or parse audio files. Screenshot capture,
+  gallery picker, complete document parsing, OCR, Office/PDF parsing, image
+  understanding, and media content understanding are pending.
 
 Tests:
 

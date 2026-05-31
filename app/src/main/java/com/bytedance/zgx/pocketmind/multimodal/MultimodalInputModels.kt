@@ -1,5 +1,7 @@
 package com.bytedance.zgx.pocketmind.multimodal
 
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.util.Locale
 
 data class SharedInput(
@@ -16,7 +18,17 @@ data class SharedInput(
             .mapIndexed { index, attachment ->
                 val name = attachment.safeDisplayNameForPrompt() ?: "未命名"
                 val size = attachment.sizeBytes?.let { "$it bytes" } ?: "未知大小"
-                "${index + 1}. ${attachment.kind.label} · $name · ${attachment.mimeType ?: "未知类型"} · $size"
+                buildString {
+                    append("${index + 1}. ${attachment.kind.label} · $name · ${attachment.mimeType ?: "未知类型"} · $size")
+                    val safeTextPreview = attachment.textPreview
+                        ?.takeIf { canReadTextPreviewFor(attachment.mimeType) }
+                    safeTextPreview?.let { preview ->
+                        append("\n   文本摘录")
+                        if (preview.truncated) append("（已截断）")
+                        append("：\n")
+                        append(preview.text.lines().joinToString(separator = "\n") { line -> "   $line" })
+                    }
+                }
             }
             .joinToString(separator = "\n")
         return buildString {
@@ -27,7 +39,7 @@ data class SharedInput(
             }
             if (attachmentBlock.isNotBlank()) {
                 append("\n\n")
-                append("已分享附件（当前版本只读取元数据，未读取文件内容）：\n")
+                append("已分享附件（当前版本默认只读取元数据；text/* 文档会读取受限文本摘录）：\n")
                 append(attachmentBlock)
             }
         }.trim()
@@ -43,6 +55,7 @@ data class SharedAttachment(
     val mimeType: String?,
     val displayName: String?,
     val sizeBytes: Long?,
+    val textPreview: SharedTextPreview? = null,
 ) {
     fun safeDisplayNameForPrompt(): String? {
         val normalized = displayName
@@ -60,6 +73,11 @@ data class SharedAttachment(
     }
 }
 
+data class SharedTextPreview(
+    val text: String,
+    val truncated: Boolean,
+)
+
 enum class SharedAttachmentKind(val label: String) {
     Image("图片"),
     Audio("音频"),
@@ -69,7 +87,7 @@ enum class SharedAttachmentKind(val label: String) {
 }
 
 fun sharedAttachmentKindFor(mimeType: String?): SharedAttachmentKind =
-    when (val normalizedMimeType = mimeType?.trim()?.lowercase(Locale.ROOT)) {
+    when (val normalizedMimeType = mimeType.normalizedMediaType()) {
         null -> SharedAttachmentKind.Other
         else -> when {
             normalizedMimeType.startsWith("image/") -> SharedAttachmentKind.Image
@@ -82,10 +100,64 @@ fun sharedAttachmentKindFor(mimeType: String?): SharedAttachmentKind =
         }
     }
 
+fun canReadTextPreviewFor(mimeType: String?): Boolean =
+    when (val normalizedMimeType = mimeType.normalizedMediaType()) {
+        null -> false
+        else -> normalizedMimeType.startsWith("text/")
+    }
+
+private fun String?.normalizedMediaType(): String? =
+    this
+        ?.substringBefore(';')
+        ?.trim()
+        ?.lowercase(Locale.ROOT)
+        ?.takeIf { it.isNotBlank() }
+
+object TextAttachmentPreviewReader {
+    fun read(inputStream: InputStream): SharedTextPreview? {
+        val (bytes, truncatedByBytes) = inputStream.readLimitedBytes(MAX_TEXT_PREVIEW_BYTES + 1)
+        val previewBytes = if (bytes.size > MAX_TEXT_PREVIEW_BYTES) {
+            bytes.copyOf(MAX_TEXT_PREVIEW_BYTES)
+        } else {
+            bytes
+        }
+        val normalized = String(previewBytes, Charsets.UTF_8)
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .filter { char -> !char.isISOControl() || char == '\n' || char == '\t' }
+            .replace(Regex("""\n{3,}"""), "\n\n")
+            .trim()
+        if (normalized.isBlank()) return null
+        val text = normalized.take(MAX_TEXT_PREVIEW_CHARS).trim()
+        if (text.isBlank()) return null
+        return SharedTextPreview(
+            text = text,
+            truncated = truncatedByBytes || normalized.length > MAX_TEXT_PREVIEW_CHARS,
+        )
+    }
+
+    private fun InputStream.readLimitedBytes(limit: Int): Pair<ByteArray, Boolean> {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var totalBytes = 0
+        while (totalBytes < limit) {
+            val bytesToRead = minOf(buffer.size, limit - totalBytes)
+            val read = read(buffer, 0, bytesToRead)
+            if (read == -1) break
+            output.write(buffer, 0, read)
+            totalBytes += read
+        }
+        return output.toByteArray() to (totalBytes >= limit)
+    }
+
+    private const val MAX_TEXT_PREVIEW_BYTES = 16 * 1024
+    private const val MAX_TEXT_PREVIEW_CHARS = 4_000
+}
+
 private val documentMimeTypes = setOf(
     "application/pdf",
-    "application/msword",
     "application/rtf",
+    "application/msword",
     "application/vnd.ms-excel",
     "application/vnd.ms-powerpoint",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",

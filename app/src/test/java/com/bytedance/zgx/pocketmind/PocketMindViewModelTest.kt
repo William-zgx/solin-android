@@ -25,7 +25,10 @@ import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordStore
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.memory.PersistedMemoryRecord
+import com.bytedance.zgx.pocketmind.multimodal.SharedAttachment
+import com.bytedance.zgx.pocketmind.multimodal.SharedAttachmentKind
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
+import com.bytedance.zgx.pocketmind.multimodal.SharedTextPreview
 import com.bytedance.zgx.pocketmind.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
@@ -99,6 +102,49 @@ class PocketMindViewModelTest {
             sessionStore.messages.map { it.privacy },
         )
         assertTrue(sessionStore.messages.first().text.contains("私密输入"))
+    }
+
+    @Test
+    fun remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.ingestSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Document,
+                        mimeType = "text/plain",
+                        displayName = "private.txt",
+                        sizeBytes = 12L,
+                        textPreview = SharedTextPreview(
+                            text = "private excerpt",
+                            truncated = false,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(1, sessionStore.messages.size)
+        assertEquals(MessageRole.Assistant, sessionStore.messages.single().role)
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
+        assertFalse(sessionStore.messages.single().text.contains("private excerpt"))
+        assertFalse(sessionStore.messages.single().text.contains("private.txt"))
+        assertTrue(sessionStore.messages.single().text.contains("不会自动发送分享文本、文本摘录或附件元数据"))
     }
 
     @Test
