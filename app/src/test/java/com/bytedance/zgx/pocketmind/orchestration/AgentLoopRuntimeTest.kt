@@ -9,6 +9,10 @@ import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.audit.InMemoryToolAuditSink
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEventType
+import com.bytedance.zgx.pocketmind.data.AgentRunEntity
+import com.bytedance.zgx.pocketmind.data.AgentStepEntity
+import com.bytedance.zgx.pocketmind.data.AgentTraceDao
+import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
 import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
@@ -839,6 +843,154 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun restoredPendingConfirmationCanBeConfirmedObservedAndCleared() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将在浏览器中搜索：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-restored-web" },
+            ),
+        )
+        val planned = initialRuntime.runOnce(
+            input = "搜一下 Kotlin",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = RoomAgentTraceStore(traceDao = dao),
+        )
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(restoredPending)
+        assertEquals(planned.run.id, restoredPending.run.id)
+        assertEquals(planned.plan.request.id, restoredPending.request.id)
+
+        val executing = restoredRuntime.confirmToolRequest(
+            runId = restoredPending.run.id,
+            requestId = restoredPending.request.id,
+        )
+
+        assertEquals(AgentRunState.ExecutingTool, executing?.state)
+        assertNull(restoredRuntime.latestPendingConfirmation())
+
+        val observed = restoredRuntime.observeToolResult(
+            runId = restoredPending.run.id,
+            result = ToolResult(
+                requestId = restoredPending.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertEquals(AgentObservationDecision.Complete, observed.decision)
+        assertNull(restoredRuntime.latestPendingConfirmation())
+        assertTrue(observed.steps.any { it is AgentStep.UserConfirmed })
+        assertTrue(observed.steps.any { it is AgentStep.ToolObserved })
+    }
+
+    @Test
+    fun restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-restored-clipboard" },
+            ),
+        )
+        val planned = initialRuntime.runOnce(
+            input = "总结剪贴板并分享",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, planned.plan.skillRequest?.skillId)
+
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = RoomAgentTraceStore(traceDao = dao),
+        )
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(restoredPending)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, restoredPending.request.toolName)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, restoredPending.skillPlan?.request?.skillId)
+        assertEquals(3, restoredPending.skillPlan?.steps?.size)
+
+        val executing = restoredRuntime.confirmToolRequest(
+            runId = restoredPending.run.id,
+            requestId = restoredPending.request.id,
+        )
+        assertEquals(AgentRunState.ExecutingTool, executing?.state)
+
+        val observed = restoredRuntime.observeToolResult(
+            runId = restoredPending.run.id,
+            result = ToolResult(
+                requestId = restoredPending.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+                    "text" to "剪贴板原文",
+                    "truncated" to "false",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("剪贴板原文"))
+
+        val modelObserved = restoredRuntime.observeModelResult(
+            runId = restoredPending.run.id,
+            text = "摘要：恢复后生成的分享内容",
+        )
+
+        requireNotNull(modelObserved)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, modelObserved.run.state)
+        require(modelObserved.decision is AgentObservationDecision.PlanNextTool)
+        val sharePlan = modelObserved.decision.plan
+        assertEquals(MobileActionFunctions.SHARE_TEXT, sharePlan.request.toolName)
+        assertEquals("摘要：恢复后生成的分享内容", sharePlan.request.arguments["text"])
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, sharePlan.skillRequest?.skillId)
+
+        val nextPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(nextPending)
+        assertEquals(sharePlan.request.id, nextPending.request.id)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, nextPending.request.toolName)
+        assertEquals("摘要：恢复后生成的分享内容", nextPending.request.arguments["text"])
+    }
+
+    @Test
     fun successfulObservationCanPlanNextToolAndRequestConfirmationAgain() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(
@@ -1543,6 +1695,70 @@ class AgentLoopRuntimeTest {
                 manifest = manifest,
                 steps = listOf(SkillStep.ToolStep(request, draft)),
             )
+        }
+    }
+
+    private class FakeAgentTraceDao : AgentTraceDao {
+        private val runs = linkedMapOf<String, AgentRunEntity>()
+        private val steps = mutableListOf<AgentStepEntity>()
+        private val pendingConfirmations = linkedMapOf<String, PendingAgentConfirmationEntity>()
+
+        override fun run(runId: String): AgentRunEntity? =
+            runs[runId]
+
+        override fun upsertRun(run: AgentRunEntity) {
+            runs[run.id] = run
+        }
+
+        override fun updateRunState(runId: String, state: String, updatedAtMillis: Long): Int {
+            val run = runs[runId] ?: return 0
+            runs[runId] = run.copy(state = state, updatedAtMillis = updatedAtMillis)
+            return 1
+        }
+
+        override fun touchRun(runId: String, updatedAtMillis: Long): Int {
+            val run = runs[runId] ?: return 0
+            runs[runId] = run.copy(updatedAtMillis = updatedAtMillis)
+            return 1
+        }
+
+        override fun nextStepPosition(runId: String): Int =
+            steps
+                .filter { step -> step.runId == runId }
+                .maxOfOrNull { step -> step.position + 1 }
+                ?: 0
+
+        override fun insertStep(step: AgentStepEntity) {
+            steps.removeAll { existing ->
+                existing.runId == step.runId && existing.position == step.position
+            }
+            steps += step
+        }
+
+        override fun steps(runId: String): List<AgentStepEntity> =
+            steps
+                .filter { step -> step.runId == runId }
+                .sortedBy { step -> step.position }
+
+        override fun pendingConfirmations(): List<PendingAgentConfirmationEntity> =
+            pendingConfirmations.values.sortedWith(
+                compareByDescending<PendingAgentConfirmationEntity> { pending -> pending.updatedAtMillis }
+                    .thenByDescending { pending -> pending.createdAtMillis }
+                    .thenByDescending { pending -> pending.runId },
+            )
+
+        override fun latestPendingConfirmation(): PendingAgentConfirmationEntity? =
+            pendingConfirmations().firstOrNull()
+
+        override fun upsertPendingConfirmation(pending: PendingAgentConfirmationEntity) {
+            pendingConfirmations[pending.runId] = pending
+        }
+
+        override fun deletePendingConfirmation(runId: String, requestId: String): Int {
+            val existing = pendingConfirmations[runId] ?: return 0
+            if (existing.requestId != requestId) return 0
+            pendingConfirmations.remove(runId)
+            return 1
         }
     }
 }

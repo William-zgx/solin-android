@@ -528,6 +528,80 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun restoredPendingConfirmationExecutesAndObservesOnlyOnce() = runTest(dispatcher) {
+        val request = ToolRequest(
+            id = "request-restored-once",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = "Open Wi-Fi",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "将打开系统 Wi-Fi 设置页。",
+            parameters = emptyMap(),
+        )
+        val sessionStore = FakeSessionStore()
+        val executor = RecordingToolExecutor()
+        val assistantRouter = FakeAssistantRouter(
+            restoredPendingRoute = AssistantRoute.Action(
+                runId = "run-restored-once",
+                toolRequest = request,
+                draft = draft,
+                plannedByModel = false,
+                fallbackReason = "restored",
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+            ),
+            confirmedRun = AgentRun(
+                id = "run-restored-once",
+                input = "打开 Wi-Fi 设置",
+                state = AgentRunState.ExecutingTool,
+                createdAtMillis = 1L,
+                updatedAtMillis = 2L,
+            ),
+            toolObservation = AgentObservationResult(
+                run = AgentRun(
+                    id = "run-restored-once",
+                    input = "打开 Wi-Fi 设置",
+                    state = AgentRunState.Completed,
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 3L,
+                ),
+                result = ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开 Wi-Fi 设置页",
+                ),
+                assistantMessage = "工具执行结果：已打开 Wi-Fi 设置页",
+                decision = AgentObservationDecision.Complete,
+                steps = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        val restored = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(restored)
+
+        viewModel.confirmAgentConfirmation(restored)
+        viewModel.confirmAgentConfirmation(restored)
+        advanceUntilIdle()
+
+        assertEquals(1, executor.executedRequests.size)
+        assertEquals(request.id, executor.executedRequests.single().id)
+        assertEquals(1, assistantRouter.confirmCallCount)
+        assertEquals(1, assistantRouter.observeToolCallCount)
+        assertEquals(request.id, assistantRouter.lastObservedResult?.requestId)
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertTrue(sessionStore.messages.last().text.contains("已打开 Wi-Fi 设置页"))
+    }
+
+    @Test
     fun restoreStartupStateLoadsLongTermMemoryRecordsWithoutRemoteWork() = runTest(dispatcher) {
         val memoryRepository = MemoryRepository(recordStore = FakeMemoryRecordStore())
         memoryRepository.indexPreference("pref-1", "回答尽量简洁")
@@ -863,7 +937,11 @@ class PocketMindViewModelTest {
             private set
         var confirmCallCount: Int = 0
             private set
+        var observeToolCallCount: Int = 0
+            private set
         var failPendingCallCount: Int = 0
+            private set
+        var lastObservedResult: ToolResult? = null
             private set
         var lastFailedPendingResult: ToolResult? = null
             private set
@@ -907,7 +985,11 @@ class PocketMindViewModelTest {
             )
         }
 
-        override fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? = toolObservation
+        override fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? {
+            observeToolCallCount += 1
+            lastObservedResult = result
+            return toolObservation
+        }
 
         override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? = modelObservation
 
