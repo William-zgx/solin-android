@@ -99,6 +99,7 @@ class MainActivity : ComponentActivity() {
         viewModel.restoreStartupState(
             skipModelRuntimeWork = skipStartupModelRuntimeWork,
         )
+        restorePendingSpecialAccessRequirement(savedInstanceState)
         handleSharedIntent(intent)
 
         setContent {
@@ -163,9 +164,23 @@ class MainActivity : ComponentActivity() {
         handleSharedIntent(intent)
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        pendingSpecialAccessRequirement?.id?.let {
+            outState.putString(KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID, it)
+        }
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onDestroy() {
         shareIntentScope.cancel()
         super.onDestroy()
+    }
+
+    private fun restorePendingSpecialAccessRequirement(savedInstanceState: Bundle?) {
+        pendingSpecialAccessRequirement = restoredPendingSpecialAccessRequirement(
+            requirementId = savedInstanceState?.getString(KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID),
+            pendingConfirmation = viewModel.uiState.value.pendingConfirmation,
+        )
     }
 
     private fun handleSharedIntent(intent: Intent?) {
@@ -275,6 +290,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK =
             "com.bytedance.zgx.pocketmind.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK"
+        private const val KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID =
+            "com.bytedance.zgx.pocketmind.state.PENDING_SPECIAL_ACCESS_REQUIREMENT_ID"
         private val SHARED_ATTACHMENT_MIME_TYPES = arrayOf(
             "text/*",
             "image/*",

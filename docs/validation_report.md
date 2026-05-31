@@ -1,5 +1,35 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Tool private-output policy / special-access restore 增量验证
+
+本轮覆盖项：
+
+- `ToolSpec` 增加私密输出字段策略，`read_clipboard.text`、
+  recent screenshot/image OCR 的 `ocrText`、以及 current-screen
+  Accessibility 的 `screenText` 由 Tool Registry 统一声明。
+- `SkillRunProgressor` 的 private-output fence 与
+  `AgentLoopRuntime` 的 trace redaction 复用同一策略来源，避免新增私密工具时
+  下游各自硬编码字段名。
+- special-access 设置页跳转前保存 pending requirement id；Activity 重建后只从
+  当前 pending confirmation 的 requirements 中反查恢复。设置页返回仍只汇报
+  special-access 结果，不确认 pending tool、不执行工具。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.clipboardObservationBuildsContinuationPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.currentScreenTextObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.specialAccessReturnUpdatesStatusTextWithoutExecutingTools'
+```
+
+结果：通过。
+
 ## 2026-06-01 Current-screen Accessibility text snapshot 增量验证
 
 本轮覆盖项：

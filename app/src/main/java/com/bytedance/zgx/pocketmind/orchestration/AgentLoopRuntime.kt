@@ -47,7 +47,7 @@ class AgentLoopRuntime(
     private val observationReplanner: AgentObservationReplanner = NoOpAgentObservationReplanner,
     private val maxToolRetryAttempts: Int = 1,
 ) {
-    private val skillProgressor = SkillRunProgressor()
+    private val skillProgressor = SkillRunProgressor(toolRegistry = toolRegistry)
 
     @Suppress("UNUSED_PARAMETER")
     fun runOnce(
@@ -932,7 +932,7 @@ class AgentLoopRuntime(
         val privateRefs = skillProgressor.privateOutputRefsFor(currentStep.id, request.toolName)
         val requiresLocalModel = nextModelStep.keepsSensitiveInputLocal ||
             nextModelStep.inputBindings.values.any { sourceRef -> sourceRef in privateRefs } ||
-            request.toolName in localOnlyContinuationTools ||
+            toolRegistry.privateOutputKeysFor(request.toolName).isNotEmpty() ||
             result.requiresLocalModelContinuation()
         val inputBlock = inputs.entries.joinToString(separator = "\n\n") { (name, value) ->
             "$name:\n$value"
@@ -973,48 +973,22 @@ class AgentLoopRuntime(
             data["privacy"] == MessagePrivacy.LocalOnly.name
 
     private fun ToolResult.redactedForTrace(request: ToolRequest?): ToolResult {
-        return when (request?.toolName) {
-            MobileActionFunctions.READ_CLIPBOARD ->
-                if ("text" in data) {
-                    copy(
-                        summary = "已读取剪贴板文本",
-                        data = data + ("text" to "[redacted]"),
-                    )
-                } else {
-                    this
-                }
-
-            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-            MobileActionFunctions.READ_RECENT_IMAGE_OCR ->
-                if ("ocrText" in data) {
-                    copy(
-                        summary = "已读取${request.toolName.recentImageOcrContentLabel()} OCR 摘录",
-                        data = data + ("ocrText" to "[redacted]"),
-                    )
-                } else {
-                    this
-                }
-
-            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT ->
-                if ("screenText" in data) {
-                    copy(
-                        summary = "已读取当前屏幕可访问文本快照",
-                        data = data + ("screenText" to "[redacted]"),
-                    )
-                } else {
-                    this
-                }
-
-            else -> this
+        val toolName = request?.toolName ?: return this
+        val privateKeys = toolRegistry.privateOutputKeysFor(toolName)
+        if (privateKeys.isEmpty()) return this
+        val redactedData = privateKeys.fold(data) { currentData, key ->
+            if (key in currentData) {
+                currentData + (key to "[redacted]")
+            } else {
+                currentData
+            }
         }
+        if (redactedData == data) return this
+        return copy(
+            summary = toolRegistry.redactedResultSummaryFor(toolName) ?: summary,
+            data = redactedData,
+        )
     }
-
-    private val localOnlyContinuationTools = setOf(
-        MobileActionFunctions.READ_CLIPBOARD,
-        MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-        MobileActionFunctions.READ_RECENT_IMAGE_OCR,
-        MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-    )
 
     private fun String?.recentImageOcrContentLabel(): String =
         when (this) {

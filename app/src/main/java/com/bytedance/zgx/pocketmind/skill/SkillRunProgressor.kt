@@ -1,12 +1,13 @@
 package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
-import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 
 class SkillRunProgressor(
     private val maxSteps: Int = DEFAULT_MAX_STEPS,
+    private val toolRegistry: ToolRegistry = ToolRegistry(),
 ) {
     fun validateForExecution(plan: SkillPlan): String? {
         val validation = plan.validateStructure()
@@ -93,9 +94,8 @@ class SkillRunProgressor(
         }
 
     fun privateOutputRefsFor(stepId: String, toolName: String): Set<String> =
-        PRIVATE_OUTPUT_KEYS_BY_TOOL[toolName]
-            ?.mapTo(mutableSetOf()) { key -> "$stepId.$key" }
-            .orEmpty()
+        toolRegistry.privateOutputKeysFor(toolName)
+            .mapTo(mutableSetOf()) { key -> "$stepId.$key" }
 
     fun publicOutputs(
         outputs: Map<String, Map<String, String>>,
@@ -150,12 +150,6 @@ class SkillRunProgressor(
     private companion object {
         const val DEFAULT_MAX_STEPS = 8
         const val INPUT_OUTPUT_KEY = "input"
-        val PRIVATE_OUTPUT_KEYS_BY_TOOL = mapOf(
-            MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
-            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to setOf("ocrText"),
-            MobileActionFunctions.READ_RECENT_IMAGE_OCR to setOf("ocrText"),
-            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("screenText"),
-        )
     }
 }
 

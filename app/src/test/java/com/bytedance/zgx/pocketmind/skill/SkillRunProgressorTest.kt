@@ -4,6 +4,7 @@ import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import org.junit.Assert.assertEquals
@@ -13,6 +14,22 @@ import org.junit.Test
 
 class SkillRunProgressorTest {
     private val progressor = SkillRunProgressor()
+
+    @Test
+    fun privateOutputRefsComeFromInjectedToolRegistryPolicy() {
+        val emptyRegistryProgressor = SkillRunProgressor(
+            toolRegistry = ToolRegistry.fromSupportedActions(emptySet()),
+        )
+
+        assertEquals(
+            setOf("read_clipboard.text"),
+            progressor.privateOutputRefsFor("read_clipboard", MobileActionFunctions.READ_CLIPBOARD),
+        )
+        assertEquals(
+            emptySet<String>(),
+            emptyRegistryProgressor.privateOutputRefsFor("read_clipboard", MobileActionFunctions.READ_CLIPBOARD),
+        )
+    }
 
     @Test
     fun bindsModelOutputToDependentToolRequestAndDraft() {

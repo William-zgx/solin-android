@@ -542,11 +542,11 @@ Current status:
   redacted copy as the Room-backed repository so tests cannot accidentally
   depend on raw private data.
 - The first local-only privacy boundary is implemented for shared input,
-  clipboard-derived continuations, and remote chat history. The same
-  `LocalOnly` boundary is required for current-screen Accessibility text
-  snapshots. Reminder rollback now has a visible Agent/UI confirmation handoff,
-  while broader taint propagation and richer per-tool privacy policies are
-  pending.
+  clipboard-derived continuations, and remote chat history. Tool specs now
+  declare private output keys for clipboard text, recent OCR text, and
+  current-screen Accessibility text so Skill output fencing and trace redaction
+  share one policy source. Reminder rollback now has a visible Agent/UI
+  confirmation handoff, while broader taint propagation is still pending.
 
 Tests:
 

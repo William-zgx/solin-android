@@ -79,6 +79,14 @@ fun PendingAgentConfirmation.specialAccessRequirementsFor(): List<SpecialAccessR
     }
 }
 
+internal fun restoredPendingSpecialAccessRequirement(
+    requirementId: String?,
+    pendingConfirmation: PendingAgentConfirmation?,
+): SpecialAccessRequirement? =
+    pendingConfirmation
+        ?.specialAccessRequirementsFor()
+        ?.firstOrNull { requirement -> requirement.id == requirementId }
+
 fun PendingAgentConfirmation.deniedRuntimePermissionsAfterGrantResult(
     grantResults: Map<String, Boolean>,
     apiLevel: Int = Build.VERSION.SDK_INT,

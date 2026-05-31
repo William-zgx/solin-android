@@ -244,6 +244,32 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun privateToolOutputsAreDeclaredByToolPolicy() {
+        val expectedPrivateOutputs = mapOf(
+            MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to setOf("ocrText"),
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR to setOf("ocrText"),
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("screenText"),
+        )
+
+        expectedPrivateOutputs.forEach { (toolName, privateKeys) ->
+            val spec = registry.specFor(toolName)
+            assertNotNull(spec)
+            requireNotNull(spec)
+            assertEquals(privateKeys, spec.privateOutputKeys)
+            assertEquals(privateKeys, registry.privateOutputKeysFor(toolName))
+            assertNotNull(spec.redactedResultSummary)
+            assertEquals(ConfirmationPolicy.Required, spec.confirmationPolicy)
+        }
+
+        val shareSpec = registry.specFor(MobileActionFunctions.SHARE_TEXT)
+        assertNotNull(shareSpec)
+        requireNotNull(shareSpec)
+        assertTrue(shareSpec.privateOutputKeys.isEmpty())
+        assertNull(registry.redactedResultSummaryFor(MobileActionFunctions.SHARE_TEXT))
+    }
+
+    @Test
     fun validatesWebSearchQueryArgument() {
         val missingQuery = registry.validate(
             ToolRequest(

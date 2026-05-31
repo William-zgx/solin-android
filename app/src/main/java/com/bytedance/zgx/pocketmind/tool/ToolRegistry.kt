@@ -23,6 +23,12 @@ class ToolRegistry private constructor(
 
     fun specFor(toolName: String): ToolSpec? = definitionsByName[toolName]?.spec
 
+    fun privateOutputKeysFor(toolName: String): Set<String> =
+        specFor(toolName)?.privateOutputKeys.orEmpty()
+
+    fun redactedResultSummaryFor(toolName: String): String? =
+        specFor(toolName)?.redactedResultSummary
+
     fun isKnownTool(toolName: String): Boolean = toolName in definitionsByName
 
     /**
@@ -716,6 +722,8 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
                 ToolPermission.ReadsDeviceContext,
                 ToolPermission.ReadsClipboard,
             ),
+            privateOutputKeys = setOf("text"),
+            redactedResultSummary = "已读取剪贴板文本",
         ),
     ),
     ToolDefinition(
@@ -835,6 +843,8 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
+            privateOutputKeys = setOf("ocrText"),
+            redactedResultSummary = "已读取最近截图 OCR 摘录",
         ),
     ),
     ToolDefinition(
@@ -851,6 +861,8 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
+            privateOutputKeys = setOf("ocrText"),
+            redactedResultSummary = "已读取最近图片 OCR 摘录",
         ),
     ),
     ToolDefinition(
@@ -866,6 +878,8 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
+            privateOutputKeys = setOf("screenText"),
+            redactedResultSummary = "已读取当前屏幕可访问文本快照",
         ),
     ),
     ToolDefinition(

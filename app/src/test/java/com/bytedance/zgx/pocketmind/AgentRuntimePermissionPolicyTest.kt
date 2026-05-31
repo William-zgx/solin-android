@@ -9,6 +9,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -249,6 +250,39 @@ class AgentRuntimePermissionPolicyTest {
         assertEquals("无障碍屏幕文本权限", requirements.single().title)
         assertTrue(requirements.single().rationale.contains("当前屏幕"))
         assertEquals(Settings.ACTION_ACCESSIBILITY_SETTINGS, requirements.single().settingsAction)
+    }
+
+    @Test
+    fun pendingSpecialAccessRequirementRestoresFromCurrentPendingConfirmationOnly() {
+        val usageConfirmation = confirmationFor(MobileActionFunctions.QUERY_FOREGROUND_APP)
+        val screenTextConfirmation = confirmationFor(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT)
+
+        assertEquals(
+            SPECIAL_ACCESS_USAGE_STATS,
+            restoredPendingSpecialAccessRequirement(
+                requirementId = SPECIAL_ACCESS_USAGE_STATS,
+                pendingConfirmation = usageConfirmation,
+            )?.id,
+        )
+        assertEquals(
+            SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
+            restoredPendingSpecialAccessRequirement(
+                requirementId = SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
+                pendingConfirmation = screenTextConfirmation,
+            )?.id,
+        )
+        assertNull(
+            restoredPendingSpecialAccessRequirement(
+                requirementId = SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
+                pendingConfirmation = usageConfirmation,
+            ),
+        )
+        assertNull(
+            restoredPendingSpecialAccessRequirement(
+                requirementId = SPECIAL_ACCESS_USAGE_STATS,
+                pendingConfirmation = null,
+            ),
+        )
     }
 
     @Test
