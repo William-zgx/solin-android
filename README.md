@@ -21,7 +21,9 @@ Google AI Edge LiteRT-LM.
 - JVM tool executor matrix tests cover registry validation, routing, permission
   failures, provider failures, structured error codes, and LocalOnly device
   context outputs.
-- Minimal device context snapshots plus confirmed clipboard, calendar, contact, notification, foreground-app, and recent-file metadata reads for controlled context access.
+- Minimal device context snapshots plus confirmed clipboard, calendar, contact,
+  notification, foreground-app, recent-file metadata, and recent-screenshot OCR
+  reads for controlled context access.
 - Confirmed Android runtime permission requests for tools that need calendar, contact, media, or notification access.
 - Runtime permission denial is observed as a structured tool failure without
   executing or automatically retrying the tool.
@@ -64,10 +66,10 @@ model manager responsive while browsing models or switching CPU/GPU; use
 
 Remote chat uses the same conversation and action routing surface as local
 chat, but private local context is stricter: memory recall, device context,
-clipboard continuations, Android share-intent text, generated shared-input text
-excerpts, and attachment metadata are not automatically sent to the configured
-backend. HTTPS is required except for local debug hosts such as `localhost`,
-`127.0.0.1`, and Android emulator `10.0.2.2`.
+clipboard and recent-screenshot OCR continuations, Android share-intent text,
+generated shared-input text excerpts, and attachment metadata are not
+automatically sent to the configured backend. HTTPS is required except for local
+debug hosts such as `localhost`, `127.0.0.1`, and Android emulator `10.0.2.2`.
 API keys are stored with Android Keystore-backed encryption and are removed
 when the user clears the key field.
 
@@ -101,6 +103,13 @@ tool calls. After confirmation, clipboard text is used only for the immediate
 local follow-up answer and is redacted from trace, audit, and persisted chat
 tool-observation messages. Remote model mode does not automatically receive
 clipboard content.
+Requests such as “识别最近截图文字” become confirmed
+`read_recent_screenshot_ocr` tool calls. After confirmation, PocketMind reads
+only the most recent screenshot through Android media permissions, extracts a
+bounded local OCR text excerpt, and does not persist the image URI, path, raw
+pixels, or OCR text in trace/audit. Remote model mode stops before automatic
+continuation and asks the user to switch local or manually provide content they
+are willing to upload.
 Requests such as “总结剪贴板并分享” use one constrained composite flow: after
 the user confirms the clipboard read, PocketMind summarizes locally, then opens
 a second confirmation for `share_text` with the generated summary. The share
@@ -136,9 +145,9 @@ deep-link navigation, package-level app launches, Android share intent and
 in-app picker text plus bounded `text/*` document excerpt ingestion, system
 speech-recognition input, and restart restoration for the latest pending tool
 confirmation without auto-execution. Broad screen understanding, generalized
-typed run recovery, complete document parsing, screenshot capture/OCR,
-Office/PDF parsing, image semantic understanding, and media content
-understanding are tracked there as pending core modules.
+typed run recovery, complete document parsing, screenshot capture/current-screen
+understanding, Office/PDF parsing, image semantic understanding, arbitrary-media
+OCR, and media content understanding are tracked there as pending core modules.
 
 ## Recommended Models
 

@@ -52,6 +52,11 @@ class AgentRuntimePermissionPolicyTest {
                 arguments = mapOf("kind" to "screenshots"),
             ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.S),
         )
+        assertEquals(
+            listOf(Manifest.permission.READ_EXTERNAL_STORAGE),
+            confirmationFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
+                .runtimePermissionsFor(apiLevel = Build.VERSION_CODES.S),
+        )
     }
 
     @Test
@@ -69,6 +74,11 @@ class AgentRuntimePermissionPolicyTest {
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 arguments = mapOf("kind" to "screenshots"),
             ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU),
+        )
+        assertEquals(
+            listOf(Manifest.permission.READ_MEDIA_IMAGES),
+            confirmationFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
+                .runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU),
         )
         assertEquals(
             listOf(
@@ -101,6 +111,18 @@ class AgentRuntimePermissionPolicyTest {
         assertEquals("联系人权限", requirements.single().title)
         assertTrue(requirements.single().rationale.contains("只读查询联系人"))
         assertEquals("联系人权限", runtimePermissionDenialSummary(listOf(Manifest.permission.READ_CONTACTS)))
+    }
+
+    @Test
+    fun recentScreenshotOcrPermissionRationaleDisclosesPixelAndOcrRead() {
+        val requirement = confirmationFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
+            .runtimePermissionRequirementsFor(apiLevel = Build.VERSION_CODES.TIRAMISU)
+            .single()
+
+        assertEquals(listOf(Manifest.permission.READ_MEDIA_IMAGES), requirement.permissions)
+        assertEquals("照片和图片权限", requirement.title)
+        assertTrue(requirement.rationale.contains("读取最近 1 张截图像素"))
+        assertTrue(requirement.rationale.contains("OCR 文本"))
     }
 
     @Test
@@ -175,6 +197,7 @@ class AgentRuntimePermissionPolicyTest {
                 MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
                 MobileActionFunctions.QUERY_CONTACTS,
                 MobileActionFunctions.QUERY_RECENT_FILES,
+                MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
             ),
             runtimePermissionTools,
         )

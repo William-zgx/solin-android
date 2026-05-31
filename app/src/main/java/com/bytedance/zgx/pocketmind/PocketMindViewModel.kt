@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionExecutor
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
@@ -1276,10 +1277,14 @@ class PocketMindViewModel(
             if (observation.continuationRequiresLocalModel &&
                 _uiState.value.inferenceMode == InferenceMode.Remote
             ) {
+                val protectedContentName = when (request.toolName) {
+                    MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> "截图 OCR 内容"
+                    else -> "剪贴板内容"
+                }
                 replaceActiveSessionMessages(
                     messagesWithObservation + ChatMessage(
                         role = MessageRole.Assistant,
-                        text = "已读取剪贴板。当前为远程模型模式，为保护隐私，我不会自动发送剪贴板内容到远程模型。请切换到本地模型后重试，或手动粘贴你愿意发送的内容。",
+                        text = "已读取${protectedContentName}。当前为远程模型模式，为保护隐私，我不会自动发送${protectedContentName}到远程模型。请切换到本地模型后重试，或手动粘贴你愿意发送的内容。",
                         privacy = MessagePrivacy.LocalOnly,
                     ),
                     persistNow = true,
@@ -1292,7 +1297,7 @@ class PocketMindViewModel(
                         isGenerating = false,
                         auditEvents = loadAuditEvents(),
                         agentTraceRuns = loadAgentTraceRuns(),
-                        statusText = "已保护剪贴板内容",
+                        statusText = "已保护${protectedContentName}",
                     )
                 }
                 return

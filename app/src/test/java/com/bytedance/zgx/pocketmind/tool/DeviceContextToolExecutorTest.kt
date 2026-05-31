@@ -13,6 +13,9 @@ import com.bytedance.zgx.pocketmind.device.NotificationSummaryProvider
 import com.bytedance.zgx.pocketmind.device.NotificationSummaryReadResult
 import com.bytedance.zgx.pocketmind.device.RecentFileProvider
 import com.bytedance.zgx.pocketmind.device.RecentFileReadResult
+import com.bytedance.zgx.pocketmind.device.RecentImageTextItem
+import com.bytedance.zgx.pocketmind.device.RecentImageTextProvider
+import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -335,6 +338,116 @@ class DeviceContextToolExecutorTest {
     }
 
     @Test
+    fun recentScreenshotOcrSuccessReturnsLocalOnlyTextWithoutImageIdentifiers() {
+        val provider = RecordingRecentImageTextProvider(
+            RecentImageTextReadResult.Available(
+                item = RecentImageTextItem(
+                    name = "Screenshot_20260531.png",
+                    mimeType = "image/png",
+                    kind = "screenshots",
+                    sizeBytes = 2_048L,
+                    lastModifiedMillis = 7_000L,
+                    text = "标题\n正文",
+                    truncated = true,
+                ),
+                scannedCount = 1,
+            ),
+        )
+        val executor = RecentScreenshotOcrToolExecutor(provider)
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "screenshot-ocr",
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                arguments = mapOf("maxCount" to "1"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(null, result.error)
+        assertFalse(result.retryable)
+        assertEquals("screenshots", provider.lastKind)
+        assertEquals(1, provider.lastMaxCount)
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, result.data["toolName"])
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals("true", result.data["requiresLocalModel"])
+        assertEquals("标题\n正文", result.data["ocrText"])
+        assertEquals("true", result.data["truncated"])
+        assertEquals("true", result.data["ocrTextIncluded"])
+        assertEquals("false", result.data["rawPayloadIncluded"])
+        assertEquals("ocr_text_local_only_no_uri_path_or_pixels_persisted", result.data["metadataPolicy"])
+        assertFalse(result.data.containsKey("id"))
+        assertFalse(result.data.containsKey("path"))
+        assertFalse(result.data.containsKey("uri"))
+        assertFalse(result.data.containsKey("content"))
+        assertFalse(result.data.containsKey("pixels"))
+    }
+
+    @Test
+    fun recentScreenshotOcrNoTextIsSuccessfulLocalOnlyMetadata() {
+        val executor = RecentScreenshotOcrToolExecutor(
+            StaticRecentImageTextProvider(
+                RecentImageTextReadResult.Available(item = null, scannedCount = 1),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "screenshot-ocr",
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals("false", result.data["ocrTextIncluded"])
+        assertFalse(result.data.containsKey("ocrText"))
+    }
+
+    @Test
+    fun recentScreenshotOcrPermissionDeniedAndFailureAreStructured() {
+        val denied = RecentScreenshotOcrToolExecutor(
+            StaticRecentImageTextProvider(
+                RecentImageTextReadResult.PermissionDenied("images permission missing"),
+            ),
+        ).execute(
+            ToolRequest(
+                id = "screenshot-ocr",
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                reason = "test",
+            ),
+        )
+        assertEquals(ToolStatus.Failed, denied.status)
+        assertEquals(ToolErrorCode.PermissionDenied, denied.error?.code)
+        assertTrue(denied.retryable)
+        assertEquals(MessagePrivacy.LocalOnly.name, denied.data["privacy"])
+        assertFalse(denied.data.containsKey("ocrText"))
+
+        val failed = RecentScreenshotOcrToolExecutor(
+            StaticRecentImageTextProvider(
+                RecentImageTextReadResult.Failed(
+                    "content://media/external/images/media/1 /sdcard/DCIM/Screenshots/private.png",
+                ),
+            ),
+        ).execute(
+            ToolRequest(
+                id = "screenshot-ocr",
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                reason = "test",
+            ),
+        )
+        assertEquals(ToolStatus.Failed, failed.status)
+        assertEquals(ToolErrorCode.ExecutionFailed, failed.error?.code)
+        assertTrue(failed.retryable)
+        assertFalse(failed.summary.contains("content://"))
+        assertFalse(failed.summary.contains("/sdcard"))
+        assertEquals(MessagePrivacy.LocalOnly.name, failed.data["privacy"])
+        assertFalse(failed.data.containsKey("ocrText"))
+    }
+
+    @Test
     fun directDeviceContextExecutorsRejectWrongToolName() {
         val request = ToolRequest(
             id = "wrong",
@@ -361,6 +474,11 @@ class DeviceContextToolExecutorTest {
             RecentFilesToolExecutor(
                 StaticRecentFileProvider(
                     RecentFileReadResult.Failed("not used"),
+                ),
+            ).execute(request),
+            RecentScreenshotOcrToolExecutor(
+                StaticRecentImageTextProvider(
+                    RecentImageTextReadResult.Failed("not used"),
                 ),
             ).execute(request),
         )
@@ -426,6 +544,27 @@ class DeviceContextToolExecutorTest {
             private set
 
         override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult {
+            lastKind = kind
+            lastMaxCount = maxCount
+            return result
+        }
+    }
+
+    private class StaticRecentImageTextProvider(
+        private val result: RecentImageTextReadResult,
+    ) : RecentImageTextProvider {
+        override fun extractRecentImageText(kind: String, maxCount: Int): RecentImageTextReadResult = result
+    }
+
+    private class RecordingRecentImageTextProvider(
+        private val result: RecentImageTextReadResult,
+    ) : RecentImageTextProvider {
+        var lastKind: String? = null
+            private set
+        var lastMaxCount: Int? = null
+            private set
+
+        override fun extractRecentImageText(kind: String, maxCount: Int): RecentImageTextReadResult {
             lastKind = kind
             lastMaxCount = maxCount
             return result

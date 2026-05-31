@@ -1,6 +1,8 @@
 package com.bytedance.zgx.pocketmind.skill
 
+import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
@@ -225,6 +227,88 @@ class SkillRunExecutorTest {
         assertFalse(rejected.outputs.toString().contains(rawClipboardText))
         assertFalse(rejected.trace.toString().contains(rawClipboardText))
         assertFalse(requireNotNull(awaitingRead.continuation).toString().contains(rawClipboardText))
+    }
+
+    @Test
+    fun recentScreenshotOcrTextCannotBindDirectlyToLaterToolArgument() {
+        val rawOcrText = "截图里的私密验证码 123456"
+        val toolExecutor = RecordingToolExecutor(emptyList())
+        val executor = SkillRunExecutor(
+            toolExecutor = toolExecutor,
+            modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("unused") },
+        )
+        val readStep = SkillStep.ToolStep(
+            id = "read_screenshot",
+            request = ToolRequest(
+                id = "read-screenshot",
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                arguments = mapOf("maxCount" to "1"),
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                title = "读取最近截图 OCR",
+                summary = "读取最近截图文字",
+                parameters = mapOf("maxCount" to "1"),
+            ),
+        )
+        val shareStep = SkillStep.ToolStep(
+            id = "share_ocr",
+            dependsOn = listOf(readStep.id),
+            request = ToolRequest(
+                id = "share-ocr",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.SHARE_TEXT,
+                title = "分享 OCR",
+                summary = "分享 OCR 文本",
+                parameters = emptyMap(),
+            ),
+            argumentBindings = mapOf("text" to "${readStep.id}.ocrText"),
+        )
+        val plan = SkillPlan(
+            request = SkillRequest(
+                id = "skill-ocr",
+                skillId = "test.screenshot_ocr_share",
+                arguments = emptyMap(),
+                reason = "test",
+            ),
+            manifest = SkillManifest(
+                id = "test.screenshot_ocr_share",
+                version = 1,
+                title = "OCR share",
+                description = "test",
+                triggerExamples = emptyList(),
+                requiredTools = listOf(
+                    MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                    MobileActionFunctions.SHARE_TEXT,
+                ),
+                inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
+                riskLevel = RiskLevel.MediumDraftOrNavigation,
+            ),
+            steps = listOf(readStep, shareStep),
+        )
+        val awaitingRead = executor.execute(plan)
+
+        val rejected = executor.resume(
+            plan = plan,
+            continuation = requireNotNull(awaitingRead.continuation),
+            result = ToolResult(
+                requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取最近截图 OCR 摘录",
+                data = mapOf("ocrText" to rawOcrText),
+            ),
+        )
+
+        assertEquals(SkillRunState.Failed, rejected.state)
+        assertTrue(rejected.error.orEmpty().contains("private tool output cannot be bound directly"))
+        assertEquals(null, rejected.pendingToolRequest)
+        assertEquals(null, rejected.continuation)
+        assertTrue(toolExecutor.requests.isEmpty())
+        assertFalse(rejected.outputs.toString().contains(rawOcrText))
+        assertFalse(rejected.trace.toString().contains(rawOcrText))
+        assertFalse(requireNotNull(awaitingRead.continuation).toString().contains(rawOcrText))
     }
 
     @Test

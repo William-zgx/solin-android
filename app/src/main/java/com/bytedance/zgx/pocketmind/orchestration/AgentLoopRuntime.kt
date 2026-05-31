@@ -355,7 +355,7 @@ class AgentLoopRuntime(
             recoveryAction = recoveryAction,
             continuationPromptForModel = continuationPrompt,
             continuationRequiresLocalModel = continuationPrompt != null &&
-                request.toolName == MobileActionFunctions.READ_CLIPBOARD,
+                request.toolName in localOnlyContinuationTools,
             retryRequest = retryRequest,
             retryAttempt = retryAttempt,
             steps = traceStore.steps(runId),
@@ -379,7 +379,7 @@ class AgentLoopRuntime(
 
             result.status == ToolStatus.Succeeded && continuationPrompt != null ->
                 AgentObservationDecision.ContinueWithModel(
-                    requiresLocalModel = request.toolName == MobileActionFunctions.READ_CLIPBOARD,
+                    requiresLocalModel = request.toolName in localOnlyContinuationTools,
                     reason = result.summary,
                 )
 
@@ -842,29 +842,71 @@ class AgentLoopRuntime(
         result: ToolResult,
     ): String? {
         if (result.status != ToolStatus.Succeeded) return null
-        if (request?.toolName != MobileActionFunctions.READ_CLIPBOARD) return null
-        val clipboardText = result.data["text"]?.takeIf { it.isNotBlank() } ?: return null
-        val truncated = result.data["truncated"]?.toBooleanStrictOrNull() ?: false
-        return """
-            用户已经确认读取剪贴板。请根据用户原始请求处理剪贴板文本。
-            如果用户没有明确要求逐字复述，不要完整抄回剪贴板原文；优先总结、改写、提取信息或回答问题。
-            不要使用与当前请求无关的隐私内容。
+        return when (request?.toolName) {
+            MobileActionFunctions.READ_CLIPBOARD -> {
+                val clipboardText = result.data["text"]?.takeIf { it.isNotBlank() } ?: return null
+                val truncated = result.data["truncated"]?.toBooleanStrictOrNull() ?: false
+                """
+                    用户已经确认读取剪贴板。请根据用户原始请求处理剪贴板文本。
+                    如果用户没有明确要求逐字复述，不要完整抄回剪贴板原文；优先总结、改写、提取信息或回答问题。
+                    不要使用与当前请求无关的隐私内容。
 
-            用户原始请求：${run.input}
-            工具观察：${result.summary}
-            剪贴板文本${if (truncated) "（已截断）" else ""}：
-            $clipboardText
-        """.trimIndent()
+                    用户原始请求：${run.input}
+                    工具观察：${result.summary}
+                    剪贴板文本${if (truncated) "（已截断）" else ""}：
+                    $clipboardText
+                """.trimIndent()
+            }
+
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> {
+                val ocrText = result.data["ocrText"]?.takeIf { it.isNotBlank() } ?: return null
+                val truncated = result.data["truncated"]?.toBooleanStrictOrNull() ?: false
+                """
+                    用户已经确认读取最近截图并在本地提取 OCR 文本。请根据用户原始请求处理 OCR 摘录。
+                    这不是当前屏幕捕获，也不是图片语义理解；只使用已提取的截图文字。
+                    如果用户没有明确要求逐字复述，不要完整抄回 OCR 原文；优先总结、改写、提取信息或回答问题。
+
+                    用户原始请求：${run.input}
+                    工具观察：${result.summary}
+                    最近截图 OCR 文本${if (truncated) "（已截断）" else ""}：
+                    $ocrText
+                """.trimIndent()
+            }
+
+            else -> null
+        }
     }
 
     private fun ToolResult.redactedForTrace(request: ToolRequest?): ToolResult {
-        if (request?.toolName != MobileActionFunctions.READ_CLIPBOARD) return this
-        if ("text" !in data) return this
-        return copy(
-            summary = "已读取剪贴板文本",
-            data = data + ("text" to "[redacted]"),
-        )
+        return when (request?.toolName) {
+            MobileActionFunctions.READ_CLIPBOARD ->
+                if ("text" in data) {
+                    copy(
+                        summary = "已读取剪贴板文本",
+                        data = data + ("text" to "[redacted]"),
+                    )
+                } else {
+                    this
+                }
+
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR ->
+                if ("ocrText" in data) {
+                    copy(
+                        summary = "已读取最近截图 OCR 摘录",
+                        data = data + ("ocrText" to "[redacted]"),
+                    )
+                } else {
+                    this
+                }
+
+            else -> this
+        }
     }
+
+    private val localOnlyContinuationTools = setOf(
+        MobileActionFunctions.READ_CLIPBOARD,
+        MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+    )
 
     private fun auditToolEvent(
         runId: String,

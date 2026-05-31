@@ -605,6 +605,72 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                        title = "读取最近截图 OCR",
+                        summary = "将读取最近 1 张截图的像素并在本地提取 OCR 文本。",
+                        parameters = mapOf("maxCount" to "1"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val rawOcrText = "截图里的私密验证码 123456"
+        val planned = runtime.runOnce(
+            input = "识别最近1张截图文字并总结",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已从最近截图提取 14 个字符的本地 OCR 摘录。",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                    "privacy" to "LocalOnly",
+                    "ocrText" to rawOcrText,
+                    "truncated" to "false",
+                    "ocrTextIncluded" to "true",
+                    "rawPayloadIncluded" to "false",
+                    "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains(rawOcrText))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("不是当前屏幕捕获"))
+        assertEquals("[redacted]", observed.result.data["ocrText"])
+        val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
+        assertEquals("[redacted]", toolObserved.result.data["ocrText"])
+        assertTrue(!observed.steps.toString().contains(rawOcrText))
+        assertTrue(!auditSink.events.toString().contains(rawOcrText))
+    }
+
+    @Test
     fun clipboardSummarySharePlansShareAfterLocalModelResult() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(

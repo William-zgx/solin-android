@@ -24,6 +24,7 @@ import com.bytedance.zgx.pocketmind.device.AndroidCalendarAvailabilityProvider
 import com.bytedance.zgx.pocketmind.device.AndroidContactSummaryProvider
 import com.bytedance.zgx.pocketmind.device.AndroidForegroundAppProvider
 import com.bytedance.zgx.pocketmind.device.AndroidNotificationSummaryProvider
+import com.bytedance.zgx.pocketmind.device.AndroidRecentImageTextProvider
 import com.bytedance.zgx.pocketmind.device.AndroidRecentFileProvider
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
@@ -97,6 +98,7 @@ class PocketMindAppContainer(context: Context) {
                     backgroundTaskScheduler = backgroundTaskSchedulerInternal,
                     canPostReminderNotifications = reminderNotificationHelper::canPostNotifications,
                 ),
+                recentImageTextProvider = AndroidRecentImageTextProvider(appContext),
             ),
         )
         assistantOrchestrator = AssistantOrchestrator(

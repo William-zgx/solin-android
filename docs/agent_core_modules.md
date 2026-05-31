@@ -35,8 +35,9 @@ Current status:
   search, email draft, calendar draft, contact draft, local reminders,
   confirmed clipboard text reads, outbound system sharing for text, current
   foreground app summaries, contact lookup, recent notification summaries,
-  calendar availability, recent file metadata summaries, safe HTTPS deep-link
-  navigation, package-level app launches, and allowlisted app deep targets.
+  calendar availability, recent file metadata summaries, confirmed recent
+  screenshot OCR, safe HTTPS deep-link navigation, package-level app launches,
+  and allowlisted app deep targets.
 - Tools that may require runtime permissions declare that requirement in
   `ToolSpec` only when the current runtime permission policy can request a
   concrete Android manifest permission. The Activity boundary maps pending tool
@@ -339,12 +340,19 @@ Current status:
 - `query_recent_files` supports a `screenshots` kind that filters recent image
   metadata likely belonging to screenshot folders or names. It remains
   metadata-only and returns the same minimal fields as other recent-file reads.
+- `read_recent_screenshot_ocr` is a separate confirmed tool for explicit
+  "识别最近截图文字" requests. It reads only the most recent screenshot, extracts a
+  bounded local OCR text excerpt, marks the result `LocalOnly`, and does not
+  persist or expose the MediaStore id, URI, path, original image, or raw pixels.
+  Remote mode treats the OCR continuation like other protected local context and
+  stops before sending it to a configured backend.
 - JVM executor matrix tests cover foreground app, notification summary, contact
-  summary, calendar availability, and recent file metadata success, permission
-  denied, provider failure, LocalOnly, and minimal-field boundaries.
+  summary, calendar availability, recent file metadata, and recent screenshot
+  OCR success, permission denied, provider failure, LocalOnly, and minimal-field
+  boundaries.
 - Broad screen understanding, screenshot capture, complete document parsing,
-  OCR, Office/PDF parsing, image pixel analysis, and media content understanding
-  are still pending.
+  Office/PDF parsing, arbitrary image/media OCR, image pixel analysis, and media
+  content understanding are still pending.
 
 ## Execution Boundary
 
@@ -716,16 +724,19 @@ Current status:
   excerpts, attachment metadata, or local assistant responses into remote chat
   history. Remote mode rejects automatically generated shared-input prompts
   before calling a remote backend.
-- The voice entry does not read or parse audio files. Screenshot capture,
-  screen understanding, Office/PDF parsing, image semantic understanding, and
-  media content understanding are pending. Image OCR is limited to
-  user-provided `image/*` attachments and produces text excerpts only.
+- The voice entry does not read or parse audio files. Recent screenshot OCR is
+  implemented as a confirmed Device Context tool, not as automatic shared-input
+  ingestion. Screenshot capture, screen understanding, Office/PDF parsing, image
+  semantic understanding, and media content understanding are pending. Image OCR
+  is limited to user-provided `image/*` attachments or the user-confirmed recent
+  screenshot OCR tool, and produces text excerpts only.
 
 Tests:
 
 - `SharedInputTest`
 - `PocketMindViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory`
 - `PocketMindViewModelTest.remoteModeRejectsLocalOnlyPromptBeforeCallingRemoteRuntime`
+- `PocketMindViewModelTest.remoteModeProtectsRecentScreenshotOcrBeforeRemoteContinuation`
 - `PocketMindViewModelTest.voiceTranscriptDraftIsOneShotAndDoesNotSendMessage`
 - `MainActivitySmokeTest` composer attachment and voice entry visibility
 

@@ -61,6 +61,18 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun parsesRecentScreenshotOcrCallOutput() {
+        val draft = planner.parseModelOutput(
+            """call:read_recent_screenshot_ocr{"maxCount":"1"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, draft.functionName)
+        assertEquals("1", draft.parameters["maxCount"])
+        assertTrue(draft.summary.contains("本地提取 OCR"))
+    }
+
+    @Test
     fun parsesUsageAccessSettingsCallOutput() {
         val draft = planner.parseModelOutput("""call:open_usage_access_settings{}""")
 
@@ -249,6 +261,25 @@ class ActionPlannerTest {
     @Test
     fun infersRecentScreenshotsDraftForEnglishPhrase() {
         val plan = planner.plan("recent screenshots")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, plan.draft?.functionName)
+        assertEquals("screenshots", plan.draft?.parameters?.get("kind"))
+    }
+
+    @Test
+    fun infersRecentScreenshotOcrOnlyWhenTextExtractionIsExplicit() {
+        val plan = planner.plan("识别最近1张截图文字")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, plan.draft?.functionName)
+        assertEquals("1", plan.draft?.parameters?.get("maxCount"))
+        assertTrue(plan.draft?.summary.orEmpty().contains("不会保存图片"))
+    }
+
+    @Test
+    fun keepsPlainRecentScreenshotsAsMetadataQuery() {
+        val plan = planner.plan("最近截图")
 
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, plan.draft?.functionName)

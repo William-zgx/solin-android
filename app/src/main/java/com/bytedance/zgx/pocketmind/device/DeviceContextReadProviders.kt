@@ -4,20 +4,26 @@ import android.Manifest
 import android.app.AppOpsManager
 import android.app.NotificationManager
 import android.app.usage.UsageStatsManager
+import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
-import android.provider.ContactsContract
 import android.os.Build
 import android.os.Process
+import android.provider.ContactsContract
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
+import com.bytedance.zgx.pocketmind.multimodal.ImageTextExtractor
+import com.bytedance.zgx.pocketmind.multimodal.MlKitImageTextExtractor
+import com.bytedance.zgx.pocketmind.multimodal.SharedTextPreview
 
 private const val DEFAULT_FOREGROUND_USAGE_LOOKBACK_MS = 15 * 60 * 1000L
 private const val DEFAULT_MAX_NOTIFICATION_COUNT = 5
 private const val DEFAULT_MAX_CONTACT_SUMMARY_COUNT = 5
 private const val DEFAULT_MAX_CONTACT_SUMMARY_LOOKBACK = 20
 private const val DEFAULT_MAX_RECENT_FILE_COUNT = 5
+private const val DEFAULT_MAX_RECENT_IMAGE_TEXT_SCAN_COUNT = 3
 private const val MAX_RECENT_FILE_COUNT = 50
+private const val MAX_RECENT_IMAGE_TEXT_SCAN_COUNT = 10
 
 private const val KIND_ALL = "all"
 private const val KIND_SCREENSHOTS = "screenshots"
@@ -42,6 +48,13 @@ interface ContactSummaryProvider {
 
 interface RecentFileProvider {
     fun recentFiles(kind: String = KIND_ALL, maxCount: Int = DEFAULT_MAX_RECENT_FILE_COUNT): RecentFileReadResult
+}
+
+interface RecentImageTextProvider {
+    fun extractRecentImageText(
+        kind: String = KIND_SCREENSHOTS,
+        maxCount: Int = DEFAULT_MAX_RECENT_IMAGE_TEXT_SCAN_COUNT,
+    ): RecentImageTextReadResult
 }
 
 data class ForegroundAppInfo(
@@ -93,6 +106,26 @@ sealed class RecentFileReadResult {
     data class Available(val items: List<RecentFileItem>) : RecentFileReadResult()
     data class PermissionDenied(val reason: String) : RecentFileReadResult()
     data class Failed(val reason: String) : RecentFileReadResult()
+}
+
+data class RecentImageTextItem(
+    val name: String,
+    val mimeType: String,
+    val kind: String,
+    val sizeBytes: Long,
+    val lastModifiedMillis: Long,
+    val text: String,
+    val truncated: Boolean,
+)
+
+sealed class RecentImageTextReadResult {
+    data class Available(
+        val item: RecentImageTextItem?,
+        val scannedCount: Int,
+    ) : RecentImageTextReadResult()
+
+    data class PermissionDenied(val reason: String) : RecentImageTextReadResult()
+    data class Failed(val reason: String) : RecentImageTextReadResult()
 }
 
 class AndroidContactSummaryProvider(
@@ -553,6 +586,162 @@ class AndroidRecentFileProvider(
         )
 
         val FILE_PROJECTION = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.DATE_MODIFIED,
+        )
+    }
+}
+
+class AndroidRecentImageTextProvider(
+    private val context: Context,
+    private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
+) : RecentImageTextProvider {
+    override fun extractRecentImageText(kind: String, maxCount: Int): RecentImageTextReadResult {
+        val normalizedKind = normalizeImageTextKind(kind)
+        if (!hasImageReadPermission()) {
+            return RecentImageTextReadResult.PermissionDenied("未授权“读取图片”权限")
+        }
+        val normalizedMaxCount = maxCount.coerceIn(1, MAX_RECENT_IMAGE_TEXT_SCAN_COUNT)
+        val filter = buildImageTextFilter(normalizedKind)
+
+        return try {
+            val cursor = context.contentResolver.query(
+                MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
+                IMAGE_TEXT_PROJECTION,
+                filter.selection,
+                filter.selectionArgs,
+                "${MediaStore.Files.FileColumns.DATE_ADDED} DESC, ${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC",
+            ) ?: return RecentImageTextReadResult.Failed("图片服务不可用")
+
+            var scannedCount = 0
+            cursor.use {
+                val idIndex = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+                val nameIndex = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                val mimeTypeIndex = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+                val sizeIndex = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+                val modifiedIndex = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
+
+                while (it.moveToNext() && scannedCount < normalizedMaxCount) {
+                    scannedCount += 1
+                    val uri = ContentUris.withAppendedId(
+                        MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
+                        it.getLong(idIndex),
+                    )
+                    val preview = imageTextExtractor.extract(uri) ?: continue
+                    return RecentImageTextReadResult.Available(
+                        item = preview.toRecentImageTextItem(
+                            name = it.getString(nameIndex).orEmpty().ifBlank { "未命名图片" },
+                            mimeType = it.getString(mimeTypeIndex).orEmpty().ifBlank { "image/*" },
+                            kind = normalizedKind,
+                            sizeBytes = it.getLong(sizeIndex).coerceAtLeast(0L),
+                            lastModifiedMillis = it.getLong(modifiedIndex).coerceAtLeast(0L) * 1000L,
+                        ),
+                        scannedCount = scannedCount,
+                    )
+                }
+            }
+
+            RecentImageTextReadResult.Available(item = null, scannedCount = scannedCount)
+        } catch (_: SecurityException) {
+            RecentImageTextReadResult.PermissionDenied("未授权“读取图片”权限")
+        } catch (_: Throwable) {
+            RecentImageTextReadResult.Failed("图片 OCR 服务不可用")
+        }
+    }
+
+    private fun buildImageTextFilter(kind: String): ImageTextFilter =
+        when (kind) {
+            KIND_SCREENSHOTS -> ImageTextFilter(
+                selection = screenshotSelection(),
+                selectionArgs = screenshotSelectionArgs(),
+            )
+
+            else -> ImageTextFilter(
+                selection = "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?",
+                selectionArgs = arrayOf("image/%"),
+            )
+        }
+
+    private fun normalizeImageTextKind(input: String): String =
+        when (input.lowercase()) {
+            KIND_IMAGES -> KIND_IMAGES
+            KIND_SCREENSHOTS -> KIND_SCREENSHOTS
+            else -> KIND_SCREENSHOTS
+        }
+
+    private fun hasImageReadPermission(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            hasPermission(Manifest.permission.READ_MEDIA_IMAGES)
+        } else {
+            hasPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+
+    private fun screenshotSelection(): String {
+        val nameClauses = IMAGE_TEXT_SCREENSHOT_MARKERS.joinToString(separator = " OR ") {
+            "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ?"
+        }
+        val pathClauses = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            IMAGE_TEXT_SCREENSHOT_MARKERS.joinToString(separator = " OR ") {
+                "LOWER(${MediaStore.Files.FileColumns.RELATIVE_PATH}) LIKE ?"
+            }
+        } else {
+            ""
+        }
+        val screenshotClauses = listOf(nameClauses, pathClauses)
+            .filter { it.isNotBlank() }
+            .joinToString(separator = " OR ")
+        return "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ? AND ($screenshotClauses)"
+    }
+
+    private fun screenshotSelectionArgs(): Array<String> {
+        val markers = IMAGE_TEXT_SCREENSHOT_MARKERS.map { "%$it%" }
+        val args = mutableListOf("image/%")
+        args += markers
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            args += markers
+        }
+        return args.toTypedArray()
+    }
+
+    private fun hasPermission(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+
+    private fun SharedTextPreview.toRecentImageTextItem(
+        name: String,
+        mimeType: String,
+        kind: String,
+        sizeBytes: Long,
+        lastModifiedMillis: Long,
+    ): RecentImageTextItem =
+        RecentImageTextItem(
+            name = name,
+            mimeType = mimeType,
+            kind = kind,
+            sizeBytes = sizeBytes,
+            lastModifiedMillis = lastModifiedMillis,
+            text = text,
+            truncated = truncated,
+        )
+
+    private data class ImageTextFilter(
+        val selection: String,
+        val selectionArgs: Array<String>,
+    )
+
+    private companion object {
+        val IMAGE_TEXT_SCREENSHOT_MARKERS = listOf(
+            "screenshot",
+            "screen_shot",
+            "screencap",
+            "screen capture",
+            "截屏",
+            "截图",
+        )
+
+        val IMAGE_TEXT_PROJECTION = arrayOf(
             MediaStore.Files.FileColumns._ID,
             MediaStore.Files.FileColumns.DISPLAY_NAME,
             MediaStore.Files.FileColumns.MIME_TYPE,

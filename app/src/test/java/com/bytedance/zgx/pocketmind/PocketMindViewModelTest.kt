@@ -423,6 +423,108 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun remoteModeProtectsRecentScreenshotOcrBeforeRemoteContinuation() = runTest(dispatcher) {
+        val rawOcrText = "截图里的私密验证码 123456"
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val readRequest = ToolRequest(
+            toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            arguments = mapOf("maxCount" to "1"),
+        )
+        val readDraft = ActionDraft(
+            functionName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            title = "读取最近截图 OCR",
+            summary = "将读取最近 1 张截图并在本地提取文字。",
+            parameters = readRequest.arguments,
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-screenshot-ocr",
+                toolRequest = readRequest,
+                draft = readDraft,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = null,
+            ),
+            confirmedRun = AgentRun(
+                "run-screenshot-ocr",
+                "识别最近截图文字",
+                AgentRunState.ExecutingTool,
+                1L,
+                2L,
+            ),
+            toolObservation = AgentObservationResult(
+                run = AgentRun(
+                    "run-screenshot-ocr",
+                    "识别最近截图文字",
+                    AgentRunState.GeneratingAnswer,
+                    1L,
+                    3L,
+                ),
+                result = ToolResult(
+                    requestId = readRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取最近截图 OCR 摘录",
+                    data = mapOf(
+                        "ocrText" to "[redacted]",
+                        "ocrTextIncluded" to "true",
+                        "privacy" to "LocalOnly",
+                    ),
+                ),
+                assistantMessage = "工具执行结果：已读取最近截图 OCR 摘录",
+                decision = AgentObservationDecision.ContinueWithModel(
+                    requiresLocalModel = true,
+                    reason = "截图 OCR 内容仅可在本地继续处理。",
+                ),
+                continuationPromptForModel = "请根据 OCR 文本回答：$rawOcrText",
+                continuationRequiresLocalModel = true,
+                steps = emptyList(),
+            ),
+        )
+        val actionExecutor = object : ToolExecutor {
+            override fun execute(request: ToolRequest): ToolResult =
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取最近截图 OCR 摘录",
+                    data = mapOf(
+                        "ocrText" to rawOcrText,
+                        "ocrTextIncluded" to "true",
+                        "privacy" to "LocalOnly",
+                    ),
+                )
+        }
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            actionExecutor = actionExecutor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("识别最近截图文字")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, confirmation.draft.functionName)
+
+        viewModel.confirmAgentConfirmation(confirmation)
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals("已保护截图 OCR 内容", viewModel.uiState.value.statusText)
+        assertTrue(sessionStore.messages.last().text.contains("不会自动发送截图 OCR 内容到远程模型"))
+        assertTrue(sessionStore.messages.none { message -> message.text.contains(rawOcrText) })
+    }
+
+    @Test
     fun pendingConfirmationBlocksNewMessageUntilHandled() = runTest(dispatcher) {
         val sessionStore = FakeSessionStore()
         val assistantRouter = FakeAssistantRouter(

@@ -18,6 +18,9 @@ import com.bytedance.zgx.pocketmind.device.NotificationSummaryReadResult
 import com.bytedance.zgx.pocketmind.device.RecentFileItem
 import com.bytedance.zgx.pocketmind.device.RecentFileProvider
 import com.bytedance.zgx.pocketmind.device.RecentFileReadResult
+import com.bytedance.zgx.pocketmind.device.RecentImageTextItem
+import com.bytedance.zgx.pocketmind.device.RecentImageTextProvider
+import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
 import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -61,6 +64,11 @@ class RoutingAndValidatingToolExecutorTest {
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 reason = "test",
             ) to "filesJson",
+            ToolRequest(
+                id = "screenshot-ocr",
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                reason = "test",
+            ) to "ocrText",
         )
 
         requests.forEach { (request, routedDataKey) ->
@@ -174,6 +182,35 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals(ToolStatus.Succeeded, result.status)
         assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, delegate.requests.single().toolName)
         assertEquals("screenshots", delegate.requests.single().arguments["kind"])
+    }
+
+    @Test
+    fun validatingExecutorAcceptsRecentScreenshotOcrMaxCountOneOnly() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(delegate)
+
+        val accepted = executor.execute(
+            ToolRequest(
+                id = "screenshot-ocr",
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                arguments = mapOf("maxCount" to "1"),
+                reason = "test",
+            ),
+        )
+        val rejectedRange = executor.execute(
+            ToolRequest(
+                id = "screenshot-ocr-range",
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                arguments = mapOf("maxCount" to "2"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, accepted.status)
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, delegate.requests.single().toolName)
+        assertEquals(ToolStatus.Rejected, rejectedRange.status)
+        assertEquals(ToolErrorCode.InvalidRequest, rejectedRange.error?.code)
+        assertTrue(rejectedRange.summary.contains("at most"))
     }
 
     @Test
@@ -292,6 +329,21 @@ class RoutingAndValidatingToolExecutorTest {
                     )
             },
             delegate = delegate,
+            recentImageTextProvider = object : RecentImageTextProvider {
+                override fun extractRecentImageText(kind: String, maxCount: Int): RecentImageTextReadResult =
+                    RecentImageTextReadResult.Available(
+                        item = RecentImageTextItem(
+                            name = "Screenshot.png",
+                            mimeType = "image/png",
+                            kind = "screenshots",
+                            sizeBytes = 512L,
+                            lastModifiedMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
+                            text = "screen text",
+                            truncated = false,
+                        ),
+                        scannedCount = 1,
+                    )
+            },
         )
 
     private class RecordingDelegate : ToolExecutor {

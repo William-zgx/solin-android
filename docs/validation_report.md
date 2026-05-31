@@ -1,5 +1,46 @@
 # PocketMind 验证报告
 
+## 2026-05-31 最近截图 OCR 增量验证
+
+本轮覆盖项：
+
+- 新增受确认保护的 `read_recent_screenshot_ocr` 工具：仅在用户明确要求识别最近截图文字时，读取最近 1 张截图并在本地提取 OCR 摘录。
+- `query_recent_files(kind="screenshots")` 继续保持 metadata-only；截图 OCR 是独立工具，不返回 MediaStore id、URI、路径、原图或像素。
+- OCR 文本标记为 `LocalOnly`，进入本地 continuation 前会在 trace/audit/persisted observation 中脱敏；远程模式不会自动发送截图 OCR 内容。
+- Skill runner 将 `ocrText` 视为私有工具输出，不能直接绑定到后续工具参数；失败路径不回显底层异常里的 URI/path。
+- Android 权限说明改为明确披露会读取最近 1 张截图像素并提取 OCR；工具风险等级升为 `MediumDraftOrNavigation`。
+- MediaStore 查询优先按 `DATE_ADDED` 排序，再按修改时间兜底，减少编辑旧截图后被误当作最近截图的概率；仍不声明当前屏幕捕获或图片语义理解。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.recentScreenshotOcrTextCannotBindDirectlyToLaterToolArgument' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.recentScreenshotOcrPermissionRationaleDisclosesPixelAndOcrRead' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.recentScreenshotOcrPermissionDeniedAndFailureAreStructured' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsRecentScreenshotOcrBeforeRemoteContinuation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace'
+
+./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
+./gradlew :app:lintDebug
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+adb devices -l
+```
+
+结果：
+
+- 通过：targeted JVM 最近截图 OCR 隐私边界、权限文案、registry、ViewModel 远程保护和 Agent trace 脱敏回归。
+- 通过：完整 `:app:compileDebugKotlin :app:compileDebugUnitTestKotlin
+  :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest`。
+- 通过：`:app:lintDebug`。
+- 通过：`:app:assembleDebug :app:assembleDebugAndroidTest`。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配。
+- 未执行模拟器回归：当前环境缺少 `adb` 命令。
+
 ## 2026-05-31 Share target MIME, wording, and skill restore 增量验证
 
 本轮覆盖项：
@@ -866,7 +907,7 @@ adb devices -l
   metadata-only，不读取正文或二进制内容。
 - 远程模式不会自动上传 shared-input 文本、文本摘录或附件元数据；用户必须手动
   粘贴愿意发送的内容。
-- 完整文档解析、OCR、Office/PDF 解析和媒体内容理解仍待实现。
+- 该切片不覆盖图片/OCR；完整文档解析、Office/PDF 解析和媒体内容理解仍待实现。
 
 验证命令：
 
@@ -1402,7 +1443,7 @@ ANDROID_SERIAL=emulator-5554 \
 说明：
 
 - 用户提供的 DeepSeek 远程配置仅作为可选手工验证输入，未写入仓库、测试代码或文档。
-- 当前仍未完成的核心能力包括屏幕理解、LiteRT embedding adapter 参与记忆检索、special-access permission flows beyond Usage Access、截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
+- 当前仍未完成的核心能力包括屏幕理解、LiteRT embedding adapter 参与记忆检索、special-access permission flows beyond Usage Access、当前屏幕捕获、任意媒体 OCR 和实际图片/文档语义理解；状态见 `docs/agent_core_modules.md`。
 
 ## 历史验证记录
 

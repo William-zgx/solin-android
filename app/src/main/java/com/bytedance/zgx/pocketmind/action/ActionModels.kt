@@ -39,6 +39,7 @@ object MobileActionFunctions {
     const val QUERY_FOREGROUND_APP = "query_foreground_app"
     const val QUERY_RECENT_NOTIFICATIONS = "query_recent_notifications"
     const val QUERY_RECENT_FILES = "query_recent_files"
+    const val READ_RECENT_SCREENSHOT_OCR = "read_recent_screenshot_ocr"
     const val CANCEL_REMINDER = "cancel_reminder"
 
     val supported: Set<String> = setOf(
@@ -51,6 +52,7 @@ object MobileActionFunctions {
         CREATE_CONTACT_DRAFT,
         QUERY_CONTACTS,
         QUERY_RECENT_FILES,
+        READ_RECENT_SCREENSHOT_OCR,
         OPEN_FLASHLIGHT_SETTINGS,
         SCHEDULE_REMINDER,
         READ_CLIPBOARD,

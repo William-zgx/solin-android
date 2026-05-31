@@ -138,6 +138,7 @@ internal fun actionPrompt(input: String): String =
     - query_contacts {"query":"...","maxCount":"..."} 仅用于读取联系人名称与电话（maxCount 可选，默认 5）
     - query_recent_notifications {"maxCount":"..."} 仅用于返回当前应用最近通知的简要信息（可选）
     - query_recent_files {"kind":"...","maxCount":"..."} 仅用于返回最近文件摘要（kind 可为 all/screenshots/images/videos/audio/documents/downloads/others，maxCount 可选）
+    - read_recent_screenshot_ocr {"maxCount":"1"} 仅用于用户明确要求识别最近截图文字时，本地读取最近 1 张截图并提取 OCR 摘录
 
     用户请求：$input
     """.trimIndent()

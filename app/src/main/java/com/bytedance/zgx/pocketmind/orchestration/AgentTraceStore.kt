@@ -38,6 +38,7 @@ private val toolObservedCompletionMetadataAllowlist = listOf(
     "externalOutcome",
     "intentAction",
     "metadataPolicy",
+    "ocrTextIncluded",
     "payloadMimeType",
     "rawPayloadIncluded",
     "settingsAction",

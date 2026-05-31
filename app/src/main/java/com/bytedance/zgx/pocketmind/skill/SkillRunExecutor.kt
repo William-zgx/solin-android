@@ -327,6 +327,7 @@ class SkillRunExecutor(
         const val INPUT_OUTPUT_KEY = "input"
         val PRIVATE_OUTPUT_KEYS_BY_TOOL = mapOf(
             MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to setOf("ocrText"),
         )
     }
 }

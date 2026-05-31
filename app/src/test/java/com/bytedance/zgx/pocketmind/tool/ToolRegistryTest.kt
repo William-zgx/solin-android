@@ -121,6 +121,18 @@ class ToolRegistryTest {
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"screenshots\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"documents\""))
 
+        val screenshotOcrSpec = registry.specFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
+        assertNotNull(screenshotOcrSpec)
+        requireNotNull(screenshotOcrSpec)
+        assertEquals(ToolCapability.DeviceContext, screenshotOcrSpec.capability)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, screenshotOcrSpec.riskLevel)
+        assertEquals(ConfirmationPolicy.Required, screenshotOcrSpec.confirmationPolicy)
+        assertTrue(ToolPermission.ReadsDeviceContext in screenshotOcrSpec.permissions)
+        assertTrue(ToolPermission.ReadsFiles in screenshotOcrSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission in screenshotOcrSpec.permissions)
+        assertTrue(screenshotOcrSpec.inputSchemaJson.contains("\"maximum\": 1"))
+        assertTrue(screenshotOcrSpec.description.contains("不保存 URI"))
+
         val recentNotificationSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS)
         assertNotNull(recentNotificationSpec)
         requireNotNull(recentNotificationSpec)
