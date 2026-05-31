@@ -1,5 +1,41 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Stale reminder alarm delivery 增量验证
+
+本轮覆盖项：
+
+- `ReminderAlarmReceiver` 不再读取 alarm Intent 中的 title/body extras；新的
+  reminder PendingIntent 只携带不透明 task id。
+- `ReminderAlarmDeliveryHandler` 投递前通过 `ScheduledTaskRepository` 重新读取
+  本地任务，并通过 DAO 条件更新只允许仍存在、类型为 `Reminder`、状态为
+  `Scheduled` 的任务进入 `Running`。
+- 本地 DB 记录成为提醒标题/正文的唯一投递来源；旧 alarm 即使携带过期 extras，
+  也不会覆盖当前持久化任务内容。
+- missing、`Cancelled`、`Deleted`、`Failed` 等 stale alarm 不发通知、不创建新
+  状态，也不把终态任务改回 `Running` / `Delivered`。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest'
+scripts/verify_local.sh
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+```
+
+结果：
+
+- 通过：targeted JVM reminder alarm delivery stale-boundary、repository
+  delivery-start、removal coordinator 和 periodic scheduler 回归测试。
+- 通过：`scripts/verify_local.sh`，覆盖 `testDebugUnitTest`、`lintDebug`、
+  `assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease` 和 APK 检查。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配。
+
 ## 2026-05-31 Device validation serial selection 增量验证
 
 本轮覆盖项：

@@ -165,6 +165,44 @@ class ScheduledTaskRepositoryTest {
     }
 
     @Test
+    fun startReminderDeliveryOnlyStartsScheduledReminders() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 2_000L })
+        val scheduled = repository.createReminder(
+            title = "投递",
+            body = "使用持久化正文",
+            triggerAtMillis = 5_000L,
+        )
+        dao.upsert(
+            entity(
+                id = "periodic",
+                type = ScheduledTaskType.PeriodicCheck,
+                status = ScheduledTaskStatus.Scheduled,
+            ),
+        )
+        dao.upsert(
+            entity(
+                id = "cancelled",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Cancelled,
+            ),
+        )
+
+        val started = repository.startReminderDelivery(scheduled.id)
+
+        assertEquals(scheduled.id, started?.id)
+        assertEquals("投递", started?.title)
+        assertEquals("使用持久化正文", started?.body)
+        assertEquals(ScheduledTaskStatus.Running, started?.status)
+        assertEquals(ScheduledTaskStatus.Running, repository.task(scheduled.id)?.status)
+        assertEquals(null, repository.startReminderDelivery("periodic"))
+        assertEquals(null, repository.startReminderDelivery("cancelled"))
+        assertEquals(null, repository.startReminderDelivery("missing"))
+        assertEquals(ScheduledTaskStatus.Scheduled, repository.task("periodic")?.status)
+        assertEquals(ScheduledTaskStatus.Cancelled, repository.task("cancelled")?.status)
+    }
+
+    @Test
     fun scheduledOrRunningReturnsScheduledTasksAndKnownRunningPeriodicCheck() {
         val dao = FakeScheduledTaskDao()
         val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000L })
@@ -311,6 +349,20 @@ class ScheduledTaskRepositoryTest {
             tasks.values
                 .sortedWith(compareByDescending<ScheduledTaskEntity> { it.updatedAtMillis }.thenBy { it.id })
                 .take(limit)
+
+        override fun markReminderRunningIfScheduled(taskId: String, updatedAtMillis: Long): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.Reminder.name ||
+                existing.status != ScheduledTaskStatus.Scheduled.name
+            ) {
+                return 0
+            }
+            tasks[taskId] = existing.copy(
+                status = ScheduledTaskStatus.Running.name,
+                updatedAtMillis = updatedAtMillis,
+            )
+            return 1
+        }
 
         override fun upsert(task: ScheduledTaskEntity) {
             tasks[task.id] = task

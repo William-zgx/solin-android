@@ -244,6 +244,22 @@ class PeriodicCheckSchedulerTest {
                 .sortedWith(compareByDescending<ScheduledTaskEntity> { it.updatedAtMillis }.thenBy { it.id })
                 .take(limit)
 
+        override fun markReminderRunningIfScheduled(taskId: String, updatedAtMillis: Long): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.Reminder.name ||
+                existing.status != ScheduledTaskStatus.Scheduled.name
+            ) {
+                return 0
+            }
+            upsert(
+                existing.copy(
+                    status = ScheduledTaskStatus.Running.name,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
         override fun upsert(task: ScheduledTaskEntity) {
             tasks[task.id] = task
             upsertedStatuses.getOrPut(task.id) { mutableListOf() } +=

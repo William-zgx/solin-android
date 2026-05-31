@@ -90,9 +90,11 @@ Reminder requests such as “提醒我 15 分钟后喝水” become confirmed
 `schedule_reminder` tool calls and are persisted before being handed to Android
 AlarmManager. Pending reminders are restored after device reboot; reminders
 that became due while the device was off are rescheduled with a short catch-up
-delay. The running background tasks view lists still-scheduled tasks; canceling
-one cancels the pending AlarmManager or WorkManager work, marks the local
-record as `Cancelled`, and removes it from the running list.
+delay. Alarm delivery re-checks the local task record and only posts
+still-`Scheduled` reminders, using the stored title/body instead of trusting
+alarm extras. The running background tasks view lists still-scheduled tasks;
+canceling one cancels the pending AlarmManager or WorkManager work, marks the
+local record as `Cancelled`, and removes it from the running list.
 The same entry also exposes recent persisted tool audit events for review. The
 audit list shows only event time, event type, tool name, status, risk,
 permission names, and a parameter-free generated summary; it does not show tool

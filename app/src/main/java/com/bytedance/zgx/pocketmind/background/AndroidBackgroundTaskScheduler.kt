@@ -105,8 +105,6 @@ class AndroidBackgroundTaskScheduler(
         val intent = Intent(context, ReminderAlarmReceiver::class.java).apply {
             action = ReminderAlarmReceiver.ACTION_DELIVER_REMINDER
             putExtra(ReminderAlarmReceiver.EXTRA_TASK_ID, task.id)
-            putExtra(ReminderAlarmReceiver.EXTRA_TITLE, task.title)
-            putExtra(ReminderAlarmReceiver.EXTRA_BODY, task.body)
         }
         return PendingIntent.getBroadcast(
             context,

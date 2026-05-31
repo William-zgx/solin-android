@@ -206,6 +206,15 @@ interface ScheduledTaskDao {
     @Query("SELECT * FROM scheduled_tasks ORDER BY updatedAtMillis DESC, id ASC LIMIT :limit")
     fun recent(limit: Int): List<ScheduledTaskEntity>
 
+    @Query(
+        """
+        UPDATE scheduled_tasks
+        SET status = 'Running', updatedAtMillis = :updatedAtMillis
+        WHERE id = :taskId AND type = 'Reminder' AND status = 'Scheduled'
+        """,
+    )
+    fun markReminderRunningIfScheduled(taskId: String, updatedAtMillis: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsert(task: ScheduledTaskEntity)
 }

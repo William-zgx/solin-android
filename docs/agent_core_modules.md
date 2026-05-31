@@ -614,6 +614,12 @@ Current status:
   first move through `Running`, then post a local notification when notification
   permission is available and update the task status to `Delivered` or
   `Failed`.
+- Reminder alarm delivery treats the local `scheduled_tasks` row as the source
+  of truth. A fired alarm only carries the opaque task id; delivery ignores
+  title/body extras from old alarms, verifies that the task still exists, is a
+  `Reminder`, and is still `Scheduled`, then posts using the stored title/body.
+  Missing, cancelled, deleted, or failed tasks are ignored without changing
+  state or posting stale notifications.
 - `ReminderBootReceiver` listens for `BOOT_COMPLETED` and asks
   `ReminderRescheduler` to restore every still-`Scheduled` reminder after the
   system clears alarms on reboot. Past-due reminders are rescheduled with a

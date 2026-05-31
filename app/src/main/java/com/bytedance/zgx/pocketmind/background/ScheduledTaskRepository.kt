@@ -126,6 +126,19 @@ class ScheduledTaskRepository(
         updateStatus(taskId, ScheduledTaskStatus.Delivered)
     }
 
+    fun startReminderDelivery(taskId: String): ScheduledTask? {
+        val existing = dao.task(taskId) ?: return null
+        if (existing.type != ScheduledTaskType.Reminder.name) return null
+        if (existing.status != ScheduledTaskStatus.Scheduled.name) return null
+        val updatedAtMillis = clockMillis()
+        val updatedRows = dao.markReminderRunningIfScheduled(taskId, updatedAtMillis)
+        if (updatedRows <= 0) return null
+        return existing.copy(
+            status = ScheduledTaskStatus.Running.name,
+            updatedAtMillis = updatedAtMillis,
+        ).toModel()
+    }
+
     fun markCancelled(taskId: String) {
         updateStatus(taskId, ScheduledTaskStatus.Cancelled)
     }
