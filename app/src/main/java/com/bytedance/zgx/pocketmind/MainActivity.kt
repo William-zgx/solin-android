@@ -14,7 +14,6 @@ import androidx.activity.viewModels
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
-import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.multimodal.ShareIntentReader
 import com.bytedance.zgx.pocketmind.ui.PocketMindScreen
 import com.bytedance.zgx.pocketmind.ui.theme.PocketMindTheme
@@ -26,12 +25,12 @@ class MainActivity : ComponentActivity() {
     private val viewModel: PocketMindViewModel by viewModels {
         appContainer.viewModelFactory
     }
-    private var pendingNotificationPermissionConfirmation: PendingAgentConfirmation? = null
-    private val notificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
+    private var pendingRuntimePermissionConfirmation: PendingAgentConfirmation? = null
+    private val runtimePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        pendingNotificationPermissionConfirmation?.let(viewModel::confirmAgentConfirmation)
-        pendingNotificationPermissionConfirmation = null
+        pendingRuntimePermissionConfirmation?.let(viewModel::confirmAgentConfirmation)
+        pendingRuntimePermissionConfirmation = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -98,25 +97,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun confirmAgentConfirmationWithPermissions(confirmation: PendingAgentConfirmation) {
-        if (confirmation.requiresNotificationPermission() && !hasPostNotificationPermission()) {
-            pendingNotificationPermissionConfirmation = confirmation
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            } else {
-                viewModel.confirmAgentConfirmation(confirmation)
-                pendingNotificationPermissionConfirmation = null
-            }
+        if (pendingRuntimePermissionConfirmation != null) return
+        val missingPermissions = confirmation.runtimePermissionsFor()
+            .filterNot(::hasRuntimePermission)
+        if (missingPermissions.isNotEmpty()) {
+            pendingRuntimePermissionConfirmation = confirmation
+            runtimePermissionLauncher.launch(missingPermissions.toTypedArray())
             return
         }
         viewModel.confirmAgentConfirmation(confirmation)
     }
 
-    private fun PendingAgentConfirmation.requiresNotificationPermission(): Boolean =
-        (toolRequest?.toolName ?: draft.functionName) == MobileActionFunctions.SCHEDULE_REMINDER
-
-    private fun hasPostNotificationPermission(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    private fun hasRuntimePermission(permission: String): Boolean {
+        if (permission == Manifest.permission.POST_NOTIFICATIONS &&
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+        ) {
+            return true
+        }
+        return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+    }
 
     companion object {
         const val EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK =

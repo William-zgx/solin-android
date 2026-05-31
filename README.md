@@ -19,6 +19,7 @@ Google AI Edge LiteRT-LM.
 - Experimental local mobile action planning with deterministic rule fallback and explicit confirmation.
 - Schema-driven tool validation plus Agent run tracing for plan-confirm-observe execution, safety checks, bounded retry, and persistent audit events.
 - Minimal device context snapshots plus confirmed clipboard, calendar, contact, notification, foreground-app, and recent-file metadata reads for controlled context access.
+- Confirmed Android runtime permission requests for tools that need calendar, contact, media, or notification access.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map search, information lookup, device settings, local reminders, clipboard context, and system sharing.
 - A conservative clipboard-summary-share composite flow that keeps summarization local and asks again before opening the Android share sheet.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.

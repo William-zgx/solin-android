@@ -37,8 +37,9 @@ Current status:
   foreground app summaries, contact lookup, recent notification summaries,
   calendar availability, and recent file metadata summaries.
 - Tools that may require runtime permissions declare that requirement in
-  `ToolSpec`. The reminder confirmation path requests notification permission
-  before execution when Android requires it.
+  `ToolSpec`. The Activity boundary maps pending tool confirmations to Android
+  runtime permission requests before handing the same confirmation back to the
+  ViewModel for execution.
 
 Tests:
 
@@ -229,7 +230,12 @@ Current status:
 - User cancellation of a pending tool request now closes the run as
   `Cancelled` and records trace/audit events without executing Android intents.
 - Implemented runtime notification permission request for reminder confirmation
-  and Android share-target ingestion for text/images/audio/video/PDF metadata.
+  and generalized runtime permission requests for confirmed calendar, contact,
+  recent-media-file, and reminder tools. Permission prompts are issued only
+  after the user confirms the Agent tool request; denial returns through the
+  normal structured tool result path.
+- Android share-target ingestion for text/images/audio/video/PDF metadata is
+  implemented.
 - Implemented outbound `share_text` as a confirmed tool that opens Android's
   system share panel. Success means the chooser was opened; the app cannot know
   whether the user completed sharing in the destination app.

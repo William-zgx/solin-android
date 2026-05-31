@@ -83,6 +83,15 @@ class ToolRegistryTest {
         assertTrue(calendarAvailabilitySpec.inputSchemaJson.contains("\"end\""))
         assertTrue(calendarAvailabilitySpec.inputSchemaJson.contains("31 days"))
 
+        val contactsSpec = registry.specFor(MobileActionFunctions.QUERY_CONTACTS)
+        assertNotNull(contactsSpec)
+        requireNotNull(contactsSpec)
+        assertEquals(ToolCapability.DeviceContext, contactsSpec.capability)
+        assertEquals(RiskLevel.LowReadOnly, contactsSpec.riskLevel)
+        assertTrue(ToolPermission.ReadsDeviceContext in contactsSpec.permissions)
+        assertTrue(ToolPermission.ReadsContacts in contactsSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission in contactsSpec.permissions)
+
         val recentFilesSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_FILES)
         assertNotNull(recentFilesSpec)
         requireNotNull(recentFilesSpec)

@@ -7,6 +7,8 @@ import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityQuery
 import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityReadResult
 import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityWindow
 import com.bytedance.zgx.pocketmind.device.CalendarBusyInterval
+import com.bytedance.zgx.pocketmind.device.ContactSummaryProvider
+import com.bytedance.zgx.pocketmind.device.ContactSummaryReadResult
 import com.bytedance.zgx.pocketmind.device.RecentFileItem
 import com.bytedance.zgx.pocketmind.device.RecentFileProvider
 import com.bytedance.zgx.pocketmind.device.RecentFileReadResult
@@ -160,6 +162,29 @@ class CalendarAvailabilityToolExecutorTest {
         assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
     }
 
+    @Test
+    fun contactSummaryReportsPermissionDeniedAsRetryableLocalFailure() {
+        val executor = ContactSummaryToolExecutor(
+            FakeContactSummaryProvider(
+                ContactSummaryReadResult.PermissionDenied("未授权“读取联系人”权限"),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-contacts",
+                toolName = MobileActionFunctions.QUERY_CONTACTS,
+                arguments = mapOf("query" to "Alice"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.PermissionDenied, result.error?.code)
+        assertTrue(result.retryable)
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+    }
+
     private fun calendarRequest(
         start: String = "2026-06-01T09:00:00Z",
         end: String = "2026-06-01T13:00:00Z",
@@ -193,6 +218,12 @@ class CalendarAvailabilityToolExecutorTest {
         private val result: RecentFileReadResult,
     ) : RecentFileProvider {
         override fun recentFiles(kind: String, maxCount: Int): RecentFileReadResult = result
+    }
+
+    private class FakeContactSummaryProvider(
+        private val result: ContactSummaryReadResult,
+    ) : ContactSummaryProvider {
+        override fun queryContacts(query: String, maxCount: Int): ContactSummaryReadResult = result
     }
 
     private fun org.json.JSONObject.keysSet(): Set<String> {

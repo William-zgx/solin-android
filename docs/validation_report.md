@@ -1,5 +1,40 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Runtime Permission Request 增量验证
+
+本轮覆盖项：
+
+- 新增 `AgentRuntimePermissionPolicy`，把已确认的 `PendingAgentConfirmation`
+  映射到具体 Android runtime permission。
+- `MainActivity` 改为统一使用 `RequestMultiplePermissions`：用户先确认 Agent
+  工具请求，再触发 Android 权限弹窗；权限返回后用同一个 confirmation 继续执行。
+- 补齐 `READ_CONTACTS` manifest 声明；保留 provider/executor 的最终权限检查，
+  denied 仍走结构化 `PermissionDenied` tool result。
+- 权限映射覆盖提醒通知、日历忙闲、联系人查询和最近文件媒体权限；Android 13+
+  的最近文件 `kind` 会映射到最小媒体权限，非媒体文件不伪装成可请求 runtime
+  permission。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:lintDebug
+git diff --check
+```
+
+结果：通过。
+
+补充检查：
+
+- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+  Authorization Bearer token 被写入文件。
+- 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
+
 ## 2026-05-31 Recent Files 设备上下文工具增量验证
 
 本轮覆盖项：
