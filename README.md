@@ -20,6 +20,7 @@ Google AI Edge LiteRT-LM.
 - Schema-driven tool validation plus Agent run tracing for plan-confirm-observe execution, safety checks, bounded retry, and persistent audit events.
 - Minimal device context snapshots plus confirmed clipboard, calendar, contact, notification, foreground-app, and recent-file metadata reads for controlled context access.
 - Confirmed Android runtime permission requests for tools that need calendar, contact, media, or notification access.
+- Confirmed external navigation for safe HTTPS deep links and package-level app launches.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map search, information lookup, device settings, local reminders, clipboard context, and system sharing.
 - A conservative clipboard-summary-share composite flow that keeps summarization local and asks again before opening the Android share sheet.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
@@ -61,8 +62,9 @@ memory is rebuilt from saved chat messages. Mobile actions can use the verified
 action model as an experimental planner; if it is missing or does not produce a supported
 `call:function {...}` draft, PocketMind falls back to deterministic local rules
 and still requires explicit user confirmation before opening Android system
-pages or drafts. After confirmation, Android execution returns a structured tool
-result that is written back to the Agent run trace, audit log, and chat session.
+pages, drafts, HTTPS links, or package-level app launches. After confirmation,
+Android execution returns a structured tool result that is written back to the
+Agent run trace, audit log, and chat session.
 Reminder requests such as “提醒我 15 分钟后喝水” become confirmed
 `schedule_reminder` tool calls and are persisted before being handed to Android
 AlarmManager. Pending reminders are restored after device reboot; reminders
@@ -95,11 +97,11 @@ observe-after-success replanning for explicit next actions, a gated skill-run
 executor, minimal device context
 snapshots, safety policy, persistent tool audit, long-term memory controls,
 local reminder scheduling, confirmed clipboard/device-context reads, outbound
-text sharing, Android share intent metadata ingestion, and restart restoration
-for the latest pending tool confirmation without auto-execution. Broad screen
-understanding, generalized typed run recovery, direct file-content parsing, and
-actual image/audio/document understanding are tracked there as pending core
-modules.
+text sharing, safe HTTPS deep-link navigation, package-level app launches,
+Android share intent metadata ingestion, and restart restoration for the latest
+pending tool confirmation without auto-execution. Broad screen understanding,
+generalized typed run recovery, direct file-content parsing, and actual
+image/audio/document understanding are tracked there as pending core modules.
 
 ## Recommended Models
 

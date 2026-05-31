@@ -35,7 +35,8 @@ Current status:
   search, email draft, calendar draft, contact draft, local reminders,
   confirmed clipboard text reads, outbound system sharing for text, current
   foreground app summaries, contact lookup, recent notification summaries,
-  calendar availability, and recent file metadata summaries.
+  calendar availability, recent file metadata summaries, safe HTTPS deep-link
+  navigation, and package-level app launches.
 - Tools that may require runtime permissions declare that requirement in
   `ToolSpec`. The Activity boundary maps pending tool confirmations to Android
   runtime permission requests before handing the same confirmation back to the
@@ -247,7 +248,11 @@ Current status:
 - Implemented outbound `share_text` as a confirmed tool that opens Android's
   system share panel. Success means the chooser was opened; the app cannot know
   whether the user completed sharing in the destination app.
-- Deep links, app-specific intents, broad permission flows, and
+- Implemented constrained external navigation: `open_deep_link` only opens
+  safe HTTPS links with `ACTION_VIEW`, and `open_app_intent` only opens an app
+  launcher by package name. Arbitrary Intent extras, activities, actions, data
+  URIs, and non-HTTPS schemes are intentionally not exposed.
+- Broad permission flows, allowlisted app-specific deep targets, and
   result-confirmation callbacks are pending.
 
 ## Safety And Audit

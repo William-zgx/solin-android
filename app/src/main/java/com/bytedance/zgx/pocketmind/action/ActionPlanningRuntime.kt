@@ -128,8 +128,8 @@ internal fun actionPrompt(input: String): String =
     - schedule_reminder {"title":"...","body":"...","delayMinutes":"15"} 仅用于明确的分钟/小时后提醒
     - read_clipboard {} 仅用于用户明确要求读取剪贴板
     - share_text {"text":"...","title":"..."} 仅打开系统分享面板，不直接发送
-    - open_deep_link {"uri":"..."} 仅用于打开外部 URL/URI 深度链接
-    - open_app_intent {"packageName":"...","activityClass":"...","action":"...","data":"..."} 仅用于打开特定应用（可选字段用于精准跳转）
+    - open_deep_link {"uri":"https://..."} 仅用于打开 https 外部链接
+    - open_app_intent {"packageName":"..."} 仅用于打开特定应用启动页
     - cancel_reminder {"taskId":"..."} 仅用于取消已安排的提醒任务
     - query_foreground_app {} 仅用于返回当前前台应用的包名与名称
     - query_calendar_availability {"start":"...","end":"..."} 仅用于查询指定时间窗日历忙闲

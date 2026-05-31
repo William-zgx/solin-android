@@ -17,6 +17,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import com.bytedance.zgx.pocketmind.tool.failed
 import com.bytedance.zgx.pocketmind.tool.succeeded
+import java.net.URI
 
 class ActionExecutor(
     private val context: Context?,
@@ -24,6 +25,7 @@ class ActionExecutor(
     private val canPostReminderNotifications: () -> Boolean = { true },
     private val clipboardTextProvider: (() -> String?)? = null,
     private val activityStarter: ((Intent) -> Boolean)? = null,
+    private val externalActivityStarter: ((ExternalActivityLaunch) -> Boolean)? = null,
 ) : ToolExecutor {
     fun executeConfirmed(draft: ActionDraft): Boolean {
         val request = ToolRequest(
@@ -41,6 +43,8 @@ class ActionExecutor(
         if (request.toolName == MobileActionFunctions.READ_CLIPBOARD) {
             return readClipboard(request)
         }
+        validateExternalIntentRequest(request)?.let { failure -> return failure }
+        executeExternalActivityWithInjectedStarter(request)?.let { result -> return result }
 
         val intents = intentsFor(request)
             ?: return request.failed(
@@ -197,6 +201,15 @@ class ActionExecutor(
             MobileActionFunctions.SHARE_TEXT ->
                 listOf(shareTextIntent(request))
 
+            MobileActionFunctions.OPEN_DEEP_LINK ->
+                listOf(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(request.arguments.getValue("uri")))
+                        .withCategoryIfAvailable(Intent.CATEGORY_BROWSABLE),
+                )
+
+            MobileActionFunctions.OPEN_APP_INTENT ->
+                appIntentCandidates(request)
+
             else -> null
         }
 
@@ -228,8 +241,119 @@ class ActionExecutor(
             MobileActionFunctions.SCHEDULE_REMINDER -> "已安排后台提醒"
             MobileActionFunctions.READ_CLIPBOARD -> "已读取剪贴板"
             MobileActionFunctions.SHARE_TEXT -> "已打开系统分享面板"
+            MobileActionFunctions.OPEN_DEEP_LINK -> "已打开深链"
+            MobileActionFunctions.OPEN_APP_INTENT -> "已打开应用"
             else -> "工具已执行"
         }
+
+    private fun validateExternalIntentRequest(request: ToolRequest): ToolResult? =
+        when (request.toolName) {
+            MobileActionFunctions.OPEN_DEEP_LINK -> {
+                val uri = request.arguments["uri"].orEmpty()
+                val unknownArguments = request.arguments.keys - setOf("uri")
+                if (unknownArguments.isNotEmpty()) {
+                    request.failed(
+                        code = ToolErrorCode.InvalidRequest,
+                        summary = "打开深链仅支持 uri 参数",
+                        retryable = false,
+                        data = mapOf("toolName" to request.toolName),
+                    )
+                } else if (!isAllowedExternalUri(uri)) {
+                    request.failed(
+                        code = ToolErrorCode.InvalidRequest,
+                        summary = "深链 URI 只支持安全的 https 链接",
+                        retryable = false,
+                        data = mapOf("toolName" to request.toolName),
+                    )
+                } else {
+                    null
+                }
+            }
+
+            MobileActionFunctions.OPEN_APP_INTENT -> validateOpenAppIntentRequest(request)
+            else -> null
+        }
+
+    private fun validateOpenAppIntentRequest(request: ToolRequest): ToolResult? {
+        val packageName = request.arguments["packageName"].orEmpty()
+        val unknownArguments = request.arguments.keys - setOf("packageName")
+        val invalidReason = when {
+            unknownArguments.isNotEmpty() -> "打开应用 Intent 仅支持 packageName 参数"
+            !PACKAGE_NAME_PATTERN.matches(packageName) -> "应用包名无效"
+            else -> null
+        }
+        return invalidReason?.let { reason ->
+            request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = reason,
+                retryable = false,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+    }
+
+    private fun appIntentCandidates(request: ToolRequest): List<Intent> {
+        val packageName = request.arguments.getValue("packageName")
+        val packageLaunchIntent = Intent(Intent.ACTION_MAIN).apply {
+            withPackageIfAvailable(packageName)
+        }.withCategoryIfAvailable(Intent.CATEGORY_LAUNCHER)
+        val launchIntent = context
+            ?.packageManager
+            ?.getLaunchIntentForPackage(packageName)
+        return listOfNotNull(launchIntent, packageLaunchIntent)
+    }
+
+    private fun executeExternalActivityWithInjectedStarter(request: ToolRequest): ToolResult? {
+        val starter = externalActivityStarter ?: return null
+        val launch = externalActivityLaunchFor(request) ?: return null
+        val executed = runCatching { starter(launch) }.getOrDefault(false)
+        return if (executed) {
+            request.succeeded(
+                summary = successSummaryFor(request.toolName),
+                data = mapOf("toolName" to request.toolName),
+            )
+        } else {
+            request.failed(
+                code = ToolErrorCode.NoActivityFound,
+                summary = "没有找到可以执行 ${request.toolName} 的应用或系统页面",
+                retryable = true,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+    }
+
+    private fun externalActivityLaunchFor(request: ToolRequest): ExternalActivityLaunch? =
+        when (request.toolName) {
+            MobileActionFunctions.OPEN_DEEP_LINK -> ExternalActivityLaunch(
+                toolName = request.toolName,
+                action = Intent.ACTION_VIEW,
+                uri = request.arguments.getValue("uri"),
+            )
+
+            MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityLaunch(
+                toolName = request.toolName,
+                action = Intent.ACTION_MAIN,
+                packageName = request.arguments.getValue("packageName"),
+            )
+
+            else -> null
+        }
+
+    private fun isAllowedExternalUri(raw: String): Boolean {
+        val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return false
+        return uri.scheme.equals("https", ignoreCase = true) &&
+            !uri.host.isNullOrBlank() &&
+            uri.userInfo == null &&
+            uri.port in setOf(-1, 443) &&
+            raw.length <= MAX_DEEP_LINK_URI_CHARS &&
+            raw.none { character -> character.isWhitespace() || character.code < 0x20 }
+    }
+
+    private fun Intent.withCategoryIfAvailable(category: String): Intent =
+        apply { runCatching { addCategory(category) } }
+
+    private fun Intent.withPackageIfAvailable(packageName: String): Intent =
+        apply { runCatching { setPackage(packageName) } }
 
     private fun Throwable.cleanMessage(): String =
         message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
@@ -250,7 +374,8 @@ class ActionExecutor(
 
     private fun startActivity(intent: Intent): Boolean {
         activityStarter?.let { starter ->
-            return runCatching { starter(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.getOrDefault(false)
+            val launchIntent = runCatching { intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }.getOrDefault(intent)
+            return runCatching { starter(launchIntent) }.getOrDefault(false)
         }
         val appContext = context ?: return false
         return runCatching {
@@ -268,5 +393,14 @@ class ActionExecutor(
 
     private companion object {
         const val MAX_CLIPBOARD_RESULT_CHARS = 4_000
+        const val MAX_DEEP_LINK_URI_CHARS = 2_048
+        val PACKAGE_NAME_PATTERN = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+$""")
     }
 }
+
+data class ExternalActivityLaunch(
+    val toolName: String,
+    val action: String,
+    val uri: String? = null,
+    val packageName: String? = null,
+)

@@ -142,6 +142,36 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun infersDeepLinkDraftForExplicitUri() {
+        val plan = planner.plan("打开链接 https://example.com/path?q=agent")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.OPEN_DEEP_LINK, plan.draft?.functionName)
+        assertEquals("https://example.com/path?q=agent", plan.draft?.parameters?.get("uri"))
+    }
+
+    @Test
+    fun infersAppIntentDraftForKnownAppAlias() {
+        val plan = planner.plan("启动微信")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.OPEN_APP_INTENT, plan.draft?.functionName)
+        assertEquals("com.tencent.mm", plan.draft?.parameters?.get("packageName"))
+    }
+
+    @Test
+    fun parsesAppIntentCallOutputWithPackageName() {
+        val draft = planner.parseModelOutput(
+            """call:open_app_intent{"packageName":"com.example.app"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.OPEN_APP_INTENT, draft.functionName)
+        assertEquals("com.example.app", draft.parameters["packageName"])
+        assertEquals(setOf("packageName"), draft.parameters.keys)
+    }
+
+    @Test
     fun doesNotTreatShareOpinionAsShareSheetAction() {
         val plan = planner.plan("分享一下你对端侧 Agent 的看法")
 

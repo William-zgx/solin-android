@@ -477,7 +477,8 @@ private val openDeepLinkSchemaJson = """
         "uri": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^(https?|mailto|tel|sms|smsto|geo):.+"
+          "maxLength": 2048,
+          "pattern": "^https://[^\\s/@]+(?:[:/].*)?$"
         }
       },
       "additionalProperties": false
@@ -492,19 +493,8 @@ private val openAppIntentSchemaJson = """
         "packageName": {
           "type": "string",
           "minLength": 3,
+          "maxLength": 255,
           "pattern": "^[a-zA-Z][a-zA-Z0-9_]*(?:\\.[a-zA-Z0-9_]+)+$"
-        },
-        "activityClass": {
-          "type": "string",
-          "minLength": 1
-        },
-        "action": {
-          "type": "string",
-          "minLength": 1
-        },
-        "data": {
-          "type": "string",
-          "minLength": 1
         }
       },
       "additionalProperties": false

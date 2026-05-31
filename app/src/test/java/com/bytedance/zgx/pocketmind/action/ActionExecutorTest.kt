@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.action
 
+import android.content.Intent
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTask
@@ -101,6 +102,142 @@ class ActionExecutorTest {
         assertEquals(ToolStatus.Failed, result.status)
         assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
         assertTrue(result.summary.contains("剪贴板"))
+    }
+
+    @Test
+    fun opensAllowedDeepLinkAsActionViewIntent() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-deep-link",
+                toolName = MobileActionFunctions.OPEN_DEEP_LINK,
+                arguments = mapOf("uri" to "https://example.com/path?q=agent"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        val launch = launches.single()
+        assertEquals(Intent.ACTION_VIEW, launch.action)
+        assertEquals("https://example.com/path?q=agent", launch.uri)
+        assertEquals(MobileActionFunctions.OPEN_DEEP_LINK, launch.toolName)
+    }
+
+    @Test
+    fun rejectsUnsafeDeepLinkSchemeBeforeStartingActivity() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-deep-link-unsafe",
+                toolName = MobileActionFunctions.OPEN_DEEP_LINK,
+                arguments = mapOf("uri" to "javascript:alert(1)"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.InvalidRequest, result.error?.code)
+        assertTrue(launches.isEmpty())
+    }
+
+    @Test
+    fun opensPackageIntentWithoutExtras() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-app",
+                toolName = MobileActionFunctions.OPEN_APP_INTENT,
+                arguments = mapOf("packageName" to "com.example.app"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        val launch = launches.single()
+        assertEquals(Intent.ACTION_MAIN, launch.action)
+        assertEquals("com.example.app", launch.packageName)
+        assertEquals(MobileActionFunctions.OPEN_APP_INTENT, launch.toolName)
+        assertEquals(null, launch.uri)
+    }
+
+    @Test
+    fun rejectsAppIntentExtrasBeforeStartingActivity() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-app-explicit",
+                toolName = MobileActionFunctions.OPEN_APP_INTENT,
+                arguments = mapOf(
+                    "packageName" to "com.example.app",
+                    "action" to Intent.ACTION_VIEW,
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.InvalidRequest, result.error?.code)
+        assertTrue(launches.isEmpty())
+    }
+
+    @Test
+    fun rejectsUnsafeAppIntentDataBeforeStartingActivity() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-app-unsafe",
+                toolName = MobileActionFunctions.OPEN_APP_INTENT,
+                arguments = mapOf(
+                    "packageName" to "com.example.app",
+                    "data" to "file:///sdcard/private.txt",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.InvalidRequest, result.error?.code)
+        assertTrue(launches.isEmpty())
     }
 
     private fun reminderRequest(): ToolRequest =

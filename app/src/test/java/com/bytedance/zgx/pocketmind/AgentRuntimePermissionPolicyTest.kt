@@ -76,6 +76,22 @@ class AgentRuntimePermissionPolicyTest {
         assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
     }
 
+    @Test
+    fun deepLinkAndAppIntentDoNotRequestRuntimePermissions() {
+        assertTrue(
+            confirmationFor(
+                toolName = MobileActionFunctions.OPEN_DEEP_LINK,
+                arguments = mapOf("uri" to "https://example.com"),
+            ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty(),
+        )
+        assertTrue(
+            confirmationFor(
+                toolName = MobileActionFunctions.OPEN_APP_INTENT,
+                arguments = mapOf("packageName" to "com.example.app"),
+            ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty(),
+        )
+    }
+
     private fun confirmationFor(
         toolName: String,
         arguments: Map<String, String> = emptyMap(),

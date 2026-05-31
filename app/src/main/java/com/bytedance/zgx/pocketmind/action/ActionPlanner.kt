@@ -476,18 +476,7 @@ class MobileActionPlanner : ActionPlanner {
         val packageName = knownPackageFromInput(input)
             ?: APP_INTENT_PACKAGE_PATTERN.find(input)?.value
             ?: return emptyMap()
-        val action = APP_INTENT_ACTION_PATTERN.find(input)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
-        val activityClass =
-            APP_INTENT_ACTIVITY_CLASS_PATTERN.find(input)?.groupValues?.getOrNull(1)?.trim()
-                ?.takeIf { it.isNotBlank() }
-        val data = APP_INTENT_DATA_PATTERN.find(input)?.groupValues?.getOrNull(1)?.trim()
-            ?.takeIf { it.isNotBlank() }
-        return buildMap {
-            put("packageName", packageName)
-            action?.let { put("action", it) }
-            activityClass?.let { put("activityClass", it) }
-            data?.let { put("data", cleanUri(it)) }
-        }
+        return mapOf("packageName" to packageName)
     }
 
     private fun knownPackageFromInput(input: String): String? {
@@ -539,14 +528,9 @@ class MobileActionPlanner : ActionPlanner {
         val ISO_OFFSET_DATE_TIME_PATTERN =
             Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})""")
         val TASK_ID_PATTERN = Regex("task-[A-Za-z0-9_-]+")
-        val DEEP_LINK_PATTERN = Regex("""\b(?:https?|mailto|tel|sms|smsto|geo):\S+""", RegexOption.IGNORE_CASE)
+        val DEEP_LINK_PATTERN = Regex("""\bhttps://\S+""", RegexOption.IGNORE_CASE)
         val APP_INTENT_TRIGGER_PATTERN = Regex("""(打开|打开并|启动|启动并)\s*(?:应用|app|应用程序)?""")
         val APP_INTENT_PACKAGE_PATTERN = Regex("""\b[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+\b""")
-        val APP_INTENT_ACTION_PATTERN = Regex("""(?:动作|action)\s*[:：]?\s*([A-Za-z0-9_./-]+)""", RegexOption.IGNORE_CASE)
-        val APP_INTENT_ACTIVITY_CLASS_PATTERN =
-            Regex("""(?:类名|activity|界面)\s*[:：]?\s*([A-Za-z0-9_$]+(?:\.[A-Za-z0-9_$]+)*(?:\$[A-Za-z0-9_$]+)?)""", RegexOption.IGNORE_CASE)
-        val APP_INTENT_DATA_PATTERN =
-            Regex("""(?:uri|data)\s*[:：]?\s*((?:https?|mailto|tel|sms|smsto|geo):\S+)""", RegexOption.IGNORE_CASE)
         val KNOWN_APP_PACKAGES = mapOf(
             "微信" to "com.tencent.mm",
             "wechat" to "com.tencent.mm",

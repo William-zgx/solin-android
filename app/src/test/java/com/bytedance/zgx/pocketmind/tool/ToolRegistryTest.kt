@@ -103,6 +103,23 @@ class ToolRegistryTest {
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"kind\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"maxCount\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"documents\""))
+
+        val deepLinkSpec = registry.specFor(MobileActionFunctions.OPEN_DEEP_LINK)
+        assertNotNull(deepLinkSpec)
+        requireNotNull(deepLinkSpec)
+        assertEquals(ToolCapability.ExternalNavigation, deepLinkSpec.capability)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, deepLinkSpec.riskLevel)
+        assertTrue(ToolPermission.StartsExternalActivity in deepLinkSpec.permissions)
+        assertTrue(deepLinkSpec.inputSchemaJson.contains("\"uri\""))
+
+        val appIntentSpec = registry.specFor(MobileActionFunctions.OPEN_APP_INTENT)
+        assertNotNull(appIntentSpec)
+        requireNotNull(appIntentSpec)
+        assertEquals(ToolCapability.ExternalNavigation, appIntentSpec.capability)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, appIntentSpec.riskLevel)
+        assertTrue(ToolPermission.StartsExternalActivity in appIntentSpec.permissions)
+        assertTrue(appIntentSpec.inputSchemaJson.contains("\"packageName\""))
+        assertTrue(!appIntentSpec.inputSchemaJson.contains("\"activityClass\""))
     }
 
     @Test
@@ -184,6 +201,8 @@ class ToolRegistryTest {
             MobileActionFunctions.WEB_SEARCH to "query",
             MobileActionFunctions.SCHEDULE_REMINDER to "title",
             MobileActionFunctions.SHARE_TEXT to "text",
+            MobileActionFunctions.OPEN_DEEP_LINK to "uri",
+            MobileActionFunctions.OPEN_APP_INTENT to "packageName",
         )
 
         requiredArgumentsByTool.forEach { (toolName, requiredArgument) ->
@@ -231,6 +250,48 @@ class ToolRegistryTest {
         requireNotNull(rejection)
         assertEquals(ToolStatus.Rejected, rejection.status)
         assertTrue(rejection.summary.contains("enabled"))
+    }
+
+    @Test
+    fun validatesDeepLinkAndAppIntentPatterns() {
+        val unsafeDeepLink = registry.validate(
+            ToolRequest(
+                id = "request-unsafe-deep-link",
+                toolName = MobileActionFunctions.OPEN_DEEP_LINK,
+                arguments = mapOf("uri" to "http://example.com"),
+                reason = "test",
+            ),
+        )
+        assertNotNull(unsafeDeepLink)
+        requireNotNull(unsafeDeepLink)
+        assertTrue(unsafeDeepLink.summary.contains("uri"))
+
+        val invalidPackage = registry.validate(
+            ToolRequest(
+                id = "request-invalid-package",
+                toolName = MobileActionFunctions.OPEN_APP_INTENT,
+                arguments = mapOf("packageName" to "not a package"),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidPackage)
+        requireNotNull(invalidPackage)
+        assertTrue(invalidPackage.summary.contains("packageName"))
+
+        val invalidData = registry.validate(
+            ToolRequest(
+                id = "request-invalid-intent-data",
+                toolName = MobileActionFunctions.OPEN_APP_INTENT,
+                arguments = mapOf(
+                    "packageName" to "com.example.app",
+                    "data" to "file:///sdcard/private.txt",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidData)
+        requireNotNull(invalidData)
+        assertTrue(invalidData.summary.contains("data"))
     }
 
     @Test

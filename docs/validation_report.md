@@ -1,5 +1,40 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Deep Link / App Intent 执行边界增量验证
+
+本轮覆盖项：
+
+- `open_deep_link` 从已注册/可规划补齐到确认后执行；执行边界仅允许安全
+  `https://` 链接，并拒绝 `http`、`file`、`content`、`javascript`、自定义
+  scheme、带 user info 或超长 URI。
+- `open_app_intent` 从已注册/可规划补齐到确认后执行；当前只支持
+  `packageName` 打开应用启动页，不暴露任意 activity/action/data/extras。
+- `ActionPlanningRuntime` prompt、`MobileActionPlanner`、`ToolRegistry` schema、
+  `ActionExecutor` 和 runtime permission policy 均同步到这个收敛后的安全边界。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest'
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:lintDebug
+git diff --check
+```
+
+结果：通过。
+
+补充检查：
+
+- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+  Authorization Bearer token 被写入文件。
+- 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
+
 ## 2026-05-31 Pending Agent Confirmation Recovery 增量验证
 
 本轮覆盖项：
@@ -307,7 +342,7 @@ ANDROID_SERIAL=emulator-5554 \
 说明：
 
 - 用户提供的 DeepSeek 远程配置仅作为可选手工验证输入，未写入仓库、测试代码或文档。
-- 当前仍未完成的核心能力包括屏幕/当前 App/通知/文件/日历/联系人读取器、周期性后台任务、专用语义记忆模型接入、深链/App-specific intents/通用权限请求、语音/截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
+- 当前仍未完成的核心能力包括屏幕理解、周期性后台任务策略、专用语义记忆模型接入、allowlisted app-specific deep targets、通用权限请求、语音/截图/相册入口和实际图片/文档理解；状态见 `docs/agent_core_modules.md`。
 
 ## 历史验证记录
 
