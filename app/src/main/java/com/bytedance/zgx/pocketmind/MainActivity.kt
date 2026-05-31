@@ -2,11 +2,14 @@ package com.bytedance.zgx.pocketmind
 
 import android.Manifest
 import android.app.Activity
+import android.app.AppOpsManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
 import android.speech.RecognizerIntent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
@@ -35,6 +38,7 @@ class MainActivity : ComponentActivity() {
     }
     private val shareIntentScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var pendingRuntimePermissionConfirmation: PendingAgentConfirmation? = null
+    private var pendingSpecialAccessRequirement: SpecialAccessRequirement? = null
     private val runtimePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grantResults ->
@@ -52,6 +56,16 @@ class MainActivity : ComponentActivity() {
                 deniedPermissions = deniedPermissions,
             )
         }
+    }
+    private val specialAccessLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        val requirement = pendingSpecialAccessRequirement ?: return@registerForActivityResult
+        pendingSpecialAccessRequirement = null
+        viewModel.reportSpecialAccessResult(
+            requirement = requirement,
+            granted = hasSpecialAccess(requirement),
+        )
     }
     private val voiceInputLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -181,11 +195,13 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    private fun openSpecialAccessSettings(settingsAction: String) {
+    private fun openSpecialAccessSettings(requirement: SpecialAccessRequirement) {
+        pendingSpecialAccessRequirement = requirement
         runCatching {
-            startActivity(Intent(settingsAction))
+            specialAccessLauncher.launch(Intent(requirement.settingsAction))
         }.onFailure {
-            viewModel.reportSystemSettingsUnavailable("当前设备无法打开对应系统设置")
+            pendingSpecialAccessRequirement = null
+            viewModel.reportSystemSettingsUnavailable("当前设备无法打开${requirement.title}设置")
         }
     }
 
@@ -208,6 +224,33 @@ class MainActivity : ComponentActivity() {
             return true
         }
         return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasSpecialAccess(requirement: SpecialAccessRequirement): Boolean =
+        when (requirement.id) {
+            SPECIAL_ACCESS_USAGE_STATS -> hasUsageStatsAccess()
+            else -> false
+        }
+
+    private fun hasUsageStatsAccess(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
+        val mode = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                appOps.unsafeCheckOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    packageName,
+                )
+            } else {
+                appOps.checkOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    packageName,
+                )
+            }
+        }.getOrDefault(AppOpsManager.MODE_ERRORED)
+        return mode == AppOpsManager.MODE_ALLOWED
     }
 
     companion object {

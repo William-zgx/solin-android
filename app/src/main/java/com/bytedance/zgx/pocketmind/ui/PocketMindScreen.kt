@@ -119,6 +119,7 @@ import com.bytedance.zgx.pocketmind.PendingAgentConfirmation
 import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.SetupTier
+import com.bytedance.zgx.pocketmind.SpecialAccessRequirement
 import com.bytedance.zgx.pocketmind.runtimePermissionRequirementsFor
 import com.bytedance.zgx.pocketmind.specialAccessRequirementsFor
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckConstraints
@@ -169,7 +170,7 @@ fun PocketMindScreen(
     onCancelBackgroundTask: (String) -> Unit,
     onSetPeriodicCheckPolicy: (PeriodicCheckScheduleRequest) -> Unit,
     onDisablePeriodicCheckPolicy: () -> Unit,
-    onOpenSpecialAccessSettings: (String) -> Unit,
+    onOpenSpecialAccessSettings: (SpecialAccessRequirement) -> Unit,
     onConfirmAgentConfirmation: (PendingAgentConfirmation) -> Unit,
     onDismissAgentConfirmation: () -> Unit,
     onOpenRecoveryAction: (AgentRecoveryAction) -> Unit,
@@ -869,7 +870,7 @@ private fun FirstRunSetupSheet(
 @Composable
 private fun ActionDraftSheet(
     confirmation: PendingAgentConfirmation,
-    onOpenSpecialAccessSettings: (String) -> Unit,
+    onOpenSpecialAccessSettings: (SpecialAccessRequirement) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -948,7 +949,7 @@ private fun ActionDraftSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("open_special_access_${requirement.id}"),
-                        onClick = { onOpenSpecialAccessSettings(requirement.settingsAction) },
+                        onClick = { onOpenSpecialAccessSettings(requirement) },
                     ) {
                         Icon(
                             imageVector = Icons.Default.Settings,

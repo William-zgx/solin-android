@@ -1,5 +1,43 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Usage Access settings return 增量验证
+
+本轮覆盖项：
+
+- `ActionDraftSheet` 的特殊授权入口现在传递完整 `SpecialAccessRequirement`，
+  而不是只传 settings action 字符串。
+- `MainActivity` 使用 `ActivityResultContracts.StartActivityForResult` 打开
+  Usage Access 设置页；用户返回 App 后通过 AppOps 重新检查
+  `OPSTR_GET_USAGE_STATS`，并把结果写入 ViewModel 状态。
+- 返回状态只更新 UI 文案，不确认 pending tool、不执行工具、不读取前台 App
+  provider；真正执行仍必须点击确认卡的确认按钮。
+- `SPECIAL_ACCESS_USAGE_STATS` 成为稳定 id，避免 UI / Activity / 测试使用裸字符串。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.specialAccessReturnUpdatesStatusTextWithoutExecutingTools' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.foregroundAppDeclaresUsageAccessAsSpecialAccessNotRuntimePermission'
+
+./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
+./gradlew :app:lintDebug
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+git diff --check
+rg credential-pattern scan excluding build and .gradle outputs
+adb devices -l
+```
+
+结果：
+
+- 通过：targeted JVM Usage Access settings return 状态测试。
+- 通过：完整 `:app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest`。
+- 通过：`:app:lintDebug`。
+- 通过：`:app:assembleDebug :app:assembleDebugAndroidTest`。
+- 通过：`git diff --check`。
+- 通过：敏感配置扫描无匹配。
+- 未执行模拟器回归：当前环境缺少 `adb` 命令。
+
 ## 2026-05-31 Agent stale in-flight recovery 增量验证
 
 本轮覆盖项：

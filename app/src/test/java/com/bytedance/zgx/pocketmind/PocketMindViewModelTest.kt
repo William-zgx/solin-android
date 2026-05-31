@@ -293,6 +293,26 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun specialAccessReturnUpdatesStatusTextWithoutExecutingTools() = runTest(dispatcher) {
+        val executor = RecordingToolExecutor()
+        val viewModel = createViewModel(actionExecutor = executor)
+        val requirement = SpecialAccessRequirement(
+            id = SPECIAL_ACCESS_USAGE_STATS,
+            title = "使用情况访问权限",
+            rationale = "用于只读识别当前前台应用。",
+            settingsAction = "android.settings.USAGE_ACCESS_SETTINGS",
+        )
+
+        viewModel.reportSpecialAccessResult(requirement, granted = false)
+        assertEquals("返回后仍未开启使用情况访问权限", viewModel.uiState.value.statusText)
+        assertTrue(executor.executedRequests.isEmpty())
+
+        viewModel.reportSpecialAccessResult(requirement, granted = true)
+        assertEquals("使用情况访问权限已开启", viewModel.uiState.value.statusText)
+        assertTrue(executor.executedRequests.isEmpty())
+    }
+
+    @Test
     fun clipboardSummaryShareShowsSecondConfirmationAfterLocalSummary() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()

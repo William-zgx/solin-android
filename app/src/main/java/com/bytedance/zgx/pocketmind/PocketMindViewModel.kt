@@ -407,6 +407,21 @@ class PocketMindViewModel(
         }
     }
 
+    fun reportSpecialAccessResult(
+        requirement: SpecialAccessRequirement,
+        granted: Boolean,
+    ) {
+        _uiState.update {
+            it.copy(
+                statusText = if (granted) {
+                    "${requirement.title}已开启"
+                } else {
+                    "返回后仍未开启${requirement.title}"
+                },
+            )
+        }
+    }
+
     fun startCustomModelDownload(downloadUrl: String) {
         val source = modelRepository.createCustomDownloadSource(downloadUrl)
         if (source == null) {

@@ -401,12 +401,15 @@ Current status:
   the confirmation UI warns with a special-access requirement and settings
   entry, denial returns structured `specialAccess/settingsAction` recovery
   metadata, and `open_usage_access_settings` can open Android Usage Access
-  settings. Broad special-access flows beyond Usage Access and
-  result-confirmation callbacks are pending.
+  settings. The confirmation-sheet settings entry now uses an ActivityResult
+  boundary: when the user returns from Android settings, MainActivity rechecks
+  Usage Access with AppOps and updates UI status without executing the pending
+  tool. Broad special-access flows beyond Usage Access are still pending.
 
 Tests:
 
 - `AgentRuntimePermissionPolicyTest.deniedGrantResultKeepsToolFromExecutingUntilPermissionIsActuallyGranted`
+- `PocketMindViewModelTest.specialAccessReturnUpdatesStatusTextWithoutExecutingTools`
 - `PocketMindViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt`
 - `AgentLoopRuntimeTest.pendingToolPermissionDenialIsObservedWithoutEnteringExecutionState`
 - `AgentLoopRuntimeTest.permissionDeniedToolFailureDoesNotScheduleAutomaticRetry`

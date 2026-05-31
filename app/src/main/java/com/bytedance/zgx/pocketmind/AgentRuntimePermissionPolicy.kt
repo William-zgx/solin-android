@@ -19,6 +19,8 @@ data class SpecialAccessRequirement(
     val settingsAction: String,
 )
 
+const val SPECIAL_ACCESS_USAGE_STATS = "usage_stats"
+
 fun PendingAgentConfirmation.runtimePermissionsFor(apiLevel: Int = Build.VERSION.SDK_INT): List<String> {
     return runtimePermissionRequirementsFor(apiLevel)
         .flatMap { it.permissions }
@@ -129,7 +131,7 @@ private fun String.friendlyPermissionRationale(): String =
     }
 
 private val USAGE_ACCESS_REQUIREMENT = SpecialAccessRequirement(
-    id = "usage_stats",
+    id = SPECIAL_ACCESS_USAGE_STATS,
     title = "使用情况访问权限",
     rationale = "用于只读识别当前前台应用；需要在系统设置中手动开启。",
     settingsAction = Settings.ACTION_USAGE_ACCESS_SETTINGS,

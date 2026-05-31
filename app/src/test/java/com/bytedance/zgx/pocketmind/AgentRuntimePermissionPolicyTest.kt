@@ -187,7 +187,7 @@ class AgentRuntimePermissionPolicyTest {
 
         assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
         assertEquals(1, requirements.size)
-        assertEquals("usage_stats", requirements.single().id)
+        assertEquals(SPECIAL_ACCESS_USAGE_STATS, requirements.single().id)
         assertEquals("使用情况访问权限", requirements.single().title)
         assertEquals(Settings.ACTION_USAGE_ACCESS_SETTINGS, requirements.single().settingsAction)
     }
