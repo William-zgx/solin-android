@@ -12,6 +12,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,6 +31,8 @@ class ActionExecutorTest {
         assertEquals(ToolStatus.Succeeded, result.status)
         assertEquals("task-1", result.data["taskId"])
         assertEquals("Scheduled", result.data["taskStatus"])
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, result.data["recoveryToolName"])
+        assertEquals("task-1", result.data["recoveryTaskId"])
         assertEquals("喝水", scheduler.lastReminderRequest?.title)
         assertEquals(15L, scheduler.lastReminderRequest?.delayMinutes)
     }
@@ -98,6 +101,30 @@ class ActionExecutorTest {
         assertEquals(ToolStatus.Failed, result.status)
         assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
         assertTrue(result.summary.contains("cancel unavailable"))
+    }
+
+    @Test
+    fun reportsStaleReminderCancellationAsNonRetryableInvalidRequest() {
+        val executor = ActionExecutor(
+            context = null,
+            backgroundTaskScheduler = RecordingBackgroundTaskScheduler(
+                failure = IllegalArgumentException("Scheduled task not found: task-1"),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-cancel-reminder",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                arguments = mapOf("taskId" to "task-1"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.InvalidRequest, result.error?.code)
+        assertFalse(result.retryable)
+        assertTrue(result.summary.contains("Scheduled task not found"))
     }
 
     @Test

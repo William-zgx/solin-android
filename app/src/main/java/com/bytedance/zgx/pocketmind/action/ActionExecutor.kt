@@ -120,6 +120,8 @@ class ActionExecutor(
                         "taskId" to task.id,
                         "taskStatus" to task.status.name,
                         "triggerAtMillis" to task.triggerAtMillis.toString(),
+                        "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
+                        "recoveryTaskId" to task.id,
                     ),
                 )
             },
@@ -162,10 +164,11 @@ class ActionExecutor(
                     )
                 },
                 onFailure = { throwable ->
+                    val invalidCancellation = throwable is IllegalArgumentException
                     request.failed(
-                        code = ToolErrorCode.ExecutionFailed,
+                        code = if (invalidCancellation) ToolErrorCode.InvalidRequest else ToolErrorCode.ExecutionFailed,
                         summary = "后台任务取消失败：${throwable.cleanMessage()}",
-                        retryable = true,
+                        retryable = !invalidCancellation,
                         data = mapOf("toolName" to request.toolName),
                     )
                 },

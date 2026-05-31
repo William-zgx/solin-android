@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.background
 import com.bytedance.zgx.pocketmind.data.ScheduledTaskDao
 import com.bytedance.zgx.pocketmind.data.ScheduledTaskEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -40,7 +41,7 @@ class ScheduledTaskRemovalCoordinatorTest {
     }
 
     @Test
-    fun nonScheduledTaskDoesNotCancelPlatformSchedule() {
+    fun nonScheduledTaskFailsWithoutCancellingPlatformSchedule() {
         val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 1_000L })
         val reminder = repository.createReminder(
             title = "已触达",
@@ -64,13 +65,63 @@ class ScheduledTaskRemovalCoordinatorTest {
             },
         )
 
-        coordinator.cancelScheduled(reminder.id).getOrThrow()
-        coordinator.deleteScheduled(PeriodicCheckScheduleRequest.TASK_ID).getOrThrow()
+        val reminderResult = coordinator.cancelScheduled(reminder.id)
+        val periodicResult = coordinator.deleteScheduled(PeriodicCheckScheduleRequest.TASK_ID)
 
+        assertTrue(reminderResult.isFailure)
+        assertTrue(periodicResult.isFailure)
         assertEquals(emptyList<String>(), alarmCancellations)
         assertEquals(0, workCancellations)
         assertEquals(ScheduledTaskStatus.Delivered, repository.task(reminder.id)?.status)
         assertEquals(ScheduledTaskStatus.Running, repository.periodicCheck()?.status)
+    }
+
+    @Test
+    fun missingTaskFailsWithoutCancellingPlatformSchedule() {
+        val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 1_000L })
+        val alarmCancellations = mutableListOf<String>()
+        val coordinator = ScheduledTaskRemovalCoordinator(
+            repository = repository,
+            cancelReminderAlarm = { task ->
+                alarmCancellations += task.id
+                Result.success(Unit)
+            },
+            cancelPeriodicWork = { Result.success(Unit) },
+        )
+
+        val result = coordinator.cancelScheduled("missing-task")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+        assertEquals(emptyList<String>(), alarmCancellations)
+    }
+
+    @Test
+    fun localStateRaceAfterPlatformCancellationFailsInsteadOfReportingSuccess() {
+        val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 1_000L })
+        val reminder = repository.createReminder(
+            title = "喝水",
+            body = "提醒我喝水",
+            triggerAtMillis = 10_000L,
+        )
+        val alarmCancellations = mutableListOf<String>()
+        val coordinator = ScheduledTaskRemovalCoordinator(
+            repository = repository,
+            cancelReminderAlarm = { task ->
+                alarmCancellations += task.id
+                repository.markDelivered(task.id)
+                Result.success(Unit)
+            },
+            cancelPeriodicWork = { Result.success(Unit) },
+        )
+
+        val result = coordinator.cancelScheduled(reminder.id)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+        assertEquals(listOf(reminder.id), alarmCancellations)
+        assertEquals(ScheduledTaskStatus.Delivered, repository.task(reminder.id)?.status)
+        assertFalse(repository.scheduled().any { task -> task.id == reminder.id })
     }
 
     @Test

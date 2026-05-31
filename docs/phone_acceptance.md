@@ -149,13 +149,13 @@ adb devices -l
 ## 后台任务验收
 
 - 安排提醒前应先出现动作确认，不确认时不应创建 `scheduled_tasks` 记录。
-- 确认 `schedule_reminder` 后，`scheduled_tasks` 应写入 `Scheduled` 状态，聊天中应追加结构化工具结果并包含任务 id。
+- 确认 `schedule_reminder` 后，`scheduled_tasks` 应写入 `Scheduled` 状态，聊天中应追加结构化工具结果并包含任务 id；工具结果和 Agent trace 应提供 `cancel_reminder` recovery metadata，但不写入提醒标题或正文。
 - Android 13+ 首次确认提醒时应先弹出通知权限请求；拒绝后应显示结构化权限失败，不应创建误导性的成功状态。
 - 到点后如果通知权限可用，应通过 `pocketmind_agent_reminders` 通知通道弹出提醒，并把任务状态更新为 `Delivered`。
 - 如果触发时通知权限不可用，不应崩溃，任务应进入 `Failed`。
 - “后台任务”入口应只展示仍处于 `Scheduled` 的运行中任务；`Running` / `Delivered` / `Failed` / `Cancelled` / `Deleted` 不应显示为运行中。
 - “后台任务”入口应展示最近已结束任务历史；已送达、失败、已取消或已删除任务只读展示，不应出现取消按钮。
-- 取消运行中提醒后，应取消底层调度、把 `scheduled_tasks.status` 更新为 `Cancelled`，任务从运行中列表消失，出现在最近历史中，并显示“后台任务已取消”。
+- 取消运行中提醒后，应取消底层调度、把 `scheduled_tasks.status` 更新为 `Cancelled`，任务从运行中列表消失，出现在最近历史中，并显示“后台任务已取消”；任务不存在、已送达、已取消或本地状态竞态变化时不应声明回滚成功。
 - 取消失败时任务仍保持运行中状态，UI 应显示可理解失败提示，不应误标为已取消。
 - “后台任务”入口应展示周期检查策略状态，包括启用状态、检查间隔、最小通知间隔、过期宽限、耗电约束、下次允许检查时间和最近运行结果。
 - 用户保存或关闭周期检查策略后，应刷新运行中任务和最近历史；关闭成功后 `periodic-check-local` 不应继续显示为运行中。

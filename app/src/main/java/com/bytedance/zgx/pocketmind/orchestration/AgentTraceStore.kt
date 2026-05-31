@@ -47,6 +47,7 @@ private val toolObservedCompletionMetadataAllowlist = listOf(
     "targetUriHost",
     "targetUriPort",
     "targetUriScheme",
+    "recoveryTaskId",
     "recoveryToolName",
 )
 

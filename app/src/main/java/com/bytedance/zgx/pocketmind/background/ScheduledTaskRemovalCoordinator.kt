@@ -16,10 +16,15 @@ internal class ScheduledTaskRemovalCoordinator(
         markRemoved: (String) -> Boolean,
     ): Result<Unit> =
         runCatching {
-            val task = repository.task(taskId) ?: return@runCatching
-            if (task.status != ScheduledTaskStatus.Scheduled) return@runCatching
+            val task = repository.task(taskId)
+                ?: throw IllegalArgumentException("Scheduled task not found: $taskId")
+            if (task.status != ScheduledTaskStatus.Scheduled) {
+                throw IllegalArgumentException("Scheduled task is not cancellable: $taskId (${task.status.name})")
+            }
             cancelPlatformSchedule(task).getOrThrow()
-            markRemoved(taskId)
+            if (!markRemoved(taskId)) {
+                throw IllegalArgumentException("Scheduled task was not updated: $taskId")
+            }
         }
 
     private fun cancelPlatformSchedule(task: ScheduledTask): Result<Unit> =

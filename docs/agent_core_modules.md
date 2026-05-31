@@ -554,6 +554,13 @@ Current status:
   check.
 - `schedule_reminder` and `cancel_reminder` tool results include `taskStatus`
   metadata for downstream observation and debugging.
+- Successful `schedule_reminder` results now include bounded rollback metadata:
+  `recoveryToolName=cancel_reminder` and the scheduled `recoveryTaskId`. Agent
+  trace preserves only this recovery metadata, not reminder title/body content.
+- `cancel_reminder` reports success only after a still-`Scheduled` task has had
+  its platform schedule cancelled and local state moved out of `Scheduled`.
+  Missing, already delivered, already cancelled, or concurrently changed tasks
+  fail as non-retryable stale rollback requests instead of claiming success.
 - Implemented runtime background task review UI for still-`Scheduled` tasks.
   The UI shows pending task metadata and exposes explicit
   cancellation that cancels the platform schedule, updates local task state to
@@ -576,6 +583,10 @@ Tests:
 - `ScheduledTaskRepositoryTest`
 - `PeriodicCheckSchedulerTest`
 - `ReminderAlarmReceiverTest`
+- `ActionExecutorTest.schedulesReminderThroughBackgroundScheduler`
+- `ActionExecutorTest.reportsStaleReminderCancellationAsNonRetryableInvalidRequest`
+- `AgentTraceStoreTest.roomStorePersistsReminderRecoveryMetadataWithoutReminderContent`
+- `ScheduledTaskRemovalCoordinatorTest`
 - `PocketMindViewModelTest.restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork`
 - `PocketMindViewModelTest.cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler`
 - `PocketMindViewModelTest.setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi`

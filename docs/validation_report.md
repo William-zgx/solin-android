@@ -1,5 +1,29 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Reminder rollback metadata 增量验证
+
+本轮覆盖项：
+
+- `schedule_reminder` 成功结果新增受限 recovery metadata：
+  `recoveryToolName=cancel_reminder` 和 `recoveryTaskId`，让 Agent/UI/audit
+  层能识别该后台任务的回滚工具入口。
+- Agent trace 只持久化 recovery tool 名称和 task id，不记录提醒标题、正文或
+  其他未 allowlist 的任务内容。
+- 现有 `cancel_reminder` 仍是显式工具，需要独立确认和 scheduler 取消路径。
+  它只有在仍处于 `Scheduled` 的任务成功取消平台调度并更新本地状态后才返回成功；
+  missing、已送达、已取消或本地状态竞态变化会作为 non-retryable stale
+  rollback 失败返回，不声称回滚成功。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest.schedulesReminderThroughBackgroundScheduler' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest.reportsStaleReminderCancellationAsNonRetryableInvalidRequest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStorePersistsReminderRecoveryMetadataWithoutReminderContent'
+```
+
 ## 2026-05-31 Generic Skill model-step binding 增量验证
 
 本轮覆盖项：

@@ -138,6 +138,48 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStorePersistsReminderRecoveryMetadataWithoutReminderContent() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-reminder-recovery" },
+        )
+        val run = store.createRun("提醒我稍后喝水")
+
+        store.appendStep(
+            run.id,
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = "request-reminder",
+                    status = ToolStatus.Succeeded,
+                    summary = "已安排后台提醒",
+                    data = mapOf(
+                        "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
+                        "taskId" to "task-1",
+                        "taskStatus" to "Scheduled",
+                        "triggerAtMillis" to "901000",
+                        "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
+                        "recoveryTaskId" to "task-1",
+                        "title" to "喝水",
+                        "body" to "这是提醒正文",
+                    ),
+                ),
+            ),
+        )
+
+        val persistedStep = store.stepSummaries(run.id).single()
+        val json = JSONObject(persistedStep.json)
+        val metadata = json.getJSONObject("completionMetadata")
+
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, metadata.getString("recoveryToolName"))
+        assertEquals("task-1", metadata.getString("recoveryTaskId"))
+        assertFalse(persistedStep.json.contains("喝水"))
+        assertFalse(persistedStep.json.contains("这是提醒正文"))
+        assertFalse(metadata.has("title"))
+        assertFalse(metadata.has("body"))
+    }
+
+    @Test
     fun roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace() {
         var now = 3_000L
         val dao = FakeAgentTraceDao()
