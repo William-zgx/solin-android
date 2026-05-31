@@ -298,6 +298,11 @@ Current status:
   safe HTTPS links with `ACTION_VIEW`, and `open_app_intent` only opens an app
   launcher by package name. Arbitrary Intent extras, activities, actions, data
   URIs, and non-HTTPS schemes are intentionally not exposed.
+- External Activity tool results now make this launch-only completion explicit
+  with allowlisted metadata: `completionState`, `completionVerified=false`,
+  `externalOutcome=Unknown`, `targetKind`, and safe target identifiers such as
+  URI scheme/host or package name. Agent trace persists only that allowlisted
+  metadata, not raw payload text or original URI paths/query strings.
 - Broad permission flows, allowlisted app-specific deep targets, and
   result-confirmation callbacks are pending.
 
@@ -307,6 +312,11 @@ Tests:
 - `PocketMindViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt`
 - `AgentLoopRuntimeTest.pendingToolPermissionDenialIsObservedWithoutEnteringExecutionState`
 - `AgentLoopRuntimeTest.permissionDeniedToolFailureDoesNotScheduleAutomaticRetry`
+- `ActionExecutorTest.opensAllowedDeepLinkAsActionViewIntent`
+- `ActionExecutorTest.shareTextMetadataDoesNotIncludeRawPayload`
+- `ActionExecutorTest.reportsActivityNotFoundAsNotStartedExternalCompletion`
+- `ActionExecutorTest.reportsExternalActivityExceptionWithExceptionType`
+- `AgentTraceStoreTest.roomStorePersistsOnlyAllowlistedToolObservationCompletionMetadata`
 
 ## Safety And Audit
 

@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.action
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
@@ -192,6 +193,9 @@ class ActionExecutorTest {
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
+        assertExternalActivityOpened(result.data, "HttpsUri", Intent.ACTION_VIEW)
+        assertEquals("https", result.data["targetUriScheme"])
+        assertEquals("example.com", result.data["targetUriHost"])
         val launch = launches.single()
         assertEquals(Intent.ACTION_VIEW, launch.action)
         assertEquals("https://example.com/path?q=agent", launch.uri)
@@ -244,11 +248,86 @@ class ActionExecutorTest {
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
+        assertExternalActivityOpened(result.data, "AndroidPackage", Intent.ACTION_MAIN)
+        assertEquals("com.example.app", result.data["targetPackage"])
         val launch = launches.single()
         assertEquals(Intent.ACTION_MAIN, launch.action)
         assertEquals("com.example.app", launch.packageName)
         assertEquals(MobileActionFunctions.OPEN_APP_INTENT, launch.toolName)
         assertEquals(null, launch.uri)
+    }
+
+    @Test
+    fun reportsActivityNotFoundAsNotStartedExternalCompletion() {
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = {
+                throw ActivityNotFoundException("missing activity")
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-deep-link-missing",
+                toolName = MobileActionFunctions.OPEN_DEEP_LINK,
+                arguments = mapOf("uri" to "https://example.com/path"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.NoActivityFound, result.error?.code)
+        assertExternalActivityNotStarted(result.data, "HttpsUri", Intent.ACTION_VIEW)
+        assertEquals("Unknown", result.data["externalOutcome"])
+        assertEquals(null, result.data["exceptionType"])
+    }
+
+    @Test
+    fun reportsExternalActivityExceptionWithExceptionType() {
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = {
+                throw IllegalStateException("launcher unavailable")
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-app-exception",
+                toolName = MobileActionFunctions.OPEN_APP_INTENT,
+                arguments = mapOf("packageName" to "com.example.app"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
+        assertExternalActivityNotStarted(result.data, "AndroidPackage", Intent.ACTION_MAIN)
+        assertEquals("com.example.app", result.data["targetPackage"])
+        assertEquals("IllegalStateException", result.data["exceptionType"])
+        assertTrue(result.summary.contains("launcher unavailable"))
+    }
+
+    @Test
+    fun shareTextMetadataDoesNotIncludeRawPayload() {
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { true },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-share",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+                arguments = mapOf("text" to "private share payload"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertExternalActivityOpened(result.data, "ShareSheet", Intent.ACTION_CHOOSER)
+        assertEquals("text/plain", result.data["payloadMimeType"])
+        assertTrue(!result.data.toString().contains("private share payload"))
     }
 
     @Test
@@ -318,6 +397,33 @@ class ActionExecutorTest {
             ),
             reason = "test",
         )
+
+    private fun assertExternalActivityOpened(
+        data: Map<String, String>,
+        targetKind: String,
+        intentAction: String,
+    ) {
+        assertEquals("ExternalActivityOpened", data["completionState"])
+        assertEquals("false", data["completionVerified"])
+        assertEquals("Unknown", data["externalOutcome"])
+        assertEquals(targetKind, data["targetKind"])
+        assertEquals(intentAction, data["intentAction"])
+        assertEquals("AllowlistedCompletionMetadata", data["metadataPolicy"])
+        assertEquals("false", data["rawPayloadIncluded"])
+    }
+
+    private fun assertExternalActivityNotStarted(
+        data: Map<String, String>,
+        targetKind: String,
+        intentAction: String,
+    ) {
+        assertEquals("NotStarted", data["completionState"])
+        assertEquals("false", data["completionVerified"])
+        assertEquals(targetKind, data["targetKind"])
+        assertEquals(intentAction, data["intentAction"])
+        assertEquals("AllowlistedCompletionMetadata", data["metadataPolicy"])
+        assertEquals("false", data["rawPayloadIncluded"])
+    }
 
     private class RecordingBackgroundTaskScheduler(
         private val failure: Throwable? = null,

@@ -25,6 +25,23 @@ data class AgentTraceStepSummary(
     val createdAtMillis: Long,
 )
 
+private val toolObservedCompletionMetadataAllowlist = listOf(
+    "completionState",
+    "completionVerified",
+    "exceptionType",
+    "externalOutcome",
+    "intentAction",
+    "metadataPolicy",
+    "payloadMimeType",
+    "rawPayloadIncluded",
+    "settingsAction",
+    "targetKind",
+    "targetPackage",
+    "targetUriHost",
+    "targetUriPort",
+    "targetUriScheme",
+)
+
 interface AgentTraceStore {
     fun createRun(input: String): AgentRun
     fun run(runId: String): AgentRun?
@@ -338,6 +355,16 @@ private fun JSONObject.toStringMap(): Map<String, String> {
     }
 }
 
+private fun Map<String, String>.allowlistedCompletionMetadataJson(): JSONObject {
+    val json = JSONObject()
+    toolObservedCompletionMetadataAllowlist.forEach { key ->
+        this[key]?.takeIf { value -> value.isNotBlank() }?.let { value ->
+            json.put(key, value)
+        }
+    }
+    return json
+}
+
 private fun SkillPlan.toJsonObject(): JSONObject =
     JSONObject()
         .put("request", request.toJsonObject())
@@ -588,6 +615,12 @@ private fun AgentStep.traceJson(type: String): JSONObject {
             .put("status", result.status.name)
             .put("summary", result.summary.shortTraceText())
             .put("retryable", result.retryable)
+            .also {
+                val metadata = result.data.allowlistedCompletionMetadataJson()
+                if (metadata.length() > 0) {
+                    it.put("completionMetadata", metadata)
+                }
+            }
 
         is AgentStep.ToolRetryScheduled -> json
             .put("requestId", request.id)

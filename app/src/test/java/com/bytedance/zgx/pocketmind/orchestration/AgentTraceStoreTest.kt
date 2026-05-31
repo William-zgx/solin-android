@@ -8,6 +8,9 @@ import com.bytedance.zgx.pocketmind.data.AgentTraceDao
 import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
+import com.bytedance.zgx.pocketmind.tool.ToolResult
+import com.bytedance.zgx.pocketmind.tool.ToolStatus
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -70,6 +73,57 @@ class AgentTraceStoreTest {
         assertEquals(AgentRunState.Planning, restartedStore.run(run.id)?.state)
         assertEquals(emptyList<AgentStep>(), restartedStore.steps(run.id))
         assertEquals(listOf(persistedStep), restartedStore.stepSummaries(run.id))
+    }
+
+    @Test
+    fun roomStorePersistsOnlyAllowlistedToolObservationCompletionMetadata() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-completion" },
+        )
+        val run = store.createRun("open app")
+
+        store.appendStep(
+            run.id,
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = "request-open",
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开应用",
+                    data = mapOf(
+                        "toolName" to MobileActionFunctions.OPEN_APP_INTENT,
+                        "completionState" to "ExternalActivityOpened",
+                        "completionVerified" to "false",
+                        "externalOutcome" to "Unknown",
+                        "targetKind" to "AndroidPackage",
+                        "intentAction" to "android.intent.action.MAIN",
+                        "targetPackage" to "com.example.app",
+                        "metadataPolicy" to "AllowlistedCompletionMetadata",
+                        "rawPayloadIncluded" to "false",
+                        "rawUri" to "https://example.com/private?q=secret",
+                        "rawText" to "secret payload",
+                    ),
+                ),
+            ),
+        )
+
+        val persistedStep = store.stepSummaries(run.id).single()
+        val json = JSONObject(persistedStep.json)
+        val metadata = json.getJSONObject("completionMetadata")
+
+        assertEquals("ExternalActivityOpened", metadata.getString("completionState"))
+        assertEquals("false", metadata.getString("completionVerified"))
+        assertEquals("Unknown", metadata.getString("externalOutcome"))
+        assertEquals("AndroidPackage", metadata.getString("targetKind"))
+        assertEquals("android.intent.action.MAIN", metadata.getString("intentAction"))
+        assertEquals("com.example.app", metadata.getString("targetPackage"))
+        assertEquals("AllowlistedCompletionMetadata", metadata.getString("metadataPolicy"))
+        assertEquals("false", metadata.getString("rawPayloadIncluded"))
+        assertFalse(persistedStep.json.contains("secret payload"))
+        assertFalse(persistedStep.json.contains("private?q=secret"))
+        assertFalse(metadata.has("rawText"))
+        assertFalse(metadata.has("rawUri"))
     }
 
     @Test

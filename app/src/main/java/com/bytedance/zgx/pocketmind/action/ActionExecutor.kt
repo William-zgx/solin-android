@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.action
 
 import android.app.SearchManager
+import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -55,23 +56,7 @@ class ActionExecutor(
                 summary = "Unknown tool: ${request.toolName}",
                 retryable = false,
             )
-        val executed = intents.any { intent ->
-            startActivity(intent)
-        }
-
-        return if (executed) {
-            request.succeeded(
-                summary = successSummaryFor(request.toolName),
-                data = mapOf("toolName" to request.toolName),
-            )
-        } else {
-            request.failed(
-                code = ToolErrorCode.NoActivityFound,
-                summary = "没有找到可以执行 ${request.toolName} 的应用或系统页面",
-                retryable = true,
-                data = mapOf("toolName" to request.toolName),
-            )
-        }
+        return executeExternalActivityIntents(request, intents)
     }
 
     private fun readClipboard(request: ToolRequest): ToolResult {
@@ -348,19 +333,15 @@ class ActionExecutor(
     private fun executeExternalActivityWithInjectedStarter(request: ToolRequest): ToolResult? {
         val starter = externalActivityStarter ?: return null
         val launch = externalActivityLaunchFor(request) ?: return null
-        val executed = runCatching { starter(launch) }.getOrDefault(false)
-        return if (executed) {
-            request.succeeded(
+        val metadata = launch.externalActivityMetadata()
+        return when (val result = startInjectedExternalActivity(starter, launch)) {
+            ExternalActivityStartResult.Started -> request.succeeded(
                 summary = successSummaryFor(request.toolName),
-                data = mapOf("toolName" to request.toolName),
+                data = externalActivityData(request, metadata, COMPLETION_STATE_EXTERNAL_ACTIVITY_OPENED),
             )
-        } else {
-            request.failed(
-                code = ToolErrorCode.NoActivityFound,
-                summary = "没有找到可以执行 ${request.toolName} 的应用或系统页面",
-                retryable = true,
-                data = mapOf("toolName" to request.toolName),
-            )
+
+            ExternalActivityStartResult.ActivityNotFound -> noActivityFoundResult(request, metadata)
+            is ExternalActivityStartResult.Failed -> activityExecutionFailedResult(request, metadata, result.throwable)
         }
     }
 
@@ -376,6 +357,11 @@ class ActionExecutor(
                 toolName = request.toolName,
                 action = Intent.ACTION_MAIN,
                 packageName = request.arguments.getValue("packageName"),
+            )
+
+            MobileActionFunctions.SHARE_TEXT -> ExternalActivityLaunch(
+                toolName = request.toolName,
+                action = Intent.ACTION_CHOOSER,
             )
 
             else -> null
@@ -414,15 +400,261 @@ class ActionExecutor(
         )
     }
 
-    private fun startActivity(intent: Intent): Boolean {
+    private fun executeExternalActivityIntents(
+        request: ToolRequest,
+        intents: List<Intent>,
+    ): ToolResult {
+        var lastMetadata: ExternalActivityMetadata? = null
+        intents.forEach { intent ->
+            val metadata = request.externalActivityMetadata(intent)
+            lastMetadata = metadata
+            when (val result = startActivity(intent)) {
+                ExternalActivityStartResult.Started -> return request.succeeded(
+                    summary = successSummaryFor(request.toolName),
+                    data = externalActivityData(request, metadata, COMPLETION_STATE_EXTERNAL_ACTIVITY_OPENED),
+                )
+
+                ExternalActivityStartResult.ActivityNotFound -> Unit
+                is ExternalActivityStartResult.Failed -> return activityExecutionFailedResult(
+                    request = request,
+                    metadata = metadata,
+                    throwable = result.throwable,
+                )
+            }
+        }
+
+        return noActivityFoundResult(
+            request = request,
+            metadata = lastMetadata ?: request.externalActivityMetadata(null),
+        )
+    }
+
+    private fun noActivityFoundResult(
+        request: ToolRequest,
+        metadata: ExternalActivityMetadata,
+    ): ToolResult =
+        request.failed(
+            code = ToolErrorCode.NoActivityFound,
+            summary = "没有找到可以执行 ${request.toolName} 的应用或系统页面",
+            retryable = true,
+            data = externalActivityData(request, metadata, COMPLETION_STATE_NOT_STARTED),
+        )
+
+    private fun activityExecutionFailedResult(
+        request: ToolRequest,
+        metadata: ExternalActivityMetadata,
+        throwable: Throwable,
+    ): ToolResult =
+        request.failed(
+            code = ToolErrorCode.ExecutionFailed,
+            summary = "执行 ${request.toolName} 失败：${throwable.cleanMessage()}",
+            retryable = true,
+            data = externalActivityData(
+                request = request,
+                metadata = metadata,
+                completionState = COMPLETION_STATE_NOT_STARTED,
+                extra = mapOf("exceptionType" to throwable::class.java.simpleName),
+            ),
+        )
+
+    private fun externalActivityData(
+        request: ToolRequest,
+        metadata: ExternalActivityMetadata,
+        completionState: String,
+        extra: Map<String, String> = emptyMap(),
+    ): Map<String, String> =
+        buildMap {
+            put("toolName", request.toolName)
+            put("completionState", completionState)
+            put("completionVerified", "false")
+            put("externalOutcome", "Unknown")
+            put("targetKind", metadata.targetKind)
+            put("intentAction", metadata.intentAction)
+            put("metadataPolicy", "AllowlistedCompletionMetadata")
+            put("rawPayloadIncluded", "false")
+            metadata.safeData.forEach { (key, value) ->
+                if (value.isNotBlank()) put(key, value)
+            }
+            extra.forEach { (key, value) ->
+                if (value.isNotBlank()) put(key, value)
+            }
+        }
+
+    private fun ToolRequest.externalActivityMetadata(intent: Intent?): ExternalActivityMetadata {
+        val action = intent?.action.orEmpty().ifBlank { defaultIntentActionFor(toolName) }
+        return when (toolName) {
+            MobileActionFunctions.OPEN_WIFI_SETTINGS -> ExternalActivityMetadata(
+                targetKind = "SystemSettings",
+                intentAction = action,
+                safeData = mapOf("settingsAction" to action),
+            )
+
+            MobileActionFunctions.SEARCH_MAPS -> ExternalActivityMetadata(
+                targetKind = "MapSearch",
+                intentAction = action,
+                safeData = intent.safeUriMetadata(),
+            )
+
+            MobileActionFunctions.WEB_SEARCH -> ExternalActivityMetadata(
+                targetKind = "WebSearch",
+                intentAction = action,
+                safeData = intent.safeUriMetadata(),
+            )
+
+            MobileActionFunctions.COMPOSE_EMAIL -> ExternalActivityMetadata(
+                targetKind = "EmailDraft",
+                intentAction = action,
+                safeData = intent.safeUriMetadata(),
+            )
+
+            MobileActionFunctions.CREATE_CALENDAR_EVENT -> ExternalActivityMetadata(
+                targetKind = "CalendarEventDraft",
+                intentAction = action,
+                safeData = intent.safeUriMetadata(),
+            )
+
+            MobileActionFunctions.CREATE_CONTACT_DRAFT -> ExternalActivityMetadata(
+                targetKind = "ContactDraft",
+                intentAction = action,
+                safeData = intent.safeMimeTypeMetadata(),
+            )
+
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> ExternalActivityMetadata(
+                targetKind = "SystemSettings",
+                intentAction = action,
+                safeData = mapOf("settingsAction" to action),
+            )
+
+            MobileActionFunctions.SHARE_TEXT -> ExternalActivityMetadata(
+                targetKind = "ShareSheet",
+                intentAction = action,
+                safeData = mapOf("payloadMimeType" to "text/plain"),
+            )
+
+            MobileActionFunctions.OPEN_DEEP_LINK -> ExternalActivityMetadata(
+                targetKind = "HttpsUri",
+                intentAction = action,
+                safeData = intent.safeUriMetadata(),
+            )
+
+            MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityMetadata(
+                targetKind = "AndroidPackage",
+                intentAction = action,
+                safeData = mapOf("targetPackage" to arguments["packageName"].orEmpty()),
+            )
+
+            else -> ExternalActivityMetadata(
+                targetKind = "ExternalActivity",
+                intentAction = action,
+            )
+        }
+    }
+
+    private fun ExternalActivityLaunch.externalActivityMetadata(): ExternalActivityMetadata {
+        val action = action.ifBlank { defaultIntentActionFor(toolName) }
+        return when (toolName) {
+            MobileActionFunctions.OPEN_DEEP_LINK -> ExternalActivityMetadata(
+                targetKind = "HttpsUri",
+                intentAction = action,
+                safeData = uri.safeUriMetadata(),
+            )
+
+            MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityMetadata(
+                targetKind = "AndroidPackage",
+                intentAction = action,
+                safeData = mapOf("targetPackage" to packageName.orEmpty()),
+            )
+
+            MobileActionFunctions.SHARE_TEXT -> ExternalActivityMetadata(
+                targetKind = "ShareSheet",
+                intentAction = action,
+                safeData = mapOf("payloadMimeType" to "text/plain"),
+            )
+
+            else -> ExternalActivityMetadata(
+                targetKind = "ExternalActivity",
+                intentAction = action,
+            )
+        }
+    }
+
+    private fun Intent?.safeUriMetadata(): Map<String, String> =
+        this?.data?.let { uri ->
+            buildMap {
+                uri.scheme?.let { put("targetUriScheme", it) }
+                uri.host?.let { put("targetUriHost", it) }
+                if (uri.port != -1) put("targetUriPort", uri.port.toString())
+            }
+        }.orEmpty()
+
+    private fun Intent?.safeMimeTypeMetadata(): Map<String, String> =
+        this?.type?.let { mimeType -> mapOf("payloadMimeType" to mimeType) }.orEmpty()
+
+    private fun String?.safeUriMetadata(): Map<String, String> {
+        val uri = runCatching { this?.trim()?.takeIf { it.isNotBlank() }?.let(::URI) }.getOrNull()
+            ?: return emptyMap()
+        return buildMap {
+            uri.scheme?.let { put("targetUriScheme", it) }
+            uri.host?.let { put("targetUriHost", it) }
+            if (uri.port != -1) put("targetUriPort", uri.port.toString())
+        }
+    }
+
+    private fun defaultIntentActionFor(toolName: String): String =
+        when (toolName) {
+            MobileActionFunctions.OPEN_WIFI_SETTINGS -> Settings.ACTION_WIFI_SETTINGS
+            MobileActionFunctions.SEARCH_MAPS -> Intent.ACTION_VIEW
+            MobileActionFunctions.WEB_SEARCH -> Intent.ACTION_WEB_SEARCH
+            MobileActionFunctions.COMPOSE_EMAIL -> Intent.ACTION_SENDTO
+            MobileActionFunctions.CREATE_CALENDAR_EVENT -> Intent.ACTION_INSERT
+            MobileActionFunctions.CREATE_CONTACT_DRAFT -> ContactsContract.Intents.Insert.ACTION
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> Settings.ACTION_SETTINGS
+            MobileActionFunctions.SHARE_TEXT -> Intent.ACTION_CHOOSER
+            MobileActionFunctions.OPEN_DEEP_LINK -> Intent.ACTION_VIEW
+            MobileActionFunctions.OPEN_APP_INTENT -> Intent.ACTION_MAIN
+            else -> ""
+        }
+
+    private fun startInjectedExternalActivity(
+        starter: (ExternalActivityLaunch) -> Boolean,
+        launch: ExternalActivityLaunch,
+    ): ExternalActivityStartResult =
+        try {
+            if (starter(launch)) {
+                ExternalActivityStartResult.Started
+            } else {
+                ExternalActivityStartResult.ActivityNotFound
+            }
+        } catch (_: ActivityNotFoundException) {
+            ExternalActivityStartResult.ActivityNotFound
+        } catch (throwable: Throwable) {
+            ExternalActivityStartResult.Failed(throwable)
+        }
+
+    private fun startActivity(intent: Intent): ExternalActivityStartResult {
         activityStarter?.let { starter ->
             val launchIntent = runCatching { intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }.getOrDefault(intent)
-            return runCatching { starter(launchIntent) }.getOrDefault(false)
+            return try {
+                if (starter(launchIntent)) {
+                    ExternalActivityStartResult.Started
+                } else {
+                    ExternalActivityStartResult.ActivityNotFound
+                }
+            } catch (_: ActivityNotFoundException) {
+                ExternalActivityStartResult.ActivityNotFound
+            } catch (throwable: Throwable) {
+                ExternalActivityStartResult.Failed(throwable)
+            }
         }
-        val appContext = context ?: return false
-        return runCatching {
+        val appContext = context ?: return ExternalActivityStartResult.ActivityNotFound
+        return try {
             appContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }.isSuccess
+            ExternalActivityStartResult.Started
+        } catch (_: ActivityNotFoundException) {
+            ExternalActivityStartResult.ActivityNotFound
+        } catch (throwable: Throwable) {
+            ExternalActivityStartResult.Failed(throwable)
+        }
     }
 
     private fun readClipboardText(): String? {
@@ -436,8 +668,22 @@ class ActionExecutor(
     private companion object {
         const val MAX_CLIPBOARD_RESULT_CHARS = 4_000
         const val MAX_DEEP_LINK_URI_CHARS = 2_048
+        const val COMPLETION_STATE_EXTERNAL_ACTIVITY_OPENED = "ExternalActivityOpened"
+        const val COMPLETION_STATE_NOT_STARTED = "NotStarted"
         val PACKAGE_NAME_PATTERN = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+$""")
     }
+}
+
+private data class ExternalActivityMetadata(
+    val targetKind: String,
+    val intentAction: String,
+    val safeData: Map<String, String> = emptyMap(),
+)
+
+private sealed class ExternalActivityStartResult {
+    data object Started : ExternalActivityStartResult()
+    data object ActivityNotFound : ExternalActivityStartResult()
+    data class Failed(val throwable: Throwable) : ExternalActivityStartResult()
 }
 
 data class ExternalActivityLaunch(

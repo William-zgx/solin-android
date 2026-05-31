@@ -125,6 +125,9 @@ class ToolRegistryTest {
         assertEquals(ToolCapability.ExternalNavigation, appIntentSpec.capability)
         assertEquals(RiskLevel.MediumDraftOrNavigation, appIntentSpec.riskLevel)
         assertTrue(ToolPermission.StartsExternalActivity in appIntentSpec.permissions)
+        assertTrue(appIntentSpec.description.contains("packageName"))
+        assertTrue(!appIntentSpec.description.contains("activityClass"))
+        assertTrue(!appIntentSpec.description.contains("data Uri"))
         assertTrue(appIntentSpec.inputSchemaJson.contains("\"packageName\""))
         assertTrue(!appIntentSpec.inputSchemaJson.contains("\"activityClass\""))
     }

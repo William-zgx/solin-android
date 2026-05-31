@@ -1,5 +1,52 @@
 # PocketMind 验证报告
 
+## 2026-05-31 外部 Activity 完成语义 Metadata 增量验证
+
+本轮覆盖项：
+
+- 外部 Activity/Intent 工具成功结果不再只表达“完成”，而是显式标记
+  `completionState=ExternalActivityOpened`、`completionVerified=false` 和
+  `externalOutcome=Unknown`，说明当前只验证外部页面/chooser 已打开。
+- `ActivityNotFoundException` 仍返回 `NoActivityFound`；其他启动异常返回
+  `ExecutionFailed`，并带 `completionState=NotStarted` 与 `exceptionType`。
+- `share_text`、深链和 package launcher 结果只输出 allowlisted metadata；
+  不把分享文本、URI path/query 等 raw payload 写入 `ToolResult.data`。
+- Agent trace 的 `ToolObserved` 只持久化 completion metadata allowlist，
+  不保存 raw payload；`open_app_intent` 描述与 package-only schema 对齐。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+```
+
+结果：targeted JVM 外部 Activity completion metadata 测试通过。
+
+## 2026-05-31 Pending Confirmation 恢复回归增量验证
+
+本轮覆盖项：
+
+- Room 恢复出的 pending confirmation 可以再次确认、执行结果 observe，并清除
+  pending snapshot。
+- 恢复带 `clipboard_summary_share_skill` 的 pending 后，确认读取剪贴板可继续
+  到本地模型续写，再规划第二个 `share_text` 待确认。
+- ViewModel 启动恢复出的 pending confirmation 重复点击确认也只执行/observe
+  一次。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+```
+
+结果：targeted JVM pending confirmation 恢复回归测试通过。
+
 ## 2026-05-31 后台任务运行态生命周期增量验证
 
 本轮覆盖项：
