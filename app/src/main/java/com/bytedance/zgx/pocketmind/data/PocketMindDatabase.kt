@@ -233,6 +233,9 @@ interface AgentTraceDao {
     @Query("SELECT * FROM agent_runs WHERE id = :runId LIMIT 1")
     fun run(runId: String): AgentRunEntity?
 
+    @Query("SELECT * FROM agent_runs ORDER BY updatedAtMillis DESC, createdAtMillis DESC, id DESC LIMIT :limit")
+    fun recentRuns(limit: Int): List<AgentRunEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsertRun(run: AgentRunEntity)
 

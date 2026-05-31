@@ -56,13 +56,15 @@ interface AssistantRouter : AutoCloseable {
     fun observeModelResult(runId: String, text: String): AgentModelObservationResult?
 
     fun restorePendingAction(): AssistantRoute.Action?
+
+    fun recentTraceRuns(limit: Int = 5, stepLimit: Int = 20): List<AgentTraceRunSummary> = emptyList()
 }
 
 class AssistantOrchestrator(
     private val memoryIndex: MemoryIndex,
     private val actionPlanningRuntime: ActionPlanningRuntime,
     toolAuditSink: ToolAuditSink = NoOpToolAuditSink,
-    traceStore: AgentTraceStore = InMemoryAgentTraceStore(),
+    private val traceStore: AgentTraceStore = InMemoryAgentTraceStore(),
     observationReplanner: AgentObservationReplanner = SequentialActionObservationReplanner(actionPlanningRuntime),
 ) : AssistantRouter {
     private val agentLoopRuntime = AgentLoopRuntime(
@@ -109,6 +111,9 @@ class AssistantOrchestrator(
 
     override fun restorePendingAction(): AssistantRoute.Action? =
         agentLoopRuntime.latestPendingConfirmation()?.toAssistantRoute()
+
+    override fun recentTraceRuns(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> =
+        traceStore.recentRunSummaries(limit = limit, stepLimit = stepLimit)
 
     override fun close() {
         (actionPlanningRuntime as? AutoCloseable)?.close()

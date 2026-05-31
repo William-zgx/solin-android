@@ -38,6 +38,8 @@ import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentPlan
 import com.bytedance.zgx.pocketmind.orchestration.AgentRun
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
+import com.bytedance.zgx.pocketmind.orchestration.AgentTraceRunSummary
+import com.bytedance.zgx.pocketmind.orchestration.AgentTraceStepSummary
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRoute
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRouter
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
@@ -923,6 +925,33 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun refreshAuditEventsAlsoLoadsAgentTraceSummaries() = runTest(dispatcher) {
+        val assistantRouter = FakeAssistantRouter(
+            recentTraceRuns = listOf(
+                agentTraceRunSummary(
+                    runId = "run-1",
+                    input = "打开 Wi-Fi 设置",
+                    state = AgentRunState.Completed,
+                    stepSummary = "Requested confirmation for open_wifi_settings.",
+                ),
+            ),
+        )
+        val viewModel = createViewModel(assistantRouter = assistantRouter)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.refreshAuditEvents()
+        advanceUntilIdle()
+
+        assertEquals(5, assistantRouter.recentTraceRunLimit)
+        assertEquals(8, assistantRouter.recentTraceStepLimit)
+        val traceRun = viewModel.uiState.value.agentTraceRuns.single()
+        assertEquals("run-1", traceRun.id)
+        assertEquals(AgentRunState.Completed, traceRun.state)
+        assertEquals("Requested confirmation for open_wifi_settings.", traceRun.steps.single().summary)
+    }
+
+    @Test
     fun cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler() = runTest(dispatcher) {
         val scheduler = FakeBackgroundTaskScheduler(
             scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled)),
@@ -1111,6 +1140,32 @@ class PocketMindViewModelTest {
         val history: List<ChatMessage>,
     )
 
+    private fun agentTraceRunSummary(
+        runId: String,
+        input: String,
+        state: AgentRunState,
+        stepSummary: String,
+    ): AgentTraceRunSummary =
+        AgentTraceRunSummary(
+            run = AgentRun(
+                id = runId,
+                input = input,
+                state = state,
+                createdAtMillis = 1_000L,
+                updatedAtMillis = 2_000L,
+            ),
+            steps = listOf(
+                AgentTraceStepSummary(
+                    runId = runId,
+                    position = 0,
+                    type = "UserConfirmationRequested",
+                    summary = stepSummary,
+                    json = "{}",
+                    createdAtMillis = 1_500L,
+                ),
+            ),
+        )
+
     private class RecordingRemoteChatRuntime : RemoteChatRuntime {
         val calls = mutableListOf<RemoteCall>()
 
@@ -1180,6 +1235,7 @@ class PocketMindViewModelTest {
         private val toolObservation: AgentObservationResult? = null,
         private val modelObservation: AgentModelObservationResult? = null,
         private val restoredPendingRoute: AssistantRoute.Action? = null,
+        private val recentTraceRuns: List<AgentTraceRunSummary> = emptyList(),
     ) : AssistantRouter {
         var routeCallCount: Int = 0
             private set
@@ -1192,6 +1248,10 @@ class PocketMindViewModelTest {
         var lastObservedResult: ToolResult? = null
             private set
         var lastFailedPendingResult: ToolResult? = null
+            private set
+        var recentTraceRunLimit: Int? = null
+            private set
+        var recentTraceStepLimit: Int? = null
             private set
 
         override fun route(
@@ -1243,6 +1303,12 @@ class PocketMindViewModelTest {
         override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? = modelObservation
 
         override fun restorePendingAction(): AssistantRoute.Action? = restoredPendingRoute
+
+        override fun recentTraceRuns(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> {
+            recentTraceRunLimit = limit
+            recentTraceStepLimit = stepLimit
+            return recentTraceRuns
+        }
 
         override fun close() = Unit
     }

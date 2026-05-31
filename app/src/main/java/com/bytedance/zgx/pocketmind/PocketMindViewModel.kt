@@ -34,6 +34,7 @@ import com.bytedance.zgx.pocketmind.multimodal.SharedInput
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
+import com.bytedance.zgx.pocketmind.orchestration.AgentTraceRunSummary
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRouter
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRoute
@@ -330,7 +331,10 @@ class PocketMindViewModel(
 
     fun refreshAuditEvents() {
         _uiState.update {
-            it.copy(auditEvents = loadAuditEvents())
+            it.copy(
+                auditEvents = loadAuditEvents(),
+                agentTraceRuns = loadAgentTraceRuns(),
+            )
         }
     }
 
@@ -1076,6 +1080,7 @@ class PocketMindViewModel(
                     isBusy = false,
                     isGenerating = false,
                     auditEvents = loadAuditEvents(),
+                    agentTraceRuns = loadAgentTraceRuns(),
                     statusText = "工具未执行",
                 )
             }
@@ -1157,6 +1162,7 @@ class PocketMindViewModel(
                         isBusy = false,
                         isGenerating = false,
                         auditEvents = loadAuditEvents(),
+                        agentTraceRuns = loadAgentTraceRuns(),
                         statusText = "已保护剪贴板内容",
                     )
                 }
@@ -1176,6 +1182,7 @@ class PocketMindViewModel(
                     isBusy = true,
                     isGenerating = true,
                     auditEvents = loadAuditEvents(),
+                    agentTraceRuns = loadAgentTraceRuns(),
                     statusText = "生成中",
                 )
             }
@@ -1194,6 +1201,7 @@ class PocketMindViewModel(
                 backgroundTaskHistory = loadBackgroundTaskHistory(),
                 periodicCheckPolicy = loadPeriodicCheckPolicy(),
                 auditEvents = loadAuditEvents(),
+                agentTraceRuns = loadAgentTraceRuns(),
                 statusText = result.summary,
             )
         }
@@ -1242,6 +1250,7 @@ class PocketMindViewModel(
                 isBusy = false,
                 isGenerating = false,
                 auditEvents = loadAuditEvents(),
+                agentTraceRuns = loadAgentTraceRuns(),
                 statusText = "权限被拒，工具未执行",
             )
         }
@@ -1342,6 +1351,7 @@ class PocketMindViewModel(
                             isGenerating = false,
                             isReady = true,
                             auditEvents = loadAuditEvents(),
+                            agentTraceRuns = loadAgentTraceRuns(),
                             statusText = "下一步动作待确认",
                         )
                     }
@@ -1353,6 +1363,7 @@ class PocketMindViewModel(
                         isGenerating = false,
                         isReady = true,
                         auditEvents = loadAuditEvents(),
+                        agentTraceRuns = loadAgentTraceRuns(),
                         statusText = when (modelObservation?.decision) {
                             is AgentObservationDecision.Fail -> "后续动作不可执行"
                             else -> if (useRemoteModel) {
@@ -1409,6 +1420,7 @@ class PocketMindViewModel(
             it.copy(
                 pendingConfirmation = null,
                 auditEvents = loadAuditEvents(),
+                agentTraceRuns = loadAgentTraceRuns(),
                 statusText = observation?.assistantMessage ?: "已取消动作草稿",
             )
         }
@@ -1785,6 +1797,7 @@ class PocketMindViewModel(
             backgroundTaskHistory = loadBackgroundTaskHistory(),
             periodicCheckPolicy = loadPeriodicCheckPolicy(),
             auditEvents = loadAuditEvents(),
+            agentTraceRuns = loadAgentTraceRuns(),
             generationParameters = generationParametersRepository.load(),
             sessions = sessionRepository.summaries(),
             activeSessionId = sessionRepository.activeSessionId,
@@ -1943,6 +1956,26 @@ class PocketMindViewModel(
                 createdAtMillis = event.createdAtMillis,
             )
         }
+
+    private fun loadAgentTraceRuns(): List<AgentTraceRunUiSummary> =
+        runCatching {
+            assistantOrchestrator.recentTraceRuns(limit = 5, stepLimit = 8)
+                .map { run -> run.toUiSummary() }
+        }.getOrDefault(emptyList())
+
+    private fun AgentTraceRunSummary.toUiSummary(): AgentTraceRunUiSummary =
+        AgentTraceRunUiSummary(
+            id = run.id,
+            state = run.state,
+            updatedAtMillis = run.updatedAtMillis,
+            steps = steps.map { step ->
+                AgentTraceStepUiSummary(
+                    type = step.type,
+                    summary = step.summary,
+                    createdAtMillis = step.createdAtMillis,
+                )
+            },
+        )
 
     private fun restorePendingAgentConfirmationIfAny() {
         val route = assistantOrchestrator.restorePendingAction() ?: return

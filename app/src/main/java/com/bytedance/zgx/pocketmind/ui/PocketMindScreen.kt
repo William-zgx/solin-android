@@ -102,6 +102,7 @@ import androidx.compose.ui.semantics.semantics
 import com.bytedance.zgx.pocketmind.BackendChoice
 import com.bytedance.zgx.pocketmind.AuditEventSummary
 import com.bytedance.zgx.pocketmind.BackgroundTaskSummary
+import com.bytedance.zgx.pocketmind.AgentTraceRunUiSummary
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.ChatUiState
 import com.bytedance.zgx.pocketmind.ModelCatalog
@@ -126,6 +127,7 @@ import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.isUsable
 import com.bytedance.zgx.pocketmind.label
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
+import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.ui.theme.LocalPocketMindColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1801,6 +1803,73 @@ private fun BackgroundTaskSheet(
                 AuditEventRow(event)
             }
         }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+
+        SectionTitle(
+            text = "最近 Agent 轨迹",
+            subtitle = "只展示持久化摘要，不展示工具参数。",
+        )
+
+        if (state.agentTraceRuns.isEmpty()) {
+            EmptyPanelText("暂无 Agent 轨迹")
+        } else {
+            state.agentTraceRuns.forEach { run ->
+                AgentTraceRunRow(run)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentTraceRunRow(run: AgentTraceRunUiSummary) {
+    val shape = MaterialTheme.shapes.medium
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("agent_trace_run_${run.id}"),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f),
+        ),
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = "Run ${run.id.takeLast(8)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = run.state.label(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            run.steps.takeLast(4).forEach { step ->
+                Text(
+                    text = "${step.type} · ${step.summary}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
@@ -2173,6 +2242,21 @@ private fun ScheduledTaskStatus.label(): String =
         ScheduledTaskStatus.Cancelled -> "已取消"
         ScheduledTaskStatus.Deleted -> "已删除"
         ScheduledTaskStatus.Failed -> "失败"
+    }
+
+private fun AgentRunState.label(): String =
+    when (this) {
+        AgentRunState.Created -> "已创建"
+        AgentRunState.LoadingContext -> "加载上下文"
+        AgentRunState.Planning -> "规划中"
+        AgentRunState.AwaitingUserConfirmation -> "待确认"
+        AgentRunState.ExecutingTool -> "执行工具"
+        AgentRunState.RetryingTool -> "重试工具"
+        AgentRunState.Observing -> "观察结果"
+        AgentRunState.GeneratingAnswer -> "生成回答"
+        AgentRunState.Completed -> "已完成"
+        AgentRunState.Cancelled -> "已取消"
+        AgentRunState.Failed -> "失败"
     }
 
 @Composable

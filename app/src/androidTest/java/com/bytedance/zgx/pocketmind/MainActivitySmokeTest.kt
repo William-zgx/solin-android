@@ -75,6 +75,8 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithText("暂无运行中的后台任务").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("最近审计日志").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("暂无审计记录").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("最近 Agent 轨迹").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("暂无 Agent 轨迹").performScrollTo().assertIsDisplayed()
     }
 
     private fun ComposeTestRule.waitForTag(tag: String) {

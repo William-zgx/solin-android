@@ -25,6 +25,11 @@ data class AgentTraceStepSummary(
     val createdAtMillis: Long,
 )
 
+data class AgentTraceRunSummary(
+    val run: AgentRun,
+    val steps: List<AgentTraceStepSummary>,
+)
+
 private val toolObservedCompletionMetadataAllowlist = listOf(
     "completionState",
     "completionVerified",
@@ -49,6 +54,7 @@ interface AgentTraceStore {
     fun appendStep(runId: String, step: AgentStep)
     fun steps(runId: String): List<AgentStep>
     fun stepSummaries(runId: String): List<AgentTraceStepSummary>
+    fun recentRunSummaries(limit: Int = 5, stepLimit: Int = 20): List<AgentTraceRunSummary>
     fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot)
     fun latestPendingConfirmation(): PendingToolConfirmationSnapshot?
     fun clearPendingConfirmation(runId: String, requestId: String): Boolean
@@ -108,6 +114,19 @@ class InMemoryAgentTraceStore(
 
     override fun stepSummaries(runId: String): List<AgentTraceStepSummary> =
         runStepSummaries[runId].orEmpty().toList()
+
+    override fun recentRunSummaries(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> {
+        if (limit <= 0) return emptyList()
+        return runs.values
+            .sortedWith(compareByDescending<AgentRun> { it.updatedAtMillis }.thenByDescending { it.createdAtMillis })
+            .take(limit)
+            .map { run ->
+                AgentTraceRunSummary(
+                    run = run,
+                    steps = stepSummaries(run.id).takeLast(stepLimit.coerceAtLeast(0)),
+                )
+            }
+    }
 
     override fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot) {
         pendingConfirmations[snapshot.run.id] = snapshot
@@ -183,6 +202,18 @@ class RoomAgentTraceStore(
 
     override fun stepSummaries(runId: String): List<AgentTraceStepSummary> =
         traceDao.steps(runId).map { entity -> entity.toSummary() }
+
+    override fun recentRunSummaries(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> {
+        if (limit <= 0) return emptyList()
+        val safeStepLimit = stepLimit.coerceAtLeast(0)
+        return traceDao.recentRuns(limit).map { entity ->
+            val run = entity.toDomain()
+            AgentTraceRunSummary(
+                run = run,
+                steps = stepSummaries(run.id).takeLast(safeStepLimit),
+            )
+        }
+    }
 
     override fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot) {
         val now = clockMillis()

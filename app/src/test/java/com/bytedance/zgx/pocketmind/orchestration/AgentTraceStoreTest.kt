@@ -333,6 +333,30 @@ class AgentTraceStoreTest {
         assertEquals(validRequest.id, restored.request.id)
     }
 
+    @Test
+    fun roomStoreReturnsRecentRunSummariesWithStepLimit() {
+        var now = 10_000L
+        var nextRun = 0
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { now++ },
+            runIdFactory = { "run-${++nextRun}" },
+        )
+        val olderRun = store.createRun("older")
+        store.appendStep(olderRun.id, AgentStep.AssistantResponded("older step"))
+        val newestRun = store.createRun("newest")
+        store.appendStep(newestRun.id, AgentStep.AssistantResponded("step one"))
+        store.appendStep(newestRun.id, AgentStep.AssistantResponded("step two"))
+
+        val summaries = store.recentRunSummaries(limit = 2, stepLimit = 1)
+
+        assertEquals(listOf(newestRun.id, olderRun.id), summaries.map { it.run.id })
+        assertEquals(listOf("Assistant responded: step two"), summaries.first().steps.map { it.summary })
+        assertEquals(emptyList<AgentTraceRunSummary>(), store.recentRunSummaries(limit = 0, stepLimit = 1))
+        assertTrue(store.recentRunSummaries(limit = 1, stepLimit = 0).single().steps.isEmpty())
+    }
+
     private class FakeAgentTraceDao : AgentTraceDao {
         private val runs = linkedMapOf<String, AgentRunEntity>()
         private val steps = mutableListOf<AgentStepEntity>()
@@ -340,6 +364,15 @@ class AgentTraceStoreTest {
 
         override fun run(runId: String): AgentRunEntity? =
             runs[runId]
+
+        override fun recentRuns(limit: Int): List<AgentRunEntity> =
+            runs.values
+                .sortedWith(
+                    compareByDescending<AgentRunEntity> { run -> run.updatedAtMillis }
+                        .thenByDescending { run -> run.createdAtMillis }
+                        .thenByDescending { run -> run.id },
+                )
+                .take(limit)
 
         override fun upsertRun(run: AgentRunEntity) {
             runs[run.id] = run

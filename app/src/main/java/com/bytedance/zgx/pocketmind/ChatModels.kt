@@ -7,6 +7,7 @@ import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
+import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
@@ -102,6 +103,19 @@ data class AuditEventSummary(
     val createdAtMillis: Long,
 )
 
+data class AgentTraceStepUiSummary(
+    val type: String,
+    val summary: String,
+    val createdAtMillis: Long,
+)
+
+data class AgentTraceRunUiSummary(
+    val id: String,
+    val state: AgentRunState,
+    val updatedAtMillis: Long,
+    val steps: List<AgentTraceStepUiSummary>,
+)
+
 data class VoiceInputDraft(
     val id: Long,
     val text: String,
@@ -153,6 +167,7 @@ data class ChatUiState(
     val backgroundTaskHistory: List<BackgroundTaskSummary> = emptyList(),
     val periodicCheckPolicy: PeriodicCheckPolicySummary = PeriodicCheckPolicySummary.disabled(),
     val auditEvents: List<AuditEventSummary> = emptyList(),
+    val agentTraceRuns: List<AgentTraceRunUiSummary> = emptyList(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,
     val remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),

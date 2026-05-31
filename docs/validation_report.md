@@ -1,5 +1,24 @@
 # PocketMind 验证报告
 
+## 2026-05-31 最近 Agent 轨迹摘要增量验证
+
+本轮覆盖项：
+
+- `AgentTraceStore` 新增 recent run summary 读取能力，按 run 更新时间倒序返回
+  持久化 `AgentTraceStepSummary` 摘要，并限制每个 run 展示的 step 数。
+- `AssistantRouter` / ViewModel 将最近 Agent 轨迹加载到 UI state；读取异常降级为空
+  列表，不阻断后台活动面板。
+- 后台活动面板新增只读“最近 Agent 轨迹”区域，仅展示 run id 后缀、状态和
+  step type/summary，不展示 trace JSON、工具参数、完整 prompt 或原始私密内容。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.refreshAuditEventsAlsoLoadsAgentTraceSummaries'
+```
+
 ## 2026-05-31 周期检查策略 UX 增量验证
 
 本轮覆盖项：

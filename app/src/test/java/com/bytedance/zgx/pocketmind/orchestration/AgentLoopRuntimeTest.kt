@@ -1763,6 +1763,15 @@ class AgentLoopRuntimeTest {
         override fun run(runId: String): AgentRunEntity? =
             runs[runId]
 
+        override fun recentRuns(limit: Int): List<AgentRunEntity> =
+            runs.values
+                .sortedWith(
+                    compareByDescending<AgentRunEntity> { run -> run.updatedAtMillis }
+                        .thenByDescending { run -> run.createdAtMillis }
+                        .thenByDescending { run -> run.id },
+                )
+                .take(limit)
+
         override fun upsertRun(run: AgentRunEntity) {
             runs[run.id] = run
         }
