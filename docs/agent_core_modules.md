@@ -164,6 +164,11 @@ Current status:
   navigation requests, rejects explanation/implementation/negative phrasing,
   and still routes through registry validation, safety checks, audit, and user
   confirmation before any system settings page opens.
+- Explicit web search commands now also have a conservative Skill-first path.
+  The shared parser accepts search/web-search/online-search phrasing with a
+  non-empty query, rejects bare ambiguous “查一下” and discussion/negative
+  phrasing, and does not broaden the external-search surface beyond confirmed
+  `web_search` requests.
 - Skill model-step results can now be consumed generically: when a declarative
   `ToolStep` depends on a `ModelStep`, the model output is bound through the
   tool step's `argumentBindings`, then validated, safety-checked, audited, and
@@ -185,6 +190,7 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstReminderBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation`
+- `AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation`
 - `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
@@ -300,6 +306,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareWithoutActionDraft`
 - `BuiltInSkillRuntimeTest.plansClipboardContextWithoutActionDraft`
 - `BuiltInSkillRuntimeTest.plansDeviceSettingsWithoutActionDraftWhenCommandIsExplicit`
+- `BuiltInSkillRuntimeTest.plansWebSearchWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.skillFirstPlannerDoesNotTreatOrdinaryShareDiscussionAsShareTool`
 - `BuiltInSkillRuntimeTest.validateStructureRejectsUnorderedOrInvalidCompositePlan`
 - `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`

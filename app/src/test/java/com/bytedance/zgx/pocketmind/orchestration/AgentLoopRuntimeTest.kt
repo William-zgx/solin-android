@@ -185,16 +185,7 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            skillRuntime = object : SkillRuntime {
-                private val delegate = BuiltInSkillRuntime()
-
-                override fun manifests(): List<SkillManifest> = delegate.manifests()
-
-                override fun plan(input: String): SkillPlan? = null
-
-                override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? =
-                    delegate.plan(input, draft, request)
-            },
+            skillRuntime = NoDirectPlanSkillRuntime(),
             traceStore = traceStore,
         )
 
@@ -551,6 +542,39 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstWebSearchBypassesActionPlannerAndRequestsConfirmation() {
+        val cases = listOf(
+            "搜一下 Kotlin 协程" to "Kotlin 协程",
+            "look up Kotlin coroutines" to "Kotlin coroutines",
+        )
+
+        cases.forEach { (input, query) ->
+            val actionRuntime = RecordingActionRuntime(likelyAction = false)
+            val runtime = AgentLoopRuntime(
+                memoryIndex = MemoryRepository(),
+                actionPlanningRuntime = actionRuntime,
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            )
+
+            val result = runtime.runOnce(
+                input = input,
+                installedCapabilities = setOf(ModelCapability.Chat),
+                memoryEnabled = false,
+            )
+
+            assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+            require(result.plan is AgentPlan.UseTool)
+            assertEquals(MobileActionFunctions.WEB_SEARCH, result.plan.request.toolName)
+            assertEquals(query, result.plan.request.arguments["query"])
+            assertEquals(BuiltInSkillRuntime.INFORMATION_LOOKUP_SKILL, result.plan.skillRequest?.skillId)
+            assertEquals("skill-first", result.plan.fallbackReason)
+            assertEquals(0, actionRuntime.isLikelyActionCallCount)
+            assertEquals(0, actionRuntime.planCallCount)
+            assertEquals(BuiltInSkillRuntime.INFORMATION_LOOKUP_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        }
+    }
+
+    @Test
     fun skillFirstMapEmailAndCalendarBypassActionPlannerAndRequestConfirmation() {
         val cases = listOf(
             SkillFirstDraftCase(
@@ -619,6 +643,10 @@ class AgentLoopRuntimeTest {
             "Do not open Wi-Fi settings; explain only",
             "手电筒 API 怎么用",
             "打开手电筒",
+            "网页搜索是什么",
+            "不要搜索 Kotlin，只解释一下",
+            "what is web search",
+            "查一下这个错误原因了吗？",
         )
 
         inputs.forEach { input ->
@@ -2769,6 +2797,7 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
 
@@ -2911,6 +2940,17 @@ class AgentLoopRuntimeTest {
         val argumentName: String,
         val argumentValue: String,
     )
+
+    private class NoDirectPlanSkillRuntime : SkillRuntime {
+        private val delegate = BuiltInSkillRuntime()
+
+        override fun manifests(): List<SkillManifest> = delegate.manifests()
+
+        override fun plan(input: String): SkillPlan? = null
+
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? =
+            delegate.plan(input, draft, request)
+    }
 
     private class RecordingActionRuntime(
         private val likelyAction: Boolean,

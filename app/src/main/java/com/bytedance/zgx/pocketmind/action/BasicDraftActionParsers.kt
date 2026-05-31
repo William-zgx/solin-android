@@ -171,6 +171,89 @@ internal object DeviceSettingsActionParser {
     }
 }
 
+internal object WebSearchActionParser {
+    private val englishPattern =
+        Regex("""\b(web\s+search|search\s+the\s+web|search\s+online|look\s+up|google|bing)\b""", RegexOption.IGNORE_CASE)
+    private val discussionPrefixPattern =
+        Regex("""^\s*(what\s+is|what\s+does|explain|how\s+do\s+i|how\s+to)\b""", RegexOption.IGNORE_CASE)
+    private val negativeEnglishPattern =
+        Regex("""\b(do\s+not|don't|dont)\s+(?:search|look\s+up|google|bing)\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeWebSearchNonAction()) return false
+        val normalized = input.lowercase()
+        val hasExplicitChineseTrigger = listOf(
+            "网页搜索",
+            "网络搜索",
+            "互联网搜索",
+            "上网搜",
+            "网上搜",
+            "上网查",
+            "网上查",
+            "网页查",
+            "网络查",
+            "搜索一下",
+            "搜一下",
+            "搜一搜",
+            "百度一下",
+        ).any { it in input }
+        val hasEnglishTrigger = englishPattern.containsMatchIn(normalized)
+        if (!hasExplicitChineseTrigger && !hasEnglishTrigger) return false
+        return strippedWebSearchQuery(input).isMeaningfulSearchQuery()
+    }
+
+    fun draft(input: String): ActionDraft {
+        val query = cleanedWebSearchQuery(input)
+        return ActionDraft(
+            functionName = MobileActionFunctions.WEB_SEARCH,
+            title = "Web 搜索",
+            summary = "将在浏览器中搜索：$query",
+            parameters = mapOf("query" to query),
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun cleanedWebSearchQuery(input: String): String {
+        val stripped = strippedWebSearchQuery(input)
+        return stripped.ifBlank { cleanedObject(input) }
+    }
+
+    private fun strippedWebSearchQuery(input: String): String {
+        val cleaned = cleanedObject(input)
+        return cleaned
+            .replace(Regex("""^百度一下\s*[:：]?\s*"""), "")
+            .replace(Regex("""^(网页|网络|互联网|上网|网上)?\s*(搜索|搜|查)(一下|一搜|一查)?\s*[:：]?\s*"""), "")
+            .replace(
+                Regex(
+                    """^(web\s+search|search\s+the\s+web|search\s+online|look\s+up|google|bing)\s+(for\s+)?""",
+                    RegexOption.IGNORE_CASE,
+                ),
+                "",
+            )
+            .trim()
+    }
+
+    private fun String.isMeaningfulSearchQuery(): Boolean =
+        isNotBlank() && this !in setOf("是什么", "什么意思", "怎么实现", "如何实现", "怎么用")
+
+    private fun String.looksLikeWebSearchNonAction(): Boolean {
+        val normalized = lowercase()
+        return "不要搜索" in this ||
+            "别搜索" in this ||
+            "不要搜" in this ||
+            "别搜" in this ||
+            "不要查" in this ||
+            "别查" in this ||
+            "搜索功能" in this ||
+            "搜索框" in this ||
+            "搜索页面" in this ||
+            "网页搜索是什么" in this ||
+            ("错误原因" in this && "吗" in this) ||
+            negativeEnglishPattern.containsMatchIn(normalized) ||
+            (discussionPrefixPattern.containsMatchIn(normalized) && englishPattern.containsMatchIn(normalized))
+    }
+}
+
 private fun String.looksLikeDiscussion(): Boolean {
     val normalized = lowercase()
     return listOf("什么意思", "什么含义", "怎么说", "如何表达", "解释", "怎么理解", "怎么写", "是什么")

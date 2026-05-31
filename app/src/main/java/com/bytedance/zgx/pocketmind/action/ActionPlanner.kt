@@ -70,7 +70,7 @@ class MobileActionPlanner : ActionPlanner {
             isReminderRequest(input) ||
             isCancelReminderRequest(input) ||
             isUsageAccessSettingsRequest(input) ||
-            isWebSearchRequest(input)
+            WebSearchActionParser.matches(input)
     }
 
     override fun plan(input: String): ActionPlan =
@@ -153,8 +153,8 @@ class MobileActionPlanner : ActionPlanner {
             "联系人" in input || "contact" in normalized ->
                 MobileActionFunctions.CREATE_CONTACT_DRAFT.toDraft(mapOf("name" to cleanedObject(input)))
 
-            isWebSearchRequest(input) ->
-                MobileActionFunctions.WEB_SEARCH.toDraft(mapOf("query" to cleanedWebSearchQuery(input)))
+            WebSearchActionParser.matches(input) ->
+                WebSearchActionParser.draft(input)
 
             else -> null
         }
@@ -293,34 +293,6 @@ class MobileActionPlanner : ActionPlanner {
             .removePrefix("帮我")
             .trim()
             .ifBlank { input.trim() }
-
-    private fun cleanedWebSearchQuery(input: String): String {
-        val cleaned = cleanedObject(input)
-        return cleaned
-            .replace(Regex("""^百度一下\s*[:：]?\s*"""), "")
-            .replace(Regex("""^(网页|网络|互联网|上网|网上)?\s*(搜索|搜|查)(一下|一搜|一查)?\s*[:：]?\s*"""), "")
-            .replace(Regex("""^(web\s+search|search\s+the\s+web|search\s+online|look\s+up|google|bing)\s+(for\s+)?""", RegexOption.IGNORE_CASE), "")
-            .trim()
-            .ifBlank { cleaned }
-    }
-
-    private fun isWebSearchRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        return listOf(
-            "网页搜索",
-            "网络搜索",
-            "互联网搜索",
-            "上网搜",
-            "网上搜",
-            "搜索一下",
-            "搜一下",
-            "搜一搜",
-            "查一下",
-            "查一查",
-            "百度一下",
-        ).any { it in input } || Regex("""\b(web search|search the web|search online|look up|google|bing)\b""")
-            .containsMatchIn(normalized)
-    }
 
     private fun isReminderRequest(input: String): Boolean =
         ReminderActionParser.matches(input)

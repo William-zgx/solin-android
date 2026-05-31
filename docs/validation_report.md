@@ -1,5 +1,44 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Information lookup skill-first routing 增量验证
+
+本轮覆盖项：
+
+- `web_search` 的显式搜索请求可由 built-in Skill runtime 直接规划为待确认工具，
+  不再依赖 action planner。
+- Action planner 与 Skill runtime 复用同一组搜索 parser。Parser 只接受明确
+  搜索/网页搜索/网络搜索/百度/Google/Bing/look up 等表达并要求非空 query；
+  裸“查一下”不再被推断为网页搜索，避免绕过窄口径 Skill-first 边界。
+- 反例覆盖空搜索、解释类、否定类和代码/错误排查语境输入，避免“网页搜索是什么”
+  或“查一下这个错误原因”误触工具确认。
+- 顺序任务（如“先搜 Kotlin，然后打开 Wi-Fi 设置”）不会被一跳 Skill-first
+  parser 抢走，继续交给 Agent loop / action runtime 的观察后重规划链路。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersDraftForNaturalLanguageWebSearch' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansWebSearchWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.successfulObservationCanPlanNextToolAndRequestConfirmationAgain' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.invalidActionDraftIsRejectedBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit'
+```
+
+补充回归：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.validatesWebSearchQueryArgument' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest.recentAuditEventsDoesNotExposeToolParametersFromPlannedSummary'
+```
+
+结果：通过。
+
 ## 2026-06-01 Device settings skill-first routing 增量验证
 
 本轮覆盖项：

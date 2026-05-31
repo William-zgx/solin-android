@@ -201,6 +201,22 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.WEB_SEARCH, plan.draft?.functionName)
         assertEquals("Kotlin 协程最新用法", plan.draft?.parameters?.get("query"))
+
+        val englishPlan = planner.plan("look up Kotlin coroutines")
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, englishPlan.draft?.functionName)
+        assertEquals("Kotlin coroutines", englishPlan.draft?.parameters?.get("query"))
+
+        val onlineLookupPlan = planner.plan("网上查一下 Kotlin Flow debounce")
+        assertEquals(ActionPlanKind.Draft, onlineLookupPlan.kind)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, onlineLookupPlan.draft?.functionName)
+        assertEquals("Kotlin Flow debounce", onlineLookupPlan.draft?.parameters?.get("query"))
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("网页搜索是什么").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要搜索 Kotlin，只解释一下").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("what is web search").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("查一下这个错误原因了吗？").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("查一下 Kotlin 协程最新用法").kind)
     }
 
     @Test

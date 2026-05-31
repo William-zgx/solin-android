@@ -8,6 +8,7 @@ import com.bytedance.zgx.pocketmind.action.MapSearchActionParser
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.ReminderActionParser
 import com.bytedance.zgx.pocketmind.action.ShareTextActionParser
+import com.bytedance.zgx.pocketmind.action.WebSearchActionParser
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import java.util.UUID
@@ -31,19 +32,22 @@ class BuiltInSkillRuntime : SkillRuntime {
     override fun plan(input: String): SkillPlan? =
         when {
             input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
-            MapSearchActionParser.matches(input) ->
+            !input.looksLikeSequentialAction() && MapSearchActionParser.matches(input) ->
                 plan(input, MapSearchActionParser.draft(input).toRequestPair())
 
-            EmailDraftActionParser.matches(input) ->
+            !input.looksLikeSequentialAction() && EmailDraftActionParser.matches(input) ->
                 plan(input, EmailDraftActionParser.draft(input).toRequestPair())
 
-            CalendarDraftActionParser.matches(input) ->
+            !input.looksLikeSequentialAction() && CalendarDraftActionParser.matches(input) ->
                 plan(input, CalendarDraftActionParser.draft(input).toRequestPair())
 
-            DeviceSettingsActionParser.matches(input) ->
+            !input.looksLikeSequentialAction() && DeviceSettingsActionParser.matches(input) ->
                 plan(input, DeviceSettingsActionParser.draft(input).toRequestPair())
 
-            ShareTextActionParser.matches(input) -> {
+            !input.looksLikeSequentialAction() && WebSearchActionParser.matches(input) ->
+                plan(input, WebSearchActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
                 val request = ToolRequest(
                     toolName = draft.functionName,
@@ -53,7 +57,7 @@ class BuiltInSkillRuntime : SkillRuntime {
                 plan(input, draft, request)
             }
 
-            ReminderActionParser.matches(input) -> {
+            !input.looksLikeSequentialAction() && ReminderActionParser.matches(input) -> {
                 val draft = ReminderActionParser.draft(input)
                 val request = ToolRequest(
                     toolName = draft.functionName,
@@ -202,6 +206,12 @@ private fun String.requestsClipboardContext(): Boolean {
     return referencesClipboard && asksToRead && !asksToShare
 }
 
+private fun String.looksLikeSequentialAction(): Boolean {
+    val normalized = lowercase()
+    return listOf("然后", "接着", "之后再", "随后").any { it in this } ||
+        Regex("""\b(then|after\s+that)\b""").containsMatchIn(normalized)
+}
+
 private data class DraftRequestPair(
     val draft: ActionDraft,
     val request: ToolRequest,
@@ -267,7 +277,7 @@ private val builtInSkillManifests = listOf(
         version = 1,
         title = "信息查找",
         description = "把需要外部信息的请求整理成受确认保护的网页搜索工具调用。",
-        triggerExamples = listOf("帮我查一下", "look up Kotlin"),
+        triggerExamples = listOf("搜一下 Kotlin", "look up Kotlin"),
         requiredTools = listOf(MobileActionFunctions.WEB_SEARCH),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,

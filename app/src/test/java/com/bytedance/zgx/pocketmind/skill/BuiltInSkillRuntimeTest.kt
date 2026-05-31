@@ -424,6 +424,39 @@ class BuiltInSkillRuntimeTest {
     }
 
     @Test
+    fun plansWebSearchWithoutActionDraftWhenCommandIsExplicit() {
+        val chinesePlan = requireNotNull(runtime.plan("搜一下 Kotlin 协程"))
+        assertEquals(BuiltInSkillRuntime.INFORMATION_LOOKUP_SKILL, chinesePlan.request.skillId)
+        assertEquals(mapOf("input" to "搜一下 Kotlin 协程"), chinesePlan.request.arguments)
+        val chineseStep = chinesePlan.steps.single()
+        require(chineseStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, chineseStep.request.toolName)
+        assertEquals("Kotlin 协程", chineseStep.request.arguments["query"])
+        assertEquals(MobileActionFunctions.WEB_SEARCH, chineseStep.draft.functionName)
+        assertTrue(chinesePlan.validateStructure().errors.joinToString(), chinesePlan.validateStructure().isValid)
+
+        val englishPlan = requireNotNull(runtime.plan("look up Kotlin coroutines"))
+        assertEquals(BuiltInSkillRuntime.INFORMATION_LOOKUP_SKILL, englishPlan.request.skillId)
+        val englishStep = englishPlan.steps.single()
+        require(englishStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, englishStep.request.toolName)
+        assertEquals("Kotlin coroutines", englishStep.request.arguments["query"])
+        assertTrue(englishPlan.validateStructure().errors.joinToString(), englishPlan.validateStructure().isValid)
+
+        val onlineLookupPlan = requireNotNull(runtime.plan("网上查一下 Kotlin Flow debounce"))
+        val onlineLookupStep = onlineLookupPlan.steps.single()
+        require(onlineLookupStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, onlineLookupStep.request.toolName)
+        assertEquals("Kotlin Flow debounce", onlineLookupStep.request.arguments["query"])
+
+        assertEquals(null, runtime.plan("查一下 Kotlin 协程"))
+        assertEquals(null, runtime.plan("网页搜索是什么"))
+        assertEquals(null, runtime.plan("不要搜索 Kotlin，只解释一下"))
+        assertEquals(null, runtime.plan("what is web search"))
+        assertEquals(null, runtime.plan("查一下这个错误原因了吗？"))
+    }
+
+    @Test
     fun plansShareTextWithoutActionDraftWhenTextIsExplicit() {
         val plan = runtime.plan("分享这段文字：明天十点开会")
 
