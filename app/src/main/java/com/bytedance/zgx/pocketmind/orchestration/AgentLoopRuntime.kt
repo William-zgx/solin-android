@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
@@ -32,6 +33,8 @@ import com.bytedance.zgx.pocketmind.tool.cancelled
 import com.bytedance.zgx.pocketmind.tool.isUnverifiedExternalLaunch
 import com.bytedance.zgx.pocketmind.tool.rejected
 import com.bytedance.zgx.pocketmind.tool.unverifiedExternalLaunchSummary
+
+private const val REDACTED_AGENT_RUN_INPUT_VALUE = "[redacted]"
 
 class AgentLoopRuntime(
     private val memoryIndex: MemoryIndex,
@@ -828,6 +831,9 @@ class AgentLoopRuntime(
         result: ToolResult,
     ): ToolObservationContinuation? {
         if (result.status != ToolStatus.Succeeded) return null
+        skillModelContinuationAfterToolObservation(run, request, result)?.let { continuation ->
+            return continuation
+        }
         return when (request?.toolName) {
             MobileActionFunctions.READ_CLIPBOARD -> {
                 val clipboardText = result.data["text"]?.takeIf { it.isNotBlank() } ?: return null
@@ -897,17 +903,19 @@ class AgentLoopRuntime(
             is SkillModelStepBinding.Bound -> binding.inputs
             is SkillModelStepBinding.Missing -> return null
         }
+        val originalRequest = originalRequestForSkillContinuation(run, skillPlan)
         val privateRefs = skillProgressor.privateOutputRefsFor(currentStep.id, request.toolName)
         val requiresLocalModel = nextModelStep.keepsSensitiveInputLocal ||
             nextModelStep.inputBindings.values.any { sourceRef -> sourceRef in privateRefs } ||
-            request.toolName in localOnlyContinuationTools
+            request.toolName in localOnlyContinuationTools ||
+            result.requiresLocalModelContinuation()
         val inputBlock = inputs.entries.joinToString(separator = "\n\n") { (name, value) ->
             "$name:\n$value"
         }
         return ToolObservationContinuation(
             prompt = """
                 继续执行本地 Skill：${skillPlan.manifest.title}
-                用户原始请求：${run.input}
+                用户原始请求：$originalRequest
                 当前模型步骤：${nextModelStep.title}
                 步骤指令：${nextModelStep.instruction}
 
@@ -920,10 +928,24 @@ class AgentLoopRuntime(
         )
     }
 
+    private fun originalRequestForSkillContinuation(
+        run: AgentRun,
+        skillPlan: SkillPlan,
+    ): String {
+        return run.input
+            .takeIf { input -> input.isNotBlank() && input != REDACTED_AGENT_RUN_INPUT_VALUE }
+            ?: skillPlan.request.arguments["input"]?.takeIf { input -> input.isNotBlank() }
+            ?: skillPlan.request.reason
+    }
+
     private data class ToolObservationContinuation(
         val prompt: String,
         val requiresLocalModel: Boolean,
     )
+
+    private fun ToolResult.requiresLocalModelContinuation(): Boolean =
+        data["requiresLocalModel"]?.toBooleanStrictOrNull() == true ||
+            data["privacy"] == MessagePrivacy.LocalOnly.name
 
     private fun ToolResult.redactedForTrace(request: ToolRequest?): ToolResult {
         return when (request?.toolName) {

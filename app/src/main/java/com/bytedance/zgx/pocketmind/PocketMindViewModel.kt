@@ -1277,10 +1277,7 @@ class PocketMindViewModel(
             if (observation.continuationRequiresLocalModel &&
                 _uiState.value.inferenceMode == InferenceMode.Remote
             ) {
-                val protectedContentName = when (request.toolName) {
-                    MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> "截图 OCR 内容"
-                    else -> "剪贴板内容"
-                }
+                val protectedContentName = request.protectedContinuationContentName()
                 replaceActiveSessionMessages(
                     messagesWithObservation + ChatMessage(
                         role = MessageRole.Assistant,
@@ -1578,6 +1575,13 @@ class PocketMindViewModel(
             MessagePrivacy.LocalOnly
         } else {
             MessagePrivacy.RemoteEligible
+        }
+
+    private fun ToolRequest.protectedContinuationContentName(): String =
+        when (toolName) {
+            MobileActionFunctions.READ_CLIPBOARD -> "剪贴板内容"
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> "截图 OCR 内容"
+            else -> "本地工具结果"
         }
 
     fun confirmActionDraft(draft: ActionDraft) {

@@ -91,8 +91,15 @@ Current status:
   tool step, the loop can build the next model-step prompt from that tool
   result, then bind the model output into the next `ToolStep` and return to
   `AwaitingUserConfirmation`. It does not execute follow-up tools directly.
-  Private reads such as clipboard and recent screenshot OCR still require local
-  model continuation and redact private payloads from persisted trace/audit.
+  If a private read such as clipboard or recent screenshot OCR belongs to a
+  `SkillPlan` with a following `ModelStep`, the Skill-defined model title and
+  instruction take precedence over the legacy hard-coded prompt; those
+  continuations still require a local model and redact private payloads from
+  persisted trace/audit. The hard-coded clipboard/OCR prompts remain as fallback
+  for one-off private reads without a declarative model step.
+- Generic Skill model continuations also honor tool-result privacy metadata:
+  `privacy=LocalOnly` or `requiresLocalModel=true` forces the continuation to
+  stay local even when the `ModelStep` is otherwise marked remote-eligible.
 - Retryable tool failures now schedule one bounded retry on the already
   confirmed request, record a `ToolRetryScheduled` trace/audit event, and only
   fail the run after the retry budget is exhausted.

@@ -1,5 +1,59 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Skill private-read continuation precedence 增量验证
+
+本轮覆盖项：
+
+- `AgentLoopRuntime` 在工具观察成功后会优先检查当前 `SkillPlan` 是否有依赖该工具的
+  `ModelStep`；命中时使用 Skill 声明的 title/instruction/input binding 生成
+  continuation prompt，不再被 clipboard/OCR 硬编码 prompt 抢先。
+- clipboard/OCR 仍保持本地模型要求和 trace/audit 脱敏；没有声明式 `ModelStep` 的
+  one-off 私密读取继续走原有兜底 prompt。
+- Room 恢复后的 run input 如果已经是 `[redacted]`，Skill continuation 会回退到
+  pending `SkillPlan.request.arguments["input"]`，避免模型 prompt 丢失用户原始请求。
+- generic `ModelStep` 会尊重工具结果里的 `privacy=LocalOnly` /
+  `requiresLocalModel=true`，即使该模型步骤声明 `keepsSensitiveInputLocal=false`，
+  也会要求本地模型继续处理。
+- 远程模式遇到非 clipboard/OCR 的 local-only continuation 时，UI 使用“本地工具结果”
+  保护文案，不再误报为“剪贴板内容”，也不会调用 remote runtime。
+- `READ_RECENT_SCREENSHOT_OCR.ocrText` 直接绑定到后续工具参数会被
+  `SkillRunProgressor` 拒绝，和 clipboard private output fence 对齐。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.clipboardReadObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace'
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.ocrSkillModelStepTakesPrecedenceOverPrivateReadFallbackPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localOnlyToolResultMetadataForcesGenericModelContinuationLocal' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest.rejectsScreenshotOcrPrivateOutputBindingToToolArgument' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsGenericLocalOnlyContinuationAsLocalToolResult'
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+scripts/verify_local.sh
+git diff --check
+rg -n --hidden -S \
+  "(AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN (RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----|password\s*=\s*['\"][^'\"]+['\"]|secret\s*=\s*['\"][^'\"]+['\"]|token\s*=\s*['\"][^'\"]+['\"])" \
+  --glob '!build/**' --glob '!**/.gradle/**' --glob '!app/build/**' \
+  --glob '!**/src/test/**' --glob '!**/src/androidTest/**' .
+```
+
+结果：
+
+- 通过：上述 targeted JVM 回归测试，以及 AgentLoopRuntime、SkillRunProgressor、
+  PocketMindViewModel 的全量 targeted JVM 回归。
+- 通过：`scripts/verify_local.sh`，覆盖 `testDebugUnitTest`、`lintDebug`、
+  `assembleDebug`、`assembleDebugAndroidTest`、`assembleRelease` 和 APK 检查。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配。
+
 ## 2026-05-31 Generic Skill model continuation 增量验证
 
 本轮覆盖项：

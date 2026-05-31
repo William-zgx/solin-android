@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlan
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
@@ -727,6 +728,10 @@ class AgentLoopRuntimeTest {
         requireNotNull(observed)
         assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
         require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("摘要剪贴板内容"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("适合分享的简短摘要"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains(rawClipboardText))
 
         val modelObserved = runtime.observeModelResult(planned.run.id, modelSummary)
 
@@ -795,6 +800,11 @@ class AgentLoopRuntimeTest {
         )
         requireNotNull(observed)
         assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("转换剪贴板内容"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("转换用户确认读取的剪贴板内容"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("不应持久化的剪贴板原文"))
 
         val modelObserved = runtime.observeModelResult(planned.run.id, modelText)
 
@@ -815,6 +825,89 @@ class AgentLoopRuntimeTest {
             step is AgentStep.UserConfirmationRequested &&
                 step.request.id == sharePlan.request.id
         })
+    }
+
+    @Test
+    fun ocrSkillModelStepTakesPrecedenceOverPrivateReadFallbackPrompt() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = OcrModelSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val rawOcrText = "截图 OCR 里的本地待办"
+        val planned = runtime.runOnce(
+            input = "ocr model skill",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, planned.plan.request.toolName)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取最近截图 OCR 摘录",
+                data = mapOf(
+                    "ocrText" to rawOcrText,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        assertTrue(observed.continuationRequiresLocalModel)
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("整理截图 OCR"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("只保留 OCR 里的待办线索"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains(rawOcrText))
+        assertFalse(observed.continuationPromptForModel.orEmpty().contains("不是当前屏幕捕获"))
+        assertEquals("[redacted]", observed.result.data["ocrText"])
+    }
+
+    @Test
+    fun localOnlyToolResultMetadataForcesGenericModelContinuationLocal() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = LocalOnlyResultSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "local only contacts skill",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, planned.plan.request.toolName)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "联系人 Alice：仅本地摘要",
+                data = mapOf(
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        assertTrue(observed.continuationRequiresLocalModel)
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("整理联系人本地结果"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("联系人 Alice：仅本地摘要"))
     }
 
     @Test
@@ -1523,6 +1616,9 @@ class AgentLoopRuntimeTest {
         assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
         require(observed.decision is AgentObservationDecision.ContinueWithModel)
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("剪贴板原文"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("摘要剪贴板内容"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("总结剪贴板并分享"))
+        assertFalse(observed.continuationPromptForModel.orEmpty().contains("[redacted]"))
 
         val modelObserved = restoredRuntime.observeModelResult(
             runId = restoredPending.run.id,
@@ -2633,6 +2729,154 @@ class AgentLoopRuntimeTest {
 
         companion object {
             const val SKILL_ID = "custom_clipboard_transform_skill"
+        }
+    }
+
+    private class OcrModelSkillRuntime : SkillRuntime {
+        private val manifest = SkillManifest(
+            id = SKILL_ID,
+            version = 1,
+            title = "OCR model skill",
+            description = "Test-only OCR model skill",
+            triggerExamples = listOf("ocr model skill"),
+            requiredTools = listOf(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR),
+            inputSchemaJson = """
+                {
+                  "type": "object",
+                  "required": ["input"],
+                  "properties": {
+                    "input": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
+            """.trimIndent(),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+        )
+
+        override fun manifests(): List<SkillManifest> = listOf(manifest)
+
+        override fun plan(input: String): SkillPlan? {
+            if (input != "ocr model skill") return null
+            val draft = ActionDraft(
+                functionName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                title = "读取截图 OCR",
+                summary = "将读取最近截图并提取 OCR。",
+                parameters = mapOf("maxCount" to "1"),
+                requiresConfirmation = true,
+            )
+            return SkillPlan(
+                request = SkillRequest(
+                    id = "ocr-skill-request",
+                    skillId = SKILL_ID,
+                    arguments = mapOf("input" to input),
+                    reason = input,
+                ),
+                manifest = manifest,
+                steps = listOf(
+                    SkillStep.ToolStep(
+                        id = "ocr_read",
+                        request = ToolRequest(
+                            id = "ocr-read-request",
+                            toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                            arguments = draft.parameters,
+                            reason = draft.summary,
+                        ),
+                        draft = draft,
+                    ),
+                    SkillStep.ModelStep(
+                        id = "summarize_ocr",
+                        dependsOn = listOf("ocr_read"),
+                        title = "整理截图 OCR",
+                        instruction = "只保留 OCR 里的待办线索。",
+                        inputBindings = mapOf("ocrText" to "ocr_read.ocrText"),
+                        outputKey = "summary",
+                        keepsSensitiveInputLocal = false,
+                    ),
+                ),
+            )
+        }
+
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+
+        companion object {
+            const val SKILL_ID = "ocr_model_skill"
+        }
+    }
+
+    private class LocalOnlyResultSkillRuntime : SkillRuntime {
+        private val manifest = SkillManifest(
+            id = SKILL_ID,
+            version = 1,
+            title = "Local only result skill",
+            description = "Test-only local-only result skill",
+            triggerExamples = listOf("local only contacts skill"),
+            requiredTools = listOf(MobileActionFunctions.QUERY_CONTACTS),
+            inputSchemaJson = """
+                {
+                  "type": "object",
+                  "required": ["input"],
+                  "properties": {
+                    "input": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
+            """.trimIndent(),
+            riskLevel = RiskLevel.LowReadOnly,
+        )
+
+        override fun manifests(): List<SkillManifest> = listOf(manifest)
+
+        override fun plan(input: String): SkillPlan? {
+            if (input != "local only contacts skill") return null
+            val draft = ActionDraft(
+                functionName = MobileActionFunctions.QUERY_CONTACTS,
+                title = "查询联系人",
+                summary = "将读取联系人摘要。",
+                parameters = mapOf("query" to "Alice"),
+                requiresConfirmation = true,
+            )
+            return SkillPlan(
+                request = SkillRequest(
+                    id = "local-only-skill-request",
+                    skillId = SKILL_ID,
+                    arguments = mapOf("input" to input),
+                    reason = input,
+                ),
+                manifest = manifest,
+                steps = listOf(
+                    SkillStep.ToolStep(
+                        id = "contacts",
+                        request = ToolRequest(
+                            id = "local-only-contacts-request",
+                            toolName = MobileActionFunctions.QUERY_CONTACTS,
+                            arguments = draft.parameters,
+                            reason = draft.summary,
+                        ),
+                        draft = draft,
+                    ),
+                    SkillStep.ModelStep(
+                        id = "summarize_contacts",
+                        dependsOn = listOf("contacts"),
+                        title = "整理联系人本地结果",
+                        instruction = "根据联系人摘要回答用户。",
+                        inputBindings = mapOf("contactSummary" to "contacts.summary"),
+                        outputKey = "answer",
+                        keepsSensitiveInputLocal = false,
+                    ),
+                ),
+            )
+        }
+
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+
+        companion object {
+            const val SKILL_ID = "local_only_result_skill"
         }
     }
 

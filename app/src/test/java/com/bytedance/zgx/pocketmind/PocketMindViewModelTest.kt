@@ -525,6 +525,93 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun remoteModeProtectsGenericLocalOnlyContinuationAsLocalToolResult() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val request = ToolRequest(
+            toolName = MobileActionFunctions.QUERY_CONTACTS,
+            arguments = mapOf("query" to "Alice"),
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.QUERY_CONTACTS,
+            title = "查询联系人",
+            summary = "将读取联系人摘要。",
+            parameters = request.arguments,
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-local-tool",
+                toolRequest = request,
+                draft = draft,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = null,
+            ),
+            confirmedRun = AgentRun("run-local-tool", "查联系人 Alice", AgentRunState.ExecutingTool, 1L, 2L),
+            toolObservation = AgentObservationResult(
+                run = AgentRun("run-local-tool", "查联系人 Alice", AgentRunState.GeneratingAnswer, 1L, 3L),
+                result = ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "联系人 Alice：仅本地摘要",
+                    data = mapOf(
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                        "requiresLocalModel" to "true",
+                    ),
+                ),
+                assistantMessage = "工具执行结果：联系人 Alice：仅本地摘要",
+                decision = AgentObservationDecision.ContinueWithModel(
+                    requiresLocalModel = true,
+                    reason = "联系人摘要仅可在本地继续处理。",
+                ),
+                continuationPromptForModel = "请根据联系人摘要回答",
+                continuationRequiresLocalModel = true,
+                steps = emptyList(),
+            ),
+        )
+        val actionExecutor = object : ToolExecutor {
+            override fun execute(request: ToolRequest): ToolResult =
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "联系人 Alice：仅本地摘要",
+                    data = mapOf(
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                        "requiresLocalModel" to "true",
+                    ),
+                )
+        }
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            actionExecutor = actionExecutor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("查联系人 Alice")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, confirmation.draft.functionName)
+
+        viewModel.confirmAgentConfirmation(confirmation)
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals("已保护本地工具结果", viewModel.uiState.value.statusText)
+        assertTrue(sessionStore.messages.last().text.contains("不会自动发送本地工具结果到远程模型"))
+        assertFalse(sessionStore.messages.last().text.contains("剪贴板内容"))
+    }
+
+    @Test
     fun pendingConfirmationBlocksNewMessageUntilHandled() = runTest(dispatcher) {
         val sessionStore = FakeSessionStore()
         val assistantRouter = FakeAssistantRouter(
