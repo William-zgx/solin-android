@@ -424,26 +424,23 @@ class AgentLoopRuntime(
         text: String,
     ): NextObservationPlan {
         val skillPlan = latestSkillPlan(run.id) ?: return NextObservationPlan.None
-        if (skillPlan.request.skillId != BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL) {
-            return NextObservationPlan.None
-        }
         val validation = skillPlan.validateStructure()
         if (!validation.isValid) {
             return NextObservationPlan.Rejected("Invalid skill plan: ${validation.errors.joinToString()}")
         }
-        val modelStep = skillPlan.steps
-            .filterIsInstance<SkillStep.ModelStep>()
-            .lastOrNull() ?: return NextObservationPlan.None
-        val toolStep = skillPlan.steps
-            .filterIsInstance<SkillStep.ToolStep>()
-            .firstOrNull { step -> modelStep.id in step.dependsOn }
-            ?: return NextObservationPlan.None
+        val nextStep = nextToolStepForModelOutput(
+            skillPlan = skillPlan,
+            requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id },
+        ) ?: return NextObservationPlan.None
         val boundArguments = resolveSkillBindings(
-            bindings = toolStep.argumentBindings,
-            outputs = mapOf(modelStep.id to mapOf(modelStep.outputKey to text)),
-        ) ?: return rejectNextToolPlan(run.id, toolStep.request.rejected("Missing model output binding for skill step."))
-        val request = toolStep.request.copy(arguments = toolStep.request.arguments + boundArguments)
-        val draft = toolStep.draft.copy(parameters = toolStep.draft.parameters + boundArguments)
+            bindings = nextStep.toolStep.argumentBindings,
+            outputs = mapOf(nextStep.modelStep.id to mapOf(nextStep.modelStep.outputKey to text)),
+        ) ?: return rejectNextToolPlan(
+            run.id,
+            nextStep.toolStep.request.rejected("Missing model output binding for skill step."),
+        )
+        val request = nextStep.toolStep.request.copy(arguments = nextStep.toolStep.request.arguments + boundArguments)
+        val draft = nextStep.toolStep.draft.copy(parameters = nextStep.toolStep.draft.parameters + boundArguments)
         return buildNextToolPlan(
             runId = run.id,
             request = request,
@@ -453,6 +450,26 @@ class AgentLoopRuntime(
             skillPlan = skillPlan,
         )
     }
+
+    private fun nextToolStepForModelOutput(
+        skillPlan: SkillPlan,
+        requestedRequestIds: Set<String>,
+    ): ModelOutputToolStep? {
+        val modelSteps = skillPlan.steps.filterIsInstance<SkillStep.ModelStep>()
+        return skillPlan.steps
+            .filterIsInstance<SkillStep.ToolStep>()
+            .firstNotNullOfOrNull { toolStep ->
+                if (toolStep.request.id in requestedRequestIds) return@firstNotNullOfOrNull null
+                val modelStep = modelSteps.lastOrNull { step -> step.id in toolStep.dependsOn }
+                    ?: return@firstNotNullOfOrNull null
+                ModelOutputToolStep(modelStep, toolStep)
+            }
+    }
+
+    private data class ModelOutputToolStep(
+        val modelStep: SkillStep.ModelStep,
+        val toolStep: SkillStep.ToolStep,
+    )
 
     private fun buildNextToolPlan(
         runId: String,

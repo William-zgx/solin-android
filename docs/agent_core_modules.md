@@ -121,11 +121,15 @@ Current status:
   Skill-first path. The reminder skill reuses the same delay/title parser as
   the action planner, then enters the normal confirmation and runtime
   permission boundary before scheduling any AlarmManager work.
+- Skill model-step results can now be consumed generically: when a declarative
+  `ToolStep` depends on a `ModelStep`, the model output is bound through the
+  tool step's `argumentBindings`, then validated, safety-checked, audited, and
+  returned to `AwaitingUserConfirmation`.
 - General Skill-first routing for parameter-heavy skills such as email, calendar
   drafts, and routes still depends on action-planner extraction.
-  General model-driven next-step planning, generalized multi-step skill UI
-  orchestration beyond the clipboard summary share flow, and full argument-
-  bearing typed step rehydration are still pending.
+  Open-ended model-driven replanning, arbitrary multi-confirmation skill UI
+  orchestration, and full argument-bearing typed step rehydration are still
+  pending.
 
 Tests:
 
@@ -141,6 +145,9 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation`
 - `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
+- `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation`
+- `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
 - `AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace`
 - `AgentTraceStoreTest.roomStoreReturnsRecentRunSummariesWithStepLimit`
@@ -194,9 +201,14 @@ Current status:
   binds the generated summary into the system share tool.
 - Explicit clipboard context and clipboard-summary-share inputs can now be
   planned directly by the built-in Skill runtime before action planning.
-- This composite skill is now wired into the app loop for one conservative
-  flow: read clipboard, summarize locally, request explicit confirmation for
-  the share sheet. Other composite skills still need their own UI orchestration.
+- The app loop can now consume declarative model-step output bindings for
+  composite skills, not just the built-in clipboard summary share flow. Bound
+  tool requests still go through registry validation, safety checks, trace,
+  audit, and explicit confirmation before execution.
+- Private tool outputs are not available for direct model-result bindings into
+  later external tools. Clipboard text and similar private values must pass
+  through the local model step boundary and still require a second
+  confirmation before sharing.
 - Added `SkillRunExecutor` as the first executable multi-step skill runner. It
   validates the plan, resolves step output bindings, enforces a step limit, and
   separates private binding outputs from the public result/trace.
@@ -232,6 +244,9 @@ Tests:
 - `SkillRunExecutorTest.resumesAgainAfterSecondConfirmationAndCompletesSkill`
 - `SkillRunExecutorTest.resumeRejectsToolResultThatDoesNotMatchPendingRequest`
 - `SkillRunExecutorTest.cancelStopsPendingSkillWithoutExecutingOrLeakingPrivateOutputs`
+- `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation`
+- `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `ToolSchemaContractTest`

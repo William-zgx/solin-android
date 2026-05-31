@@ -130,6 +130,11 @@ class AssistantOrchestratorTest {
         require(modelObserved.decision is AgentObservationDecision.PlanNextTool)
         assertEquals(MobileActionFunctions.SHARE_TEXT, modelObserved.decision.plan.request.toolName)
         assertEquals("摘要文本", modelObserved.decision.plan.request.arguments["text"])
+        val restored = orchestrator.restorePendingAction()
+        requireNotNull(restored)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, restored.toolRequest?.toolName)
+        assertEquals("摘要文本", restored.toolRequest?.arguments?.get("text"))
+        assertTrue(restored.toolRequest?.id != route.toolRequest.id)
     }
 
     @Test

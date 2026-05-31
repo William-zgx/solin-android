@@ -696,6 +696,150 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun modelStepOutputBindsToDependentToolStepAndRequestsConfirmation() {
+        val customSkillRuntime = CustomClipboardTransformSkillRuntime()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = customSkillRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val modelText = "自定义 Skill 生成的可分享文本"
+        val planned = runtime.runOnce(
+            input = "custom clipboard transform",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(CustomClipboardTransformSkillRuntime.SKILL_ID, planned.plan.skillRequest?.skillId)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, planned.plan.request.toolName)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = mapOf(
+                    "text" to "不应持久化的剪贴板原文",
+                    "truncated" to "false",
+                ),
+            ),
+        )
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+
+        val modelObserved = runtime.observeModelResult(planned.run.id, modelText)
+
+        requireNotNull(modelObserved)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, modelObserved.run.state)
+        require(modelObserved.decision is AgentObservationDecision.PlanNextTool)
+        val sharePlan = modelObserved.decision.plan
+        assertEquals(MobileActionFunctions.SHARE_TEXT, sharePlan.request.toolName)
+        assertEquals(modelText, sharePlan.request.arguments["text"])
+        assertEquals(modelText, sharePlan.draft.parameters["text"])
+        assertEquals(CustomClipboardTransformSkillRuntime.SKILL_ID, sharePlan.skillRequest?.skillId)
+        assertEquals("skill model step", sharePlan.fallbackReason)
+        assertTrue(modelObserved.steps.any { step ->
+            step is AgentStep.SafetyChecked &&
+                step.decision.outcome == SafetyOutcome.RequireConfirmation
+        })
+        assertTrue(modelObserved.steps.any { step ->
+            step is AgentStep.UserConfirmationRequested &&
+                step.request.id == sharePlan.request.id
+        })
+    }
+
+    @Test
+    fun modelStepBindingRejectsMissingOutputBeforeConfirmation() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = CustomClipboardTransformSkillRuntime(shareBinding = "custom_model.missingOutput"),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "custom clipboard transform",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = mapOf(
+                    "text" to "不应持久化的剪贴板原文",
+                    "truncated" to "false",
+                ),
+            ),
+        )
+        requireNotNull(observed)
+
+        val modelObserved = runtime.observeModelResult(planned.run.id, "模型输出")
+
+        requireNotNull(modelObserved)
+        assertEquals(AgentRunState.Failed, modelObserved.run.state)
+        require(modelObserved.decision is AgentObservationDecision.Fail)
+        assertTrue(modelObserved.decision.reason.contains("Missing model output binding"))
+        assertTrue(modelObserved.steps.any { it is AgentStep.ToolRejected })
+        assertTrue(modelObserved.steps.none { step ->
+            step is AgentStep.UserConfirmationRequested &&
+                step.request.toolName == MobileActionFunctions.SHARE_TEXT
+        })
+    }
+
+    @Test
+    fun modelStepBindingCannotDirectlyExposePrivateToolOutputToShare() {
+        val auditSink = InMemoryToolAuditSink()
+        val secretClipboardText = "secret clipboard text should not leave the model boundary"
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = CustomClipboardTransformSkillRuntime(shareBinding = "custom_read.text"),
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "custom clipboard transform",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = mapOf(
+                    "text" to secretClipboardText,
+                    "truncated" to "false",
+                ),
+            ),
+        )
+        requireNotNull(observed)
+
+        val modelObserved = runtime.observeModelResult(planned.run.id, "模型安全摘要")
+
+        requireNotNull(modelObserved)
+        assertEquals(AgentRunState.Failed, modelObserved.run.state)
+        require(modelObserved.decision is AgentObservationDecision.Fail)
+        assertTrue(modelObserved.decision.reason.contains("Missing model output binding"))
+        assertTrue(modelObserved.steps.none { step ->
+            step is AgentStep.UserConfirmationRequested &&
+                step.request.toolName == MobileActionFunctions.SHARE_TEXT
+        })
+        assertNull(runtime.latestPendingConfirmation())
+        assertTrue(!modelObserved.steps.toString().contains(secretClipboardText))
+        assertTrue(!auditSink.events.toString().contains(secretClipboardText))
+    }
+
+    @Test
     fun compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -1914,6 +2058,99 @@ class AgentLoopRuntimeTest {
             usedModel = false,
             fallbackReason = "test fallback",
         )
+
+    private class CustomClipboardTransformSkillRuntime(
+        private val shareBinding: String = "custom_model.shareText",
+    ) : SkillRuntime {
+        private val manifest = SkillManifest(
+            id = SKILL_ID,
+            version = 1,
+            title = "Custom clipboard transform",
+            description = "Test-only composite skill",
+            triggerExamples = listOf("custom clipboard transform"),
+            requiredTools = listOf(MobileActionFunctions.READ_CLIPBOARD, MobileActionFunctions.SHARE_TEXT),
+            inputSchemaJson = """
+                {
+                  "type": "object",
+                  "required": ["input"],
+                  "properties": {
+                    "input": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
+            """.trimIndent(),
+            riskLevel = RiskLevel.HighExternalSend,
+        )
+
+        override fun manifests(): List<SkillManifest> = listOf(manifest)
+
+        override fun plan(input: String): SkillPlan {
+            val readDraft = ActionDraft(
+                functionName = MobileActionFunctions.READ_CLIPBOARD,
+                title = "读取剪贴板",
+                summary = "将读取当前剪贴板文本。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            val readRequest = ToolRequest(
+                id = "custom-read-request",
+                toolName = MobileActionFunctions.READ_CLIPBOARD,
+                reason = readDraft.summary,
+            )
+            val shareDraft = ActionDraft(
+                functionName = MobileActionFunctions.SHARE_TEXT,
+                title = "分享转换结果",
+                summary = "将分享模型转换后的文本。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            val shareRequest = ToolRequest(
+                id = "custom-share-request",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+                reason = shareDraft.summary,
+            )
+            return SkillPlan(
+                request = SkillRequest(
+                    id = "custom-skill-request",
+                    skillId = SKILL_ID,
+                    arguments = mapOf("input" to input),
+                    reason = input,
+                ),
+                manifest = manifest,
+                steps = listOf(
+                    SkillStep.ToolStep(
+                        id = "custom_read",
+                        request = readRequest,
+                        draft = readDraft,
+                    ),
+                    SkillStep.ModelStep(
+                        id = "custom_model",
+                        dependsOn = listOf("custom_read"),
+                        title = "转换剪贴板内容",
+                        instruction = "转换用户确认读取的剪贴板内容。",
+                        inputBindings = mapOf("clipboardText" to "custom_read.text"),
+                        outputKey = "shareText",
+                    ),
+                    SkillStep.ToolStep(
+                        id = "custom_share",
+                        dependsOn = listOf("custom_model"),
+                        request = shareRequest,
+                        draft = shareDraft,
+                        argumentBindings = mapOf("text" to shareBinding),
+                    ),
+                ),
+            )
+        }
+
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+
+        companion object {
+            const val SKILL_ID = "custom_clipboard_transform_skill"
+        }
+    }
 
     private class InvalidSkillRuntime(
         private val invalidForTool: String,

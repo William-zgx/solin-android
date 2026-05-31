@@ -1,5 +1,30 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Generic Skill model-step binding 增量验证
+
+本轮覆盖项：
+
+- Agent loop 不再按 `clipboard_summary_share_skill` 特判模型输出续跑；任意声明式
+  Skill 只要 `ToolStep` 依赖 `ModelStep`，就可通过 `argumentBindings` 绑定模型输出并进入下一次确认。
+- 绑定出的工具请求仍走 ToolRegistry 校验、SafetyPolicy、trace/audit 和
+  `AwaitingUserConfirmation`，不会因为前一个工具已确认而直接执行。
+- 缺失的模型输出 binding 会 fail closed；恶意将 `read_clipboard.text` 等私密工具输出直接绑定到
+  `share_text.text` 不会产生分享确认，也不会把原始剪贴板写入 trace/audit/pending。
+- Orchestrator 恢复第二个待确认动作时保留新的 `share_text` request id 和模型摘要参数，不复用旧
+  `read_clipboard` request id。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest.clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation'
+```
+
 ## 2026-05-31 Launch-only external result 增量验证
 
 本轮覆盖项：
