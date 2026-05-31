@@ -139,6 +139,13 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun taskStateMemoryRecordIdIsStableForWhitespace() {
+        assertEquals("task-state-background:task-1", taskStateMemoryRecordId(" task-1 "))
+        assertEquals("task-state-background:periodic-check-local", taskStateMemoryRecordId("periodic check local"))
+        assertEquals("task-state-background:unknown", taskStateMemoryRecordId("   "))
+    }
+
+    @Test
     fun rebuildDoesNotPersistExtractedHistoryPreferences() {
         val store = FakeMemoryRecordStore()
         val repository = MemoryRepository(recordStore = store)

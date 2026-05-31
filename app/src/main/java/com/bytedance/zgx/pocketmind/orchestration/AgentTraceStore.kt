@@ -51,6 +51,8 @@ private val toolObservedCompletionMetadataAllowlist = listOf(
     "recoveryToolName",
 )
 
+private const val REDACTED_AGENT_RUN_INPUT = "[redacted]"
+
 interface AgentTraceStore {
     fun createRun(input: String): AgentRun
     fun run(runId: String): AgentRun?
@@ -165,6 +167,7 @@ class RoomAgentTraceStore(
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val runIdFactory: () -> String = { "run-${UUID.randomUUID()}" },
 ) : AgentTraceStore {
+    private val liveRuns = linkedMapOf<String, AgentRun>()
     private val liveSteps = linkedMapOf<String, MutableList<AgentStep>>()
 
     override fun createRun(input: String): AgentRun {
@@ -176,18 +179,28 @@ class RoomAgentTraceStore(
             createdAtMillis = now,
             updatedAtMillis = now,
         )
+        liveRuns[run.id] = run
         traceDao.upsertRun(run.toEntity())
         liveSteps[run.id] = mutableListOf()
         return run
     }
 
     override fun run(runId: String): AgentRun? =
-        traceDao.run(runId)?.toDomain()
+        liveRuns[runId]
+            ?: traceDao.run(runId)?.toDomain()
 
     override fun updateState(runId: String, state: AgentRunState): AgentRun {
         val now = clockMillis()
         val updatedRows = traceDao.updateRunState(runId, state.name, now)
         require(updatedRows > 0) { "Agent run does not exist: $runId" }
+        liveRuns[runId]?.let { liveRun ->
+            val updated = liveRun.copy(
+                state = state,
+                updatedAtMillis = now,
+            )
+            liveRuns[runId] = updated
+            return updated
+        }
         return traceDao.run(runId)?.toDomain()
             ?: error("Agent run disappeared after update: $runId")
     }
@@ -198,6 +211,9 @@ class RoomAgentTraceStore(
         val position = traceDao.nextStepPosition(runId)
         traceDao.insertStep(step.toEntity(runId, position, now))
         traceDao.touchRun(runId, now)
+        liveRuns[runId]?.let { liveRun ->
+            liveRuns[runId] = liveRun.copy(updatedAtMillis = now)
+        }
         liveSteps.getOrPut(runId) { mutableListOf() }.add(step)
     }
 
@@ -227,7 +243,7 @@ class RoomAgentTraceStore(
 
     override fun latestPendingConfirmation(): PendingToolConfirmationSnapshot? {
         for (entity in traceDao.pendingConfirmations()) {
-            val run = traceDao.run(entity.runId)?.toDomain()
+            val run = run(entity.runId)
             if (run == null || run.state != AgentRunState.AwaitingUserConfirmation) {
                 traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
                 continue
@@ -277,7 +293,7 @@ class RoomAgentTraceStore(
 private fun AgentRun.toEntity(): AgentRunEntity =
     AgentRunEntity(
         id = id,
-        input = input,
+        input = REDACTED_AGENT_RUN_INPUT,
         state = state.name,
         createdAtMillis = createdAtMillis,
         updatedAtMillis = updatedAtMillis,

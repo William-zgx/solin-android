@@ -1,5 +1,31 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Task-state memory sync 增量验证
+
+本轮覆盖项：
+
+- ViewModel 会把仍处于 `Scheduled` / `Running` 的后台任务同步为稳定 id 的
+  `TaskState` 长期记忆，让 Agent 可以召回当前任务状态。
+- 自动任务状态记忆只保存任务类型、状态、触发时间和不透明任务记录 id；提醒标题、
+  正文、工具参数、prompt、远程响应不写入长期记忆、长期记忆 UI 或远程上下文。
+- 后台任务取消、完成、失败、删除或从活跃列表消失时，对应自动 `TaskState`
+  记忆会被遗忘；手动创建的非 auto-managed task-state 记录不受此同步清理。
+- Room-backed Agent trace 会在持久化 `agent_runs.input` 时脱敏原始 prompt；
+  当前进程内仍保留 raw run input，保证确认、观察和 replan 不被打断。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.taskStateMemoryRecordIdIsStableForWhitespace' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateIndexesScheduledTasksAsForgettableTaskState' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelBackgroundTaskForgetsTaskStateMemory' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.refreshBackgroundTasksDropsTerminalTaskStateMemory' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace'
+```
+
 ## 2026-05-31 Reminder rollback metadata 增量验证
 
 本轮覆盖项：

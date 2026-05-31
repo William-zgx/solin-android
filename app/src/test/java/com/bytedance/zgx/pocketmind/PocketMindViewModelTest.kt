@@ -28,6 +28,7 @@ import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordStore
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.memory.PersistedMemoryRecord
+import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachment
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachmentKind
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
@@ -798,6 +799,172 @@ class PocketMindViewModelTest {
         )
         assertTrue(remoteRuntime.calls.isEmpty())
         assertTrue(executor.executedRequests.isEmpty())
+    }
+
+    @Test
+    fun restoreStartupStateIndexesScheduledTasksAsForgettableTaskState() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask(
+                    id = "task-1",
+                    type = ScheduledTaskType.Reminder,
+                    status = ScheduledTaskStatus.Scheduled,
+                    title = "喝水 私密prompt 私密toolArg 私密remoteResponse",
+                    body = "不要写入长期记忆的提醒正文",
+                ),
+                scheduledTask(
+                    id = PeriodicCheckScheduleRequest.TASK_ID,
+                    type = ScheduledTaskType.PeriodicCheck,
+                    status = ScheduledTaskStatus.Running,
+                    title = "后台检查",
+                    body = "enabled=true;lastRun=secret",
+                ),
+                scheduledTask(
+                    id = "done-task",
+                    type = ScheduledTaskType.Reminder,
+                    status = ScheduledTaskStatus.Delivered,
+                    title = "已完成提醒",
+                    body = "已完成正文",
+                ),
+            ),
+        )
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            backgroundTaskScheduler = scheduler,
+            remoteRuntime = remoteRuntime,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        val taskRecords = store.records().filter { record -> record.type == MemoryRecordType.TaskState }
+        assertEquals(
+            listOf(taskStateMemoryRecordId("task-1"), taskStateMemoryRecordId(PeriodicCheckScheduleRequest.TASK_ID)),
+            taskRecords.map { record -> record.id },
+        )
+        assertTrue(taskRecords.first().text.contains("Reminder"))
+        assertTrue(taskRecords.first().text.contains("Scheduled"))
+        assertTrue(taskRecords.first().text.contains(taskStateMemoryRecordId("task-1")))
+        assertFalse(taskRecords.first().text.contains("喝水"))
+        assertFalse(taskRecords.first().text.contains("私密prompt"))
+        assertFalse(taskRecords.first().text.contains("私密toolArg"))
+        assertFalse(taskRecords.first().text.contains("私密remoteResponse"))
+        assertFalse(taskRecords.first().text.contains("不要写入长期记忆"))
+        assertTrue(taskRecords.none { record -> record.id == taskStateMemoryRecordId("done-task") })
+        assertEquals(taskRecords.map { it.id }, viewModel.uiState.value.longTermMemories.map { it.id })
+        assertTrue(viewModel.uiState.value.longTermMemories.none { memory -> memory.text.contains("喝水") })
+        assertTrue(memoryRepository.search("喝水").isEmpty())
+        assertTrue(remoteRuntime.calls.isEmpty())
+    }
+
+    @Test
+    fun backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask(
+                    id = "task-1",
+                    type = ScheduledTaskType.Reminder,
+                    status = ScheduledTaskStatus.Scheduled,
+                    title = "喝水",
+                    body = "不要进入远程的提醒正文",
+                ),
+            ),
+        )
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            backgroundTaskScheduler = scheduler,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val taskMemoryId = taskStateMemoryRecordId("task-1")
+        val taskRecords = store.records().filter { it.type == MemoryRecordType.TaskState }
+        assertEquals(listOf(taskMemoryId), taskRecords.map { it.id })
+        assertTrue(viewModel.uiState.value.longTermMemories.any { it.id == taskMemoryId })
+        assertTrue(viewModel.uiState.value.backgroundTasks.any { it.id == "task-1" })
+
+        val call = remoteRuntime.calls.single()
+        assertEquals("普通远程问题", call.prompt)
+        assertTrue(call.history.isEmpty())
+        assertFalse(call.prompt.contains("喝水"))
+        assertFalse(call.prompt.contains("不要进入远程的提醒正文"))
+        assertFalse(call.history.toString().contains("喝水"))
+        assertFalse(call.history.toString().contains("不要进入远程的提醒正文"))
+    }
+
+    @Test
+    fun cancelBackgroundTaskForgetsTaskStateMemory() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask(
+                    id = "task-1",
+                    type = ScheduledTaskType.Reminder,
+                    status = ScheduledTaskStatus.Scheduled,
+                    title = "喝水",
+                ),
+            ),
+        )
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            backgroundTaskScheduler = scheduler,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        assertTrue(store.records().any { record -> record.id == taskStateMemoryRecordId("task-1") })
+
+        viewModel.cancelBackgroundTask("task-1")
+        advanceUntilIdle()
+
+        assertTrue(store.records().none { record -> record.id == taskStateMemoryRecordId("task-1") })
+        assertTrue(viewModel.uiState.value.longTermMemories.none { memory -> memory.id == taskStateMemoryRecordId("task-1") })
+        assertTrue(memoryRepository.search("喝水").isEmpty())
+        assertEquals("后台任务已取消", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun refreshBackgroundTasksDropsTerminalTaskStateMemory() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val taskMemoryId = taskStateMemoryRecordId("done-task")
+        memoryRepository.indexTaskState(taskMemoryId, "旧的后台任务状态")
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask(
+                    id = "done-task",
+                    type = ScheduledTaskType.Reminder,
+                    status = ScheduledTaskStatus.Failed,
+                    title = "失败提醒",
+                    body = "失败正文",
+                ),
+            ),
+        )
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            backgroundTaskScheduler = scheduler,
+        )
+
+        viewModel.refreshBackgroundTasks()
+        advanceUntilIdle()
+
+        assertTrue(store.records().none { record -> record.id == taskMemoryId })
+        assertTrue(viewModel.uiState.value.longTermMemories.none { memory -> memory.id == taskMemoryId })
+        assertTrue(memoryRepository.search("后台任务状态").isEmpty())
     }
 
     @Test

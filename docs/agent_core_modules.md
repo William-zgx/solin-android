@@ -126,6 +126,10 @@ Current status:
   trace store and shown in the background activity surface. The UI reads only
   `AgentTraceStepSummary` type/summary metadata and does not parse or display
   persisted trace JSON or tool arguments.
+- Room-backed trace stores redact `agent_runs.input` at the persistence
+  boundary. The current process keeps raw run input only in memory so
+  confirmation, observation, and replanning can continue without writing the
+  full prompt to Room or recent trace summaries.
 - Background reminder requests with explicit relative delays now also have a
   Skill-first path. The reminder skill reuses the same delay/title parser as
   the action planner, then enters the normal confirmation and runtime
@@ -160,6 +164,7 @@ Tests:
 - `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
 - `AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation`
 - `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare`
+- `AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments`
 - `AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace`
 - `AgentTraceStoreTest.roomStoreReturnsRecentRunSummariesWithStepLimit`
 - `PocketMindViewModelTest.restoreStartupStateRestoresPendingAgentConfirmationWithoutExecutingTool`
@@ -485,6 +490,13 @@ Current status:
 - Explicit preference and task-state records are now persisted in Room and
   reloaded during memory rebuild; ordinary conversation-derived memory remains
   rebuilt from saved chat messages instead of duplicated into the memory table.
+- Active background tasks are now synced into deterministic `TaskState`
+  long-term memory records, giving the Agent recallable task state without
+  requiring the user to manually remember it. The sync stores only task type,
+  status, trigger time, and an opaque auto-managed record id; reminder titles,
+  bodies, prompts, tool arguments, and remote responses are not written to
+  long-term memory. Terminal or missing auto-managed task-state records are
+  forgotten on refresh.
 - `sendMessage` persists explicit user preference statements such as
   `记住：...` / `remember ...` after the user message is accepted into the
   session; `rebuild` reloads persisted records and saved non-control session
@@ -509,7 +521,12 @@ Current status:
 Tests:
 
 - `MemoryRepositoryTest`
+- `MemoryRepositoryTest.taskStateMemoryRecordIdIsStableForWhitespace`
 - `PocketMindViewModelTest`
+- `PocketMindViewModelTest.restoreStartupStateIndexesScheduledTasksAsForgettableTaskState`
+- `PocketMindViewModelTest.backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory`
+- `PocketMindViewModelTest.cancelBackgroundTaskForgetsTaskStateMemory`
+- `PocketMindViewModelTest.refreshBackgroundTasksDropsTerminalTaskStateMemory`
 - `AgentLoopRuntimeTest`
 
 ## Background Tasks

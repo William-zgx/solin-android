@@ -28,8 +28,11 @@ import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
+import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
+import com.bytedance.zgx.pocketmind.memory.TASK_STATE_MEMORY_RECORD_PREFIX
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceFrom
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceRecordId
+import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
@@ -99,8 +102,10 @@ class PocketMindViewModel(
         if (startupRestored) return
         startupRestored = true
 
+        syncTaskStateMemories()
         refreshDeviceStatus()
         rebuildMemoryIndex()
+        _uiState.update { it.copy(longTermMemories = loadLongTermMemories()) }
         verifyLegacyModelsOnStartup(skipModelRuntimeWork)
 
         if (skipModelRuntimeWork) {
@@ -246,11 +251,13 @@ class PocketMindViewModel(
     }
 
     fun refreshBackgroundTasks() {
+        syncTaskStateMemories()
         _uiState.update {
             it.copy(
                 backgroundTasks = loadBackgroundTasks(),
                 backgroundTaskHistory = loadBackgroundTaskHistory(),
                 periodicCheckPolicy = loadPeriodicCheckPolicy(),
+                longTermMemories = loadLongTermMemories(),
             )
         }
     }
@@ -260,18 +267,24 @@ class PocketMindViewModel(
         backgroundTaskScheduler.cancelScheduledTask(taskId)
             .fold(
                 onSuccess = {
+                    syncTaskStateMemories()
                     _uiState.update { state ->
                         state.copy(
                             backgroundTasks = loadBackgroundTasks(),
                             backgroundTaskHistory = loadBackgroundTaskHistory(),
                             periodicCheckPolicy = loadPeriodicCheckPolicy(),
+                            longTermMemories = loadLongTermMemories(),
                             statusText = "后台任务已取消",
                         )
                     }
                 },
                 onFailure = { throwable ->
+                    syncTaskStateMemories()
                     _uiState.update {
-                        it.copy(statusText = "后台任务取消失败：${throwable.cleanMessage()}")
+                        it.copy(
+                            longTermMemories = loadLongTermMemories(),
+                            statusText = "后台任务取消失败：${throwable.cleanMessage()}",
+                        )
                     }
                 },
             )
@@ -282,21 +295,25 @@ class PocketMindViewModel(
         backgroundTaskScheduler.setPeriodicCheckPolicy(request)
             .fold(
                 onSuccess = { policy ->
+                    syncTaskStateMemories()
                     _uiState.update { state ->
                         state.copy(
                             backgroundTasks = loadBackgroundTasks(),
                             backgroundTaskHistory = loadBackgroundTaskHistory(),
                             periodicCheckPolicy = policy,
+                            longTermMemories = loadLongTermMemories(),
                             statusText = "周期检查策略已保存",
                         )
                     }
                 },
                 onFailure = { throwable ->
+                    syncTaskStateMemories()
                     _uiState.update {
                         it.copy(
                             backgroundTasks = loadBackgroundTasks(),
                             backgroundTaskHistory = loadBackgroundTaskHistory(),
                             periodicCheckPolicy = loadPeriodicCheckPolicy(),
+                            longTermMemories = loadLongTermMemories(),
                             statusText = "周期检查策略保存失败：${throwable.cleanMessage()}",
                         )
                     }
@@ -309,21 +326,25 @@ class PocketMindViewModel(
         backgroundTaskScheduler.disablePeriodicCheckPolicy()
             .fold(
                 onSuccess = { policy ->
+                    syncTaskStateMemories()
                     _uiState.update { state ->
                         state.copy(
                             backgroundTasks = loadBackgroundTasks(),
                             backgroundTaskHistory = loadBackgroundTaskHistory(),
                             periodicCheckPolicy = policy,
+                            longTermMemories = loadLongTermMemories(),
                             statusText = "周期检查已关闭",
                         )
                     }
                 },
                 onFailure = { throwable ->
+                    syncTaskStateMemories()
                     _uiState.update {
                         it.copy(
                             backgroundTasks = loadBackgroundTasks(),
                             backgroundTaskHistory = loadBackgroundTaskHistory(),
                             periodicCheckPolicy = loadPeriodicCheckPolicy(),
+                            longTermMemories = loadLongTermMemories(),
                             statusText = "周期检查关闭失败：${throwable.cleanMessage()}",
                         )
                     }
@@ -739,6 +760,9 @@ class PocketMindViewModel(
             return
         }
 
+        syncTaskStateMemories()
+        rebuildMemoryIndex()
+        _uiState.update { it.copy(longTermMemories = loadLongTermMemories()) }
         val stateBeforeSend = _uiState.value
         val useRemoteModel = stateBeforeSend.inferenceMode == InferenceMode.Remote
         val remoteConfig = stateBeforeSend.remoteModelConfig
@@ -1201,6 +1225,7 @@ class PocketMindViewModel(
             )
             return
         }
+        syncTaskStateMemories()
         rebuildMemoryIndex()
         _uiState.update {
             it.copy(
@@ -1208,6 +1233,7 @@ class PocketMindViewModel(
                 backgroundTasks = loadBackgroundTasks(),
                 backgroundTaskHistory = loadBackgroundTaskHistory(),
                 periodicCheckPolicy = loadPeriodicCheckPolicy(),
+                longTermMemories = loadLongTermMemories(),
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
                 statusText = observation?.assistantMessage ?: result.statusSummaryForUi(),
@@ -1795,6 +1821,7 @@ class PocketMindViewModel(
 
     private fun createInitialState(): ChatUiState {
         val modelState = modelRepository.currentState()
+        syncTaskStateMemories()
         return ChatUiState(
             modelPath = modelState.activeModelPath,
             activeInstalledModelId = modelState.activeInstalledModelId,
@@ -1895,6 +1922,31 @@ class PocketMindViewModel(
         }
     }
 
+    private fun syncTaskStateMemories() {
+        runCatching {
+            val activeTasks = backgroundTaskScheduler.scheduledTasks()
+                .filter { task ->
+                    task.status == ScheduledTaskStatus.Scheduled ||
+                        task.status == ScheduledTaskStatus.Running
+                }
+            val activeMemoryIds = activeTasks
+                .mapTo(mutableSetOf()) { task -> taskStateMemoryRecordId(task.id) }
+            longTermMemoryControls.savedRecords()
+                .filter { record ->
+                    record.type == MemoryRecordType.TaskState &&
+                        record.id.startsWith(TASK_STATE_MEMORY_RECORD_PREFIX) &&
+                        record.id !in activeMemoryIds
+                }
+                .forEach { record -> longTermMemoryControls.forget(record.id) }
+            activeTasks.forEach { task ->
+                longTermMemoryControls.indexTaskState(
+                    id = taskStateMemoryRecordId(task.id),
+                    text = task.toTaskStateMemoryText(),
+                )
+            }
+        }
+    }
+
     private fun loadLongTermMemories(): List<LongTermMemorySummary> =
         runCatching {
             longTermMemoryControls.savedRecords().map { record ->
@@ -1955,6 +2007,14 @@ class PocketMindViewModel(
             triggerAtMillis = triggerAtMillis,
             status = status,
         )
+
+    private fun ScheduledTask.toTaskStateMemoryText(): String =
+        listOf(
+            "后台任务=${type.name}",
+            "任务记录=${taskStateMemoryRecordId(id)}",
+            "状态=${status.name}",
+            "触发时间=$triggerAtMillis",
+        ).joinToString(separator = "；")
 
     private fun loadAuditEvents(): List<AuditEventSummary> =
         toolAuditLog.recentAuditEvents().map { event ->

@@ -231,6 +231,19 @@ internal fun explicitUserPreferenceRecordId(preference: String): String {
     return "preference-${hash.take(16)}"
 }
 
+internal const val TASK_STATE_MEMORY_RECORD_PREFIX = "task-state-background:"
+
+internal fun taskStateMemoryRecordId(taskId: String): String {
+    val normalized = taskId
+        .trim()
+        .replace(Regex("""[^A-Za-z0-9_.:-]+"""), "-")
+        .trim('-')
+        .take(64)
+        .takeIf { it.isNotBlank() }
+        ?: "unknown"
+    return "$TASK_STATE_MEMORY_RECORD_PREFIX$normalized"
+}
+
 data class PersistedMemoryRecord(
     val id: String,
     val type: MemoryRecordType,

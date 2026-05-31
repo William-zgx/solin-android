@@ -44,7 +44,8 @@ class AgentTraceStoreTest {
             clockMillis = { now++ },
             runIdFactory = { "run-persisted" },
         )
-        val run = store.createRun("share something")
+        val rawPrompt = "share something private raw prompt"
+        val run = store.createRun(rawPrompt)
         val request = ToolRequest(
             id = "request-1",
             toolName = "share_text",
@@ -58,9 +59,12 @@ class AgentTraceStoreTest {
             parameters = request.arguments,
         )
 
-        store.updateState(run.id, AgentRunState.Planning)
+        val planningRun = store.updateState(run.id, AgentRunState.Planning)
         store.appendStep(run.id, AgentStep.ToolRequested(request, draft))
 
+        assertEquals(rawPrompt, run.input)
+        assertEquals(rawPrompt, planningRun.input)
+        assertEquals(rawPrompt, store.run(run.id)?.input)
         assertEquals(AgentRunState.Planning, store.run(run.id)?.state)
         assertEquals(listOf(AgentStep.ToolRequested(request, draft)), store.steps(run.id))
         val persistedStep = store.stepSummaries(run.id).single()
@@ -71,6 +75,8 @@ class AgentTraceStoreTest {
 
         val restartedStore = RoomAgentTraceStore(traceDao = dao)
         assertEquals(AgentRunState.Planning, restartedStore.run(run.id)?.state)
+        assertFalse(restartedStore.run(run.id)?.input.orEmpty().contains(rawPrompt))
+        assertFalse(restartedStore.recentRunSummaries(limit = 1).single().run.input.contains(rawPrompt))
         val restoredStep = restartedStore.steps(run.id).single()
         require(restoredStep is AgentStep.RestoredSummary)
         assertEquals("ToolRequested", restoredStep.persistedType)
@@ -188,8 +194,10 @@ class AgentTraceStoreTest {
             clockMillis = { now++ },
             runIdFactory = { "run-pending" },
         )
-        val run = store.createRun("share draft")
+        val rawPrompt = "share draft private raw prompt"
+        val run = store.createRun(rawPrompt)
         val waitingRun = store.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
+        assertEquals(rawPrompt, waitingRun.input)
         val request = ToolRequest(
             id = "request-pending",
             toolName = "share_text",
@@ -213,6 +221,7 @@ class AgentTraceStoreTest {
                 fallbackReason = "test fallback",
             ),
         )
+        assertEquals(rawPrompt, store.latestPendingConfirmation()?.run?.input)
 
         val persistedStep = store.stepSummaries(run.id).single()
         assertFalse(persistedStep.json.contains("private pending text"))
@@ -223,6 +232,7 @@ class AgentTraceStoreTest {
         requireNotNull(restored)
         assertEquals(waitingRun.id, restored.run.id)
         assertEquals(AgentRunState.AwaitingUserConfirmation, restored.run.state)
+        assertFalse(restored.run.input.contains(rawPrompt))
         assertEquals("request-pending", restored.request.id)
         assertEquals("private pending text", restored.request.arguments["text"])
         assertEquals("share_skill", restored.skillId)
