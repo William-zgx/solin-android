@@ -387,6 +387,88 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreSkipsPendingSkillPlanThatDoesNotContainPendingToolRequest() {
+        var nextRun = 0
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-${++nextRun}" },
+        )
+        val validRun = store.updateState(store.createRun("open wifi").id, AgentRunState.AwaitingUserConfirmation)
+        val validRequest = ToolRequest(
+            id = "request-valid",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = "Open Wi-Fi",
+        )
+        val validDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "Wi-Fi",
+            summary = "Open Wi-Fi",
+            parameters = emptyMap(),
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = validRun,
+                request = validRequest,
+                draft = validDraft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+            ),
+        )
+
+        val readRequest = ToolRequest(
+            id = "request-read-clipboard",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "Read clipboard for summary",
+        )
+        val readDraft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CLIPBOARD,
+            title = "读取剪贴板",
+            summary = "将读取当前剪贴板文本。",
+            parameters = emptyMap(),
+        )
+        val skillPlan = BuiltInSkillRuntime().planClipboardSummaryShare(
+            input = "总结剪贴板并分享",
+            readRequest = readRequest,
+            readDraft = readDraft,
+        )
+        val invalidRun = store.updateState(
+            store.createRun("corrupt skill pending").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+        val invalidRequest = ToolRequest(
+            id = "request-not-in-skill-plan",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "stale"),
+            reason = "Share stale text",
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = invalidRun,
+                request = invalidRequest,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.SHARE_TEXT,
+                    title = "Share",
+                    summary = "Share stale text",
+                    parameters = invalidRequest.arguments,
+                ),
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test corrupt pending",
+            ),
+        )
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+        val restored = restartedStore.latestPendingConfirmation()
+
+        requireNotNull(restored)
+        assertEquals(validRun.id, restored.run.id)
+        assertEquals(validRequest.id, restored.request.id)
+    }
+
+    @Test
     fun roomStoreFailsStaleInFlightRunsButKeepsPendingConfirmationsOnStartup() {
         var now = 5_000L
         val dao = FakeAgentTraceDao()

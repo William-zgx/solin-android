@@ -1,5 +1,51 @@
 # PocketMind 验证报告
 
+## 2026-05-31 Share target MIME, wording, and skill restore 增量验证
+
+本轮覆盖项：
+
+- Android share-target 的 `ACTION_SEND` / `ACTION_SEND_MULTIPLE` MIME 覆盖与
+  in-app document picker 对齐，补齐 RTF、legacy Office 和 OOXML Office 类型。
+- Office / RTF 分享仍复用现有 `SharedInput` metadata-only 边界，不读取正文、
+  不做 PDF/Office 解析。
+- `query_recent_notifications` 的草稿文案收窄为“当前应用最近通知摘要”，与
+  provider 只读取本应用 active notification 摘要的实现一致，不再暗示“未读”或
+  跨 App 通知读取。
+- Room 恢复 pending skill confirmation 时，会校验持久化 `SkillPlan` 是否包含
+  当前待确认的 tool request id 和 tool name；损坏或旧格式行会被跳过，避免恢复
+  到无法由 skill plan 解释的确认卡。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest.shareTargetsAcceptPickerSupportedDocumentMimeTypes' \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest.officeAndRtfAttachmentsRemainMetadataOnlyWithoutPreview' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.recentNotificationSummaryMatchesCurrentAppOnlyBoundary' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreSkipsPendingSkillPlanThatDoesNotContainPendingToolRequest'
+
+./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest
+./gradlew :app:lintDebug
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+adb devices -l
+```
+
+结果：
+
+- 通过：targeted JVM share MIME、metadata-only、notification wording 和 skill
+  pending restore guard 测试。
+- 通过：完整 `:app:compileDebugKotlin :app:compileDebugUnitTestKotlin
+  :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest`。
+- 通过：`:app:lintDebug`。
+- 通过：`:app:assembleDebug :app:assembleDebugAndroidTest`。
+- 通过：`git diff --check`。
+- 通过：排除测试夹具后的敏感配置扫描无匹配；测试目录中的命中为 redaction
+  回归用例中的 dummy 字符串。
+- 未执行模拟器回归：当前环境缺少 `adb` 命令。
+
 ## 2026-05-31 Usage Access settings return 增量验证
 
 本轮覆盖项：

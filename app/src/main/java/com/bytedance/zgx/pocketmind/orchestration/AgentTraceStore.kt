@@ -267,6 +267,10 @@ class RoomAgentTraceStore(
                 traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
                 null
             } ?: continue
+            if (!snapshot.hasRestorableSkillPlanRequest()) {
+                traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
+                continue
+            }
             hydrateLivePendingSteps(snapshot)
             return snapshot
         }
@@ -427,6 +431,15 @@ private fun PendingAgentConfirmationEntity.toSnapshot(run: AgentRun): PendingToo
         plannedByModel = plannedByModel,
         fallbackReason = fallbackReason,
     )
+
+private fun PendingToolConfirmationSnapshot.hasRestorableSkillPlanRequest(): Boolean {
+    val plan = skillPlan ?: return true
+    return plan.steps
+        .filterIsInstance<SkillStep.ToolStep>()
+        .any { step ->
+            step.request.id == request.id && step.request.toolName == request.toolName
+        }
+}
 
 private fun Map<String, String>.toJsonObject(): JSONObject {
     val json = JSONObject()

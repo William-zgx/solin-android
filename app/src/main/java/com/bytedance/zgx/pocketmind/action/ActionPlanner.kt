@@ -209,9 +209,9 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS -> {
                 val maxCount = parameters["maxCount"]
                 if (maxCount.isNullOrBlank()) {
-                    "将读取最近未读通知的摘要。"
+                    "将读取当前应用最近通知的摘要。"
                 } else {
-                    "将读取最近 ${maxCount} 条通知的摘要。"
+                    "将读取当前应用最近 ${maxCount} 条通知的摘要。"
                 }
             }
             MobileActionFunctions.QUERY_RECENT_FILES -> {

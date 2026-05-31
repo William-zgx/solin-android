@@ -255,6 +255,10 @@ Current status:
 - App-level persistence now covers the active pending tool confirmation produced
   by model-bound continuations; full persisted `SkillRunContinuation` support
   for arbitrary multi-confirmation skill runner state is still pending.
+- Room restore validates that a persisted pending confirmation with an attached
+  `SkillPlan` still points at a tool step in that plan before restoring the UI.
+  Corrupt or stale rows are skipped instead of reviving an unexplainable skill
+  continuation.
 
 Tests:
 
@@ -279,6 +283,7 @@ Tests:
 - `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
+- `AgentTraceStoreTest.roomStoreSkipsPendingSkillPlanThatDoesNotContainPendingToolRequest`
 - `ToolSchemaContractTest`
 - `AgentLoopRuntimeTest.wifiActionInputRequestsConfirmationBeforeExecution`
 
@@ -689,7 +694,8 @@ Responsibilities:
 Current status:
 
 - Implemented Android share-target entry for `ACTION_SEND` and
-  `ACTION_SEND_MULTIPLE`.
+  `ACTION_SEND_MULTIPLE`, including text, image, audio, video, PDF, RTF, and
+  Office MIME types.
 - Implemented a composer attachment entry that launches Android's system
   document picker for user-selected text, image, audio, video, PDF, and Office
   files. Picked files reuse the same `SharedInput` path as share intents.

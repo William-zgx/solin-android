@@ -121,6 +121,13 @@ class ToolRegistryTest {
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"screenshots\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"documents\""))
 
+        val recentNotificationSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS)
+        assertNotNull(recentNotificationSpec)
+        requireNotNull(recentNotificationSpec)
+        assertEquals(ToolCapability.DeviceContext, recentNotificationSpec.capability)
+        assertTrue(ToolPermission.ReadsDeviceContext in recentNotificationSpec.permissions)
+        assertTrue(recentNotificationSpec.description.contains("当前应用"))
+
         val foregroundAppSpec = registry.specFor(MobileActionFunctions.QUERY_FOREGROUND_APP)
         assertNotNull(foregroundAppSpec)
         requireNotNull(foregroundAppSpec)

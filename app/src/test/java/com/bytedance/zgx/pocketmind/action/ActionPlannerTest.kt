@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.action
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -203,6 +204,16 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, plan.draft?.functionName)
         assertEquals("2026-06-01T09:00:00Z", plan.draft?.parameters?.get("start"))
         assertEquals("2026-06-01T10:00:00Z", plan.draft?.parameters?.get("end"))
+    }
+
+    @Test
+    fun recentNotificationSummaryMatchesCurrentAppOnlyBoundary() {
+        val plan = planner.plan("最近通知")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS, plan.draft?.functionName)
+        assertTrue(plan.draft?.summary.orEmpty().contains("当前应用最近通知"))
+        assertFalse(plan.draft?.summary.orEmpty().contains("未读"))
     }
 
     @Test

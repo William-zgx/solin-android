@@ -161,6 +161,42 @@ class SharedInputTest {
     }
 
     @Test
+    fun officeAndRtfAttachmentsRemainMetadataOnlyWithoutPreview() {
+        val richDocumentMimeTypes = listOf(
+            "application/rtf",
+            "application/msword",
+            "application/vnd.ms-excel",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        )
+        richDocumentMimeTypes.forEachIndexed { index, mimeType ->
+            val input = SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Document,
+                        mimeType = mimeType,
+                        displayName = "document-$index",
+                        sizeBytes = 1_000L + index,
+                        textPreview = SharedTextPreview(
+                            text = "rich document secret $index",
+                            truncated = false,
+                        ),
+                    ),
+                ),
+            )
+            val prompt = input.toPrompt()
+
+            assertTrue(prompt.contains("document-$index"))
+            assertTrue(prompt.contains(mimeType))
+            assertFalse(prompt.contains("rich document secret $index"))
+            assertFalse(prompt.contains("\n   文本摘录"))
+        }
+    }
+
+    @Test
     fun promptUsesSafeAttachmentNameOnly() {
         val input = SharedInput(
             text = "",
