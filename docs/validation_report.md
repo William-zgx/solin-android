@@ -1,5 +1,31 @@
 # PocketMind 验证报告
 
+## 2026-05-31 最近截图元数据查询增量验证
+
+本轮覆盖项：
+
+- `query_recent_files` 新增 `screenshots` kind，仅作为 recent image metadata
+  的筛选条件；Android 13+ 权限映射到 `READ_MEDIA_IMAGES`，Android 12- 仍使用
+  legacy storage permission。
+- Android provider 将 `screenshots` 限制在 `image/*`，并按文件名或截图目录
+  特征筛选；返回的 `RecentFileItem.kind` 标记为 `screenshots`。
+- Tool result 仍为 `LocalOnly`，且 `filesJson` 只包含 `name`、`mimeType`、
+  `kind`、`sizeBytes`、`lastModifiedMillis`，不返回 MediaStore id、路径、
+  URI、文件内容、像素或 OCR 文本。
+- Planner 覆盖“最近截图”/`recent screenshots` 到
+  `query_recent_files(kind="screenshots")` 的路由，不声明当前屏幕理解能力。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest'
+```
+
 ## 2026-05-31 后台任务历史查看增量验证
 
 本轮覆盖项：

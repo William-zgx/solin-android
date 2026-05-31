@@ -109,6 +109,7 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission in recentFilesSpec.permissions)
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"kind\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"maxCount\""))
+        assertTrue(recentFilesSpec.inputSchemaJson.contains("\"screenshots\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"documents\""))
 
         val deepLinkSpec = registry.specFor(MobileActionFunctions.OPEN_DEEP_LINK)

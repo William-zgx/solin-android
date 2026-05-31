@@ -254,11 +254,15 @@ Current status:
   busy/free windows, and recent file metadata. Recent file reads return
   `LocalOnly` metadata only: file name, MIME type, coarse kind, size, and last
   modified time. The tool does not return file paths, URIs, or file contents.
+- `query_recent_files` supports a `screenshots` kind that filters recent image
+  metadata likely belonging to screenshot folders or names. It remains
+  metadata-only and returns the same minimal fields as other recent-file reads.
 - JVM executor matrix tests cover foreground app, notification summary, contact
   summary, calendar availability, and recent file metadata success, permission
   denied, provider failure, LocalOnly, and minimal-field boundaries.
-- Broad screen understanding, complete document parsing, OCR, Office/PDF
-  parsing, and media content understanding are still pending.
+- Broad screen understanding, screenshot capture, complete document parsing,
+  OCR, Office/PDF parsing, image pixel analysis, and media content understanding
+  are still pending.
 
 ## Execution Boundary
 

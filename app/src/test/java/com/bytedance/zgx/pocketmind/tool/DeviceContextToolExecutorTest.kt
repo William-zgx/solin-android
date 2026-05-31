@@ -241,15 +241,35 @@ class DeviceContextToolExecutorTest {
     }
 
     @Test
-    fun recentFilesSuccessDefaultsToAllAndMinimalJson() {
+    fun recentFilesSuccessDefaultsToAll() {
+        val provider = RecordingRecentFileProvider(RecentFileReadResult.Available(emptyList()))
+        val executor = RecentFilesToolExecutor(provider)
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "files",
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals("all", provider.lastKind)
+        assertEquals(5, provider.lastMaxCount)
+        assertEquals("all", result.data["kind"])
+        assertEquals("5", result.data["maxCount"])
+    }
+
+    @Test
+    fun recentScreenshotsSuccessStaysLocalOnlyAndMinimalJson() {
         val provider = RecordingRecentFileProvider(
             RecentFileReadResult.Available(
                 listOf(
                     com.bytedance.zgx.pocketmind.device.RecentFileItem(
                         id = 42L,
-                        name = "image.jpg",
+                        name = "Screenshot_20260531.png",
                         mimeType = "image/jpeg",
-                        kind = "images",
+                        kind = "screenshots",
                         sizeBytes = 2_048L,
                         lastModifiedMillis = 7_000L,
                     ),
@@ -262,6 +282,7 @@ class DeviceContextToolExecutorTest {
             ToolRequest(
                 id = "files",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to "screenshots", "maxCount" to "1"),
                 reason = "test",
             ),
         )
@@ -269,19 +290,21 @@ class DeviceContextToolExecutorTest {
         assertEquals(ToolStatus.Succeeded, result.status)
         assertEquals(null, result.error)
         assertFalse(result.retryable)
-        assertEquals("all", provider.lastKind)
-        assertEquals(5, provider.lastMaxCount)
+        assertEquals("screenshots", provider.lastKind)
+        assertEquals(1, provider.lastMaxCount)
         assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, result.data["toolName"])
         assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
         assertEquals("true", result.data["requiresLocalModel"])
-        assertEquals("all", result.data["kind"])
-        assertEquals("5", result.data["maxCount"])
+        assertEquals("screenshots", result.data["kind"])
+        assertEquals("1", result.data["maxCount"])
         val files = JSONArray(result.data.getValue("filesJson"))
         val file = files.getJSONObject(0)
         assertEquals(setOf("name", "mimeType", "kind", "sizeBytes", "lastModifiedMillis"), file.keysSet())
+        assertEquals("screenshots", file.getString("kind"))
         assertFalse(file.has("id"))
         assertFalse(file.has("path"))
         assertFalse(file.has("uri"))
+        assertFalse(file.has("content"))
     }
 
     @Test

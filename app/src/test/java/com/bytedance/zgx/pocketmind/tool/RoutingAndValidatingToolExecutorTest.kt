@@ -121,7 +121,7 @@ class RoutingAndValidatingToolExecutorTest {
             ToolRequest(
                 id = "files-kind",
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
-                arguments = mapOf("kind" to "screenshots"),
+                arguments = mapOf("kind" to "archives"),
                 reason = "test",
             ),
         )
@@ -155,6 +155,25 @@ class RoutingAndValidatingToolExecutorTest {
         assertFalse(invalidRange.retryable)
         assertTrue(invalidRange.summary.contains("at most"))
         assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
+    fun validatingExecutorAcceptsScreenshotsRecentFileKind() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(delegate)
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "files-screenshots",
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to "screenshots", "maxCount" to "3"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, delegate.requests.single().toolName)
+        assertEquals("screenshots", delegate.requests.single().arguments["kind"])
     }
 
     @Test

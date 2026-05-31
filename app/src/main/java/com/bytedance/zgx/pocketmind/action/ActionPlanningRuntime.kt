@@ -135,7 +135,7 @@ internal fun actionPrompt(input: String): String =
     - query_calendar_availability {"start":"...","end":"..."} 仅用于查询指定时间窗日历忙闲
     - query_contacts {"query":"...","maxCount":"..."} 仅用于读取联系人名称与电话（maxCount 可选，默认 5）
     - query_recent_notifications {"maxCount":"..."} 仅用于返回当前应用最近通知的简要信息（可选）
-    - query_recent_files {"kind":"...","maxCount":"..."} 仅用于返回最近文件摘要（kind/ maxCount 均可选）
+    - query_recent_files {"kind":"...","maxCount":"..."} 仅用于返回最近文件摘要（kind 可为 all/screenshots/images/videos/audio/documents/downloads/others，maxCount 可选）
 
     用户请求：$input
     """.trimIndent()

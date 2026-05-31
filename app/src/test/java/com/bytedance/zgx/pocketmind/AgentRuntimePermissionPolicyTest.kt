@@ -35,14 +35,19 @@ class AgentRuntimePermissionPolicyTest {
 
     @Test
     fun recentFilesUsesLegacyStoragePermissionBeforeAndroid13() {
-        val confirmation = confirmationFor(
-            toolName = MobileActionFunctions.QUERY_RECENT_FILES,
-            arguments = mapOf("kind" to "images"),
-        )
-
         assertEquals(
             listOf(Manifest.permission.READ_EXTERNAL_STORAGE),
-            confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.S),
+            confirmationFor(
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to "images"),
+            ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.S),
+        )
+        assertEquals(
+            listOf(Manifest.permission.READ_EXTERNAL_STORAGE),
+            confirmationFor(
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to "screenshots"),
+            ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.S),
         )
     }
 
@@ -53,6 +58,13 @@ class AgentRuntimePermissionPolicyTest {
             confirmationFor(
                 toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 arguments = mapOf("kind" to "images"),
+            ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU),
+        )
+        assertEquals(
+            listOf(Manifest.permission.READ_MEDIA_IMAGES),
+            confirmationFor(
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to "screenshots"),
             ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU),
         )
         assertEquals(

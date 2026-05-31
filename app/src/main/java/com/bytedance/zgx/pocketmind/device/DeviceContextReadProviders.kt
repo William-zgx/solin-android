@@ -21,6 +21,7 @@ private const val DEFAULT_MAX_RECENT_FILE_COUNT = 5
 private const val MAX_RECENT_FILE_COUNT = 50
 
 private const val KIND_ALL = "all"
+private const val KIND_SCREENSHOTS = "screenshots"
 private const val KIND_IMAGES = "images"
 private const val KIND_VIDEOS = "videos"
 private const val KIND_AUDIO = "audio"
@@ -300,7 +301,7 @@ class AndroidRecentFileProvider(
                         id = it.getLong(idIndex),
                         name = it.getString(nameIndex).orEmpty().ifBlank { "未命名文件" },
                         mimeType = mimeType.ifBlank { "application/octet-stream" },
-                        kind = kindFromMime,
+                        kind = filter.outputKind ?: kindFromMime,
                         sizeBytes = it.getLong(sizeIndex).coerceAtLeast(0L),
                         lastModifiedMillis = it.getLong(modifiedIndex).coerceAtLeast(0L) * 1000L,
                     )
@@ -330,6 +331,13 @@ class AndroidRecentFileProvider(
                 allowedKind = KIND_IMAGES,
                 selection = "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?",
                 selectionArgs = arrayOf("image/%"),
+            )
+
+            KIND_SCREENSHOTS -> KindFilter(
+                allowedKind = KIND_IMAGES,
+                outputKind = KIND_SCREENSHOTS,
+                selection = screenshotSelection(),
+                selectionArgs = screenshotSelectionArgs(),
             )
 
             KIND_VIDEOS -> KindFilter(
@@ -395,6 +403,7 @@ class AndroidRecentFileProvider(
 
     private fun normalizeKind(input: String): String =
         when (input.lowercase()) {
+            KIND_SCREENSHOTS -> KIND_SCREENSHOTS
             KIND_IMAGES -> KIND_IMAGES
             KIND_VIDEOS -> KIND_VIDEOS
             KIND_AUDIO -> KIND_AUDIO
@@ -408,6 +417,7 @@ class AndroidRecentFileProvider(
     private fun hasReadPermissionForKind(kind: String): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return when (kind) {
+                KIND_SCREENSHOTS -> hasPermission(Manifest.permission.READ_MEDIA_IMAGES)
                 KIND_IMAGES -> hasPermission(Manifest.permission.READ_MEDIA_IMAGES)
                 KIND_VIDEOS -> hasPermission(Manifest.permission.READ_MEDIA_VIDEO)
                 KIND_AUDIO -> hasPermission(Manifest.permission.READ_MEDIA_AUDIO)
@@ -429,6 +439,33 @@ class AndroidRecentFileProvider(
             "未授权“读取文件”权限"
         }
 
+    private fun screenshotSelection(): String {
+        val nameClauses = SCREENSHOT_MARKERS.joinToString(separator = " OR ") {
+            "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ?"
+        }
+        val pathClauses = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            SCREENSHOT_MARKERS.joinToString(separator = " OR ") {
+                "LOWER(${MediaStore.Files.FileColumns.RELATIVE_PATH}) LIKE ?"
+            }
+        } else {
+            ""
+        }
+        val screenshotClauses = listOf(nameClauses, pathClauses)
+            .filter { it.isNotBlank() }
+            .joinToString(separator = " OR ")
+        return "${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ? AND ($screenshotClauses)"
+    }
+
+    private fun screenshotSelectionArgs(): Array<String> {
+        val markers = SCREENSHOT_MARKERS.map { "%$it%" }
+        val args = mutableListOf("image/%")
+        args += markers
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            args += markers
+        }
+        return args.toTypedArray()
+    }
+
     private fun hasPermission(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
@@ -445,11 +482,21 @@ class AndroidRecentFileProvider(
 
     private data class KindFilter(
         val allowedKind: String,
+        val outputKind: String? = null,
         val selection: String? = null,
         val selectionArgs: Array<String>? = null,
     )
 
     private companion object {
+        val SCREENSHOT_MARKERS = listOf(
+            "screenshot",
+            "screen_shot",
+            "screencap",
+            "screen capture",
+            "截屏",
+            "截图",
+        )
+
         val FILE_PROJECTION = arrayOf(
             MediaStore.Files.FileColumns._ID,
             MediaStore.Files.FileColumns.DISPLAY_NAME,

@@ -351,6 +351,8 @@ class MobileActionPlanner : ActionPlanner {
             "最近文件",
             "最近文档",
             "最近图片",
+            "最近截图",
+            "最近截屏",
             "最近视频",
             "最近音频",
             "最近下载",
@@ -358,9 +360,11 @@ class MobileActionPlanner : ActionPlanner {
             "文件列表",
             "最近文件列表",
         ).any { it in input } ||
-            Regex("""最近\s*\d{0,2}\s*(?:个|份|条|张)?\s*(文件|文档|图片|照片|视频|音频|下载)""")
+            Regex("""最近\s*\d{0,2}\s*(?:个|份|条|张)?\s*(文件|文档|图片|照片|截图|截屏|视频|音频|下载)""")
                 .containsMatchIn(input) ||
-            Regex("""\b(recent|latest)\b.*\b(files?|documents?|images?|videos?|audios?|photos?)\b""")
+            Regex(
+                """\b(recent|latest)\b.*\b(files?|documents?|images?|screenshots?|screen\s+captures?|videos?|audios?|photos?)\b""",
+            )
                 .containsMatchIn(normalized)
     }
 
@@ -391,7 +395,10 @@ class MobileActionPlanner : ActionPlanner {
         val normalized = input.lowercase()
         val cleaned = input.replace(Regex("\\s+"), "")
         val countMatch = Regex("最近(\\d{1,2})条?(?:个|份)?").find(cleaned)
-            ?: Regex("(?:recent|latest)\\s+(\\d{1,2})\\s+(?:files?|documents?|images?|videos?|audios?|photos?)")
+            ?: Regex(
+                "(?:recent|latest)\\s+(\\d{1,2})\\s+" +
+                    "(?:files?|documents?|images?|screenshots?|screen\\s+captures?|videos?|audios?|photos?)",
+            )
                 .find(normalized)
 
         val maxCount = countMatch?.groupValues
@@ -401,6 +408,8 @@ class MobileActionPlanner : ActionPlanner {
             ?.toString()
 
         val kind = when {
+            "截图" in input || "截屏" in input || "screenshot" in normalized || "screen capture" in normalized ->
+                "screenshots"
             "图片" in input || "image" in normalized || "photo" in normalized -> "images"
             "视频" in input || "video" in normalized || "vid" in normalized -> "videos"
             "音频" in input || "audio" in normalized -> "audio"

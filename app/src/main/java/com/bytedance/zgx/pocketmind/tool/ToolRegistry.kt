@@ -426,7 +426,7 @@ private val recentFilesSchemaJson = """
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["all", "images", "videos", "audio", "documents", "downloads", "others"]
+          "enum": ["all", "screenshots", "images", "videos", "audio", "documents", "downloads", "others"]
         },
         "maxCount": {
           "type": "integer",

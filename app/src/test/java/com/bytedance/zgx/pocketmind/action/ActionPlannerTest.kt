@@ -151,6 +151,25 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun infersRecentScreenshotsDraftWithCount() {
+        val plan = planner.plan("查询最近3张截图")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, plan.draft?.functionName)
+        assertEquals("screenshots", plan.draft?.parameters?.get("kind"))
+        assertEquals("3", plan.draft?.parameters?.get("maxCount"))
+    }
+
+    @Test
+    fun infersRecentScreenshotsDraftForEnglishPhrase() {
+        val plan = planner.plan("recent screenshots")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, plan.draft?.functionName)
+        assertEquals("screenshots", plan.draft?.parameters?.get("kind"))
+    }
+
+    @Test
     fun infersDeepLinkDraftForExplicitUri() {
         val plan = planner.plan("打开链接 https://example.com/path?q=agent")
 

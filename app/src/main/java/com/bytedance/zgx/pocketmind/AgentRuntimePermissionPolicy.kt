@@ -47,6 +47,7 @@ private fun recentFilePermissionsFor(kind: String, apiLevel: Int): List<String> 
         return listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
     }
     return when (kind.lowercase()) {
+        "screenshots" -> listOf(Manifest.permission.READ_MEDIA_IMAGES)
         "images" -> listOf(Manifest.permission.READ_MEDIA_IMAGES)
         "videos" -> listOf(Manifest.permission.READ_MEDIA_VIDEO)
         "audio" -> listOf(Manifest.permission.READ_MEDIA_AUDIO)
