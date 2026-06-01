@@ -1833,6 +1833,50 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun modelStepBindingRejectsUnmetDependenciesBeforeConfirmation() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = CustomClipboardTransformSkillRuntime(includeUnmetShareDependency = true),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "custom clipboard transform",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = mapOf(
+                    "text" to "剪贴板原文",
+                    "truncated" to "false",
+                ),
+            ),
+        )
+        requireNotNull(observed)
+
+        val modelObserved = runtime.observeModelResult(planned.run.id, "模型输出")
+
+        requireNotNull(modelObserved)
+        assertEquals(AgentRunState.Failed, modelObserved.run.state)
+        require(modelObserved.decision is AgentObservationDecision.Fail)
+        assertTrue(modelObserved.decision.reason.contains("Unmet skill dependency"))
+        assertTrue(modelObserved.decision.reason.contains("custom_foreground"))
+        assertTrue(modelObserved.steps.any { it is AgentStep.ToolRejected })
+        assertTrue(modelObserved.steps.none { step ->
+            step is AgentStep.UserConfirmationRequested &&
+                step.request.toolName == MobileActionFunctions.SHARE_TEXT
+        })
+        assertNull(runtime.latestPendingConfirmation())
+    }
+
+    @Test
     fun modelStepBindingCannotDirectlyExposePrivateToolOutputToShare() {
         val auditSink = InMemoryToolAuditSink()
         val secretClipboardText = "secret clipboard text should not leave the model boundary"
@@ -3552,6 +3596,7 @@ class AgentLoopRuntimeTest {
 
     private class CustomClipboardTransformSkillRuntime(
         private val shareBinding: String = "custom_model.shareText",
+        private val includeUnmetShareDependency: Boolean = false,
     ) : SkillRuntime {
         private val manifest = SkillManifest(
             id = SKILL_ID,
@@ -3559,7 +3604,14 @@ class AgentLoopRuntimeTest {
             title = "Custom clipboard transform",
             description = "Test-only composite skill",
             triggerExamples = listOf("custom clipboard transform"),
-            requiredTools = listOf(MobileActionFunctions.READ_CLIPBOARD, MobileActionFunctions.SHARE_TEXT),
+            requiredTools = listOf(
+                MobileActionFunctions.READ_CLIPBOARD,
+                MobileActionFunctions.SHARE_TEXT,
+            ) + if (includeUnmetShareDependency) {
+                listOf(MobileActionFunctions.QUERY_FOREGROUND_APP)
+            } else {
+                emptyList()
+            },
             inputSchemaJson = """
                 {
                   "type": "object",
@@ -3603,6 +3655,52 @@ class AgentLoopRuntimeTest {
                 toolName = MobileActionFunctions.SHARE_TEXT,
                 reason = shareDraft.summary,
             )
+            val foregroundDraft = ActionDraft(
+                functionName = MobileActionFunctions.QUERY_FOREGROUND_APP,
+                title = "查询前台应用",
+                summary = "查询当前前台应用。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            val foregroundStep = SkillStep.ToolStep(
+                id = "custom_foreground",
+                request = ToolRequest(
+                    id = "custom-foreground-request",
+                    toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
+                    reason = foregroundDraft.summary,
+                ),
+                draft = foregroundDraft,
+            )
+            val shareDependsOn = if (includeUnmetShareDependency) {
+                listOf("custom_model", foregroundStep.id)
+            } else {
+                listOf("custom_model")
+            }
+            val steps = mutableListOf<SkillStep>(
+                SkillStep.ToolStep(
+                    id = "custom_read",
+                    request = readRequest,
+                    draft = readDraft,
+                ),
+                SkillStep.ModelStep(
+                    id = "custom_model",
+                    dependsOn = listOf("custom_read"),
+                    title = "转换剪贴板内容",
+                    instruction = "转换用户确认读取的剪贴板内容。",
+                    inputBindings = mapOf("clipboardText" to "custom_read.text"),
+                    outputKey = "shareText",
+                ),
+            )
+            if (includeUnmetShareDependency) {
+                steps += foregroundStep
+            }
+            steps += SkillStep.ToolStep(
+                id = "custom_share",
+                dependsOn = shareDependsOn,
+                request = shareRequest,
+                draft = shareDraft,
+                argumentBindings = mapOf("text" to shareBinding),
+            )
             return SkillPlan(
                 request = SkillRequest(
                     id = "custom-skill-request",
@@ -3611,28 +3709,7 @@ class AgentLoopRuntimeTest {
                     reason = input,
                 ),
                 manifest = manifest,
-                steps = listOf(
-                    SkillStep.ToolStep(
-                        id = "custom_read",
-                        request = readRequest,
-                        draft = readDraft,
-                    ),
-                    SkillStep.ModelStep(
-                        id = "custom_model",
-                        dependsOn = listOf("custom_read"),
-                        title = "转换剪贴板内容",
-                        instruction = "转换用户确认读取的剪贴板内容。",
-                        inputBindings = mapOf("clipboardText" to "custom_read.text"),
-                        outputKey = "shareText",
-                    ),
-                    SkillStep.ToolStep(
-                        id = "custom_share",
-                        dependsOn = listOf("custom_model"),
-                        request = shareRequest,
-                        draft = shareDraft,
-                        argumentBindings = mapOf("text" to shareBinding),
-                    ),
-                ),
+                steps = steps,
             )
         }
 

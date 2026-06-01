@@ -223,7 +223,9 @@ Current status:
 - Skill model-step results can now be consumed generically: when a declarative
   `ToolStep` depends on a `ModelStep`, the model output is bound through the
   tool step's `argumentBindings`, then validated, safety-checked, audited, and
-  returned to `AwaitingUserConfirmation`.
+  returned to `AwaitingUserConfirmation`. The progression fails closed if the
+  next tool still depends on another unsatisfied step, preventing model output
+  from skipping required tool or model prerequisites.
 - Open-ended model-driven replanning, arbitrary multi-confirmation skill UI
   orchestration, and full argument-bearing typed step rehydration are still
   pending.
@@ -330,6 +332,10 @@ Current status:
   private tool output fences. `SkillRunExecutor` and Agent model-result
   replanning now share this progression logic instead of maintaining separate
   binding implementations.
+- `SkillRunProgressor.nextToolAfterModelOutput()` also verifies that every
+  declared dependency of the next `ToolStep` is already satisfied before
+  returning another confirmation. A model output cannot skip an unrequested
+  prerequisite tool and jump directly to a later external action.
 - `SkillRunExecutor` now rejects direct `ToolStep.argumentBindings` from private
   tool outputs such as `read_clipboard.text` into later tool arguments. Private
   values can feed local model steps, but external tool payloads must come from

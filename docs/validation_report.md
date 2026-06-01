@@ -1455,6 +1455,28 @@ git diff --check
 rg credential-pattern scan excluding build, .gradle, and test fixtures
 ```
 
+## 2026-06-01 Skill model dependency guard 增量验证
+
+本轮覆盖项：
+
+- `SkillRunProgressor.nextToolAfterModelOutput()` 在绑定模型输出到后续
+  `ToolStep` 前，会确认该工具声明的所有依赖都已满足。
+- 如果后续工具还依赖另一个未请求/未完成的前置步骤，进度器返回 rejected，
+  `AgentLoopRuntime` 进入 `Failed`，不生成新的外发工具确认卡。
+- 私密输出 fence、缺失 binding 失败和正常模型输出绑定路径保持不变。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsUnmetDependenciesBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation'
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+```
+
 ## 2026-05-31 Reminder rollback metadata 增量验证
 
 本轮覆盖项：

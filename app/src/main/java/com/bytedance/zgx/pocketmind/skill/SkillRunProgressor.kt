@@ -52,6 +52,10 @@ class SkillRunProgressor(
         }
 
         val privateOutputRefs = privateOutputRefsForRequestedTools(skillPlan, requestedRequestIds)
+        val requestedToolStepIds = skillPlan.steps
+            .filterIsInstance<SkillStep.ToolStep>()
+            .filter { step -> step.request.id in requestedRequestIds }
+            .mapTo(mutableSetOf()) { step -> step.id }
         val modelSteps = skillPlan.steps.filterIsInstance<SkillStep.ModelStep>()
         skillPlan.steps
             .filterIsInstance<SkillStep.ToolStep>()
@@ -59,6 +63,13 @@ class SkillRunProgressor(
                 if (toolStep.request.id in requestedRequestIds) return@forEach
                 val modelStep = modelSteps.lastOrNull { step -> step.id in toolStep.dependsOn }
                     ?: return@forEach
+                val satisfiedStepIds = requestedToolStepIds + modelStep.id
+                val unmetDependencies = toolStep.dependsOn.filter { dependency -> dependency !in satisfiedStepIds }
+                if (unmetDependencies.isNotEmpty()) {
+                    return SkillModelOutputProgression.Rejected(
+                        "Unmet skill dependency for ${toolStep.id}: ${unmetDependencies.joinToString()}",
+                    )
+                }
                 val outputs = initialOutputs(skillPlan).apply {
                     put(modelStep.id, mapOf(modelStep.outputKey to modelOutput))
                 }

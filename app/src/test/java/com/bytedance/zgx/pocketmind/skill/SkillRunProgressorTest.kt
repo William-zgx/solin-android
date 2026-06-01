@@ -476,4 +476,46 @@ class SkillRunProgressorTest {
         assertEquals("Missing model output binding for skill step.", progression.reason)
     }
 
+    @Test
+    fun nextToolAfterModelOutputRejectsToolWithUnmetDependencies() {
+        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val readStep = plan.steps[0] as SkillStep.ToolStep
+        val modelStep = plan.steps[1] as SkillStep.ModelStep
+        val shareStep = plan.steps[2] as SkillStep.ToolStep
+        val foregroundStep = SkillStep.ToolStep(
+            id = "check_foreground",
+            request = ToolRequest(
+                id = "foreground-request",
+                toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.QUERY_FOREGROUND_APP,
+                title = "查询前台应用",
+                summary = "查询当前前台应用。",
+                parameters = emptyMap(),
+            ),
+        )
+        val brokenPlan = plan.copy(
+            manifest = plan.manifest.copy(
+                requiredTools = plan.manifest.requiredTools + MobileActionFunctions.QUERY_FOREGROUND_APP,
+            ),
+            steps = listOf(
+                readStep,
+                modelStep,
+                foregroundStep,
+                shareStep.copy(dependsOn = listOf(modelStep.id, foregroundStep.id)),
+            ),
+        )
+
+        val progression = progressor.nextToolAfterModelOutput(
+            skillPlan = brokenPlan,
+            requestedRequestIds = setOf(readStep.request.id),
+            modelOutput = "摘要",
+        )
+
+        require(progression is SkillModelOutputProgression.Rejected)
+        assertTrue(progression.reason.contains("Unmet skill dependency"))
+        assertTrue(progression.reason.contains("check_foreground"))
+    }
+
 }
