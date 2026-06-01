@@ -941,15 +941,16 @@ Emulator regression:
 
 ```bash
 adb devices -l
-scripts/install_and_test_device.sh
+ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh
 ```
 
-Use `ANDROID_SERIAL=<serial> scripts/install_and_test_device.sh` when multiple
-authorized devices or emulators are connected. The helper exits before Gradle,
-APK install, or instrumentation if it cannot identify exactly one authorized
-target or if the selected serial is not in `device` state. A full regression
-report should record the target serial or AVD name, API level, ABI, whether
-`CLEAN_DEVICE=1` was used, and the current
+Use `AVD_NAME=<name> scripts/verify_emulator.sh` when the helper should launch
+an AVD first. The emulator helper refuses physical-device serials and exits
+before Gradle, APK install, or instrumentation when it cannot identify exactly
+one authorized `emulator-*` target. Use
+`ANDROID_SERIAL=<serial> scripts/install_and_test_device.sh` for physical
+device validation. A full regression report should record the target serial or
+AVD name, API level, ABI, whether `CLEAN_DEVICE=1` was used, and the current
 instrumentation test count.
 
 Full device validation remains required for LiteRT-LM model execution because

@@ -64,20 +64,21 @@ CLEAN_DEVICE=1 scripts/install_and_test_device.sh
 模拟器用于 UI、确认链路、工具失败路径和普通聊天回归；LiteRT-LM 性能和 GPU 行为仍以真机为准。
 工具执行矩阵由 JVM 单测覆盖；模拟器/真机仍用于确认卡、runtime permission 弹窗和 UI 审计入口端到端验证。
 
-1. 启动一个已授权 Android 模拟器。
-2. 在项目根目录运行：
+已启动一个模拟器时，优先使用 emulator-only helper，避免误选真机：
 
 ```bash
 adb devices -l
-./gradlew :app:assembleDebug :app:connectedDebugAndroidTest
+ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh
 ```
 
-3. 验证首屏、模型管理、会话入口和动作确认 UI 都能打开。
-4. 如果连接了多台设备，先指定 `ANDROID_SERIAL`，避免 instrumentation 跑到真机或错误模拟器：
+也可以让脚本先启动指定 AVD，再等待 boot completed 后复用安装和 instrumentation 流程：
 
 ```bash
-ANDROID_SERIAL=emulator-5554 scripts/install_and_test_device.sh
+AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 ```
+
+`verify_emulator.sh` 只接受 `emulator-*` 目标；未指定 `ANDROID_SERIAL` 时要求恰好一台已授权模拟器。如果只有真机或同时存在多台模拟器，脚本会在 Gradle 构建、安装和 instrumentation 前退出。
+失败时会在 `build/verification/` 下尽量保存截图、UI dump 和短 logcat。
 
 完整回归记录至少包含设备序列号或 AVD 名称、API、ABI、是否设置
 `CLEAN_DEVICE=1`、执行命令和 instrumentation 测试总数。

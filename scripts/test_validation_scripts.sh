@@ -12,6 +12,8 @@ fail() {
   exit 1
 }
 
+LAST_OUTPUT=""
+
 expect_success() {
   local name="$1"
   shift
@@ -19,6 +21,7 @@ expect_success() {
     printf '%s\n' "$output" >&2
     fail "$name unexpectedly failed"
   fi
+  LAST_OUTPUT="$output"
 }
 
 expect_failure() {
@@ -28,6 +31,7 @@ expect_failure() {
     printf '%s\n' "$output" >&2
     fail "$name unexpectedly succeeded"
   fi
+  LAST_OUTPUT="$output"
 }
 
 create_base_sdk() {
@@ -68,6 +72,12 @@ case "${1:-}" in
       "getprop ro.product.cpu.abilist64")
         echo "arm64-v8a,armeabi-v7a"
         ;;
+      "getprop ro.build.version.sdk")
+        echo "36"
+        ;;
+      "getprop sys.boot_completed")
+        echo "1"
+        ;;
       "df -k /data")
         printf 'Filesystem 1K-blocks Used Available Use%% Mounted on\n'
         printf '/dev/block 5000000 1000 4000000 1%% /data\n'
@@ -84,6 +94,18 @@ case "${1:-}" in
         ;;
     esac
     ;;
+  emu)
+    shift
+    case "$*" in
+      "avd name")
+        echo "test-avd"
+        ;;
+      *)
+        echo "unexpected emulator command: $*" >&2
+        exit 2
+        ;;
+    esac
+    ;;
   install|uninstall)
     echo "Success"
     ;;
@@ -94,6 +116,17 @@ case "${1:-}" in
 esac
 FAKE_ADB
   chmod +x "$sdk/platform-tools/adb"
+}
+
+create_fake_emulator() {
+  local sdk="$1"
+  mkdir -p "$sdk/emulator"
+  cat > "$sdk/emulator/emulator" <<'FAKE_EMULATOR'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "${FAKE_EMULATOR_LOG:?}"
+FAKE_EMULATOR
+  chmod +x "$sdk/emulator/emulator"
 }
 
 create_fake_gradle() {
@@ -120,6 +153,7 @@ assert_gradle_called() {
 
 reset_logs() {
   : > "$FAKE_ADB_LOG"
+  : > "$FAKE_EMULATOR_LOG"
   : > "$FAKE_GRADLE_LOG"
 }
 
@@ -127,11 +161,13 @@ NO_ADB_SDK="$TMP_DIR/no-adb-sdk"
 FAKE_SDK="$TMP_DIR/fake-sdk"
 FAKE_GRADLE="$TMP_DIR/fake-gradle"
 export FAKE_ADB_LOG="$TMP_DIR/fake-adb.log"
+export FAKE_EMULATOR_LOG="$TMP_DIR/fake-emulator.log"
 export FAKE_GRADLE_LOG="$TMP_DIR/fake-gradle.log"
 
 create_base_sdk "$NO_ADB_SDK"
 create_base_sdk "$FAKE_SDK"
 create_fake_adb "$FAKE_SDK"
+create_fake_emulator "$FAKE_SDK"
 create_fake_gradle "$FAKE_GRADLE"
 reset_logs
 
@@ -206,5 +242,44 @@ grep -q -- "-s device-b shell getprop ro.product.cpu.abilist64" "$FAKE_ADB_LOG" 
   fail "Expected adb device commands to target ANDROID_SERIAL"
 grep -q -- "-s device-b install -r app/build/outputs/apk/debug/app-debug.apk" "$FAKE_ADB_LOG" ||
   fail "Expected debug APK install to target ANDROID_SERIAL"
+
+reset_logs
+expect_failure \
+  "emulator helper rejects physical serial" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
+  EMULATOR_SELECT_TIMEOUT_SECONDS=0 GRADLE_CMD="$FAKE_GRADLE" \
+  scripts/verify_emulator.sh
+assert_no_gradle_call
+
+reset_logs
+expect_failure \
+  "emulator helper rejects physical-only devices" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' EMULATOR_SELECT_TIMEOUT_SECONDS=0 \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/verify_emulator.sh
+assert_no_gradle_call
+
+reset_logs
+expect_success \
+  "emulator helper selects the only authorized emulator" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' GRADLE_CMD="$FAKE_GRADLE" \
+  scripts/verify_emulator.sh
+assert_gradle_called
+grep -q -- "-s emulator-5554 shell getprop sys.boot_completed" "$FAKE_ADB_LOG" ||
+  fail "Expected emulator helper to wait for emulator boot completion"
+grep -q -- "-s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk" "$FAKE_ADB_LOG" ||
+  fail "Expected emulator helper to install debug APK on selected emulator"
+
+reset_logs
+expect_success \
+  "emulator helper starts requested AVD" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5556\tdevice' AVD_NAME="test-avd" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/verify_emulator.sh
+assert_gradle_called
+grep -q "Starting emulator AVD: test-avd" <<<"$LAST_OUTPUT" ||
+  fail "Expected emulator helper to enter AVD startup path"
 
 echo "Validation script tests passed."

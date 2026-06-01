@@ -1396,6 +1396,42 @@ adb devices -l
   --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.clearLongTermMemorySuppressesActiveTaskStateMemoryResync'
 ```
 
+## 2026-06-01 Emulator verification helper 增量验证
+
+本轮覆盖项：
+
+- 新增 `scripts/verify_emulator.sh`，作为 emulator-only 验证入口；它复用
+  `doctor --device` 和 `install_and_test_device.sh`，但只允许 `emulator-*`
+  目标，避免 instrumentation 误跑到真机。
+- 未指定 `ANDROID_SERIAL` 时，脚本要求恰好一台已授权模拟器；指定 serial 时，
+  目标必须是 `device` 状态的 emulator serial。
+- 支持 `AVD_NAME=...` 先启动 AVD，等待 `sys.boot_completed=1` 后记录 serial、
+  API、ABI、AVD 名称和 `CLEAN_DEVICE`，再执行 build/install/instrumentation。
+- 失败时尽量收集截图、UI dump 和短 logcat 到 `build/verification/`，用于模拟器
+  回归排查。
+
+验证命令：
+
+```bash
+bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+```
+
+结果：
+
+- 通过：`bash -n` 覆盖 `doctor.sh`、`verify_local.sh`、
+  `install_and_test_device.sh`、`verify_emulator.sh` 和
+  `test_validation_scripts.sh`。
+- 通过：`scripts/test_validation_scripts.sh`，覆盖 fake SDK 下 emulator helper
+  拒绝 physical serial、拒绝仅真机目标、选择唯一授权 emulator、启动指定
+  AVD，以及继续复用 install helper 的安装路径。
+- 未执行真实模拟器 instrumentation：当前切片只固化脚本入口和 fake adb/emulator
+  选择边界；真实设备/模拟器回归需在有可启动 AVD 的环境执行
+  `ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh` 或
+  `AVD_NAME=<name> scripts/verify_emulator.sh`。
+
 ## 2026-05-31 Reminder rollback metadata 增量验证
 
 本轮覆盖项：

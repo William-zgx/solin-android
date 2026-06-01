@@ -334,6 +334,19 @@ adb devices
 scripts/install_and_test_device.sh
 ```
 
+Run emulator-only validation without accidentally selecting a physical device:
+
+```bash
+ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh
+```
+
+The emulator helper can also start an AVD before running the shared install and
+instrumentation flow:
+
+```bash
+AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
+```
+
 When more than one authorized device is connected, select the target explicitly:
 
 ```bash
@@ -393,6 +406,7 @@ docs/
 scripts/
   doctor.sh                 Local Android/JDK environment checker
   verify_local.sh           Local build/test helper
+  verify_emulator.sh        Emulator-only install and smoke-test helper
   install_and_test_device.sh Device install and smoke-test helper
   test_validation_scripts.sh Shell preflight regression tests
 ```

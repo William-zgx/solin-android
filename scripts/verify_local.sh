@@ -9,7 +9,7 @@ GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 MAX_RELEASE_APK_BYTES=$((75 * 1024 * 1024))
 
 scripts/doctor.sh --local
-bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/test_validation_scripts.sh
+bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/test_validation_scripts.sh
 scripts/test_validation_scripts.sh
 
 AAPT="$(find "$ANDROID_SDK/build-tools" -name aapt -type f 2>/dev/null | sort | tail -n 1)"
