@@ -43,6 +43,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_5_6,
                 PocketMindDatabase.MIGRATION_6_7,
                 PocketMindDatabase.MIGRATION_7_8,
+                PocketMindDatabase.MIGRATION_8_9,
             )
             .allowMainThreadQueries()
             .build()
@@ -126,6 +127,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_5_6,
                 PocketMindDatabase.MIGRATION_6_7,
                 PocketMindDatabase.MIGRATION_7_8,
+                PocketMindDatabase.MIGRATION_8_9,
             )
             .allowMainThreadQueries()
             .build()
@@ -167,6 +169,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_5_6,
                 PocketMindDatabase.MIGRATION_6_7,
                 PocketMindDatabase.MIGRATION_7_8,
+                PocketMindDatabase.MIGRATION_8_9,
             )
             .allowMainThreadQueries()
             .build()
@@ -217,7 +220,11 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_6_7, PocketMindDatabase.MIGRATION_7_8)
+            .addMigrations(
+                PocketMindDatabase.MIGRATION_6_7,
+                PocketMindDatabase.MIGRATION_7_8,
+                PocketMindDatabase.MIGRATION_8_9,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -322,7 +329,7 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_7_8)
+            .addMigrations(PocketMindDatabase.MIGRATION_7_8, PocketMindDatabase.MIGRATION_8_9)
             .allowMainThreadQueries()
             .build()
 
@@ -331,6 +338,57 @@ class PocketMindDatabaseMigrationTest {
             assertEquals("request-1", pending?.requestId)
             assertEquals(null, pending?.nextActionInput)
             assertTrue(database.pendingNextActionInputColumnIsNullable())
+        } finally {
+            database.close()
+            context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
+    @Test
+    fun migration8To9CreatesSkillRunCheckpointsTableAndRoomCanOpen() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB_NAME)
+        val dbFile = context.getDatabasePath(TEST_DB_NAME)
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createVersion8Schema(db)
+            db.version = 8
+        }
+
+        val database = Room.databaseBuilder(
+            context,
+            PocketMindDatabase::class.java,
+            TEST_DB_NAME,
+        )
+            .addMigrations(PocketMindDatabase.MIGRATION_8_9)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            database.agentTraceDao().upsertSkillRunCheckpoint(
+                AgentSkillRunCheckpointEntity(
+                    runId = "run-1",
+                    requestId = "request-1",
+                    skillId = "skill-1",
+                    skillRequestId = "skill-request-1",
+                    manifestId = "skill-1",
+                    manifestVersion = 1,
+                    manifestHash = "a".repeat(64),
+                    phase = "AwaitingToolConfirmation",
+                    pendingStepIndex = 0,
+                    pendingStepId = "tool:request-1",
+                    pendingToolName = "read_clipboard",
+                    completedStepIdsJson = "[]",
+                    outputKeysByStepJson = "{}",
+                    privateOutputRefsJson = "[]",
+                    schemaVersion = 1,
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 1L,
+                ),
+            )
+            val checkpoint = database.agentTraceDao().skillRunCheckpoint("run-1", "request-1")
+            assertEquals("skill-1", checkpoint?.skillId)
+            assertTrue(database.skillRunCheckpointsTableExists())
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
@@ -514,6 +572,13 @@ class PocketMindDatabaseMigrationTest {
         )
     }
 
+    private fun createVersion8Schema(db: SQLiteDatabase) {
+        createVersion7Schema(db)
+        db.execSQL(
+            "ALTER TABLE `pending_agent_confirmations` ADD COLUMN `nextActionInput` TEXT",
+        )
+    }
+
     private fun PocketMindDatabase.agentTraceTablesExist(): Boolean {
         val tables = mutableSetOf<String>()
         openHelper.writableDatabase.query(
@@ -544,6 +609,14 @@ class PocketMindDatabaseMigrationTest {
             }
         }
         return false
+    }
+
+    private fun PocketMindDatabase.skillRunCheckpointsTableExists(): Boolean {
+        openHelper.writableDatabase.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'agent_skill_run_checkpoints'",
+        ).use { cursor ->
+            return cursor.moveToNext()
+        }
     }
 
     private object NoOpSecretStore : SecretStore {

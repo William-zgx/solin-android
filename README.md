@@ -18,6 +18,10 @@ Google AI Edge LiteRT-LM.
 - Lightweight local memory recall over previous conversation context.
 - Experimental local mobile action planning with deterministic rule fallback and explicit confirmation.
 - Schema-driven tool validation plus Agent run tracing for plan-confirm-observe execution, safety checks, read-only bounded retry, and persistent audit events.
+- Value-free Skill checkpoint persistence records only run/request/step ids,
+  manifest identity, output keys, and private-output refs for pending Skill
+  confirmations; raw continuation outputs and executable payload values stay
+  out of Room and fail closed on mismatch.
 - JVM tool executor matrix tests cover registry validation, routing, permission
   failures, provider failures, structured error codes, and LocalOnly device
   context outputs.

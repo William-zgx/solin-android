@@ -12,6 +12,7 @@ import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
 import com.bytedance.zgx.pocketmind.audit.InMemoryToolAuditSink
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEventType
+import com.bytedance.zgx.pocketmind.data.AgentSkillRunCheckpointEntity
 import com.bytedance.zgx.pocketmind.data.AgentRunEntity
 import com.bytedance.zgx.pocketmind.data.AgentStepEntity
 import com.bytedance.zgx.pocketmind.data.AgentTraceDao
@@ -4382,6 +4383,7 @@ class AgentLoopRuntimeTest {
         private val runs = linkedMapOf<String, AgentRunEntity>()
         private val steps = mutableListOf<AgentStepEntity>()
         private val pendingConfirmations = linkedMapOf<String, PendingAgentConfirmationEntity>()
+        private val skillRunCheckpoints = linkedMapOf<Pair<String, String>, AgentSkillRunCheckpointEntity>()
 
         override fun run(runId: String): AgentRunEntity? =
             runs[runId]
@@ -4448,6 +4450,33 @@ class AgentLoopRuntimeTest {
             if (existing.requestId != requestId) return 0
             pendingConfirmations.remove(runId)
             return 1
+        }
+
+        override fun skillRunCheckpoint(
+            runId: String,
+            requestId: String,
+        ): AgentSkillRunCheckpointEntity? =
+            skillRunCheckpoints[runId to requestId]
+
+        override fun skillRunCheckpointsForRun(runId: String): List<AgentSkillRunCheckpointEntity> =
+            skillRunCheckpoints.values
+                .filter { checkpoint -> checkpoint.runId == runId }
+                .sortedWith(
+                    compareByDescending<AgentSkillRunCheckpointEntity> { checkpoint -> checkpoint.updatedAtMillis }
+                        .thenByDescending { checkpoint -> checkpoint.requestId },
+                )
+
+        override fun upsertSkillRunCheckpoint(checkpoint: AgentSkillRunCheckpointEntity) {
+            skillRunCheckpoints[checkpoint.runId to checkpoint.requestId] = checkpoint
+        }
+
+        override fun deleteSkillRunCheckpoint(runId: String, requestId: String): Int =
+            if (skillRunCheckpoints.remove(runId to requestId) != null) 1 else 0
+
+        override fun deleteSkillRunCheckpointsForRun(runId: String): Int {
+            val before = skillRunCheckpoints.size
+            skillRunCheckpoints.keys.removeAll { (checkpointRunId, _) -> checkpointRunId == runId }
+            return before - skillRunCheckpoints.size
         }
     }
 

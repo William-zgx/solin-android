@@ -130,6 +130,27 @@ data class PendingAgentConfirmationEntity(
     val updatedAtMillis: Long,
 )
 
+@Entity(tableName = "agent_skill_run_checkpoints", primaryKeys = ["runId", "requestId"])
+data class AgentSkillRunCheckpointEntity(
+    val runId: String,
+    val requestId: String,
+    val skillId: String,
+    val skillRequestId: String,
+    val manifestId: String,
+    val manifestVersion: Int,
+    val manifestHash: String,
+    val phase: String,
+    val pendingStepIndex: Int,
+    val pendingStepId: String,
+    val pendingToolName: String,
+    val completedStepIdsJson: String,
+    val outputKeysByStepJson: String,
+    val privateOutputRefsJson: String,
+    val schemaVersion: Int,
+    val createdAtMillis: Long,
+    val updatedAtMillis: Long,
+)
+
 @Dao
 interface SessionDao {
     @Query("SELECT * FROM chat_sessions ORDER BY updatedAtMillis DESC")
@@ -407,6 +428,21 @@ interface AgentTraceDao {
 
     @Query("DELETE FROM pending_agent_confirmations WHERE runId = :runId AND requestId = :requestId")
     fun deletePendingConfirmation(runId: String, requestId: String): Int
+
+    @Query("SELECT * FROM agent_skill_run_checkpoints WHERE runId = :runId AND requestId = :requestId LIMIT 1")
+    fun skillRunCheckpoint(runId: String, requestId: String): AgentSkillRunCheckpointEntity?
+
+    @Query("SELECT * FROM agent_skill_run_checkpoints WHERE runId = :runId ORDER BY updatedAtMillis DESC, requestId DESC")
+    fun skillRunCheckpointsForRun(runId: String): List<AgentSkillRunCheckpointEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsertSkillRunCheckpoint(checkpoint: AgentSkillRunCheckpointEntity)
+
+    @Query("DELETE FROM agent_skill_run_checkpoints WHERE runId = :runId AND requestId = :requestId")
+    fun deleteSkillRunCheckpoint(runId: String, requestId: String): Int
+
+    @Query("DELETE FROM agent_skill_run_checkpoints WHERE runId = :runId")
+    fun deleteSkillRunCheckpointsForRun(runId: String): Int
 }
 
 @Database(
@@ -421,8 +457,9 @@ interface AgentTraceDao {
         AgentRunEntity::class,
         AgentStepEntity::class,
         PendingAgentConfirmationEntity::class,
+        AgentSkillRunCheckpointEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class PocketMindDatabase : RoomDatabase() {
@@ -574,6 +611,35 @@ abstract class PocketMindDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `agent_skill_run_checkpoints` (
+                        `runId` TEXT NOT NULL,
+                        `requestId` TEXT NOT NULL,
+                        `skillId` TEXT NOT NULL,
+                        `skillRequestId` TEXT NOT NULL,
+                        `manifestId` TEXT NOT NULL,
+                        `manifestVersion` INTEGER NOT NULL,
+                        `manifestHash` TEXT NOT NULL,
+                        `phase` TEXT NOT NULL,
+                        `pendingStepIndex` INTEGER NOT NULL,
+                        `pendingStepId` TEXT NOT NULL,
+                        `pendingToolName` TEXT NOT NULL,
+                        `completedStepIdsJson` TEXT NOT NULL,
+                        `outputKeysByStepJson` TEXT NOT NULL,
+                        `privateOutputRefsJson` TEXT NOT NULL,
+                        `schemaVersion` INTEGER NOT NULL,
+                        `createdAtMillis` INTEGER NOT NULL,
+                        `updatedAtMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`runId`, `requestId`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun get(context: Context): PocketMindDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -589,6 +655,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
+                        MIGRATION_8_9,
                     )
                     .allowMainThreadQueries()
                     .build()

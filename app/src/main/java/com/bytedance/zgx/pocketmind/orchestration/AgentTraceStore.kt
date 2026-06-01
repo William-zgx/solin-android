@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.audit.ToolAuditSummaryRedactor
+import com.bytedance.zgx.pocketmind.data.AgentSkillRunCheckpointEntity
 import com.bytedance.zgx.pocketmind.data.AgentRunEntity
 import com.bytedance.zgx.pocketmind.data.AgentStepEntity
 import com.bytedance.zgx.pocketmind.data.AgentTraceDao
@@ -9,6 +10,8 @@ import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
 import com.bytedance.zgx.pocketmind.skill.SkillManifest
 import com.bytedance.zgx.pocketmind.skill.SkillPlan
 import com.bytedance.zgx.pocketmind.skill.SkillRequest
+import com.bytedance.zgx.pocketmind.skill.SkillRunCheckpoint
+import com.bytedance.zgx.pocketmind.skill.SkillRunCheckpointPhase
 import com.bytedance.zgx.pocketmind.skill.SkillStep
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
@@ -231,12 +234,14 @@ class RoomAgentTraceStore(
             if (state.isTerminal()) {
                 livePendingConfirmations.remove(runId)
                 liveNextActionInputs.remove(runId)
+                traceDao.deleteSkillRunCheckpointsForRun(runId)
             }
             return updated
         }
         if (state.isTerminal()) {
             livePendingConfirmations.remove(runId)
             liveNextActionInputs.remove(runId)
+            traceDao.deleteSkillRunCheckpointsForRun(runId)
         }
         return traceDao.run(runId)?.toDomain()
             ?: error("Agent run disappeared after update: $runId")
@@ -280,6 +285,9 @@ class RoomAgentTraceStore(
             ?.let { nextActionInput -> liveNextActionInputs[snapshot.run.id] = nextActionInput }
             ?: liveNextActionInputs.remove(snapshot.run.id)
         traceDao.upsertPendingConfirmation(snapshot.toEntity(now, toolRegistry))
+        snapshot.skillRunCheckpoint
+            ?.let { checkpoint -> traceDao.upsertSkillRunCheckpoint(checkpoint.toEntity(now)) }
+            ?: traceDao.deleteSkillRunCheckpoint(snapshot.run.id, snapshot.request.id)
     }
 
     override fun latestPendingConfirmation(): PendingToolConfirmationSnapshot? {
@@ -290,9 +298,11 @@ class RoomAgentTraceStore(
             val run = run(entity.runId)
             if (run == null || run.state != AgentRunState.AwaitingUserConfirmation) {
                 traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
+                traceDao.deleteSkillRunCheckpointsForRun(entity.runId)
                 continue
             }
-            val snapshot = restorablePendingSnapshotOrFailRun(entity, run) ?: continue
+            val checkpointEntity = traceDao.skillRunCheckpoint(entity.runId, entity.requestId)
+            val snapshot = restorablePendingSnapshotOrFailRun(entity, checkpointEntity, run) ?: continue
             snapshot.nextActionInput
                 ?.let { nextActionInput -> liveNextActionInputs[snapshot.run.id] = nextActionInput }
                 ?: liveNextActionInputs.remove(snapshot.run.id)
@@ -309,7 +319,9 @@ class RoomAgentTraceStore(
                 livePendingConfirmations.remove(runId)
                 true
             } ?: false
-        return traceDao.deletePendingConfirmation(runId, requestId) > 0 || liveRemoved
+        val persistedRemoved = traceDao.deletePendingConfirmation(runId, requestId) > 0
+        traceDao.deleteSkillRunCheckpoint(runId, requestId)
+        return persistedRemoved || liveRemoved
     }
 
     override fun nextActionInput(runId: String): String? =
@@ -341,9 +353,11 @@ class RoomAgentTraceStore(
                 val run = run(entity.runId)
                 if (run == null || run.state != AgentRunState.AwaitingUserConfirmation) {
                     traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
+                    traceDao.deleteSkillRunCheckpointsForRun(entity.runId)
                     return@forEach
                 }
-                if (restorablePendingSnapshotOrFailRun(entity, run) != null) {
+                val checkpointEntity = traceDao.skillRunCheckpoint(entity.runId, entity.requestId)
+                if (restorablePendingSnapshotOrFailRun(entity, checkpointEntity, run) != null) {
                     add(run.id)
                 }
             }
@@ -366,19 +380,25 @@ class RoomAgentTraceStore(
 
     private fun restorablePendingSnapshotOrFailRun(
         entity: PendingAgentConfirmationEntity,
+        checkpointEntity: AgentSkillRunCheckpointEntity?,
         run: AgentRun,
     ): PendingToolConfirmationSnapshot? {
         val snapshot = try {
-            entity.toSnapshot(run)
+            entity.toSnapshot(
+                run = run,
+                skillRunCheckpoint = checkpointEntity?.toCheckpoint(),
+            )
         } catch (_: Exception) {
             null
         }
         if (snapshot == null ||
             snapshot.hasRedactedExecutablePayload() ||
             toolRegistry.validate(snapshot.request) != null ||
-            !snapshot.hasRestorableSkillPlanRequest()
+            !snapshot.hasRestorableSkillPlanRequest() ||
+            !snapshot.hasRestorableSkillRunCheckpoint(toolRegistry)
         ) {
             traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
+            traceDao.deleteSkillRunCheckpoint(entity.runId, entity.requestId)
             failRun(run, UNRESTORABLE_PENDING_CONFIRMATION_REASON)
             return null
         }
@@ -531,6 +551,46 @@ private fun AgentStepEntity.toRestoredToolRequestedOrNull(): AgentStep.ToolReque
     }.getOrNull()
 }
 
+private fun SkillRunCheckpoint.toEntity(now: Long): AgentSkillRunCheckpointEntity =
+    AgentSkillRunCheckpointEntity(
+        runId = runId,
+        requestId = pendingRequestId,
+        skillId = skillId,
+        skillRequestId = skillRequestId,
+        manifestId = manifestId,
+        manifestVersion = manifestVersion,
+        manifestHash = manifestHash,
+        phase = phase.name,
+        pendingStepIndex = pendingStepIndex,
+        pendingStepId = pendingStepId,
+        pendingToolName = pendingToolName,
+        completedStepIdsJson = completedStepIds.toJsonArray().toString(),
+        outputKeysByStepJson = outputKeysByStep.toStringListJsonObject().toString(),
+        privateOutputRefsJson = privateOutputRefs.sorted().toJsonArray().toString(),
+        schemaVersion = schemaVersion,
+        createdAtMillis = now,
+        updatedAtMillis = now,
+    )
+
+private fun AgentSkillRunCheckpointEntity.toCheckpoint(): SkillRunCheckpoint =
+    SkillRunCheckpoint(
+        schemaVersion = schemaVersion,
+        runId = runId,
+        skillId = skillId,
+        skillRequestId = skillRequestId,
+        manifestId = manifestId,
+        manifestVersion = manifestVersion,
+        manifestHash = manifestHash,
+        phase = SkillRunCheckpointPhase.valueOf(phase),
+        pendingStepIndex = pendingStepIndex,
+        pendingStepId = pendingStepId,
+        pendingRequestId = requestId,
+        pendingToolName = pendingToolName,
+        completedStepIds = JSONArray(completedStepIdsJson).toStringList(),
+        outputKeysByStep = JSONObject(outputKeysByStepJson).toStringListMap(),
+        privateOutputRefs = JSONArray(privateOutputRefsJson).toStringList().toSet(),
+    )
+
 private fun PendingToolConfirmationSnapshot.toEntity(
     now: Long,
     toolRegistry: ToolRegistry,
@@ -560,7 +620,10 @@ private fun PendingToolConfirmationSnapshot.toEntity(
         updatedAtMillis = now,
     )
 
-private fun PendingAgentConfirmationEntity.toSnapshot(run: AgentRun): PendingToolConfirmationSnapshot =
+private fun PendingAgentConfirmationEntity.toSnapshot(
+    run: AgentRun,
+    skillRunCheckpoint: SkillRunCheckpoint?,
+): PendingToolConfirmationSnapshot =
     PendingToolConfirmationSnapshot(
         run = run,
         request = ToolRequest(
@@ -580,6 +643,7 @@ private fun PendingAgentConfirmationEntity.toSnapshot(run: AgentRun): PendingToo
         plannedByModel = plannedByModel,
         fallbackReason = fallbackReason,
         nextActionInput = null,
+        skillRunCheckpoint = skillRunCheckpoint,
     )
 
 private fun PendingToolConfirmationSnapshot.hasRestorableSkillPlanRequest(): Boolean {
@@ -589,6 +653,17 @@ private fun PendingToolConfirmationSnapshot.hasRestorableSkillPlanRequest(): Boo
         .any { step ->
             step.request.id == request.id && step.request.toolName == request.toolName
         }
+}
+
+private fun PendingToolConfirmationSnapshot.hasRestorableSkillRunCheckpoint(
+    toolRegistry: ToolRegistry,
+): Boolean {
+    val checkpoint = skillRunCheckpoint ?: return true
+    val plan = skillPlan ?: return false
+    if (checkpoint.runId != run.id) return false
+    if (checkpoint.pendingRequestId != request.id) return false
+    if (checkpoint.pendingToolName != request.toolName) return false
+    return checkpoint.validationErrorFor(plan, toolRegistry) == null
 }
 
 private fun PendingToolConfirmationSnapshot.hasRedactedExecutablePayload(): Boolean =
@@ -658,6 +733,14 @@ private fun Map<String, String>.toJsonObject(): JSONObject {
     return json
 }
 
+private fun Map<String, List<String>>.toStringListJsonObject(): JSONObject {
+    val json = JSONObject()
+    entries.sortedBy { it.key }.forEach { (key, values) ->
+        json.put(key, values.distinct().sorted().toJsonArray())
+    }
+    return json
+}
+
 private fun String.toStringMap(): Map<String, String> =
     JSONObject(this).toStringMap()
 
@@ -670,6 +753,15 @@ private fun JSONObject.toStringMap(): Map<String, String> {
         }
     }
 }
+
+private fun JSONObject.toStringListMap(): Map<String, List<String>> =
+    buildMap {
+        val keys = keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            put(key, getJSONArray(key).toStringList())
+        }
+    }
 
 private fun Map<String, String>.allowlistedCompletionMetadataJson(): JSONObject {
     val json = JSONObject()

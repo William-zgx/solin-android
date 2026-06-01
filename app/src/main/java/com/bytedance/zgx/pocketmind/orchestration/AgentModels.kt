@@ -7,6 +7,7 @@ import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
 import com.bytedance.zgx.pocketmind.skill.SkillPlan
 import com.bytedance.zgx.pocketmind.skill.SkillRequest
+import com.bytedance.zgx.pocketmind.skill.SkillRunCheckpoint
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 
@@ -200,4 +201,5 @@ data class PendingToolConfirmationSnapshot(
     val plannedByModel: Boolean,
     val fallbackReason: String?,
     val nextActionInput: String? = null,
+    val skillRunCheckpoint: SkillRunCheckpoint? = null,
 )

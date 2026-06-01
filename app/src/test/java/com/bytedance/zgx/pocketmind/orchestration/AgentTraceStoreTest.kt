@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.orchestration
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.data.AgentSkillRunCheckpointEntity
 import com.bytedance.zgx.pocketmind.data.AgentRunEntity
 import com.bytedance.zgx.pocketmind.data.AgentStepEntity
 import com.bytedance.zgx.pocketmind.data.AgentTraceDao
@@ -11,6 +12,7 @@ import com.bytedance.zgx.pocketmind.safety.SafetyDecision
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillStep
+import com.bytedance.zgx.pocketmind.skill.valueFreeCheckpointForPendingTool
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
@@ -652,6 +654,180 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStorePersistsSkillRunCheckpointWithoutRawOutputs() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-skill-checkpoint" },
+        )
+        val rawInput = "总结剪贴板并分享给 alice@example.com"
+        val rawClipboardText = "剪贴板私密原文 24680"
+        val modelOutput = "私密摘要内容"
+        val readRequest = ToolRequest(
+            id = "request-read-clipboard",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "Read clipboard for summary",
+        )
+        val readDraft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CLIPBOARD,
+            title = "读取剪贴板",
+            summary = "将读取当前剪贴板文本。",
+            parameters = emptyMap(),
+        )
+        val skillPlan = BuiltInSkillRuntime().planClipboardSummaryShare(
+            input = rawInput,
+            readRequest = readRequest,
+            readDraft = readDraft,
+        )
+        val shareStep = skillPlan.steps.filterIsInstance<SkillStep.ToolStep>().last()
+        val shareRequest = shareStep.request.copy(
+            arguments = mapOf("text" to modelOutput),
+            reason = "Share summary: $modelOutput",
+        )
+        val shareDraft = shareStep.draft.copy(
+            title = "分享摘要",
+            summary = "Share summary: $modelOutput",
+            parameters = shareRequest.arguments,
+        )
+        val waitingRun = store.updateState(store.createRun(rawInput).id, AgentRunState.AwaitingUserConfirmation)
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = shareRequest,
+                draft = shareDraft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillRunCheckpoint = skillPlan.valueFreeCheckpointForPendingTool(
+                    runId = waitingRun.id,
+                    pendingRequest = shareRequest,
+                ),
+            ),
+        )
+
+        val checkpoint = requireNotNull(dao.skillRunCheckpoint(waitingRun.id, shareRequest.id))
+        val persisted = listOf(
+            checkpoint.completedStepIdsJson,
+            checkpoint.outputKeysByStepJson,
+            checkpoint.privateOutputRefsJson,
+            checkpoint.manifestHash,
+        ).joinToString("\n")
+
+        assertFalse(persisted.contains(rawInput))
+        assertFalse(persisted.contains(rawClipboardText))
+        assertFalse(persisted.contains(modelOutput))
+        assertFalse(persisted.contains("alice@example.com"))
+        assertTrue(persisted.contains("shareText"))
+        assertTrue(persisted.contains("read_clipboard.text"))
+    }
+
+    @Test
+    fun roomStoreRejectsSkillRunCheckpointWithExecutableOutputValues() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-bad-checkpoint-value" },
+        )
+        val request = ToolRequest(
+            id = "request-read-clipboard",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "Read clipboard for summary",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CLIPBOARD,
+            title = "读取剪贴板",
+            summary = "将读取当前剪贴板文本。",
+            parameters = emptyMap(),
+        )
+        val skillPlan = BuiltInSkillRuntime().planClipboardSummaryShare(
+            input = "总结剪贴板并分享",
+            readRequest = request,
+            readDraft = draft,
+        )
+        val waitingRun = store.updateState(store.createRun("总结剪贴板并分享").id, AgentRunState.AwaitingUserConfirmation)
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = draft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillRunCheckpoint = skillPlan.valueFreeCheckpointForPendingTool(
+                    runId = waitingRun.id,
+                    pendingRequest = request,
+                ),
+            ),
+        )
+        dao.skillRunCheckpoint(waitingRun.id, request.id)
+            ?.copy(outputKeysByStepJson = """{"read_clipboard":["private clipboard text"]}""")
+            ?.let(dao::upsertSkillRunCheckpoint)
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        assertNull(restartedStore.latestPendingConfirmation())
+        assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
+        assertTrue(dao.pendingConfirmations().isEmpty())
+        assertTrue(dao.skillRunCheckpointsForRun(waitingRun.id).isEmpty())
+    }
+
+    @Test
+    fun roomStoreFailsCheckpointWhenPendingStepDoesNotMatchSkillPlan() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-bad-checkpoint-step" },
+        )
+        val request = ToolRequest(
+            id = "request-read-clipboard",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "Read clipboard for summary",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CLIPBOARD,
+            title = "读取剪贴板",
+            summary = "将读取当前剪贴板文本。",
+            parameters = emptyMap(),
+        )
+        val skillPlan = BuiltInSkillRuntime().planClipboardSummaryShare(
+            input = "总结剪贴板并分享",
+            readRequest = request,
+            readDraft = draft,
+        )
+        val waitingRun = store.updateState(store.createRun("总结剪贴板并分享").id, AgentRunState.AwaitingUserConfirmation)
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = draft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillRunCheckpoint = skillPlan.valueFreeCheckpointForPendingTool(
+                    runId = waitingRun.id,
+                    pendingRequest = request,
+                ),
+            ),
+        )
+        dao.skillRunCheckpoint(waitingRun.id, request.id)
+            ?.copy(pendingStepId = "changed_step")
+            ?.let(dao::upsertSkillRunCheckpoint)
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        assertNull(restartedStore.latestPendingConfirmation())
+        assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
+        assertTrue(restartedStore.steps(waitingRun.id).any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending tool confirmation could not be restored")
+        })
+    }
+
+    @Test
     fun roomStoreRedactsSkillPlanInputWhenPersistingPendingConfirmation() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(
@@ -1080,6 +1256,7 @@ class AgentTraceStoreTest {
         private val runs = linkedMapOf<String, AgentRunEntity>()
         private val steps = mutableListOf<AgentStepEntity>()
         private val pendingConfirmations = linkedMapOf<String, PendingAgentConfirmationEntity>()
+        private val skillRunCheckpoints = linkedMapOf<Pair<String, String>, AgentSkillRunCheckpointEntity>()
 
         override fun run(runId: String): AgentRunEntity? =
             runs[runId]
@@ -1146,6 +1323,33 @@ class AgentTraceStoreTest {
             if (existing.requestId != requestId) return 0
             pendingConfirmations.remove(runId)
             return 1
+        }
+
+        override fun skillRunCheckpoint(
+            runId: String,
+            requestId: String,
+        ): AgentSkillRunCheckpointEntity? =
+            skillRunCheckpoints[runId to requestId]
+
+        override fun skillRunCheckpointsForRun(runId: String): List<AgentSkillRunCheckpointEntity> =
+            skillRunCheckpoints.values
+                .filter { checkpoint -> checkpoint.runId == runId }
+                .sortedWith(
+                    compareByDescending<AgentSkillRunCheckpointEntity> { checkpoint -> checkpoint.updatedAtMillis }
+                        .thenByDescending { checkpoint -> checkpoint.requestId },
+                )
+
+        override fun upsertSkillRunCheckpoint(checkpoint: AgentSkillRunCheckpointEntity) {
+            skillRunCheckpoints[checkpoint.runId to checkpoint.requestId] = checkpoint
+        }
+
+        override fun deleteSkillRunCheckpoint(runId: String, requestId: String): Int =
+            if (skillRunCheckpoints.remove(runId to requestId) != null) 1 else 0
+
+        override fun deleteSkillRunCheckpointsForRun(runId: String): Int {
+            val before = skillRunCheckpoints.size
+            skillRunCheckpoints.keys.removeAll { (checkpointRunId, _) -> checkpointRunId == runId }
+            return before - skillRunCheckpoints.size
         }
     }
 }

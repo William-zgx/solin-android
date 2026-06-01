@@ -398,8 +398,16 @@ Current status:
   tool request has no private executable payload. The persisted `SkillPlan` is
   redacted before Room writes it; the raw `SkillRunContinuation` object is still
   not persisted, so private skill input, `outputs/privateOutputRefs/trace`, and
-  draft payload text remain outside Room; broad arbitrary skill-runner state
-  persistence is still pending.
+  draft payload text remain outside Room.
+- Pending Skill confirmations now also get a separate
+  `agent_skill_run_checkpoints` Room row. The checkpoint is value-free: it
+  stores schema version, run/request/step ids, manifest id/version/hash, phase,
+  completed step ids, output key names, and private-output refs only. Restore
+  validates the checkpoint against the redacted `SkillPlan` and current
+  `ToolRegistry`; malformed JSON, changed pending step/tool, manifest mismatch,
+  noncanonical output keys, or private-ref drift fails the owning awaiting run
+  closed. The checkpoint is not enough to replay private prior outputs, so broad
+  arbitrary skill-runner state persistence is still pending.
 - Room restore validates that a persisted pending confirmation with an attached
   `SkillPlan` still points at a tool step in that plan before restoring the UI.
   Invalid or malformed pending rows fail the owning awaiting run so restart does
@@ -435,6 +443,7 @@ Tests:
 - `SkillRunProgressorTest`
 - `SkillRunExecutorTest.failsBeforeExecutingWhenSkillArgumentsDoNotMatchManifestSchema`
 - `SkillRunExecutorTest.resumesAfterConfirmedToolResultAndStopsAtNextConfirmation`
+- `SkillRunExecutorTest.continuationCheckpointContainsOnlyValueFreeSkillState`
 - `SkillRunExecutorTest.resumesAgainAfterSecondConfirmationAndCompletesSkill`
 - `SkillRunExecutorTest.resumeRejectsToolResultThatDoesNotMatchPendingRequest`
 - `SkillRunExecutorTest.privateToolOutputCannotBindDirectlyToLaterToolArgument`
@@ -445,6 +454,9 @@ Tests:
 - `AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `AgentTraceStoreTest.roomStoreSkipsPendingSkillPlanThatDoesNotContainPendingToolRequest`
+- `AgentTraceStoreTest.roomStorePersistsSkillRunCheckpointWithoutRawOutputs`
+- `AgentTraceStoreTest.roomStoreRejectsSkillRunCheckpointWithExecutableOutputValues`
+- `AgentTraceStoreTest.roomStoreFailsCheckpointWhenPendingStepDoesNotMatchSkillPlan`
 - `ToolSchemaContractTest`
 - `AgentLoopRuntimeTest.wifiActionInputRequestsConfirmationBeforeExecution`
 

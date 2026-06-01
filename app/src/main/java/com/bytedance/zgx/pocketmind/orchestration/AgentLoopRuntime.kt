@@ -24,6 +24,7 @@ import com.bytedance.zgx.pocketmind.skill.SkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillRunProgressor
 import com.bytedance.zgx.pocketmind.skill.SkillStep
 import com.bytedance.zgx.pocketmind.skill.validateStructure
+import com.bytedance.zgx.pocketmind.skill.valueFreeCheckpointForPendingTool
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
@@ -597,6 +598,11 @@ class AgentLoopRuntime(
             plannedByModel = plannedByModel,
             fallbackReason = fallbackReason,
             nextActionInput = run.input.explicitNextActionText(),
+            skillRunCheckpoint = skillPlan?.valueFreeCheckpointForPendingTool(
+                runId = run.id,
+                pendingRequest = request,
+                toolRegistry = toolRegistry,
+            ),
         )
 
     private sealed class NextObservationPlan {

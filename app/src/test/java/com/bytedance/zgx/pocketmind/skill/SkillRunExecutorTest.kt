@@ -9,6 +9,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -112,6 +113,42 @@ class SkillRunExecutorTest {
         assertFalse(afterRead.outputs.toString().contains(rawClipboardText))
         assertFalse(afterRead.trace.toString().contains(rawClipboardText))
         assertFalse(afterRead.continuation.toString().contains(rawClipboardText))
+    }
+
+    @Test
+    fun continuationCheckpointContainsOnlyValueFreeSkillState() {
+        val rawClipboardText = "私密剪贴板内容 13579"
+        val summaryText = "私密内容摘要"
+        val executor = SkillRunExecutor(
+            toolExecutor = RecordingToolExecutor(emptyList()),
+            modelExecutor = SkillModelStepExecutor { _, _ -> Result.success(summaryText) },
+        )
+        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val awaitingRead = executor.execute(plan)
+        val awaitingShare = executor.resume(
+            plan = plan,
+            continuation = requireNotNull(awaitingRead.continuation),
+            result = ToolResult(
+                requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = mapOf("text" to rawClipboardText),
+            ),
+        )
+
+        val checkpoint = requireNotNull(awaitingShare.continuation)
+            .toValueFreeCheckpoint(runId = "run-checkpoint", plan = plan)
+        val serialized = checkpoint.toJsonObject().toString()
+
+        assertEquals("share_summary", checkpoint.pendingStepId)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, checkpoint.pendingToolName)
+        assertEquals(listOf("read_clipboard", "summarize_clipboard"), checkpoint.completedStepIds)
+        assertEquals(setOf("read_clipboard.text"), checkpoint.privateOutputRefs)
+        assertEquals(listOf("shareText"), checkpoint.outputKeysByStep["summarize_clipboard"])
+        assertNull(checkpoint.validationErrorFor(plan))
+        assertFalse(serialized.contains(rawClipboardText))
+        assertFalse(serialized.contains(summaryText))
+        assertFalse(serialized.contains("已读取剪贴板文本"))
     }
 
     @Test

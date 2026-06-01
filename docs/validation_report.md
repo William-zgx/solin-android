@@ -1,5 +1,51 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Value-free Skill checkpoint persistence 增量验证
+
+本轮覆盖项：
+
+- 新增独立 `agent_skill_run_checkpoints` Room 表和 `8 -> 9` 迁移，用于记录
+  pending Skill confirmation 的 value-free checkpoint。
+- checkpoint 只保存 schema version、run/request/step id、Skill request id、
+  manifest id/version/hash、phase、已完成 step id、输出 key 名和 private-output
+  refs；不保存 `SkillRunContinuation.outputs` 值、工具结果值、模型输出、原始
+  用户输入、draft payload 或剪贴板/OCR/屏幕文本。
+- `RoomAgentTraceStore` 在恢复 pending confirmation 时校验 checkpoint 与
+  redacted `SkillPlan`、pending tool step 和当前 `ToolRegistry` 一致；损坏
+  JSON、pending step/tool 改变、manifest 改变、输出 key 非规范或 private refs
+  漂移都会 fail closed，并删除 pending/checkpoint。
+- `SkillRunContinuation` 增加 value-free projection；该 projection 用于检查
+  结构边界，不把 continuation 本体序列化到 Room。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest'
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+./gradlew :app:compileDebugAndroidTestKotlin
+```
+
+结果：targeted Skill checkpoint、TraceStore restore/fail-closed、Agent loop
+回归测试通过；AndroidTest Kotlin 编译通过。
+
+补充验证：
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：全量 JVM 单测、AndroidTest Kotlin 编译、diff whitespace 检查、敏感串扫描
+和本地完整验证脚本通过。
+
 ## 2026-06-01 OCR layout-preserving text excerpt 增量验证
 
 本轮覆盖项：
