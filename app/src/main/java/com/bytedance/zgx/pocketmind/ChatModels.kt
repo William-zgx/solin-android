@@ -162,6 +162,7 @@ data class ChatUiState(
     val setupSelectedModelIds: Set<String> = ModelCatalog.defaultSetupModelIds(),
     val showFirstRunSetup: Boolean = false,
     val memoryEnabled: Boolean = true,
+    val semanticMemoryEnabled: Boolean = false,
     val memoryHits: List<MemoryHit> = emptyList(),
     val longTermMemories: List<LongTermMemorySummary> = emptyList(),
     val backgroundTasks: List<BackgroundTaskSummary> = emptyList(),

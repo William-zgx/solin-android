@@ -1939,6 +1939,143 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun localModeSemanticMemoryStatusAndPromptUseSemanticHit() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(
+            recordStore = store,
+            semanticRuntimeFactory = { path ->
+                check(path == "/verified/memory.litertlm")
+                ConciseSemanticRuntime()
+            },
+        )
+        memoryRepository.indexPreference("pref-1", "I prefer concise answers")
+        val localRuntime = FakeLiteRtRuntime(localResponse = "本地回复：简洁回答")
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            runtime = localRuntime,
+            remoteRuntime = remoteRuntime,
+            memoryRepository = memoryRepository,
+            assistantRouter = AssistantOrchestrator(
+                memoryRepository,
+                RecordingActionRuntime(likelyAction = false),
+            ),
+            modelRepository = FakeModelRepository(
+                activeModelPath = "/tmp/model.litertlm",
+                memoryEmbeddingModelPath = "/verified/memory.litertlm",
+            ),
+        )
+
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+        viewModel.sendMessage("brief replies")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
+        val prompt = localRuntime.prompts.single()
+        assertTrue(prompt.contains("本地记忆"))
+        assertTrue(prompt.contains("I prefer concise answers"))
+        assertEquals(listOf("pref-1"), viewModel.uiState.value.memoryHits.map { it.id })
+        assertEquals(MemoryRecallMode.Semantic, viewModel.uiState.value.memoryHits.single().recallMode)
+        assertEquals(
+            listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
+            viewModel.uiState.value.messages.map { it.privacy },
+        )
+        assertTrue(remoteRuntime.calls.isEmpty())
+    }
+
+    @Test
+    fun localSemanticMemoryResponseDoesNotEnterLaterRemoteHistory() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(
+            recordStore = store,
+            semanticRuntimeFactory = { path ->
+                check(path == "/verified/memory.litertlm")
+                ConciseSemanticRuntime()
+            },
+        )
+        memoryRepository.indexPreference("pref-1", "I prefer concise answers")
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            runtime = FakeLiteRtRuntime(localResponse = "本地回复：I prefer concise answers"),
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(mode = InferenceMode.Local),
+            memoryRepository = memoryRepository,
+            assistantRouter = AssistantOrchestrator(
+                memoryRepository,
+                RecordingActionRuntime(likelyAction = false),
+            ),
+            modelRepository = FakeModelRepository(
+                activeModelPath = "/tmp/model.litertlm",
+                memoryEmbeddingModelPath = "/verified/memory.litertlm",
+            ),
+        )
+
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+        viewModel.sendMessage("brief replies")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
+            viewModel.uiState.value.messages.map { it.privacy },
+        )
+
+        viewModel.updateRemoteModelConfig(configuredRemoteModel())
+        viewModel.selectInferenceMode(InferenceMode.Remote)
+        viewModel.sendMessage("ordinary remote question")
+        advanceUntilIdle()
+
+        val call = remoteRuntime.calls.single()
+        assertEquals("ordinary remote question", call.prompt)
+        assertTrue(call.history.isEmpty())
+        assertFalse(call.history.toString().contains("brief replies"))
+        assertFalse(call.history.toString().contains("I prefer concise answers"))
+        assertFalse(call.history.toString().contains("本地回复"))
+    }
+
+    @Test
+    fun remoteModeKeepsSemanticMemoryRuntimeButDoesNotSendMemoryContext() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(
+            recordStore = store,
+            semanticRuntimeFactory = { path ->
+                check(path == "/verified/memory.litertlm")
+                ConciseSemanticRuntime()
+            },
+        )
+        memoryRepository.indexPreference("pref-1", "I prefer concise answers")
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            memoryRepository = memoryRepository,
+            assistantRouter = AssistantOrchestrator(
+                memoryRepository,
+                RecordingActionRuntime(likelyAction = false),
+            ),
+            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = "/verified/memory.litertlm"),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("brief replies")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
+        assertTrue(viewModel.uiState.value.memoryHits.isEmpty())
+        val call = remoteRuntime.calls.single()
+        assertEquals("brief replies", call.prompt)
+        assertFalse(call.prompt.contains("本地记忆"))
+        assertFalse(call.prompt.contains("I prefer concise answers"))
+        assertFalse(call.prompt.contains("用户偏好"))
+        assertFalse(call.history.toString().contains("I prefer concise answers"))
+        assertFalse(call.history.toString().contains("用户偏好"))
+    }
+
+    @Test
     fun restoreStartupStateIndexesScheduledTasksAsForgettableTaskState() = runTest(dispatcher) {
         val store = FakeMemoryRecordStore()
         val memoryRepository = MemoryRepository(recordStore = store)
@@ -2862,6 +2999,7 @@ class PocketMindViewModelTest {
     private class FakeLiteRtRuntime(
         private val localResponse: String = "本地回复",
     ) : LiteRtRuntime {
+        val prompts = mutableListOf<String>()
         override var isLoaded: Boolean = false
 
         override fun load(
@@ -2880,7 +3018,10 @@ class PocketMindViewModelTest {
             isLoaded = true
         }
 
-        override fun send(prompt: String): Flow<String> = flowOf(localResponse)
+        override fun send(prompt: String): Flow<String> {
+            prompts += prompt
+            return flowOf(localResponse)
+        }
 
         override fun lastGenerationStats(): GenerationStats? = null
 

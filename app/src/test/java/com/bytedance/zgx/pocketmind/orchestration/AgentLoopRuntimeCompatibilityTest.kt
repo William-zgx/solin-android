@@ -7,6 +7,7 @@ import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.memory.MemoryRecallMode
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -30,6 +31,27 @@ class AgentLoopRuntimeCompatibilityTest {
         assertTrue(route.promptForModel.contains("用户当前输入的语言"))
         assertTrue(route.promptForModel.contains("用户喜欢端侧离线聊天"))
         assertEquals(listOf("preference"), route.memoryHits.map { it.id })
+        assertEquals(0, actionRuntime.planCallCount)
+    }
+
+    @Test
+    fun memoryContextRemainsCompatibleWithoutEmbeddingCapability() {
+        val memoryRepository = MemoryRepository()
+        memoryRepository.indexPreference("preference", "I prefer concise answers")
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val orchestrator = AssistantOrchestrator(memoryRepository, actionRuntime)
+
+        val route = orchestrator.route(
+            input = "concise answers",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+        )
+
+        require(route is AssistantRoute.Chat)
+        assertTrue(route.promptForModel.contains("本地记忆"))
+        assertTrue(route.promptForModel.contains("I prefer concise answers"))
+        assertEquals(listOf("preference"), route.memoryHits.map { it.id })
+        assertEquals(MemoryRecallMode.Lexical, route.memoryHits.single().recallMode)
         assertEquals(0, actionRuntime.planCallCount)
     }
 

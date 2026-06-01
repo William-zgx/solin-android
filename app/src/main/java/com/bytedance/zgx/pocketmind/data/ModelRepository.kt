@@ -86,6 +86,7 @@ class ModelRepository(
     )
 
     private val modelDir = File(appContext.filesDir, "models")
+    private val currentFileVerificationCache = mutableMapOf<String, CurrentFileVerification>()
 
     init {
         cleanTemporaryModelFiles()
@@ -281,22 +282,46 @@ class ModelRepository(
         }?.id
 
     override fun verifiedActionModelPath(): String? =
-        verifiedRecommendedModelPath(installedModels(), ModelCapability.MobileAction)
+        verifiedRecommendedModelPath(
+            models = installedModels(),
+            capability = ModelCapability.MobileAction,
+            currentFileVerifier = ::hasCurrentVerifiedRecommendedFile,
+        )
 
     override fun verifiedMemoryEmbeddingModelPath(): String? =
-        verifiedRecommendedModelPath(installedModels(), ModelCapability.MemoryEmbedding)
+        verifiedRecommendedModelPath(
+            models = installedModels(),
+            capability = ModelCapability.MemoryEmbedding,
+            currentFileVerifier = ::hasCurrentVerifiedRecommendedFile,
+        )
 
     override fun verifyLegacyRecommendedModels(): Boolean {
         var changed = false
         installedModels().forEach { entity ->
             val modelId = entity.recommendedModelId ?: return@forEach
-            if (entity.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name) return@forEach
-            val model = ModelCatalog.recommendedModelById(modelId)
+            val model = catalogRecommendedModel(modelId) ?: return@forEach
+            val wasVerifiedRecommended = entity.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name
+            if (entity.hasVerifiedRecommendedEvidence(model) && hasCurrentVerifiedRecommendedFile(entity, model)) {
+                return@forEach
+            }
             val file = File(entity.path)
-            if (!file.exists() || !ModelCatalog.isCompleteRecommendedModel(file.length(), model)) return@forEach
+            if (!file.exists() || !ModelCatalog.isCompleteRecommendedModel(file.length(), model)) {
+                if (wasVerifiedRecommended) {
+                    modelDao.upsert(
+                        entity.copy(
+                            fileBytes = file.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L,
+                            verificationStatus = ModelVerificationStatus.FailedVerification.name,
+                        ),
+                    )
+                    changed = true
+                }
+                return@forEach
+            }
             val verified = ModelCatalog.matchesExpectedSha256(file, model.sha256Hex)
             modelDao.upsert(
                 entity.copy(
+                    fileBytes = file.length().coerceAtLeast(0L),
+                    sourceRevision = model.sourceRevision,
                     verifiedSha256 = if (verified) model.sha256Hex else null,
                     verificationStatus = if (verified) {
                         ModelVerificationStatus.VerifiedRecommended.name
@@ -467,15 +492,71 @@ class ModelRepository(
             ModelCatalog.recommendedModelById(recommendedModelId).capability == ModelCapability.Chat &&
                 verificationStatus == ModelVerificationStatus.VerifiedRecommended.name
         }
+
+    private fun hasCurrentVerifiedRecommendedFile(
+        entity: InstalledModelEntity,
+        model: RecommendedModel,
+    ): Boolean {
+        val file = File(entity.path)
+        if (!file.exists() || file.length() != model.byteSize) return false
+        val cacheKey = "${entity.id}:${file.absolutePath}:${model.id}"
+        val current = CurrentFileVerification(
+            length = file.length(),
+            lastModifiedMillis = file.lastModified(),
+            expectedSha256 = model.sha256Hex.lowercase(),
+            verified = false,
+        )
+        val cached = currentFileVerificationCache[cacheKey]
+        if (
+            cached != null &&
+            cached.length == current.length &&
+            cached.lastModifiedMillis == current.lastModifiedMillis &&
+            cached.expectedSha256 == current.expectedSha256
+        ) {
+            return cached.verified
+        }
+        val verified = ModelCatalog.matchesExpectedSha256(file, model.sha256Hex)
+        currentFileVerificationCache[cacheKey] = current.copy(verified = verified)
+        return verified
+    }
 }
 
 internal fun verifiedRecommendedModelPath(
     models: List<InstalledModelEntity>,
     capability: ModelCapability,
+    currentFileVerifier: (InstalledModelEntity, RecommendedModel) -> Boolean =
+        ::currentFileMatchesVerifiedRecommendedModel,
 ): String? =
     models.firstOrNull { model ->
-        model.recommendedModelId != null &&
-            ModelCatalog.recommendedModelById(model.recommendedModelId).capability == capability &&
-            model.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name &&
-            File(model.path).exists()
+        val catalogModel = model.recommendedModelId?.let { catalogRecommendedModel(it) }
+            ?: return@firstOrNull false
+        catalogModel.capability == capability &&
+            model.hasVerifiedRecommendedEvidence(catalogModel) &&
+            currentFileVerifier(model, catalogModel)
     }?.path
+
+private fun InstalledModelEntity.hasVerifiedRecommendedEvidence(model: RecommendedModel): Boolean =
+    verificationStatus == ModelVerificationStatus.VerifiedRecommended.name &&
+        fileBytes == model.byteSize &&
+        sourceRevision == model.sourceRevision &&
+        verifiedSha256?.equals(model.sha256Hex, ignoreCase = true) == true
+
+private fun catalogRecommendedModel(modelId: String): RecommendedModel? =
+    RECOMMENDED_MODELS.firstOrNull { it.id == modelId }
+
+private fun currentFileMatchesVerifiedRecommendedModel(
+    entity: InstalledModelEntity,
+    model: RecommendedModel,
+): Boolean {
+    val file = File(entity.path)
+    return file.exists() &&
+        file.length() == model.byteSize &&
+        ModelCatalog.matchesExpectedSha256(file, model.sha256Hex)
+}
+
+private data class CurrentFileVerification(
+    val length: Long,
+    val lastModifiedMillis: Long,
+    val expectedSha256: String,
+    val verified: Boolean,
+)

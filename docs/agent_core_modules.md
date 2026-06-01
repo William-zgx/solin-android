@@ -779,7 +779,8 @@ Current status:
   runtime can return semantic hits without the lightweight term-overlap gate.
 - `ModelRepository` now exposes a verified memory-embedding model path only
   for existing `MemoryEmbedding` assets that passed recommended-model
-  verification. `PocketMindViewModel` syncs that path into
+  verification with stored catalog size, revision, and SHA-256 evidence plus a
+  current file size/SHA-256 check. `PocketMindViewModel` syncs that path into
   `SemanticMemoryRuntimeController` before rebuilding memory so runtime
   switching happens at model verification boundaries.
 - `MemoryRepository` implements the semantic runtime controller and can switch
@@ -789,6 +790,9 @@ Current status:
 - The LiteRT embedding adapter is still not wired into runtime retrieval; a
   downloaded memory model asset alone does not mean embedding semantics are
   participating.
+- UI state separates an installed memory asset from an active semantic runtime,
+  and local turns produced with memory context are kept local-only so later
+  remote chats do not inherit that private context through history.
 
 Tests:
 

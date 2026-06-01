@@ -96,8 +96,8 @@ conversation recall is still rebuilt from saved chat-session history. Forgotten
 auto-managed task-state records stay suppressed so background task refreshes do
 not recreate them in long-term memory. Explicit response-length and
 response-language preferences replace older conflicting preferences instead of
-accumulating contradictory records, and the dedicated embedding-model semantic
-memory is still pending. Mobile actions can use the
+accumulating contradictory records, and LiteRT embedding-model-backed semantic
+retrieval is still pending. Mobile actions can use the
 verified action model as an experimental planner; if it is missing or does not
 produce a supported
 `call:function {...}` draft, PocketMind falls back to deterministic local rules

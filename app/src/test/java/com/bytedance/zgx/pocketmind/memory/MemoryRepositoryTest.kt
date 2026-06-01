@@ -103,6 +103,119 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun semanticRuntimeFactoryReturningNullFallsBackAndReembedsExistingEntries() {
+        val repository = MemoryRepository(
+            semanticRuntimeFactory = { path ->
+                when (path) {
+                    "/ok" -> ConceptEmbeddingRuntime()
+                    else -> null
+                }
+            },
+        )
+        repository.indexPreference("pref", "I prefer concise answers")
+        repository.useMemoryModel("/ok")
+
+        assertEquals(listOf("pref"), repository.search("brief replies").map { it.id })
+
+        repository.useMemoryModel("/missing")
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertNull(repository.activeMemoryModelPath)
+        assertTrue(repository.search("brief replies").isEmpty())
+        assertEquals(listOf("pref"), repository.search("concise answers").map { it.id })
+    }
+
+    @Test
+    fun semanticRuntimeFactoryThrowingFallsBackWithoutPropagating() {
+        val requestedPaths = mutableListOf<String>()
+        val repository = MemoryRepository(
+            semanticRuntimeFactory = { path ->
+                requestedPaths += path
+                if (path == "/broken") error("embedding runtime unavailable")
+                ConceptEmbeddingRuntime()
+            },
+        )
+        repository.indexPreference("pref", "I prefer concise answers")
+        repository.useMemoryModel("/ok")
+
+        repository.useMemoryModel("/broken")
+
+        assertEquals(listOf("/ok", "/broken"), requestedPaths)
+        assertFalse(repository.semanticMemoryEnabled)
+        assertNull(repository.activeMemoryModelPath)
+        assertTrue(repository.search("brief replies").isEmpty())
+    }
+
+    @Test
+    fun semanticRuntimeEmbedFailureFallsBackWithoutPropagating() {
+        val repository = MemoryRepository(
+            semanticRuntimeFactory = { FailingOnConciseEmbeddingRuntime() },
+        )
+        repository.indexPreference("pref", "I prefer concise answers")
+
+        repository.useMemoryModel("/broken")
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertNull(repository.activeMemoryModelPath)
+        assertTrue(repository.search("brief replies").isEmpty())
+        assertEquals(listOf("pref"), repository.search("concise answers").map { it.id })
+    }
+
+    @Test
+    fun switchingSemanticRuntimeReembedsExistingEntriesWithNewRuntime() {
+        val repository = MemoryRepository(
+            semanticRuntimeFactory = { path ->
+                when (path) {
+                    "/model-a" -> AliasEmbeddingRuntime(queryAlias = "brief")
+                    "/model-b" -> AliasEmbeddingRuntime(queryAlias = "laconic")
+                    else -> null
+                }
+            },
+        )
+        repository.indexPreference("pref", "I prefer concise answers")
+
+        repository.useMemoryModel("/model-a")
+
+        assertEquals(listOf("pref"), repository.search("brief replies").map { it.id })
+        assertTrue(repository.search("laconic replies").isEmpty())
+
+        repository.useMemoryModel("/model-b")
+
+        assertTrue(repository.search("brief replies").isEmpty())
+        val hits = repository.search("laconic replies")
+        assertEquals(listOf("pref"), hits.map { it.id })
+        assertEquals(MemoryRecallMode.Semantic, hits.first().recallMode)
+    }
+
+    @Test
+    fun switchingSemanticRuntimeReembedsRestoredRecordStoreEntries() {
+        val store = FakeMemoryRecordStore()
+        val writer = MemoryRepository(recordStore = store)
+        writer.indexPreference("pref-1", "I prefer concise answers")
+        writer.indexTaskState("task-1", "Need concise task updates")
+        val restored = MemoryRepository(
+            recordStore = store,
+            semanticRuntimeFactory = { path ->
+                when (path) {
+                    "/model-a" -> AliasEmbeddingRuntime(queryAlias = "brief")
+                    "/model-b" -> AliasEmbeddingRuntime(queryAlias = "laconic")
+                    else -> null
+                }
+            },
+        )
+        restored.rebuild(emptyList())
+
+        restored.useMemoryModel("/model-a")
+
+        assertEquals(listOf("pref-1", "task-1"), restored.search("brief replies").map { it.id })
+
+        restored.useMemoryModel("/model-b")
+
+        assertTrue(restored.search("brief replies").isEmpty())
+        assertEquals(listOf("pref-1", "task-1"), restored.search("laconic replies").map { it.id })
+    }
+
+    @Test
     fun memoryModelPathDoesNotEnableSemanticRecallWithoutRuntimeSupport() {
         val repository = MemoryRepository()
         repository.indexPreference("pref", "I prefer concise answers")
@@ -112,6 +225,22 @@ class MemoryRepositoryTest {
         assertFalse(repository.semanticMemoryEnabled)
         assertNull(repository.activeMemoryModelPath)
         assertTrue(repository.search("brief replies").isEmpty())
+    }
+
+    @Test
+    fun verifiedMemoryModelPathWithoutSemanticRuntimeDoesNotEnableSemanticRecallAfterRebuild() {
+        val store = FakeMemoryRecordStore()
+        val writer = MemoryRepository(recordStore = store)
+        writer.indexPreference("pref", "I prefer concise answers")
+        val restored = MemoryRepository(recordStore = store)
+
+        restored.useMemoryModel("/verified/memory.litertlm")
+        restored.rebuild(emptyList())
+
+        assertFalse(restored.semanticMemoryEnabled)
+        assertNull(restored.activeMemoryModelPath)
+        assertTrue(restored.search("brief replies").isEmpty())
+        assertEquals(listOf("pref"), restored.search("concise answers").map { it.id })
     }
 
     @Test
@@ -381,6 +510,31 @@ class MemoryRepositoryTest {
                 "nearby" in lower -> floatArrayOf(0.8f, 0f)
                 else -> floatArrayOf(0f, 1f)
             }
+        }
+    }
+
+    private class AliasEmbeddingRuntime(
+        private val queryAlias: String,
+    ) : EmbeddingRuntime {
+        override val supportsSemanticRecall: Boolean = true
+        override val semanticScoreThreshold: Float = 0.9f
+
+        override fun embed(text: String): FloatArray {
+            val lower = text.lowercase()
+            return when {
+                "concise" in lower -> floatArrayOf(1f, 0f)
+                queryAlias in lower -> floatArrayOf(1f, 0f)
+                else -> floatArrayOf(0f, 1f)
+            }
+        }
+    }
+
+    private class FailingOnConciseEmbeddingRuntime : EmbeddingRuntime {
+        override val supportsSemanticRecall: Boolean = true
+
+        override fun embed(text: String): FloatArray {
+            check("concise" !in text.lowercase()) { "semantic runtime failed" }
+            return floatArrayOf(0f, 1f)
         }
     }
 }

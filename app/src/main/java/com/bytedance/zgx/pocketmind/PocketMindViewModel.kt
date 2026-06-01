@@ -944,16 +944,29 @@ class PocketMindViewModel(
                     }
 
                     is AssistantRoute.Chat -> {
+                        val responsePrivacy = if (
+                            !useRemoteModel &&
+                            (messagePrivacy == MessagePrivacy.LocalOnly || route.memoryHits.isNotEmpty())
+                        ) {
+                            MessagePrivacy.LocalOnly
+                        } else {
+                            messagePrivacy
+                        }
+                        val chatUserMessage = if (responsePrivacy == MessagePrivacy.LocalOnly) {
+                            userMessage.copy(privacy = MessagePrivacy.LocalOnly)
+                        } else {
+                            userMessage
+                        }
                         val assistantPlaceholder = ChatMessage(
                             role = MessageRole.Assistant,
                             text = "",
-                            privacy = messagePrivacy,
+                            privacy = responsePrivacy,
                         )
                         replaceActiveSessionMessages(
-                            stateBeforeSend.messages + userMessage + assistantPlaceholder,
+                            stateBeforeSend.messages + chatUserMessage + assistantPlaceholder,
                             persistNow = true,
                         )
-                        persistExplicitPreferenceMemory(userMessage)
+                        persistExplicitPreferenceMemory(chatUserMessage)
                         _uiState.update {
                             it.copy(
                                 isGenerating = true,
@@ -1977,6 +1990,7 @@ class PocketMindViewModel(
     private fun createInitialState(): ChatUiState {
         val modelState = modelRepository.currentState()
         syncTaskStateMemories()
+        syncSemanticMemoryRuntime()
         return ChatUiState(
             modelPath = modelState.activeModelPath,
             activeInstalledModelId = modelState.activeInstalledModelId,
@@ -1987,6 +2001,7 @@ class PocketMindViewModel(
             backend = generationParametersRepository.loadBackend(),
             showFirstRunSetup = !firstRunSetupRepository.isSetupDismissed(),
             memoryEnabled = firstRunSetupRepository.isMemoryEnabled(),
+            semanticMemoryEnabled = currentSemanticMemoryEnabled(),
             longTermMemories = loadLongTermMemories(),
             backgroundTasks = loadBackgroundTasks(),
             backgroundTaskHistory = loadBackgroundTaskHistory(),
@@ -2003,12 +2018,14 @@ class PocketMindViewModel(
     }
 
     private fun updateModelState(modelState: ModelSelectionState) {
+        syncSemanticMemoryRuntime()
         _uiState.update {
             it.copy(
                 modelPath = modelState.activeModelPath,
                 activeInstalledModelId = modelState.activeInstalledModelId,
                 installedModels = modelState.installedModels,
                 selectedModelId = modelState.selectedModelId,
+                semanticMemoryEnabled = currentSemanticMemoryEnabled(),
             )
         }
     }
@@ -2067,9 +2084,13 @@ class PocketMindViewModel(
             syncSemanticMemoryRuntime()
             memoryRepository.enabled = _uiState.value.memoryEnabled
             memoryRepository.rebuild(sessionRepository.allMessages(limit = 500))
+            _uiState.update { state ->
+                state.copy(semanticMemoryEnabled = currentSemanticMemoryEnabled())
+            }
         }.onFailure {
             _uiState.update { state ->
                 state.copy(
+                    semanticMemoryEnabled = currentSemanticMemoryEnabled(),
                     memoryHits = emptyList(),
                     longTermMemories = emptyList(),
                     statusText = "本地记忆暂不可用",
@@ -2079,8 +2100,16 @@ class PocketMindViewModel(
     }
 
     private fun syncSemanticMemoryRuntime() {
-        semanticMemoryRuntimeController?.useMemoryModel(modelRepository.verifiedMemoryEmbeddingModelPath())
+        val controller = semanticMemoryRuntimeController ?: return
+        if (!controller.canLoadSemanticMemoryRuntime) {
+            controller.useMemoryModel(null)
+            return
+        }
+        controller.useMemoryModel(modelRepository.verifiedMemoryEmbeddingModelPath())
     }
+
+    private fun currentSemanticMemoryEnabled(): Boolean =
+        semanticMemoryRuntimeController?.semanticMemoryEnabled == true
 
     private fun syncTaskStateMemories() {
         runCatching {

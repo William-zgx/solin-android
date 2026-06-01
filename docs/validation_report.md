@@ -1579,13 +1579,15 @@ adb devices -l
 本轮覆盖项：
 
 - `ModelRepository` 暴露 `verifiedMemoryEmbeddingModelPath()`，只返回已存在、已通过
-  recommended 校验且 capability 为 `MemoryEmbedding` 的模型路径；Chat/Action、
-  未校验或缺文件的模型不会被误用为语义记忆 runtime。
+  recommended 校验且 capability 为 `MemoryEmbedding` 的模型路径；路径选择要求
+  DB 中的 catalog size/revision/SHA-256 evidence 与当前文件 size/SHA-256 都匹配，
+  Chat/Action、未校验、缺文件、替换文件或伪装成 memory asset 的自定义模型不会被
+  误用为语义记忆 runtime。
 - `MemoryRepository` 新增 `SemanticMemoryRuntimeController`，可在默认 hash runtime
   与注入的 semantic runtime 间切换；切换时会重算当前 memory entry embedding。
 - 生产默认仍不声明语义召回已启用。安装 memory model asset 不等于 runtime 已接入；
-  只有 controller 成功切到 `supportsSemanticRecall=true` 的 runtime 才产生
-  `MemoryRecallMode.Semantic` 命中。
+  生产 model-path 路径上，只有 controller 成功切到 `supportsSemanticRecall=true`
+  的 runtime 才产生 `MemoryRecallMode.Semantic` 命中。
 - `PocketMindViewModel` 在 memory rebuild 前同步 verified memory model path，确保
   启动/模型校验后的索引使用当前 runtime 边界，同时不要求聊天模型加载。
 
@@ -1594,6 +1596,8 @@ adb devices -l
 ```bash
 ./gradlew :app:testDebugUnitTest \
   --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.semanticRuntimeControllerSwitchesBetweenFallbackAndSemanticRuntime' \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.semanticRuntimeFactoryReturningNullFallsBackAndReembedsExistingEntries' \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.switchingSemanticRuntimeReembedsExistingEntriesWithNewRuntime' \
   --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.memoryModelPathDoesNotEnableSemanticRecallWithoutRuntimeSupport' \
   --tests 'com.bytedance.zgx.pocketmind.data.ModelRepositoryPathTest' \
   --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex'
@@ -2001,7 +2005,10 @@ adb devices -l
 - `MemoryHit` 标记命中来源为 `Lexical` 或 `Semantic`，便于后续接入 LiteRT
   embedding adapter 后验证真实语义召回路径。
 - 模型管理高级页的本地记忆开关不再绑定 memory model asset 安装状态；文案明确
-  当前使用本地轻量索引，安装 asset 不等于 embedding runtime 参与检索。
+  当前使用本地轻量索引，安装 asset 不等于 embedding runtime 参与检索；UI 状态区分
+  asset installed 与 `semanticMemoryEnabled`。
+- 本地模型回答若使用本地记忆，或用户输入/工具结果已标记 `LocalOnly`，会作为
+  `LocalOnly` turn 保存，避免后续切换到远程模型时进入远程 history。
 
 验证命令：
 
@@ -2892,6 +2899,8 @@ git diff --check
 - Safety Policy 增加风险分级执行策略，阻止中高风险工具绕过确认。
 - Tool Audit 增加 `tool_audit_events` Room 表，记录计划、确认、执行观察和拒绝事件。
 - Memory 增加显式偏好/任务状态记录与遗忘控制。
+  默认召回仍为 token/hash；semantic runtime 边界已存在，但 LiteRT embedding
+  adapter 尚未参与检索。
 - Background Tasks 增加 `schedule_reminder` 工具、`reminder_skill`、`scheduled_tasks` Room 表、AlarmManager 调度和提醒通知通道。
 - Reminder 执行前会请求 Android 通知权限；拒绝后返回结构化 `PermissionDenied`。
 - Device Context 增加受确认保护的 `read_clipboard` 工具和剪贴板上下文 Skill。

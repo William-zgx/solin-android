@@ -59,6 +59,8 @@ interface LongTermMemoryControls {
 interface SemanticMemoryRuntimeController {
     val activeMemoryModelPath: String?
     val semanticMemoryEnabled: Boolean
+    val canLoadSemanticMemoryRuntime: Boolean
+        get() = true
     fun useMemoryModel(path: String?)
 }
 
@@ -83,7 +85,7 @@ class HashingEmbeddingRuntime(
 
 class MemoryRepository(
     embeddingRuntime: EmbeddingRuntime = HashingEmbeddingRuntime(),
-    private val semanticRuntimeFactory: (String) -> EmbeddingRuntime? = { null },
+    private val semanticRuntimeFactory: ((String) -> EmbeddingRuntime?)? = null,
     private val recordStore: MemoryRecordStore = NoOpMemoryRecordStore,
 ) : MemoryIndex, LongTermMemoryControls, SemanticMemoryRuntimeController {
     private val entries = linkedMapOf<String, MemoryEntry>()
@@ -93,13 +95,26 @@ class MemoryRepository(
         private set
     override val semanticMemoryEnabled: Boolean
         get() = activeMemoryModelPath != null && activeEmbeddingRuntime.supportsSemanticRecall
+    override val canLoadSemanticMemoryRuntime: Boolean
+        get() = semanticRuntimeFactory != null
     override var enabled: Boolean = true
 
     override fun useMemoryModel(path: String?) {
         val normalizedPath = path?.trim()?.takeIf { it.isNotBlank() }
+        if (normalizedPath == activeMemoryModelPath && semanticMemoryEnabled) return
+        if (normalizedPath == null && activeMemoryModelPath == null && activeEmbeddingRuntime === defaultEmbeddingRuntime) {
+            return
+        }
         val semanticRuntime = normalizedPath
-            ?.let { modelPath -> runCatching { semanticRuntimeFactory(modelPath) }.getOrNull() }
-            ?.takeIf { runtime -> runtime.supportsSemanticRecall }
+            ?.let { modelPath ->
+                semanticRuntimeFactory?.let { factory ->
+                    runCatching { factory(modelPath) }.getOrNull()
+                }
+            }
+            ?.takeIf { runtime ->
+                runtime.supportsSemanticRecall &&
+                    runCatching { runtime.embed(SEMANTIC_RUNTIME_PROBE_TEXT) }.isSuccess
+            }
         if (semanticRuntime == null) {
             activeMemoryModelPath = null
             activeEmbeddingRuntime = defaultEmbeddingRuntime
@@ -107,7 +122,11 @@ class MemoryRepository(
             activeMemoryModelPath = checkNotNull(normalizedPath)
             activeEmbeddingRuntime = semanticRuntime
         }
-        reembedEntries()
+        runCatching { reembedEntries() }.onFailure {
+            activeMemoryModelPath = null
+            activeEmbeddingRuntime = defaultEmbeddingRuntime
+            reembedEntries()
+        }
     }
 
     override fun rebuild(messages: List<ChatMessage>) {
@@ -475,6 +494,8 @@ private val LATIN_STOP_WORDS = setOf(
 
 private fun String.containsAny(terms: Set<String>): Boolean =
     terms.any { term -> contains(term) }
+
+private const val SEMANTIC_RUNTIME_PROBE_TEXT = "semantic memory runtime probe"
 
 private val RESPONSE_PREFERENCE_TERMS = setOf(
     "answer",

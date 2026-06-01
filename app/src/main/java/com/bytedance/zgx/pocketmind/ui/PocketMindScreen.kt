@@ -1574,10 +1574,15 @@ private fun MemoryTogglePanel(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = if (memoryModelInstalled) {
-                            "记忆模型资产已安装；语义运行时待接入，当前仍使用本地轻量索引召回。"
-                        } else {
-                            "当前使用本地轻量索引；可补装记忆模型资产。"
+                        text = when {
+                            state.semanticMemoryEnabled ->
+                                "语义记忆运行时已启用；记忆仍只在本机检索，不会自动发送到远程模型。"
+
+                            memoryModelInstalled ->
+                                "记忆模型资产已安装；当前 LiteRT-LM 版本尚无公开 embedding API，语义运行时未启用。"
+
+                            else ->
+                                "当前使用本地轻量索引；可补装记忆模型资产。"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
