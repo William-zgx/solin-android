@@ -93,18 +93,22 @@ API keys are stored with Android Keystore-backed encryption and are removed
 when the user clears the key field.
 
 Memory recall is currently a lightweight on-device token/hash index over saved
-sessions. Long-term memory now supports reviewing saved records, forgetting a
-single record, and clearing explicit memory records. Its persisted scope is only
-explicit preference and task-state records stored locally in Room; ordinary
-conversation recall is still rebuilt from saved chat-session history. Forgotten
-auto-managed task-state records stay suppressed so background task refreshes do
-not recreate them in long-term memory. `记住：...` / `remember ...` is handled as
-a local memory-control command: it updates local long-term preferences, records
-only `LocalOnly` control/status messages if visible in the session, and is not
-sent to a remote model as ordinary chat. Explicit response-length and
-response-language preferences replace older conflicting preferences instead of
-accumulating contradictory records, and LiteRT embedding-model-backed semantic
-retrieval is still pending. Mobile actions can use the
+sessions, with a conservative in-memory alias index for explicit
+`Preference`/structured `TaskState` records. Alias terms help local hash recall
+answer-style preferences and active background task state without changing Room
+record text or memory context output. Long-term memory now supports reviewing
+saved records, forgetting a single record, and clearing explicit memory records.
+Its persisted scope is only explicit preference and task-state records stored
+locally in Room; ordinary conversation recall is still rebuilt from saved
+chat-session history. Forgotten auto-managed task-state records stay suppressed
+so background task refreshes do not recreate them in long-term memory.
+`记住：...` / `remember ...` is handled as a local memory-control command: it
+updates local long-term preferences, records only `LocalOnly` control/status
+messages if visible in the session, and is not sent to a remote model as
+ordinary chat. Explicit response-length and response-language preferences replace
+older conflicting preferences instead of accumulating contradictory records, and
+LiteRT embedding-model-backed semantic retrieval is still pending. Mobile
+actions can use the
 verified action model as an experimental planner; if it is missing or does not
 produce a supported
 `call:function {...}` draft, PocketMind falls back to deterministic local rules

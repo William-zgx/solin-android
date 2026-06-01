@@ -44,19 +44,116 @@ class MemoryRepositoryTest {
     }
 
     @Test
-    fun hashRuntimeStillRequiresTokenOverlapBeforeVectorScoring() {
+    fun hashRuntimeRecallsResponseLengthPreferenceThroughLocalAliases() {
         val repository = MemoryRepository()
         repository.indexPreference("pref", "I prefer concise answers")
 
         val hits = repository.search("brief replies")
 
-        assertTrue(hits.isEmpty())
+        assertEquals(listOf("pref"), hits.map { it.id })
+        assertEquals(MemoryRecallMode.Lexical, hits.first().recallMode)
+        assertFalse(repository.semanticMemoryEnabled)
+    }
+
+    @Test
+    fun preferenceAliasesDoNotChangePersistedRecordTextOrContext() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+        repository.indexPreference("pref", "I prefer concise answers")
+
+        val hits = repository.search("brief replies")
+
+        assertEquals("用户偏好：I prefer concise answers", repository.savedRecords().single().text)
+        assertEquals(listOf("用户偏好：I prefer concise answers"), hits.map { it.text })
+        assertFalse(repository.buildContext(hits).contains("brief"))
+    }
+
+    @Test
+    fun responseLengthAliasesAreValueSpecific() {
+        val detailedRepository = MemoryRepository()
+        detailedRepository.indexPreference("pref-detailed", "please give detailed answers")
+
+        assertEquals(listOf("pref-detailed"), detailedRepository.search("展开回复").map { it.id })
+        assertTrue(detailedRepository.search("brief replies").isEmpty())
+        assertTrue(detailedRepository.search("简洁回复").isEmpty())
+
+        val conciseRepository = MemoryRepository()
+        conciseRepository.indexPreference("pref-concise", "I prefer concise answers")
+
+        assertTrue(conciseRepository.search("verbose response").isEmpty())
+        assertTrue(conciseRepository.search("详细回答").isEmpty())
+    }
+
+    @Test
+    fun responseLanguageAliasesAreLanguageSpecific() {
+        val chineseRepository = MemoryRepository()
+        chineseRepository.indexPreference("pref-cn", "请用中文回答")
+
+        assertEquals(listOf("pref-cn"), chineseRepository.search("Mandarin replies").map { it.id })
+        assertTrue(chineseRepository.search("English replies").isEmpty())
+
+        val englishRepository = MemoryRepository()
+        englishRepository.indexPreference("pref-en", "please reply in English")
+
+        assertEquals(listOf("pref-en"), englishRepository.search("英语回答").map { it.id })
+        assertTrue(englishRepository.search("中文回答").isEmpty())
+    }
+
+    @Test
+    fun preferenceAliasesRequireResponsePreferenceIntent() {
+        val repository = MemoryRepository()
+        repository.indexPreference("pref", "I like short stories")
+
+        assertTrue(repository.search("brief replies").isEmpty())
+        assertEquals(listOf("pref"), repository.search("short stories").map { it.id })
+    }
+
+    @Test
+    fun taskStateAliasesRecallReminderAndPeriodicCheckByLocalizedActiveStatus() {
+        val repository = MemoryRepository()
+        repository.indexTaskState(
+            "task-reminder",
+            "后台任务=Reminder；任务记录=task-state-background:task-1；状态=Scheduled；触发时间=1000",
+        )
+        repository.indexTaskState(
+            "task-periodic",
+            "后台任务=PeriodicCheck；任务记录=task-state-background:periodic-check-local；状态=Running；触发时间=2000",
+        )
+
+        val reminderHits = repository.search("待执行提醒", topK = 1)
+        val periodicHits = repository.search("运行中的周期检查", topK = 1)
+
+        assertEquals(listOf("task-reminder"), reminderHits.map { it.id })
+        assertEquals(listOf("task-periodic"), periodicHits.map { it.id })
+        assertFalse(repository.buildContext(reminderHits).contains("本地提醒"))
+        assertFalse(repository.buildContext(reminderHits).contains("待执行"))
+    }
+
+    @Test
+    fun taskStateAliasesDoNotRecallTerminalStatusQueries() {
+        val repository = MemoryRepository()
+        repository.indexTaskState(
+            "task-reminder",
+            "后台任务=Reminder；任务记录=task-state-background:task-1；状态=Scheduled；触发时间=1000",
+        )
+
+        assertTrue(repository.search("已取消提醒").isEmpty())
+        assertTrue(repository.search("失败提醒").isEmpty())
+        assertTrue(repository.search("delivered reminder").isEmpty())
+    }
+
+    @Test
+    fun conversationRecordsDoNotReceiveLongTermAliasTokens() {
+        val repository = MemoryRepository()
+        repository.index("conv", "助手：Reminder Scheduled")
+
+        assertTrue(repository.search("待执行提醒").isEmpty())
     }
 
     @Test
     fun semanticRuntimeCanRecallWithoutTokenOverlap() {
         val repository = MemoryRepository(embeddingRuntime = ConceptEmbeddingRuntime())
-        repository.indexPreference("pref", "I prefer concise answers")
+        repository.index("pref", "I prefer concise answers")
 
         val hits = repository.search("brief replies")
 
@@ -67,7 +164,7 @@ class MemoryRepositoryTest {
     @Test
     fun semanticRuntimeHonorsScoreThresholdWithoutTokenOverlap() {
         val repository = MemoryRepository(embeddingRuntime = ConceptEmbeddingRuntime())
-        repository.indexPreference("pref", "I prefer concise answers")
+        repository.index("pref", "I prefer concise answers")
 
         val hits = repository.search("nearby replies")
 
@@ -82,7 +179,7 @@ class MemoryRepositoryTest {
                 ConceptEmbeddingRuntime()
             },
         )
-        repository.indexPreference("pref", "I prefer concise answers")
+        repository.index("pref", "I prefer concise answers")
 
         assertFalse(repository.semanticMemoryEnabled)
         assertTrue(repository.search("brief replies").isEmpty())
@@ -112,7 +209,7 @@ class MemoryRepositoryTest {
                 }
             },
         )
-        repository.indexPreference("pref", "I prefer concise answers")
+        repository.index("pref", "I prefer concise answers")
         repository.useMemoryModel("/ok")
 
         assertEquals(listOf("pref"), repository.search("brief replies").map { it.id })
@@ -135,7 +232,7 @@ class MemoryRepositoryTest {
                 ConceptEmbeddingRuntime()
             },
         )
-        repository.indexPreference("pref", "I prefer concise answers")
+        repository.index("pref", "I prefer concise answers")
         repository.useMemoryModel("/ok")
 
         repository.useMemoryModel("/broken")
@@ -151,7 +248,7 @@ class MemoryRepositoryTest {
         val repository = MemoryRepository(
             semanticRuntimeFactory = { FailingOnConciseEmbeddingRuntime() },
         )
-        repository.indexPreference("pref", "I prefer concise answers")
+        repository.index("pref", "I prefer concise answers")
 
         repository.useMemoryModel("/broken")
 
@@ -172,7 +269,7 @@ class MemoryRepositoryTest {
                 }
             },
         )
-        repository.indexPreference("pref", "I prefer concise answers")
+        repository.index("pref", "I prefer concise answers")
 
         repository.useMemoryModel("/model-a")
 
@@ -224,7 +321,10 @@ class MemoryRepositoryTest {
 
         assertFalse(repository.semanticMemoryEnabled)
         assertNull(repository.activeMemoryModelPath)
-        assertTrue(repository.search("brief replies").isEmpty())
+        assertTrue(repository.search("laconic replies").isEmpty())
+        val aliasHits = repository.search("brief replies")
+        assertEquals(listOf("pref"), aliasHits.map { it.id })
+        assertEquals(MemoryRecallMode.Lexical, aliasHits.first().recallMode)
     }
 
     @Test
@@ -239,7 +339,8 @@ class MemoryRepositoryTest {
 
         assertFalse(restored.semanticMemoryEnabled)
         assertNull(restored.activeMemoryModelPath)
-        assertTrue(restored.search("brief replies").isEmpty())
+        assertTrue(restored.search("laconic replies").isEmpty())
+        assertEquals(listOf("pref"), restored.search("brief replies").map { it.id })
         assertEquals(listOf("pref"), restored.search("concise answers").map { it.id })
     }
 
@@ -415,20 +516,23 @@ class MemoryRepositoryTest {
         val repository = MemoryRepository(recordStore = store)
         val memoryId = taskStateMemoryRecordId("task-1")
 
-        repository.indexTaskState(memoryId, "等待确认分享摘要")
+        repository.indexTaskState(
+            memoryId,
+            "后台任务=Reminder；任务记录=$memoryId；状态=Scheduled；触发时间=1000",
+        )
         repository.suppressAutoManagedTaskState(memoryId)
 
         assertTrue(repository.isAutoManagedTaskStateSuppressed(memoryId))
         assertEquals(listOf(suppressedTaskStateMemoryRecordId(memoryId)), store.records().map { it.id })
         assertTrue(repository.savedRecords().isEmpty())
-        assertTrue(repository.search("确认分享").isEmpty())
+        assertTrue(repository.search("待执行提醒").isEmpty())
 
         val restored = MemoryRepository(recordStore = store)
         restored.rebuild(emptyList())
 
         assertTrue(restored.isAutoManagedTaskStateSuppressed(memoryId))
         assertTrue(restored.savedRecords().isEmpty())
-        assertTrue(restored.search("确认分享").isEmpty())
+        assertTrue(restored.search("待执行提醒").isEmpty())
 
         restored.indexTaskState(memoryId, "重新同步的任务状态")
 

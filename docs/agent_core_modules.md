@@ -765,6 +765,11 @@ Current status:
 - Default local memory uses a lightweight token/hash index over saved sessions
   and explicit persisted records; it does not require a dedicated memory model
   asset to be installed.
+- The default hash index now adds conservative in-memory alias terms only for
+  explicit `Preference` records about answer length/language and structured
+  active `TaskState` records. These aliases are not persisted, do not change
+  `MemoryHit.text` or `buildContext`, do not apply to ordinary conversation
+  records, and are separate from true semantic retrieval.
 - Added explicit long-term memory controls for reviewing saved records,
   forgetting a single record, and clearing explicit memory records.
 - Explicit preference and task-state records are now persisted in Room and
@@ -822,6 +827,14 @@ Current status:
 Tests:
 
 - `MemoryRepositoryTest`
+- `MemoryRepositoryTest.hashRuntimeRecallsResponseLengthPreferenceThroughLocalAliases`
+- `MemoryRepositoryTest.preferenceAliasesDoNotChangePersistedRecordTextOrContext`
+- `MemoryRepositoryTest.responseLengthAliasesAreValueSpecific`
+- `MemoryRepositoryTest.responseLanguageAliasesAreLanguageSpecific`
+- `MemoryRepositoryTest.preferenceAliasesRequireResponsePreferenceIntent`
+- `MemoryRepositoryTest.taskStateAliasesRecallReminderAndPeriodicCheckByLocalizedActiveStatus`
+- `MemoryRepositoryTest.taskStateAliasesDoNotRecallTerminalStatusQueries`
+- `MemoryRepositoryTest.conversationRecordsDoNotReceiveLongTermAliasTokens`
 - `MemoryRepositoryTest.conflictingResponseLengthPreferenceReplacesOlderRecord`
 - `MemoryRepositoryTest.unrelatedResponsePreferenceFamiliesCanCoexist`
 - `MemoryRepositoryTest.combinedResponsePreferenceReplacesBothFamilies`

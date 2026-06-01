@@ -1,5 +1,38 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Preference/TaskState alias memory 增量验证
+
+本轮覆盖项：
+
+- 默认 hash 记忆为显式 `Preference` 和结构化活跃 `TaskState` 增加保守的本地
+  alias 索引，让回答长度/语言偏好和后台任务状态能通过常见中英文问法召回。
+- Alias 只进入内存检索 token 和默认 hash embedding 输入，不写入 Room、
+  `MemoryHit.text`、`buildContext`、长期记忆列表、远程 prompt 或普通会话记录。
+- 普通 `Conversation`、非回答偏好、非结构化 `TaskState` 和 hidden
+  `SuppressedTaskState` 不获得 alias；终态查询如“已取消提醒”不会召回仍活跃的
+  Scheduled/Running 任务状态。
+- 语义 runtime 启用时，embedding 输入仍使用原展示文本；检索同时保存原文 token
+  与 alias 后 token，避免 alias-only 命中被误标成普通 lexical recall。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --rerun-tasks \
+  --tests com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest \
+  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex \
+  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localModeSemanticMemoryStatusAndPromptUseSemanticHit
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：定向记忆/语义状态测试、全量 JVM 单测、AndroidTest Kotlin 编译、
+diff whitespace 检查、敏感串扫描和本地完整验证脚本通过。
+
 ## 2026-06-01 Device preflight script coverage 增量验证
 
 本轮覆盖项：

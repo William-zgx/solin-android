@@ -220,14 +220,18 @@ class MemoryRepository(
     ) {
         val normalized = text.trim()
         if (normalized.isBlank()) return
-        val tokens = tokenize(normalized).toSet()
+        val searchText = searchTextFor(type, normalized)
+        val originalTokens = tokenize(normalized).toSet()
+        val tokens = tokenize(searchText).toSet()
         if (tokens.isEmpty()) return
         entries[id] = MemoryEntry(
             id = id,
             text = normalized,
             type = type,
+            originalTokens = originalTokens,
             tokens = tokens,
-            embedding = activeEmbeddingRuntime.embed(normalized),
+            searchText = searchText,
+            embedding = activeEmbeddingRuntime.embed(embeddingTextFor(normalized, searchText)),
         )
         if (persist && type != MemoryRecordType.Conversation) {
             recordStore.upsert(
@@ -244,17 +248,20 @@ class MemoryRepository(
         if (!enabled || query.isBlank() || topK <= 0 || entries.isEmpty()) return emptyList()
         val queryTokens = tokenize(query).toSet()
         if (queryTokens.isEmpty()) return emptyList()
+        val normalizedQuery = query.lowercase(Locale.ROOT)
         val requiredOverlapTokens = queryTokens.filter { it.length > 1 }.ifEmpty { queryTokens }
         val queryEmbedding = activeEmbeddingRuntime.embed(query)
         val supportsSemanticRecall = activeEmbeddingRuntime.supportsSemanticRecall
         val semanticScoreThreshold = activeEmbeddingRuntime.semanticScoreThreshold
         return entries.values
             .mapNotNull { entry ->
+                if (entry.shouldSuppressTaskStateHitFor(normalizedQuery)) return@mapNotNull null
                 val hasLexicalOverlap = entry.tokens.any { it in requiredOverlapTokens }
                 if (!hasLexicalOverlap && !supportsSemanticRecall) return@mapNotNull null
                 val score = cosine(queryEmbedding, entry.embedding)
                 if (score <= 0f) return@mapNotNull null
-                val recallMode = if (hasLexicalOverlap) {
+                val hasOriginalLexicalOverlap = entry.originalTokens.any { it in requiredOverlapTokens }
+                val recallMode = if (!supportsSemanticRecall || hasOriginalLexicalOverlap) {
                     MemoryRecallMode.Lexical
                 } else {
                     MemoryRecallMode.Semantic
@@ -279,10 +286,16 @@ class MemoryRepository(
     private fun reembedEntries() {
         entries.keys.toList().forEach { id ->
             entries[id]?.let { entry ->
-                entries[id] = entry.copy(embedding = activeEmbeddingRuntime.embed(entry.text))
+                entries[id] = entry.copy(embedding = activeEmbeddingRuntime.embed(embeddingTextFor(entry)))
             }
         }
     }
+
+    private fun embeddingTextFor(entry: MemoryEntry): String =
+        embeddingTextFor(entry.text, entry.searchText)
+
+    private fun embeddingTextFor(text: String, searchText: String): String =
+        if (activeEmbeddingRuntime.supportsSemanticRecall) text else searchText
 
     private fun forgetConflictingPreferences(id: String, text: String) {
         val conflictKeys = explicitPreferenceConflictKeys(text)
@@ -444,9 +457,74 @@ private data class MemoryEntry(
     val id: String,
     val text: String,
     val type: MemoryRecordType,
+    val originalTokens: Set<String>,
     val tokens: Set<String>,
+    val searchText: String,
     val embedding: FloatArray,
 )
+
+private fun searchTextFor(type: MemoryRecordType, text: String): String {
+    val aliases = memorySearchAliases(type, text)
+    return if (aliases.isEmpty()) {
+        text
+    } else {
+        "$text\n${aliases.joinToString(separator = " ")}"
+    }
+}
+
+private fun memorySearchAliases(type: MemoryRecordType, text: String): Set<String> =
+    when (type) {
+        MemoryRecordType.Preference -> preferenceSearchAliases(text)
+        MemoryRecordType.TaskState -> taskStateSearchAliases(text)
+        MemoryRecordType.Conversation,
+        MemoryRecordType.SuppressedTaskState -> emptySet()
+    }
+
+private fun preferenceSearchAliases(text: String): Set<String> {
+    val normalized = text
+        .trim()
+        .removePrefix("用户偏好：")
+        .trim()
+        .lowercase(Locale.ROOT)
+        .replace(Regex("""\s+"""), " ")
+    if (normalized.isBlank() || !normalized.containsAny(RESPONSE_PREFERENCE_TERMS)) {
+        return emptySet()
+    }
+    return buildSet {
+        if (normalized.containsAny(RESPONSE_CONCISE_TERMS)) addAll(RESPONSE_CONCISE_ALIASES)
+        if (normalized.containsAny(RESPONSE_DETAILED_TERMS)) addAll(RESPONSE_DETAILED_ALIASES)
+        if (normalized.containsAny(RESPONSE_CHINESE_TERMS)) addAll(RESPONSE_CHINESE_ALIASES)
+        if (normalized.containsAny(RESPONSE_ENGLISH_TERMS)) addAll(RESPONSE_ENGLISH_ALIASES)
+    }
+}
+
+private fun taskStateSearchAliases(text: String): Set<String> {
+    val normalized = text.lowercase(Locale.ROOT)
+    if (!normalized.hasStructuredTaskStateMemoryShape()) return emptySet()
+    return buildSet {
+        addAll(TASK_STATE_ALIASES)
+        if ("reminder" in normalized) addAll(TASK_STATE_REMINDER_ALIASES)
+        if ("periodiccheck" in normalized || "periodic-check" in normalized) {
+            addAll(TASK_STATE_PERIODIC_CHECK_ALIASES)
+        }
+        if ("状态=scheduled" in normalized) addAll(TASK_STATE_SCHEDULED_ALIASES)
+        if ("状态=running" in normalized) addAll(TASK_STATE_RUNNING_ALIASES)
+    }
+}
+
+private fun String.hasStructuredTaskStateMemoryShape(): Boolean =
+    startsWith("任务状态：") &&
+        "后台任务=" in this &&
+        "任务记录=" in this &&
+        "状态=" in this &&
+        "触发时间=" in this
+
+private fun MemoryEntry.shouldSuppressTaskStateHitFor(normalizedQuery: String): Boolean {
+    if (type != MemoryRecordType.TaskState || !normalizedQuery.containsAny(TASK_STATE_TERMINAL_QUERY_TERMS)) {
+        return false
+    }
+    return !text.lowercase(Locale.ROOT).containsAny(TASK_STATE_TERMINAL_QUERY_TERMS)
+}
 
 private fun tokenize(text: String): List<String> {
     val normalized = text.lowercase()
@@ -527,6 +605,30 @@ private val RESPONSE_LENGTH_TERMS = setOf(
     "详尽",
 )
 
+private val RESPONSE_CONCISE_TERMS = setOf(
+    "brief",
+    "concise",
+    "short",
+    "succinct",
+    "terse",
+    "简洁",
+    "简短",
+    "精炼",
+)
+
+private val RESPONSE_DETAILED_TERMS = setOf(
+    "detailed",
+    "expanded",
+    "long",
+    "verbose",
+    "elaborate",
+    "full",
+    "thorough",
+    "展开",
+    "详细",
+    "详尽",
+)
+
 private val RESPONSE_LANGUAGE_TERMS = setOf(
     "chinese",
     "english",
@@ -535,4 +637,123 @@ private val RESPONSE_LANGUAGE_TERMS = setOf(
     "汉语",
     "英文",
     "英语",
+)
+
+private val RESPONSE_CHINESE_TERMS = setOf(
+    "chinese",
+    "mandarin",
+    "普通话",
+    "中文",
+    "汉语",
+)
+
+private val RESPONSE_ENGLISH_TERMS = setOf(
+    "english",
+    "英文",
+    "英语",
+)
+
+private val RESPONSE_CONCISE_ALIASES = setOf(
+    "brief",
+    "concise",
+    "short",
+    "succinct",
+    "terse",
+    "简洁",
+    "简短",
+    "精炼",
+)
+
+private val RESPONSE_DETAILED_ALIASES = setOf(
+    "detailed",
+    "expanded",
+    "long",
+    "verbose",
+    "elaborate",
+    "thorough",
+    "展开",
+    "详细",
+    "详尽",
+)
+
+private val RESPONSE_CHINESE_ALIASES = setOf(
+    "chinese",
+    "mandarin",
+    "普通话",
+    "中文",
+    "汉语",
+)
+
+private val RESPONSE_ENGLISH_ALIASES = setOf(
+    "english",
+    "英文",
+    "英语",
+)
+
+private val TASK_STATE_ALIASES = setOf(
+    "taskstate",
+    "待办事项",
+    "任务状态",
+)
+
+private val TASK_STATE_REMINDER_ALIASES = setOf(
+    "reminder",
+    "reminders",
+    "alarm",
+    "alert",
+    "提醒",
+    "提醒事项",
+    "后台提醒",
+    "本地提醒",
+    "闹钟",
+)
+
+private val TASK_STATE_PERIODIC_CHECK_ALIASES = setOf(
+    "periodic",
+    "periodiccheck",
+    "patrol",
+    "周期检查",
+    "定期检查",
+    "后台检查",
+    "本地巡检",
+)
+
+private val TASK_STATE_SCHEDULED_ALIASES = setOf(
+    "scheduled",
+    "pending",
+    "queued",
+    "upcoming",
+    "已安排",
+    "待执行",
+    "已计划",
+    "待触发",
+)
+
+private val TASK_STATE_RUNNING_ALIASES = setOf(
+    "running",
+    "executing",
+    "inprogress",
+    "运行中",
+    "进行中",
+    "执行中",
+)
+
+private val TASK_STATE_TERMINAL_QUERY_TERMS = setOf(
+    "cancelled",
+    "canceled",
+    "deleted",
+    "delivered",
+    "done",
+    "failed",
+    "finished",
+    "取消",
+    "已取消",
+    "删除",
+    "已删除",
+    "失败",
+    "已失败",
+    "完成",
+    "已完成",
+    "送达",
+    "已送达",
 )
