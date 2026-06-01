@@ -2265,6 +2265,50 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun confirmToolRequestEntersExecutingBeforeClearingPendingConfirmation() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.READ_CLIPBOARD,
+                        title = "读取剪贴板",
+                        summary = "将读取当前剪贴板文本。",
+                        parameters = emptyMap(),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val delegateStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
+        val traceStore = ClearPendingThrowingTraceStore(delegateStore)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = traceStore,
+        )
+        val planned = runtime.runOnce(
+            input = "读取剪贴板并总结",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+
+        val failure = runCatching {
+            runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertEquals(AgentRunState.ExecutingTool, delegateStore.run(planned.run.id)?.state)
+        assertTrue(delegateStore.steps(planned.run.id).any { step ->
+            step is AgentStep.UserConfirmed && step.requestId == planned.plan.request.id
+        })
+    }
+
+    @Test
     fun confirmedToolResultIsObservedAndCompletesRun() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(
@@ -4355,6 +4399,14 @@ class AgentLoopRuntimeTest {
                 manifest = manifest,
                 steps = listOf(SkillStep.ToolStep(request, draft)),
             )
+        }
+    }
+
+    private class ClearPendingThrowingTraceStore(
+        private val delegate: AgentTraceStore,
+    ) : AgentTraceStore by delegate {
+        override fun clearPendingConfirmation(runId: String, requestId: String): Boolean {
+            error("pending delete failed")
         }
     }
 

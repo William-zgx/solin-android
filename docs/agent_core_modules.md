@@ -143,6 +143,11 @@ Current status:
   summaries. Persisted `SkillPlan` recovery stores only redacted plan structure,
   not the original skill input or tool/draft payload text, and terminal runs
   clear the in-memory recovery copy.
+- `AwaitingUserConfirmation` is treated as recoverable only when its pending
+  confirmation row can be parsed and still matches the pending tool boundary.
+  Startup repair fails awaiting runs without a valid pending row, and malformed
+  pending or `SkillPlan` JSON is not silently downgraded into a plain pending
+  confirmation.
 - Model-bound multi-step Skills that reach a second confirmation persist that
   second pending tool request as the active pending confirmation. Startup
   restore keeps the new `share_text` request id and model-produced arguments;
@@ -389,6 +394,8 @@ Current status:
   broad arbitrary skill-runner state persistence is still pending.
 - Room restore validates that a persisted pending confirmation with an attached
   `SkillPlan` still points at a tool step in that plan before restoring the UI.
+  Invalid or malformed pending rows fail the owning awaiting run so restart does
+  not leave an invisible confirmation zombie.
   Corrupt or stale rows are skipped instead of reviving an unexplainable skill
   continuation.
 

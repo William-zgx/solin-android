@@ -160,8 +160,9 @@ class AgentLoopRuntime(
             status = null,
             summary = safetyDecision.reason,
         )
+        val executingRun = traceStore.updateState(runId, AgentRunState.ExecutingTool)
         traceStore.clearPendingConfirmation(runId, requestId)
-        return traceStore.updateState(runId, AgentRunState.ExecutingTool)
+        return executingRun
     }
 
     fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult? {
@@ -177,12 +178,13 @@ class AgentLoopRuntime(
             status = ToolStatus.Cancelled,
             summary = "User cancelled tool request before execution.",
         )
-        traceStore.clearPendingConfirmation(runId, requestId)
-        return observeToolResultInternal(
+        val observed = observeToolResultInternal(
             runId = runId,
             result = request.cancelled("用户取消了工具请求"),
             allowedStates = setOf(AgentRunState.AwaitingUserConfirmation),
         )
+        traceStore.clearPendingConfirmation(runId, requestId)
+        return observed
     }
 
     fun failPendingToolRequest(
@@ -204,12 +206,13 @@ class AgentLoopRuntime(
             status = null,
             summary = "User confirmed tool request, but execution was blocked before start.",
         )
-        traceStore.clearPendingConfirmation(runId, requestId)
-        return observeToolResultInternal(
+        val observed = observeToolResultInternal(
             runId = runId,
             result = result,
             allowedStates = setOf(AgentRunState.AwaitingUserConfirmation),
         )
+        traceStore.clearPendingConfirmation(runId, requestId)
+        return observed
     }
 
     fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? =

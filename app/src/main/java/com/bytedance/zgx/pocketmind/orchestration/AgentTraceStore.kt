@@ -56,6 +56,8 @@ private val toolObservedCompletionMetadataAllowlist = listOf(
 )
 
 private const val REDACTED_AGENT_RUN_INPUT = "[redacted]"
+private const val UNRESTORABLE_PENDING_CONFIRMATION_REASON =
+    "Pending tool confirmation could not be restored after process restart."
 
 interface AgentTraceStore {
     fun createRun(input: String): AgentRun
@@ -281,16 +283,7 @@ class RoomAgentTraceStore(
                 traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
                 continue
             }
-            val snapshot = try {
-                entity.toSnapshot(run)
-            } catch (_: Exception) {
-                traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
-                null
-            } ?: continue
-            if (!snapshot.hasRestorableSkillPlanRequest()) {
-                traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
-                continue
-            }
+            val snapshot = restorablePendingSnapshotOrFailRun(entity, run) ?: continue
             snapshot.nextActionInput
                 ?.let { nextActionInput -> liveNextActionInputs[snapshot.run.id] = nextActionInput }
                 ?: liveNextActionInputs.remove(snapshot.run.id)
@@ -307,14 +300,60 @@ class RoomAgentTraceStore(
         liveNextActionInputs[runId]
 
     override fun failStaleInFlightRuns(reason: String): Int {
-        val staleRuns = traceDao.recentRuns(Int.MAX_VALUE)
+        val validPendingRunIds = repairPendingConfirmationsAndCollectValidRunIds()
+        val runs = traceDao.recentRuns(Int.MAX_VALUE)
             .map { entity -> entity.toDomain() }
-            .filter { run -> run.state.isStaleAfterProcessRestart() }
+        val staleRuns = runs.filter { run -> run.state.isStaleAfterProcessRestart() }
         staleRuns.forEach { run ->
-            appendStep(run.id, AgentStep.Failed(reason))
-            updateState(run.id, AgentRunState.Failed)
+            failRun(run, reason)
         }
-        return staleRuns.size
+        val awaitingWithoutPendingRuns = traceDao.recentRuns(Int.MAX_VALUE)
+            .map { entity -> entity.toDomain() }
+            .filter { run ->
+                run.state == AgentRunState.AwaitingUserConfirmation &&
+                    run.id !in validPendingRunIds
+            }
+        awaitingWithoutPendingRuns.forEach { run ->
+            failRun(run, UNRESTORABLE_PENDING_CONFIRMATION_REASON)
+        }
+        return staleRuns.size + awaitingWithoutPendingRuns.size
+    }
+
+    private fun repairPendingConfirmationsAndCollectValidRunIds(): Set<String> =
+        buildSet {
+            traceDao.pendingConfirmations().forEach { entity ->
+                val run = run(entity.runId)
+                if (run == null || run.state != AgentRunState.AwaitingUserConfirmation) {
+                    traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
+                    return@forEach
+                }
+                if (restorablePendingSnapshotOrFailRun(entity, run) != null) {
+                    add(run.id)
+                }
+            }
+        }
+
+    private fun restorablePendingSnapshotOrFailRun(
+        entity: PendingAgentConfirmationEntity,
+        run: AgentRun,
+    ): PendingToolConfirmationSnapshot? {
+        val snapshot = try {
+            entity.toSnapshot(run)
+        } catch (_: Exception) {
+            null
+        }
+        if (snapshot == null || !snapshot.hasRestorableSkillPlanRequest()) {
+            traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
+            failRun(run, UNRESTORABLE_PENDING_CONFIRMATION_REASON)
+            return null
+        }
+        return snapshot
+    }
+
+    private fun failRun(run: AgentRun, reason: String) {
+        if (run.state.isTerminal()) return
+        appendStep(run.id, AgentStep.Failed(reason))
+        updateState(run.id, AgentRunState.Failed)
     }
 
     private fun hydrateLivePendingSteps(snapshot: PendingToolConfirmationSnapshot) {
@@ -493,7 +532,7 @@ private fun PendingAgentConfirmationEntity.toSnapshot(run: AgentRun): PendingToo
             parameters = draftParametersJson.toStringMap(),
         ),
         skillId = skillId,
-        skillPlan = skillPlanJson?.toSkillPlanOrNull(),
+        skillPlan = skillPlanJson?.let { json -> JSONObject(json).toSkillPlan() },
         plannedByModel = plannedByModel,
         fallbackReason = fallbackReason,
         nextActionInput = nextActionInput,
@@ -580,9 +619,6 @@ private fun SkillPlan.toJsonObject(): JSONObject =
                 steps.forEach { step -> array.put(step.toJsonObject()) }
             },
         )
-
-private fun String.toSkillPlanOrNull(): SkillPlan? =
-    runCatching { JSONObject(this).toSkillPlan() }.getOrNull()
 
 private fun JSONObject.toSkillPlan(): SkillPlan =
     SkillPlan(

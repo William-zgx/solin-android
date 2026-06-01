@@ -644,6 +644,121 @@ class AgentTraceStoreTest {
         requireNotNull(restored)
         assertEquals(validRun.id, restored.run.id)
         assertEquals(validRequest.id, restored.request.id)
+        assertEquals(AgentRunState.Failed, restartedStore.run(invalidRun.id)?.state)
+        assertTrue(restartedStore.steps(invalidRun.id).any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending tool confirmation could not be restored")
+        })
+    }
+
+    @Test
+    fun roomStoreFailsAwaitingRunWhenPendingConfirmationJsonIsCorrupt() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-corrupt-pending-json" },
+        )
+        val waitingRun = store.updateState(store.createRun("open wifi").id, AgentRunState.AwaitingUserConfirmation)
+        val request = ToolRequest(
+            id = "request-wifi",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = "Open Wi-Fi",
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    title = "Wi-Fi",
+                    summary = "Open Wi-Fi",
+                    parameters = emptyMap(),
+                ),
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+            ),
+        )
+        dao.latestPendingConfirmation()
+            ?.copy(argumentsJson = "{")
+            ?.let(dao::upsertPendingConfirmation)
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        assertNull(restartedStore.latestPendingConfirmation())
+        assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
+        assertTrue(restartedStore.steps(waitingRun.id).any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending tool confirmation could not be restored")
+        })
+    }
+
+    @Test
+    fun roomStoreFailsAwaitingRunWithoutPendingConfirmationOnStartupRepair() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-missing-pending" },
+        )
+        val waitingRun = store.updateState(store.createRun("open wifi").id, AgentRunState.AwaitingUserConfirmation)
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        val failedCount = restartedStore.failStaleInFlightRuns("process restarted")
+
+        assertEquals(1, failedCount)
+        assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
+        assertTrue(restartedStore.steps(waitingRun.id).any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending tool confirmation could not be restored")
+        })
+    }
+
+    @Test
+    fun malformedSkillPlanJsonDoesNotRestoreSkillPendingAsPlainPending() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-corrupt-skill-plan" },
+        )
+        val request = ToolRequest(
+            id = "request-read-clipboard",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "Read clipboard for summary",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CLIPBOARD,
+            title = "读取剪贴板",
+            summary = "将读取当前剪贴板文本。",
+            parameters = emptyMap(),
+        )
+        val skillPlan = BuiltInSkillRuntime().planClipboardSummaryShare(
+            input = "总结剪贴板并分享",
+            readRequest = request,
+            readDraft = draft,
+        )
+        val waitingRun = store.updateState(store.createRun("总结剪贴板并分享").id, AgentRunState.AwaitingUserConfirmation)
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = draft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        dao.latestPendingConfirmation()
+            ?.copy(skillPlanJson = "{")
+            ?.let(dao::upsertPendingConfirmation)
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        assertNull(restartedStore.latestPendingConfirmation())
+        assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
+        assertTrue(restartedStore.steps(waitingRun.id).none { step ->
+            step is AgentStep.ToolRequested && step.request.id == request.id
+        })
     }
 
     @Test
