@@ -575,6 +575,44 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation() {
+        val cases = listOf(
+            Triple("最近 3 张图片", "images", "3"),
+            Triple("recent screenshots", "screenshots", null),
+        )
+
+        cases.forEach { (input, kind, maxCount) ->
+            val actionRuntime = RecordingActionRuntime(likelyAction = false)
+            val runtime = AgentLoopRuntime(
+                memoryIndex = MemoryRepository(),
+                actionPlanningRuntime = actionRuntime,
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            )
+
+            val result = runtime.runOnce(
+                input = input,
+                installedCapabilities = setOf(ModelCapability.Chat),
+                memoryEnabled = false,
+            )
+
+            assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+            require(result.plan is AgentPlan.UseTool)
+            assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, result.plan.request.toolName)
+            assertEquals(kind, result.plan.request.arguments["kind"])
+            if (maxCount == null) {
+                assertNull(result.plan.request.arguments["maxCount"])
+            } else {
+                assertEquals(maxCount, result.plan.request.arguments["maxCount"])
+            }
+            assertEquals(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
+            assertEquals("skill-first", result.plan.fallbackReason)
+            assertEquals(0, actionRuntime.isLikelyActionCallCount)
+            assertEquals(0, actionRuntime.planCallCount)
+            assertEquals(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        }
+    }
+
+    @Test
     fun skillFirstMapEmailAndCalendarBypassActionPlannerAndRequestConfirmation() {
         val cases = listOf(
             SkillFirstDraftCase(
@@ -647,6 +685,10 @@ class AgentLoopRuntimeTest {
             "不要搜索 Kotlin，只解释一下",
             "what is web search",
             "查一下这个错误原因了吗？",
+            "识别最近图片文字",
+            "识别最近截图文字",
+            "查询最近5个文档",
+            "最近文件",
         )
 
         inputs.forEach { input ->

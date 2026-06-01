@@ -254,6 +254,142 @@ internal object WebSearchActionParser {
     }
 }
 
+internal object RecentFilesActionParser {
+    private val englishMediaPattern =
+        Regex(
+            """\b(recent|latest)\b.*\b(images?|screenshots?|screen\s+captures?|videos?|audios?|photos?)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+    fun matches(input: String, includeNonMediaKinds: Boolean = false): Boolean {
+        if (input.looksLikeRecentFileContentExtraction()) return false
+        val normalized = input.lowercase()
+        val hasChineseMediaTrigger = listOf(
+            "最近图片",
+            "最近照片",
+            "最近截图",
+            "最近截屏",
+            "最近视频",
+            "最近音频",
+        ).any { it in input } ||
+            Regex("""最近\s*\d{0,2}\s*(?:个|份|条|张)?\s*(图片|照片|截图|截屏|视频|音频)""")
+                .containsMatchIn(input)
+        val hasEnglishMediaTrigger = englishMediaPattern.containsMatchIn(normalized)
+        if (hasChineseMediaTrigger || hasEnglishMediaTrigger) return true
+
+        if (!includeNonMediaKinds) return false
+        return listOf(
+            "最近文件",
+            "最近文档",
+            "最近下载",
+            "查询文件",
+            "文件列表",
+            "最近文件列表",
+        ).any { it in input } ||
+            Regex("""最近\s*\d{0,2}\s*(?:个|份|条|张)?\s*(文件|文档|下载)""")
+                .containsMatchIn(input) ||
+            Regex("""\b(recent|latest)\b.*\b(files?|documents?)\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(normalized)
+    }
+
+    fun draft(input: String): ActionDraft {
+        val parameters = parameters(input)
+        val kind = parameters["kind"].orEmpty().ifBlank { "all" }
+        return ActionDraft(
+            functionName = MobileActionFunctions.QUERY_RECENT_FILES,
+            title = "查询最近文件",
+            summary = summary(kind, parameters["maxCount"]),
+            parameters = parameters,
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun parameters(input: String): Map<String, String> {
+        val normalized = input.lowercase()
+        val cleaned = input.replace(Regex("\\s+"), "")
+        val countMatch = Regex("最近(\\d{1,2})条?(?:个|份)?").find(cleaned)
+            ?: Regex(
+                "(?:recent|latest)\\s+(\\d{1,2})\\s+" +
+                    "(?:files?|documents?|images?|screenshots?|screen\\s+captures?|videos?|audios?|photos?)",
+            )
+                .find(normalized)
+
+        val maxCount = countMatch?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?.takeIf { it > 0 }
+            ?.toString()
+
+        val kind = when {
+            "截图" in input || "截屏" in input || "screenshot" in normalized || "screen capture" in normalized ->
+                "screenshots"
+            "图片" in input || "照片" in input || "image" in normalized || "photo" in normalized -> "images"
+            "视频" in input || "video" in normalized || "vid" in normalized -> "videos"
+            "音频" in input || "audio" in normalized -> "audio"
+            "文档" in input || "document" in normalized || "doc" in normalized -> "documents"
+            "下载" in input || "download" in normalized -> "downloads"
+            "其他" in input || "other" in normalized -> "others"
+            else -> "all"
+        }
+
+        return buildMap {
+            if (maxCount != null) {
+                put("maxCount", maxCount)
+            }
+            if (kind != "all") {
+                put("kind", kind)
+            }
+        }
+    }
+
+    private fun summary(kind: String, maxCount: String?): String {
+        val label = kindLabel(kind)
+        val base = if (maxCount.isNullOrBlank()) {
+            "将读取最近的${label}文件摘要"
+        } else {
+            "将读取最近 ${maxCount} 个${label}文件摘要"
+        }
+        val boundary = when (kind) {
+            "all" -> "仅返回文件名、类型、大小和修改时间；Android 13 及以上仅包含已授权的图片、视频或音频媒体"
+            "documents", "downloads", "others" ->
+                "仅返回文件名、类型、大小和修改时间；Android 13 及以上需要通过系统文件选择器授权非媒体文件"
+            else -> "仅返回文件名、类型、大小和修改时间"
+        }
+        return "$base（$boundary）。"
+    }
+
+    private fun kindLabel(kind: String): String =
+        when (kind) {
+            "all" -> "全部"
+            "screenshots" -> "截图"
+            "images" -> "图片"
+            "videos" -> "视频"
+            "audio" -> "音频"
+            "documents" -> "文档"
+            "downloads" -> "下载"
+            "others" -> "其他"
+            else -> kind
+        }
+
+    private fun String.looksLikeRecentFileContentExtraction(): Boolean {
+        val normalized = lowercase()
+        val mentionsRecentMedia = ("最近" in this && listOf("图片", "照片", "截图", "截屏", "相册").any { it in this }) ||
+            Regex("""\b(recent|latest)\b.*\b(images?|photos?|pictures?|screenshots?|screen\s+captures?)\b""")
+                .containsMatchIn(normalized)
+        val asksForTextExtraction = listOf(
+            "识别",
+            "提取",
+            "摘录",
+            "读取文字",
+            "文字",
+            "文本",
+            "ocr",
+            "text",
+        ).any { marker -> marker in normalized }
+        return mentionsRecentMedia && asksForTextExtraction
+    }
+}
+
 private fun String.looksLikeDiscussion(): Boolean {
     val normalized = lowercase()
     return listOf("什么意思", "什么含义", "怎么说", "如何表达", "解释", "怎么理解", "怎么写", "是什么")

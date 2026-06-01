@@ -1,5 +1,43 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Recent media metadata skill-first routing 增量验证
+
+本轮覆盖项：
+
+- 最近图片、截图、视频、音频等媒体 metadata 请求可由 built-in Skill runtime
+  直接规划为受确认保护的 `query_recent_files`，不再依赖 action planner。
+- Action planner 与 Skill runtime 复用同一组 recent-files parser；Skill-first
+  只覆盖媒体元数据，文档、下载、全部文件仍保留在 action fallback 路径。
+- Parser 明确拒绝“识别/提取/文字/OCR/text”等内容读取意图，避免抢走
+  `read_recent_screenshot_ocr` 和 `read_recent_image_ocr`。
+- 新增 `recent_files_context_skill` manifest，风险级别保持 `LowReadOnly`，
+  工具执行仍经 registry schema、权限策略、safety、audit 和用户确认。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+```
+
+补充回归：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest'
+```
+
+结果：通过。
+
 ## 2026-06-01 Information lookup skill-first routing 增量验证
 
 本轮覆盖项：

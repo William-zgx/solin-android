@@ -135,8 +135,8 @@ class MobileActionPlanner : ActionPlanner {
             isCurrentScreenTextRequest(input) ->
                 MobileActionFunctions.READ_CURRENT_SCREEN_TEXT.toDraft(currentScreenTextParameters(input))
 
-            isRecentFilesRequest(input) ->
-                MobileActionFunctions.QUERY_RECENT_FILES.toDraft(recentFilesParameters(input))
+            RecentFilesActionParser.matches(input, includeNonMediaKinds = true) ->
+                RecentFilesActionParser.draft(input)
 
             isCalendarAvailabilityRequest(input) && calendarWindowParameters != null ->
                 MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY.toDraft(calendarWindowParameters)
@@ -258,6 +258,13 @@ class MobileActionPlanner : ActionPlanner {
             else -> "将打开系统页面完成这个动作。"
         }
 
+    private fun cleanedObject(input: String): String =
+        input.trim()
+            .removePrefix("请")
+            .removePrefix("帮我")
+            .trim()
+            .ifBlank { input.trim() }
+
     private fun recentFilesSummary(kind: String, maxCount: String?): String {
         val label = recentFileKindLabel(kind)
         val base = if (maxCount.isNullOrBlank()) {
@@ -286,13 +293,6 @@ class MobileActionPlanner : ActionPlanner {
             "others" -> "其他"
             else -> kind
         }
-
-    private fun cleanedObject(input: String): String =
-        input.trim()
-            .removePrefix("请")
-            .removePrefix("帮我")
-            .trim()
-            .ifBlank { input.trim() }
 
     private fun isReminderRequest(input: String): Boolean =
         ReminderActionParser.matches(input)
@@ -344,29 +344,6 @@ class MobileActionPlanner : ActionPlanner {
             "最近通知栏",
         ).any { it in input } || Regex("\\b(notifications?|notification)\\b").containsMatchIn(normalized)
             || Regex("""最近\d{1,2}条""").containsMatchIn(normalized.replace(" ", ""))
-    }
-
-    private fun isRecentFilesRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        return listOf(
-            "最近文件",
-            "最近文档",
-            "最近图片",
-            "最近截图",
-            "最近截屏",
-            "最近视频",
-            "最近音频",
-            "最近下载",
-            "查询文件",
-            "文件列表",
-            "最近文件列表",
-        ).any { it in input } ||
-            Regex("""最近\s*\d{0,2}\s*(?:个|份|条|张)?\s*(文件|文档|图片|照片|截图|截屏|视频|音频|下载)""")
-                .containsMatchIn(input) ||
-            Regex(
-                """\b(recent|latest)\b.*\b(files?|documents?|images?|screenshots?|screen\s+captures?|videos?|audios?|photos?)\b""",
-            )
-                .containsMatchIn(normalized)
     }
 
     private fun isRecentScreenshotOcrRequest(input: String): Boolean {
@@ -473,44 +450,6 @@ class MobileActionPlanner : ActionPlanner {
         val rawCount = match?.groupValues?.getOrNull(1) ?: return emptyMap()
         val maxCount = rawCount.toIntOrNull() ?: return emptyMap()
         return if (maxCount <= 0) emptyMap() else mapOf("maxCount" to maxCount.toString())
-    }
-
-    private fun recentFilesParameters(input: String): Map<String, String> {
-        val normalized = input.lowercase()
-        val cleaned = input.replace(Regex("\\s+"), "")
-        val countMatch = Regex("最近(\\d{1,2})条?(?:个|份)?").find(cleaned)
-            ?: Regex(
-                "(?:recent|latest)\\s+(\\d{1,2})\\s+" +
-                    "(?:files?|documents?|images?|screenshots?|screen\\s+captures?|videos?|audios?|photos?)",
-            )
-                .find(normalized)
-
-        val maxCount = countMatch?.groupValues
-            ?.getOrNull(1)
-            ?.toIntOrNull()
-            ?.takeIf { it > 0 }
-            ?.toString()
-
-        val kind = when {
-            "截图" in input || "截屏" in input || "screenshot" in normalized || "screen capture" in normalized ->
-                "screenshots"
-            "图片" in input || "image" in normalized || "photo" in normalized -> "images"
-            "视频" in input || "video" in normalized || "vid" in normalized -> "videos"
-            "音频" in input || "audio" in normalized -> "audio"
-            "文档" in input || "document" in normalized || "doc" in normalized -> "documents"
-            "下载" in input || "download" in normalized -> "downloads"
-            "其他" in input || "other" in normalized -> "others"
-            else -> "all"
-        }
-
-        return buildMap {
-            if (maxCount != null) {
-                put("maxCount", maxCount)
-            }
-            if (kind != "all") {
-                put("kind", kind)
-            }
-        }
     }
 
     private fun recentScreenshotOcrParameters(input: String): Map<String, String> =

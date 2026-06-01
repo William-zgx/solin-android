@@ -25,6 +25,7 @@ class BuiltInSkillRuntimeTest {
         assertTrue(BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.SHARE_TEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL in manifests)
+        assertTrue(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL in manifests)
         assertTrue(manifests.values.all { it.version >= 1 })
         assertTrue(manifests.values.all { it.inputSchemaJson.contains("additionalProperties") })
     }
@@ -134,6 +135,7 @@ class BuiltInSkillRuntimeTest {
                 ),
             ),
             "总结剪贴板并分享" to runtime.planClipboardSummaryShare("总结剪贴板并分享"),
+            "最近图片" to requireNotNull(runtime.plan("最近图片")),
         )
 
         plans.forEach { (input, plan) ->
@@ -454,6 +456,36 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("不要搜索 Kotlin，只解释一下"))
         assertEquals(null, runtime.plan("what is web search"))
         assertEquals(null, runtime.plan("查一下这个错误原因了吗？"))
+    }
+
+    @Test
+    fun plansRecentMediaFilesWithoutActionDraftWhenMetadataRequestIsExplicit() {
+        val imagePlan = requireNotNull(runtime.plan("最近 3 张图片"))
+        assertEquals(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL, imagePlan.request.skillId)
+        assertEquals(mapOf("input" to "最近 3 张图片"), imagePlan.request.arguments)
+        val imageStep = imagePlan.steps.single()
+        require(imageStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, imageStep.request.toolName)
+        assertEquals("images", imageStep.request.arguments["kind"])
+        assertEquals("3", imageStep.request.arguments["maxCount"])
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, imageStep.draft.functionName)
+        assertTrue(imagePlan.validateStructure().errors.joinToString(), imagePlan.validateStructure().isValid)
+
+        val screenshotPlan = requireNotNull(runtime.plan("recent screenshots"))
+        assertEquals(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL, screenshotPlan.request.skillId)
+        val screenshotStep = screenshotPlan.steps.single()
+        require(screenshotStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, screenshotStep.request.toolName)
+        assertEquals("screenshots", screenshotStep.request.arguments["kind"])
+        assertTrue(
+            screenshotPlan.validateStructure().errors.joinToString(),
+            screenshotPlan.validateStructure().isValid,
+        )
+
+        assertEquals(null, runtime.plan("识别最近图片文字"))
+        assertEquals(null, runtime.plan("识别最近截图文字"))
+        assertEquals(null, runtime.plan("查询最近5个文档"))
+        assertEquals(null, runtime.plan("最近文件"))
     }
 
     @Test

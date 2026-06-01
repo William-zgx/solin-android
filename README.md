@@ -121,8 +121,8 @@ Requests such as “识别最近图片文字” become confirmed `read_recent_im
 tool calls. After confirmation, PocketMind scans up to 3 recent images through
 Android media permissions, extracts the first bounded local OCR text excerpt,
 and uses the same LocalOnly, trace/audit redaction, and remote-mode protection
-as screenshot OCR. Plain “最近图片” requests still use metadata-only
-`query_recent_files(kind="images")`.
+as screenshot OCR. Plain “最近图片” requests use a skill-first, metadata-only
+`query_recent_files(kind="images")` path.
 Requests such as “读取当前屏幕文字” are reserved for a confirmed current-screen
 Accessibility text snapshot tool. After confirmation, it may read only the
 current Accessibility text-node snapshot exposed by Android accessibility
@@ -155,7 +155,7 @@ any remote model request is made.
 Agent and skill module responsibilities are documented in
 `docs/agent_core_modules.md`. The current code includes the Tool Registry,
 single-run Agent planning, confirmation, tool observation, built-in one-step,
-skill-first information lookup/device-settings/map/email/calendar/text sharing, and one conservative
+skill-first information lookup/recent-media-metadata/device-settings/map/email/calendar/text sharing, and one conservative
 clipboard-summary-share composite flow,
 conservative observe-after-success replanning for explicit next actions, a
 gated skill-run executor, minimal device context

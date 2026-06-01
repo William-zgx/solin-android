@@ -6,6 +6,7 @@ import com.bytedance.zgx.pocketmind.action.DeviceSettingsActionParser
 import com.bytedance.zgx.pocketmind.action.EmailDraftActionParser
 import com.bytedance.zgx.pocketmind.action.MapSearchActionParser
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.action.RecentFilesActionParser
 import com.bytedance.zgx.pocketmind.action.ReminderActionParser
 import com.bytedance.zgx.pocketmind.action.ShareTextActionParser
 import com.bytedance.zgx.pocketmind.action.WebSearchActionParser
@@ -25,6 +26,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.SCHEDULE_REMINDER to REMINDER_SKILL,
         MobileActionFunctions.READ_CLIPBOARD to CLIPBOARD_CONTEXT_SKILL,
         MobileActionFunctions.SHARE_TEXT to SHARE_TEXT_SKILL,
+        MobileActionFunctions.QUERY_RECENT_FILES to RECENT_FILES_CONTEXT_SKILL,
     )
 
     override fun manifests(): List<SkillManifest> = builtInSkillManifests
@@ -46,6 +48,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && WebSearchActionParser.matches(input) ->
                 plan(input, WebSearchActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && RecentFilesActionParser.matches(input) ->
+                plan(input, RecentFilesActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
@@ -184,6 +189,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val CLIPBOARD_CONTEXT_SKILL = "clipboard_context_skill"
         const val SHARE_TEXT_SKILL = "share_text_skill"
         const val CLIPBOARD_SUMMARY_SHARE_SKILL = "clipboard_summary_share_skill"
+        const val RECENT_FILES_CONTEXT_SKILL = "recent_files_context_skill"
     }
 }
 
@@ -337,5 +343,15 @@ private val builtInSkillManifests = listOf(
         ),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.HighExternalSend,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL,
+        version = 1,
+        title = "最近文件上下文",
+        description = "在用户明确要求时读取最近媒体文件的最小元数据摘要，不读取文件内容。",
+        triggerExamples = listOf("最近图片", "recent screenshots"),
+        requiredTools = listOf(MobileActionFunctions.QUERY_RECENT_FILES),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.LowReadOnly,
     ),
 )

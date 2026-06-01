@@ -169,6 +169,11 @@ Current status:
   non-empty query, rejects bare ambiguous “查一下” and discussion/negative
   phrasing, and does not broaden the external-search surface beyond confirmed
   `web_search` requests.
+- Explicit recent media metadata requests now also have a conservative
+  Skill-first path. The shared parser accepts recent images/screenshots/videos
+  or audio metadata requests, keeps documents/downloads/all-files on the action
+  fallback path, and rejects OCR/text-extraction phrasing so recent screenshot
+  and image OCR remain separate confirmed tools.
 - Skill model-step results can now be consumed generically: when a declarative
   `ToolStep` depends on a `ModelStep`, the model output is bound through the
   tool step's `argumentBindings`, then validated, safety-checked, audited, and
@@ -191,6 +196,7 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation`
 - `AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation`
 - `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
@@ -307,6 +313,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.plansClipboardContextWithoutActionDraft`
 - `BuiltInSkillRuntimeTest.plansDeviceSettingsWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.plansWebSearchWithoutActionDraftWhenCommandIsExplicit`
+- `BuiltInSkillRuntimeTest.plansRecentMediaFilesWithoutActionDraftWhenMetadataRequestIsExplicit`
 - `BuiltInSkillRuntimeTest.skillFirstPlannerDoesNotTreatOrdinaryShareDiscussionAsShareTool`
 - `BuiltInSkillRuntimeTest.validateStructureRejectsUnorderedOrInvalidCompositePlan`
 - `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`
