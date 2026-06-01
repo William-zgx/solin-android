@@ -1,5 +1,35 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Foreground app skill-first routing 增量验证
+
+本轮覆盖项：
+
+- 显式“当前应用/前台应用是什么”请求可由 built-in Skill runtime 直接规划为
+  `query_foreground_app` 待确认工具，不再依赖 action planner。
+- Shared foreground-app parser 拒绝“前台服务”“current app architecture”
+  和实现/设计讨论，避免把 Android 开发语境误触为设备上下文读取。
+- 新增 `foreground_app_context_skill` manifest，风险级别保持 `LowReadOnly`；
+  工具仍声明 Usage Access 为 special app access，不伪装成 Android runtime
+  permission，确认后仅读取应用名与包名。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersForegroundAppOnlyForExplicitCurrentAppRequests' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansForegroundAppWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstForegroundAppBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.foregroundAppDeclaresUsageAccessAsSpecialAccessNotRuntimePermission' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.foregroundAppSuccessReturnsLocalOnlyMinimalFields' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.foregroundAppPermissionDeniedAndFailureAreRetryableLocalFailures' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.declaresDeviceContextTools'
+```
+
+结果：通过。
+
 ## 2026-06-01 HTTPS deep link skill-first routing 增量验证
 
 本轮覆盖项：

@@ -27,6 +27,7 @@ class BuiltInSkillRuntimeTest {
         assertTrue(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL in manifests)
+        assertTrue(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL in manifests)
         assertTrue(manifests.values.all { it.version >= 1 })
         assertTrue(manifests.values.all { it.inputSchemaJson.contains("additionalProperties") })
     }
@@ -138,6 +139,7 @@ class BuiltInSkillRuntimeTest {
             "总结剪贴板并分享" to runtime.planClipboardSummaryShare("总结剪贴板并分享"),
             "最近图片" to requireNotNull(runtime.plan("最近图片")),
             "打开链接 https://example.com" to requireNotNull(runtime.plan("打开链接 https://example.com")),
+            "当前应用是什么" to requireNotNull(runtime.plan("当前应用是什么")),
         )
 
         plans.forEach { (input, plan) ->
@@ -510,6 +512,30 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("打开链接 http://example.com/path"))
         assertEquals(null, runtime.plan("打开链接 file:///tmp/a"))
         assertEquals(null, runtime.plan("打开链接 javascript:alert(1)"))
+    }
+
+    @Test
+    fun plansForegroundAppWithoutActionDraftWhenCommandIsExplicit() {
+        val plan = requireNotNull(runtime.plan("当前应用是什么"))
+
+        assertEquals(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL, plan.request.skillId)
+        assertEquals(mapOf("input" to "当前应用是什么"), plan.request.arguments)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.QUERY_FOREGROUND_APP, step.request.toolName)
+        assertTrue(step.request.arguments.isEmpty())
+        assertEquals(MobileActionFunctions.QUERY_FOREGROUND_APP, step.draft.functionName)
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+
+        val englishPlan = requireNotNull(runtime.plan("what app is currently open"))
+        assertEquals(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL, englishPlan.request.skillId)
+        val englishStep = englishPlan.steps.single()
+        require(englishStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.QUERY_FOREGROUND_APP, englishStep.request.toolName)
+
+        assertEquals(null, runtime.plan("前台服务限制是什么"))
+        assertEquals(null, runtime.plan("current app architecture"))
+        assertEquals(null, runtime.plan("how do I implement current app state"))
     }
 
     @Test

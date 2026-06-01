@@ -341,6 +341,23 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun infersForegroundAppOnlyForExplicitCurrentAppRequests() {
+        val plan = planner.plan("当前应用是什么")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.QUERY_FOREGROUND_APP, plan.draft?.functionName)
+        assertTrue(plan.draft?.parameters.orEmpty().isEmpty())
+
+        val englishPlan = planner.plan("what app is currently open")
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.QUERY_FOREGROUND_APP, englishPlan.draft?.functionName)
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("前台服务限制是什么").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("current app architecture").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("how do I implement current app state").kind)
+    }
+
+    @Test
     fun infersRecentFilesDraftWithKindAndCount() {
         val plan = planner.plan("查询最近5个图片文件列表")
 

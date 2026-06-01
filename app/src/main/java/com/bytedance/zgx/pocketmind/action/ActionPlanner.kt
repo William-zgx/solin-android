@@ -120,8 +120,8 @@ class MobileActionPlanner : ActionPlanner {
             ShareTextActionParser.matches(input) ->
                 ShareTextActionParser.draft(input)
 
-            isForegroundAppRequest(input) ->
-                MobileActionFunctions.QUERY_FOREGROUND_APP.toDraft(emptyMap())
+            ForegroundAppActionParser.matches(input) ->
+                ForegroundAppActionParser.draft()
 
             isRecentNotificationRequest(input) ->
                 MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS.toDraft(recentNotificationParameters(input))
@@ -308,17 +308,6 @@ class MobileActionPlanner : ActionPlanner {
     private fun isCancelReminderRequest(input: String): Boolean {
         return ("取消" in input || "撤销" in input) &&
             TASK_ID_PATTERN.containsMatchIn(input)
-    }
-
-    private fun isForegroundAppRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        return listOf(
-            "前台",
-            "当前应用",
-            "current app",
-            "active app",
-        ).any { it in input } ||
-            Regex("\\b(foreground|current\\s+app)\\b").containsMatchIn(normalized)
     }
 
     private fun isUsageAccessSettingsRequest(input: String): Boolean {

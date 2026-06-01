@@ -5,6 +5,7 @@ import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
 import com.bytedance.zgx.pocketmind.action.DeepLinkActionParser
 import com.bytedance.zgx.pocketmind.action.DeviceSettingsActionParser
 import com.bytedance.zgx.pocketmind.action.EmailDraftActionParser
+import com.bytedance.zgx.pocketmind.action.ForegroundAppActionParser
 import com.bytedance.zgx.pocketmind.action.MapSearchActionParser
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.RecentFilesActionParser
@@ -29,6 +30,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.SHARE_TEXT to SHARE_TEXT_SKILL,
         MobileActionFunctions.QUERY_RECENT_FILES to RECENT_FILES_CONTEXT_SKILL,
         MobileActionFunctions.OPEN_DEEP_LINK to DEEP_LINK_NAVIGATION_SKILL,
+        MobileActionFunctions.QUERY_FOREGROUND_APP to FOREGROUND_APP_CONTEXT_SKILL,
     )
 
     override fun manifests(): List<SkillManifest> = builtInSkillManifests
@@ -56,6 +58,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && DeepLinkActionParser.matches(input) ->
                 plan(input, DeepLinkActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && ForegroundAppActionParser.matches(input) ->
+                plan(input, ForegroundAppActionParser.draft().toRequestPair())
 
             !input.looksLikeSequentialAction() && ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
@@ -196,6 +201,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val CLIPBOARD_SUMMARY_SHARE_SKILL = "clipboard_summary_share_skill"
         const val RECENT_FILES_CONTEXT_SKILL = "recent_files_context_skill"
         const val DEEP_LINK_NAVIGATION_SKILL = "deep_link_navigation_skill"
+        const val FOREGROUND_APP_CONTEXT_SKILL = "foreground_app_context_skill"
     }
 }
 
@@ -369,5 +375,15 @@ private val builtInSkillManifests = listOf(
         requiredTools = listOf(MobileActionFunctions.OPEN_DEEP_LINK),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL,
+        version = 1,
+        title = "当前前台应用上下文",
+        description = "在用户明确要求时读取当前前台应用的应用名与包名。",
+        triggerExamples = listOf("当前应用是什么", "what app is currently open"),
+        requiredTools = listOf(MobileActionFunctions.QUERY_FOREGROUND_APP),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.LowReadOnly,
     ),
 )

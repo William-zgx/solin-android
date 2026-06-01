@@ -439,6 +439,60 @@ internal object DeepLinkActionParser {
     private const val TRAILING_URI_PUNCTUATION = ".,;:!?)]}。！）；】"
 }
 
+internal object ForegroundAppActionParser {
+    private val englishPattern =
+        Regex(
+            """\b(what\s+(?:app|application)\s+is\s+(?:currently\s+)?(?:open|active|foreground)|current\s+(?:foreground\s+)?app|foreground\s+app|active\s+app)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeForegroundAppNonAction()) return false
+        val normalized = input.lowercase()
+        val hasChineseTrigger = listOf(
+            "当前应用",
+            "当前 app",
+            "当前app",
+            "当前前台应用",
+            "前台应用",
+            "前台 app",
+            "前台app",
+            "正在打开的应用",
+            "现在打开的应用",
+        ).any { it in input }
+        return hasChineseTrigger || englishPattern.containsMatchIn(normalized)
+    }
+
+    fun draft(): ActionDraft =
+        ActionDraft(
+            functionName = MobileActionFunctions.QUERY_FOREGROUND_APP,
+            title = "查询当前前台应用",
+            summary = "将读取当前前台应用信息（包名与应用名）。",
+            parameters = emptyMap(),
+            requiresConfirmation = true,
+        )
+
+    private fun String.looksLikeForegroundAppNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "前台服务",
+            "前台任务",
+            "前台进程",
+            "后台前台",
+            "架构",
+            "代码",
+            "模块",
+            "组件",
+            "怎么实现",
+            "如何实现",
+            "怎么设计",
+        ).any { it in this } ||
+            normalized.contains(Regex("""\bforeground\s+services?\b""")) ||
+            normalized.contains(Regex("""\b(current|foreground|active)\s+app\s+(architecture|module|component|code|api|screen|state)\b""")) ||
+            normalized.contains(Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\b(current|foreground|active)\s+app\b"""))
+    }
+}
+
 private fun String.looksLikeDiscussion(): Boolean {
     val normalized = lowercase()
     return listOf("什么意思", "什么含义", "怎么说", "如何表达", "解释", "怎么理解", "怎么写", "是什么")

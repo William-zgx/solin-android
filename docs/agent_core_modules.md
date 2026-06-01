@@ -178,6 +178,11 @@ Current status:
   The shared parser requires an open/visit intent plus an `https://` URI,
   rejects bare links, explanation/negative phrasing, and non-HTTPS schemes, and
   keeps URI-like text out of package app-intent inference.
+- Explicit current foreground app requests now also have a conservative
+  Skill-first path. The shared parser accepts only current/foreground/active
+  app metadata requests, rejects foreground-service and implementation/design
+  discussions, and still relies on Usage Access special-app-access handling
+  before reading the minimal app name/package metadata.
 - Skill model-step results can now be consumed generically: when a declarative
   `ToolStep` depends on a `ModelStep`, the model output is bound through the
   tool step's `argumentBindings`, then validated, safety-checked, audited, and
@@ -202,6 +207,7 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstHttpsDeepLinkBypassesActionPlannerAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.skillFirstForegroundAppBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation`
 - `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
@@ -320,6 +326,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.plansWebSearchWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.plansRecentMediaFilesWithoutActionDraftWhenMetadataRequestIsExplicit`
 - `BuiltInSkillRuntimeTest.plansHttpsDeepLinkWithoutActionDraftWhenCommandIsExplicit`
+- `BuiltInSkillRuntimeTest.plansForegroundAppWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.skillFirstPlannerDoesNotTreatOrdinaryShareDiscussionAsShareTool`
 - `BuiltInSkillRuntimeTest.validateStructureRejectsUnorderedOrInvalidCompositePlan`
 - `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`

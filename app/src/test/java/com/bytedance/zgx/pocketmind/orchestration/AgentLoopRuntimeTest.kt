@@ -639,6 +639,32 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstForegroundAppBypassesActionPlannerAndRequestsConfirmation() {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "当前应用是什么",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.QUERY_FOREGROUND_APP, result.plan.request.toolName)
+        assertTrue(result.plan.request.arguments.isEmpty())
+        assertEquals(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+    }
+
+    @Test
     fun skillFirstMapEmailAndCalendarBypassActionPlannerAndRequestConfirmation() {
         val cases = listOf(
             SkillFirstDraftCase(
@@ -720,6 +746,9 @@ class AgentLoopRuntimeTest {
             "how do I open https://example.com/path",
             "不要打开 https://example.com/path",
             "打开链接 http://example.com/path",
+            "前台服务限制是什么",
+            "current app architecture",
+            "how do I implement current app state",
         )
 
         inputs.forEach { input ->
