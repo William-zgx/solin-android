@@ -1,5 +1,34 @@
 # PocketMind 验证报告
 
+## 2026-06-01 最近截图 OCR skill-first routing 增量验证
+
+本轮覆盖项：
+
+- 明确最近 1 张截图文字/OCR 请求可由 built-in Skill runtime 直接规划为
+  受确认保护的 `read_recent_screenshot_ocr`。
+- 确认后只读取最近 1 张截图像素并在本地 OCR；结果为 `LocalOnly`，
+  `ocrText` 是 private tool output，不能直接绑定到后续工具参数。
+- 权限边界为 Android 13+ `READ_MEDIA_IMAGES`，Android 12- legacy storage
+  read permission。
+- 该能力不是当前屏幕捕获、视觉理解、任意媒体 OCR，也不支持多张截图
+  OCR；多张截图 OCR 请求应拒绝。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersRecentScreenshotOcrOnlyWhenTextExtractionIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansRecentScreenshotOcrWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansRecentMediaFilesWithoutActionDraftWhenMetadataRequestIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstRecentScreenshotOcrBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.recentScreenshotOcrSkillFirstConfirmationStillRequestsImageReadPermission'
+```
+
+结果：通过。
+
 ## 2026-06-01 Current-screen text skill-first routing 增量验证
 
 本轮覆盖项：

@@ -516,6 +516,23 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, plan.draft?.functionName)
         assertEquals("1", plan.draft?.parameters?.get("maxCount"))
         assertTrue(plan.draft?.summary.orEmpty().contains("不会保存图片"))
+
+        val implicitSinglePlan = planner.plan("识别最近截图文字")
+        assertEquals(ActionPlanKind.Draft, implicitSinglePlan.kind)
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, implicitSinglePlan.draft?.functionName)
+        assertEquals("1", implicitSinglePlan.draft?.parameters?.get("maxCount"))
+
+        val englishPlan = planner.plan("read text from latest screenshot")
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, englishPlan.draft?.functionName)
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("识别最近2张截图文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("识别最近两张截图文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("read text from recent 2 screenshots").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("读取所有截图 OCR").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要识别最近截图文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("截图 OCR 怎么实现").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("screenshot OCR API").kind)
     }
 
     @Test

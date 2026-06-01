@@ -13,6 +13,7 @@ import com.bytedance.zgx.pocketmind.action.MapSearchActionParser
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.RecentFilesActionParser
 import com.bytedance.zgx.pocketmind.action.RecentNotificationsActionParser
+import com.bytedance.zgx.pocketmind.action.RecentScreenshotOcrActionParser
 import com.bytedance.zgx.pocketmind.action.ReminderActionParser
 import com.bytedance.zgx.pocketmind.action.ShareTextActionParser
 import com.bytedance.zgx.pocketmind.action.WebSearchActionParser
@@ -32,6 +33,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.SCHEDULE_REMINDER to REMINDER_SKILL,
         MobileActionFunctions.READ_CLIPBOARD to CLIPBOARD_CONTEXT_SKILL,
         MobileActionFunctions.SHARE_TEXT to SHARE_TEXT_SKILL,
+        MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to RECENT_SCREENSHOT_OCR_CONTEXT_SKILL,
         MobileActionFunctions.QUERY_RECENT_FILES to RECENT_FILES_CONTEXT_SKILL,
         MobileActionFunctions.OPEN_DEEP_LINK to DEEP_LINK_NAVIGATION_SKILL,
         MobileActionFunctions.QUERY_FOREGROUND_APP to FOREGROUND_APP_CONTEXT_SKILL,
@@ -66,6 +68,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && WebSearchActionParser.matches(input) ->
                 plan(input, WebSearchActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && RecentScreenshotOcrActionParser.matches(input) ->
+                plan(input, RecentScreenshotOcrActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && RecentFilesActionParser.matches(input) ->
                 plan(input, RecentFilesActionParser.draft(input).toRequestPair())
@@ -219,6 +224,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val CLIPBOARD_CONTEXT_SKILL = "clipboard_context_skill"
         const val SHARE_TEXT_SKILL = "share_text_skill"
         const val CLIPBOARD_SUMMARY_SHARE_SKILL = "clipboard_summary_share_skill"
+        const val RECENT_SCREENSHOT_OCR_CONTEXT_SKILL = "recent_screenshot_ocr_context_skill"
         const val RECENT_FILES_CONTEXT_SKILL = "recent_files_context_skill"
         const val DEEP_LINK_NAVIGATION_SKILL = "deep_link_navigation_skill"
         const val FOREGROUND_APP_CONTEXT_SKILL = "foreground_app_context_skill"
@@ -379,6 +385,16 @@ private val builtInSkillManifests = listOf(
         ),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.HighExternalSend,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL,
+        version = 1,
+        title = "最近截图 OCR 上下文",
+        description = "在用户确认后读取最近 1 张截图像素并本地提取 OCR 文本；不保存 URI、路径、原图或像素。",
+        triggerExamples = listOf("识别最近截图文字", "read text from latest screenshot"),
+        requiredTools = listOf(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
     ),
     SkillManifest(
         id = BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL,

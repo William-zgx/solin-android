@@ -140,8 +140,8 @@ class MobileActionPlanner : ActionPlanner {
             RecentNotificationsActionParser.matches(input) ->
                 RecentNotificationsActionParser.draft(input)
 
-            isRecentScreenshotOcrRequest(input) ->
-                MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR.toDraft(recentScreenshotOcrParameters(input))
+            RecentScreenshotOcrActionParser.matches(input) ->
+                RecentScreenshotOcrActionParser.draft(input)
 
             isRecentImageOcrRequest(input) ->
                 MobileActionFunctions.READ_RECENT_IMAGE_OCR.toDraft(recentImageOcrParameters(input))
@@ -328,23 +328,6 @@ class MobileActionPlanner : ActionPlanner {
             listOf("打开", "设置", "开启", "授权", "open", "settings", "grant").any { it in normalized }
     }
 
-    private fun isRecentScreenshotOcrRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        val mentionsRecentScreenshot = ("最近" in input && ("截图" in input || "截屏" in input)) ||
-            Regex("""\b(recent|latest)\b.*\b(screenshots?|screen\s+captures?)\b""")
-                .containsMatchIn(normalized)
-        val asksForTextExtraction = listOf(
-            "识别",
-            "提取",
-            "摘录",
-            "读取文字",
-            "文字",
-            "文本",
-            "ocr",
-        ).any { marker -> marker in normalized }
-        return mentionsRecentScreenshot && asksForTextExtraction
-    }
-
     private fun isRecentImageOcrRequest(input: String): Boolean {
         val normalized = input.lowercase()
         val mentionsRecentImage = ("最近" in input && ("图片" in input || "照片" in input || "相册" in input)) ||
@@ -362,13 +345,6 @@ class MobileActionPlanner : ActionPlanner {
         ).any { marker -> marker in normalized }
         return mentionsRecentImage && asksForTextExtraction
     }
-
-    private fun recentScreenshotOcrParameters(input: String): Map<String, String> =
-        if (Regex("""(?:最近|latest|recent)\s*1\s*(?:张|个)?""", RegexOption.IGNORE_CASE).containsMatchIn(input)) {
-            mapOf("maxCount" to "1")
-        } else {
-            emptyMap()
-        }
 
     private fun recentImageOcrParameters(input: String): Map<String, String> =
         mapOf("maxCount" to (recentCountFrom(input)?.coerceIn(1, 3) ?: 3).toString())

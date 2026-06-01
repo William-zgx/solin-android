@@ -25,6 +25,7 @@ class BuiltInSkillRuntimeTest {
         assertTrue(BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.SHARE_TEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL in manifests)
+        assertTrue(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL in manifests)
@@ -141,6 +142,7 @@ class BuiltInSkillRuntimeTest {
                 ),
             ),
             "总结剪贴板并分享" to runtime.planClipboardSummaryShare("总结剪贴板并分享"),
+            "识别最近截图文字" to requireNotNull(runtime.plan("识别最近截图文字")),
             "最近图片" to requireNotNull(runtime.plan("最近图片")),
             "打开链接 https://example.com" to requireNotNull(runtime.plan("打开链接 https://example.com")),
             "当前应用是什么" to requireNotNull(runtime.plan("当前应用是什么")),
@@ -497,9 +499,46 @@ class BuiltInSkillRuntimeTest {
         )
 
         assertEquals(null, runtime.plan("识别最近图片文字"))
-        assertEquals(null, runtime.plan("识别最近截图文字"))
         assertEquals(null, runtime.plan("查询最近5个文档"))
         assertEquals(null, runtime.plan("最近文件"))
+    }
+
+    @Test
+    fun plansRecentScreenshotOcrWithoutActionDraftWhenCommandIsExplicit() {
+        val plan = requireNotNull(runtime.plan("识别最近截图文字"))
+
+        assertEquals(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL, plan.request.skillId)
+        assertEquals(mapOf("input" to "识别最近截图文字"), plan.request.arguments)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, step.request.toolName)
+        assertEquals("1", step.request.arguments["maxCount"])
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, step.draft.functionName)
+        assertTrue(step.draft.requiresConfirmation)
+        assertTrue(step.draft.summary.contains("最近 1 张截图"))
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+
+        val explicitSinglePlan = requireNotNull(runtime.plan("识别最近1张截图文字"))
+        assertEquals(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL, explicitSinglePlan.request.skillId)
+
+        val ocrFirstPlan = requireNotNull(runtime.plan("OCR 最近截图"))
+        assertEquals(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL, ocrFirstPlan.request.skillId)
+
+        val englishPlan = requireNotNull(runtime.plan("read text from latest screenshot"))
+        assertEquals(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL, englishPlan.request.skillId)
+        val englishStep = englishPlan.steps.single()
+        require(englishStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, englishStep.request.toolName)
+        assertEquals("1", englishStep.request.arguments["maxCount"])
+
+        assertEquals(null, runtime.plan("识别最近2张截图文字"))
+        assertEquals(null, runtime.plan("识别最近两张截图文字"))
+        assertEquals(null, runtime.plan("read text from recent 2 screenshots"))
+        assertEquals(null, runtime.plan("读取所有截图 OCR"))
+        assertEquals(null, runtime.plan("不要识别最近截图文字"))
+        assertEquals(null, runtime.plan("截图 OCR 怎么实现"))
+        assertEquals(null, runtime.plan("screenshot OCR API"))
+        assertEquals(null, runtime.plan("当前屏幕 OCR"))
     }
 
     @Test

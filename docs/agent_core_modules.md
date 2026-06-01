@@ -442,10 +442,13 @@ Current status:
   file kinds such as `documents`, `downloads`, and `others` require system file
   picker authorization instead of broad MediaStore runtime permissions; those
   denials are surfaced as non-retryable for the same MediaStore tool.
-- `read_recent_screenshot_ocr` is a separate confirmed tool for explicit
-  "识别最近截图文字" requests. It reads only the most recent screenshot, extracts a
-  bounded local OCR text excerpt, marks the result `LocalOnly`, and does not
-  persist or expose the MediaStore id, URI, path, original image, or raw pixels.
+- `read_recent_screenshot_ocr` is a separate skill-first, confirmed tool for
+  explicit "识别最近 1 张截图文字" / recent screenshot OCR requests. It rejects
+  multi-screenshot OCR requests, reads only the most recent screenshot pixels
+  after confirmation through `READ_MEDIA_IMAGES` or legacy storage permission,
+  extracts a bounded local OCR text excerpt, marks the result `LocalOnly`,
+  treats `ocrText` as private Skill output, and does not persist or expose the
+  MediaStore id, URI, path, original image, or raw pixels.
   Remote mode treats the OCR continuation like other protected local context and
   stops before sending it to a configured backend.
 - `read_recent_image_ocr` is a separate confirmed tool for explicit

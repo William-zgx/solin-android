@@ -120,13 +120,17 @@ tool calls. After confirmation, clipboard text is used only for the immediate
 local follow-up answer and is redacted from trace, audit, and persisted chat
 tool-observation messages. Remote model mode does not automatically receive
 clipboard content.
-Requests such as “识别最近截图文字” become confirmed
-`read_recent_screenshot_ocr` tool calls. After confirmation, PocketMind reads
-only the most recent screenshot through Android media permissions, extracts a
-bounded local OCR text excerpt, and does not persist the image URI, path, raw
-pixels, or OCR text in trace/audit. Remote model mode stops before automatic
-continuation and asks the user to switch local or manually provide content they
-are willing to upload.
+Explicit requests such as “识别最近 1 张截图文字” or “OCR 最近截图” use the
+skill-first path and become confirmed `read_recent_screenshot_ocr` tool calls.
+Requests to OCR multiple screenshots are rejected. After confirmation,
+PocketMind reads only the most recent screenshot through Android media
+permissions, extracts a bounded local OCR text excerpt, and does not persist
+the image URI, path, raw pixels, or OCR text in trace/audit. The permission
+boundary is `READ_MEDIA_IMAGES` on Android 13+ or legacy storage read permission
+on older Android versions; this is not current-screen capture, visual
+understanding, arbitrary media OCR, or multi-screenshot OCR. Remote model mode
+stops before automatic continuation and asks the user to switch local or
+manually provide content they are willing to upload.
 Requests such as “识别最近图片文字” become confirmed `read_recent_image_ocr`
 tool calls. After confirmation, PocketMind scans up to 3 recent images through
 Android media permissions, extracts the first bounded local OCR text excerpt,

@@ -393,6 +393,97 @@ internal object RecentFilesActionParser {
     }
 }
 
+internal object RecentScreenshotOcrActionParser {
+    private val englishSingularScreenshotPattern =
+        Regex("""\b(?:recent|latest|last|most\s+recent)\s+(?:the\s+)?(?:screenshot|screen\s+capture)\b""", RegexOption.IGNORE_CASE)
+    private val englishCountPattern =
+        Regex("""\b(?:recent|latest|last)\s+(\d{1,2})\s+(?:screenshots?|screen\s+captures?)\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeRecentScreenshotOcrNonAction()) return false
+        val normalized = input.lowercase()
+        val count = requestedScreenshotCount(input)
+        if (count != null && count != 1) return false
+        return input.mentionsRecentScreenshotForOcr() && normalized.asksForOcrTextExtraction()
+    }
+
+    fun draft(input: String): ActionDraft =
+        ActionDraft(
+            functionName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            title = "读取最近截图 OCR",
+            summary = "将读取最近 1 张截图的像素并在本地提取 OCR 文本；不会保存图片、URI 或路径。",
+            parameters = mapOf("maxCount" to "1"),
+            requiresConfirmation = true,
+        )
+
+    private fun String.mentionsRecentScreenshotForOcr(): Boolean {
+        val normalized = lowercase()
+        val cleaned = replace(Regex("\\s+"), "")
+        return ("最近" in this && ("截图" in this || "截屏" in this)) ||
+            Regex("""最近1(?:张|个)?(?:截图|截屏)""").containsMatchIn(cleaned) ||
+            englishSingularScreenshotPattern.containsMatchIn(normalized) ||
+            englishCountPattern.containsMatchIn(normalized)
+    }
+
+    private fun String.asksForOcrTextExtraction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "识别",
+            "提取",
+            "摘录",
+            "读取文字",
+            "读文字",
+            "文字",
+            "文本",
+            "ocr",
+        ).any { marker -> marker in normalized } ||
+            normalized.contains(Regex("""\b(read|extract|recognize|scan)\b.*\btext\b""")) ||
+            normalized.contains(Regex("""\btext\b.*\b(?:from|in)\b.*\b(?:screenshot|screen\s+capture)\b"""))
+    }
+
+    private fun requestedScreenshotCount(input: String): Int? {
+        val normalized = input.lowercase()
+        val cleaned = input.replace(Regex("\\s+"), "")
+        return Regex("""最近(\d{1,2})(?:张|个)?(?:截图|截屏)""").find(cleaned)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?: englishCountPattern.find(normalized)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.toIntOrNull()
+    }
+
+    private fun String.looksLikeRecentScreenshotOcrNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "不要识别",
+            "不要提取",
+            "不要读取",
+            "别识别",
+            "别提取",
+            "别读取",
+            "最近截图权限",
+            "截图权限",
+            "截图 OCR 怎么",
+            "截图OCR怎么",
+            "怎么实现",
+            "如何实现",
+            "怎么设计",
+            "所有截图",
+            "全部截图",
+            "多张截图",
+            "当前屏幕",
+            "当前界面",
+        ).any { it in this } ||
+            Regex("""最近[二两三四五六七八九十百千万多几]+(?:张|个)?(?:截图|截屏)""").containsMatchIn(this) ||
+            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:read|extract|recognize|scan)\b.*\b(?:screenshot|screen\s+capture)\b""")) ||
+            normalized.contains(Regex("""\b(?:screenshot|screen\s+capture)\s+ocr\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?)\b""")) ||
+            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:screenshot|screen\s+capture)\s+ocr\b""")) ||
+            normalized.contains(Regex("""\b(?:all|multiple|many)\s+(?:screenshots?|screen\s+captures?)\b"""))
+    }
+}
+
 internal object DeepLinkActionParser {
     private val uriPattern = Regex("""\bhttps://\S+""", RegexOption.IGNORE_CASE)
     private val englishOpenPattern = Regex("""\b(open|visit|go\s+to|launch)\b""", RegexOption.IGNORE_CASE)
