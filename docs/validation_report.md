@@ -1,5 +1,42 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Explicit sequential Agent loop 增量验证
+
+本轮覆盖项：
+
+- `SequentialActionObservationReplanner` 从单次后续动作扩展为有上限的显式顺序
+  replan：每个成功且已验证的 observation 只规划下一段，并重新进入用户确认。
+- pending confirmation 在当前进程内只携带下一段动作；Room 仍不持久化
+  `nextActionInput`，重启后不会恢复 raw 剩余 sequence。
+- 两段序列在第二步成功后停止，不会重复规划第二段；三段序列按
+  search -> Wi-Fi settings -> flashlight settings 顺序产生三次确认后完成。
+- Room trace store 在最后一段 pending 时清空 live next-action cursor，避免最后
+  一段成功后重复规划。
+- ToolPlanned/ConfirmationRequested 审计持久化改为参数无关摘要，避免搜索 query
+  等普通工具参数进入 audit DB summary。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest.defaultSequentialReplannerPlansExplicitNextActionAfterObservation' \
+  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest.recordDoesNotPersistToolParametersFromPlannedSummary'
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+git diff --unified=0 | rg -n "^\\+.*<sensitive endpoint/model/key patterns>"
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：通过。`scripts/verify_local.sh` 覆盖 doctor、脚本自测、全量 JVM 单测、
+lintDebug、debug/release assemble、AndroidTest assemble、APK 模型 artifact 检查和
+release APK 体积检查；全仓敏感串扫描仍会命中既有测试 fixture，本轮新增 diff 行
+扫描无命中。
+
 ## 2026-06-02 Release checklist 增量验证
 
 本轮覆盖项：

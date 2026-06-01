@@ -3566,6 +3566,157 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions() {
+        val actionRuntime = SequentialStepActionRuntime()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val input = "先搜 Kotlin，然后打开 Wi-Fi 设置，再打开手电筒设置"
+        val planned = runtime.runOnce(
+            input = input,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
+        assertEquals(listOf(input), actionRuntime.plannedInputs)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val wifiPlanned = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+            ),
+        )
+
+        requireNotNull(wifiPlanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, wifiPlanned.run.state)
+        require(wifiPlanned.decision is AgentObservationDecision.PlanNextTool)
+        val wifiRequest = wifiPlanned.decision.plan.request
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wifiRequest.toolName)
+        assertEquals("打开 Wi-Fi 设置", actionRuntime.plannedInputs[1])
+        assertEquals(2, wifiPlanned.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
+
+        runtime.confirmToolRequest(planned.run.id, wifiRequest.id)
+        val flashlightPlanned = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = wifiRequest.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+
+        requireNotNull(flashlightPlanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, flashlightPlanned.run.state)
+        require(flashlightPlanned.decision is AgentObservationDecision.PlanNextTool)
+        val flashlightRequest = flashlightPlanned.decision.plan.request
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, flashlightRequest.toolName)
+        assertEquals("打开手电筒设置", actionRuntime.plannedInputs[2])
+        assertEquals(3, flashlightPlanned.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
+
+        runtime.confirmToolRequest(planned.run.id, flashlightRequest.id)
+        val completed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = flashlightRequest.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开系统设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS),
+            ),
+        )
+
+        requireNotNull(completed)
+        assertEquals(AgentRunState.Completed, completed.run.state)
+        assertEquals(AgentObservationDecision.Complete, completed.decision)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.WEB_SEARCH,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            ),
+            completed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+        )
+        assertEquals(3, actionRuntime.plannedInputs.size)
+    }
+
+    @Test
+    fun roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = SequentialStepActionRuntime()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-sequential-room" },
+            ),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val input = "先搜 Kotlin，然后打开 Wi-Fi 设置，再打开手电筒设置"
+        val planned = runtime.runOnce(
+            input = input,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val wifiPlanned = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+            ),
+        )
+        requireNotNull(wifiPlanned)
+        require(wifiPlanned.decision is AgentObservationDecision.PlanNextTool)
+        val wifiRequest = wifiPlanned.decision.plan.request
+
+        runtime.confirmToolRequest(planned.run.id, wifiRequest.id)
+        val flashlightPlanned = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = wifiRequest.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+        requireNotNull(flashlightPlanned)
+        require(flashlightPlanned.decision is AgentObservationDecision.PlanNextTool)
+        val flashlightRequest = flashlightPlanned.decision.plan.request
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, flashlightRequest.toolName)
+        assertNull(dao.latestPendingConfirmation()?.nextActionInput)
+
+        runtime.confirmToolRequest(planned.run.id, flashlightRequest.id)
+        val completed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = flashlightRequest.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开系统设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS),
+            ),
+        )
+
+        requireNotNull(completed)
+        assertEquals(AgentRunState.Completed, completed.run.state)
+        assertEquals(AgentObservationDecision.Complete, completed.decision)
+        assertEquals(3, actionRuntime.plannedInputs.size)
+        assertNull(runtime.latestPendingConfirmation())
+    }
+
+    @Test
     fun unverifiedExternalLaunchDoesNotAutoPlanNextTool() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(
@@ -4413,6 +4564,57 @@ class AgentLoopRuntimeTest {
         val argumentName: String,
         val argumentValue: String,
     )
+
+    private class SequentialStepActionRuntime : ActionPlanningRuntime {
+        val plannedInputs: List<String>
+            get() = mutablePlannedInputs.toList()
+
+        private val mutablePlannedInputs = mutableListOf<String>()
+
+        override fun isLikelyAction(input: String): Boolean = true
+
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
+            mutablePlannedInputs += input
+            val draft = when {
+                mutablePlannedInputs.size == 1 -> ActionDraft(
+                    functionName = MobileActionFunctions.WEB_SEARCH,
+                    title = "Web 搜索",
+                    summary = "将在浏览器中搜索：Kotlin",
+                    parameters = mapOf("query" to "Kotlin"),
+                    requiresConfirmation = true,
+                )
+
+                input.contains("Wi-Fi", ignoreCase = true) || input.contains("wifi", ignoreCase = true) ->
+                    ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "将打开系统 Wi-Fi 设置页。",
+                        parameters = emptyMap(),
+                        requiresConfirmation = true,
+                    )
+
+                input.contains("手电筒") || input.contains("flashlight", ignoreCase = true) ->
+                    ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+                        title = "打开手电筒设置",
+                        summary = "将打开系统设置，由你手动确认手电筒相关操作。",
+                        parameters = emptyMap(),
+                        requiresConfirmation = true,
+                    )
+
+                else -> return ActionPlanningResult(
+                    plan = ActionPlan(ActionPlanKind.NoAction),
+                    usedModel = false,
+                    fallbackReason = "test fallback",
+                )
+            }
+            return ActionPlanningResult(
+                plan = ActionPlan(kind = ActionPlanKind.Draft, draft = draft),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            )
+        }
+    }
 
     private class NoDirectPlanSkillRuntime : SkillRuntime {
         private val delegate = BuiltInSkillRuntime()

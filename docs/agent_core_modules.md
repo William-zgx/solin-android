@@ -155,11 +155,12 @@ Current status:
   `LocalOnly` title-only confirmation prompt before persisting the chat turn, so
   tool arguments do not become later remote history.
 - Successful observations can now call `AgentObservationReplanner` to produce a
-  next tool plan. The default production strategy is conservative: it only
-  replans one explicit next action after sequence words such as "然后" / "then",
-  and only when the current run has planned exactly one tool so far. The
-  next-action suffix is kept only in memory; Room restore no longer persists or
-  resumes it across process death.
+  next tool plan. The default production strategy is conservative: it splits
+  explicit sequence words such as "然后" / "then" into bounded single-action
+  segments, replans at most one next segment after each verified successful
+  observation, and returns to user confirmation before any execution. The
+  next-action cursor is kept only in process memory; Room restore no longer
+  persists or resumes raw remaining sequence text across process death.
 - Replanned tools are validated, safety checked, audited, traced, and returned
   to `AwaitingUserConfirmation` instead of being executed directly.
 - The action-planner preflight gate now reuses the same conservative parsers as
@@ -300,9 +301,19 @@ Current status:
   returned to `AwaitingUserConfirmation`. The progression fails closed if the
   next tool still depends on another unsatisfied step, preventing model output
   from skipping required tool or model prerequisites.
+- Default sequential replanning now splits explicit connectors such as
+  "then", "然后", and "再" into a live-only bounded sequence. A verified
+  successful observation can plan only the next segment, returns to
+  `AwaitingUserConfirmation`, and stops after the final segment or the
+  configured step limit.
+- Pending confirmations keep only the immediate next segment in process memory.
+  Room persistence still writes `nextActionInput = null`, so a restart can
+  restore the current pending tool but cannot resume raw remaining sequence text.
 - Skill-first clipboard context and clipboard-summary-share planning reject
   sequential commands such as "read clipboard, then open Wi-Fi settings" so the
   one-step or composite skill cannot swallow later user intent.
+- Planned-tool audit persistence stores parameter-free planned/confirmation
+  summaries; tool arguments remain out of persisted audit text.
 - Open-ended model-driven replanning, arbitrary multi-confirmation skill UI
   orchestration, and full argument-bearing typed step rehydration are still
   pending.
@@ -336,12 +347,15 @@ Tests:
 - `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
 - `AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation`
 - `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare`
+- `AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions`
+- `AgentLoopRuntimeTest.roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears`
 - `AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments`
 - `AgentTraceStoreTest.roomStoreToolPlanningTraceDoesNotPersistParameterLikeReasonText`
 - `AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson`
 - `AgentTraceStoreTest.roomStoreRedactsAllowlistedCompletionMetadataValues`
 - `AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace`
 - `AgentTraceStoreTest.roomStoreReturnsRecentRunSummariesWithStepLimit`
+- `ToolAuditRepositoryTest.recordDoesNotPersistToolParametersFromPlannedSummary`
 - `PocketMindViewModelTest.restoreStartupStateRestoresPendingAgentConfirmationWithoutExecutingTool`
 - `PocketMindViewModelTest.restoredSharePendingPreviewDoesNotExecuteUntilCurrentConfirmation`
 - `PocketMindViewModelTest.refreshAuditEventsAlsoLoadsAgentTraceSummaries`

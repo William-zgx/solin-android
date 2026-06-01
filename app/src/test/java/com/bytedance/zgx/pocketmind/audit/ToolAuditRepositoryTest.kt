@@ -101,6 +101,30 @@ class ToolAuditRepositoryTest {
     }
 
     @Test
+    fun recordDoesNotPersistToolParametersFromPlannedSummary() {
+        val dao = FakeToolAuditDao()
+        val repository = ToolAuditRepository(dao)
+
+        repository.record(
+            ToolAuditEvent(
+                id = "planned",
+                runId = "run-1",
+                requestId = "request-1",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                skillId = null,
+                eventType = ToolAuditEventType.ToolPlanned,
+                permissions = setOf(ToolPermission.StartsExternalActivity),
+                summary = "将在浏览器中搜索：private query should stay hidden",
+                createdAtMillis = 1_000L,
+            ),
+        )
+
+        val stored = dao.events.single()
+        assertFalse(stored.summary.contains("private query"))
+        assertEquals("Tool request planned.", stored.summary)
+    }
+
+    @Test
     fun unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess() {
         val dao = FakeToolAuditDao()
         val repository = ToolAuditRepository(dao)

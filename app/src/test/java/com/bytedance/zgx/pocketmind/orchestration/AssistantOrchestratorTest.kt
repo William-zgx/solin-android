@@ -190,7 +190,8 @@ class AssistantOrchestratorTest {
 
     @Test
     fun defaultSequentialReplannerPlansExplicitNextActionAfterObservation() {
-        val orchestrator = AssistantOrchestrator(MemoryRepository(), SearchThenWifiActionRuntime())
+        val actionRuntime = SearchThenWifiActionRuntime()
+        val orchestrator = AssistantOrchestrator(MemoryRepository(), actionRuntime)
         val route = orchestrator.route(
             input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
@@ -216,6 +217,23 @@ class AssistantOrchestratorTest {
             MobileActionFunctions.OPEN_WIFI_SETTINGS,
             observed.decision.plan.request.toolName,
         )
+        assertEquals(listOf("先搜 Kotlin，然后打开 Wi-Fi 设置", "打开 Wi-Fi 设置"), actionRuntime.plannedInputs)
+
+        orchestrator.confirmToolRequest(route.runId, observed.decision.plan.request.id)
+        val completed = orchestrator.observeToolResult(
+            runId = route.runId,
+            result = ToolResult(
+                requestId = observed.decision.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+
+        requireNotNull(completed)
+        assertEquals(AgentRunState.Completed, completed.run.state)
+        assertEquals(AgentObservationDecision.Complete, completed.decision)
+        assertEquals(2, actionRuntime.plannedInputs.size)
     }
 
     @Test
@@ -301,11 +319,16 @@ class AssistantOrchestratorTest {
 
     private class SearchThenWifiActionRuntime : ActionPlanningRuntime {
         private var planCallCount = 0
+        val plannedInputs: List<String>
+            get() = mutablePlannedInputs.toList()
+
+        private val mutablePlannedInputs = mutableListOf<String>()
 
         override fun isLikelyAction(input: String): Boolean = true
 
         override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
             planCallCount += 1
+            mutablePlannedInputs += input
             val draft = if (planCallCount == 1) {
                 ActionDraft(
                     functionName = MobileActionFunctions.WEB_SEARCH,

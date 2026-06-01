@@ -36,13 +36,19 @@ class ToolAuditRepository(
         )
 
     private fun ToolAuditEvent.persistedSummary(): String =
-        if (eventType == ToolAuditEventType.ToolObserved &&
-            status == ToolStatus.Succeeded &&
-            toolName.isReminderAuditTool()
-        ) {
-            reminderMetadataFor(summary, toolName).joinToString(separator = "; ")
-        } else {
-            sanitizedSummary()
+        when {
+            eventType == ToolAuditEventType.ToolPlanned ->
+                "Tool request planned."
+
+            eventType == ToolAuditEventType.ConfirmationRequested ->
+                "Tool confirmation requested."
+
+            eventType == ToolAuditEventType.ToolObserved &&
+                status == ToolStatus.Succeeded &&
+                toolName.isReminderAuditTool() ->
+                reminderMetadataFor(summary, toolName).joinToString(separator = "; ")
+
+            else -> sanitizedSummary()
         }
 
     private fun ToolAuditEventEntity.toRecord(): ToolAuditRecord =

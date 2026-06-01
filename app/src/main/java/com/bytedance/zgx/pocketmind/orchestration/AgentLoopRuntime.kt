@@ -692,7 +692,7 @@ class AgentLoopRuntime(
             skillPlan = skillPlan,
             plannedByModel = plannedByModel,
             fallbackReason = fallbackReason,
-            nextActionInput = run.input.explicitNextActionText(),
+            nextActionInput = run.input.explicitSequentialActionTextAt(toolRequestsFor(run.id).size),
             skillRunCheckpoint = skillPlan?.valueFreeCheckpointForPendingTool(
                 runId = run.id,
                 pendingRequest = request,
