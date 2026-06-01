@@ -4809,3 +4809,31 @@ scripts/test_validation_scripts.sh
 - 通过：AndroidTest 编译包含 `MainActivitySkillUiTest`。
 - 通过：`AgentCoreDocumentationTest` 文档覆盖单测。
 - 未执行真机/模拟器 instrumentation：当前 `adb devices -l` 没有列出已授权设备或模拟器。
+
+## 2026-06-02 Clipboard summary/share multi-step Skill device smoke
+
+本轮覆盖项：
+
+- `MainActivitySkillUiTest` 新增 `clipboardSummaryShareSkillStartsAtLocalReadConfirmation`。
+- 远程模式下发送“总结剪贴板并分享”时，测试断言直接进入本地多步
+  `clipboard_summary_share_skill` 的第一步 `读取剪贴板` 确认卡，摘要为
+  `将读取当前剪贴板文本，用于生成可分享摘要。`。
+- 该 smoke 不确认读取剪贴板，因此不会读取真实剪贴板、不会进入本地模型摘要步骤、
+  也不会提前展示第二步 `分享摘要` 确认卡或打开系统分享面板。
+- 取消第一步后，测试继续从“后台任务”入口断言最近审计日志包含
+  `UserCancelled` / `read_clipboard` / “工具执行已取消。”，并断言最近 Agent 轨迹进入
+  `已取消` 且包含 `UserRejected` step。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin \
+  :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest \
+  --no-daemon
+```
+
+结果：
+
+- 通过：AndroidTest 编译包含新增多步 Skill smoke。
+- 通过：`AgentCoreDocumentationTest` 文档覆盖单测。
+- 未执行真机/模拟器 instrumentation：当前 `adb devices -l` 没有列出已授权设备或模拟器。

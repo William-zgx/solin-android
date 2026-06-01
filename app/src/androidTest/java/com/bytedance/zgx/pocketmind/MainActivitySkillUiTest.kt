@@ -61,6 +61,43 @@ class MainActivitySkillUiTest {
         }
     }
 
+    @Test
+    fun clipboardSummaryShareSkillStartsAtLocalReadConfirmation() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        resetMainActivityPersistentState(
+            context = context,
+            inferenceMode = InferenceMode.Remote,
+            remoteModelConfig = ReadyRemoteModelConfig,
+        )
+        val launchIntent = Intent(context, MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, true)
+        }
+
+        ActivityScenario.launch<MainActivity>(launchIntent).use {
+            composeRule.waitForTag("app_title")
+
+            composeRule.sendPrompt("总结剪贴板并分享")
+
+            composeRule.waitForTag("action_confirm_button")
+            composeRule.onNodeWithText("读取剪贴板").assertIsDisplayed()
+            composeRule.onNodeWithText("将读取当前剪贴板文本，用于生成可分享摘要。").assertIsDisplayed()
+            composeRule.assertTextAbsent("分享摘要")
+
+            composeRule.onNodeWithTag("action_dismiss_button").performClick()
+            composeRule.waitForTagGone("action_confirm_button")
+
+            composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+            composeRule.waitForTag("background_task_manager_title")
+            composeRule.onNodeWithText("UserCancelled").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("read_clipboard", substring = true).performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("工具执行已取消。").performScrollTo().assertIsDisplayed()
+
+            composeRule.waitForText("最近 Agent 轨迹", substring = true)
+            composeRule.onNodeWithText("已取消").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("UserRejected", substring = true).performScrollTo().assertIsDisplayed()
+        }
+    }
+
     private fun ComposeTestRule.sendPrompt(prompt: String) {
         onNodeWithTag("composer_input").performTextClearance()
         onNodeWithTag("composer_input").performTextInput(prompt)
@@ -86,6 +123,12 @@ class MainActivitySkillUiTest {
     ) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun ComposeTestRule.assertTextAbsent(text: String, timeoutMillis: Long = 5_000) {
+        waitUntil(timeoutMillis = timeoutMillis) {
+            onAllNodesWithText(text).fetchSemanticsNodes().isEmpty()
         }
     }
 }

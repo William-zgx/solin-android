@@ -577,6 +577,7 @@ Tests:
 - `SkillRunExecutorTest`
 - `SkillRunProgressorTest`
 - `MainActivitySkillUiTest.webSearchSkillFirstShowsConfirmationWithoutRemoteRuntime`
+- `MainActivitySkillUiTest.clipboardSummaryShareSkillStartsAtLocalReadConfirmation`
 - `SkillRunExecutorTest.failsBeforeExecutingWhenSkillArgumentsDoNotMatchManifestSchema`
 - `SkillRunExecutorTest.resumesAfterConfirmedToolResultAndStopsAtNextConfirmation`
 - `SkillRunExecutorTest.continuationCheckpointContainsOnlyValueFreeSkillState`
@@ -914,6 +915,7 @@ Tests:
 - `SessionRepositoryTest`
 - `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
 - `MainActivitySkillUiTest.webSearchSkillFirstShowsConfirmationWithoutRemoteRuntime`
+- `MainActivitySkillUiTest.clipboardSummaryShareSkillStartsAtLocalReadConfirmation`
 - `AgentTraceStoreTest.roomStoreFailsStaleInFlightRunsButKeepsPendingConfirmationsOnStartup`
 
 ## Memory
