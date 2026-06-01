@@ -4780,7 +4780,7 @@ scripts/test_validation_scripts.sh
 - 通过：fake SDK 覆盖 device/emulator success、preflight failure 和
   instrumentation failure 的 verification report 断言。
 
-## 2026-06-02 Skill-first web search device smoke
+## 2026-06-02 Skill-first web search audit/trace device smoke
 
 本轮覆盖项：
 
@@ -4791,6 +4791,9 @@ scripts/test_validation_scripts.sh
   `将在浏览器中搜索：Kotlin 协程` 摘要、`query: Kotlin 协程` 参数和确认按钮。
 - 测试只取消确认卡，不打开外部浏览器，避免把外部 Intent 是否成功作为 Skill-first
   路由回归的一部分。
+- 取消后打开“后台任务”入口，断言最近审计日志可见 `UserCancelled`、
+  `ToolObserved`、`web_search` 和“工具执行已取消。”，并断言最近 Agent 轨迹展示
+  `已取消` 状态与 `UserRejected` step 摘要。
 - Agent core 文档和真机验收清单同步登记该设备/模拟器 smoke；完整 Skill 设备回归仍需后续继续扩展到多步恢复、确认后 trace/audit 和权限真实路径。
 
 验证命令：

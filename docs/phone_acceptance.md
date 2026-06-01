@@ -177,7 +177,8 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 - “查去机场的路线” 应进入地图 Skill，最终使用 `search_maps` 工具且仍需确认。
 - “搜一下 Kotlin 协程” 应进入信息查找 Skill，最终使用 `web_search` 工具且仍需确认。
   设备/模拟器 smoke 至少应包含 `MainActivitySkillUiTest` 中远程模式下不调用远程模型、直接展示
-  `Web 搜索` 确认卡并可取消的路径。
+  `Web 搜索` 确认卡并可取消的路径；取消后应能在“后台任务”入口看到最近审计日志和
+  Agent 轨迹里的取消记录。
 - “提醒我 15 分钟后喝水” 应可由后台提醒 Skill 直接规划，不依赖动作模型先分类；最终使用 `schedule_reminder` 工具且仍需确认。
 - “读取剪贴板” 应进入剪贴板上下文 Skill，最终使用 `read_clipboard` 工具且仍需确认。
 - “分享这段文字：明天十点开会” 应进入系统分享 Skill，最终使用 `share_text` 工具且仍需确认。

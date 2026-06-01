@@ -5,9 +5,11 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
@@ -44,6 +46,18 @@ class MainActivitySkillUiTest {
 
             composeRule.onNodeWithTag("action_dismiss_button").performClick()
             composeRule.waitForTagGone("action_confirm_button")
+
+            composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+            composeRule.waitForTag("background_task_manager_title")
+            composeRule.waitForText("最近审计日志", substring = true)
+            composeRule.onNodeWithText("UserCancelled").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("ToolObserved").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("web_search", substring = true).performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("工具执行已取消。").performScrollTo().assertIsDisplayed()
+
+            composeRule.waitForText("最近 Agent 轨迹", substring = true)
+            composeRule.onNodeWithText("已取消").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("UserRejected", substring = true).performScrollTo().assertIsDisplayed()
         }
     }
 
@@ -62,6 +76,16 @@ class MainActivitySkillUiTest {
     private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
+        }
+    }
+
+    private fun ComposeTestRule.waitForText(
+        text: String,
+        timeoutMillis: Long = 5_000,
+        substring: Boolean = false,
+    ) {
+        waitUntil(timeoutMillis = timeoutMillis) {
+            onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
         }
     }
 }

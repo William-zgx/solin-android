@@ -913,6 +913,7 @@ Tests:
 - `ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess`
 - `SessionRepositoryTest`
 - `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
+- `MainActivitySkillUiTest.webSearchSkillFirstShowsConfirmationWithoutRemoteRuntime`
 - `AgentTraceStoreTest.roomStoreFailsStaleInFlightRunsButKeepsPendingConfirmationsOnStartup`
 
 ## Memory
