@@ -15,6 +15,7 @@ Responsibilities:
 
 - Declare every device capability as a `ToolSpec`.
 - Validate `ToolRequest` names and arguments before execution.
+- Declare output schemas for successful `ToolResult` data.
 - Declare permissions, risk level, and confirmation policy.
 - Return structured `ToolResult` values with `ToolError` codes.
 
@@ -31,6 +32,14 @@ Current status:
 - Tool argument validation is now driven by each tool's JSON schema for
   required properties, closed argument sets, `minLength`, and regex `pattern`
   checks.
+- `ToolSpec` now includes an `outputSchemaJson` contract for successful
+  `ToolResult.data`. `ValidatingToolExecutor` validates successful delegate
+  results after execution; rejected, failed, and cancelled results remain
+  structured error/cancellation states and are not required to satisfy the
+  success schema. Output schema failures are wrapped as non-retryable
+  `InvalidResult` failures carrying only tool context, so malformed success
+  data cannot flow into Agent observation, trace summaries, audit display, or
+  Skill output binding as a successful observation.
 - Current tools cover Wi-Fi settings, flashlight settings, map search, web
   search, email draft, calendar draft, contact draft, local reminders,
   confirmed clipboard text reads, outbound system sharing for text, current

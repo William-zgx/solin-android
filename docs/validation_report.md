@@ -1,5 +1,32 @@
 # PocketMind 验证报告
 
+## 2026-06-01 ToolResult output schema 执行边界增量验证
+
+本轮覆盖项：
+
+- `ToolSpec` 新增 `outputSchemaJson`，表示 successful `ToolResult.data`
+  的结构契约，不是所有
+  `ToolResult` 状态的通用契约。
+- `Rejected`、`Failed`、`Cancelled` 保持结构化失败/取消结果；这些结果需要携带
+  `ToolError`、取消原因或安全拒绝 metadata，但不要求满足 success data schema。
+- `ValidatingToolExecutor` 在 delegate 返回后校验 success data；缺少必需字段、
+  字段类型不匹配或 request id 不匹配时，返回非 retryable `InvalidResult`
+  failed `ToolResult`，且只保留 `toolName` context。
+- 设备上下文工具的私密输出字段仍声明在 output schema 中，并继续通过
+  `privateOutputKeys` / `LocalOnly` 边界进入后续本地处理。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest'
+```
+
+结果：targeted Tool output schema / routing / device-context 回归测试通过。
+
 ## 2026-06-01 Restored Agent loop context 增量验证
 
 本轮覆盖项：

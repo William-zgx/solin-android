@@ -2,11 +2,15 @@ package com.bytedance.zgx.pocketmind.tool
 
 import java.util.UUID
 
+const val TOOL_NAME_ONLY_OUTPUT_SCHEMA_JSON =
+    """{"type":"object","required":["toolName"],"properties":{"toolName":{"type":"string","minLength":1}},"additionalProperties":false}"""
+
 data class ToolSpec(
     val name: String,
     val title: String,
     val description: String,
     val inputSchemaJson: String,
+    val outputSchemaJson: String = TOOL_NAME_ONLY_OUTPUT_SCHEMA_JSON,
     val capability: ToolCapability,
     val permissions: Set<ToolPermission> = emptySet(),
     val riskLevel: RiskLevel = RiskLevel.MediumDraftOrNavigation,
@@ -148,6 +152,7 @@ fun ToolRequest.cancelled(
 enum class ToolErrorCode {
     UnknownTool,
     InvalidRequest,
+    InvalidResult,
     MissingArgument,
     PermissionDenied,
     NoActivityFound,

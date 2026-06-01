@@ -25,12 +25,16 @@ import com.bytedance.zgx.pocketmind.device.RecentImageTextItem
 import com.bytedance.zgx.pocketmind.device.RecentImageTextProvider
 import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
 import java.time.Instant
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RoutingAndValidatingToolExecutorTest {
+    private val registry = ToolRegistry()
+
     @Test
     fun routingExecutorDispatchesDeviceContextToolsBeforeDelegate() {
         val delegate = RecordingDelegate()
@@ -320,21 +324,153 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     @Test
-    fun validatingExecutorAddsToolContextToDelegateResult() {
+    fun validatingExecutorRejectsSucceededDelegateResultMissingRequiredOutputField() {
         val executor = ValidatingToolExecutor(
-            ContextlessSuccessDelegate(),
+            StaticResultDelegate { request ->
+                request.succeeded(
+                    summary = "read clipboard",
+                    data = mapOf(
+                        "toolName" to request.toolName,
+                        "truncated" to "false",
+                    ),
+                )
+            },
         )
 
         val result = executor.execute(
             ToolRequest(
-                id = "wifi",
-                toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                id = "clipboard-missing-output",
+                toolName = MobileActionFunctions.READ_CLIPBOARD,
                 reason = "test",
             ),
         )
 
-        assertEquals(ToolStatus.Succeeded, result.status)
-        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, result.data["toolName"])
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.InvalidResult, result.error?.code)
+        assertFalse(result.retryable)
+        assertTrue(result.summary.contains("output") || result.summary.contains("result"))
+        assertTrue(result.summary.contains("text"))
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, result.data["toolName"])
+    }
+
+    @Test
+    fun validatingExecutorRejectsSucceededDelegateResultWithWrongOutputFieldType() {
+        val executor = ValidatingToolExecutor(
+            StaticResultDelegate { request ->
+                request.succeeded(
+                    summary = "read clipboard",
+                    data = mapOf(
+                        "toolName" to request.toolName,
+                        "text" to "clipboard text",
+                        "truncated" to "maybe",
+                    ),
+                )
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "clipboard-wrong-output-type",
+                toolName = MobileActionFunctions.READ_CLIPBOARD,
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.InvalidResult, result.error?.code)
+        assertFalse(result.retryable)
+        assertTrue(result.summary.contains("output") || result.summary.contains("result"))
+        assertTrue(result.summary.contains("truncated"))
+        assertTrue(result.summary.contains("true or false"))
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, result.data["toolName"])
+    }
+
+    @Test
+    fun validatingExecutorDoesNotRequireSuccessOutputSchemaForNonSucceededDelegateResults() {
+        val cases = listOf(
+            ToolStatus.Rejected to ToolErrorCode.InvalidRequest,
+            ToolStatus.Failed to ToolErrorCode.ExecutionFailed,
+            ToolStatus.Cancelled to ToolErrorCode.UserCancelled,
+        )
+
+        cases.forEach { (status, errorCode) ->
+            val executor = ValidatingToolExecutor(
+                StaticResultDelegate { request ->
+                    ToolResult(
+                        requestId = request.id,
+                        status = status,
+                        summary = "delegate $status",
+                        data = emptyMap(),
+                        error = ToolError(errorCode, "delegate $status"),
+                        retryable = status == ToolStatus.Failed,
+                    )
+                },
+            )
+
+            val result = executor.execute(
+                ToolRequest(
+                    id = "wifi-non-success-$status",
+                    toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    reason = "test",
+                ),
+            )
+
+            assertEquals(status, result.status)
+            assertEquals(errorCode, result.error?.code)
+            assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, result.data["toolName"])
+            assertFalse(result.summary.contains("output"))
+        }
+    }
+
+    @Test
+    fun validatingRoutingExecutorAcceptsPrivateDeviceContextOutputsAndKeepsPrivateKeyBoundary() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(routingExecutor(delegate))
+        val privateDeviceRequests = listOf(
+            ToolRequest(
+                id = "foreground-private-output",
+                toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "contacts-private-output",
+                toolName = MobileActionFunctions.QUERY_CONTACTS,
+                arguments = mapOf("query" to "Alice"),
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "screenshot-ocr-private-output",
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "image-ocr-private-output",
+                toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+                arguments = mapOf("maxCount" to "3"),
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "screen-text-private-output",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                arguments = mapOf("maxChars" to "1000"),
+                reason = "test",
+            ),
+        )
+
+        privateDeviceRequests.forEach { request ->
+            val result = executor.execute(request)
+            val privateKeys = registry.privateOutputKeysFor(request.toolName)
+
+            assertEquals(ToolStatus.Succeeded, result.status)
+            assertEquals(request.toolName, result.data["toolName"])
+            assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+            assertNotNull(registry.redactedResultSummaryFor(request.toolName))
+            assertTrue("$request should have private output keys", privateKeys.isNotEmpty())
+            privateKeys.forEach { privateKey ->
+                assertTrue("${request.toolName} result must keep private output key $privateKey", result.data.containsKey(privateKey))
+            }
+        }
+        assertTrue(delegate.requests.isEmpty())
     }
 
     @Test
@@ -443,16 +579,60 @@ class RoutingAndValidatingToolExecutorTest {
             },
         )
 
-    private class RecordingDelegate : ToolExecutor {
+    private class RecordingDelegate(
+        private val registry: ToolRegistry = ToolRegistry(),
+    ) : ToolExecutor {
         val requests = mutableListOf<ToolRequest>()
 
         override fun execute(request: ToolRequest): ToolResult {
             requests += request
             return request.succeeded(
                 summary = "delegated",
-                data = mapOf("toolName" to request.toolName),
+                data = validOutputDataFor(request),
             )
         }
+
+        private fun validOutputDataFor(request: ToolRequest): Map<String, String> {
+            val schema = JSONObject(registry.specFor(request.toolName)?.outputSchemaJson.orEmpty())
+            val properties = schema.optJSONObject("properties") ?: JSONObject()
+            val requiredKeys = stringSet(schema, "required")
+            return buildMap {
+                requiredKeys.forEach { key ->
+                    val property = properties.optJSONObject(key) ?: JSONObject()
+                    put(key, validOutputValueFor(request, key, property))
+                }
+                putIfAbsent("toolName", request.toolName)
+            }
+        }
+
+        private fun validOutputValueFor(
+            request: ToolRequest,
+            key: String,
+            property: JSONObject,
+        ): String {
+            stringSet(property, "enum").firstOrNull()?.let { return it }
+            if (key == "toolName") return request.toolName
+            return when (property.optString("type")) {
+                "boolean" -> "false"
+                "integer" -> (intOrNull(property, "minimum") ?: 1).toString()
+                "number" -> (intOrNull(property, "minimum") ?: 1).toString()
+                "array" -> "[]"
+                "object" -> "{}"
+                else -> "value"
+            }
+        }
+
+        private fun stringSet(json: JSONObject, name: String): Set<String> {
+            val array = json.optJSONArray(name) ?: return emptySet()
+            return buildSet {
+                for (index in 0 until array.length()) {
+                    add(array.getString(index))
+                }
+            }
+        }
+
+        private fun intOrNull(json: JSONObject, name: String): Int? =
+            if (json.has(name)) json.optInt(name) else null
     }
 
     private class ThrowingDelegate(
@@ -463,12 +643,11 @@ class RoutingAndValidatingToolExecutorTest {
         }
     }
 
-    private class ContextlessSuccessDelegate : ToolExecutor {
+    private class StaticResultDelegate(
+        private val resultForRequest: (ToolRequest) -> ToolResult,
+    ) : ToolExecutor {
         override fun execute(request: ToolRequest): ToolResult =
-            ToolResult(
-                requestId = request.id,
-                status = ToolStatus.Succeeded,
-                summary = "opened",
-            )
+            resultForRequest(request)
     }
+
 }

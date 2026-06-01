@@ -2,7 +2,9 @@ package com.bytedance.zgx.pocketmind.tool
 
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -331,6 +333,103 @@ class ToolRegistryTest {
         requireNotNull(shareSpec)
         assertTrue(shareSpec.privateOutputKeys.isEmpty())
         assertNull(registry.redactedResultSummaryFor(MobileActionFunctions.SHARE_TEXT))
+    }
+
+    @Test
+    fun allToolSpecsDeclareClosedOutputSchemas() {
+        registry.specs().forEach { spec ->
+            val schema = JSONObject(spec.outputSchemaJson)
+            val properties = schema.optJSONObject("properties") ?: JSONObject()
+
+            assertEquals("${spec.name} output schema must be an object", "object", schema.getString("type"))
+            assertFalse("${spec.name} output schema must reject undeclared fields", schema.optBoolean("additionalProperties", true))
+            assertTrue("${spec.name} output schema must declare toolName", properties.has("toolName"))
+        }
+    }
+
+    @Test
+    fun privateDeviceOutputKeysRemainDeclaredInOutputSchemas() {
+        val expectedPrivateOutputs = mapOf(
+            MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
+            MobileActionFunctions.QUERY_CONTACTS to setOf("query", "contactsJson"),
+            MobileActionFunctions.QUERY_FOREGROUND_APP to setOf("packageName", "appLabel"),
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to setOf("ocrText"),
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR to setOf("ocrText"),
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("screenText"),
+        )
+
+        expectedPrivateOutputs.forEach { (toolName, privateKeys) ->
+            val spec = registry.specFor(toolName)
+            assertNotNull(spec)
+            requireNotNull(spec)
+
+            val properties = JSONObject(spec.outputSchemaJson).getJSONObject("properties")
+            privateKeys.forEach { privateKey ->
+                assertTrue("$toolName private output key $privateKey must be represented in output schema", properties.has(privateKey))
+            }
+            assertEquals(privateKeys, spec.privateOutputKeys)
+            assertEquals(privateKeys, registry.privateOutputKeysFor(toolName))
+        }
+    }
+
+    @Test
+    fun validateResultRejectsMissingOrWrongSuccessOutputData() {
+        val request = ToolRequest(
+            id = "clipboard-output-contract",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "schema contract",
+        )
+
+        assertNull(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "read clipboard",
+                    data = mapOf(
+                        "toolName" to request.toolName,
+                        "text" to "clipboard text",
+                        "truncated" to "false",
+                    ),
+                ),
+            ),
+        )
+
+        val missingPrivateOutput = registry.validateResult(
+            request = request,
+            result = request.succeeded(
+                summary = "read clipboard",
+                data = mapOf(
+                    "toolName" to request.toolName,
+                    "truncated" to "false",
+                ),
+            ),
+        )
+        assertNotNull(missingPrivateOutput)
+        requireNotNull(missingPrivateOutput)
+        assertEquals(ToolStatus.Failed, missingPrivateOutput.status)
+        assertEquals(ToolErrorCode.InvalidResult, missingPrivateOutput.error?.code)
+        assertFalse(missingPrivateOutput.retryable)
+        assertTrue(missingPrivateOutput.summary.contains("output") || missingPrivateOutput.summary.contains("result"))
+        assertTrue(missingPrivateOutput.summary.contains("text"))
+
+        val wrongOutputType = registry.validateResult(
+            request = request,
+            result = request.succeeded(
+                summary = "read clipboard",
+                data = mapOf(
+                    "toolName" to request.toolName,
+                    "text" to "clipboard text",
+                    "truncated" to "maybe",
+                ),
+            ),
+        )
+        assertNotNull(wrongOutputType)
+        requireNotNull(wrongOutputType)
+        assertEquals(ToolStatus.Failed, wrongOutputType.status)
+        assertEquals(ToolErrorCode.InvalidResult, wrongOutputType.error?.code)
+        assertFalse(wrongOutputType.retryable)
+        assertTrue(wrongOutputType.summary.contains("truncated"))
+        assertTrue(wrongOutputType.summary.contains("true or false"))
     }
 
     @Test
@@ -681,4 +780,5 @@ class ToolRegistryTest {
 
         assertNull(valid)
     }
+
 }

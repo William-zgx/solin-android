@@ -93,18 +93,20 @@ class ValidatingToolExecutor(
     private val delegate: ToolExecutor,
     private val registry: ToolRegistry = ToolRegistry(),
 ) : ToolExecutor {
-    override fun execute(request: ToolRequest): ToolResult =
-        registry.validate(request)
-            ?: runCatching {
-                delegate.execute(request)
-            }.getOrElse { throwable ->
-                request.failed(
-                    code = ToolErrorCode.ExecutionFailed,
-                    summary = "Tool execution failed before completion: ${throwable.cleanMessage()}",
-                    retryable = true,
-                    data = request.toolExecutionContext(),
-                )
-            }.withToolExecutionContext(request.toolName)
+    override fun execute(request: ToolRequest): ToolResult {
+        registry.validate(request)?.let { rejection -> return rejection }
+        val result = runCatching {
+            delegate.execute(request)
+        }.getOrElse { throwable ->
+            request.failed(
+                code = ToolErrorCode.ExecutionFailed,
+                summary = "Tool execution failed before completion: ${throwable.cleanMessage()}",
+                retryable = true,
+                data = request.toolExecutionContext(),
+            )
+        }.withToolExecutionContext(request.toolName)
+        return registry.validateResult(request, result) ?: result
+    }
 }
 
 class CalendarAvailabilityToolExecutor(
