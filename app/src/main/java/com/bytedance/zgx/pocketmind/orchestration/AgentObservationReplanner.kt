@@ -98,7 +98,7 @@ internal fun String.explicitSequentialActionTextAt(index: Int): String? {
 internal fun String.requiresLocalModelBeforeSequentialTail(): Boolean =
     this in SEQUENTIAL_LOCAL_CONTINUATION_TOOL_NAMES
 
-private fun String.immediateSequentialActionText(): String? =
+internal fun String.immediateSequentialActionText(): String? =
     (explicitSequentialActionTextAt(0) ?: trimActionText()).takeIf { it.isNotBlank() }
 
 private fun String.explicitSequentialActionSegments(): List<String> {

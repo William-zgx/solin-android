@@ -482,14 +482,22 @@ class AgentLoopRuntime(
         request: ToolRequest,
         result: ToolResult,
     ): NextObservationPlan {
+        val priorRequests = toolRequestsFor(run.id)
+        val completedSegmentCount = plannedSequentialSegmentCount(run.id)
+        planNextCompositeSkillSegment(
+            runId = run.id,
+            input = nextSequentialSegmentInput(run, completedSegmentCount),
+        )?.let { nextPlan ->
+            return nextPlan
+        }
         val replan = observationReplanner.planNext(
             AgentObservationReplanContext(
                 run = run,
                 previousRequest = request,
                 observedResult = result,
-                priorRequests = toolRequestsFor(run.id),
+                priorRequests = priorRequests,
                 nextActionInput = traceStore.nextActionInput(run.id),
-                completedSegmentCount = plannedSequentialSegmentCount(run.id),
+                completedSegmentCount = completedSegmentCount,
             ),
         ) ?: return NextObservationPlan.None
         val skillPlan = skillRuntime.plan(replan.input ?: run.input, replan.draft, replan.request)
@@ -738,6 +746,39 @@ class AgentLoopRuntime(
         val skillPlan = skillRuntime.plan(input) ?: return null
         if (skillPlan.isSingleToolStepPlan()) return null
         return buildInitialToolPlanFromSkill(skillPlan)
+    }
+
+    private fun nextSequentialSegmentInput(
+        run: AgentRun,
+        completedSegmentCount: Int,
+    ): String? =
+        traceStore.nextActionInput(run.id)?.immediateSequentialActionText()
+            ?: run.input.explicitSequentialActionTextAt(completedSegmentCount)
+
+    private fun planNextCompositeSkillSegment(
+        runId: String,
+        input: String?,
+    ): NextObservationPlan? {
+        val skillPlan = input?.let { segmentInput -> skillRuntime.plan(segmentInput) } ?: return null
+        if (skillPlan.isSingleToolStepPlan()) return null
+        val toolStep = skillPlan.steps.firstOrNull() as? SkillStep.ToolStep
+            ?: return null
+        if (toolStep.dependsOn.isNotEmpty()) return null
+        val validation = skillPlan.validateStructure()
+        if (!validation.isValid) {
+            return rejectNextToolPlan(
+                runId,
+                toolStep.request.rejected("Invalid skill plan: ${validation.errors.joinToString()}"),
+            )
+        }
+        return buildNextToolPlan(
+            runId = runId,
+            request = toolStep.request,
+            draft = toolStep.draft,
+            plannedByModel = false,
+            fallbackReason = "skill-first",
+            skillPlan = skillPlan,
+        )
     }
 
     private fun planToolForInput(

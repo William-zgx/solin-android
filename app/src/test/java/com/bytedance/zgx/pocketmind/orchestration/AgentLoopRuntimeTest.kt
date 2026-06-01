@@ -3867,6 +3867,154 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun sequentialMiddleCompositeSkillSegmentContinuesToTailAfterInternalToolsComplete() {
+        val actionRuntime = WifiFlashlightActionRuntime()
+        val auditSink = InMemoryToolAuditSink()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val planned = runtime.runOnce(
+            input = "打开 Wi-Fi 设置，然后总结剪贴板并分享，再打开手电筒设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, planned.plan.request.toolName)
+        assertEquals("总结剪贴板并分享", runtime.latestPendingConfirmation()?.nextActionInput)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val clipboardPlanned = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+
+        requireNotNull(clipboardPlanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, clipboardPlanned.run.state)
+        require(clipboardPlanned.decision is AgentObservationDecision.PlanNextTool)
+        val clipboardPlan = clipboardPlanned.decision.plan
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, clipboardPlan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, clipboardPlan.skillRequest?.skillId)
+        assertEquals("打开手电筒设置", runtime.latestPendingConfirmation()?.nextActionInput)
+
+        val rawClipboardText = "中间 composite Skill 的剪贴板原文"
+        runtime.confirmToolRequest(planned.run.id, clipboardPlan.request.id)
+        val observedClipboard = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = clipboardPlan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = clipboardResultData(rawClipboardText),
+            ),
+        )
+        requireNotNull(observedClipboard)
+        assertEquals(AgentRunState.GeneratingAnswer, observedClipboard.run.state)
+        require(observedClipboard.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observedClipboard.continuationPromptForModel.orEmpty().contains(rawClipboardText))
+        assertEquals("[redacted]", observedClipboard.result.data["text"])
+        assertTrue(!observedClipboard.steps.toString().contains(rawClipboardText))
+        assertTrue(!auditSink.events.toString().contains(rawClipboardText))
+
+        val localModelSummary = "中间摘要"
+        val shareObserved = runtime.observeModelResult(planned.run.id, localModelSummary)
+
+        requireNotNull(shareObserved)
+        require(shareObserved.decision is AgentObservationDecision.PlanNextTool)
+        val sharePlan = shareObserved.decision.plan
+        assertEquals(MobileActionFunctions.SHARE_TEXT, sharePlan.request.toolName)
+        assertEquals(localModelSummary, sharePlan.request.arguments["text"])
+        assertTrue(!sharePlan.request.arguments.toString().contains(rawClipboardText))
+        assertTrue(!runtime.latestPendingConfirmation().toString().contains(rawClipboardText))
+        assertEquals("打开手电筒设置", runtime.latestPendingConfirmation()?.nextActionInput)
+
+        runtime.confirmToolRequest(planned.run.id, sharePlan.request.id)
+        val flashlightPlanned = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = sharePlan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开系统分享面板",
+                data = externalActivityResultData(MobileActionFunctions.SHARE_TEXT),
+            ),
+        )
+
+        requireNotNull(flashlightPlanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, flashlightPlanned.run.state)
+        require(flashlightPlanned.decision is AgentObservationDecision.PlanNextTool)
+        val flashlightPlan = flashlightPlanned.decision.plan
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, flashlightPlan.request.toolName)
+
+        runtime.confirmToolRequest(planned.run.id, flashlightPlan.request.id)
+        val completed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = flashlightPlan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开手电筒设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS),
+            ),
+        )
+
+        requireNotNull(completed)
+        assertEquals(AgentRunState.Completed, completed.run.state)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                MobileActionFunctions.READ_CLIPBOARD,
+                MobileActionFunctions.SHARE_TEXT,
+                MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            ),
+            completed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+        )
+    }
+
+    @Test
+    fun sequentialMiddlePrivateReadSegmentDoesNotPlanWhenTailRemains() {
+        val actionRuntime = WifiFlashlightActionRuntime()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val planned = runtime.runOnce(
+            input = "打开 Wi-Fi 设置，然后读取剪贴板，再打开手电筒设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, planned.plan.request.toolName)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertEquals(AgentObservationDecision.Complete, observed.decision)
+        assertTrue(observed.steps.none { step ->
+            step is AgentStep.UserConfirmationRequested &&
+                step.request.toolName == MobileActionFunctions.READ_CLIPBOARD
+        })
+    }
+
+    @Test
     fun initialSequentialPrivateReadSegmentFallsBackToAnswer() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -4887,6 +5035,47 @@ class AgentLoopRuntimeTest {
             val plan = planner.plan(input)
             return ActionPlanningResult(
                 plan = plan,
+                usedModel = false,
+                fallbackReason = "test fallback",
+            )
+        }
+    }
+
+    private class WifiFlashlightActionRuntime : ActionPlanningRuntime {
+        override fun isLikelyAction(input: String): Boolean =
+            input.contains("Wi-Fi", ignoreCase = true) ||
+                input.contains("wifi", ignoreCase = true) ||
+                input.contains("手电筒") ||
+                input.contains("flashlight", ignoreCase = true)
+
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
+            val draft = when {
+                input.contains("Wi-Fi", ignoreCase = true) || input.contains("wifi", ignoreCase = true) ->
+                    ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "将打开系统 Wi-Fi 设置页。",
+                        parameters = emptyMap(),
+                        requiresConfirmation = true,
+                    )
+
+                input.contains("手电筒") || input.contains("flashlight", ignoreCase = true) ->
+                    ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+                        title = "打开手电筒设置",
+                        summary = "将打开系统设置，由你手动确认手电筒相关操作。",
+                        parameters = emptyMap(),
+                        requiresConfirmation = true,
+                    )
+
+                else -> return ActionPlanningResult(
+                    plan = ActionPlan(ActionPlanKind.NoAction),
+                    usedModel = false,
+                    fallbackReason = "test fallback",
+                )
+            }
+            return ActionPlanningResult(
+                plan = ActionPlan(kind = ActionPlanKind.Draft, draft = draft),
                 usedModel = false,
                 fallbackReason = "test fallback",
             )

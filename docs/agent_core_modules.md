@@ -164,15 +164,17 @@ Current status:
   segment is considered. The next-action cursor is kept only in process memory;
   Room restore no longer persists or resumes raw remaining sequence text across
   process death.
-- Initial planning can also use the first explicit sequence segment to start a
+- Per-segment planning can also use an explicit sequence segment to start a
   single-tool, single-step Skill, or validated composite Skill plan, so rule-only
   planning can enter the loop for requests like "search, then open Wi-Fi" and
-  local composite flows like "summarize clipboard and share, then open Wi-Fi."
-  A bare private-read segment that would require local model continuation while
-  more segments remain still falls back instead of starting a partial flow.
-- Later sequential replans apply the same continuation guard: clipboard,
-  current-screen text, and OCR reads may appear as the final segment, but are
-  not planned while another explicit segment remains.
+  local composite flows can appear at the beginning or middle of a sequence.
+  Bare private-read segments that would require local model continuation while
+  more segments remain still fall back instead of starting a partial flow.
+- Later sequential replans apply the same continuation guard to bare
+  clipboard/current-screen/OCR reads: those may appear as the final segment, but
+  are not planned while another explicit segment remains. Composite Skills that
+  carry their own local model boundary can complete before the next segment is
+  considered.
 - Replanned tools are validated, safety checked, audited, traced, and returned
   to `AwaitingUserConfirmation` instead of being executed directly.
 - The action-planner preflight gate now reuses the same conservative parsers as
@@ -323,9 +325,9 @@ Current status:
   Room persistence still writes `nextActionInput = null`, so a restart can
   restore the current pending tool but cannot resume raw remaining sequence text.
 - Full-input Skill-first planning still rejects sequential commands so a Skill
-  cannot swallow later user intent. The initial first-segment fallback may start
-  a composite Skill for that segment only, while a bare private-read segment
-  such as "read clipboard, then open Wi-Fi settings" remains fail-closed.
+  cannot swallow later user intent. Per-segment fallback may start a composite
+  Skill for that segment only, while a bare private-read segment such as "read
+  clipboard, then open Wi-Fi settings" remains fail-closed.
 - Planned-tool audit persistence stores parameter-free planned/confirmation
   summaries; tool arguments remain out of persisted audit text.
 - Open-ended model-driven replanning, arbitrary multi-confirmation skill UI
@@ -366,6 +368,7 @@ Tests:
 - `AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues`
 - `AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill`
 - `AgentLoopRuntimeTest.sequentialCompositeSkillSegmentContinuesToNextSegmentAfterInternalToolsComplete`
+- `AgentLoopRuntimeTest.sequentialMiddleCompositeSkillSegmentContinuesToTailAfterInternalToolsComplete`
 - `AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer`
 - `AgentLoopRuntimeTest.sequentialReplannerSkipsPrivateReadWhenMoreSegmentsRemain`
 - `AgentLoopRuntimeTest.sequentialReplannerAllowsFinalPrivateReadSegment`

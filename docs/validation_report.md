@@ -31,12 +31,18 @@ instrumentation `OK (14 tests)`，脚本输出 `Emulator verification passed`。
 - 显式顺序输入的第一段现在可以启动 validated composite Skill，例如
   “总结剪贴板并分享，然后打开 Wi-Fi 设置”会先进入
   `clipboard_summary_share_skill` 的 `read_clipboard` 确认。
+- 中间 segment 也可以启动 validated composite Skill，例如
+  “打开 Wi-Fi 设置，然后总结剪贴板并分享，再打开手电筒设置”会按
+  `open_wifi_settings -> read_clipboard -> share_text -> open_flashlight_settings`
+  推进。
 - 顺序游标改为按 logical segment 计数，而不是按 tool request 计数；同一个
   composite Skill 内部的 `read_clipboard -> local model -> share_text` 不会跳过
-  后续 “打开 Wi-Fi 设置” segment。
+  后续 segment。
 - 后续 replan 使用当前 segment 文本绑定 Skill，避免把整条顺序输入作为下一段
   Skill 的 `input`。
-- 单独私密读取首段（如“读取剪贴板，然后打开 Wi-Fi 设置”）仍 fail closed。
+- composite Skill 内部的剪贴板原文只出现在 local continuation prompt，不进入
+  trace、audit 或 pending checkpoint；`share_text.text` 只能使用本地模型输出。
+- 单独私密读取首段/中间段（如“读取剪贴板，然后打开 Wi-Fi 设置”）仍 fail closed。
 
 验证命令：
 
@@ -44,6 +50,8 @@ instrumentation `OK (14 tests)`，脚本输出 `Emulator verification passed`。
 ./gradlew :app:testDebugUnitTest \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialCompositeSkillSegmentContinuesToNextSegmentAfterInternalToolsComplete' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialMiddleCompositeSkillSegmentContinuesToTailAfterInternalToolsComplete' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialMiddlePrivateReadSegmentDoesNotPlanWhenTailRemains' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions'
 ./gradlew :app:testDebugUnitTest
