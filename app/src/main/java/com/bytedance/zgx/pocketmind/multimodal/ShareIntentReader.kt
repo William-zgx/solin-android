@@ -10,6 +10,8 @@ import java.io.InputStream
 class ShareIntentReader(
     private val context: Context,
     private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
+    private val pdfPageTextExtractor: PdfPageTextExtractor =
+        AndroidPdfPageTextExtractor(context, imageTextExtractor),
 ) {
     fun read(
         intent: Intent?,
@@ -92,6 +94,7 @@ class ShareIntentReader(
             kind = kind,
             openInputStream = { context.contentResolver.openInputStream(this) },
             extractImageText = { imageTextExtractor.extract(this) },
+            extractPdfImageText = { pdfPageTextExtractor.extract(this) },
         )
         return SharedAttachment(
             kind = kind,
@@ -143,6 +146,7 @@ internal fun readSharedAttachmentTextPreview(
     kind: SharedAttachmentKind,
     openInputStream: () -> InputStream?,
     extractImageText: () -> SharedTextPreview?,
+    extractPdfImageText: () -> SharedTextPreview? = { null },
     mode: SharedInputReadMode = SharedInputReadMode.LocalPrompt,
 ): SharedTextPreview? =
     when {
@@ -161,7 +165,7 @@ internal fun readSharedAttachmentTextPreview(
         kind == SharedAttachmentKind.Document && canReadPdfTextPreviewFor(mimeType) ->
             readSharedAttachmentTextPreviewFromStream(openInputStream) { input ->
                 PdfTextPreviewReader.read(input, mimeType)
-            }
+            } ?: extractPdfImageText()
 
         kind == SharedAttachmentKind.Document && canReadOfficeOpenXmlTextPreviewFor(mimeType) ->
             readSharedAttachmentTextPreviewFromStream(openInputStream) { input ->

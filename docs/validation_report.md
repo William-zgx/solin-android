@@ -1,5 +1,36 @@
 # PocketMind 验证报告
 
+## 2026-06-02 PDF scanned-page OCR fallback 增量验证
+
+本轮覆盖项：
+
+- 共享输入的 `application/pdf` 附件继续优先读取有界 PDF 文本层；只有文本层
+  摘录为空时，才会在本地用 Android `PdfRenderer` 渲染前几页并复用 ML Kit OCR
+  生成 `PdfImageOcr` 摘录。
+- PDF OCR fallback 有页数、渲染尺寸和 4000 字符上限；输出只进入
+  shared-input prompt，不包含 PDF URI/path、原始像素、坐标、图片标签或语义描述。
+- `SharedInput` prompt 只允许 `PdfImageOcr` 出现在 `Document + application/pdf`
+  附件上；伪造到图片、旧 Office 或其他 MIME 上的 PDF OCR preview 不会展示。
+- 远程模式仍在 reader 边界使用 protected signal，不读取分享文本、附件 metadata、
+  PDF 文件流、文本层或 PDF OCR 内容。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedPdfImageOcrPreviewBeforeBuildingPrompt' \
+  --no-daemon
+./gradlew :app:testDebugUnitTest --no-daemon
+./gradlew :app:compileDebugAndroidTestKotlin --no-daemon
+git diff --check
+git diff --unified=0 | rg -n '(sk-[A-Za-z0-9_-]{20,}|B[e]arer [A-Za-z0-9._-]{20,}|(?i)(api[_-]?key|s[e]cret|p[a]ssword|d[e]epseek))' || true
+scripts/verify_local.sh
+```
+
+结果：targeted shared-input PDF OCR fallback、全量 JVM 单测、AndroidTest Kotlin
+编译、diff whitespace 检查、敏感 diff 扫描和本地完整验证脚本通过。
+
 ## 2026-06-02 多模态与审计隐私边界增量验证
 
 本轮覆盖项：
@@ -4374,8 +4405,9 @@ scripts/verify_emulator.sh
 - 用户主动分享或选择 `application/pdf` 附件时，可以在本地读取有界 PDF
   文本层摘录。该能力只扫描受限 PDF bytes/content streams，支持普通/Flate
   text-showing stream，最多进入 shared-input prompt 4000 字符。
-- PDF 摘录是文本层预览，不是 PDF OCR、图片扫描、版式理解或完整 PDF 解析；
-  图片型/扫描型 PDF 没有可读文本层时保持 metadata-only。
+- 该轮 PDF 摘录仅覆盖文本层预览，不是版式理解或完整 PDF 解析；当时图片型/
+  扫描型 PDF 没有可读文本层时保持 metadata-only，已由上方
+  “PDF scanned-page OCR fallback” 增量扩展为受限本地 OCR fallback。
 - `MainActivity` 会按当前推理模式选择 `ShareIntentReader` 读取策略。远程模式
   下只生成 value-free protected share signal；不会读取 `EXTRA_TEXT` 值、查询
   附件 metadata、打开文件流、解析文本层或运行 OCR。

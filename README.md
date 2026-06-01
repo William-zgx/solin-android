@@ -56,10 +56,10 @@ Google AI Edge LiteRT-LM.
 - Recent tool audit review from the background task entry, limited to redacted event metadata.
 - Android share-target and in-app attachment picker entries for bounded shared text,
   bounded local `text/*` plus JSON/XML/YAML text-like application excerpts,
-  RTF/PDF text-layer, and Office Open XML excerpts, and bounded local OCR
-  excerpts from user-provided `image/*` attachments; audio, video,
-  image-only PDFs, legacy Office, and binary attachments remain metadata-only, plus
-  confirmed outbound system sharing for text.
+  RTF/PDF text-layer, PDF scanned-page OCR fallback, and Office Open XML
+  excerpts, and bounded local OCR excerpts from user-provided `image/*`
+  attachments; audio, video, legacy Office, and binary attachments remain
+  metadata-only, plus confirmed outbound system sharing for text.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
 - Local chat sessions with create, switch, and delete actions.
 - Stop button while a response is being generated.
@@ -219,8 +219,9 @@ multimodal prompts: PocketMind records bounded user-visible shared text, may pro
 bounded local text excerpts for `text/*` plus JSON/XML/YAML text-like
 application documents, bounded local text-layer excerpts for user-provided RTF,
 PDF text layers, and `.docx` / `.xlsx` / `.pptx` files, may produce bounded
-local OCR excerpts for user-provided `image/*` attachments, and keeps attachment
-metadata for local processing. Binary, audio, video, image-only PDFs, legacy
+local OCR excerpts for user-provided `image/*` attachments, and may fall back to
+bounded scanned-page OCR for user-provided PDFs with no readable text layer.
+It keeps attachment metadata for local processing. Binary, audio, video, legacy
 Office, and other unsupported attachments remain metadata-only. Automatically
 generated shared-input excerpts and metadata are
 marked `LocalOnly`; remote mode now protects at the reader boundary and does not
@@ -246,16 +247,18 @@ local reminder scheduling, running background task review/cancellation,
 confirmed clipboard/device-context reads, outbound text sharing, safe HTTPS
 deep-link navigation, package-level app launches, Android share intent and
 in-app picker text plus bounded `text/*` and JSON/XML/YAML document excerpt
-ingestion, bounded RTF/PDF text-layer and Office Open XML excerpts,
+ingestion, bounded RTF/PDF text-layer, PDF scanned-page OCR fallback, and
+Office Open XML excerpts,
 system speech-recognition input,
 confirmed recent screenshot/image OCR, and restart restoration for the latest
 pending tool confirmation without auto-execution, plus confirmed current-screen
 Accessibility text snapshot reads and current-screen text summary sharing.
 Broad semantic screen understanding, generalized typed run recovery, complete
 document parsing, screenshot capture/current-screen semantic understanding,
-PDF OCR/layout parsing, legacy Office parsing, full rich-text fidelity, image semantic understanding,
-arbitrary-media OCR beyond confirmed recent-image reads, and media content
-understanding are tracked there as pending core modules.
+PDF layout parsing, legacy Office parsing, full rich-text fidelity, image
+semantic understanding, arbitrary-media OCR beyond user-provided PDF/image
+attachments and confirmed recent-image reads, and media content understanding
+are tracked there as pending core modules.
 
 ## Recommended Models
 

@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.multimodal
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
@@ -12,10 +13,12 @@ import java.util.concurrent.TimeUnit
 
 interface ImageTextExtractor {
     fun extract(uri: Uri): SharedTextPreview?
+    fun extract(bitmap: Bitmap): SharedTextPreview? = null
 }
 
 object NoOpImageTextExtractor : ImageTextExtractor {
     override fun extract(uri: Uri): SharedTextPreview? = null
+    override fun extract(bitmap: Bitmap): SharedTextPreview? = null
 }
 
 class MlKitImageTextExtractor(
@@ -23,23 +26,31 @@ class MlKitImageTextExtractor(
 ) : ImageTextExtractor {
     override fun extract(uri: Uri): SharedTextPreview? =
         runCatching {
-            val image = InputImage.fromFilePath(context, uri)
-            val latinBlocks = runCatching {
-                extractTextBlocks(
-                    image = image,
-                    recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS),
-                )
-            }.getOrNull()
-            val chineseBlocks = runCatching {
-                extractTextBlocks(
-                    image = image,
-                    recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build()),
-                )
-            }.getOrNull()
-            ImageTextPreviewReader.fromText(
-                OcrTextLayoutFormatter.mergeRecognizedBlocks(listOfNotNull(latinBlocks, chineseBlocks)),
+            extract(InputImage.fromFilePath(context, uri))
+        }.getOrNull()
+
+    override fun extract(bitmap: Bitmap): SharedTextPreview? =
+        runCatching {
+            extract(InputImage.fromBitmap(bitmap, 0))
+        }.getOrNull()
+
+    private fun extract(image: InputImage): SharedTextPreview? {
+        val latinBlocks = runCatching {
+            extractTextBlocks(
+                image = image,
+                recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS),
             )
         }.getOrNull()
+        val chineseBlocks = runCatching {
+            extractTextBlocks(
+                image = image,
+                recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build()),
+            )
+        }.getOrNull()
+        return ImageTextPreviewReader.fromText(
+            OcrTextLayoutFormatter.mergeRecognizedBlocks(listOfNotNull(latinBlocks, chineseBlocks)),
+        )
+    }
 
     private fun extractTextBlocks(
         image: InputImage,

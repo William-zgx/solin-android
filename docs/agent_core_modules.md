@@ -720,8 +720,9 @@ Current status:
   Room without invoking Android execution or runtime permission requests.
 - Android share-target ingestion for shared text, bounded `text/*` plus
   JSON/XML/YAML text-like application document excerpts, bounded RTF/PDF and
-  Office Open XML text-layer excerpts, bounded image OCR excerpts, and
-  audio/video/image-only PDF/legacy-Office/binary metadata is implemented.
+  Office Open XML text-layer excerpts, bounded PDF scanned-page OCR fallback,
+  bounded image OCR excerpts, and audio/video/legacy-Office/binary metadata is
+  implemented.
 - Implemented outbound `share_text` as a confirmed tool that opens Android's
   system share panel. Explicit “分享这段文字...” requests can now enter the
   confirmation flow through the built-in Skill runtime without waiting for the
@@ -1148,9 +1149,9 @@ Responsibilities:
 
 - Accept user-initiated shared text, bounded `text/*` plus JSON/XML/YAML
   text-like application document excerpts, bounded RTF/PDF and Office Open XML
-  text-layer excerpts, bounded local OCR text excerpts for user-provided
-  `image/*` attachments, and attachment metadata from Android share targets and
-  the in-app picker.
+  text-layer excerpts, bounded local PDF scanned-page OCR fallback, bounded
+  local OCR text excerpts for user-provided `image/*` attachments, and
+  attachment metadata from Android share targets and the in-app picker.
 - Classify attachments by MIME type; keep unsupported non-text files
   metadata-only.
 - Keep multimodal source handling separate from chat generation and tools.
@@ -1170,12 +1171,13 @@ Current status:
 - Implemented bounded local text excerpts for user-initiated shared `text/*`
   documents and JSON/XML/YAML text-like application MIME types, bounded
   text-layer excerpts for user-provided RTF, PDF text layers, and Office Open
-  XML `.docx` / `.xlsx` / `.pptx` files, and bounded local OCR text excerpts
-  for user-provided `image/*` attachments. Excerpts are user-visible and limited
-  to the local shared-input prompt. Generic text-like excerpts require strict
+  XML `.docx` / `.xlsx` / `.pptx` files, bounded local scanned-page OCR fallback
+  for PDFs with no readable text layer, and bounded local OCR text excerpts for
+  user-provided `image/*` attachments. Excerpts are user-visible and limited to
+  the local shared-input prompt. Generic text-like excerpts require strict
   UTF-8; malformed UTF-8 binary content stays metadata-only instead of being
   decoded with replacement characters.
-- Audio, video, image-only PDFs, legacy Office binary formats, binary, and other
+- Audio, video, legacy Office binary formats, binary, malformed PDF, and other
   unsupported attachments stay metadata-only; the app does not parse or embed
   their bytes into prompts.
 - Implemented a voice input entry that launches Android system speech
@@ -1193,14 +1195,13 @@ Current status:
   recent image OCR are implemented as confirmed Device Context tools, not
   automatic shared-input ingestion. The current-screen Accessibility
   text snapshot tool follows the same Device Context boundary and reads text
-  nodes only; screenshot capture, screen semantic understanding, PDF OCR/layout
+  nodes only; screenshot capture, screen semantic understanding, PDF layout
   parsing, legacy Office parsing, full rich-text fidelity, image semantic
-  understanding, and media content understanding are pending. RTF, PDF, and
-  Office Open XML extraction are text-layer only, not complete document parsing.
-  Image OCR is limited to
-  user-provided `image/*` attachments, the user-confirmed recent screenshot OCR
-  tool, or the user-confirmed recent image OCR tool, and produces text excerpts
-  only.
+  understanding, and media content understanding are pending. RTF, PDF text
+  layer, and Office Open XML extraction are not complete document parsing. OCR
+  is limited to user-provided PDF scanned-page fallback, user-provided `image/*`
+  attachments, the user-confirmed recent screenshot OCR tool, or the
+  user-confirmed recent image OCR tool, and produces text excerpts only.
 
 Tests:
 

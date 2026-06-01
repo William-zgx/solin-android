@@ -505,6 +505,49 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun remoteModeRejectsSharedPdfImageOcrPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.ingestSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Document,
+                        mimeType = "application/pdf",
+                        displayName = "private-scan.pdf",
+                        sizeBytes = 12L,
+                        textPreview = SharedTextPreview(
+                            text = "private pdf scanned page OCR",
+                            truncated = false,
+                            source = SharedTextPreviewSource.PdfImageOcr,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertRemoteProtectedSharedInput(
+            remoteRuntime = remoteRuntime,
+            sessionStore = sessionStore,
+            statusText = viewModel.uiState.value.statusText,
+            forbiddenText = listOf("private pdf scanned page OCR", "private-scan.pdf", "application/pdf", "12"),
+        )
+    }
+
+    @Test
     fun localSharedInputDoesNotEnterLaterRemoteHistory() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()

@@ -207,10 +207,10 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 - 点击输入区附件按钮应打开 Android 系统文档选择器；用户选择文本、图片、音频、视频、PDF 或 Office 文件后，应生成同一类用户可见的本地分享 prompt。
 - 分享 `text/*` 文档时，App 可以生成用户可见、有界、本地文本摘录；摘录只进入本地 shared-input prompt。摘录必须是严格 UTF-8，伪装成文本的 malformed UTF-8 二进制内容应保持 metadata-only。
 - 分享或选择用户主动提供的 RTF 文档时，App 可以生成用户可见、有界、本地文本层摘录；摘录只进入本地 shared-input prompt，不代表完整富文档解析、版式理解或语义理解。
-- 分享或选择用户主动提供的 PDF 文档时，App 可以生成用户可见、有界、本地 PDF 文本层摘录；摘录只进入本地 shared-input prompt，不代表 PDF OCR、版式理解、图片扫描或完整 PDF 解析。图片型/扫描型 PDF 没有可读文本层时应保持 metadata-only。
+- 分享或选择用户主动提供的 PDF 文档时，App 可以生成用户可见、有界、本地 PDF 文本层摘录；没有可读文本层时，可以渲染前几页并生成有界的本地扫描页 OCR 摘录。摘录只进入本地 shared-input prompt，不代表版式理解、表格/坐标提取、图片语义理解或完整 PDF 解析。
 - 分享或选择用户主动提供的 `.docx` / `.xlsx` / `.pptx` Office Open XML 文件时，App 可以生成用户可见、有界、本地文本层摘录；摘录只进入本地 shared-input prompt，不代表完整文档解析、版式理解或语义理解。
 - 分享或选择用户主动提供的 `image/*` 附件时，App 可以在本地生成用户可见、有界的 OCR 文本摘录；摘录只进入本地 shared-input prompt，不代表图片语义理解。
-- 分享或选择音频、视频、图片型/扫描型 PDF、旧版 Office、二进制和其他非文本附件时，App 只应读取 MIME 类型、文件名和大小等元数据，不应读取文件正文、像素或二进制内容。
+- 分享或选择音频、视频、旧版 Office、二进制和其他非文本附件时，App 只应读取 MIME 类型、文件名和大小等元数据，不应读取文件正文、像素或二进制内容。
 - 自动生成的 shared-input 文本、OCR 摘录、文本/RTF/PDF/Office 摘录和附件元数据应标记为 `LocalOnly`；远程模式不应自动上传这些内容，应在 ShareIntentReader 边界就避免读取分享文本值、附件元数据、文件流、文本摘录或 OCR，并提示用户手动粘贴愿意发送的内容。
 - 如果模型已就绪，分享 prompt 可直接进入普通聊天路由；如果模型未就绪，应落到会话里并提示先准备模型。
 - 点击语音输入入口应拉起 Android 系统语音识别；转写成功后，文本只应出现在输入框。
@@ -221,4 +221,4 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 - 通过受确认保护的 `read_recent_image_ocr` 识别最近图片/照片文字时，App 最多扫描最近 3 张图片并在本地返回第一条有界 OCR 摘录；结果应标记为 `LocalOnly`，不应在 trace/audit/持久消息里保存图片 URI、路径、文件名、大小、修改时间、原始像素或 OCR 原文。
 - OCR 摘录可以保留 ML Kit 识别出的文本块/行顺序；不应输出坐标、框选位置、图片标签、看图描述、像素或语义理解结果。
 - 远程模型模式下，最近截图 OCR、最近图片 OCR 和当前屏幕 Accessibility 文本快照的后续回答不应自动调用远程 runtime；UI 应提示已保护对应本地内容，并要求切换本地模型或由用户手动粘贴愿意上传的内容。
-- 当前只验收分享入口、系统文件选择入口、语音入口、`text/*` 有界摘录、RTF/PDF 文本层有界摘录、Office Open XML 文本层有界摘录、用户主动提供 `image/*` 的本地 OCR 有界摘录、最近截图 metadata 查询、最近 1 张截图确认式 OCR、最近 3 张图片确认式 OCR、受确认当前屏幕 Accessibility 文本节点快照与 metadata-only/LocalOnly 边界；截图捕获、语义屏幕理解、PDF OCR/版式解析、旧 Office 解析、完整文档解析、完整富文本保真、图片语义理解、任意媒体 OCR 和媒体内容理解仍是待实现项。
+- 当前只验收分享入口、系统文件选择入口、语音入口、`text/*` 有界摘录、RTF/PDF 文本层有界摘录、用户主动提供 PDF 扫描页 OCR fallback、Office Open XML 文本层有界摘录、用户主动提供 `image/*` 的本地 OCR 有界摘录、最近截图 metadata 查询、最近 1 张截图确认式 OCR、最近 3 张图片确认式 OCR、受确认当前屏幕 Accessibility 文本节点快照与 metadata-only/LocalOnly 边界；截图捕获、语义屏幕理解、PDF 版式解析、旧 Office 解析、完整文档解析、完整富文本保真、图片语义理解、任意媒体 OCR 和媒体内容理解仍是待实现项。

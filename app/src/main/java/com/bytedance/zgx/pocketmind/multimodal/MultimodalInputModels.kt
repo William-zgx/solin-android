@@ -55,7 +55,7 @@ data class SharedInput(
             if (attachmentBlock.isNotBlank()) {
                 append("\n\n")
                 append(
-                    "已分享附件（默认只读取元数据；text/*/JSON/XML/YAML 文档、RTF/PDF 文本层、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n",
+                    "已分享附件（默认只读取元数据；text/*/JSON/XML/YAML 文档、RTF/PDF 文本层、PDF 扫描页 OCR、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n",
                 )
                 append(attachmentBlock)
             }
@@ -118,6 +118,7 @@ enum class SharedTextPreviewSource(val label: String) {
     TextFile("文本摘录"),
     RichTextDocument("RTF 文本摘录"),
     PdfTextLayer("PDF 文本摘录"),
+    PdfImageOcr("PDF 扫描页 OCR 摘录"),
     OfficeDocument("Office 文本摘录"),
     ImageOcr("图片文字摘录"),
 }
@@ -180,6 +181,10 @@ fun canUseTextPreviewFor(attachment: SharedAttachment): Boolean =
                 canReadRichTextPreviewFor(attachment.mimeType)
 
         SharedTextPreviewSource.PdfTextLayer ->
+            attachment.kind == SharedAttachmentKind.Document &&
+                canReadPdfTextPreviewFor(attachment.mimeType)
+
+        SharedTextPreviewSource.PdfImageOcr ->
             attachment.kind == SharedAttachmentKind.Document &&
                 canReadPdfTextPreviewFor(attachment.mimeType)
 

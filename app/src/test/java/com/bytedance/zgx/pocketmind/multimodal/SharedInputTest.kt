@@ -159,6 +159,32 @@ class SharedInputTest {
     }
 
     @Test
+    fun promptIncludesPdfImageOcrPreviewForPdfDocumentAttachment() {
+        val input = SharedInput(
+            text = "请总结扫描 PDF",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/pdf",
+                    displayName = "scan.pdf",
+                    sizeBytes = 120L,
+                    textPreview = SharedTextPreview(
+                        text = "第 1 页:\n扫描页文字",
+                        truncated = true,
+                        source = SharedTextPreviewSource.PdfImageOcr,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("PDF 扫描页 OCR"))
+        assertTrue(prompt.contains("PDF 扫描页 OCR 摘录（已截断）"))
+        assertTrue(prompt.contains("扫描页文字"))
+    }
+
+    @Test
     fun promptIncludesRichTextPreviewForRtfAttachment() {
         val input = SharedInput(
             text = "请总结 RTF",
@@ -400,6 +426,45 @@ class SharedInputTest {
         assertTrue(prompt.contains("legacy.doc"))
         assertFalse(prompt.contains("legacy pdf source secret"))
         assertFalse(prompt.contains("\n   PDF 文本摘录"))
+    }
+
+    @Test
+    fun pdfImageOcrPreviewSourceIsIgnoredForNonPdfDocuments() {
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/msword",
+                    displayName = "legacy.doc",
+                    sizeBytes = 42L,
+                    textPreview = SharedTextPreview(
+                        text = "legacy pdf ocr source marker",
+                        truncated = false,
+                        source = SharedTextPreviewSource.PdfImageOcr,
+                    ),
+                ),
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = "application/pdf",
+                    displayName = "fake-image.pdf",
+                    sizeBytes = 43L,
+                    textPreview = SharedTextPreview(
+                        text = "wrong kind pdf ocr source marker",
+                        truncated = false,
+                        source = SharedTextPreviewSource.PdfImageOcr,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("legacy.doc"))
+        assertTrue(prompt.contains("fake-image.pdf"))
+        assertFalse(prompt.contains("legacy pdf ocr source marker"))
+        assertFalse(prompt.contains("wrong kind pdf ocr source marker"))
+        assertFalse(prompt.contains("\n   PDF 扫描页 OCR 摘录"))
     }
 
     @Test
@@ -707,11 +772,64 @@ class SharedInputTest {
             kind = SharedAttachmentKind.Document,
             openInputStream = { pdfBytes("BT (PDF title) Tj ET").inputStream() },
             extractImageText = { error("image OCR should not be used for PDF") },
+            extractPdfImageText = { error("PDF OCR should not run when text layer is available") },
         )
 
         assertNotNull(preview)
         assertEquals("PDF title", preview!!.text)
         assertEquals(SharedTextPreviewSource.PdfTextLayer, preview.source)
+    }
+
+    @Test
+    fun sharedAttachmentTextPreviewFallsBackToPdfImageOcrWhenTextLayerIsEmpty() {
+        var streamOpened = false
+        var pdfOcrUsed = false
+        val preview = readSharedAttachmentTextPreview(
+            mimeType = "application/pdf",
+            kind = SharedAttachmentKind.Document,
+            openInputStream = {
+                streamOpened = true
+                "%PDF-1.4\n%%EOF".byteInputStream()
+            },
+            extractImageText = { error("image OCR should not be used directly for PDF") },
+            extractPdfImageText = {
+                pdfOcrUsed = true
+                SharedTextPreview(
+                    text = "第 1 页:\nscanned text",
+                    truncated = false,
+                    source = SharedTextPreviewSource.PdfImageOcr,
+                )
+            },
+        )
+
+        assertTrue(streamOpened)
+        assertTrue(pdfOcrUsed)
+        assertNotNull(preview)
+        assertEquals("第 1 页:\nscanned text", preview!!.text)
+        assertEquals(SharedTextPreviewSource.PdfImageOcr, preview.source)
+    }
+
+    @Test
+    fun sharedAttachmentTextPreviewSkipsPdfOcrForNonPdfOrNonDocumentAttachments() {
+        listOf(
+            "application/msword" to SharedAttachmentKind.Document,
+            "application/pdf" to SharedAttachmentKind.Image,
+        ).forEach { (mimeType, kind) ->
+            var streamOpened = false
+            val preview = readSharedAttachmentTextPreview(
+                mimeType = mimeType,
+                kind = kind,
+                openInputStream = {
+                    streamOpened = true
+                    "%PDF-1.4\n%%EOF".byteInputStream()
+                },
+                extractImageText = { null },
+                extractPdfImageText = { error("PDF OCR should not run for $kind $mimeType") },
+            )
+
+            assertNull(preview)
+            assertFalse(streamOpened)
+        }
     }
 
     @Test
@@ -769,6 +887,7 @@ class SharedInputTest {
                 kind = kind,
                 openInputStream = { error("protected share must not open attachment stream") },
                 extractImageText = { error("protected share must not run OCR") },
+                extractPdfImageText = { error("protected share must not run PDF OCR") },
                 mode = SharedInputReadMode.ProtectedSignal,
             )
 

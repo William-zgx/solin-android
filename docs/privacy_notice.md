@@ -73,8 +73,9 @@ whether the user completed the destination app action.
 System speech recognition inserts a transcript into the compose box only.
 Sending remains explicit. Audio/video/legacy Office/binary attachments are
 metadata-only in the current app; supported strict UTF-8 text, RTF, PDF text
-layers, Office Open XML, and user-provided image attachments may produce
-bounded local excerpts. Image-only or malformed PDFs remain metadata-only.
+layers, PDF scanned-page OCR fallback, Office Open XML, and user-provided image
+attachments may produce bounded local excerpts. Malformed PDFs remain
+metadata-only.
 
 ## Model Downloads
 
