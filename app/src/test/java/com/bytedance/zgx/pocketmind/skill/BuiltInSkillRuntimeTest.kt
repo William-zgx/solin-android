@@ -598,6 +598,11 @@ class BuiltInSkillRuntimeTest {
 
         assertEquals(null, runtime.plan("查询最近5个文档"))
         assertEquals(null, runtime.plan("最近文件"))
+        assertEquals(null, runtime.plan("不要查询最近图片"))
+        assertEquals(null, runtime.plan("最近图片权限怎么申请"))
+        assertEquals(null, runtime.plan("recent screenshots API"))
+        assertEquals(null, runtime.plan("how to read recent images"))
+        assertEquals(null, runtime.plan("do not read recent images"))
     }
 
     @Test

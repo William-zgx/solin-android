@@ -185,8 +185,8 @@ Current status:
 - Explicit recent media metadata requests now also have a conservative
   Skill-first path. The shared parser accepts recent images/screenshots/videos
   or audio metadata requests, keeps documents/downloads/all-files on the action
-  fallback path, and rejects OCR/text-extraction phrasing so recent screenshot
-  and image OCR remain separate confirmed tools.
+  fallback path, and rejects negative, discussion/API, and OCR/text-extraction
+  phrasing so recent screenshot and image OCR remain separate confirmed tools.
 - Explicit HTTPS link navigation now also has a conservative Skill-first path.
   The shared parser requires an open/visit intent plus an `https://` URI,
   rejects bare links, explanation/negative phrasing, and non-HTTPS schemes, and

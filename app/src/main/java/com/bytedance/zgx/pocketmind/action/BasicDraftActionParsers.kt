@@ -287,9 +287,10 @@ internal object RecentFilesActionParser {
         Regex(
             """\b(recent|latest)\b.*\b(images?|screenshots?|screen\s+captures?|videos?|audios?|photos?)\b""",
             RegexOption.IGNORE_CASE,
-        )
+    )
 
     fun matches(input: String, includeNonMediaKinds: Boolean = false): Boolean {
+        if (input.looksLikeRecentFileNonAction()) return false
         if (input.looksLikeRecentFileContentExtraction()) return false
         val normalized = input.lowercase()
         val hasChineseMediaTrigger = listOf(
@@ -398,6 +399,48 @@ internal object RecentFilesActionParser {
             "others" -> "其他"
             else -> kind
         }
+
+    private fun String.looksLikeRecentFileNonAction(): Boolean {
+        val normalized = lowercase()
+        val mentionsRecentFiles = ("最近" in this && listOf(
+            "文件",
+            "文档",
+            "下载",
+            "图片",
+            "照片",
+            "截图",
+            "截屏",
+            "视频",
+            "音频",
+        ).any { it in this }) ||
+            Regex(
+                """\b(?:recent|latest|last|most\s+recent)\b.*\b(?:files?|documents?|images?|photos?|pictures?|screenshots?|screen\s+captures?|videos?|audios?)\b""",
+                RegexOption.IGNORE_CASE,
+            ).containsMatchIn(normalized)
+        if (!mentionsRecentFiles) return false
+
+        val hasNegativeIntent = listOf("不要", "别", "请勿", "不需要", "不想", "不用", "不必").any { it in this } ||
+            normalized.contains(Regex("""\b(?:do\s+not|don't|dont|never)\b"""))
+        val hasDiscussionIntent = listOf(
+            "权限",
+            "怎么",
+            "如何",
+            "实现",
+            "api",
+            "API",
+            "接口",
+            "代码",
+            "功能",
+            "是什么",
+            "什么意思",
+        ).any { it in this } ||
+            normalized.contains(
+                Regex(
+                    """\b(?:how\s+(?:do|can|to)|what\s+is|explain|implement|implementation|api|permissions?|docs?|documentation|code|feature)\b""",
+                ),
+            )
+        return hasNegativeIntent || hasDiscussionIntent
+    }
 
     private fun String.looksLikeRecentFileContentExtraction(): Boolean {
         val normalized = lowercase()

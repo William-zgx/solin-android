@@ -565,6 +565,15 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun recentFilesRejectsNegativeAndDiscussionRequests() {
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要查询最近图片").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("最近图片权限怎么申请").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("recent screenshots API").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("how to read recent images").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("do not read recent images").kind)
+    }
+
+    @Test
     fun infersRecentScreenshotsDraftWithCount() {
         val plan = planner.plan("查询最近3张截图")
 

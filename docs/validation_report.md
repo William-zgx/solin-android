@@ -480,6 +480,9 @@
   直接规划为受确认保护的 `query_recent_files`，不再依赖 action planner。
 - Action planner 与 Skill runtime 复用同一组 recent-files parser；Skill-first
   只覆盖媒体元数据，文档、下载、全部文件仍保留在 action fallback 路径。
+- Parser 明确拒绝“不要查询最近图片”“最近图片权限怎么申请”、
+  “recent screenshots API”和“how to read recent images”等否定/讨论输入，
+  避免把权限、API 或解释请求变成文件 metadata 读取确认。
 - Parser 明确拒绝“识别/提取/文字/OCR/text”等内容读取意图，避免抢走
   `read_recent_screenshot_ocr` 和 `read_recent_image_ocr`。
 - 新增 `recent_files_context_skill` manifest，风险级别保持 `LowReadOnly`，
