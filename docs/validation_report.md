@@ -1,5 +1,29 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Local verification KSP/lint ordering 增量验证
+
+本轮覆盖项：
+
+- `scripts/verify_local.sh` 在 `lintDebug` / assemble 聚合前先显式执行
+  `:app:kspReleaseKotlin`，避免 lint model 读取 release Room/KSP 生成源时与
+  `assembleRelease` 并发竞态。
+- `scripts/test_validation_scripts.sh` 增加静态顺序断言，防止本地验证脚本重新把
+  release KSP 预生成步骤移到 lint 之后。
+
+验证命令：
+
+```bash
+bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+git diff --check
+git diff --unified=0 | rg -n "^\\+.*<sensitive endpoint/model/key patterns>"
+```
+
+结果：通过。
+
 ## 2026-06-02 Initial sequential first-segment planning 增量验证
 
 本轮覆盖项：

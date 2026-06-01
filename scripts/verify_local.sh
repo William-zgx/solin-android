@@ -18,6 +18,9 @@ if [[ -z "${AAPT:-}" || ! -x "$AAPT" ]]; then
   exit 1
 fi
 
+# lintDebug's lint models can reference Room/KSP release generated sources.
+# Generate them first so lint does not race assembleRelease for the same files.
+"$GRADLE_CMD" :app:kspReleaseKotlin
 "$GRADLE_CMD" testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease
 
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"

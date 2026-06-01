@@ -186,6 +186,12 @@ create_fake_emulator "$FAKE_SDK"
 create_fake_gradle "$FAKE_GRADLE"
 reset_logs
 
+ksp_line="$(grep -n 'GRADLE_CMD.*:app:kspReleaseKotlin' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
+verify_line="$(grep -n 'GRADLE_CMD.*testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
+if [[ -z "$ksp_line" || -z "$verify_line" || "$ksp_line" -ge "$verify_line" ]]; then
+  fail "verify_local.sh must generate release KSP sources before lintDebug"
+fi
+
 expect_success \
   "doctor local without adb" \
   env ANDROID_SDK_ROOT="$NO_ADB_SDK" ANDROID_HOME="$NO_ADB_SDK" \
