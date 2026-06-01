@@ -63,7 +63,7 @@ class PeriodicCheckWorker(
         runCatching {
             ScheduledTaskRepository(
                 PocketMindDatabase.get(applicationContext).scheduledTaskDao(),
-            ).markFailed(PeriodicCheckScheduleRequest.TASK_ID)
+            ).markPeriodicCheckFailedIfRunning()
         }
     }
 }

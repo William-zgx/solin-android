@@ -2341,6 +2341,26 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun cancelRunningBackgroundTaskFailureRefreshesStaleTaskLists() = runTest(dispatcher) {
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled)),
+            cancelFailure = IllegalStateException("already running"),
+            cancelFailureStatus = ScheduledTaskStatus.Running,
+        )
+        val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.cancelBackgroundTask("task-1")
+        advanceUntilIdle()
+
+        assertEquals(listOf("task-1"), scheduler.cancelledTaskIds)
+        assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTasks.map { it.id })
+        assertEquals(ScheduledTaskStatus.Running, viewModel.uiState.value.backgroundTasks.single().status)
+        assertTrue(viewModel.uiState.value.statusText.contains("后台任务取消失败"))
+    }
+
+    @Test
     fun setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi() = runTest(dispatcher) {
         val scheduler = FakeBackgroundTaskScheduler()
         val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
@@ -2782,6 +2802,7 @@ class PocketMindViewModelTest {
     private class FakeBackgroundTaskScheduler(
         scheduledTasks: List<ScheduledTask> = emptyList(),
         private val cancelFailure: Throwable? = null,
+        private val cancelFailureStatus: ScheduledTaskStatus? = null,
         private val periodicSetFailure: Throwable? = null,
         private val periodicDisableFailure: Throwable? = null,
     ) : BackgroundTaskScheduler {
@@ -2856,7 +2877,12 @@ class PocketMindViewModelTest {
 
         override fun cancel(taskId: String): Result<Unit> {
             cancelledTaskIds += taskId
-            cancelFailure?.let { return Result.failure(it) }
+            cancelFailure?.let { throwable ->
+                cancelFailureStatus?.let { status ->
+                    tasks[taskId]?.let { existing -> tasks[taskId] = existing.copy(status = status) }
+                }
+                return Result.failure(throwable)
+            }
             tasks[taskId]?.let { existing ->
                 tasks[taskId] = existing.copy(status = ScheduledTaskStatus.Cancelled)
             }

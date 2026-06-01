@@ -200,6 +200,9 @@ interface ScheduledTaskDao {
     @Query("SELECT * FROM scheduled_tasks WHERE status = 'Scheduled' ORDER BY triggerAtMillis ASC LIMIT :limit")
     fun scheduled(limit: Int): List<ScheduledTaskEntity>
 
+    @Query("SELECT * FROM scheduled_tasks WHERE status IN ('Scheduled', 'Running') ORDER BY triggerAtMillis ASC, id ASC LIMIT :limit")
+    fun scheduledOrRunning(limit: Int): List<ScheduledTaskEntity>
+
     @Query("SELECT * FROM scheduled_tasks WHERE status = 'Scheduled' AND type = :type ORDER BY triggerAtMillis ASC LIMIT :limit")
     fun scheduledByType(type: String, limit: Int): List<ScheduledTaskEntity>
 
@@ -214,6 +217,19 @@ interface ScheduledTaskDao {
         """,
     )
     fun markReminderRunningIfScheduled(taskId: String, updatedAtMillis: Long): Int
+
+    @Query(
+        """
+        UPDATE scheduled_tasks
+        SET status = :status, updatedAtMillis = :updatedAtMillis
+        WHERE id = :taskId AND type = 'Reminder' AND status = 'Running'
+        """,
+    )
+    fun updateReminderStatusIfRunning(
+        taskId: String,
+        status: String,
+        updatedAtMillis: Long,
+    ): Int
 
     @Query(
         """

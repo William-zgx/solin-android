@@ -32,12 +32,12 @@ internal class ReminderAlarmDeliveryHandler(
         val task = repository.startReminderDelivery(taskId) ?: return
         try {
             if (postReminder(task.id, task.title, task.body)) {
-                repository.markDelivered(taskId)
+                repository.markReminderDeliveredIfRunning(taskId)
             } else {
-                repository.markFailed(taskId)
+                repository.markReminderFailedIfRunning(taskId)
             }
         } catch (_: Exception) {
-            repository.markFailed(taskId)
+            repository.markReminderFailedIfRunning(taskId)
         }
     }
 }

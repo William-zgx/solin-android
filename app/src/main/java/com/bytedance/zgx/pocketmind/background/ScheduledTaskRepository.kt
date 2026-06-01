@@ -50,15 +50,7 @@ class ScheduledTaskRepository(
 
     fun scheduledOrRunning(limit: Int = 100): List<ScheduledTask> {
         if (limit <= 0) return emptyList()
-        val scheduledTasks = scheduled(limit)
-        val scheduledTaskIds = scheduledTasks.mapTo(mutableSetOf()) { it.id }
-        val runningKnownTasks = listOfNotNull(periodicCheck())
-            .filter { task ->
-                task.status == ScheduledTaskStatus.Running && task.id !in scheduledTaskIds
-            }
-        return (scheduledTasks + runningKnownTasks)
-            .sortedWith(compareBy<ScheduledTask> { it.triggerAtMillis }.thenBy { it.id })
-            .take(limit)
+        return dao.scheduledOrRunning(limit).map { it.toModel() }
     }
 
     fun scheduledReminders(limit: Int = 100): List<ScheduledTask> =
@@ -178,6 +170,9 @@ class ScheduledTaskRepository(
         updateStatus(taskId, ScheduledTaskStatus.Delivered)
     }
 
+    fun markReminderDeliveredIfRunning(taskId: String): Boolean =
+        updateReminderStatusIfRunning(taskId, ScheduledTaskStatus.Delivered)
+
     fun startReminderDelivery(taskId: String): ScheduledTask? {
         val existing = dao.task(taskId) ?: return null
         if (existing.type != ScheduledTaskType.Reminder.name) return null
@@ -220,6 +215,12 @@ class ScheduledTaskRepository(
         updateStatus(taskId, ScheduledTaskStatus.Failed)
     }
 
+    fun markScheduledFailed(taskId: String): Boolean =
+        updateScheduledStatus(taskId, ScheduledTaskStatus.Failed)
+
+    fun markReminderFailedIfRunning(taskId: String): Boolean =
+        updateReminderStatusIfRunning(taskId, ScheduledTaskStatus.Failed)
+
     private fun updateScheduledStatus(taskId: String, status: ScheduledTaskStatus): Boolean {
         val existing = dao.task(taskId) ?: return false
         if (existing.status != ScheduledTaskStatus.Scheduled.name) return false
@@ -229,6 +230,13 @@ class ScheduledTaskRepository(
             updatedAtMillis = clockMillis(),
         ) > 0
     }
+
+    private fun updateReminderStatusIfRunning(taskId: String, status: ScheduledTaskStatus): Boolean =
+        dao.updateReminderStatusIfRunning(
+            taskId = taskId,
+            status = status.name,
+            updatedAtMillis = clockMillis(),
+        ) > 0
 
     private fun updateStatus(taskId: String, status: ScheduledTaskStatus) {
         val existing = dao.task(taskId) ?: return

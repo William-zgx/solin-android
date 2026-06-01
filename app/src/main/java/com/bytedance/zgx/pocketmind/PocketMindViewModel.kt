@@ -295,8 +295,11 @@ class PocketMindViewModel(
                 },
                 onFailure = { throwable ->
                     syncTaskStateMemories()
-                    _uiState.update {
-                        it.copy(
+                    _uiState.update { state ->
+                        state.copy(
+                            backgroundTasks = loadBackgroundTasks(),
+                            backgroundTaskHistory = loadBackgroundTaskHistory(),
+                            periodicCheckPolicy = loadPeriodicCheckPolicy(),
                             longTermMemories = loadLongTermMemories(),
                             statusText = "后台任务取消失败：${throwable.cleanMessage()}",
                         )

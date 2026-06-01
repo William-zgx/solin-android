@@ -32,7 +32,7 @@ class ReminderRescheduler(
                 }
                 .onFailure {
                     failed += 1
-                    repository.markFailed(task.id)
+                    repository.markScheduledFailed(task.id)
                 }
         }
         tasks.forEach { task ->

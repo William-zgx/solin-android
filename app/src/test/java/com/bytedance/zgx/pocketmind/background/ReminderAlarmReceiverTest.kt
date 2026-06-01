@@ -93,6 +93,36 @@ class ReminderAlarmReceiverTest {
     }
 
     @Test
+    fun deliveryCompletionDoesNotOverwriteTerminalStateWrittenDuringNotification() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000L })
+        val task = repository.createReminder(
+            title = "喝水",
+            body = "提醒我喝水",
+            triggerAtMillis = 2_000L,
+        )
+        val handler = ReminderAlarmDeliveryHandler(
+            repository = repository,
+            postReminder = { taskId, _, _ ->
+                repository.markCancelled(taskId)
+                true
+            },
+        )
+
+        handler.deliver(task.id)
+
+        assertEquals(ScheduledTaskStatus.Cancelled, repository.task(task.id)?.status)
+        assertEquals(
+            listOf(
+                ScheduledTaskStatus.Scheduled,
+                ScheduledTaskStatus.Running,
+                ScheduledTaskStatus.Cancelled,
+            ),
+            dao.statusHistory(task.id),
+        )
+    }
+
+    @Test
     fun staleAlarmForMissingTaskDoesNotPostOrCreateState() {
         val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 1_000L })
         val deliveredTaskIds = mutableListOf<String>()
@@ -189,6 +219,15 @@ class ReminderAlarmReceiverTest {
                 .sortedBy { it.triggerAtMillis }
                 .take(limit)
 
+        override fun scheduledOrRunning(limit: Int): List<ScheduledTaskEntity> =
+            tasks.values
+                .filter {
+                    it.status == ScheduledTaskStatus.Scheduled.name ||
+                        it.status == ScheduledTaskStatus.Running.name
+                }
+                .sortedWith(compareBy<ScheduledTaskEntity> { it.triggerAtMillis }.thenBy { it.id })
+                .take(limit)
+
         override fun scheduledByType(type: String, limit: Int): List<ScheduledTaskEntity> =
             tasks.values
                 .filter { it.status == ScheduledTaskStatus.Scheduled.name && it.type == type }
@@ -210,6 +249,26 @@ class ReminderAlarmReceiverTest {
             upsert(
                 existing.copy(
                     status = ScheduledTaskStatus.Running.name,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
+        override fun updateReminderStatusIfRunning(
+            taskId: String,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.Reminder.name ||
+                existing.status != ScheduledTaskStatus.Running.name
+            ) {
+                return 0
+            }
+            upsert(
+                existing.copy(
+                    status = status,
                     updatedAtMillis = updatedAtMillis,
                 ),
             )

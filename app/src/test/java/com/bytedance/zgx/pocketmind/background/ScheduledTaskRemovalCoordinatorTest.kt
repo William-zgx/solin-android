@@ -152,6 +152,15 @@ class ScheduledTaskRemovalCoordinatorTest {
                 .sortedBy { it.triggerAtMillis }
                 .take(limit)
 
+        override fun scheduledOrRunning(limit: Int): List<ScheduledTaskEntity> =
+            tasks.values
+                .filter {
+                    it.status == ScheduledTaskStatus.Scheduled.name ||
+                        it.status == ScheduledTaskStatus.Running.name
+                }
+                .sortedWith(compareBy<ScheduledTaskEntity> { it.triggerAtMillis }.thenBy { it.id })
+                .take(limit)
+
         override fun scheduledByType(type: String, limit: Int): List<ScheduledTaskEntity> =
             tasks.values
                 .filter { it.status == ScheduledTaskStatus.Scheduled.name && it.type == type }
@@ -172,6 +181,24 @@ class ScheduledTaskRemovalCoordinatorTest {
             }
             tasks[taskId] = existing.copy(
                 status = ScheduledTaskStatus.Running.name,
+                updatedAtMillis = updatedAtMillis,
+            )
+            return 1
+        }
+
+        override fun updateReminderStatusIfRunning(
+            taskId: String,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.Reminder.name ||
+                existing.status != ScheduledTaskStatus.Running.name
+            ) {
+                return 0
+            }
+            tasks[taskId] = existing.copy(
+                status = status,
                 updatedAtMillis = updatedAtMillis,
             )
             return 1

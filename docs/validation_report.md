@@ -1,5 +1,30 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Background terminal-state race 增量验证
+
+本轮覆盖项：
+
+- Reminder / periodic check 的失败回写改为条件状态转移，旧快照不会把
+  `Cancelled`、`Delivered` 或其他终态覆盖为 `Failed`。
+- `scheduledOrRunning()` 生产路径现在返回所有 `Scheduled` 与 `Running`
+  任务，启动恢复不会漏掉投递中卡住的 reminder。
+- 后台任务取消失败分支会重新加载 active/history/policy，避免竞态失败后 UI
+  继续显示过期状态。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelRunningBackgroundTaskFailureRefreshesStaleTaskLists' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork'
+```
+
+结果：通过。
+
 ## 2026-06-01 Direct parser non-action guard 增量验证
 
 本轮覆盖项：

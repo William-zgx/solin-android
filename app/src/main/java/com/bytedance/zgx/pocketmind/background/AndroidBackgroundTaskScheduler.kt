@@ -48,7 +48,7 @@ class AndroidBackgroundTaskScheduler(
                 triggerAtMillis = triggerAtMillis,
             )
             scheduleAlarm(task, task.triggerAtMillis)
-                .onFailure { repository.markFailed(task.id) }
+                .onFailure { repository.markScheduledFailed(task.id) }
                 .getOrThrow()
             task
         }

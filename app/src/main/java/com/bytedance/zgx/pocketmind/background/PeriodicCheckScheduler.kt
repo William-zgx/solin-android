@@ -38,7 +38,7 @@ class PeriodicCheckScheduler(
             val task = repository.createOrUpdatePeriodicCheck(normalized)
             workClient.enqueue(normalized)
                 .onFailure {
-                    repository.markFailed(PeriodicCheckScheduleRequest.TASK_ID)
+                    repository.markScheduledFailed(PeriodicCheckScheduleRequest.TASK_ID)
                 }
                 .getOrThrow()
             task

@@ -818,6 +818,9 @@ Current status:
 - Reminder cancellation and deletion now use a conditional Scheduled-only
   database update so a stale cancellation path cannot overwrite a task that has
   already moved to `Running`, `Delivered`, `Failed`, or another terminal state.
+- Reminder delivery completion and reschedule failures also use conditional
+  state updates, so old delivery/rescheduler snapshots cannot overwrite a
+  concurrently written terminal state.
 - `ReminderBootReceiver` listens for `BOOT_COMPLETED` and asks
   `ReminderRescheduler` to restore every still-`Scheduled` reminder after the
   system clears alarms on reboot. Past-due reminders are rescheduled with a
@@ -827,9 +830,9 @@ Current status:
   registering the new data-URI alarm identity, the rescheduler performs a
   best-effort cleanup of the legacy hash-only identity to prevent duplicate
   wakeups after upgrade.
-- If an alarm cannot be scheduled or restored, the task is marked `Failed` so
-  repository state does not claim a reminder is still pending when Android has
-  no alarm registered.
+- If an alarm cannot be scheduled or restored while the row is still
+  `Scheduled`, the task is marked `Failed` so repository state does not claim a
+  reminder is still pending when Android has no alarm registered.
 - Reminder confirmation requests notification permission before execution on
   Android versions that require it. If permission is still unavailable,
   execution fails with a structured `PermissionDenied` tool result.
@@ -840,7 +843,7 @@ Current status:
 - Periodic check worker state updates are conditional transitions:
   `Scheduled -> Running` and `Running -> Scheduled/Failed`. If the user disables
   the policy while a worker is notifying, the final `Cancelled` state is kept
-  and worker completion cannot revive it as active.
+  and worker completion or outer worker failure cannot revive or fail it.
 - `schedule_reminder` and `cancel_reminder` tool results include `taskStatus`
   metadata for downstream observation and debugging.
 - Successful `schedule_reminder` results now include bounded rollback metadata:
@@ -863,7 +866,8 @@ Current status:
   `Running` tasks. The UI shows pending or executing task metadata; explicit
   cancellation is shown only for still-`Scheduled` tasks, where it cancels the
   platform schedule, updates local task state to `Cancelled`, and removes the
-  task from the running-task list.
+  task from the running-task list. Cancellation failure paths reload active and
+  history lists from the scheduler so stale UI rows do not keep old status.
 - Implemented recent background task history in the same review surface for
   terminal `Delivered`, `Cancelled`, `Deleted`, and `Failed` tasks. History rows
   are read-only and cannot be mistaken for still-running tasks.

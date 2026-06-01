@@ -160,6 +160,33 @@ class ScheduledTaskRepositoryTest {
     }
 
     @Test
+    fun scheduledOrRunningIncludesRunningReminderTasks() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000L })
+        dao.upsert(
+            entity(
+                id = "running-reminder",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Running,
+                triggerAtMillis = 2_000L,
+            ),
+        )
+        dao.upsert(
+            entity(
+                id = "scheduled-reminder",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Scheduled,
+                triggerAtMillis = 3_000L,
+            ),
+        )
+
+        assertEquals(
+            listOf("running-reminder", "scheduled-reminder"),
+            repository.scheduledOrRunning().map { it.id },
+        )
+    }
+
+    @Test
     fun cancellingScheduledTaskRemovesItFromRunningLists() {
         val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 1_000L })
         val task = repository.createReminder(
@@ -392,6 +419,31 @@ class ScheduledTaskRepositoryTest {
         assertEquals(emptyList<ScheduledTask>(), repository.scheduledReminders())
     }
 
+    @Test
+    fun reschedulerFailureDoesNotOverwriteReminderCancelledAfterSnapshot() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000L })
+        val task = repository.createReminder(
+            title = "取消后失败",
+            body = "旧快照不能覆盖取消",
+            triggerAtMillis = 1_500L,
+        )
+        val rescheduler = ReminderRescheduler(
+            repository = repository,
+            scheduleAlarm = { scheduledTask, _ ->
+                repository.cancelScheduled(scheduledTask.id)
+                Result.failure(IllegalStateException("alarm unavailable"))
+            },
+            clockMillis = { 2_000L },
+            catchUpDelayMillis = 250L,
+        )
+
+        val report = rescheduler.reschedulePendingReminders()
+
+        assertEquals(ReminderRescheduleReport(total = 1, scheduled = 0, failed = 1), report)
+        assertEquals(ScheduledTaskStatus.Cancelled, repository.task(task.id)?.status)
+    }
+
     private class FakeScheduledTaskDao : ScheduledTaskDao {
         private val tasks = linkedMapOf<String, ScheduledTaskEntity>()
         var beforeUpdateScheduledStatusIfScheduled: (() -> Unit)? = null
@@ -403,6 +455,15 @@ class ScheduledTaskRepositoryTest {
             tasks.values
                 .filter { it.status == ScheduledTaskStatus.Scheduled.name }
                 .sortedBy { it.triggerAtMillis }
+                .take(limit)
+
+        override fun scheduledOrRunning(limit: Int): List<ScheduledTaskEntity> =
+            tasks.values
+                .filter {
+                    it.status == ScheduledTaskStatus.Scheduled.name ||
+                        it.status == ScheduledTaskStatus.Running.name
+                }
+                .sortedWith(compareBy<ScheduledTaskEntity> { it.triggerAtMillis }.thenBy { it.id })
                 .take(limit)
 
         override fun scheduledByType(type: String, limit: Int): List<ScheduledTaskEntity> =
@@ -425,6 +486,24 @@ class ScheduledTaskRepositoryTest {
             }
             tasks[taskId] = existing.copy(
                 status = ScheduledTaskStatus.Running.name,
+                updatedAtMillis = updatedAtMillis,
+            )
+            return 1
+        }
+
+        override fun updateReminderStatusIfRunning(
+            taskId: String,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.Reminder.name ||
+                existing.status != ScheduledTaskStatus.Running.name
+            ) {
+                return 0
+            }
+            tasks[taskId] = existing.copy(
+                status = status,
                 updatedAtMillis = updatedAtMillis,
             )
             return 1
