@@ -4779,3 +4779,30 @@ scripts/test_validation_scripts.sh
 
 - 通过：fake SDK 覆盖 device/emulator success、preflight failure 和
   instrumentation failure 的 verification report 断言。
+
+## 2026-06-02 Skill-first web search device smoke
+
+本轮覆盖项：
+
+- 新增 `MainActivitySkillUiTest.webSearchSkillFirstShowsConfirmationWithoutRemoteRuntime`，
+  以真实 `MainActivity` 和 Compose UI 重置到远程模式，跳过启动期模型运行时工作后发送
+  “搜一下 Kotlin 协程”。
+- 测试断言该请求不依赖远程 runtime 先返回，而是直接展示 `Web 搜索` 确认卡、
+  `将在浏览器中搜索：Kotlin 协程` 摘要、`query: Kotlin 协程` 参数和确认按钮。
+- 测试只取消确认卡，不打开外部浏览器，避免把外部 Intent 是否成功作为 Skill-first
+  路由回归的一部分。
+- Agent core 文档和真机验收清单同步登记该设备/模拟器 smoke；完整 Skill 设备回归仍需后续继续扩展到多步恢复、确认后 trace/audit 和权限真实路径。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin \
+  :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest \
+  --no-daemon
+```
+
+结果：
+
+- 通过：AndroidTest 编译包含 `MainActivitySkillUiTest`。
+- 通过：`AgentCoreDocumentationTest` 文档覆盖单测。
+- 未执行真机/模拟器 instrumentation：当前 `adb devices -l` 没有列出已授权设备或模拟器。
