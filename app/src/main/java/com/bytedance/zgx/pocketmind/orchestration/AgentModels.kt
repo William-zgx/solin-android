@@ -199,4 +199,5 @@ data class PendingToolConfirmationSnapshot(
     val skillPlan: SkillPlan? = null,
     val plannedByModel: Boolean,
     val fallbackReason: String?,
+    val nextActionInput: String? = null,
 )

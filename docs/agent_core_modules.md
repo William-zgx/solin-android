@@ -125,7 +125,9 @@ Current status:
 - Successful observations can now call `AgentObservationReplanner` to produce a
   next tool plan. The default production strategy is conservative: it only
   replans one explicit next action after sequence words such as "然后" / "then",
-  and only when the current run has planned exactly one tool so far.
+  and only when the current run has planned exactly one tool so far. Room
+  restore can resume that path from pending recovery metadata by persisting only
+  the explicit next-action suffix, not the full original prompt.
 - Replanned tools are validated, safety checked, audited, traced, and returned
   to `AwaitingUserConfirmation` instead of being executed directly.
 - Confirmation and observation are now bound to the current pending/confirmed
@@ -135,16 +137,20 @@ Current status:
 - Pending tool confirmations are persisted separately from the trace, then
   restored on startup as UI confirmation state only. Restoration does not
   execute tools; explicit user confirmation is still required before Android
-  execution can continue.
+  execution can continue. Pending rows may include bounded recovery metadata
+  such as the active request arguments, share-preview text, and sequential
+  `nextActionInput`; none of that is written to trace, audit, or recent run
+  summaries, and terminal runs clear the in-memory recovery copy.
 - Model-bound multi-step Skills that reach a second confirmation persist that
   second pending tool request as the active pending confirmation. Startup
   restore keeps the new `share_text` request id and model-produced arguments;
   confirm or observe calls using the earlier `read_clipboard` request id cannot
   advance, rerun, or overwrite the current run.
 - `pending_agent_confirmations` may store and restore the model-produced text
-  that is being previewed for an outbound share confirmation. That payload is
-  confirmation UI state, not trace or audit content, and the share panel still
-  opens only after the user confirms the current pending request.
+  that is being previewed for an outbound share confirmation, plus the explicit
+  next-action suffix needed to continue a sequential run after process restart.
+  These payloads are confirmation/recovery UI state, not trace or audit content;
+  tools still open only after the user confirms the current pending request.
 - Completed persisted runs now rehydrate summary-only `RestoredSummary` steps
   from the trace store. This keeps typed timeline inspection available after a
   restart without restoring raw tool arguments or private payloads.
@@ -153,9 +159,10 @@ Current status:
   `AgentTraceStepSummary` type/summary metadata and does not parse or display
   persisted trace JSON or tool arguments.
 - Room-backed trace stores redact `agent_runs.input` at the persistence
-  boundary. The current process keeps raw run input only in memory so
-  confirmation, observation, and replanning can continue without writing the
-  full prompt to Room or recent trace summaries.
+  boundary. The full raw run input is not written to Room; only an active
+  pending confirmation may temporarily store a bounded next-action suffix so
+  confirmation, observation, and replanning can continue after restore without
+  writing the full prompt to Room or recent trace summaries.
 - Persisted trace summaries and JSON previews now reuse the audit redactor for
   credential-like assignments, bearer values, API-key-shaped strings, and email
   addresses before truncation. Tool request and `UseTool` planning trace is

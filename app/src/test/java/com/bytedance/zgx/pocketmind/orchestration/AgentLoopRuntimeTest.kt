@@ -2560,6 +2560,112 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun restoredPendingConfirmationContinuesSequentialNextActionAfterObservation() {
+        val dao = FakeAgentTraceDao()
+        val searchActionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将在浏览器中搜索：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = searchActionRuntime,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-restored-sequential" },
+            ),
+        )
+        val planned = initialRuntime.runOnce(
+            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
+
+        val wifiActionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "将打开系统 Wi-Fi 设置页。",
+                        parameters = emptyMap(),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test sequential fallback",
+            ),
+        )
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = searchActionRuntime,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 2_000L },
+            ),
+            observationReplanner = SequentialActionObservationReplanner(wifiActionRuntime),
+        )
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(restoredPending)
+        assertEquals(planned.run.id, restoredPending.run.id)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, restoredPending.request.toolName)
+        assertEquals("[redacted]", restoredPending.run.input)
+        assertEquals("打开 Wi-Fi 设置", restoredPending.nextActionInput)
+
+        val executing = restoredRuntime.confirmToolRequest(
+            runId = restoredPending.run.id,
+            requestId = restoredPending.request.id,
+        )
+        assertEquals(AgentRunState.ExecutingTool, executing?.state)
+
+        val observed = restoredRuntime.observeToolResult(
+            runId = restoredPending.run.id,
+            result = ToolResult(
+                requestId = restoredPending.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, observed.decision.plan.request.toolName)
+        assertEquals(1, wifiActionRuntime.isLikelyActionCallCount)
+        assertEquals(1, wifiActionRuntime.planCallCount)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.WEB_SEARCH,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            ),
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().map { step -> step.request.toolName },
+        )
+        assertEquals(2, observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
+        assertEquals(observed.decision.plan.request.id, restoredRuntime.latestPendingConfirmation()?.request?.id)
+        val persistedTrace = dao.steps(planned.run.id).joinToString("\n") { step ->
+            "${step.summary}\n${step.json}"
+        }
+        assertFalse(persistedTrace.contains("先搜 Kotlin，然后"))
+    }
+
+    @Test
     fun restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation() {
         val dao = FakeAgentTraceDao()
         val actionRuntime = RecordingActionRuntime(likelyAction = false)
@@ -3144,6 +3250,132 @@ class AgentLoopRuntimeTest {
             step is AgentStep.ModelPlanned && step.plan is AgentPlan.RejectedTool
         })
         assertTrue(observed.steps.any { it is AgentStep.ToolRejected })
+    }
+
+    @Test
+    fun restoredPendingConfirmationRejectsReplannedOldRequestId() {
+        val dao = FakeAgentTraceDao()
+        val searchActionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将在浏览器中搜索：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val currentDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "搜索完成后继续打开 Wi-Fi 设置页。",
+            parameters = emptyMap(),
+            requiresConfirmation = true,
+        )
+        val currentRequest = ToolRequest(
+            id = "request-current-after-restore",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = currentDraft.summary,
+        )
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = searchActionRuntime,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-restored-duplicate" },
+            ),
+            observationReplanner = AgentObservationReplanner { context ->
+                if (context.previousRequest.toolName == MobileActionFunctions.WEB_SEARCH) {
+                    AgentObservationReplan(
+                        request = currentRequest,
+                        draft = currentDraft,
+                        plannedByModel = false,
+                        fallbackReason = "test replan",
+                    )
+                } else {
+                    null
+                }
+            },
+        )
+        val planned = initialRuntime.runOnce(
+            input = "搜一下 Kotlin",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        val oldRequest = planned.plan.request
+        initialRuntime.confirmToolRequest(planned.run.id, oldRequest.id)
+        val currentPlanned = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = oldRequest.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+            ),
+        )
+        requireNotNull(currentPlanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, currentPlanned.run.state)
+        require(currentPlanned.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(currentRequest.id, currentPlanned.decision.plan.request.id)
+
+        val restoredTraceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 2_000L },
+        )
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = searchActionRuntime,
+            traceStore = restoredTraceStore,
+            observationReplanner = AgentObservationReplanner {
+                AgentObservationReplan(
+                    request = oldRequest,
+                    draft = ActionDraft(
+                        functionName = oldRequest.toolName,
+                        title = "重复请求",
+                        summary = "不应复用已有 request id。",
+                        parameters = oldRequest.arguments,
+                        requiresConfirmation = true,
+                    ),
+                    plannedByModel = false,
+                    fallbackReason = "duplicate old request",
+                )
+            },
+        )
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(restoredPending)
+        assertEquals(currentRequest.id, restoredPending.request.id)
+        assertTrue(restoredTraceStore.steps(planned.run.id).any { step ->
+            step is AgentStep.ToolRequested && step.request.id == oldRequest.id
+        })
+
+        restoredRuntime.confirmToolRequest(planned.run.id, currentRequest.id)
+        val observed = restoredRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = currentRequest.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        require(observed.decision is AgentObservationDecision.Fail)
+        assertTrue(observed.decision.reason.contains("already exists"))
+        assertTrue(observed.decision.reason.contains(oldRequest.id))
+        assertTrue(observed.steps.any { step ->
+            step is AgentStep.ModelPlanned && step.plan is AgentPlan.RejectedTool
+        })
+        assertTrue(observed.steps.any { it is AgentStep.ToolRejected })
+        assertNull(restoredRuntime.latestPendingConfirmation())
     }
 
     @Test

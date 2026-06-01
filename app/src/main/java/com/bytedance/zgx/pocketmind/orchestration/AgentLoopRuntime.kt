@@ -421,6 +421,7 @@ class AgentLoopRuntime(
                 previousRequest = request,
                 observedResult = result,
                 priorRequests = toolRequestsFor(run.id),
+                nextActionInput = traceStore.nextActionInput(run.id),
             ),
         ) ?: return NextObservationPlan.None
         val skillPlan = skillRuntime.plan(run.input, replan.draft, replan.request)
@@ -592,6 +593,7 @@ class AgentLoopRuntime(
             skillPlan = skillPlan,
             plannedByModel = plannedByModel,
             fallbackReason = fallbackReason,
+            nextActionInput = run.input.explicitNextActionText(),
         )
 
     private sealed class NextObservationPlan {

@@ -1,5 +1,34 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Restored Agent loop context 增量验证
+
+本轮覆盖项：
+
+- Room pending confirmation 现在只额外保存显式 sequential 后续动作片段
+  `nextActionInput`，用于进程重启后继续 conservative replan；完整 raw run
+  input 仍不会写入 `agent_runs`、trace summary 或 audit。
+- pending row 被确认/清理后，DB 不再保留该片段；Room store 仅在内存中保留到
+  observation 结束，以便确认后的工具结果仍能规划下一步。
+- 恢复 pending 时会从已持久化的 `ToolRequested` trace JSON 恢复历史
+  request id 骨架，仅用于去重；不会恢复旧确认卡，也不会恢复旧 arguments /
+  reason。
+- 数据库版本升到 8，新增 `pending_agent_confirmations.nextActionInput`
+  nullable column，并覆盖 7→8 migration。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreHydratesPriorToolRequestsForRestoreDedupWithoutOldConfirmations' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredPendingConfirmationContinuesSequentialNextActionAfterObservation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredPendingConfirmationRejectsReplannedOldRequestId'
+
+./gradlew :app:compileDebugAndroidTestKotlin
+```
+
+结果：通过。
+
 ## 2026-06-01 Foreground app trace privacy 增量验证
 
 本轮覆盖项：
@@ -1520,8 +1549,9 @@ adb devices -l
   正文、工具参数、prompt、远程响应不写入长期记忆、长期记忆 UI 或远程上下文。
 - 后台任务取消、完成、失败、删除或从活跃列表消失时，对应自动 `TaskState`
   记忆会被遗忘；手动创建的非 auto-managed task-state 记录不受此同步清理。
-- Room-backed Agent trace 会在持久化 `agent_runs.input` 时脱敏原始 prompt；
-  当前进程内仍保留 raw run input，保证确认、观察和 replan 不被打断。
+- Room-backed Agent trace 会在持久化 `agent_runs.input` 时脱敏完整原始
+  prompt；当前进程内仍保留 raw run input，且 active pending confirmation
+  可暂存 bounded next-action suffix，保证确认、观察和 replan 不被打断。
 - 持久 trace 的 summary、JSON 预览与 allowlisted metadata value 复用 audit
   redactor，对工具 reason、draft title、工具观察 summary、assistant preview
   中的 key/token/email/bearer 片段做脱敏。
@@ -2700,6 +2730,9 @@ git diff --check
 - Agent observe 成功后可通过 `AgentObservationReplanner` 产出下一步工具计划。
 - 默认生产策略 `SequentialActionObservationReplanner` 会在用户输入含明确顺序
   连接词（如“然后”/`then`）且 run 目前只有一个工具计划时，规划下一步动作。
+- Room 恢复路径会从 active pending confirmation 的 `nextActionInput` 继续
+  sequential replan；历史 `ToolRequested` request id 会被恢复为去重骨架，
+  确认或观察不能复用旧 request id。
 - 下一步工具会重新经过 Tool Registry 参数校验、SafetyPolicy、trace、audit
   和用户确认；不会因为来自 observe 阶段就直接执行。
 - Replanned request id 不能复用已有 `ToolRequested` id，避免确认/观察串到旧

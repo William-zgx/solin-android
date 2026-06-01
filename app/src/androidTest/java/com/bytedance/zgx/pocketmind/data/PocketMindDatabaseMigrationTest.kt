@@ -42,6 +42,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_4_5,
                 PocketMindDatabase.MIGRATION_5_6,
                 PocketMindDatabase.MIGRATION_6_7,
+                PocketMindDatabase.MIGRATION_7_8,
             )
             .allowMainThreadQueries()
             .build()
@@ -124,6 +125,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_4_5,
                 PocketMindDatabase.MIGRATION_5_6,
                 PocketMindDatabase.MIGRATION_6_7,
+                PocketMindDatabase.MIGRATION_7_8,
             )
             .allowMainThreadQueries()
             .build()
@@ -161,7 +163,11 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_5_6, PocketMindDatabase.MIGRATION_6_7)
+            .addMigrations(
+                PocketMindDatabase.MIGRATION_5_6,
+                PocketMindDatabase.MIGRATION_6_7,
+                PocketMindDatabase.MIGRATION_7_8,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -196,7 +202,7 @@ class PocketMindDatabaseMigrationTest {
     }
 
     @Test
-    fun migration6To7CreatesPendingAgentConfirmationsTableAndRoomCanOpen() {
+    fun migration6To8CreatesPendingAgentConfirmationsTableAndRoomCanOpen() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.deleteDatabase(TEST_DB_NAME)
         val dbFile = context.getDatabasePath(TEST_DB_NAME)
@@ -211,7 +217,7 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_6_7)
+            .addMigrations(PocketMindDatabase.MIGRATION_6_7, PocketMindDatabase.MIGRATION_7_8)
             .allowMainThreadQueries()
             .build()
 
@@ -240,6 +246,7 @@ class PocketMindDatabaseMigrationTest {
                     skillPlanJson = null,
                     plannedByModel = false,
                     fallbackReason = null,
+                    nextActionInput = "打开 Wi-Fi 设置",
                     createdAtMillis = 2L,
                     updatedAtMillis = 2L,
                 ),
@@ -247,7 +254,83 @@ class PocketMindDatabaseMigrationTest {
 
             val pending = database.agentTraceDao().latestPendingConfirmation()
             assertEquals("request-1", pending?.requestId)
+            assertEquals("打开 Wi-Fi 设置", pending?.nextActionInput)
             assertTrue(database.pendingAgentConfirmationsTableExists())
+            assertTrue(database.pendingNextActionInputColumnIsNullable())
+        } finally {
+            database.close()
+            context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
+    @Test
+    fun migration7To8AddsPendingNextActionInputColumnAndRoomCanOpen() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB_NAME)
+        val dbFile = context.getDatabasePath(TEST_DB_NAME)
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createVersion7Schema(db)
+            db.execSQL(
+                """
+                INSERT INTO agent_runs(id, input, state, createdAtMillis, updatedAtMillis)
+                VALUES('run-1', '[redacted]', 'AwaitingUserConfirmation', 1, 1)
+                """.trimIndent(),
+            )
+            db.execSQL(
+                """
+                INSERT INTO pending_agent_confirmations(
+                    runId,
+                    requestId,
+                    toolName,
+                    argumentsJson,
+                    reason,
+                    draftFunctionName,
+                    draftTitle,
+                    draftSummary,
+                    draftParametersJson,
+                    skillId,
+                    skillPlanJson,
+                    plannedByModel,
+                    fallbackReason,
+                    createdAtMillis,
+                    updatedAtMillis
+                ) VALUES(
+                    'run-1',
+                    'request-1',
+                    'open_wifi_settings',
+                    '{}',
+                    'Open Wi-Fi',
+                    'open_wifi_settings',
+                    'Wi-Fi',
+                    'Open Wi-Fi',
+                    '{}',
+                    NULL,
+                    NULL,
+                    0,
+                    NULL,
+                    2,
+                    2
+                )
+                """.trimIndent(),
+            )
+            db.version = 7
+        }
+
+        val database = Room.databaseBuilder(
+            context,
+            PocketMindDatabase::class.java,
+            TEST_DB_NAME,
+        )
+            .addMigrations(PocketMindDatabase.MIGRATION_7_8)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val pending = database.agentTraceDao().latestPendingConfirmation()
+            assertEquals("request-1", pending?.requestId)
+            assertEquals(null, pending?.nextActionInput)
+            assertTrue(database.pendingNextActionInputColumnIsNullable())
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
@@ -405,6 +488,32 @@ class PocketMindDatabaseMigrationTest {
         )
     }
 
+    private fun createVersion7Schema(db: SQLiteDatabase) {
+        createVersion6Schema(db)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `pending_agent_confirmations` (
+                `runId` TEXT NOT NULL,
+                `requestId` TEXT NOT NULL,
+                `toolName` TEXT NOT NULL,
+                `argumentsJson` TEXT NOT NULL,
+                `reason` TEXT NOT NULL,
+                `draftFunctionName` TEXT NOT NULL,
+                `draftTitle` TEXT NOT NULL,
+                `draftSummary` TEXT NOT NULL,
+                `draftParametersJson` TEXT NOT NULL,
+                `skillId` TEXT,
+                `skillPlanJson` TEXT,
+                `plannedByModel` INTEGER NOT NULL,
+                `fallbackReason` TEXT,
+                `createdAtMillis` INTEGER NOT NULL,
+                `updatedAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`runId`)
+            )
+            """.trimIndent(),
+        )
+    }
+
     private fun PocketMindDatabase.agentTraceTablesExist(): Boolean {
         val tables = mutableSetOf<String>()
         openHelper.writableDatabase.query(
@@ -423,6 +532,18 @@ class PocketMindDatabaseMigrationTest {
         ).use { cursor ->
             return cursor.moveToNext()
         }
+    }
+
+    private fun PocketMindDatabase.pendingNextActionInputColumnIsNullable(): Boolean {
+        openHelper.writableDatabase.query("PRAGMA table_info(`pending_agent_confirmations`)").use { cursor ->
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(cursor.getColumnIndexOrThrow("name"))
+                if (name != "nextActionInput") continue
+                val notNull = cursor.getInt(cursor.getColumnIndexOrThrow("notnull"))
+                return notNull == 0
+            }
+        }
+        return false
     }
 
     private object NoOpSecretStore : SecretStore {

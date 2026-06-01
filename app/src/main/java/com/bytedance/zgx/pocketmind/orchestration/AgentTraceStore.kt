@@ -68,6 +68,7 @@ interface AgentTraceStore {
     fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot)
     fun latestPendingConfirmation(): PendingToolConfirmationSnapshot?
     fun clearPendingConfirmation(runId: String, requestId: String): Boolean
+    fun nextActionInput(runId: String): String?
     fun failStaleInFlightRuns(reason: String): Int
 }
 
@@ -105,6 +106,9 @@ class InMemoryAgentTraceStore(
             updatedAtMillis = clockMillis(),
         )
         runs[runId] = updated
+        if (state.isTerminal()) {
+            pendingConfirmations.remove(runId)
+        }
         return updated
     }
 
@@ -166,6 +170,9 @@ class InMemoryAgentTraceStore(
                 true
             } ?: false
 
+    override fun nextActionInput(runId: String): String? =
+        pendingConfirmations[runId]?.nextActionInput
+
     override fun failStaleInFlightRuns(reason: String): Int {
         val staleRuns = runs.values
             .filter { run -> run.state.isStaleAfterProcessRestart() }
@@ -185,6 +192,7 @@ class RoomAgentTraceStore(
 ) : AgentTraceStore {
     private val liveRuns = linkedMapOf<String, AgentRun>()
     private val liveSteps = linkedMapOf<String, MutableList<AgentStep>>()
+    private val liveNextActionInputs = linkedMapOf<String, String>()
 
     override fun createRun(input: String): AgentRun {
         val now = clockMillis()
@@ -215,7 +223,13 @@ class RoomAgentTraceStore(
                 updatedAtMillis = now,
             )
             liveRuns[runId] = updated
+            if (state.isTerminal()) {
+                liveNextActionInputs.remove(runId)
+            }
             return updated
+        }
+        if (state.isTerminal()) {
+            liveNextActionInputs.remove(runId)
         }
         return traceDao.run(runId)?.toDomain()
             ?: error("Agent run disappeared after update: $runId")
@@ -254,6 +268,9 @@ class RoomAgentTraceStore(
 
     override fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot) {
         val now = clockMillis()
+        snapshot.nextActionInput
+            ?.let { nextActionInput -> liveNextActionInputs[snapshot.run.id] = nextActionInput }
+            ?: liveNextActionInputs.remove(snapshot.run.id)
         traceDao.upsertPendingConfirmation(snapshot.toEntity(now))
     }
 
@@ -274,6 +291,9 @@ class RoomAgentTraceStore(
                 traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
                 continue
             }
+            snapshot.nextActionInput
+                ?.let { nextActionInput -> liveNextActionInputs[snapshot.run.id] = nextActionInput }
+                ?: liveNextActionInputs.remove(snapshot.run.id)
             hydrateLivePendingSteps(snapshot)
             return snapshot
         }
@@ -282,6 +302,9 @@ class RoomAgentTraceStore(
 
     override fun clearPendingConfirmation(runId: String, requestId: String): Boolean =
         traceDao.deletePendingConfirmation(runId, requestId) > 0
+
+    override fun nextActionInput(runId: String): String? =
+        liveNextActionInputs[runId]
 
     override fun failStaleInFlightRuns(reason: String): Int {
         val staleRuns = traceDao.recentRuns(Int.MAX_VALUE)
@@ -296,6 +319,14 @@ class RoomAgentTraceStore(
 
     private fun hydrateLivePendingSteps(snapshot: PendingToolConfirmationSnapshot) {
         val steps = liveSteps.getOrPut(snapshot.run.id) { mutableListOf() }
+        traceDao.steps(snapshot.run.id)
+            .mapNotNull { entity -> entity.toRestoredToolRequestedOrNull() }
+            .filterNot { step -> step.request.id == snapshot.request.id }
+            .forEach { restored ->
+                if (steps.none { step -> step is AgentStep.ToolRequested && step.request.id == restored.request.id }) {
+                    steps += restored
+                }
+            }
         snapshot.skillPlan?.let { plan ->
             if (steps.none { step -> step is AgentStep.SkillPlanned && step.request.id == plan.request.id }) {
                 val toolIndex = steps.indexOfFirst { step ->
@@ -330,6 +361,13 @@ private fun AgentRunState.isStaleAfterProcessRestart(): Boolean =
         AgentRunState.RetryingTool,
         AgentRunState.Observing,
         AgentRunState.GeneratingAnswer,
+    )
+
+private fun AgentRunState.isTerminal(): Boolean =
+    this in setOf(
+        AgentRunState.Completed,
+        AgentRunState.Cancelled,
+        AgentRunState.Failed,
     )
 
 private fun AgentRun.toEntity(): AgentRunEntity =
@@ -395,6 +433,30 @@ private fun AgentStepEntity.toRestoredStep(): AgentStep.RestoredSummary =
         json = json,
     )
 
+private fun AgentStepEntity.toRestoredToolRequestedOrNull(): AgentStep.ToolRequested? {
+    if (type != "ToolRequested") return null
+    return runCatching {
+        val restoredJson = JSONObject(json)
+        val toolName = restoredJson.optString("toolName").takeIf { it.isNotBlank() } ?: return null
+        val requestId = restoredJson.optString("requestId").takeIf { it.isNotBlank() } ?: return null
+        val draftTitle = restoredJson.optString("draftTitle").takeIf { it.isNotBlank() } ?: toolName
+        AgentStep.ToolRequested(
+            request = ToolRequest(
+                id = requestId,
+                toolName = toolName,
+                arguments = emptyMap(),
+                reason = "",
+            ),
+            draft = ActionDraft(
+                functionName = toolName,
+                title = draftTitle,
+                summary = "",
+                parameters = emptyMap(),
+            ),
+        )
+    }.getOrNull()
+}
+
 private fun PendingToolConfirmationSnapshot.toEntity(now: Long): PendingAgentConfirmationEntity =
     PendingAgentConfirmationEntity(
         runId = run.id,
@@ -410,6 +472,7 @@ private fun PendingToolConfirmationSnapshot.toEntity(now: Long): PendingAgentCon
         skillPlanJson = skillPlan?.toJsonObject()?.toString(),
         plannedByModel = plannedByModel,
         fallbackReason = fallbackReason,
+        nextActionInput = nextActionInput,
         createdAtMillis = now,
         updatedAtMillis = now,
     )
@@ -433,6 +496,7 @@ private fun PendingAgentConfirmationEntity.toSnapshot(run: AgentRun): PendingToo
         skillPlan = skillPlanJson?.toSkillPlanOrNull(),
         plannedByModel = plannedByModel,
         fallbackReason = fallbackReason,
+        nextActionInput = nextActionInput,
     )
 
 private fun PendingToolConfirmationSnapshot.hasRestorableSkillPlanRequest(): Boolean {

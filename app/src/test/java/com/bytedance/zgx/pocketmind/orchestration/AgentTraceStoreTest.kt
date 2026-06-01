@@ -359,6 +359,7 @@ class AgentTraceStoreTest {
                 skillId = "share_skill",
                 plannedByModel = false,
                 fallbackReason = "test fallback",
+                nextActionInput = "打开 Wi-Fi 设置",
             ),
         )
         assertEquals(rawPrompt, store.latestPendingConfirmation()?.run?.input)
@@ -376,6 +377,8 @@ class AgentTraceStoreTest {
         assertEquals("request-pending", restored.request.id)
         assertEquals("private pending text", restored.request.arguments["text"])
         assertEquals("share_skill", restored.skillId)
+        assertEquals("打开 Wi-Fi 设置", restored.nextActionInput)
+        assertEquals("打开 Wi-Fi 设置", restartedStore.nextActionInput(waitingRun.id))
         assertTrue(restartedStore.steps(waitingRun.id).any { step ->
             step is AgentStep.ToolRequested && step.request.id == "request-pending"
         })
@@ -385,6 +388,72 @@ class AgentTraceStoreTest {
 
         assertTrue(restartedStore.clearPendingConfirmation(waitingRun.id, request.id))
         assertNull(restartedStore.latestPendingConfirmation())
+        restartedStore.updateState(waitingRun.id, AgentRunState.Completed)
+        assertNull(restartedStore.nextActionInput(waitingRun.id))
+    }
+
+    @Test
+    fun roomStoreHydratesPriorToolRequestsForRestoreDedupWithoutOldConfirmations() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-hydrate-history" },
+        )
+        val run = store.createRun("先搜 Kotlin，然后打开 Wi-Fi 设置")
+        val waitingRun = store.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
+        val oldRequest = ToolRequest(
+            id = "request-old",
+            toolName = MobileActionFunctions.WEB_SEARCH,
+            arguments = mapOf("query" to "Kotlin"),
+            reason = "Search Kotlin",
+        )
+        val oldDraft = ActionDraft(
+            functionName = MobileActionFunctions.WEB_SEARCH,
+            title = "Web 搜索",
+            summary = "Search Kotlin",
+            parameters = oldRequest.arguments,
+        )
+        val currentRequest = ToolRequest(
+            id = "request-current",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = "Open Wi-Fi settings",
+        )
+        val currentDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "Open Wi-Fi settings",
+            parameters = emptyMap(),
+        )
+        store.appendStep(waitingRun.id, AgentStep.ToolRequested(oldRequest, oldDraft))
+        store.appendStep(waitingRun.id, AgentStep.UserConfirmationRequested(oldRequest, oldDraft))
+        store.appendStep(waitingRun.id, AgentStep.ToolRequested(currentRequest, currentDraft))
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = currentRequest,
+                draft = currentDraft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+                nextActionInput = "打开 Wi-Fi 设置",
+            ),
+        )
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+        val restored = restartedStore.latestPendingConfirmation()
+
+        requireNotNull(restored)
+        val hydratedSteps = restartedStore.steps(waitingRun.id)
+        assertEquals(
+            listOf("request-old", "request-current"),
+            hydratedSteps.filterIsInstance<AgentStep.ToolRequested>().map { step -> step.request.id },
+        )
+        assertEquals(emptyMap<String, String>(), hydratedSteps.filterIsInstance<AgentStep.ToolRequested>().first().request.arguments)
+        assertEquals(
+            listOf("request-current"),
+            hydratedSteps.filterIsInstance<AgentStep.UserConfirmationRequested>().map { step -> step.request.id },
+        )
+        assertEquals("打开 Wi-Fi 设置", restored.nextActionInput)
     }
 
     @Test
