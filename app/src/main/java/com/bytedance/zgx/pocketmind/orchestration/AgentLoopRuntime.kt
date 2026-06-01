@@ -24,10 +24,12 @@ import com.bytedance.zgx.pocketmind.skill.SkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillRunProgressor
 import com.bytedance.zgx.pocketmind.skill.SkillStep
 import com.bytedance.zgx.pocketmind.skill.validateStructure
+import com.bytedance.zgx.pocketmind.tool.RiskLevel
+import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
+import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
-import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import com.bytedance.zgx.pocketmind.tool.cancelled
 import com.bytedance.zgx.pocketmind.tool.isUnverifiedExternalLaunch
@@ -817,12 +819,52 @@ class AgentLoopRuntime(
     private fun nextRetryAttempt(runId: String, result: ToolResult): Int {
         if (result.status != ToolStatus.Failed || !result.retryable) return 0
         if (result.error?.code == ToolErrorCode.PermissionDenied) return 0
+        val request = requestForResult(runId, result) ?: return 0
+        if (!request.allowsAutomaticRetry()) return 0
         val completedAttempts = traceStore.steps(runId)
             .asSequence()
             .filterIsInstance<AgentStep.ToolRetryScheduled>()
             .count { step -> step.request.id == result.requestId }
         if (completedAttempts >= maxToolRetryAttempts) return 0
         return completedAttempts + 1
+    }
+
+    private fun requestForResult(runId: String, result: ToolResult): ToolRequest? =
+        traceStore.steps(runId)
+            .asSequence()
+            .mapNotNull { step ->
+                when (step) {
+                    is AgentStep.ToolRequested -> step.request
+                    is AgentStep.ToolRetryScheduled -> step.request
+                    else -> null
+                }
+            }
+            .lastOrNull { request -> request.id == result.requestId }
+
+    private fun ToolRequest.allowsAutomaticRetry(): Boolean {
+        val spec = toolRegistry.specFor(toolName) ?: return false
+        if (spec.riskLevel == RiskLevel.HighExternalSend ||
+            spec.riskLevel == RiskLevel.CriticalDeviceOrPayment
+        ) {
+            return false
+        }
+        val sideEffectPermissions = setOf(
+            ToolPermission.StartsExternalActivity,
+            ToolPermission.SendsTextToExternalApp,
+            ToolPermission.SchedulesBackgroundWork,
+            ToolPermission.PostsNotification,
+        )
+        if (spec.permissions.any { permission -> permission in sideEffectPermissions }) return false
+        val readPermissions = setOf(
+            ToolPermission.ReadsDeviceContext,
+            ToolPermission.ReadsClipboard,
+            ToolPermission.ReadsCalendar,
+            ToolPermission.ReadsContacts,
+            ToolPermission.ReadsFiles,
+            ToolPermission.ReadsAccessibilityText,
+        )
+        return spec.riskLevel == RiskLevel.LowReadOnly ||
+            spec.permissions.any { permission -> permission in readPermissions }
     }
 
     private fun continuationForToolObservation(

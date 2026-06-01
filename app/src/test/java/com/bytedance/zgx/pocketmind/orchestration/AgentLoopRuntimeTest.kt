@@ -3030,23 +3030,7 @@ class AgentLoopRuntimeTest {
     @Test
     fun retryableToolFailureSchedulesSingleRetryThenFailsAfterLimit() {
         val auditSink = InMemoryToolAuditSink()
-        val actionRuntime = RecordingActionRuntime(
-            likelyAction = true,
-            planningResult = ActionPlanningResult(
-                plan = ActionPlan(
-                    kind = ActionPlanKind.Draft,
-                    draft = ActionDraft(
-                        functionName = MobileActionFunctions.WEB_SEARCH,
-                        title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
-                        parameters = mapOf("query" to "Kotlin"),
-                        requiresConfirmation = true,
-                    ),
-                ),
-                usedModel = false,
-                fallbackReason = "test fallback",
-            ),
-        )
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
@@ -3055,7 +3039,7 @@ class AgentLoopRuntimeTest {
             maxToolRetryAttempts = 1,
         )
         val planned = runtime.runOnce(
-            input = "搜一下 Kotlin",
+            input = "当前应用是什么",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -3108,30 +3092,14 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun permissionDeniedToolFailureDoesNotScheduleAutomaticRetry() {
-        val actionRuntime = RecordingActionRuntime(
-            likelyAction = true,
-            planningResult = ActionPlanningResult(
-                plan = ActionPlan(
-                    kind = ActionPlanKind.Draft,
-                    draft = ActionDraft(
-                        functionName = MobileActionFunctions.WEB_SEARCH,
-                        title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
-                        parameters = mapOf("query" to "Kotlin"),
-                        requiresConfirmation = true,
-                    ),
-                ),
-                usedModel = false,
-                fallbackReason = "test fallback",
-            ),
-        )
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val planned = runtime.runOnce(
-            input = "搜一下 Kotlin",
+            input = "当前应用是什么",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -3155,6 +3123,49 @@ class AgentLoopRuntimeTest {
         assertNull(failed.retryRequest)
         assertEquals(0, failed.retryAttempt)
         assertTrue(failed.steps.none { it is AgentStep.ToolRetryScheduled })
+    }
+
+    @Test
+    fun retryableSideEffectToolFailuresDoNotScheduleAutomaticRetry() {
+        val cases = listOf(
+            "搜一下 Kotlin" to MobileActionFunctions.WEB_SEARCH,
+            "分享这段文字：hello" to MobileActionFunctions.SHARE_TEXT,
+            "提醒我 15 分钟后喝水" to MobileActionFunctions.SCHEDULE_REMINDER,
+        )
+
+        cases.forEach { (input, toolName) ->
+            val runtime = AgentLoopRuntime(
+                memoryIndex = MemoryRepository(),
+                actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+                maxToolRetryAttempts = 1,
+            )
+            val planned = runtime.runOnce(
+                input = input,
+                installedCapabilities = setOf(ModelCapability.Chat),
+                memoryEnabled = false,
+            )
+            require(planned.plan is AgentPlan.UseTool)
+            assertEquals(toolName, planned.plan.request.toolName)
+            runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+            val failed = runtime.observeToolResult(
+                runId = planned.run.id,
+                result = ToolResult(
+                    requestId = planned.plan.request.id,
+                    status = ToolStatus.Failed,
+                    summary = "底层临时失败",
+                    retryable = true,
+                ),
+            )
+
+            requireNotNull(failed)
+            assertEquals(AgentRunState.Failed, failed.run.state)
+            require(failed.decision is AgentObservationDecision.Fail)
+            assertNull(failed.retryRequest)
+            assertEquals(0, failed.retryAttempt)
+            assertTrue(failed.steps.none { it is AgentStep.ToolRetryScheduled })
+        }
     }
 
     @Test

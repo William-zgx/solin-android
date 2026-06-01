@@ -17,7 +17,7 @@ Google AI Edge LiteRT-LM.
 - Configurable streaming remote chat backend for OpenAI-compatible `/v1/chat/completions` services.
 - Lightweight local memory recall over previous conversation context.
 - Experimental local mobile action planning with deterministic rule fallback and explicit confirmation.
-- Schema-driven tool validation plus Agent run tracing for plan-confirm-observe execution, safety checks, bounded retry, and persistent audit events.
+- Schema-driven tool validation plus Agent run tracing for plan-confirm-observe execution, safety checks, read-only bounded retry, and persistent audit events.
 - JVM tool executor matrix tests cover registry validation, routing, permission
   failures, provider failures, structured error codes, and LocalOnly device
   context outputs.

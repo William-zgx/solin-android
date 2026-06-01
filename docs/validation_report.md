@@ -2524,7 +2524,7 @@ git diff --check
 - Tool Registry 增加权限声明、结构化错误模型、参数拒绝和执行结果。
 - Tool Registry 参数校验改为由 JSON schema 驱动，覆盖 required、额外参数拒绝、`minLength` 和 `pattern`。
 - Agent Loop 增加确认后的 `ToolResult` observe 回写、trace step 和完成状态。
-- Agent Loop 对 retryable 工具失败增加一次有界自动重试，记录 `ToolRetryScheduled` trace/audit 事件，重试预算耗尽后才进入 `Failed`。
+- Agent Loop 对 retryable 本地只读工具失败增加一次有界自动重试，记录 `ToolRetryScheduled` trace/audit 事件，重试预算耗尽后才进入 `Failed`；外部界面启动、外部发送、通知/后台调度以及高/关键风险工具即使被底层标记为 retryable 也不会自动重放。
 - 用户取消动作确认时，Agent run 会进入 `Cancelled`，并记录取消/观察审计事件。
 - Built-in Skill Runtime 增加版本化 manifest，并将邮件、日程、地图、信息查找、设备设置映射为一跳工具 skill。
 - Device Context 增加最小非敏感设备状态快照，并接入 Agent trace / prompt context。

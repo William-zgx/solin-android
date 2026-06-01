@@ -107,9 +107,12 @@ Current status:
 - Generic Skill model continuations also honor tool-result privacy metadata:
   `privacy=LocalOnly` or `requiresLocalModel=true` forces the continuation to
   stay local even when the `ModelStep` is otherwise marked remote-eligible.
-- Retryable tool failures now schedule one bounded retry on the already
+- Retryable local read failures now schedule one bounded retry on the already
   confirmed request, record a `ToolRetryScheduled` trace/audit event, and only
-  fail the run after the retry budget is exhausted.
+  fail the run after the retry budget is exhausted. External Activity launches,
+  external sends, notification posting, background scheduling, and high/critical
+  risk tools are not automatically replayed even if a lower layer marks the
+  failure retryable.
 - Tool observation now produces an explicit `AgentObservationDecision`:
   complete, continue with model, retry tool, fail, or cancel. The decision is
   recorded in trace without storing private continuation prompts.
