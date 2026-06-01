@@ -26,6 +26,9 @@ items below.
   scheduled with `VERIFY_MODEL_URLS=1`.
 - Memory is documented as a lightweight local index. Action planning is
   documented as experimental model planning with rule fallback.
+- Prepared emulator regression has passed on `focus_agent_api36_arm64`
+  (API 36, `arm64-v8a`) with `scripts/verify_emulator.sh`; instrumentation
+  reported `OK (14 tests)` for the current Agent-loop work branch.
 
 ## Remaining
 
@@ -37,5 +40,6 @@ items below.
   `docs/model_manifest.md` or the release checklist. `VERIFY_MODEL_URLS=1`
   checks URL/content metadata only; it does not establish license readiness.
 - Configure release signing outside source control.
-- Run `connectedDebugAndroidTest` on a physical device or a prepared emulator
-  before publishing a release candidate.
+- Run a final release-candidate validation pass on target physical hardware
+  before broad distribution; emulator validation does not cover all LiteRT-LM
+  GPU/performance behavior.
