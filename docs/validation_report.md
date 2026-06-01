@@ -1,5 +1,29 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Emulator regression 验证
+
+本轮覆盖项：
+
+- 在 `focus_agent_api36_arm64` AVD 上启动 API 36 / `arm64-v8a` emulator。
+- 构建并安装 debug APK 与 androidTest APK。
+- 执行 instrumentation smoke/regression，覆盖主界面、会话、记忆、动作确认、
+  自定义下载入口、背景任务和 Room migration。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+AVD_NAME=focus_agent_api36_arm64 \
+EMULATOR_ARGS='-no-snapshot -no-audio -no-window -no-boot-anim' \
+EMULATOR_SELECT_TIMEOUT_SECONDS=120 \
+BOOT_TIMEOUT_SECONDS=300 \
+scripts/verify_emulator.sh
+```
+
+结果：通过。设备 `emulator-5554`，API 36，ABI `arm64-v8a`，
+instrumentation `OK (14 tests)`，脚本输出 `Emulator verification passed`。
+
 ## 2026-06-02 Sequential composite Skill segment 增量验证
 
 本轮覆盖项：
