@@ -118,6 +118,43 @@ class ScheduledTaskRepository(
         return task
     }
 
+    fun startPeriodicCheckRun(): Boolean =
+        dao.markPeriodicCheckRunningIfScheduled(
+            taskId = PeriodicCheckScheduleRequest.TASK_ID,
+            updatedAtMillis = clockMillis(),
+        ) > 0
+
+    fun finishPeriodicCheckRunIfRunning(
+        nextAllowedRunAtMillis: Long,
+        summary: String,
+        status: ScheduledTaskStatus = ScheduledTaskStatus.Scheduled,
+    ): ScheduledTask? {
+        val now = clockMillis()
+        val existing = periodicCheck()
+        val request = existing?.periodicCheckRequest()
+            ?: PeriodicCheckScheduleRequest()
+        val body = request.storageSummaryWithLastRun(summary)
+        val updatedRows = dao.recordPeriodicCheckRunIfRunning(
+            taskId = PeriodicCheckScheduleRequest.TASK_ID,
+            body = body,
+            triggerAtMillis = nextAllowedRunAtMillis,
+            status = status.name,
+            updatedAtMillis = now,
+        )
+        return if (updatedRows > 0) {
+            periodicCheck()
+        } else {
+            existing
+        }
+    }
+
+    fun markPeriodicCheckFailedIfRunning(): Boolean =
+        dao.updatePeriodicCheckStatusIfRunning(
+            taskId = PeriodicCheckScheduleRequest.TASK_ID,
+            status = ScheduledTaskStatus.Failed.name,
+            updatedAtMillis = clockMillis(),
+        ) > 0
+
     fun disablePeriodicCheck(): ScheduledTask {
         val now = clockMillis()
         val existing = periodicCheck()

@@ -216,6 +216,66 @@ class ReminderAlarmReceiverTest {
             return 1
         }
 
+        override fun markPeriodicCheckRunningIfScheduled(taskId: String, updatedAtMillis: Long): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.PeriodicCheck.name ||
+                existing.status != ScheduledTaskStatus.Scheduled.name
+            ) {
+                return 0
+            }
+            upsert(
+                existing.copy(
+                    status = ScheduledTaskStatus.Running.name,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
+        override fun recordPeriodicCheckRunIfRunning(
+            taskId: String,
+            body: String,
+            triggerAtMillis: Long,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.PeriodicCheck.name ||
+                existing.status != ScheduledTaskStatus.Running.name
+            ) {
+                return 0
+            }
+            upsert(
+                existing.copy(
+                    body = body,
+                    triggerAtMillis = triggerAtMillis,
+                    status = status,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
+        override fun updatePeriodicCheckStatusIfRunning(
+            taskId: String,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.PeriodicCheck.name ||
+                existing.status != ScheduledTaskStatus.Running.name
+            ) {
+                return 0
+            }
+            upsert(
+                existing.copy(
+                    status = status,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
         override fun updateScheduledStatusIfScheduled(
             taskId: String,
             status: String,

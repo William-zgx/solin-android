@@ -1,5 +1,27 @@
 # PocketMind 验证报告
 
+## 2026-06-01 周期检查状态机竞态增量验证
+
+本轮覆盖项：
+
+- 周期检查 worker 只允许 `Scheduled -> Running` 与
+  `Running -> Scheduled/Failed` 条件转移。
+- 用户在 worker 通知过程中关闭周期检查时，`Cancelled` 终态不会被 worker
+  completion 反写成 `Scheduled`。
+- `scheduledOrRunning()` 不会在关闭后重新显示 `periodic-check-local`。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest'
+```
+
+结果：通过。
+
 ## 2026-06-01 Agent 隐私与状态口径增量验证
 
 本轮覆盖项：

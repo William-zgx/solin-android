@@ -826,6 +826,10 @@ Current status:
   to `Scheduled` after a successful scan. Runner or Worker exceptions mark the
   periodic task `Failed` so local state no longer claims a healthy scheduled
   check.
+- Periodic check worker state updates are conditional transitions:
+  `Scheduled -> Running` and `Running -> Scheduled/Failed`. If the user disables
+  the policy while a worker is notifying, the final `Cancelled` state is kept
+  and worker completion cannot revive it as active.
 - `schedule_reminder` and `cancel_reminder` tool results include `taskStatus`
   metadata for downstream observation and debugging.
 - Successful `schedule_reminder` results now include bounded rollback metadata:

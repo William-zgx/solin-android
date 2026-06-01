@@ -40,7 +40,9 @@ class PeriodicCheckRunner(
             )
         }
 
-        repository.markRunning(PeriodicCheckScheduleRequest.TASK_ID)
+        if (!repository.startPeriodicCheckRun()) {
+            return PeriodicCheckRunOutcome.Skipped(PeriodicCheckSkipReason.NotEnabledInStore)
+        }
         try {
             val nextAllowedRunAtMillis = now + normalized.minNotificationSpacingMinutes * MILLIS_PER_MINUTE
             val overdueCutoffMillis = now - normalized.overdueGraceMinutes * MILLIS_PER_MINUTE
@@ -48,7 +50,7 @@ class PeriodicCheckRunner(
                 .count { it.triggerAtMillis <= overdueCutoffMillis }
 
             if (overdueReminderCount == 0) {
-                repository.recordPeriodicCheckRun(
+                repository.finishPeriodicCheckRunIfRunning(
                     nextAllowedRunAtMillis = nextAllowedRunAtMillis,
                     summary = "lastRun=ok;overdueReminderCount=0",
                 )
@@ -62,7 +64,7 @@ class PeriodicCheckRunner(
             )
 
             val posted = notifier.post(notification)
-            repository.recordPeriodicCheckRun(
+            repository.finishPeriodicCheckRunIfRunning(
                 nextAllowedRunAtMillis = nextAllowedRunAtMillis,
                 summary = "lastRun=${if (posted) "notified" else "notificationBlocked"};" +
                     "overdueReminderCount=$overdueReminderCount",
@@ -74,7 +76,7 @@ class PeriodicCheckRunner(
                 PeriodicCheckRunOutcome.NotificationBlocked(overdueReminderCount, nextAllowedRunAtMillis)
             }
         } catch (exception: Exception) {
-            repository.markFailed(PeriodicCheckScheduleRequest.TASK_ID)
+            repository.markPeriodicCheckFailedIfRunning()
             throw exception
         }
     }

@@ -218,6 +218,43 @@ interface ScheduledTaskDao {
     @Query(
         """
         UPDATE scheduled_tasks
+        SET status = 'Running', updatedAtMillis = :updatedAtMillis
+        WHERE id = :taskId AND type = 'PeriodicCheck' AND status = 'Scheduled'
+        """,
+    )
+    fun markPeriodicCheckRunningIfScheduled(taskId: String, updatedAtMillis: Long): Int
+
+    @Query(
+        """
+        UPDATE scheduled_tasks
+        SET body = :body, triggerAtMillis = :triggerAtMillis, status = :status, updatedAtMillis = :updatedAtMillis
+        WHERE id = :taskId AND type = 'PeriodicCheck' AND status = 'Running'
+        """,
+    )
+    fun recordPeriodicCheckRunIfRunning(
+        taskId: String,
+        body: String,
+        triggerAtMillis: Long,
+        status: String,
+        updatedAtMillis: Long,
+    ): Int
+
+    @Query(
+        """
+        UPDATE scheduled_tasks
+        SET status = :status, updatedAtMillis = :updatedAtMillis
+        WHERE id = :taskId AND type = 'PeriodicCheck' AND status = 'Running'
+        """,
+    )
+    fun updatePeriodicCheckStatusIfRunning(
+        taskId: String,
+        status: String,
+        updatedAtMillis: Long,
+    ): Int
+
+    @Query(
+        """
+        UPDATE scheduled_tasks
         SET status = :status, updatedAtMillis = :updatedAtMillis
         WHERE id = :taskId AND status = 'Scheduled'
         """,

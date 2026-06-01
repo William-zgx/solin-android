@@ -129,6 +129,53 @@ class PeriodicCheckSchedulerTest {
     }
 
     @Test
+    fun runnerCompletionDoesNotRevivePeriodicCheckDisabledDuringNotification() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 10_000L })
+        val notifier = FakeLocalPeriodicCheckNotifier(
+            onPost = { repository.disablePeriodicCheck() },
+        )
+        val runner = PeriodicCheckRunner(
+            repository = repository,
+            notifier = notifier,
+            clockMillis = { 10_000L },
+        )
+        repository.createOrUpdatePeriodicCheck(
+            PeriodicCheckScheduleRequest(
+                minNotificationSpacingMinutes = 60L,
+                overdueGraceMinutes = 5L,
+            ),
+        )
+        dao.upsert(
+            entity(
+                id = "overdue-reminder",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Scheduled,
+                triggerAtMillis = 10_000L - 6L * 60_000L,
+            ),
+        )
+
+        val outcome = runner.runOnce(
+            PeriodicCheckScheduleRequest(
+                minNotificationSpacingMinutes = 60L,
+                overdueGraceMinutes = 5L,
+            ),
+        )
+
+        assertEquals(PeriodicCheckRunOutcome.Notified(1, 10_000L + 60L * 60_000L), outcome)
+        assertEquals(ScheduledTaskStatus.Cancelled, repository.periodicCheck()?.status)
+        assertTrue(repository.scheduledOrRunning().none { it.id == PeriodicCheckScheduleRequest.TASK_ID })
+        assertEquals(
+            listOf(
+                ScheduledTaskStatus.Scheduled,
+                ScheduledTaskStatus.Running,
+                ScheduledTaskStatus.Cancelled,
+            ),
+            dao.statusHistory(PeriodicCheckScheduleRequest.TASK_ID),
+        )
+    }
+
+    @Test
     fun runnerMarksPeriodicTaskFailedWhenExecutionThrows() {
         val dao = FakeScheduledTaskDao()
         val repository = ScheduledTaskRepository(dao, clockMillis = { 10_000L })
@@ -210,11 +257,13 @@ class PeriodicCheckSchedulerTest {
 
     private class FakeLocalPeriodicCheckNotifier(
         private val failure: RuntimeException? = null,
+        private val onPost: () -> Unit = {},
     ) : LocalPeriodicCheckNotifier {
         val notifications = mutableListOf<PeriodicCheckNotification>()
 
         override fun post(notification: PeriodicCheckNotification): Boolean {
             failure?.let { throw it }
+            onPost()
             notifications += notification
             return true
         }
@@ -254,6 +303,66 @@ class PeriodicCheckSchedulerTest {
             upsert(
                 existing.copy(
                     status = ScheduledTaskStatus.Running.name,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
+        override fun markPeriodicCheckRunningIfScheduled(taskId: String, updatedAtMillis: Long): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.PeriodicCheck.name ||
+                existing.status != ScheduledTaskStatus.Scheduled.name
+            ) {
+                return 0
+            }
+            upsert(
+                existing.copy(
+                    status = ScheduledTaskStatus.Running.name,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
+        override fun recordPeriodicCheckRunIfRunning(
+            taskId: String,
+            body: String,
+            triggerAtMillis: Long,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.PeriodicCheck.name ||
+                existing.status != ScheduledTaskStatus.Running.name
+            ) {
+                return 0
+            }
+            upsert(
+                existing.copy(
+                    body = body,
+                    triggerAtMillis = triggerAtMillis,
+                    status = status,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
+        override fun updatePeriodicCheckStatusIfRunning(
+            taskId: String,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.PeriodicCheck.name ||
+                existing.status != ScheduledTaskStatus.Running.name
+            ) {
+                return 0
+            }
+            upsert(
+                existing.copy(
+                    status = status,
                     updatedAtMillis = updatedAtMillis,
                 ),
             )
