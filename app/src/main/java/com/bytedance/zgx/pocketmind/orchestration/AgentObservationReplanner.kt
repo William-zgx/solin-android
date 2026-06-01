@@ -93,8 +93,12 @@ private fun String.explicitSequentialActionSegments(): List<String> {
         }
 }
 
-private fun String.trimActionText(): String =
-    trim(' ', '\t', '\n', '\r', '，', '。', ',', '.', ';', '；', ':', '：')
+private fun String.trimActionText(): String {
+    val trimmed = trim(' ', '\t', '\n', '\r', '，', '。', ',', '.', ';', '；', ':', '：')
+    return trimmed
+        .replace(Regex("""^(?:先\s*|first,?\s+)""", RegexOption.IGNORE_CASE), "")
+        .trim(' ', '\t', '\n', '\r', '，', '。', ',', '.', ';', '；', ':', '：')
+}
 
 private val sequenceConnector = Regex(
     pattern = """(?i)(?:\b(?:and\s+then|then)\b|然后|接着|随后|之后|再)""",

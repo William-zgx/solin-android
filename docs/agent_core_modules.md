@@ -161,6 +161,12 @@ Current status:
   observation, and returns to user confirmation before any execution. The
   next-action cursor is kept only in process memory; Room restore no longer
   persists or resumes raw remaining sequence text across process death.
+- Initial planning can also use the first explicit sequence segment to start a
+  single-tool or single-step Skill plan, so rule-only planning can enter the
+  loop for requests like "search, then open Wi-Fi." Multi-step Skill segments
+  and private-read segments that would require a local model continuation are
+  not split at the initial boundary yet; those still fall back instead of
+  starting a partial flow that cannot advance the remaining sequence.
 - Replanned tools are validated, safety checked, audited, traced, and returned
   to `AwaitingUserConfirmation` instead of being executed directly.
 - The action-planner preflight gate now reuses the same conservative parsers as
@@ -349,6 +355,10 @@ Tests:
 - `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare`
 - `AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions`
 - `AgentLoopRuntimeTest.roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears`
+- `AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues`
+- `AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentFallsBackToAnswer`
+- `AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer`
+- `AgentLoopRuntimeTest.explanatorySequentialTextStillFallsBackToAnswer`
 - `AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments`
 - `AgentTraceStoreTest.roomStoreToolPlanningTraceDoesNotPersistParameterLikeReasonText`
 - `AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson`

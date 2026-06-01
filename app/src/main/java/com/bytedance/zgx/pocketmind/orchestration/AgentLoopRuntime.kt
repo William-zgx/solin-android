@@ -40,6 +40,13 @@ import com.bytedance.zgx.pocketmind.tool.unverifiedExternalLaunchSummary
 
 private const val REDACTED_AGENT_RUN_INPUT_VALUE = "[redacted]"
 
+private val INITIAL_SEQUENTIAL_CONTINUATION_TOOL_NAMES = setOf(
+    MobileActionFunctions.READ_CLIPBOARD,
+    MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+    MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+    MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+)
+
 class AgentLoopRuntime(
     private val memoryIndex: MemoryIndex,
     private val actionPlanningRuntime: ActionPlanningRuntime,
@@ -711,20 +718,45 @@ class AgentLoopRuntime(
         ) : NextObservationPlan()
     }
 
-    private fun planToolIfSupported(input: String, actionModelPath: String?): AgentPlan? {
-        skillRuntime.plan(input)?.let { skillPlan ->
-            return buildInitialToolPlanFromSkill(skillPlan)
+    private fun planToolIfSupported(input: String, actionModelPath: String?): AgentPlan? =
+        planToolForInput(
+            input = input,
+            actionModelPath = actionModelPath,
+            allowDirectSkillPlan = true,
+            allowMultiStepSkillPlan = true,
+        ) ?: input.initialSequentialActionInput()?.let { firstActionInput ->
+            planToolForInput(
+                input = firstActionInput,
+                actionModelPath = actionModelPath,
+                allowDirectSkillPlan = false,
+                allowMultiStepSkillPlan = false,
+            )
+        }
+
+    private fun planToolForInput(
+        input: String,
+        actionModelPath: String?,
+        allowDirectSkillPlan: Boolean,
+        allowMultiStepSkillPlan: Boolean,
+    ): AgentPlan? {
+        if (allowDirectSkillPlan) {
+            skillRuntime.plan(input)?.let { skillPlan ->
+                if (!allowMultiStepSkillPlan && !skillPlan.isSingleToolStepPlan()) return null
+                return buildInitialToolPlanFromSkill(skillPlan)
+            }
         }
         if (!actionPlanningRuntime.isLikelyAction(input)) return null
         val result = actionPlanningRuntime.plan(input, actionModelPath)
         val draft = result.plan.draft
         if (result.plan.kind != ActionPlanKind.Draft || draft == null) return null
+        if (!allowMultiStepSkillPlan && draft.functionName in INITIAL_SEQUENTIAL_CONTINUATION_TOOL_NAMES) return null
         val request = ToolRequest(
             toolName = draft.functionName,
             arguments = draft.parameters,
             reason = draft.summary,
         )
         val skillPlan = skillRuntime.plan(input, draft, request)
+        if (!allowMultiStepSkillPlan && skillPlan != null && !skillPlan.isSingleToolStepPlan()) return null
         return buildInitialToolPlan(
             request = request,
             draft = draft,
@@ -733,6 +765,13 @@ class AgentLoopRuntime(
             skillPlan = skillPlan,
         )
     }
+
+    private fun String.initialSequentialActionInput(): String? =
+        explicitSequentialActionTextAt(0)
+            ?.takeIf { explicitSequentialActionTextAt(1) != null }
+
+    private fun SkillPlan.isSingleToolStepPlan(): Boolean =
+        steps.singleOrNull() is SkillStep.ToolStep
 
     private fun draftForRemoteToolRequest(request: ToolRequest): ActionDraft {
         val spec = toolRegistry.specFor(request.toolName)

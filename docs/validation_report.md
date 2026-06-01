@@ -1,5 +1,39 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Initial sequential first-segment planning 增量验证
+
+本轮覆盖项：
+
+- 初始规划在整句显式顺序输入被保守拒绝后，可只用第一段 action segment
+  重新尝试单工具/单步 Skill 规划。
+- “先搜一下 Kotlin，然后打开 Wi-Fi 设置”现在能用规则路径进入 `web_search`
+  确认，观察成功后继续规划 Wi-Fi 确认。
+- 第一段如果会形成 composite Skill（如“总结剪贴板并分享”）或观察后必然进入
+  本地模型 continuation 的私密读取（如“读取剪贴板”）则不拆，避免启动半截流程后
+  丢失后续 segment cursor。
+- 解释性“先搜索再打开设置这个流程怎么实现”仍走普通回答，不进入确认。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentFallsBackToAnswer' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.explanatorySequentialTextStillFallsBackToAnswer'
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+git diff --unified=0 | rg -n "^\\+.*<sensitive endpoint/model/key patterns>"
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：通过。第一次完整验证遇到 lint/KSP generated file 读取竞态，补跑
+`:app:kspReleaseKotlin :app:lintDebug` 后重新执行 `scripts/verify_local.sh`
+通过；本轮新增 diff 行敏感串扫描无命中。
+
 ## 2026-06-02 Explicit sequential Agent loop 增量验证
 
 本轮覆盖项：

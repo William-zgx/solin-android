@@ -3717,6 +3717,102 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun initialSequentialInputPlansFirstSingleToolSegmentThenContinues() {
+        val actionRuntime = RuleActionRuntime()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val planned = runtime.runOnce(
+            input = "先搜一下 Kotlin，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
+        assertEquals("Kotlin", planned.plan.request.arguments["query"])
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val wifiPlanned = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+            ),
+        )
+
+        requireNotNull(wifiPlanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, wifiPlanned.run.state)
+        require(wifiPlanned.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wifiPlanned.decision.plan.request.toolName)
+    }
+
+    @Test
+    fun initialSequentialCompositeSkillSegmentFallsBackToAnswer() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RuleActionRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = SequentialActionObservationReplanner(RuleActionRuntime()),
+        )
+
+        val result = runtime.runOnce(
+            input = "总结剪贴板并分享，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
+        require(result.plan is AgentPlan.Answer)
+        assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
+    fun initialSequentialPrivateReadSegmentFallsBackToAnswer() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RuleActionRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = SequentialActionObservationReplanner(RuleActionRuntime()),
+        )
+
+        val result = runtime.runOnce(
+            input = "读取剪贴板，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
+        require(result.plan is AgentPlan.Answer)
+        assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
+    fun explanatorySequentialTextStillFallsBackToAnswer() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RuleActionRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = SequentialActionObservationReplanner(RuleActionRuntime()),
+        )
+
+        val result = runtime.runOnce(
+            input = "解释一下先搜索再打开设置这个流程怎么实现",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
+        require(result.plan is AgentPlan.Answer)
+        assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
     fun unverifiedExternalLaunchDoesNotAutoPlanNextTool() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(
@@ -4610,6 +4706,22 @@ class AgentLoopRuntimeTest {
             }
             return ActionPlanningResult(
                 plan = ActionPlan(kind = ActionPlanKind.Draft, draft = draft),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            )
+        }
+    }
+
+    private class RuleActionRuntime : ActionPlanningRuntime {
+        private val planner = MobileActionPlanner()
+
+        override fun isLikelyAction(input: String): Boolean =
+            planner.isLikelyAction(input)
+
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
+            val plan = planner.plan(input)
+            return ActionPlanningResult(
+                plan = plan,
                 usedModel = false,
                 fallbackReason = "test fallback",
             )
