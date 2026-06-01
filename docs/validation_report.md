@@ -1,5 +1,45 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Office Open XML shared-input excerpt 增量验证
+
+本轮覆盖项：
+
+- 用户主动分享或选择的 Office Open XML `.docx` / `.xlsx` / `.pptx`
+  附件可以在本地解析 ZIP XML 文本层，生成最多 4000 字符的用户可见摘录。
+- 摘录只进入自动生成的 `LocalOnly` shared-input prompt；远程模型模式下不构造
+  包含文件名、附件元数据或文档摘录的 prompt，也不会调用远程 runtime。
+- PDF、RTF、旧版 Office 二进制、音频、视频、任意二进制文件仍保持
+  metadata-only；本轮不实现完整文档解析、PDF 解析、版式理解或语义理解。
+- 解析器限制 ZIP entry 数量、XML entry bytes、总 XML bytes 和 prompt 字符数，
+  并使用禁用外部实体的 XML parser。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt'
+```
+
+结果：targeted Office Open XML shared-input excerpt 回归测试通过。
+
+补充验证：
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：全量 JVM 单测、AndroidTest Kotlin 编译、diff whitespace 检查、敏感串扫描
+和本地完整验证脚本通过。
+
 ## 2026-06-01 Periodic check startup reconcile 增量验证
 
 本轮覆盖项：

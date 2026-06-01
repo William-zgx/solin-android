@@ -588,7 +588,8 @@ Current status:
 - Startup restoration can rehydrate the latest pending Agent confirmation from
   Room without invoking Android execution or runtime permission requests.
 - Android share-target ingestion for shared text, bounded `text/*` document
-  excerpts, and image/audio/video/PDF/Office/binary metadata is implemented.
+  excerpts, bounded Office Open XML text-layer excerpts, and
+  image/audio/video/PDF/legacy-Office/binary metadata is implemented.
 - Implemented outbound `share_text` as a confirmed tool that opens Android's
   system share panel. Explicit “分享这段文字...” requests can now enter the
   confirmation flow through the built-in Skill runtime without waiting for the
@@ -980,8 +981,9 @@ Code:
 Responsibilities:
 
 - Accept user-initiated shared text, bounded `text/*` document excerpts,
-  bounded local OCR text excerpts for user-provided `image/*` attachments,
-  and attachment metadata from Android share targets and the in-app picker.
+  bounded Office Open XML text-layer excerpts, bounded local OCR text excerpts
+  for user-provided `image/*` attachments, and attachment metadata from Android
+  share targets and the in-app picker.
 - Classify attachments by MIME type; keep unsupported non-text files
   metadata-only.
 - Keep multimodal source handling separate from chat generation and tools.
@@ -998,11 +1000,13 @@ Current status:
   text plus attachment metadata such as kind, MIME type, display name, and byte
   size.
 - Implemented bounded local text excerpts for user-initiated shared `text/*`
-  documents and bounded local OCR text excerpts for user-provided `image/*`
-  attachments. Excerpts are user-visible and limited to the local shared-input
-  prompt.
-- Audio, video, PDF, Office, binary, and other unsupported attachments stay
-  metadata-only; the app does not parse or embed their bytes into prompts.
+  documents, bounded text-layer excerpts for user-provided Office Open XML
+  `.docx` / `.xlsx` / `.pptx` files, and bounded local OCR text excerpts for
+  user-provided `image/*` attachments. Excerpts are user-visible and limited to
+  the local shared-input prompt.
+- Audio, video, PDF, RTF, legacy Office binary formats, binary, and other
+  unsupported attachments stay metadata-only; the app does not parse or embed
+  their bytes into prompts.
 - Implemented a voice input entry that launches Android system speech
   recognition and returns the transcript as a one-shot compose-box draft.
   Transcripts are not auto-sent, do not create chat messages until the user
@@ -1016,16 +1020,18 @@ Current status:
   recent image OCR are implemented as confirmed Device Context tools, not
   automatic shared-input ingestion. The current-screen Accessibility
   text snapshot tool follows the same Device Context boundary and reads text
-  nodes only; screenshot capture, screen semantic understanding, Office/PDF
-  parsing, image semantic understanding, and media content understanding are
-  pending. Image OCR is limited to user-provided `image/*` attachments, the
-  user-confirmed recent screenshot OCR tool, or the user-confirmed recent image
-  OCR tool, and produces text excerpts only.
+  nodes only; screenshot capture, screen semantic understanding, PDF parsing,
+  legacy Office/RTF parsing, image semantic understanding, and media content
+  understanding are pending. Office Open XML extraction is text-layer only, not
+  complete document parsing. Image OCR is limited to user-provided `image/*`
+  attachments, the user-confirmed recent screenshot OCR tool, or the
+  user-confirmed recent image OCR tool, and produces text excerpts only.
 
 Tests:
 
 - `SharedInputTest`
 - `PocketMindViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory`
+- `PocketMindViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt`
 - `PocketMindViewModelTest.remoteModeRejectsLocalOnlyPromptBeforeCallingRemoteRuntime`
 - `PocketMindViewModelTest.remoteModeProtectsRecentScreenshotOcrBeforeRemoteContinuation`
 - `PocketMindViewModelTest.remoteModeProtectsRecentImageOcrBeforeRemoteContinuation`

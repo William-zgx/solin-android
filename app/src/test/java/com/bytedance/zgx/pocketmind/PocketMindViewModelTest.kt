@@ -164,7 +164,7 @@ class PocketMindViewModelTest {
         assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
         assertFalse(sessionStore.messages.single().text.contains("private excerpt"))
         assertFalse(sessionStore.messages.single().text.contains("private.txt"))
-        assertTrue(sessionStore.messages.single().text.contains("不会自动发送分享文本、文本摘录或附件元数据"))
+        assertTrue(sessionStore.messages.single().text.contains("不会自动发送分享文本、文档摘录、OCR 摘录或附件元数据"))
     }
 
     @Test
@@ -208,8 +208,51 @@ class PocketMindViewModelTest {
         assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
         assertFalse(sessionStore.messages.single().text.contains("private screenshot text"))
         assertFalse(sessionStore.messages.single().text.contains("private-screen.png"))
-        assertTrue(sessionStore.messages.single().text.contains("不会自动发送分享文本、文本摘录或附件元数据"))
-        assertTrue(sessionStore.messages.single().text.contains("OCR 摘录同样不会自动发送"))
+        assertTrue(sessionStore.messages.single().text.contains("不会自动发送分享文本、文档摘录、OCR 摘录或附件元数据"))
+    }
+
+    @Test
+    fun remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.ingestSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Document,
+                        mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        displayName = "private-plan.docx",
+                        sizeBytes = 12L,
+                        textPreview = SharedTextPreview(
+                            text = "private office document excerpt",
+                            truncated = false,
+                            source = SharedTextPreviewSource.OfficeDocument,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(1, sessionStore.messages.size)
+        assertEquals(MessageRole.Assistant, sessionStore.messages.single().role)
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
+        assertFalse(sessionStore.messages.single().text.contains("private office document excerpt"))
+        assertFalse(sessionStore.messages.single().text.contains("private-plan.docx"))
+        assertTrue(sessionStore.messages.single().text.contains("不会自动发送分享文本、文档摘录、OCR 摘录或附件元数据"))
     }
 
     @Test

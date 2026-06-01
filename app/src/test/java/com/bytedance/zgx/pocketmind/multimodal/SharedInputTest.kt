@@ -1,8 +1,12 @@
 package com.bytedance.zgx.pocketmind.multimodal
 
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -100,6 +104,33 @@ class SharedInputTest {
     }
 
     @Test
+    fun promptIncludesOfficeOpenXmlTextPreviewForDocumentAttachment() {
+        val input = SharedInput(
+            text = "请总结文档",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    displayName = "brief.docx",
+                    sizeBytes = 120L,
+                    textPreview = SharedTextPreview(
+                        text = "第一段\n第二段",
+                        truncated = true,
+                        source = SharedTextPreviewSource.OfficeDocument,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("Office Open XML 文档"))
+        assertTrue(prompt.contains("Office 文本摘录（已截断）"))
+        assertTrue(prompt.contains("第一段"))
+        assertTrue(prompt.contains("第二段"))
+    }
+
+    @Test
     fun binaryAndRichDocumentAttachmentsRemainMetadataOnlyWithoutPreview() {
         val input = SharedInput(
             text = "",
@@ -177,15 +208,13 @@ class SharedInputTest {
     }
 
     @Test
-    fun officeAndRtfAttachmentsRemainMetadataOnlyWithoutPreview() {
+    fun legacyOfficePdfAndRtfAttachmentsRemainMetadataOnlyWithoutPreview() {
         val richDocumentMimeTypes = listOf(
+            "application/pdf",
             "application/rtf",
             "application/msword",
             "application/vnd.ms-excel",
             "application/vnd.ms-powerpoint",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         )
         richDocumentMimeTypes.forEachIndexed { index, mimeType ->
             val input = SharedInput(
@@ -210,6 +239,45 @@ class SharedInputTest {
             assertFalse(prompt.contains("rich document secret $index"))
             assertFalse(prompt.contains("\n   文本摘录"))
         }
+    }
+
+    @Test
+    fun officePreviewSourceIsIgnoredForNonOpenXmlDocuments() {
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/pdf",
+                    displayName = "report.pdf",
+                    sizeBytes = 42L,
+                    textPreview = SharedTextPreview(
+                        text = "pdf secret",
+                        truncated = false,
+                        source = SharedTextPreviewSource.OfficeDocument,
+                    ),
+                ),
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/msword",
+                    displayName = "legacy.doc",
+                    sizeBytes = 43L,
+                    textPreview = SharedTextPreview(
+                        text = "legacy office secret",
+                        truncated = false,
+                        source = SharedTextPreviewSource.OfficeDocument,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("report.pdf"))
+        assertTrue(prompt.contains("legacy.doc"))
+        assertFalse(prompt.contains("pdf secret"))
+        assertFalse(prompt.contains("legacy office secret"))
+        assertFalse(prompt.contains("\n   Office 文本摘录"))
     }
 
     @Test
@@ -291,6 +359,30 @@ class SharedInputTest {
     }
 
     @Test
+    fun officeOpenXmlPreviewReaderOnlyAllowsOpenXmlOfficeMediaTypes() {
+        assertTrue(
+            canReadOfficeOpenXmlTextPreviewFor(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+        assertTrue(
+            canReadOfficeOpenXmlTextPreviewFor(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet; charset=binary",
+            ),
+        )
+        assertTrue(
+            canReadOfficeOpenXmlTextPreviewFor(
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ),
+        )
+        assertFalse(canReadOfficeOpenXmlTextPreviewFor("application/pdf"))
+        assertFalse(canReadOfficeOpenXmlTextPreviewFor("application/rtf"))
+        assertFalse(canReadOfficeOpenXmlTextPreviewFor("application/msword"))
+        assertFalse(canReadOfficeOpenXmlTextPreviewFor("text/plain"))
+        assertFalse(canReadOfficeOpenXmlTextPreviewFor(null))
+    }
+
+    @Test
     fun imageTextPreviewReaderOnlyAllowsImageMediaTypes() {
         assertTrue(canReadImageTextPreviewFor("image/png"))
         assertTrue(canReadImageTextPreviewFor(" image/jpeg; charset=binary "))
@@ -338,5 +430,106 @@ class SharedInputTest {
         assertNotNull(truncated)
         assertEquals(4_000, truncated!!.text.length)
         assertTrue(truncated.truncated)
+    }
+
+    @Test
+    fun officeOpenXmlPreviewReaderExtractsWordBodyText() {
+        val preview = OfficeOpenXmlPreviewReader.read(
+            officeZip(
+                "word/document.xml" to """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                      <w:body>
+                        <w:p><w:r><w:t>第一段</w:t></w:r></w:p>
+                        <w:p><w:r><w:t>第二段</w:t></w:r></w:p>
+                      </w:body>
+                    </w:document>
+                """.trimIndent(),
+            ).inputStream(),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+        assertNotNull(preview)
+        assertEquals("第一段\n第二段", preview!!.text)
+        assertEquals(SharedTextPreviewSource.OfficeDocument, preview.source)
+        assertFalse(preview.truncated)
+    }
+
+    @Test
+    fun officeOpenXmlPreviewReaderExtractsSpreadsheetAndPresentationText() {
+        val spreadsheet = OfficeOpenXmlPreviewReader.read(
+            officeZip(
+                "xl/sharedStrings.xml" to """
+                    <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+                      <si><t>表格标题</t></si>
+                      <si><t>单元格内容</t></si>
+                    </sst>
+                """.trimIndent(),
+            ).inputStream(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        val presentation = OfficeOpenXmlPreviewReader.read(
+            officeZip(
+                "ppt/slides/slide1.xml" to """
+                    <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                        xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                      <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>第一页标题</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
+                    </p:sld>
+                """.trimIndent(),
+            ).inputStream(),
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        )
+
+        assertNotNull(spreadsheet)
+        assertEquals("表格标题\n单元格内容", spreadsheet!!.text)
+        assertNotNull(presentation)
+        assertEquals("第一页标题", presentation!!.text)
+    }
+
+    @Test
+    fun officeOpenXmlPreviewReaderRejectsMissingVisibleTextOrUnsupportedMime() {
+        assertNull(
+            OfficeOpenXmlPreviewReader.read(
+                officeZip("docProps/core.xml" to "<coreProperties><title>metadata secret</title></coreProperties>")
+                    .inputStream(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+        assertNull(
+            OfficeOpenXmlPreviewReader.read(
+                officeZip("word/document.xml" to "<w:document><w:t>secret</w:t></w:document>").inputStream(),
+                "application/pdf",
+            ),
+        )
+    }
+
+    @Test
+    fun officeOpenXmlPreviewReaderTruncatesLargeText() {
+        val preview = OfficeOpenXmlPreviewReader.read(
+            officeZip(
+                "word/document.xml" to """
+                    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                      <w:body><w:p><w:r><w:t>${"a".repeat(4_100)}</w:t></w:r></w:p></w:body>
+                    </w:document>
+                """.trimIndent(),
+            ).inputStream(),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+        assertNotNull(preview)
+        assertEquals(4_000, preview!!.text.length)
+        assertTrue(preview.truncated)
+    }
+
+    private fun officeZip(vararg entries: Pair<String, String>): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            entries.forEach { (name, text) ->
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(text.toByteArray())
+                zip.closeEntry()
+            }
+        }
+        return output.toByteArray()
     }
 }

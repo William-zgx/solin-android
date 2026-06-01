@@ -44,7 +44,9 @@ data class SharedInput(
             }
             if (attachmentBlock.isNotBlank()) {
                 append("\n\n")
-                append("已分享附件（默认只读取元数据；text/* 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n")
+                append(
+                    "已分享附件（默认只读取元数据；text/* 文档、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n",
+                )
                 append(attachmentBlock)
             }
         }.trim()
@@ -104,6 +106,7 @@ data class SharedTextPreview(
 
 enum class SharedTextPreviewSource(val label: String) {
     TextFile("文本摘录"),
+    OfficeDocument("Office 文本摘录"),
     ImageOcr("图片文字摘录"),
 }
 
@@ -135,6 +138,9 @@ fun canReadTextPreviewFor(mimeType: String?): Boolean =
         else -> normalizedMimeType.startsWith("text/")
     }
 
+fun canReadOfficeOpenXmlTextPreviewFor(mimeType: String?): Boolean =
+    mimeType.normalizedMediaType() in officeOpenXmlMimeTypes
+
 fun canReadImageTextPreviewFor(mimeType: String?): Boolean =
     when (val normalizedMimeType = mimeType.normalizedMediaType()) {
         null -> false
@@ -144,6 +150,10 @@ fun canReadImageTextPreviewFor(mimeType: String?): Boolean =
 fun canUseTextPreviewFor(attachment: SharedAttachment): Boolean =
     when (attachment.textPreview?.source) {
         SharedTextPreviewSource.TextFile -> canReadTextPreviewFor(attachment.mimeType)
+        SharedTextPreviewSource.OfficeDocument ->
+            attachment.kind == SharedAttachmentKind.Document &&
+                canReadOfficeOpenXmlTextPreviewFor(attachment.mimeType)
+
         SharedTextPreviewSource.ImageOcr ->
             attachment.kind == SharedAttachmentKind.Image && canReadImageTextPreviewFor(attachment.mimeType)
 
@@ -225,6 +235,12 @@ private val documentMimeTypes = setOf(
     "application/msword",
     "application/vnd.ms-excel",
     "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+)
+
+internal val officeOpenXmlMimeTypes = setOf(
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

@@ -58,6 +58,7 @@ class ShareIntentReader(
         val kind = sharedAttachmentKindFor(resolvedMimeType)
         val textPreview = when {
             canReadTextPreviewFor(resolvedMimeType) -> readTextPreview()
+            canReadOfficeOpenXmlTextPreviewFor(resolvedMimeType) -> readOfficeOpenXmlTextPreview(resolvedMimeType)
             kind == SharedAttachmentKind.Image && canReadImageTextPreviewFor(resolvedMimeType) ->
                 imageTextExtractor.extract(this)
 
@@ -76,6 +77,13 @@ class ShareIntentReader(
         runCatching {
             context.contentResolver.openInputStream(this)?.use { input ->
                 TextAttachmentPreviewReader.read(input)
+            }
+        }.getOrNull()
+
+    private fun Uri.readOfficeOpenXmlTextPreview(mimeType: String?): SharedTextPreview? =
+        runCatching {
+            context.contentResolver.openInputStream(this)?.use { input ->
+                OfficeOpenXmlPreviewReader.read(input, mimeType)
             }
         }.getOrNull()
 
