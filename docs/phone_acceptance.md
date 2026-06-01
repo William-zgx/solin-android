@@ -212,5 +212,6 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 - 通过受确认保护的 `query_recent_files(kind="screenshots")` 查询最近截图时，只应展示截图候选文件的文件名、MIME、大小、修改时间等元数据；不应读取图片像素、文件路径、URI 或截图内容。
 - 通过受确认保护的 `read_recent_screenshot_ocr` 识别最近截图文字时，App 只应读取最近 1 张截图并在本地生成 OCR 摘录；结果应标记为 `LocalOnly`，不应在 trace/audit/持久消息里保存截图 URI、路径、原始像素或 OCR 原文。
 - 通过受确认保护的 `read_recent_image_ocr` 识别最近图片/照片文字时，App 最多扫描最近 3 张图片并在本地返回第一条有界 OCR 摘录；结果应标记为 `LocalOnly`，不应在 trace/audit/持久消息里保存图片 URI、路径、原始像素或 OCR 原文。
+- OCR 摘录可以保留 ML Kit 识别出的文本块/行顺序；不应输出坐标、框选位置、图片标签、看图描述、像素或语义理解结果。
 - 远程模型模式下，最近截图 OCR、最近图片 OCR 和当前屏幕 Accessibility 文本快照的后续回答不应自动调用远程 runtime；UI 应提示已保护对应本地内容，并要求切换本地模型或由用户手动粘贴愿意上传的内容。
 - 当前只验收分享入口、系统文件选择入口、语音入口、`text/*` 有界摘录、Office Open XML 文本层有界摘录、用户主动提供 `image/*` 的本地 OCR 有界摘录、最近截图 metadata 查询、最近 1 张截图确认式 OCR、最近 3 张图片确认式 OCR、受确认当前屏幕 Accessibility 文本节点快照与 metadata-only/LocalOnly 边界；截图捕获、语义屏幕理解、PDF/RTF/旧 Office 解析、完整文档解析、图片语义理解、任意媒体 OCR 和媒体内容理解仍是待实现项。

@@ -1,5 +1,42 @@
 # PocketMind 验证报告
 
+## 2026-06-01 OCR layout-preserving text excerpt 增量验证
+
+本轮覆盖项：
+
+- ML Kit OCR 输出从扁平 line 去重改为保留 recognized text block / line 顺序，
+  block 之间用空行分隔，Latin/Chinese recognizer 输出跨源稳定去重。
+- 输出仍是 bounded text excerpt；不加入坐标、bounding boxes、图片标签、caption、
+  像素或视觉语义。
+- 共享图片 OCR 与受确认的最近截图/最近图片 OCR 共用该格式化边界，LocalOnly、
+  trace/audit redaction 和 remote-mode protection 不变。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.ImageTextExtractorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.recentScreenshotOcrSuccessReturnsLocalOnlyTextWithoutImageIdentifiers' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.recentImageOcrSuccessScansImagesAndReturnsLocalOnlyTextWithoutImageIdentifiers'
+```
+
+结果：targeted OCR layout-preserving text excerpt 回归测试通过。
+
+补充验证：
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：全量 JVM 单测、AndroidTest Kotlin 编译、diff whitespace 检查、敏感串扫描
+和本地完整验证脚本通过。
+
 ## 2026-06-01 Office Open XML shared-input excerpt 增量验证
 
 本轮覆盖项：

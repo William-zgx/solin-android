@@ -137,7 +137,9 @@ permissions, extracts a bounded local OCR text excerpt, and does not persist
 the image URI, path, raw pixels, or OCR text in trace/audit. The permission
 boundary is `READ_MEDIA_IMAGES` on Android 13+ or legacy storage read permission
 on older Android versions; this is not current-screen capture, visual
-understanding, arbitrary media OCR, or multi-screenshot OCR. Remote model mode
+understanding, arbitrary media OCR, or multi-screenshot OCR. The OCR excerpt
+may preserve recognized block and line order from ML Kit, but it does not add
+coordinates, labels, captions, or image semantics. Remote model mode
 stops before automatic continuation and asks the user to switch local or
 manually provide content they are willing to upload.
 Explicit requests such as “识别最近图片文字” use the skill-first path and become

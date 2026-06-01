@@ -24,41 +24,66 @@ class MlKitImageTextExtractor(
     override fun extract(uri: Uri): SharedTextPreview? =
         runCatching {
             val image = InputImage.fromFilePath(context, uri)
-            val latinText = runCatching {
-                extractText(
+            val latinBlocks = runCatching {
+                extractTextBlocks(
                     image = image,
                     recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS),
                 )
             }.getOrNull()
-            val chineseText = runCatching {
-                extractText(
+            val chineseBlocks = runCatching {
+                extractTextBlocks(
                     image = image,
                     recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build()),
                 )
             }.getOrNull()
-            ImageTextPreviewReader.fromText(mergeOcrTexts(listOfNotNull(latinText, chineseText)))
+            ImageTextPreviewReader.fromText(
+                OcrTextLayoutFormatter.mergeRecognizedBlocks(listOfNotNull(latinBlocks, chineseBlocks)),
+            )
         }.getOrNull()
 
-    private fun extractText(
+    private fun extractTextBlocks(
         image: InputImage,
         recognizer: TextRecognizer,
-    ): String =
+    ): List<List<String>> =
         try {
-            Tasks.await(recognizer.process(image), RECOGNIZER_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS).text
+            Tasks.await(recognizer.process(image), RECOGNIZER_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+                .textBlocks
+                .map { block -> block.lines.map { line -> line.text } }
         } finally {
             recognizer.close()
         }
 
-    private fun mergeOcrTexts(texts: List<String>): String =
-        texts
-            .asSequence()
-            .flatMap { text -> text.lines().asSequence() }
-            .map { line -> line.trim() }
-            .filter { line -> line.isNotBlank() }
-            .distinct()
-            .joinToString(separator = "\n")
-
     private companion object {
         const val RECOGNIZER_TIMEOUT_MILLIS = 2_500L
     }
+}
+
+internal object OcrTextLayoutFormatter {
+    fun mergeRecognizedBlocks(recognizerBlocks: List<List<List<String>>>): String {
+        val seenLines = linkedSetOf<String>()
+        val outputBlocks = mutableListOf<List<String>>()
+        recognizerBlocks.forEach { blocks ->
+            blocks.forEach { block ->
+                val lines = block
+                    .mapNotNull { line ->
+                        line.normalizedOcrLine()
+                            .takeIf { normalized -> normalized.isNotBlank() }
+                            ?.takeIf(seenLines::add)
+                    }
+                if (lines.isNotEmpty()) {
+                    outputBlocks += lines
+                }
+            }
+        }
+        return outputBlocks.joinToString(separator = "\n\n") { block ->
+            block.joinToString(separator = "\n")
+        }
+    }
+
+    private fun String.normalizedOcrLine(): String =
+        replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .filter { char -> !char.isISOControl() || char == '\n' || char == '\t' }
+            .replace(Regex("""[ \t\n]+"""), " ")
+            .trim()
 }

@@ -522,7 +522,9 @@ Current status:
   after confirmation through `READ_MEDIA_IMAGES` or legacy storage permission,
   extracts a bounded local OCR text excerpt, marks the result `LocalOnly`,
   treats `ocrText` as private Skill output, and does not persist or expose the
-  MediaStore id, URI, path, original image, or raw pixels.
+  MediaStore id, URI, path, original image, or raw pixels. OCR formatting
+  preserves recognized block/line order when ML Kit provides it, while still
+  omitting coordinates, image labels, captions, pixels, and visual semantics.
   Remote mode treats the OCR continuation like other protected local context and
   stops before sending it to a configured backend.
 - `read_recent_image_ocr` is a separate skill-first, confirmed tool for

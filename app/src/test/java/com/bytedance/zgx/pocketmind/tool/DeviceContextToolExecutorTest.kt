@@ -409,7 +409,7 @@ class DeviceContextToolExecutorTest {
                     kind = "screenshots",
                     sizeBytes = 2_048L,
                     lastModifiedMillis = 7_000L,
-                    text = "标题\n正文",
+                    text = "标题\n正文\n\n页脚",
                     truncated = true,
                 ),
                 scannedCount = 1,
@@ -434,7 +434,7 @@ class DeviceContextToolExecutorTest {
         assertEquals(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR, result.data["toolName"])
         assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
         assertEquals("true", result.data["requiresLocalModel"])
-        assertEquals("标题\n正文", result.data["ocrText"])
+        assertEquals("标题\n正文\n\n页脚", result.data["ocrText"])
         assertEquals("true", result.data["truncated"])
         assertEquals("true", result.data["ocrTextIncluded"])
         assertEquals("false", result.data["rawPayloadIncluded"])
@@ -456,7 +456,7 @@ class DeviceContextToolExecutorTest {
                     kind = "images",
                     sizeBytes = 4_096L,
                     lastModifiedMillis = 8_000L,
-                    text = "照片里的文字",
+                    text = "照片标题\n\n照片里的文字",
                     truncated = false,
                 ),
                 scannedCount = 2,
@@ -479,7 +479,7 @@ class DeviceContextToolExecutorTest {
         assertEquals(MobileActionFunctions.READ_RECENT_IMAGE_OCR, result.data["toolName"])
         assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
         assertEquals("true", result.data["requiresLocalModel"])
-        assertEquals("照片里的文字", result.data["ocrText"])
+        assertEquals("照片标题\n\n照片里的文字", result.data["ocrText"])
         assertEquals("false", result.data["truncated"])
         assertEquals("true", result.data["ocrTextIncluded"])
         assertEquals("ocr_text_local_only_no_uri_path_or_pixels_persisted", result.data["metadataPolicy"])
