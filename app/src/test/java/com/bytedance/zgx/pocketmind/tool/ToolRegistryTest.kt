@@ -167,7 +167,9 @@ class ToolRegistryTest {
         requireNotNull(recentNotificationSpec)
         assertEquals(ToolCapability.DeviceContext, recentNotificationSpec.capability)
         assertTrue(ToolPermission.ReadsDeviceContext in recentNotificationSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in recentNotificationSpec.permissions)
         assertTrue(recentNotificationSpec.description.contains("当前应用"))
+        assertTrue(recentNotificationSpec.inputSchemaJson.contains("\"maximum\": 20"))
 
         val foregroundAppSpec = registry.specFor(MobileActionFunctions.QUERY_FOREGROUND_APP)
         assertNotNull(foregroundAppSpec)
@@ -207,6 +209,23 @@ class ToolRegistryTest {
         assertTrue(appDeepTargetSpec.inputSchemaJson.contains("\"packageName\""))
         assertTrue(appDeepTargetSpec.inputSchemaJson.contains(AppDeepTargets.APP_DETAILS_SETTINGS_ID))
         assertTrue(!appDeepTargetSpec.inputSchemaJson.contains("\"activityClass\""))
+    }
+
+    @Test
+    fun recentNotificationSchemaRejectsUnsupportedMaxCount() {
+        val rejection = registry.validate(
+            ToolRequest(
+                id = "recent-notifications-too-many",
+                toolName = MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+                arguments = mapOf("maxCount" to "21"),
+                reason = "schema contract",
+            ),
+        )
+
+        assertNotNull(rejection)
+        requireNotNull(rejection)
+        assertEquals(ToolStatus.Rejected, rejection.status)
+        assertTrue(rejection.summary.contains("at most 20"))
     }
 
     @Test

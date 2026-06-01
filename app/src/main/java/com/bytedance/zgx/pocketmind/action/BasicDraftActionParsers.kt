@@ -483,13 +483,98 @@ internal object ForegroundAppActionParser {
             "代码",
             "模块",
             "组件",
+            "通知",
             "怎么实现",
             "如何实现",
             "怎么设计",
         ).any { it in this } ||
+            normalized.contains(Regex("""\bnotifications?\b""")) ||
             normalized.contains(Regex("""\bforeground\s+services?\b""")) ||
             normalized.contains(Regex("""\b(current|foreground|active)\s+app\s+(architecture|module|component|code|api|screen|state)\b""")) ||
             normalized.contains(Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\b(current|foreground|active)\s+app\b"""))
+    }
+}
+
+internal object RecentNotificationsActionParser {
+    private val englishPattern =
+        Regex(
+            """\b(?:recent|latest|last)\s+(?:\d{1,2}\s+)?(?:current\s+app|this\s+app|pocketmind)\s+notifications?\b|\b(?:current\s+app|this\s+app|pocketmind)\s+(?:(?:recent|latest|last)\s+)?(?:\d{1,2}\s+)?notifications?\b|\b(?:recent|latest|last)\s+(?:\d{1,2}\s+)?notifications?\s+(?:for|from)\s+(?:current\s+app|this\s+app|pocketmind)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeNotificationNonAction()) return false
+        val normalized = input.lowercase()
+        val hasChineseTrigger = listOf(
+            "最近通知",
+            "最近的通知",
+            "最近通知摘要",
+            "通知摘要",
+            "当前应用最近通知",
+            "当前应用通知",
+            "当前 app 最近通知",
+            "当前app最近通知",
+            "本应用最近通知",
+            "本应用通知",
+        ).any { it in input } ||
+            Regex("""(?:当前应用|当前\s*app|本应用)?\s*最近\s*\d{1,2}\s*条?\s*(?:消息|通知|讯息)""")
+                .containsMatchIn(input) ||
+            (input.contains("PocketMind", ignoreCase = true) && "通知" in input && ("最近" in input || "摘要" in input))
+        return hasChineseTrigger || englishPattern.containsMatchIn(normalized)
+    }
+
+    fun draft(input: String): ActionDraft {
+        val parameters = parameters(input)
+        return ActionDraft(
+            functionName = MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+            title = "查询最近通知",
+            summary = summary(parameters["maxCount"]),
+            parameters = parameters,
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun parameters(input: String): Map<String, String> {
+        val cleaned = input.replace(Regex("\\s+"), "")
+        val normalized = input.lowercase()
+        val match = Regex("""最近(\d{1,2})条?(?:消息|通知|讯息)?""").find(cleaned)
+            ?: Regex("""(?:recent|latest|last)\s+(\d{1,2})\s+(?:current\s+app|this\s+app|app)?\s*notifications?""")
+                .find(normalized)
+            ?: Regex("""(?:current\s+app|this\s+app|pocketmind)\s+(?:recent|latest|last)\s+(\d{1,2})\s+notifications?""")
+                .find(normalized)
+        val maxCount = match?.groupValues?.getOrNull(1)?.toIntOrNull()?.takeIf { it > 0 }?.toString()
+        return if (maxCount == null) emptyMap() else mapOf("maxCount" to maxCount)
+    }
+
+    private fun summary(maxCount: String?): String =
+        if (maxCount.isNullOrBlank()) {
+            "将读取当前应用最近通知的摘要。"
+        } else {
+            "将读取当前应用最近 ${maxCount} 条通知的摘要。"
+        }
+
+    private fun String.looksLikeNotificationNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "系统通知",
+            "所有通知",
+            "全局通知",
+            "其他应用通知",
+            "通知权限",
+            "通知栏权限",
+            "通知系统",
+            "通知架构",
+            "通知渠道",
+            "通知 channel",
+            "通知列表怎么",
+            "通知栏",
+            "怎么实现",
+            "如何实现",
+            "怎么设计",
+        ).any { it in this } ||
+            normalized.contains(Regex("""\b(all|global|system|other\s+apps?)\s+notifications?\b""")) ||
+            normalized.contains(Regex("""\b(notification\s+(permission|channel|system|architecture|api|listener|bar|drawer)|push\s+notifications?)\b""")) ||
+            normalized.contains(Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\bnotifications?\b"""))
     }
 }
 

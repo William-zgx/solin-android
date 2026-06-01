@@ -28,6 +28,7 @@ class BuiltInSkillRuntimeTest {
         assertTrue(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL in manifests)
+        assertTrue(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL in manifests)
         assertTrue(manifests.values.all { it.version >= 1 })
         assertTrue(manifests.values.all { it.inputSchemaJson.contains("additionalProperties") })
     }
@@ -140,6 +141,7 @@ class BuiltInSkillRuntimeTest {
             "最近图片" to requireNotNull(runtime.plan("最近图片")),
             "打开链接 https://example.com" to requireNotNull(runtime.plan("打开链接 https://example.com")),
             "当前应用是什么" to requireNotNull(runtime.plan("当前应用是什么")),
+            "最近通知" to requireNotNull(runtime.plan("最近通知")),
         )
 
         plans.forEach { (input, plan) ->
@@ -536,6 +538,36 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("前台服务限制是什么"))
         assertEquals(null, runtime.plan("current app architecture"))
         assertEquals(null, runtime.plan("how do I implement current app state"))
+    }
+
+    @Test
+    fun plansRecentNotificationsWithoutActionDraftWhenCurrentAppRequestIsExplicit() {
+        val plan = requireNotNull(runtime.plan("最近 3 条通知"))
+
+        assertEquals(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL, plan.request.skillId)
+        assertEquals(mapOf("input" to "最近 3 条通知"), plan.request.arguments)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS, step.request.toolName)
+        assertEquals("3", step.request.arguments["maxCount"])
+        assertEquals(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS, step.draft.functionName)
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+
+        val englishPlan = requireNotNull(runtime.plan("current app last 2 notifications"))
+        assertEquals(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL, englishPlan.request.skillId)
+        val englishStep = englishPlan.steps.single()
+        require(englishStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS, englishStep.request.toolName)
+        assertEquals("2", englishStep.request.arguments["maxCount"])
+
+        assertEquals(null, runtime.plan("notification"))
+        assertEquals(null, runtime.plan("notifications"))
+        assertEquals(null, runtime.plan("recent app notifications"))
+        assertEquals(null, runtime.plan("notification permission"))
+        assertEquals(null, runtime.plan("notification channel"))
+        assertEquals(null, runtime.plan("push notification"))
+        assertEquals(null, runtime.plan("系统通知"))
+        assertEquals(null, runtime.plan("通知栏"))
     }
 
     @Test

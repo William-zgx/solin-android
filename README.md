@@ -22,15 +22,23 @@ Google AI Edge LiteRT-LM.
   failures, provider failures, structured error codes, and LocalOnly device
   context outputs.
 - Minimal device context snapshots plus confirmed clipboard, calendar, contact,
-  notification, foreground-app, recent-file metadata, and recent-screenshot OCR
-  plus recent-image OCR reads, with a documented confirmed current-screen
-  Accessibility text snapshot boundary for controlled context access.
-- Confirmed Android runtime permission requests for tools that need calendar, contact, media, or notification access.
+  current-app notification summary, foreground-app, recent-file metadata, and
+  recent-screenshot OCR plus recent-image OCR reads, with a documented
+  confirmed current-screen Accessibility text snapshot boundary for controlled
+  context access.
+- Confirmed Android runtime permission requests for tools that need calendar,
+  contact, media, or reminder notification posting access.
 - Runtime permission denial is observed as a structured tool failure without
   executing or automatically retrying the tool.
 - Confirmed external navigation for safe HTTPS deep links and package-level app launches.
-- Versioned built-in skill manifests for email drafts, calendar drafts, map search, information lookup, device settings, local reminders, clipboard context, current foreground app context, and system sharing, with manifest input schemas enforced before confirmation or execution.
-- Skill-first routing for explicit clipboard context and clipboard-summary-share requests that do not need action-planner parameter extraction.
+- Versioned built-in skill manifests for email drafts, calendar drafts, map
+  search, information lookup, device settings, local reminders, clipboard
+  context, current foreground app context, current-app notification summaries,
+  recent media metadata, HTTPS link navigation, and system sharing, with
+  manifest input schemas enforced before confirmation or execution.
+- Skill-first routing for explicit clipboard context, current-app notification
+  summary, and clipboard-summary-share requests that do not need
+  action-planner parameter extraction.
 - A conservative clipboard-summary-share composite flow that keeps summarization local and asks again before opening the Android share sheet.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
 - Running background task review for still-scheduled reminders and periodic checks, including explicit cancellation.
@@ -123,6 +131,13 @@ Android media permissions, extracts the first bounded local OCR text excerpt,
 and uses the same LocalOnly, trace/audit redaction, and remote-mode protection
 as screenshot OCR. Plain “最近图片” requests use a skill-first, metadata-only
 `query_recent_files(kind="images")` path.
+Requests such as “最近通知” become confirmed `query_recent_notifications`
+tool calls. The tool reads only PocketMind/current-app active notification
+metadata, defaults to 5 entries, caps requests at 20, and returns LocalOnly
+minimal summaries without notification body text, extras, unread state,
+notification shade contents, other apps, or Notification Listener data. This
+query does not request Android notification runtime permission; if app
+notifications are disabled, it returns a structured permission-denied result.
 Requests such as “读取当前屏幕文字” are reserved for a confirmed current-screen
 Accessibility text snapshot tool. After confirmation, it may read only the
 current Accessibility text-node snapshot exposed by Android accessibility
@@ -155,7 +170,8 @@ any remote model request is made.
 Agent and skill module responsibilities are documented in
 `docs/agent_core_modules.md`. The current code includes the Tool Registry,
 single-run Agent planning, confirmation, tool observation, built-in one-step,
-skill-first information lookup/recent-media-metadata/HTTPS-link-navigation/device-settings/map/email/calendar/text sharing, and one conservative
+skill-first information lookup/recent-media-metadata/current-app-notification
+summary/foreground-app/HTTPS-link-navigation/device-settings/map/email/calendar/text sharing, and one conservative
 clipboard-summary-share composite flow,
 conservative observe-after-success replanning for explicit next actions, a
 gated skill-run executor, minimal device context

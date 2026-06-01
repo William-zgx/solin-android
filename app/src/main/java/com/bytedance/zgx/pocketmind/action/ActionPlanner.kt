@@ -45,8 +45,8 @@ class MobileActionPlanner : ActionPlanner {
             "视频",
             "音频",
             "文档",
-            "通知",
-            "通知栏",
+            "最近通知",
+            "通知摘要",
             "忙闲",
             "空闲",
             "有空",
@@ -123,8 +123,8 @@ class MobileActionPlanner : ActionPlanner {
             ForegroundAppActionParser.matches(input) ->
                 ForegroundAppActionParser.draft()
 
-            isRecentNotificationRequest(input) ->
-                MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS.toDraft(recentNotificationParameters(input))
+            RecentNotificationsActionParser.matches(input) ->
+                RecentNotificationsActionParser.draft(input)
 
             isRecentScreenshotOcrRequest(input) ->
                 MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR.toDraft(recentScreenshotOcrParameters(input))
@@ -322,19 +322,6 @@ class MobileActionPlanner : ActionPlanner {
             listOf("打开", "设置", "开启", "授权", "open", "settings", "grant").any { it in normalized }
     }
 
-    private fun isRecentNotificationRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        return listOf(
-            "最近通知",
-            "最近的通知",
-            "通知列表",
-            "通知摘要",
-            "通知栏",
-            "最近通知栏",
-        ).any { it in input } || Regex("\\b(notifications?|notification)\\b").containsMatchIn(normalized)
-            || Regex("""最近\d{1,2}条""").containsMatchIn(normalized.replace(" ", ""))
-    }
-
     private fun isRecentScreenshotOcrRequest(input: String): Boolean {
         val normalized = input.lowercase()
         val mentionsRecentScreenshot = ("最近" in input && ("截图" in input || "截屏" in input)) ||
@@ -430,15 +417,6 @@ class MobileActionPlanner : ActionPlanner {
         ).any { it in input } ||
             Regex("""\b(contact|contacts)\b""").containsMatchIn(normalized) &&
                 Regex("""(查询|查找|搜索|找|find|search)""").containsMatchIn(normalized)
-    }
-
-    private fun recentNotificationParameters(input: String): Map<String, String> {
-        val cleaned = input.replace(Regex("\\s+"), "")
-        val match = Regex("最近(\\d{1,2})条(消息|通知|讯息)?").find(cleaned)
-            ?: Regex("notification|notifications?\\s*(?:recent|last)\\s+(\\d{1,2})").find(input.lowercase())
-        val rawCount = match?.groupValues?.getOrNull(1) ?: return emptyMap()
-        val maxCount = rawCount.toIntOrNull() ?: return emptyMap()
-        return if (maxCount <= 0) emptyMap() else mapOf("maxCount" to maxCount.toString())
     }
 
     private fun recentScreenshotOcrParameters(input: String): Map<String, String> =

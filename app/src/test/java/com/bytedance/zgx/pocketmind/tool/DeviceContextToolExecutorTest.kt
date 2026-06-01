@@ -148,6 +148,21 @@ class DeviceContextToolExecutorTest {
         assertEquals("Sync finished", notification.getString("title"))
         assertFalse(notification.has("text"))
         assertFalse(notification.has("extras"))
+
+        val clampedProvider = RecordingNotificationSummaryProvider(
+            NotificationSummaryReadResult.Available(emptyList()),
+        )
+        val clamped = NotificationSummaryToolExecutor(clampedProvider).execute(
+            ToolRequest(
+                id = "notifications-too-many",
+                toolName = MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+                arguments = mapOf("maxCount" to "99"),
+                reason = "test",
+            ),
+        )
+        assertEquals(ToolStatus.Succeeded, clamped.status)
+        assertEquals(20, clampedProvider.lastMaxCount)
+        assertEquals("20", clamped.data["maxCount"])
     }
 
     @Test

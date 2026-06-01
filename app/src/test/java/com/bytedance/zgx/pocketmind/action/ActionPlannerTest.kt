@@ -338,6 +338,27 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS, plan.draft?.functionName)
         assertTrue(plan.draft?.summary.orEmpty().contains("当前应用最近通知"))
         assertFalse(plan.draft?.summary.orEmpty().contains("未读"))
+
+        val countPlan = planner.plan("最近 3 条通知")
+        assertEquals(ActionPlanKind.Draft, countPlan.kind)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS, countPlan.draft?.functionName)
+        assertEquals("3", countPlan.draft?.parameters?.get("maxCount"))
+        assertTrue(countPlan.draft?.summary.orEmpty().contains("当前应用最近 3 条通知"))
+
+        val englishPlan = planner.plan("current app last 2 notifications")
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS, englishPlan.draft?.functionName)
+        assertEquals("2", englishPlan.draft?.parameters?.get("maxCount"))
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("notification").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("notifications").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("recent app notifications").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("notification permission").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("notification channel").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("push notification").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("系统通知").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("通知栏").kind)
+        assertFalse(planner.isLikelyAction("通知栏"))
     }
 
     @Test

@@ -1,5 +1,54 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Current-app notification skill-first routing 增量验证
+
+本轮覆盖项：
+
+- 显式“最近通知/当前应用通知摘要”请求可由 built-in Skill runtime 直接规划为
+  `query_recent_notifications` 待确认工具，不再依赖 action planner。
+- Shared notification parser 继续接受中文“最近通知/最近 N 条通知/通知摘要”
+  和英文 `current app` / `this app` / `PocketMind` 通知摘要请求；拒绝裸
+  `notification(s)`、`recent app notifications`、通知权限/渠道/push/listener、
+  系统/全局/其他应用通知和通知栏语义，避免越过当前应用边界。
+- 新增 `recent_notifications_context_skill` manifest，风险级别为
+  `LowReadOnly`；registry schema 将 `maxCount` 限制为 `1..20`，executor
+  也按同一上限规范化。
+- 权限边界保持最小化：`query_recent_notifications` 不声明 Android runtime
+  permission 或 special access；通知被系统关闭时返回结构化
+  `PermissionDenied`，不会自动请求 `POST_NOTIFICATIONS`。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.recentNotificationSummaryMatchesCurrentAppOnlyBoundary' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansRecentNotificationsWithoutActionDraftWhenCurrentAppRequestIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstRecentNotificationsBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.recentNotificationsDeclareNoRuntimePermissionOrSpecialAccess' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.notificationSummarySuccessReturnsLocalOnlyMetadataOnlyJson' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.notificationSummaryPermissionDeniedAndFailureAreStructured' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.recentNotificationSchemaRejectsUnsupportedMaxCount' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
+```
+
+补充回归：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+```
+
+结果：通过。
+
 ## 2026-06-01 Foreground app skill-first routing 增量验证
 
 本轮覆盖项：

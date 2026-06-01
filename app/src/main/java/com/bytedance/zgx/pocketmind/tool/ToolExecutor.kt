@@ -25,6 +25,8 @@ import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
 import org.json.JSONArray
 import org.json.JSONObject
 
+private const val MAX_NOTIFICATION_SUMMARY_COUNT = 20
+
 interface ToolExecutor {
     fun execute(request: ToolRequest): ToolResult
 }
@@ -274,7 +276,8 @@ class NotificationSummaryToolExecutor(
             )
         }
 
-        val maxCount = request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: 5
+        val maxCount = (request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: 5)
+            .coerceIn(1, MAX_NOTIFICATION_SUMMARY_COUNT)
         return when (val result = provider.recentNotifications(maxCount)) {
             is NotificationSummaryReadResult.Available ->
                 request.succeeded(

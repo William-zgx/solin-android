@@ -665,6 +665,32 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstRecentNotificationsBypassesActionPlannerAndRequestsConfirmation() {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "最近 3 条通知",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS, result.plan.request.toolName)
+        assertEquals("3", result.plan.request.arguments["maxCount"])
+        assertEquals(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+    }
+
+    @Test
     fun skillFirstMapEmailAndCalendarBypassActionPlannerAndRequestConfirmation() {
         val cases = listOf(
             SkillFirstDraftCase(
@@ -749,6 +775,14 @@ class AgentLoopRuntimeTest {
             "前台服务限制是什么",
             "current app architecture",
             "how do I implement current app state",
+            "notification",
+            "notifications",
+            "recent app notifications",
+            "notification permission",
+            "notification channel",
+            "push notification",
+            "系统通知",
+            "通知栏",
         )
 
         inputs.forEach { input ->

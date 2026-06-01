@@ -420,7 +420,8 @@ private val recentNotificationSchemaJson = """
       "properties": {
         "maxCount": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 20
         }
       },
       "additionalProperties": false

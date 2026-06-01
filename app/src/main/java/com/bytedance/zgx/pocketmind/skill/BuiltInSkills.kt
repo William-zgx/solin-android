@@ -9,6 +9,7 @@ import com.bytedance.zgx.pocketmind.action.ForegroundAppActionParser
 import com.bytedance.zgx.pocketmind.action.MapSearchActionParser
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.RecentFilesActionParser
+import com.bytedance.zgx.pocketmind.action.RecentNotificationsActionParser
 import com.bytedance.zgx.pocketmind.action.ReminderActionParser
 import com.bytedance.zgx.pocketmind.action.ShareTextActionParser
 import com.bytedance.zgx.pocketmind.action.WebSearchActionParser
@@ -31,6 +32,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.QUERY_RECENT_FILES to RECENT_FILES_CONTEXT_SKILL,
         MobileActionFunctions.OPEN_DEEP_LINK to DEEP_LINK_NAVIGATION_SKILL,
         MobileActionFunctions.QUERY_FOREGROUND_APP to FOREGROUND_APP_CONTEXT_SKILL,
+        MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS to RECENT_NOTIFICATIONS_CONTEXT_SKILL,
     )
 
     override fun manifests(): List<SkillManifest> = builtInSkillManifests
@@ -61,6 +63,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && ForegroundAppActionParser.matches(input) ->
                 plan(input, ForegroundAppActionParser.draft().toRequestPair())
+
+            !input.looksLikeSequentialAction() && RecentNotificationsActionParser.matches(input) ->
+                plan(input, RecentNotificationsActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
@@ -202,6 +207,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val RECENT_FILES_CONTEXT_SKILL = "recent_files_context_skill"
         const val DEEP_LINK_NAVIGATION_SKILL = "deep_link_navigation_skill"
         const val FOREGROUND_APP_CONTEXT_SKILL = "foreground_app_context_skill"
+        const val RECENT_NOTIFICATIONS_CONTEXT_SKILL = "recent_notifications_context_skill"
     }
 }
 
@@ -383,6 +389,16 @@ private val builtInSkillManifests = listOf(
         description = "在用户明确要求时读取当前前台应用的应用名与包名。",
         triggerExamples = listOf("当前应用是什么", "what app is currently open"),
         requiredTools = listOf(MobileActionFunctions.QUERY_FOREGROUND_APP),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.LowReadOnly,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL,
+        version = 1,
+        title = "当前应用最近通知上下文",
+        description = "在用户明确要求时读取当前应用最近通知的最小摘要。",
+        triggerExamples = listOf("最近通知", "current app notifications"),
+        requiredTools = listOf(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.LowReadOnly,
     ),
