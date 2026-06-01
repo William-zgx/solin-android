@@ -104,7 +104,8 @@ class MainActivityComprehensiveTest {
             assertTrue(request.path.endsWith("/v1/chat/completions"))
             assertRemoteToolRequestBody(request)
 
-            composeRule.waitForText("已准备远程动作草稿：Web 搜索", timeoutMillis = 15_000)
+            composeRule.waitForTag("action_confirm_button", timeoutMillis = 15_000)
+            composeRule.waitForText("Web 搜索")
             composeRule.waitForText("Web 搜索 · 远程模型请求")
             composeRule.waitForText("query: $REMOTE_TOOL_CALL_QUERY")
             composeRule.onNodeWithTag("action_confirm_button").assertIsDisplayed()

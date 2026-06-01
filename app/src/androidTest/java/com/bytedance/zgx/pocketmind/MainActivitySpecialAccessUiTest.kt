@@ -8,7 +8,6 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
@@ -43,18 +42,14 @@ class MainActivitySpecialAccessUiTest {
                 "将读取当前屏幕的可访问文本快照（最多 1200 字符）；不会读取截图、像素、坐标或完整节点树。",
             ).assertIsDisplayed()
             composeRule.onNodeWithTag("special_access_requirements")
-                .performScrollTo()
                 .assertIsDisplayed()
             composeRule.onNodeWithText("可能需要系统特殊授权")
-                .performScrollTo()
                 .assertIsDisplayed()
             composeRule.onNodeWithText(
                 "无障碍屏幕文本权限：用于在你确认后只读获取当前屏幕暴露的可访问文本；不会点击、控制设备或读取截图像素。",
             )
-                .performScrollTo()
                 .assertIsDisplayed()
             composeRule.onNodeWithTag("open_special_access_accessibility_screen_text")
-                .performScrollTo()
                 .assertIsDisplayed()
             composeRule.assertTagAbsent("runtime_permission_requirements")
 

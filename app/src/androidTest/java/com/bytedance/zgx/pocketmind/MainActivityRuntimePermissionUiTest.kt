@@ -8,7 +8,6 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
@@ -41,13 +40,10 @@ class MainActivityRuntimePermissionUiTest {
             composeRule.onNodeWithText("查询联系人").assertIsDisplayed()
             composeRule.onNodeWithText("将按“Alice”查询联系人。").assertIsDisplayed()
             composeRule.onNodeWithTag("runtime_permission_requirements")
-                .performScrollTo()
                 .assertIsDisplayed()
             composeRule.onNodeWithText("确认后可能请求系统权限")
-                .performScrollTo()
                 .assertIsDisplayed()
             composeRule.onNodeWithText("联系人权限：用于只读查询联系人摘要。")
-                .performScrollTo()
                 .assertIsDisplayed()
             composeRule.assertTagAbsent("special_access_requirements")
 

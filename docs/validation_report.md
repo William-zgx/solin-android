@@ -18,12 +18,16 @@
 ./gradlew :app:compileDebugAndroidTestKotlin
 ./gradlew :app:testDebugUnitTest
 ANDROID_HOME=/Users/bytedance/Library/Android/sdk ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk scripts/verify_local.sh
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk AVD_NAME=focus_agent_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 EMULATOR_ARGS="-no-window -no-audio -no-snapshot-save" CLEAN_DEVICE=1 scripts/verify_emulator.sh
 git diff --check
 git diff --unified=0 | rg -n '(sk-[A-Za-z0-9_-]{20,}|B[e]arer [A-Za-z0-9._-]{20,}|(?i)(api[_-]?key|s[e]cret|p[a]ssword|d[e]epseek))' || true
 ```
 
-结果：通过；敏感串扫描无命中。当前没有已连接 Android 设备，因此未运行
-connected instrumentation。
+结果：通过；敏感串扫描无命中。首次 emulator 全量回归暴露 3 个 UI 测试稳定性问题：
+远程 `tool_calls` 测试等待聊天消息而非确认卡、运行时权限/特殊授权确认卡测试在
+非滚动父布局上调用 `performScrollTo()`。修复后复跑
+`focus_agent_api36_arm64`，设备 `emulator-5554`，API 36，ABI `arm64-v8a`，
+instrumentation `OK (20 tests)`，脚本输出 `Emulator verification passed`。
 
 ## 2026-06-02 系统特殊授权确认卡 UI 增量验证
 
