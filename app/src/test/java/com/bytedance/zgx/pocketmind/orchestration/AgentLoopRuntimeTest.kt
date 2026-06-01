@@ -259,11 +259,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
-                    "text" to "local private text",
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData("local private text"),
             ),
         )
         requireNotNull(observedRead)
@@ -1688,11 +1684,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本（12 字符）",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
-                    "text" to rawClipboardText,
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData(rawClipboardText),
             ),
         )
 
@@ -1746,6 +1738,8 @@ class AgentLoopRuntimeTest {
                 summary = "malformed success summary $rawPayload",
                 data = mapOf(
                     "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
                     "text" to rawPayload,
                     "truncated" to "false",
                     "unexpected" to rawPayload,
@@ -2017,11 +2011,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
-                    "text" to rawClipboardText,
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData(rawClipboardText),
             ),
         )
         requireNotNull(observed)
@@ -2417,11 +2407,7 @@ class AgentLoopRuntimeTest {
                 requestId = readRequestId,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
-                    "text" to "剪贴板原文",
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData("剪贴板原文"),
             ),
         )
         requireNotNull(observed)
@@ -2470,11 +2456,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
-                    "text" to "剪贴板原文",
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData("剪贴板原文"),
             ),
         )
         requireNotNull(observed)
@@ -2580,11 +2562,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
-                    "text" to "需要本地续写的文本",
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData("需要本地续写的文本"),
             ),
         )
 
@@ -3207,11 +3185,7 @@ class AgentLoopRuntimeTest {
                 requestId = restoredPending.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
-                    "text" to "剪贴板原文",
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData("剪贴板原文"),
             ),
         )
 
@@ -3275,11 +3249,7 @@ class AgentLoopRuntimeTest {
                 requestId = readRequestId,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
-                    "text" to rawClipboardText,
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData(rawClipboardText),
             ),
         )
         requireNotNull(readObserved)
@@ -5013,6 +4983,8 @@ class AgentLoopRuntimeTest {
     private fun clipboardResultData(text: String): Map<String, String> =
         mapOf(
             "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+            "privacy" to MessagePrivacy.LocalOnly.name,
+            "requiresLocalModel" to "true",
             "text" to text,
             "truncated" to "false",
         )

@@ -361,6 +361,8 @@ class RoutingAndValidatingToolExecutorTest {
                     summary = "read clipboard",
                     data = mapOf(
                         "toolName" to request.toolName,
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                        "requiresLocalModel" to "true",
                         "text" to "clipboard text",
                         "truncated" to "maybe",
                     ),

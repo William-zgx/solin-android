@@ -1,5 +1,35 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Clipboard LocalOnly metadata 增量验证
+
+本轮覆盖项：
+
+- `read_clipboard` 成功结果 schema 现在要求 `privacy=LocalOnly` 与
+  `requiresLocalModel=true`，缺失这两个 value-free metadata 的成功结果会在
+  Tool Registry / Agent observe / Skill resume 边界失败。
+- `ActionExecutor.readClipboard()` 的成功和空剪贴板失败结果都写入同一组
+  LocalOnly metadata，避免剪贴板读取观察在后续链路被误当成远程可上传内容。
+- Agent / Skill 测试夹具同步使用新的 clipboard success contract；Skill
+  checkpoint 仍只记录 value-free 的 known output keys，不把所有 schema metadata
+  key 当成可恢复执行状态。
+- README、核心模块文档和隐私说明同步记录 clipboard 结果 metadata 边界。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest'
+```
+
+结果：targeted clipboard / registry / Agent / Skill 回归测试通过；完整 JVM 单测、
+AndroidTest Kotlin 编译、diff whitespace 检查和敏感 diff 扫描通过。
+
 ## 2026-06-02 Agent core documentation contract 增量验证
 
 本轮覆盖项：

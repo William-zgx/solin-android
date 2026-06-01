@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.tool
 
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import org.json.JSONObject
@@ -442,6 +443,8 @@ class ToolRegistryTest {
                     summary = "read clipboard",
                     data = mapOf(
                         "toolName" to request.toolName,
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                        "requiresLocalModel" to "true",
                         "text" to "clipboard text",
                         "truncated" to "false",
                     ),
@@ -455,6 +458,8 @@ class ToolRegistryTest {
                 summary = "read clipboard",
                 data = mapOf(
                     "toolName" to request.toolName,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
                     "truncated" to "false",
                 ),
             ),
@@ -473,6 +478,8 @@ class ToolRegistryTest {
                 summary = "read clipboard",
                 data = mapOf(
                     "toolName" to request.toolName,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
                     "text" to "clipboard text",
                     "truncated" to "maybe",
                 ),

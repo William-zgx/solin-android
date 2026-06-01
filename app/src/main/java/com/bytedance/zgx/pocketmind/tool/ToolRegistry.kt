@@ -778,9 +778,11 @@ private val cancelReminderOutputSchemaJson = """
 private val clipboardOutputSchemaJson = """
     {
       "type": "object",
-      "required": ["toolName", "text", "truncated"],
+      "required": ["toolName", "privacy", "requiresLocalModel", "text", "truncated"],
       "properties": {
         "toolName": {"type": "string", "minLength": 1},
+        "privacy": {"type": "string", "enum": ["LocalOnly"]},
+        "requiresLocalModel": {"type": "boolean"},
         "text": {"type": "string", "minLength": 1},
         "truncated": {"type": "boolean"}
       },

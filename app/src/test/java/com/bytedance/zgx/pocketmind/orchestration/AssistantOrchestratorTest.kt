@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlan
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
@@ -256,6 +257,8 @@ class AssistantOrchestratorTest {
                 summary = "已读取剪贴板文本",
                 data = mapOf(
                     "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
                     "text" to "需要总结的剪贴板文本",
                     "truncated" to "false",
                 ),

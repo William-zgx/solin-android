@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.skill
 
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
@@ -393,6 +394,8 @@ class SkillRunExecutorTest {
                 summary = "malformed resume summary $rawClipboardText",
                 data = mapOf(
                     "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
                     "text" to rawClipboardText,
                 ),
             ),
@@ -684,6 +687,8 @@ class SkillRunExecutorTest {
     private fun clipboardSuccess(text: String): Map<String, String> =
         mapOf(
             "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+            "privacy" to MessagePrivacy.LocalOnly.name,
+            "requiresLocalModel" to "true",
             "text" to text,
             "truncated" to "false",
         )

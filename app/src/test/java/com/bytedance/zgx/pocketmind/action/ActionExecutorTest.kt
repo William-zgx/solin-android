@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.action
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.provider.Settings
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTask
@@ -175,6 +176,8 @@ class ActionExecutorTest {
         )
 
         assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals("true", result.data["requiresLocalModel"])
         assertEquals("需要总结的剪贴板内容", result.data["text"])
         assertEquals("false", result.data["truncated"])
         assertTrue(result.summary.contains("剪贴板"))
@@ -197,6 +200,8 @@ class ActionExecutorTest {
 
         assertEquals(ToolStatus.Failed, result.status)
         assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals("true", result.data["requiresLocalModel"])
         assertTrue(result.summary.contains("剪贴板"))
     }
 

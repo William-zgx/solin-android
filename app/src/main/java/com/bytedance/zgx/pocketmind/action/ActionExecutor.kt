@@ -9,6 +9,7 @@ import android.net.Uri
 import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.Settings
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
@@ -68,14 +69,13 @@ class ActionExecutor(
                 code = ToolErrorCode.ExecutionFailed,
                 summary = "剪贴板没有可读取的文本",
                 retryable = true,
-                data = mapOf("toolName" to request.toolName),
+                data = request.clipboardContextData(),
             )
         }
         val clipped = text.take(MAX_CLIPBOARD_RESULT_CHARS)
         return request.succeeded(
             summary = "已读取剪贴板文本（${text.length} 字符）",
-            data = mapOf(
-                "toolName" to request.toolName,
+            data = request.clipboardContextData() + mapOf(
                 "text" to clipped,
                 "truncated" to (text.length > clipped.length).toString(),
             ),
@@ -777,6 +777,13 @@ class ActionExecutor(
         val PACKAGE_NAME_PATTERN = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+$""")
     }
 }
+
+private fun ToolRequest.clipboardContextData(): Map<String, String> =
+    mapOf(
+        "toolName" to toolName,
+        "privacy" to MessagePrivacy.LocalOnly.name,
+        "requiresLocalModel" to true.toString(),
+    )
 
 private data class ExternalActivityMetadata(
     val targetKind: String,

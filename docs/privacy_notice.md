@@ -55,7 +55,9 @@ These tools are designed to minimize returned data. For example, recent file
 reads return metadata rather than file contents, paths, or URIs; current-screen
 text reads use Accessibility text nodes rather than screenshots or pixels; OCR
 tools avoid persisting image identifiers, paths, raw pixels, and raw OCR text in
-trace or audit stores.
+trace or audit stores. Clipboard read tool results, including empty-clipboard
+failures, are marked `LocalOnly` and `requiresLocalModel=true` so they remain
+inside local continuation and observation boundaries.
 
 Android runtime permissions and special app access are requested only after the
 user confirms the associated tool request. Permission denial is treated as a

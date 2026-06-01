@@ -610,7 +610,9 @@ Current status:
   clipboard access. Raw text is used only to build the immediate in-memory
   continuation prompt after user confirmation; trace steps, audit events, and
   persisted tool-observation messages store sanitized summaries instead of the
-  raw text.
+  raw text. Successful and failed clipboard tool results both carry
+  `privacy=LocalOnly` and `requiresLocalModel=true`, matching the other
+  private device-context read boundaries.
 - Remote model mode does not automatically receive clipboard continuation
   prompts; it asks the user to switch local or manually provide text they agree
   to upload.

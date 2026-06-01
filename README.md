@@ -144,8 +144,10 @@ headers, or API keys.
 Clipboard requests such as “读取剪贴板” become confirmed `read_clipboard`
 tool calls. After confirmation, clipboard text is used only for the immediate
 local follow-up answer and is redacted from trace, audit, and persisted chat
-tool-observation messages. Remote model mode does not automatically receive
-clipboard content.
+tool-observation messages. Both successful and failed clipboard tool results
+carry `privacy=LocalOnly` and `requiresLocalModel=true` metadata, so remote
+model mode does not automatically receive clipboard content or clipboard read
+observations.
 Explicit requests such as “识别最近 1 张截图文字” or “OCR 最近截图” use the
 skill-first path and become confirmed `read_recent_screenshot_ocr` tool calls.
 Requests to OCR multiple screenshots are rejected. After confirmation,
