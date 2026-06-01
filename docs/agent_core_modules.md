@@ -228,9 +228,9 @@ Current status:
   returned to `AwaitingUserConfirmation`. The progression fails closed if the
   next tool still depends on another unsatisfied step, preventing model output
   from skipping required tool or model prerequisites.
-- Skill-first clipboard-summary-share planning rejects sequential commands such
-  as "summarize clipboard and share it, then open Wi-Fi settings" so the
-  composite skill cannot swallow later user intent.
+- Skill-first clipboard context and clipboard-summary-share planning reject
+  sequential commands such as "read clipboard, then open Wi-Fi settings" so the
+  one-step or composite skill cannot swallow later user intent.
 - Open-ended model-driven replanning, arbitrary multi-confirmation skill UI
   orchestration, and full argument-bearing typed step rehydration are still
   pending.
@@ -377,6 +377,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareWithoutActionDraft`
 - `BuiltInSkillRuntimeTest.clipboardSummaryShareSkillFirstRejectsSequentialFollowUp`
 - `BuiltInSkillRuntimeTest.plansClipboardContextWithoutActionDraft`
+- `BuiltInSkillRuntimeTest.clipboardContextSkillFirstRejectsSequentialFollowUp`
 - `BuiltInSkillRuntimeTest.plansDeviceSettingsWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.plansWebSearchWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.plansRecentMediaFilesWithoutActionDraftWhenMetadataRequestIsExplicit`

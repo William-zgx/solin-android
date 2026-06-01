@@ -4,6 +4,8 @@
 
 本轮覆盖项：
 
+- Clipboard context 的 Skill-first 路径拒绝 sequential follow-up，避免
+  “读取剪贴板，然后打开 Wi-Fi 设置”只执行前半段。
 - Clipboard summary share 的 Skill-first 路径拒绝 sequential follow-up，避免
   “总结剪贴板并分享，然后打开 Wi-Fi 设置”只执行前半段。
 - 未知持久化 `MessagePrivacy` 恢复为 `LocalOnly`，从 remote history 边界
@@ -21,6 +23,15 @@
   --tests 'com.bytedance.zgx.pocketmind.data.SessionRepositoryTest' \
   --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest'
+```
+
+结果：通过。
+
+补充验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest'
 ```
 
 结果：通过。

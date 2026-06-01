@@ -129,7 +129,7 @@ class BuiltInSkillRuntime : SkillRuntime {
                 plan(input, draft, request)
             }
 
-            input.requestsClipboardContext() -> {
+            !input.looksLikeSequentialAction() && input.requestsClipboardContext() -> {
                 val draft = ActionDraft(
                     functionName = MobileActionFunctions.READ_CLIPBOARD,
                     title = "读取剪贴板",
