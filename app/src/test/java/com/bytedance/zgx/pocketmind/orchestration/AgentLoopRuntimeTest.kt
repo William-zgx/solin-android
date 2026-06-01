@@ -545,6 +545,7 @@ class AgentLoopRuntimeTest {
     fun skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation() {
         val cases = listOf(
             "打开 Wi-Fi 设置" to MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            "打开使用情况访问权限设置" to MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
             "打开手电筒设置" to MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
         )
 
@@ -1049,6 +1050,11 @@ class AgentLoopRuntimeTest {
             "Do not open Wi-Fi settings; explain only",
             "手电筒 API 怎么用",
             "打开手电筒",
+            "Usage Access API 怎么用",
+            "解释一下 PACKAGE_USAGE_STATS",
+            "Android 使用情况访问权限怎么实现",
+            "不要打开使用情况访问权限设置",
+            "do not open usage access settings",
             "网页搜索是什么",
             "不要搜索 Kotlin，只解释一下",
             "what is web search",

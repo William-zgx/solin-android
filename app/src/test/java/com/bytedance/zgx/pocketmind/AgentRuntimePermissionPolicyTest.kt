@@ -325,6 +325,14 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
+    fun usageAccessSettingsDeclaresNoRuntimePermissionOrSpecialAccess() {
+        val confirmation = confirmationFor(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS)
+
+        assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
+        assertTrue(confirmation.specialAccessRequirementsFor().isEmpty())
+    }
+
+    @Test
     fun recentNotificationsDeclareNoRuntimePermissionOrSpecialAccess() {
         val confirmation = confirmationFor(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS)
 

@@ -117,6 +117,7 @@ class BuiltInSkillRuntimeTest {
                     ToolRequest(toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS),
                 ),
             ),
+            "打开使用情况访问权限设置" to requireNotNull(runtime.plan("打开使用情况访问权限设置")),
             "提醒我 15 分钟后喝水" to requireNotNull(
                 runtime.plan(
                     "提醒我 15 分钟后喝水",
@@ -465,12 +466,32 @@ class BuiltInSkillRuntimeTest {
         assertTrue(flashlightStep.request.arguments.isEmpty())
         assertTrue(flashlightPlan.validateStructure().errors.joinToString(), flashlightPlan.validateStructure().isValid)
 
+        val usageAccessPlan = requireNotNull(runtime.plan("打开使用情况访问权限设置"))
+        assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, usageAccessPlan.request.skillId)
+        assertEquals(mapOf("input" to "打开使用情况访问权限设置"), usageAccessPlan.request.arguments)
+        val usageAccessStep = usageAccessPlan.steps.single()
+        require(usageAccessStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, usageAccessStep.request.toolName)
+        assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, usageAccessStep.draft.functionName)
+        assertTrue(usageAccessStep.request.arguments.isEmpty())
+        assertTrue(usageAccessPlan.validateStructure().errors.joinToString(), usageAccessPlan.validateStructure().isValid)
+
+        val englishUsageAccessPlan = requireNotNull(runtime.plan("open usage access settings"))
+        val englishUsageAccessStep = englishUsageAccessPlan.steps.single()
+        require(englishUsageAccessStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, englishUsageAccessStep.request.toolName)
+
         assertEquals(null, runtime.plan("Wi-Fi 是什么"))
         assertEquals(null, runtime.plan("Wi-Fi 设置页面怎么设计"))
         assertEquals(null, runtime.plan("不要打开 Wi-Fi 设置，只解释一下"))
         assertEquals(null, runtime.plan("Do not open Wi-Fi settings; explain only"))
         assertEquals(null, runtime.plan("手电筒 API 怎么用"))
         assertEquals(null, runtime.plan("打开手电筒"))
+        assertEquals(null, runtime.plan("Usage Access API 怎么用"))
+        assertEquals(null, runtime.plan("解释一下 PACKAGE_USAGE_STATS"))
+        assertEquals(null, runtime.plan("Android 使用情况访问权限怎么实现"))
+        assertEquals(null, runtime.plan("不要打开使用情况访问权限设置"))
+        assertEquals(null, runtime.plan("do not open usage access settings"))
     }
 
     @Test

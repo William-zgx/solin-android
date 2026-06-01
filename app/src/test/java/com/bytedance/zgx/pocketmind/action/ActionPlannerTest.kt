@@ -150,6 +150,11 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.Draft, flashlightPlan.kind)
         assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, flashlightPlan.draft?.functionName)
 
+        val usageAccessPlan = planner.plan("打开使用情况访问权限设置")
+        assertEquals(ActionPlanKind.Draft, usageAccessPlan.kind)
+        assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, usageAccessPlan.draft?.functionName)
+        assertTrue(usageAccessPlan.draft?.parameters.orEmpty().isEmpty())
+
         val englishWifiPlan = planner.plan("open Wi-Fi settings")
         assertEquals(ActionPlanKind.Draft, englishWifiPlan.kind)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, englishWifiPlan.draft?.functionName)
@@ -158,12 +163,21 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.Draft, englishFlashlightPlan.kind)
         assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, englishFlashlightPlan.draft?.functionName)
 
+        val englishUsageAccessPlan = planner.plan("open usage access settings")
+        assertEquals(ActionPlanKind.Draft, englishUsageAccessPlan.kind)
+        assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, englishUsageAccessPlan.draft?.functionName)
+
         assertEquals(ActionPlanKind.NoAction, planner.plan("Wi-Fi 是什么").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("Wi-Fi 设置页面怎么设计").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("不要打开 Wi-Fi 设置，只解释一下").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("Do not open Wi-Fi settings; explain only").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("手电筒 API 怎么用").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("打开手电筒").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("Usage Access API 怎么用").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("解释一下 PACKAGE_USAGE_STATS").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("Android 使用情况访问权限怎么实现").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要打开使用情况访问权限设置").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("do not open usage access settings").kind)
     }
 
     @Test
@@ -195,7 +209,7 @@ class ActionPlannerTest {
 
     @Test
     fun infersUsageAccessSettingsDraft() {
-        val plan = planner.plan("打开使用情况访问权限设置")
+        val plan = planner.plan("授权应用使用情况权限")
 
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, plan.draft?.functionName)

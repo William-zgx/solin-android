@@ -118,12 +118,21 @@ internal object DeviceSettingsActionParser {
         Regex("""\b(?:(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:wi[-\s]?fi|wifi|wlan|wireless)\s+(?:settings?|preferences?)|(?:wi[-\s]?fi|wifi|wlan|wireless)\s+(?:settings?|preferences?))\b""", RegexOption.IGNORE_CASE)
     private val englishFlashlightSettingsPattern =
         Regex("""\b(?:(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:flashlight|torch)\s+(?:settings?|preferences?)|(?:flashlight|torch)\s+(?:settings?|preferences?))\b""", RegexOption.IGNORE_CASE)
+    private val englishUsageAccessPattern =
+        Regex("""\b(?:(?:open|show|go\s+to|launch|grant)\s+(?:the\s+)?(?:usage\s+access|usage\s+stats(?:\s+permission)?)(?:\s+(?:settings?|permissions?|preferences?))?|(?:usage\s+access|usage\s+stats(?:\s+permission)?)\s+(?:settings?|preferences?))\b""", RegexOption.IGNORE_CASE)
 
     fun matches(input: String): Boolean = targetTool(input) != null
 
     fun draft(input: String): ActionDraft {
         val toolName = targetTool(input) ?: MobileActionFunctions.OPEN_WIFI_SETTINGS
         return when (toolName) {
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> ActionDraft(
+                functionName = MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+                title = "打开使用情况访问权限设置",
+                summary = "将打开系统使用情况访问权限设置页，由你手动为 PocketMind 授权。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> ActionDraft(
                 functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
                 title = "打开手电筒设置",
@@ -145,6 +154,7 @@ internal object DeviceSettingsActionParser {
         if (input.looksLikeDiscussion() || input.looksLikeDeviceSettingsNonAction()) return null
         return when {
             input.requestsWifiSettings() -> MobileActionFunctions.OPEN_WIFI_SETTINGS
+            input.requestsUsageAccessSettings() -> MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS
             input.requestsFlashlightSettings() -> MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS
             else -> null
         }
@@ -170,6 +180,21 @@ internal object DeviceSettingsActionParser {
         return referencesFlashlight && referencesSettings && (
             listOf("打开", "进入", "跳转", "前往", "去", "设置").any { it in this } ||
                 englishFlashlightSettingsPattern.containsMatchIn(normalized)
+            )
+    }
+
+    private fun String.requestsUsageAccessSettings(): Boolean {
+        val normalized = lowercase()
+        val referencesUsageAccess = listOf(
+            "使用情况访问权限",
+            "应用使用情况权限",
+            "查看应用使用情况",
+        ).any { it in this } ||
+            Regex("""\b(?:usage\s+access|usage\s+stats(?:\s+permission)?)\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(normalized)
+        return referencesUsageAccess && (
+            listOf("打开", "进入", "跳转", "前往", "去", "设置", "开启", "授权").any { it in this } ||
+                englishUsageAccessPattern.containsMatchIn(normalized)
             )
     }
 }

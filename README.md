@@ -32,7 +32,8 @@ Google AI Edge LiteRT-LM.
   executing or automatically retrying the tool.
 - Confirmed external navigation for safe HTTPS deep links and package-level app launches.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map
-  search, information lookup, device settings, local reminders, calendar
+  search, information lookup, device settings including Usage Access settings,
+  local reminders, calendar
   availability, clipboard context, contact lookup, current foreground app
   context, current-app notification summaries, current-screen Accessibility
   text context, recent media metadata, HTTPS link navigation, and system

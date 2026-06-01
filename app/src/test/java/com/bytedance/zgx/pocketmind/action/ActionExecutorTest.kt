@@ -223,6 +223,9 @@ class ActionExecutorTest {
         assertExternalActivityOpened(result.data, "SystemSettings", Settings.ACTION_USAGE_ACCESS_SETTINGS)
         assertEquals("usage_stats", result.data["specialAccess"])
         assertEquals(Settings.ACTION_USAGE_ACCESS_SETTINGS, result.data["settingsAction"])
+        assertFalse(result.data.containsKey("packageName"))
+        assertFalse(result.data.containsKey("appLabel"))
+        assertFalse(result.data.containsKey("lastTimeUsedMillis"))
         assertEquals(Settings.ACTION_USAGE_ACCESS_SETTINGS, launches.single().action)
     }
 

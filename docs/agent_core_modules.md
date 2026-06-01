@@ -161,11 +161,11 @@ Current status:
   parameter parsers as the action planner, rejects discussion/negative
   phrasing, and still routes through registry validation, safety checks, audit,
   and user confirmation before any external app opens.
-- Explicit Wi-Fi and flashlight settings commands now also have a conservative
-  Skill-first path. The shared device-settings parser accepts only settings
-  navigation requests, rejects explanation/implementation/negative phrasing,
-  and still routes through registry validation, safety checks, audit, and user
-  confirmation before any system settings page opens.
+- Explicit Wi-Fi, Usage Access, and flashlight settings commands now also have
+  a conservative Skill-first path. The shared device-settings parser accepts
+  only settings navigation requests, rejects explanation/implementation/negative
+  phrasing, and still routes through registry validation, safety checks, audit,
+  and user confirmation before any system settings page opens.
 - Explicit web search commands now also have a conservative Skill-first path.
   The shared parser accepts search/web-search/online-search phrasing with a
   non-empty query, rejects bare ambiguous “查一下” and discussion/negative
@@ -294,8 +294,8 @@ Current status:
 - `SkillRuntime` now exposes an optional Skill-first planner for requests that
   can safely build their first tool step from the raw user input.
 - Implemented built-in manifests for email drafts, calendar drafts, map search,
-  information lookup, device settings, background reminders, clipboard context,
-  and system text sharing.
+  information lookup, device settings including Usage Access settings,
+  background reminders, clipboard context, and system text sharing.
 - `SkillRequest.arguments` is now validated against
   `SkillManifest.inputSchemaJson` before confirmation or execution. Missing
   required inputs, blank required string inputs, extra fields, type mismatches,

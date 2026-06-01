@@ -84,7 +84,7 @@ class MobileActionPlanner : ActionPlanner {
         ).any { it in normalized } ||
             isReminderRequest(input) ||
             isCancelReminderRequest(input) ||
-            isUsageAccessSettingsRequest(input) ||
+            DeviceSettingsActionParser.matches(input) ||
             WebSearchActionParser.matches(input)
     }
 
@@ -106,9 +106,6 @@ class MobileActionPlanner : ActionPlanner {
         return when {
             DeviceSettingsActionParser.matches(input) ->
                 DeviceSettingsActionParser.draft(input)
-
-            isUsageAccessSettingsRequest(input) ->
-                MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS.toDraft(emptyMap())
 
             MapSearchActionParser.matches(input) ->
                 MapSearchActionParser.draft(input)
@@ -313,18 +310,6 @@ class MobileActionPlanner : ActionPlanner {
 
     private fun isCancelReminderRequest(input: String): Boolean =
         CancelReminderActionParser.matches(input)
-
-    private fun isUsageAccessSettingsRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        return listOf(
-            "使用情况访问权限",
-            "应用使用情况权限",
-            "查看应用使用情况",
-            "usage access",
-            "usage stats permission",
-        ).any { it in normalized } &&
-            listOf("打开", "设置", "开启", "授权", "open", "settings", "grant").any { it in normalized }
-    }
 
     private fun isOpenAppIntentRequest(input: String): Boolean {
         if (URI_SCHEME_PATTERN.containsMatchIn(input)) return false
