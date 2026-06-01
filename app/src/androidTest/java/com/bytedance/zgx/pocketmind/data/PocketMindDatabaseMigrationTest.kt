@@ -26,7 +26,7 @@ class PocketMindDatabaseMigrationTest {
             db.execSQL(
                 """
                 INSERT INTO chat_messages(sessionId, position, role, text, tokenCount, tokensPerSecond)
-                VALUES('session-1', 0, 'User', '旧消息', NULL, NULL)
+                VALUES('session-1', 0, 'User', '分享文本：secret', NULL, NULL)
                 """.trimIndent(),
             )
             db.version = 3
@@ -48,11 +48,59 @@ class PocketMindDatabaseMigrationTest {
 
         try {
             val restored = database.sessionDao().messagesForSession("session-1").single()
-            assertEquals(MessagePrivacy.RemoteEligible.name, restored.privacy)
+            assertEquals(MessagePrivacy.LocalOnly.name, restored.privacy)
             assertTrue(database.chatMessagesPrivacyColumnHasDefault())
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
+    @Test
+    fun legacyPrefsMigratorImportsLegacyMessagesAsLocalOnly() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("pocketmind", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putString(
+                "sessions_json",
+                """
+                [
+                  {
+                    "id": "legacy-session",
+                    "title": "旧会话",
+                    "createdAtMillis": 1,
+                    "updatedAtMillis": 2,
+                    "messages": [
+                      {"role": "User", "text": "分享文本：secret"}
+                    ]
+                  }
+                ]
+                """.trimIndent(),
+            )
+            .putString("active_session_id", "legacy-session")
+            .apply()
+        val database = Room.inMemoryDatabaseBuilder(context, PocketMindDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val settingsStore = PreferenceSettingsStore(context)
+        settingsStore.setMigrationVersion(0)
+
+        try {
+            LegacyPrefsMigrator(
+                context = context,
+                database = database,
+                settingsStore = settingsStore,
+                secretStore = NoOpSecretStore,
+            ).migrateIfNeeded()
+
+            val restored = database.sessionDao().messagesForSession("legacy-session").single()
+            assertEquals("分享文本：secret", restored.text)
+            assertEquals(MessagePrivacy.LocalOnly.name, restored.privacy)
+        } finally {
+            database.close()
+            prefs.edit().clear().apply()
+            settingsStore.setMigrationVersion(0)
         }
     }
 
@@ -375,6 +423,14 @@ class PocketMindDatabaseMigrationTest {
         ).use { cursor ->
             return cursor.moveToNext()
         }
+    }
+
+    private object NoOpSecretStore : SecretStore {
+        override fun loadString(name: String): Result<String> =
+            Result.success("")
+
+        override fun saveString(name: String, value: String): Result<Unit> =
+            Result.success(Unit)
     }
 
     private companion object {

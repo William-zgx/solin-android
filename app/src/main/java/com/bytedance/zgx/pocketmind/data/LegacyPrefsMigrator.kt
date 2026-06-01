@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.data
 import android.content.Context
 import com.bytedance.zgx.pocketmind.DEFAULT_CHAT_MODEL_ID
 import com.bytedance.zgx.pocketmind.GenerationParameters
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.ModelCatalog
 import com.bytedance.zgx.pocketmind.isUsable
@@ -58,7 +59,7 @@ class LegacyPrefsMigrator(
                         text = message.text,
                         tokenCount = message.tokenCount,
                         tokensPerSecond = message.tokensPerSecond,
-                        privacy = com.bytedance.zgx.pocketmind.MessagePrivacy.RemoteEligible.name,
+                        privacy = MessagePrivacy.LocalOnly.name,
                     )
                 },
             )

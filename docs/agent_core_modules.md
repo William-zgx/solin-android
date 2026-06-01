@@ -452,6 +452,9 @@ Current status:
 - Unknown stored `MessagePrivacy` enum values restore as `LocalOnly` rather
   than `RemoteEligible`, so future-version or corrupted history fails closed at
   the remote-history boundary.
+- Legacy chat rows that predate the `privacy` column, and sessions imported
+  from old SharedPreferences, are migrated as `LocalOnly` because they have no
+  reliable remote-upload provenance.
 - ViewModel dependencies now sit behind narrow ports for model state, sessions,
   generation settings, remote settings, downloads, memory, tool execution, and
   assistant routing so privacy behavior can be regression-tested without

@@ -416,6 +416,9 @@ abstract class PocketMindDatabase : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE `chat_messages` ADD COLUMN `privacy` TEXT NOT NULL DEFAULT '${MessagePrivacy.RemoteEligible.name}'",
                 )
+                db.execSQL(
+                    "UPDATE `chat_messages` SET `privacy` = '${MessagePrivacy.LocalOnly.name}'",
+                )
             }
         }
 

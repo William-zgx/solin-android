@@ -1,5 +1,24 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Legacy 会话隐私迁移增量验证
+
+本轮覆盖项：
+
+- 3→4 数据库迁移后，已有 `chat_messages` 行写为 `LocalOnly`，避免无
+  provenance 的旧历史进入 remote history。
+- 旧 SharedPreferences `sessions_json` 导入的消息写为 `LocalOnly`。
+- Android instrumentation migration 测试已更新并通过 androidTest 编译。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin \
+  :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest.buildChatCompletionBody_excludesLocalOnlyHistory'
+```
+
+结果：通过。
+
 ## 2026-06-01 周期检查状态机竞态增量验证
 
 本轮覆盖项：
