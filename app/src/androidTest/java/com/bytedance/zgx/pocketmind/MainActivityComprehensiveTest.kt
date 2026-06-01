@@ -31,11 +31,14 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
+import org.json.JSONArray
+import org.json.JSONObject
 
 class MainActivityComprehensiveTest {
     @get:Rule
@@ -88,6 +91,41 @@ class MainActivityComprehensiveTest {
             createAndSwitchSessions()
             exerciseModelManagerControlsAndCustomDownload(server)
         }
+    }
+
+    @Test
+    fun remoteToolCallShowsConfirmationBeforeAndroidToolExecution() {
+        LocalOpenAiServer().use { server ->
+            dismissFirstRunSetupIfPresent()
+            configureRemoteModel(server.baseUrl)
+
+            sendPrompt(REMOTE_TOOL_CALL_PROMPT)
+            val request = server.awaitPost()
+            assertTrue(request.path.endsWith("/v1/chat/completions"))
+            assertRemoteToolRequestBody(request)
+
+            composeRule.waitForText("已准备远程动作草稿：Web 搜索", timeoutMillis = 15_000)
+            composeRule.waitForText("Web 搜索 · 远程模型请求")
+            composeRule.waitForText("query: $REMOTE_TOOL_CALL_QUERY")
+            composeRule.onNodeWithTag("action_confirm_button").assertIsDisplayed()
+            composeRule.onNodeWithTag("action_dismiss_button").performClick()
+            server.assertNoPost(timeoutMillis = 500)
+        }
+    }
+
+    private fun assertRemoteToolRequestBody(request: RequestRecord) {
+        val body = JSONObject(request.body)
+        assertTrue(body.getBoolean("stream"))
+        assertEquals("mock-model", body.getString("model"))
+        assertTrue(request.body.contains(REMOTE_TOOL_CALL_PROMPT))
+        assertEquals("auto", body.getString("tool_choice"))
+        val webSearchTool = body.getJSONArray("tools").functionTool("web_search")
+        assertEquals("function", webSearchTool.getString("type"))
+        val webSearchFunction = webSearchTool.getJSONObject("function")
+        assertTrue(webSearchFunction.getString("description").isNotBlank())
+        val parameters = webSearchFunction.getJSONObject("parameters")
+        assertEquals("object", parameters.getString("type"))
+        assertTrue(parameters.getJSONObject("properties").has("query"))
     }
 
     private fun dismissFirstRunSetupIfPresent() {
@@ -320,6 +358,13 @@ private class LocalOpenAiServer : Closeable {
                 return
             }
             requests.offer(RequestRecord(method, path, headers, body))
+            if (body.contains(REMOTE_TOOL_CALL_PROMPT)) {
+                client.getOutputStream().writeSseToolCall(
+                    toolName = "web_search",
+                    argumentsJson = JSONObject().put("query", REMOTE_TOOL_CALL_QUERY).toString(),
+                )
+                return
+            }
             if (body.contains("慢慢")) {
                 client.getOutputStream().writeSsePrefix()
                 client.getOutputStream().writeSseChunk("慢")
@@ -343,6 +388,9 @@ private data class RequestRecord(
     val headers: Map<String, String>,
     val body: String,
 )
+
+private const val REMOTE_TOOL_CALL_PROMPT = "远程模型工具调用夹具 7c9e"
+private const val REMOTE_TOOL_CALL_QUERY = "Kotlin coroutine guide"
 
 private fun Cursor.findDownload(downloadUrl: String): String? {
     val uriIndex = getColumnIndexOrThrow(DownloadManager.COLUMN_URI)
@@ -408,4 +456,44 @@ private fun OutputStream.writeSseChunk(text: String) {
     write("""data: {"choices":[{"delta":{"content":"$text"}}]}""".toByteArray(StandardCharsets.UTF_8))
     write("\n\n".toByteArray(StandardCharsets.UTF_8))
     flush()
+}
+
+private fun OutputStream.writeSseToolCall(toolName: String, argumentsJson: String) {
+    writeSsePrefix()
+    val chunk = JSONObject()
+        .put(
+            "choices",
+            JSONArray().put(
+                JSONObject().put(
+                    "delta",
+                    JSONObject().put(
+                        "tool_calls",
+                        JSONArray().put(
+                            JSONObject()
+                                .put("index", 0)
+                                .put("id", "call-remote-web-search")
+                                .put("type", "function")
+                                .put(
+                                    "function",
+                                    JSONObject()
+                                        .put("name", toolName)
+                                        .put("arguments", argumentsJson),
+                                ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    write("data: $chunk\n\n".toByteArray(StandardCharsets.UTF_8))
+    write("data: [DONE]\n\n".toByteArray(StandardCharsets.UTF_8))
+    flush()
+}
+
+private fun JSONArray.functionTool(name: String): JSONObject {
+    for (index in 0 until length()) {
+        val tool = optJSONObject(index) ?: continue
+        val function = tool.optJSONObject("function") ?: continue
+        if (function.optString("name") == name) return tool
+    }
+    throw AssertionError("Expected tool function $name in $this")
 }

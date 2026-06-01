@@ -1,5 +1,30 @@
 # PocketMind 验证报告
 
+## 2026-06-02 远程 tool_calls 确认卡 UI 增量验证
+
+本轮覆盖项：
+
+- `MainActivityComprehensiveTest` 新增远程 OpenAI-compatible `tool_calls`
+  instrumentation 覆盖：真实 `MainActivity` 切到 mock remote backend，远程 SSE
+  返回 `web_search` function tool call。
+- 测试断言远程请求体携带 `tools`、`tool_choice=auto`、`web_search` schema 和
+  `stream=true`，覆盖 `sendWithTools` 请求边界。
+- UI 侧断言远程工具调用只进入确认卡，显示 `Web 搜索 · 远程模型请求` 与
+  `query` 参数；测试只点击取消，不确认执行，因此不会调起外部浏览器或系统搜索。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin
+./gradlew :app:testDebugUnitTest
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk scripts/verify_local.sh
+git diff --check
+git diff --unified=0 | rg -n '(sk-[A-Za-z0-9_-]{20,}|B[e]arer [A-Za-z0-9._-]{20,}|(?i)(api[_-]?key|s[e]cret|p[a]ssword|d[e]epseek))' || true
+```
+
+结果：通过；敏感串扫描无命中。当前没有已连接 Android 设备，因此未运行
+connected instrumentation。
+
 ## 2026-06-02 系统特殊授权确认卡 UI 增量验证
 
 本轮覆盖项：
