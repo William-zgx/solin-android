@@ -1794,6 +1794,7 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val rawOcrText = "截图里的私密验证码 123456"
+        val rawImageName = "Screenshot-private-123456.png"
         val planned = runtime.runOnce(
             input = "识别最近1张截图文字并总结",
             installedCapabilities = setOf(ModelCapability.Chat),
@@ -1813,6 +1814,7 @@ class AgentLoopRuntimeTest {
                     text = rawOcrText,
                     source = "recent_screenshot",
                     maxCount = "1",
+                    name = rawImageName,
                 ),
             ),
         )
@@ -1824,10 +1826,16 @@ class AgentLoopRuntimeTest {
         assertTrue(observed.continuationPromptForModel.orEmpty().contains(rawOcrText))
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("不是当前屏幕捕获"))
         assertEquals("[redacted]", observed.result.data["ocrText"])
+        assertEquals("[redacted]", observed.result.data["name"])
+        assertEquals("[redacted]", observed.result.data["sizeBytes"])
+        assertEquals("[redacted]", observed.result.data["lastModifiedMillis"])
         val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
         assertEquals("[redacted]", toolObserved.result.data["ocrText"])
+        assertEquals("[redacted]", toolObserved.result.data["name"])
         assertTrue(!observed.steps.toString().contains(rawOcrText))
+        assertTrue(!observed.steps.toString().contains(rawImageName))
         assertTrue(!auditSink.events.toString().contains(rawOcrText))
+        assertTrue(!auditSink.events.toString().contains(rawImageName))
     }
 
     @Test
@@ -1857,6 +1865,7 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val rawOcrText = "照片里的私密订单号 ABC123"
+        val rawImageName = "IMG-private-order-ABC123.jpg"
         val planned = runtime.runOnce(
             input = "识别最近图片文字并总结",
             installedCapabilities = setOf(ModelCapability.Chat),
@@ -1876,6 +1885,7 @@ class AgentLoopRuntimeTest {
                     text = rawOcrText,
                     source = "recent_image",
                     maxCount = "3",
+                    name = rawImageName,
                 ),
             ),
         )
@@ -1888,10 +1898,17 @@ class AgentLoopRuntimeTest {
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("不是当前屏幕捕获"))
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("最近图片 OCR 文本"))
         assertEquals("[redacted]", observed.result.data["ocrText"])
+        assertEquals("[redacted]", observed.result.data["name"])
+        assertEquals("[redacted]", observed.result.data["mimeType"])
+        assertEquals("[redacted]", observed.result.data["sizeBytes"])
+        assertEquals("[redacted]", observed.result.data["lastModifiedMillis"])
         val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
         assertEquals("[redacted]", toolObserved.result.data["ocrText"])
+        assertEquals("[redacted]", toolObserved.result.data["name"])
         assertTrue(!observed.steps.toString().contains(rawOcrText))
+        assertTrue(!observed.steps.toString().contains(rawImageName))
         assertTrue(!auditSink.events.toString().contains(rawOcrText))
+        assertTrue(!auditSink.events.toString().contains(rawImageName))
     }
 
     @Test
@@ -5005,6 +5022,7 @@ class AgentLoopRuntimeTest {
         text: String,
         source: String,
         maxCount: String,
+        name: String = "private-image-name.jpg",
     ): Map<String, String> =
         mapOf(
             "toolName" to toolName,
@@ -5013,6 +5031,10 @@ class AgentLoopRuntimeTest {
             "source" to source,
             "maxCount" to maxCount,
             "scannedCount" to "1",
+            "name" to name,
+            "mimeType" to "image/jpeg",
+            "sizeBytes" to "4096",
+            "lastModifiedMillis" to "8000",
             "ocrText" to text,
             "truncated" to "false",
             "ocrTextIncluded" to "true",

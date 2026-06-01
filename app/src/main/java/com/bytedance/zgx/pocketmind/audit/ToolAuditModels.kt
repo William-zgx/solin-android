@@ -53,7 +53,7 @@ object ToolAuditSummaryRedactor {
         """api[_ -]?key|authorization|auth[_ -]?token|access[_ -]?token|refresh[_ -]?token|token|key|secret|password"""
 
     private val credentialAssignment = Regex(
-        pattern = """\b($CREDENTIAL_LABELS)\s*[:=]\s*(?:Bearer\s+)?["']?[^"'\s,;]+["']?""",
+        pattern = """(["']?\b(?:$CREDENTIAL_LABELS)\b["']?\s*[:=]\s*)(?:Bearer\s+)?["']?[^"'\s,;}]+["']?""",
         option = RegexOption.IGNORE_CASE,
     )
     private val bearerToken = Regex(
@@ -65,7 +65,7 @@ object ToolAuditSummaryRedactor {
 
     fun redact(text: String): String =
         text
-            .replace(credentialAssignment) { match -> "${match.groupValues[1]}=[redacted]" }
+            .replace(credentialAssignment) { match -> "${match.groupValues[1]}[redacted]" }
             .replace(bearerToken, "Bearer [redacted]")
             .replace(apiKeyToken, "sk-[redacted]")
             .replace(emailAddress, "[email]")

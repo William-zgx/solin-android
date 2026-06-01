@@ -2,6 +2,8 @@ package com.bytedance.zgx.pocketmind.multimodal
 
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import java.util.Locale
 
 private const val MAX_SHARED_TEXT_CHARS = 4_000
@@ -206,7 +208,10 @@ object TextAttachmentPreviewReader {
         } else {
             bytes
         }
-        val normalized = String(previewBytes, Charsets.UTF_8)
+        val decodedText = previewBytes.decodeStrictUtf8OrNull(
+            allowDroppingTrailingPartial = truncatedByBytes,
+        ) ?: return null
+        val normalized = decodedText
             .replace("\r\n", "\n")
             .replace('\r', '\n')
             .filter { char -> !char.isISOControl() || char == '\n' || char == '\t' }
@@ -237,6 +242,22 @@ object TextAttachmentPreviewReader {
 
     private const val MAX_TEXT_PREVIEW_BYTES = 16 * 1024
     private const val MAX_TEXT_PREVIEW_CHARS = 4_000
+}
+
+private fun ByteArray.decodeStrictUtf8OrNull(allowDroppingTrailingPartial: Boolean): String? {
+    val maxDropBytes = if (allowDroppingTrailingPartial) minOf(3, size - 1) else 0
+    for (dropBytes in 0..maxDropBytes) {
+        val length = size - dropBytes
+        val decoded = runCatching {
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(this, 0, length))
+                .toString()
+        }.getOrNull()
+        if (decoded != null) return decoded
+    }
+    return null
 }
 
 object ImageTextPreviewReader {

@@ -71,9 +71,10 @@ current app records this as an opened-but-unverified boundary; it cannot know
 whether the user completed the destination app action.
 
 System speech recognition inserts a transcript into the compose box only.
-Sending remains explicit. Audio/video/PDF/legacy Office/binary attachments are
-metadata-only in the current app; supported text, RTF, Office Open XML, and
-user-provided image attachments may produce bounded local excerpts.
+Sending remains explicit. Audio/video/legacy Office/binary attachments are
+metadata-only in the current app; supported strict UTF-8 text, RTF, PDF text
+layers, Office Open XML, and user-provided image attachments may produce
+bounded local excerpts. Image-only or malformed PDFs remain metadata-only.
 
 ## Model Downloads
 
@@ -110,4 +111,3 @@ This codebase does not contain a first-party analytics upload path beyond
 user-configured remote model calls, recommended/custom model downloads, and
 Android external intents initiated by confirmed actions. Recheck release builds
 and any added SDKs before publishing this statement externally.
-

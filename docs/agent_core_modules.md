@@ -652,6 +652,8 @@ Current status:
   MediaStore id, URI, path, original image, or raw pixels. OCR formatting
   preserves recognized block/line order when ML Kit provides it, while still
   omitting coordinates, image labels, captions, pixels, and visual semantics.
+  File metadata returned with the OCR result (`name`, `mimeType`, `sizeBytes`,
+  and `lastModifiedMillis`) is treated as private output alongside `ocrText`.
   Remote mode treats the OCR continuation like other protected local context and
   stops before sending it to a configured backend.
 - `read_recent_image_ocr` is a separate skill-first, confirmed tool for
@@ -843,8 +845,9 @@ Current status:
   failure step. `AwaitingUserConfirmation` runs are not failed because their
   pending confirmation snapshot remains the explicit recovery boundary.
 - Audit summary sanitization removes key-like tokens, bearer credentials, and
-  email addresses before truncation. The in-memory audit sink stores the same
-  redacted copy as the Room-backed repository so tests cannot accidentally
+  email addresses before truncation, including quoted JSON-style credential
+  assignments. The in-memory audit sink stores the
+  same redacted copy as the Room-backed repository so tests cannot accidentally
   depend on raw private data.
 - The first local-only privacy boundary is implemented for shared input,
   clipboard-derived continuations, and remote chat history. Tool specs now
@@ -1169,7 +1172,9 @@ Current status:
   text-layer excerpts for user-provided RTF, PDF text layers, and Office Open
   XML `.docx` / `.xlsx` / `.pptx` files, and bounded local OCR text excerpts
   for user-provided `image/*` attachments. Excerpts are user-visible and limited
-  to the local shared-input prompt.
+  to the local shared-input prompt. Generic text-like excerpts require strict
+  UTF-8; malformed UTF-8 binary content stays metadata-only instead of being
+  decoded with replacement characters.
 - Audio, video, image-only PDFs, legacy Office binary formats, binary, and other
   unsupported attachments stay metadata-only; the app does not parse or embed
   their bytes into prompts.

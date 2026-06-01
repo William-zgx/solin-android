@@ -582,6 +582,35 @@ class SharedInputTest {
     }
 
     @Test
+    fun textPreviewReaderRejectsMalformedUtf8BinaryInput() {
+        val preview = TextAttachmentPreviewReader.read(
+            byteArrayOf(
+                'v'.code.toByte(),
+                'a'.code.toByte(),
+                0xFF.toByte(),
+                'l'.code.toByte(),
+                'u'.code.toByte(),
+                'e'.code.toByte(),
+            ).inputStream(),
+        )
+
+        assertNull(preview)
+    }
+
+    @Test
+    fun textPreviewReaderKeepsValidPrefixWhenByteLimitCutsTrailingUtf8Character() {
+        val partialMultibyteSuffix = byteArrayOf(0xE4.toByte(), 0xBD.toByte())
+        val bytes = ByteArray(16 * 1024 - 1) { 'a'.code.toByte() } + partialMultibyteSuffix
+
+        val preview = TextAttachmentPreviewReader.read(bytes.inputStream())
+
+        assertNotNull(preview)
+        assertEquals(4_000, preview!!.text.length)
+        assertTrue(preview.text.all { char -> char == 'a' })
+        assertTrue(preview.truncated)
+    }
+
+    @Test
     fun imageTextPreviewReaderCleansControlsAndTruncates() {
         val preview = ImageTextPreviewReader.fromText(
             "第一\r第二\r\n第三\u0000\u0007\t尾\n\n\n\n结束",

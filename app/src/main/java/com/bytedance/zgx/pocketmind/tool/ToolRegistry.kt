@@ -890,6 +890,14 @@ private val recentImageOcrOutputSchemaJson = """
     }
 """.trimIndent()
 
+private val recentImageOcrPrivateOutputKeys = setOf(
+    "name",
+    "mimeType",
+    "sizeBytes",
+    "lastModifiedMillis",
+    "ocrText",
+)
+
 private val currentScreenTextOutputSchemaJson = """
     {
       "type": "object",
@@ -1234,7 +1242,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
             pendingArgumentAllowlist = setOf("maxCount"),
-            privateOutputKeys = setOf("ocrText"),
+            privateOutputKeys = recentImageOcrPrivateOutputKeys,
             redactedResultSummary = "已读取最近截图 OCR 摘录",
         ),
     ),
@@ -1254,7 +1262,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
             pendingArgumentAllowlist = setOf("maxCount"),
-            privateOutputKeys = setOf("ocrText"),
+            privateOutputKeys = recentImageOcrPrivateOutputKeys,
             redactedResultSummary = "已读取最近图片 OCR 摘录",
         ),
     ),

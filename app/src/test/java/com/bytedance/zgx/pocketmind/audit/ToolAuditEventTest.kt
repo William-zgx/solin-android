@@ -43,8 +43,29 @@ class ToolAuditEventTest {
         assertFalse(sanitized.contains(bearer))
         assertFalse(sanitized.contains("alice@example.com"))
         assertTrue(sanitized.contains("api_key=[redacted]"))
-        assertTrue(sanitized.contains("Authorization=[redacted]"))
+        assertTrue(sanitized.contains("Authorization: [redacted]"))
         assertTrue(sanitized.contains("[email]"))
+    }
+
+    @Test
+    fun sanitizedSummaryRedactsQuotedJsonCredentialAssignments() {
+        val event = ToolAuditEvent(
+            runId = "run-1",
+            requestId = "request-1",
+            toolName = "web_search",
+            skillId = null,
+            eventType = ToolAuditEventType.ToolObserved,
+            summary = """{"access_token":"plain-token-123","refresh_token":"refresh-token-456","token":"short-token-789"}""",
+        )
+
+        val sanitized = event.sanitizedSummary()
+
+        assertFalse(sanitized.contains("plain-token-123"))
+        assertFalse(sanitized.contains("refresh-token-456"))
+        assertFalse(sanitized.contains("short-token-789"))
+        assertTrue(sanitized.contains("\"access_token\":[redacted]"))
+        assertTrue(sanitized.contains("\"refresh_token\":[redacted]"))
+        assertTrue(sanitized.contains("\"token\":[redacted]"))
     }
 
     @Test
@@ -65,7 +86,7 @@ class ToolAuditEventTest {
         assertFalse(sanitized.contains(tokenValue))
         assertFalse(sanitized.contains(keyValue))
         assertTrue(sanitized.contains("token=[redacted]"))
-        assertTrue(sanitized.contains("key=[redacted]"))
+        assertTrue(sanitized.contains("key: [redacted]"))
     }
 
     @Test

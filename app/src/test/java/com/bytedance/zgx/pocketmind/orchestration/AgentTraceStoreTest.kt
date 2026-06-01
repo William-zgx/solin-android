@@ -153,6 +153,7 @@ class AgentTraceStoreTest {
         val apiKey = "sk-" + "c".repeat(32)
         val bearer = "Bearer " + "d".repeat(32)
         val email = "alice@example.com"
+        val jsonCredential = "plain-token-123"
         val run = store.createRun("private prompt")
         val request = ToolRequest(
             id = "request-redacted",
@@ -178,7 +179,10 @@ class AgentTraceStoreTest {
                 ),
             ),
         )
-        store.appendStep(run.id, AgentStep.AssistantResponded("remote said $bearer for $email"))
+        store.appendStep(
+            run.id,
+            AgentStep.AssistantResponded("""remote said $bearer for $email with {"access_token":"$jsonCredential"}"""),
+        )
 
         val persistedTrace = store.stepSummaries(run.id).joinToString("\n") { step ->
             "${step.summary}\n${step.json}"
@@ -186,9 +190,9 @@ class AgentTraceStoreTest {
         assertFalse(persistedTrace.contains(apiKey))
         assertFalse(persistedTrace.contains(bearer))
         assertFalse(persistedTrace.contains(email))
+        assertFalse(persistedTrace.contains(jsonCredential))
         assertFalse(persistedTrace.contains("raw argument should stay out"))
-        assertTrue(persistedTrace.contains("Authorization=[redacted]"))
-        assertTrue(persistedTrace.contains("sk-[redacted]"))
+        assertTrue(persistedTrace.contains("Authorization: [redacted]"))
         assertTrue(persistedTrace.contains("Bearer [redacted]"))
         assertTrue(persistedTrace.contains("[email]"))
     }

@@ -1,5 +1,27 @@
 # PocketMind 验证报告
 
+## 2026-06-02 多模态与审计隐私边界增量验证
+
+本轮覆盖项：
+
+- 文本类共享附件摘录现在使用严格 UTF-8 解码。伪装成 `text/*` 或
+  JSON/XML/YAML 的 malformed UTF-8 二进制内容不会被替换字符吞掉后进入 prompt；
+  只有字节上限截断造成的尾部不完整 UTF-8 字符会被安全丢弃。
+- `ToolAuditSummaryRedactor` 现在覆盖 JSON 风格带引号 credential 赋值；同一
+  redactor 也保护 Agent trace 摘要/JSON 预览。
+- 最近截图/图片 OCR 的 `name`、`mimeType`、`sizeBytes`、
+  `lastModifiedMillis` 与 `ocrText` 一起纳入 private output policy，避免
+  OCR 文件元数据落入 trace、audit 或 Skill public outputs。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditEventTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson' --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateDeviceOutputKeysRemainDeclaredInOutputSchemas' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace'
+```
+
+结果：targeted JVM 隐私边界测试通过。
+
 ## 2026-06-02 远程 tool_calls 解析失败闭环增量验证
 
 本轮覆盖项：
@@ -212,6 +234,9 @@ instrumentation `OK (20 tests)`，脚本输出 `Emulator verification passed`。
 
 本轮覆盖项：
 
+- 文本类共享附件摘录现在使用严格 UTF-8 解码。伪装成 `text/*` 或
+  JSON/XML/YAML 的 malformed UTF-8 二进制内容不会被替换字符吞掉后进入 prompt；
+  只有字节上限截断造成的尾部不完整 UTF-8 字符会被安全丢弃。
 - 用户主动分享的 `application/json`、`application/xml`、`application/yaml`
   和 `application/x-yaml` 现在归类为 Document，并复用受限 UTF-8 文本摘录
   读取器；`application/octet-stream` 等二进制 application MIME 仍保持
