@@ -199,6 +199,11 @@ Current status:
   `query_contacts` still requires confirmed `READ_CONTACTS`, schema-bounds
   `maxCount` to 20, returns only name/phone summaries, and marks both query and
   contacts JSON as private trace outputs.
+- Explicit contact draft requests now also have a conservative Skill-first
+  path. `create_contact_draft` is an ExternalDraft/navigation capability that
+  opens the system contact insert page with only `name`/`email`/`phone` draft
+  fields, does not read contacts, does not request `READ_CONTACTS`, and remains
+  separate from `query_contacts`.
 - Explicit calendar availability requests now also have a conservative
   Skill-first path. The shared parser requires a busy/free intent plus two
   timezone-qualified ISO timestamps, rejects permissions/API/implementation

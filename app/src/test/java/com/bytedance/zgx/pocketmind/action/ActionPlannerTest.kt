@@ -404,9 +404,31 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("search contacts API").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("不要查联系人 Alice").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("do not search contacts for Alice").kind)
-        assertEquals(ActionPlanKind.Draft, planner.plan("新建联系人 Alice").kind)
-        assertEquals(MobileActionFunctions.CREATE_CONTACT_DRAFT, planner.plan("新建联系人 Alice").draft?.functionName)
         assertFalse(planner.isLikelyAction("联系人权限怎么申请"))
+    }
+
+    @Test
+    fun contactDraftRequiresExplicitNameAndRejectsNonDraftInputs() {
+        val plan = planner.plan("新建联系人 Alice")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.CREATE_CONTACT_DRAFT, plan.draft?.functionName)
+        assertEquals("Alice", plan.draft?.parameters?.get("name"))
+
+        val englishPlan = planner.plan("create contact Bob bob@example.com +1 555 0100")
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.CREATE_CONTACT_DRAFT, englishPlan.draft?.functionName)
+        assertEquals("Bob", englishPlan.draft?.parameters?.get("name"))
+        assertEquals("bob@example.com", englishPlan.draft?.parameters?.get("email"))
+        assertEquals("+1 555 0100", englishPlan.draft?.parameters?.get("phone"))
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("新建联系人").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要新建联系人 Alice").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("联系人权限怎么申请").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("ContactsContract 怎么用").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("编辑联系人 Alice").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("删除联系人 Alice").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("导出联系人").kind)
     }
 
     @Test

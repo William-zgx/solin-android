@@ -154,6 +154,11 @@ the explicit query, defaults to 5 entries, caps requests at 20, and returns
 LocalOnly minimal `name`/`phone` summaries. It does not return email, avatar,
 address, notes, contact IDs, or full address-book exports; the contact query and
 result JSON are redacted from trace and audit summaries.
+Requests such as “新建联系人 Alice” use the skill-first path and become
+confirmed `create_contact_draft` tool calls. The tool opens the system contacts
+insert page and pre-fills only draft `name`/`email`/`phone` fields; it does not
+read the address book, request `READ_CONTACTS`, save the contact, or submit the
+system form for the user.
 Requests such as “查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z”
 become confirmed `query_calendar_availability` tool calls. The tool requires
 `READ_CALENDAR` after confirmation, accepts only explicit timezone-qualified

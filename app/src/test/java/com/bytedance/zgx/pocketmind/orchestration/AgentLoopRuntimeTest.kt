@@ -831,6 +831,45 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstContactDraftBypassesActionPlannerAndRequestsConfirmation() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "新建联系人 Alice",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.CREATE_CONTACT_DRAFT, result.plan.request.toolName)
+        assertEquals("Alice", result.plan.request.arguments["name"])
+        assertEquals(BuiltInSkillRuntime.CONTACT_DRAFT_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(BuiltInSkillRuntime.CONTACT_DRAFT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(
+            listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
+            auditSink.events.map { it.eventType },
+        )
+        assertTrue(auditSink.events.all { event ->
+            event.toolName == MobileActionFunctions.CREATE_CONTACT_DRAFT &&
+                event.skillId == BuiltInSkillRuntime.CONTACT_DRAFT_SKILL &&
+                ToolPermission.SendsTextToExternalApp in event.permissions &&
+                ToolPermission.ReadsContacts !in event.permissions &&
+                ToolPermission.RequiresAndroidRuntimePermission !in event.permissions
+        })
+    }
+
+    @Test
     fun skillFirstCalendarAvailabilityBypassesActionPlannerAndRequestsConfirmation() {
         val input = "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"
         val actionRuntime = RecordingActionRuntime(likelyAction = false)
@@ -1028,7 +1067,11 @@ class AgentLoopRuntimeTest {
             "search contacts API",
             "不要查联系人 Alice",
             "do not search contacts for Alice",
-            "新建联系人 Alice",
+            "新建联系人",
+            "不要新建联系人 Alice",
+            "编辑联系人 Alice",
+            "删除联系人 Alice",
+            "导出联系人",
             "查一下忙闲",
             "明天我有空吗",
             "日历权限怎么申请",

@@ -164,8 +164,8 @@ class MobileActionPlanner : ActionPlanner {
             CalendarDraftActionParser.matches(input) ->
                 CalendarDraftActionParser.draft(input)
 
-            isCreateContactRequest(input) ->
-                MobileActionFunctions.CREATE_CONTACT_DRAFT.toDraft(mapOf("name" to cleanedObject(input)))
+            ContactDraftActionParser.matches(input) ->
+                ContactDraftActionParser.draft(input)
 
             WebSearchActionParser.matches(input) ->
                 WebSearchActionParser.draft(input)
@@ -326,25 +326,6 @@ class MobileActionPlanner : ActionPlanner {
             "usage stats permission",
         ).any { it in normalized } &&
             listOf("打开", "设置", "开启", "授权", "open", "settings", "grant").any { it in normalized }
-    }
-
-    private fun isCreateContactRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        val looksLikeNonAction = listOf(
-            "联系人权限",
-            "联系人页面",
-            "联系人组件",
-            "怎么实现",
-            "如何实现",
-            "怎么设计",
-            "是什么",
-        ).any { it in input } ||
-            normalized.contains(Regex("""\b(contact\s+(permission|form|page|component|api|screen|tracing|support)|how\s+to|implement|design)\b"""))
-        if (looksLikeNonAction) return false
-        return listOf("新建联系人", "创建联系人", "添加联系人", "联系人草稿")
-            .any { it in input } ||
-            Regex("""\b(create|add|new)\s+(?:a\s+)?contacts?\b""", RegexOption.IGNORE_CASE)
-                .containsMatchIn(normalized)
     }
 
     private fun isOpenAppIntentRequest(input: String): Boolean {

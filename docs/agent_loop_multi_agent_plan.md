@@ -217,7 +217,7 @@ data class ToolResult(
 | `search_maps` | `ActionExecutor` | 必须确认 | 地图 Intent 打开成功/失败 |
 | `compose_email` | `ActionExecutor` | 必须确认 | 邮件草稿页打开成功/失败 |
 | `create_calendar_event` | `ActionExecutor` | 必须确认 | 日历新建页打开成功/失败 |
-| `create_contact_draft` | `ActionExecutor` | 必须确认 | 联系人草稿页打开成功/失败 |
+| `create_contact_draft` | `ActionExecutor` / skill-first | 必须确认 | 联系人草稿页打开成功/失败；不读取通讯录 |
 | `open_flashlight_settings` | `ActionExecutor` | 必须确认 | 设置页打开成功/失败 |
 
 之后再补：

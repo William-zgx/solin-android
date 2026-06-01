@@ -109,6 +109,16 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission in contactsSpec.permissions)
         assertTrue(contactsSpec.inputSchemaJson.contains("\"maximum\": 20"))
 
+        val contactDraftSpec = registry.specFor(MobileActionFunctions.CREATE_CONTACT_DRAFT)
+        assertNotNull(contactDraftSpec)
+        requireNotNull(contactDraftSpec)
+        assertEquals(ToolCapability.ExternalDraft, contactDraftSpec.capability)
+        assertTrue(ToolPermission.StartsExternalActivity in contactDraftSpec.permissions)
+        assertTrue(ToolPermission.SendsTextToExternalApp in contactDraftSpec.permissions)
+        assertTrue(ToolPermission.ReadsContacts !in contactDraftSpec.permissions)
+        assertTrue(ToolPermission.ReadsDeviceContext !in contactDraftSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in contactDraftSpec.permissions)
+
         val recentFilesSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_FILES)
         assertNotNull(recentFilesSpec)
         requireNotNull(recentFilesSpec)

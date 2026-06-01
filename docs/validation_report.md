@@ -1,5 +1,38 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Contact draft skill-first routing 增量验证
+
+本轮覆盖项：
+
+- 显式“新建/添加/创建联系人 + 姓名”请求可由 built-in Skill runtime 直接规划为
+  受确认保护的 `create_contact_draft`，不再依赖 action planner。
+- Shared contact-draft parser 只提取草稿字段 `name`/`email`/`phone`；拒绝空
+  新建请求、联系人权限、ContactsContract/API/页面/组件/实现讨论、删除/编辑/
+  导出联系人、联系人查询和否定命令。
+- 新增 `contact_draft_skill` manifest，风险级别为 `MediumDraftOrNavigation`；
+  registry 继续校验 `create_contact_draft` 的 `name` 必填和 closed schema。
+- 权限和数据边界保持分离：`create_contact_draft` 是 ExternalDraft，只打开系统
+  联系人插入页，不读取通讯录、不请求 `READ_CONTACTS`、不保存或提交联系人；
+  `query_contacts` 仍是唯一需要 `READ_CONTACTS` 的联系人读取工具。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.contactDraftRequiresExplicitNameAndRejectsNonDraftInputs' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.contactQueryRequiresExplicitQueryAndRejectsNonLookupInputs' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansContactDraftWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansContactLookupWithoutActionDraftWhenQueryIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstContactDraftBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.contactDraftSkillFirstConfirmationDoesNotRequestContactsPermission' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
+```
+
+结果：通过。
+
 ## 2026-06-01 最近图片 OCR skill-first routing 增量验证
 
 本轮覆盖项：

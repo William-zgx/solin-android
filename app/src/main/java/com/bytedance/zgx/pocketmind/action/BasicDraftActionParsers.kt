@@ -1047,6 +1047,97 @@ internal object ContactQueryActionParser {
     }
 }
 
+internal object ContactDraftActionParser {
+    private val englishPattern =
+        Regex("""\b(?:create|add|new)\s+(?:a\s+)?contacts?\b|\bcontacts?\s+draft\b""", RegexOption.IGNORE_CASE)
+    private val emailPattern =
+        Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""")
+    private val phonePattern =
+        Regex("""(?:\+?\d[\d\s().-]{5,}\d)""")
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeContactDraftNonAction()) return false
+        val normalized = input.lowercase()
+        val hasTrigger = listOf("新建联系人", "创建联系人", "添加联系人", "联系人草稿")
+            .any { it in input } ||
+            englishPattern.containsMatchIn(normalized)
+        return hasTrigger && cleanedContactName(input).isMeaningfulContactDraftName()
+    }
+
+    fun draft(input: String): ActionDraft {
+        val parameters = parameters(input)
+        return ActionDraft(
+            functionName = MobileActionFunctions.CREATE_CONTACT_DRAFT,
+            title = "联系人草稿",
+            summary = "将打开联系人新建页面。",
+            parameters = parameters,
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun parameters(input: String): Map<String, String> {
+        val email = emailPattern.find(input)?.value
+        val phone = phonePattern.find(input)?.value?.trim()
+        val name = cleanedContactName(input)
+        return buildMap {
+            put("name", name)
+            if (!email.isNullOrBlank()) put("email", email)
+            if (!phone.isNullOrBlank()) put("phone", phone)
+        }
+    }
+
+    private fun cleanedContactName(input: String): String =
+        cleanedObject(input)
+            .replace(Regex("""^(?:新建|创建|添加)(?:一个|一位)?联系人\s*[:：]?\s*"""), "")
+            .replace(Regex("""^联系人草稿\s*[:：]?\s*"""), "")
+            .replace(Regex("""^(?:create|add|new)\s+(?:a\s+)?contacts?\s*[:：]?\s*""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""^contacts?\s+draft\s*[:：]?\s*""", RegexOption.IGNORE_CASE), "")
+            .replace(emailPattern, "")
+            .replace(phonePattern, "")
+            .trim()
+
+    private fun String.isMeaningfulContactDraftName(): Boolean {
+        val normalized = lowercase()
+        return isNotBlank() &&
+            normalized !in setOf("contact", "contacts", "联系人", "draft") &&
+            this !in setOf("权限", "联系人权限")
+    }
+
+    private fun String.looksLikeContactDraftNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "不要新建联系人",
+            "不要创建联系人",
+            "不要添加联系人",
+            "别新建联系人",
+            "别创建联系人",
+            "别添加联系人",
+            "联系人权限",
+            "通讯录权限",
+            "联系人页面",
+            "联系人组件",
+            "联系人接口",
+            "联系人列表",
+            "通讯录列表",
+            "读取联系人",
+            "查询联系人",
+            "查联系人",
+            "搜索联系人",
+            "编辑联系人",
+            "删除联系人",
+            "导出联系人",
+            "所有联系人",
+            "全量联系人",
+            "怎么实现",
+            "如何实现",
+            "怎么设计",
+        ).any { it in this } ||
+            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:create|add|new)\s+(?:a\s+)?contacts?\b""")) ||
+            normalized.contains(Regex("""\b(contacts?\s+(permission|permissions|form|page|component|api|screen|tracing|support|provider|list)|contactscontract|delete\s+contacts?|edit\s+contacts?|export\s+contacts?|all\s+contacts?)\b""")) ||
+            normalized.contains(Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\bcontacts?\b"""))
+    }
+}
+
 internal object CalendarAvailabilityActionParser {
     private val isoOffsetDateTimePattern =
         Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})""")

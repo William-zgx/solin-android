@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.skill
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.CalendarAvailabilityActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
+import com.bytedance.zgx.pocketmind.action.ContactDraftActionParser
 import com.bytedance.zgx.pocketmind.action.ContactQueryActionParser
 import com.bytedance.zgx.pocketmind.action.CurrentScreenTextActionParser
 import com.bytedance.zgx.pocketmind.action.DeepLinkActionParser
@@ -27,6 +28,7 @@ class BuiltInSkillRuntime : SkillRuntime {
     private val skillByToolName = mapOf(
         MobileActionFunctions.COMPOSE_EMAIL to EMAIL_DRAFT_SKILL,
         MobileActionFunctions.CREATE_CALENDAR_EVENT to CALENDAR_DRAFT_SKILL,
+        MobileActionFunctions.CREATE_CONTACT_DRAFT to CONTACT_DRAFT_SKILL,
         MobileActionFunctions.SEARCH_MAPS to MAP_SEARCH_SKILL,
         MobileActionFunctions.WEB_SEARCH to INFORMATION_LOOKUP_SKILL,
         MobileActionFunctions.OPEN_WIFI_SETTINGS to DEVICE_SETTINGS_SKILL,
@@ -67,6 +69,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && ContactQueryActionParser.matches(input) ->
                 plan(input, ContactQueryActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && ContactDraftActionParser.matches(input) ->
+                plan(input, ContactDraftActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && WebSearchActionParser.matches(input) ->
                 plan(input, WebSearchActionParser.draft(input).toRequestPair())
@@ -222,6 +227,7 @@ class BuiltInSkillRuntime : SkillRuntime {
     companion object {
         const val EMAIL_DRAFT_SKILL = "email_draft_skill"
         const val CALENDAR_DRAFT_SKILL = "calendar_draft_skill"
+        const val CONTACT_DRAFT_SKILL = "contact_draft_skill"
         const val MAP_SEARCH_SKILL = "map_search_skill"
         const val INFORMATION_LOOKUP_SKILL = "information_lookup_skill"
         const val DEVICE_SETTINGS_SKILL = "device_settings_skill"
@@ -313,6 +319,16 @@ private val builtInSkillManifests = listOf(
         description = "把自然语言请求整理成日历新建事件工具调用。",
         triggerExamples = listOf("帮我建个日程", "add a calendar event"),
         requiredTools = listOf(MobileActionFunctions.CREATE_CALENDAR_EVENT),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.CONTACT_DRAFT_SKILL,
+        version = 1,
+        title = "联系人草稿",
+        description = "把自然语言请求整理成联系人新建草稿工具调用；不读取通讯录。",
+        triggerExamples = listOf("新建联系人 Alice", "create contact Alice"),
+        requiredTools = listOf(MobileActionFunctions.CREATE_CONTACT_DRAFT),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
     ),

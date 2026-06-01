@@ -54,6 +54,19 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
+    fun contactDraftSkillFirstConfirmationDoesNotRequestContactsPermission() {
+        val confirmation = confirmationFor(
+            toolName = MobileActionFunctions.CREATE_CONTACT_DRAFT,
+            arguments = mapOf("name" to "Alice"),
+            skillId = BuiltInSkillRuntime.CONTACT_DRAFT_SKILL,
+        )
+
+        assertTrue(confirmation.runtimePermissionsFor().isEmpty())
+        assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
+        assertTrue(confirmation.specialAccessRequirementsFor().isEmpty())
+    }
+
+    @Test
     fun calendarAvailabilitySkillFirstConfirmationStillRequestsCalendarPermission() {
         val confirmation = confirmationFor(
             toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,

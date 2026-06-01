@@ -18,6 +18,7 @@ class BuiltInSkillRuntimeTest {
 
         assertTrue(BuiltInSkillRuntime.EMAIL_DRAFT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.CALENDAR_DRAFT_SKILL in manifests)
+        assertTrue(BuiltInSkillRuntime.CONTACT_DRAFT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.MAP_SEARCH_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.INFORMATION_LOOKUP_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL in manifests)
@@ -82,6 +83,7 @@ class BuiltInSkillRuntimeTest {
                     ),
                 ),
             ),
+            "新建联系人 Alice" to requireNotNull(runtime.plan("新建联系人 Alice")),
             "查去机场的路线" to requireNotNull(
                 runtime.plan(
                     "查去机场的路线",
@@ -715,7 +717,37 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("search contacts API"))
         assertEquals(null, runtime.plan("不要查联系人 Alice"))
         assertEquals(null, runtime.plan("do not search contacts for Alice"))
-        assertEquals(null, runtime.plan("新建联系人 Alice"))
+    }
+
+    @Test
+    fun plansContactDraftWithoutActionDraftWhenCommandIsExplicit() {
+        val plan = requireNotNull(runtime.plan("新建联系人 Alice"))
+
+        assertEquals(BuiltInSkillRuntime.CONTACT_DRAFT_SKILL, plan.request.skillId)
+        assertEquals(mapOf("input" to "新建联系人 Alice"), plan.request.arguments)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.CREATE_CONTACT_DRAFT, step.request.toolName)
+        assertEquals("Alice", step.request.arguments["name"])
+        assertEquals(MobileActionFunctions.CREATE_CONTACT_DRAFT, step.draft.functionName)
+        assertTrue(step.draft.requiresConfirmation)
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+
+        val englishPlan = requireNotNull(runtime.plan("create contact Bob bob@example.com +1 555 0100"))
+        assertEquals(BuiltInSkillRuntime.CONTACT_DRAFT_SKILL, englishPlan.request.skillId)
+        val englishStep = englishPlan.steps.single()
+        require(englishStep is SkillStep.ToolStep)
+        assertEquals("Bob", englishStep.request.arguments["name"])
+        assertEquals("bob@example.com", englishStep.request.arguments["email"])
+        assertEquals("+1 555 0100", englishStep.request.arguments["phone"])
+
+        assertEquals(null, runtime.plan("新建联系人"))
+        assertEquals(null, runtime.plan("不要新建联系人 Alice"))
+        assertEquals(null, runtime.plan("联系人权限怎么申请"))
+        assertEquals(null, runtime.plan("ContactsContract 怎么用"))
+        assertEquals(null, runtime.plan("编辑联系人 Alice"))
+        assertEquals(null, runtime.plan("删除联系人 Alice"))
+        assertEquals(null, runtime.plan("导出联系人"))
     }
 
     @Test
