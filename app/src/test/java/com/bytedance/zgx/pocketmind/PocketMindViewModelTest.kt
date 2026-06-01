@@ -8,6 +8,8 @@ import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
+import com.bytedance.zgx.pocketmind.action.ModelToolOutputParseResult
 import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
 import com.bytedance.zgx.pocketmind.audit.ToolAuditRecord
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
@@ -1837,6 +1839,63 @@ class PocketMindViewModelTest {
         assertEquals(traceSummary.run.id, traceRun.id)
         assertEquals(AgentRunState.Failed, traceRun.state)
         assertEquals("Unknown tool: unknown_tool", traceRun.steps.single().summary)
+    }
+
+    @Test
+    fun localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory() = runTest(dispatcher) {
+        val secretPayload = "SECRET_SHARE_TEXT"
+        val localCall = """call:share_text{"text":"$secretPayload"}"""
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = false,
+            modelOutputResult = MobileActionPlanner().parseModelToolOutput(localCall),
+        )
+        val orchestrator = AssistantOrchestrator(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(),
+        )
+        val sessionStore = FakeSessionStore()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val executor = RecordingToolExecutor()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            runtime = FakeLiteRtRuntime(localResponse = localCall),
+            remoteRuntime = remoteRuntime,
+            assistantRouter = orchestrator,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("准备分享一段模型生成文本")
+        advanceUntilIdle()
+
+        val pending = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(pending)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, pending.toolRequest?.toolName)
+        assertEquals(secretPayload, pending.toolRequest?.arguments?.get("text"))
+        assertEquals(true, pending.plannedByModel)
+        assertEquals("local model tool call", pending.fallbackReason)
+        assertTrue(executor.executedRequests.isEmpty())
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
+        assertTrue(sessionStore.messages.last().text.contains("请确认后再执行"))
+        assertFalse(sessionStore.messages.last().text.contains(secretPayload))
+        assertFalse(sessionStore.messages.last().text.contains("call:"))
+        assertEquals("动作草稿待确认 · 本地模型", viewModel.uiState.value.statusText)
+
+        viewModel.dismissAgentConfirmation(pending)
+        advanceUntilIdle()
+        viewModel.updateRemoteModelConfig(configuredRemoteModel())
+        viewModel.selectInferenceMode(InferenceMode.Remote)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val remoteCall = remoteRuntime.calls.single()
+        assertFalse(remoteCall.history.toString().contains(secretPayload))
+        assertFalse(remoteCall.history.toString().contains("call:share_text"))
     }
 
     @Test
@@ -4070,6 +4129,7 @@ class PocketMindViewModelTest {
 
     private class RecordingActionRuntime(
         private val likelyAction: Boolean,
+        private val modelOutputResult: ModelToolOutputParseResult = ModelToolOutputParseResult.None,
     ) : ActionPlanningRuntime {
         override fun isLikelyAction(input: String): Boolean = likelyAction
 
@@ -4079,6 +4139,9 @@ class PocketMindViewModelTest {
                 usedModel = false,
                 fallbackReason = null,
             )
+
+        override fun parseModelToolOutput(output: String): ModelToolOutputParseResult =
+            modelOutputResult
     }
 
     private class FakeMemoryRecordStore(

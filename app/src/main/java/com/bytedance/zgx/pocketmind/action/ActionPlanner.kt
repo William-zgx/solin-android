@@ -1,5 +1,9 @@
 package com.bytedance.zgx.pocketmind.action
 
+import org.json.JSONArray
+import org.json.JSONObject
+import org.json.JSONTokener
+
 interface ActionPlanner {
     fun isLikelyAction(input: String): Boolean
     fun plan(input: String): ActionPlan
@@ -41,6 +45,29 @@ class MobileActionPlanner : ActionPlanner {
         if (functionName !in MobileActionFunctions.supported) return null
         val parameters = parseJsonLikeObject(match.groupValues[2])
         return functionName.toDraft(parameters)
+    }
+
+    fun parseModelToolOutput(output: String): ModelToolOutputParseResult {
+        val trimmed = output.trim()
+        if (!trimmed.startsWith("call:")) return ModelToolOutputParseResult.None
+        val match = CALL_PATTERN.matchEntire(trimmed)
+            ?: return ModelToolOutputParseResult.Rejected(
+                toolName = null,
+                reason = "Invalid model tool call format",
+            )
+        val functionName = match.groupValues[1]
+        if (functionName !in MobileActionFunctions.supported) {
+            return ModelToolOutputParseResult.Rejected(
+                toolName = functionName,
+                reason = "Unknown tool: $functionName",
+            )
+        }
+        val parameters = parseStrictJsonObject(match.groupValues[2])
+            ?: return ModelToolOutputParseResult.Rejected(
+                toolName = functionName,
+                reason = "Model tool call arguments must be a JSON object with primitive values",
+            )
+        return ModelToolOutputParseResult.Parsed(functionName.toDraft(parameters))
     }
 
     private fun inferDraft(input: String): ActionDraft? {
@@ -258,6 +285,27 @@ class MobileActionPlanner : ActionPlanner {
             .associate { match ->
                 match.groupValues[1] to match.groupValues[2]
             }
+    }
+
+    private fun parseStrictJsonObject(raw: String): Map<String, String>? {
+        val tokener = JSONTokener(raw)
+        val json = runCatching { tokener.nextValue() as? JSONObject }.getOrNull() ?: return null
+        if (tokener.nextClean().code != 0) return null
+        val result = linkedMapOf<String, String>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            if (json.isNull(key)) return null
+            val value = json.get(key)
+            result[key] = when (value) {
+                is String -> value
+                is Number -> value.toString()
+                is Boolean -> value.toString()
+                is JSONObject, is JSONArray -> return null
+                else -> return null
+            }
+        }
+        return result
     }
 
     private companion object {

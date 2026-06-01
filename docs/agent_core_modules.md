@@ -146,6 +146,14 @@ Current status:
   registry validation, safety evaluation, trace/audit recording, and explicit
   user confirmation before any Android tool execution. The legacy remote
   `send()` text stream remains available for pure chat compatibility.
+- Local model answers can also hand back an explicit, whole-output
+  `call:function{...}` request. That protocol is parsed strictly: ordinary
+  answers are left alone, malformed calls and unknown tools fail closed, and
+  valid calls become parameter-free-audited `ToolRequest` values that re-enter
+  the same validation, safety, trace, and pending-confirmation boundary as
+  remote `tool_calls`. The ViewModel replaces the raw call text with a
+  `LocalOnly` title-only confirmation prompt before persisting the chat turn, so
+  tool arguments do not become later remote history.
 - Successful observations can now call `AgentObservationReplanner` to produce a
   next tool plan. The default production strategy is conservative: it only
   replans one explicit next action after sequence words such as "然后" / "then",

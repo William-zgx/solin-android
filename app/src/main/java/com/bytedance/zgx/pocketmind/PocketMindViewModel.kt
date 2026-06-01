@@ -1122,7 +1122,53 @@ class PocketMindViewModel(
                                 )
                             }
                             route.runId?.let { runId ->
-                                assistantOrchestrator.observeModelResult(runId, partial.toString())
+                                val modelObservation = assistantOrchestrator.observeModelResult(runId, partial.toString())
+                                val nextToolPlan =
+                                    (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
+                                if (nextToolPlan != null) {
+                                    _uiState.updateLastAssistantLocalOnly(
+                                        "已准备模型动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。",
+                                    )
+                                    persistActiveSessionFromUi()
+                                    rebuildMemoryIndex()
+                                    _uiState.update {
+                                        it.copy(
+                                            pendingConfirmation = PendingAgentConfirmation(
+                                                runId = modelObservation.run.id,
+                                                draft = nextToolPlan.draft,
+                                                toolRequest = nextToolPlan.request,
+                                                skillId = nextToolPlan.skillRequest?.skillId,
+                                                plannedByModel = nextToolPlan.plannedByModel,
+                                                fallbackReason = nextToolPlan.fallbackReason,
+                                            ),
+                                            isBusy = false,
+                                            isGenerating = false,
+                                            isReady = true,
+                                            auditEvents = loadAuditEvents(),
+                                            agentTraceRuns = loadAgentTraceRuns(),
+                                            statusText = "动作草稿待确认 · 本地模型",
+                                        )
+                                    }
+                                    return@launch
+                                }
+                                if (modelObservation?.decision is AgentObservationDecision.Fail) {
+                                    _uiState.updateLastAssistantLocalOnly(
+                                        "无法准备这个动作：${modelObservation.decision.reason}",
+                                    )
+                                    persistActiveSessionFromUi()
+                                    rebuildMemoryIndex()
+                                    _uiState.update {
+                                        it.copy(
+                                            isBusy = false,
+                                            isGenerating = false,
+                                            isReady = true,
+                                            auditEvents = loadAuditEvents(),
+                                            agentTraceRuns = loadAgentTraceRuns(),
+                                            statusText = "动作不可执行",
+                                        )
+                                    }
+                                    return@launch
+                                }
                             }
                         }
                         persistActiveSessionFromUi()

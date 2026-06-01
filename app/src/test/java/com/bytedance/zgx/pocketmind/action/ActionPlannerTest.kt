@@ -23,6 +23,50 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun strictModelToolOutputParsesSinglePrimitiveJsonObject() {
+        val parsed = planner.parseModelToolOutput(
+            """call:query_recent_files{"kind":"images","maxCount":2,"includeHidden":false}""",
+        )
+
+        val draft = (parsed as ModelToolOutputParseResult.Parsed).draft
+        assertEquals(MobileActionFunctions.QUERY_RECENT_FILES, draft.functionName)
+        assertEquals("images", draft.parameters["kind"])
+        assertEquals("2", draft.parameters["maxCount"])
+        assertEquals("false", draft.parameters["includeHidden"])
+    }
+
+    @Test
+    fun strictModelToolOutputIgnoresOrdinaryAnswers() {
+        assertEquals(ModelToolOutputParseResult.None, planner.parseModelToolOutput("可以用 web_search，但需要确认。"))
+    }
+
+    @Test
+    fun strictModelToolOutputRejectsBadOrNestedCalls() {
+        val badJson = planner.parseModelToolOutput("""call:web_search{"query":}""")
+        assertTrue(badJson is ModelToolOutputParseResult.Rejected)
+
+        val nested = planner.parseModelToolOutput("""call:web_search{"query":{"text":"Kotlin"}}""")
+        assertTrue(nested is ModelToolOutputParseResult.Rejected)
+
+        val multi = planner.parseModelToolOutput(
+            """
+            call:web_search{"query":"Kotlin"}
+            call:open_wifi_settings{}
+            """.trimIndent(),
+        )
+        assertTrue(multi is ModelToolOutputParseResult.Rejected)
+    }
+
+    @Test
+    fun strictModelToolOutputRejectsUnknownTools() {
+        val rejected = planner.parseModelToolOutput("""call:delete_contact{}""")
+
+        rejected as ModelToolOutputParseResult.Rejected
+        assertEquals("delete_contact", rejected.toolName)
+        assertTrue(rejected.reason.contains("Unknown tool"))
+    }
+
+    @Test
     fun parsesHermesStyleWebSearchCallOutput() {
         val draft = planner.parseModelOutput(
             """call:web_search{"query":"Kotlin coroutines Android"}""",

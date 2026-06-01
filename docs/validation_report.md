@@ -4002,3 +4002,46 @@ scripts/verify_emulator.sh
   确认边界、ViewModel pending / rejected UI 回归测试。
 - 通过：完整 JVM 单测 `:app:testDebugUnitTest --rerun-tasks`。
 - 通过：AndroidTest APK 编译。
+
+## 2026-06-02 Local model call:function confirmation path
+
+本轮覆盖项：
+
+- 本地模型生成的整段 `call:function{...}` 输出会被严格解析为模型工具请求；
+  普通回答保持纯聊天完成，不会因为包含 `call:` 片段被抽取成工具。
+- parser 只接受单个调用和 JSON object primitive 参数；坏 JSON、多段 call、
+  嵌套 object/array、未知工具会 fail closed，不生成确认卡、不执行工具。
+- 有效本地 call 会进入 Agent loop 的 `ToolRegistry.validate`、`SafetyPolicy`、
+  trace/audit 和 pending confirmation 链路，`ToolRequest.reason` 使用固定
+  `local model tool call`，避免参数进入 ToolPlanned audit summary。
+- ViewModel 初始本地聊天分支会消费 `observeModelResult()` 的
+  `PlanNextTool`，把 raw call 输出替换成 `LocalOnly` 标题级确认提示后再持久化；
+  取消该确认并切到远程聊天时，remote history 不包含本地 call 参数。
+- `observeModelToolRequest()` 增加重复 request id 防线，远程/本地模型工具请求
+  不能复用同一 run 中已有的 tool request id。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelToolCallOutputRequestsConfirmationAfterAnswerGeneration' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelToolCallAuditSummariesDoNotPersistArguments' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.ordinaryModelAnswerStillCompletesWithoutActionParsingFallback' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelUnknownToolCallOutputFailsRunWithoutPendingConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelInvalidToolArgumentsFailBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelToolRequestCannotReusePriorToolRequestId' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory'
+
+./gradlew :app:testDebugUnitTest
+
+./gradlew :app:assembleDebugAndroidTest
+```
+
+结果：
+
+- 通过：strict parser、Agent loop 本地模型工具调用确认边界、参数无关 audit
+  summary、未知/非法调用 fail-closed、重复 request id 拒绝、ViewModel 本地 call
+  参数不进入远程 history。
+- 通过：完整 JVM 单测 `:app:testDebugUnitTest`。
+- 通过：AndroidTest APK 编译。

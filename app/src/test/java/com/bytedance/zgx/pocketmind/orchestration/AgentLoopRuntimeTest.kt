@@ -10,6 +10,7 @@ import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
+import com.bytedance.zgx.pocketmind.action.ModelToolOutputParseResult
 import com.bytedance.zgx.pocketmind.audit.InMemoryToolAuditSink
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEventType
 import com.bytedance.zgx.pocketmind.data.AgentSkillRunCheckpointEntity
@@ -74,6 +75,218 @@ class AgentLoopRuntimeTest {
         })
         assertTrue(result.steps.any { step ->
             step is AgentStep.ModelPlanned && step.plan is AgentPlan.Answer
+        })
+    }
+
+    @Test
+    fun localModelToolCallOutputRequestsConfirmationAfterAnswerGeneration() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = false,
+            modelOutputResult = modelToolOutputPlanningResult(
+                """call:web_search{"query":"Kotlin coroutines"}""",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "帮我查 Kotlin 协程资料",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
+
+        val observed = runtime.observeModelResult(
+            result.run.id,
+            """call:web_search{"query":"Kotlin coroutines"}""",
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        val decision = observed.decision as AgentObservationDecision.PlanNextTool
+        assertEquals(MobileActionFunctions.WEB_SEARCH, decision.plan.request.toolName)
+        assertEquals(mapOf("query" to "Kotlin coroutines"), decision.plan.request.arguments)
+        assertEquals(true, decision.plan.plannedByModel)
+        assertEquals("local model tool call", decision.plan.fallbackReason)
+        assertEquals(decision.plan.request.id, runtime.latestPendingConfirmation()?.request?.id)
+        assertTrue(observed.steps.any { step ->
+            step is AgentStep.UserConfirmationRequested &&
+                step.request.id == decision.plan.request.id
+        })
+        assertEquals(1, actionRuntime.parseModelToolOutputCallCount)
+    }
+
+    @Test
+    fun localModelToolCallAuditSummariesDoNotPersistArguments() {
+        val secretPayload = "SECRET_SHARE_TEXT"
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = false,
+            modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"$secretPayload"}"""),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "普通问题",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        val observed = runtime.observeModelResult(result.run.id, """call:share_text{"text":"$secretPayload"}""")
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        val planningEvents = auditSink.events.filter { event ->
+            event.eventType in setOf(
+                ToolAuditEventType.ToolPlanned,
+                ToolAuditEventType.ConfirmationRequested,
+            )
+        }
+        assertEquals(2, planningEvents.size)
+        assertTrue(planningEvents.none { event -> event.summary.contains(secretPayload) })
+        assertTrue(planningEvents.any { event -> event.summary == "local model tool call" })
+    }
+
+    @Test
+    fun ordinaryModelAnswerStillCompletesWithoutActionParsingFallback() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = false,
+            modelOutputResult = ModelToolOutputParseResult.None,
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "解释一下 web_search 工具",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        val observed = runtime.observeModelResult(
+            result.run.id,
+            "web_search 工具需要用户确认后才会打开浏览器。",
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertEquals(AgentObservationDecision.Complete, observed.decision)
+        assertEquals(null, runtime.latestPendingConfirmation())
+        assertEquals(1, actionRuntime.parseModelToolOutputCallCount)
+        assertEquals(0, actionRuntime.planCallCount)
+    }
+
+    @Test
+    fun localModelUnknownToolCallOutputFailsRunWithoutPendingConfirmation() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = false,
+            modelOutputResult = modelToolOutputPlanningResult("""call:unknown_tool{}"""),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "执行未知工具",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        val observed = runtime.observeModelResult(result.run.id, """call:unknown_tool{}""")
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        assertTrue(observed.decision is AgentObservationDecision.Fail)
+        assertTrue((observed.decision as AgentObservationDecision.Fail).reason.contains("Unknown tool"))
+        assertEquals(null, runtime.latestPendingConfirmation())
+        assertTrue(observed.steps.any { step -> step is AgentStep.ToolRejected })
+        assertTrue(observed.steps.none { step -> step is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
+    fun localModelInvalidToolArgumentsFailBeforeConfirmation() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = false,
+            modelOutputResult = modelToolOutputPlanningResult("""call:compose_email{"subject":"Hi"}"""),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "普通问题",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        val observed = runtime.observeModelResult(result.run.id, """call:compose_email{"subject":"Hi"}""")
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        assertTrue(observed.decision is AgentObservationDecision.Fail)
+        assertEquals(null, runtime.latestPendingConfirmation())
+        assertTrue(observed.steps.any { step -> step is AgentStep.ToolRejected })
+        assertTrue(observed.steps.none { step -> step is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
+    fun modelToolRequestCannotReusePriorToolRequestId() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "读取剪贴板并总结",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observedRead = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+                    "text" to "local private text",
+                    "truncated" to "false",
+                ),
+            ),
+        )
+        requireNotNull(observedRead)
+        assertEquals(AgentRunState.GeneratingAnswer, observedRead.run.state)
+
+        val duplicate = runtime.observeModelToolRequest(
+            runId = planned.run.id,
+            request = ToolRequest(
+                id = planned.plan.request.id,
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "Kotlin"),
+                reason = "remote tool call",
+            ),
+        )
+
+        requireNotNull(duplicate)
+        assertEquals(AgentRunState.Failed, duplicate.run.state)
+        assertTrue(duplicate.decision is AgentObservationDecision.Fail)
+        assertTrue((duplicate.decision as AgentObservationDecision.Fail).reason.contains("already exists"))
+        assertEquals(null, runtime.latestPendingConfirmation())
+        assertTrue(duplicate.steps.none { step ->
+            step is AgentStep.UserConfirmationRequested &&
+                step.request.toolName == MobileActionFunctions.WEB_SEARCH
         })
     }
 
@@ -4219,10 +4432,13 @@ class AgentLoopRuntimeTest {
             usedModel = false,
             fallbackReason = null,
         ),
+        private val modelOutputResult: ModelToolOutputParseResult = ModelToolOutputParseResult.None,
     ) : ActionPlanningRuntime {
         var isLikelyActionCallCount: Int = 0
             private set
         var planCallCount: Int = 0
+            private set
+        var parseModelToolOutputCallCount: Int = 0
             private set
 
         override fun isLikelyAction(input: String): Boolean {
@@ -4234,7 +4450,15 @@ class AgentLoopRuntimeTest {
             planCallCount += 1
             return planningResult
         }
+
+        override fun parseModelToolOutput(output: String): ModelToolOutputParseResult {
+            parseModelToolOutputCallCount += 1
+            return modelOutputResult
+        }
     }
+
+    private fun modelToolOutputPlanningResult(output: String): ModelToolOutputParseResult =
+        MobileActionPlanner().parseModelToolOutput(output)
 
     private fun readClipboardPlanningResult(): ActionPlanningResult =
         ActionPlanningResult(

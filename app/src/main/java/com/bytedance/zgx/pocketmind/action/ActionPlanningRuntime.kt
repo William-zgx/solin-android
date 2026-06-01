@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 interface ActionPlanningRuntime {
     fun isLikelyAction(input: String): Boolean
     fun plan(input: String, actionModelPath: String?): ActionPlanningResult
+    fun parseModelToolOutput(output: String): ModelToolOutputParseResult = ModelToolOutputParseResult.None
 }
 
 data class ActionPlanningResult(
@@ -21,6 +22,15 @@ data class ActionPlanningResult(
     val usedModel: Boolean,
     val fallbackReason: String?,
 )
+
+sealed class ModelToolOutputParseResult {
+    data object None : ModelToolOutputParseResult()
+    data class Parsed(val draft: ActionDraft) : ModelToolOutputParseResult()
+    data class Rejected(
+        val toolName: String?,
+        val reason: String,
+    ) : ModelToolOutputParseResult()
+}
 
 class HybridActionPlanningRuntime(
     cacheDir: File,
@@ -50,6 +60,9 @@ class HybridActionPlanningRuntime(
             fallbackReason = if (actionModelPath == null) "动作模型未安装或未校验" else "动作模型未产出可执行草稿",
         )
     }
+
+    override fun parseModelToolOutput(output: String): ModelToolOutputParseResult =
+        rulePlanner.parseModelToolOutput(output)
 
     override fun close() {
         modelPlanner.close()

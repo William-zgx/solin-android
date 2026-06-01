@@ -6,6 +6,7 @@ import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.action.ModelToolOutputParseResult
 import com.bytedance.zgx.pocketmind.audit.NoOpToolAuditSink
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEvent
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEventType
@@ -272,6 +273,20 @@ class AgentLoopRuntime(
     fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.GeneratingAnswer) return null
+        if (toolRequestFor(runId, request.id) != null) {
+            val rejected = request.rejected("Model tool request id already exists: ${request.id}")
+            traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
+            traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
+            auditRejectedTool(runId, rejected)
+            val decision = AgentObservationDecision.Fail(rejected.summary)
+            traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+            val updatedRun = traceStore.updateState(runId, AgentRunState.Failed)
+            return AgentModelObservationResult(
+                run = updatedRun,
+                decision = decision,
+                steps = traceStore.steps(runId),
+            )
+        }
         val draft = draftForRemoteToolRequest(request)
         val plan = buildInitialToolPlan(
             request = request,
@@ -491,7 +506,8 @@ class AgentLoopRuntime(
         run: AgentRun,
         text: String,
     ): NextObservationPlan {
-        val skillPlan = latestSkillPlan(run.id) ?: return NextObservationPlan.None
+        val skillPlan = latestSkillPlan(run.id)
+            ?: return planExplicitToolCallAfterModelResult(run, text)
         val requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id }
         return when (val progression = skillProgressor.nextToolAfterModelOutput(
             skillPlan = skillPlan,
@@ -514,6 +530,37 @@ class AgentLoopRuntime(
                     skillPlan = skillPlan,
                 )
         }
+    }
+
+    private fun planExplicitToolCallAfterModelResult(
+        run: AgentRun,
+        text: String,
+    ): NextObservationPlan {
+        val draft = when (val parsed = actionPlanningRuntime.parseModelToolOutput(text)) {
+            ModelToolOutputParseResult.None -> return NextObservationPlan.None
+            is ModelToolOutputParseResult.Parsed -> parsed.draft
+            is ModelToolOutputParseResult.Rejected -> {
+                val rejectedRequest = ToolRequest(
+                    toolName = parsed.toolName ?: "model_tool_call",
+                    reason = "local model tool call",
+                )
+                return rejectNextToolPlan(run.id, rejectedRequest.rejected(parsed.reason))
+            }
+        }
+        val request = ToolRequest(
+            toolName = draft.functionName,
+            arguments = draft.parameters,
+            reason = "local model tool call",
+        )
+        val skillPlan = skillRuntime.plan(run.input, draft, request)
+        return buildNextToolPlan(
+            runId = run.id,
+            request = request,
+            draft = draft,
+            plannedByModel = true,
+            fallbackReason = "local model tool call",
+            skillPlan = skillPlan,
+        )
     }
 
     private fun requestForSkillProgressionRejection(
