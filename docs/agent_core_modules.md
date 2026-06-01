@@ -1315,7 +1315,11 @@ instrument` exits zero. Use
 `ANDROID_SERIAL=<serial> scripts/install_and_test_device.sh` for physical
 device validation. A full regression report should record the target serial or
 AVD name, API level, ABI, whether `CLEAN_DEVICE=1` was used, and the current
-instrumentation test count.
+instrumentation test count. The helpers also write machine-readable evidence
+under `build/verification/`: `device-verification.properties` for direct device
+runs, and `emulator-verification.properties` plus a nested device report for
+emulator runs. Treat those reports as the artifact-of-record for whether a
+device or emulator regression actually executed.
 
 Full device validation remains required for LiteRT-LM model execution because
 emulators usually do not expose the same GPU backend behavior as physical

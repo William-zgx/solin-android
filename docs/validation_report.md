@@ -4750,3 +4750,32 @@ scripts/verify_emulator.sh
   参数不进入远程 history。
 - 通过：完整 JVM 单测 `:app:testDebugUnitTest`。
 - 通过：AndroidTest APK 编译。
+
+## 2026-06-02 Device/emulator verification artifact reports
+
+本轮覆盖项：
+
+- `scripts/install_and_test_device.sh` 在成功、preflight 失败和 instrumentation
+  失败时都会写入 `device-verification.properties`，包含状态、退出码、serial、
+  API、ABI、`CLEAN_DEVICE`、`/data` 可用空间、instrumentation 状态和 APK 路径。
+- `scripts/verify_emulator.sh` 写入 `emulator-verification.properties`，包含
+  emulator serial、API、ABI、AVD、emulator log 路径和复用 device helper 的
+  `device-verification.properties` 路径。
+- fake SDK 脚本回归新增 artifact 断言，锁定无设备失败为
+  `status=failed` / `instrumentation=not-run`，设备成功为
+  `status=passed` / `instrumentation=passed`，instrumentation 输出失败为
+  `instrumentation=failed`，模拟器成功同时产出 emulator report 和 nested device
+  report。
+- README、真机验收清单和 Agent core 文档同步要求 release/验收记录引用这些
+  `.properties` artifact；没有 `status=passed` 摘要时，不应把设备或模拟器回归写成已通过。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：fake SDK 覆盖 device/emulator success、preflight failure 和
+  instrumentation failure 的 verification report 断言。

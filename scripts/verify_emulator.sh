@@ -15,8 +15,14 @@ BOOT_TIMEOUT_SECONDS="${BOOT_TIMEOUT_SECONDS:-180}"
 EMULATOR_SELECT_TIMEOUT_SECONDS="${EMULATOR_SELECT_TIMEOUT_SECONDS:-10}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/emulator-$(date +%Y%m%d-%H%M%S)}"
 EMULATOR_LOG="${ARTIFACT_DIR}-emulator.log"
+EMULATOR_REPORT_FILE="${EMULATOR_REPORT_FILE:-${ARTIFACT_DIR}/emulator-verification.properties}"
+DEVICE_REPORT_FILE="${DEVICE_REPORT_FILE:-${ARTIFACT_DIR}/device-verification.properties}"
 
+STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 SELECTED_SERIAL=""
+API_LEVEL=""
+ABI_LIST=""
+AVD_LABEL=""
 
 available_avd_summary() {
   if [[ ! -x "$EMULATOR_BIN" ]]; then
@@ -42,8 +48,32 @@ fail() {
   exit 1
 }
 
+write_emulator_report() {
+  local exit_code="$1"
+  local status_label="failed"
+  [[ "$exit_code" -eq 0 ]] && status_label="passed"
+
+  mkdir -p "$(dirname "$EMULATOR_REPORT_FILE")"
+  {
+    echo "status=$status_label"
+    echo "exit_code=$exit_code"
+    echo "target=emulator"
+    echo "started_at_utc=$STARTED_AT_UTC"
+    echo "finished_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "serial=${SELECTED_SERIAL:-}"
+    echo "api_level=${API_LEVEL:-}"
+    echo "abi=${ABI_LIST:-}"
+    echo "avd=${AVD_LABEL:-${AVD_NAME:-}}"
+    echo "clean_device=${CLEAN_DEVICE:-0}"
+    echo "emulator_log=$EMULATOR_LOG"
+    echo "device_report_file=$DEVICE_REPORT_FILE"
+  } > "$EMULATOR_REPORT_FILE"
+  echo "Emulator verification report: $EMULATOR_REPORT_FILE"
+}
+
 capture_failure_artifacts() {
   local status=$?
+  write_emulator_report "$status"
   if [[ "$status" -ne 0 && -n "${SELECTED_SERIAL:-}" && -x "$ADB_BIN" ]]; then
     mkdir -p "$ARTIFACT_DIR"
     "$ADB_BIN" -s "$SELECTED_SERIAL" exec-out screencap -p > "$ARTIFACT_DIR/screenshot.png" 2>/dev/null || true
@@ -149,6 +179,7 @@ echo "CLEAN_DEVICE: ${CLEAN_DEVICE:-0}"
 ANDROID_SERIAL="$SELECTED_SERIAL" \
   CLEAN_DEVICE="${CLEAN_DEVICE:-0}" \
   GRADLE_CMD="$GRADLE_CMD" \
+  VERIFICATION_REPORT_FILE="$DEVICE_REPORT_FILE" \
   scripts/install_and_test_device.sh
 
 echo "Emulator verification passed."

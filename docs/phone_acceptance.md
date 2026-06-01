@@ -85,7 +85,12 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 `build/verification/` 下尽量保存截图、UI dump、短 logcat 和 emulator 日志路径。
 
 完整回归记录至少包含设备序列号或 AVD 名称、API、ABI、是否设置
-`CLEAN_DEVICE=1`、执行命令和 instrumentation 测试总数。
+`CLEAN_DEVICE=1`、执行命令和 instrumentation 测试总数。脚本会在
+`build/verification/` 下写入机器可读证据：真机 helper 产出
+`device-verification.properties`；模拟器 helper 产出
+`emulator-verification.properties`，并把复用的 device helper 摘要写入同目录的
+`device-verification.properties`。验收记录必须引用这些 artifact；没有对应
+`status=passed` 摘要时，不应把设备或模拟器回归写成已执行通过。
 
 ## 手动模型验收
 

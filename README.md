@@ -414,6 +414,10 @@ If there is no authorized device, or if multiple authorized devices are
 connected without `ANDROID_SERIAL`, the script exits before Gradle build, APK
 install, or instrumentation. Record the instrumentation runner's reported test
 count together with the device serial/API/ABI in full regression reports.
+`install_and_test_device.sh` writes a machine-readable
+`device-verification.properties` report, and `verify_emulator.sh` writes an
+`emulator-verification.properties` report plus the nested device report under
+`build/verification/` by default; release records should link those artifacts.
 
 Avoid `./gradlew :app:connectedDebugAndroidTest` when you need to keep the app
 installed on the device. The Android Gradle Plugin may clean up test packages

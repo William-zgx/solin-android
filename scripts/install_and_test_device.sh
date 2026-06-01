@@ -10,6 +10,49 @@ export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_SDK}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 ADB_BIN="${ANDROID_SDK}/platform-tools/adb"
 CLEAN_DEVICE="${CLEAN_DEVICE:-0}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/device-$(date +%Y%m%d-%H%M%S)}"
+VERIFICATION_REPORT_FILE="${VERIFICATION_REPORT_FILE:-${ARTIFACT_DIR}/device-verification.properties}"
+
+STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+SELECTED_SERIAL=""
+API_LEVEL=""
+ABI_LIST=""
+DATA_FREE_KB=""
+INSTRUMENTATION_STATUS="not-run"
+
+PACKAGE_NAME="com.bytedance.zgx.pocketmind"
+TEST_PACKAGE_NAME="${PACKAGE_NAME}.test"
+MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
+TEST_RUNNER="${TEST_PACKAGE_NAME}/androidx.test.runner.AndroidJUnitRunner"
+DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
+ANDROID_TEST_APK="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+REQUIRED_FREE_KB=$((3 * 1024 * 1024))
+
+write_verification_report() {
+  local exit_code="$1"
+  local status_label="failed"
+  [[ "$exit_code" -eq 0 ]] && status_label="passed"
+
+  mkdir -p "$(dirname "$VERIFICATION_REPORT_FILE")"
+  {
+    echo "status=$status_label"
+    echo "exit_code=$exit_code"
+    echo "target=device"
+    echo "started_at_utc=$STARTED_AT_UTC"
+    echo "finished_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "serial=${SELECTED_SERIAL:-}"
+    echo "api_level=${API_LEVEL:-}"
+    echo "abi=${ABI_LIST:-}"
+    echo "clean_device=$CLEAN_DEVICE"
+    echo "data_free_kb=${DATA_FREE_KB:-}"
+    echo "instrumentation=$INSTRUMENTATION_STATUS"
+    echo "debug_apk=$DEBUG_APK"
+    echo "android_test_apk=$ANDROID_TEST_APK"
+  } > "$VERIFICATION_REPORT_FILE"
+  echo "Device verification report: $VERIFICATION_REPORT_FILE"
+}
+
+trap 'status=$?; write_verification_report "$status"; exit "$status"' EXIT
 
 scripts/doctor.sh --device
 
@@ -34,14 +77,7 @@ fi
 ADB=("$ADB_BIN" -s "$SELECTED_SERIAL")
 echo "Using Android device: $SELECTED_SERIAL"
 
-PACKAGE_NAME="com.bytedance.zgx.pocketmind"
-TEST_PACKAGE_NAME="${PACKAGE_NAME}.test"
-MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
-TEST_RUNNER="${TEST_PACKAGE_NAME}/androidx.test.runner.AndroidJUnitRunner"
-DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
-ANDROID_TEST_APK="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
-REQUIRED_FREE_KB=$((3 * 1024 * 1024))
-
+API_LEVEL="$("${ADB[@]}" shell getprop ro.build.version.sdk | tr -d '\r')"
 ABI_LIST="$("${ADB[@]}" shell getprop ro.product.cpu.abilist64 | tr -d '\r')"
 if [[ "$ABI_LIST" != *"arm64-v8a"* ]]; then
   echo "Connected device is not arm64-v8a compatible: ${ABI_LIST:-unknown}" >&2
@@ -62,6 +98,7 @@ fi
 run_device_tests() {
   "${ADB[@]}" install -r "$DEBUG_APK" &&
     "${ADB[@]}" install -r -t "$ANDROID_TEST_APK" &&
+    INSTRUMENTATION_STATUS="running" &&
     "${ADB[@]}" shell am instrument -w -r "$TEST_RUNNER"
 }
 
@@ -78,6 +115,7 @@ if [[ "$TEST_STATUS" -eq 0 ]] && instrumentation_output_failed "$TEST_OUTPUT"; t
   TEST_STATUS=1
 fi
 if [[ "$TEST_STATUS" -ne 0 ]]; then
+  INSTRUMENTATION_STATUS="failed"
   if grep -q "INSTALL_FAILED_USER_RESTRICTED" <<<"$TEST_OUTPUT"; then
     cat >&2 <<'EOF'
 
@@ -89,6 +127,7 @@ EOF
   fi
   exit "$TEST_STATUS"
 fi
+INSTRUMENTATION_STATUS="passed"
 
 "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null
 
