@@ -50,15 +50,24 @@ class MainActivityComprehensiveTest {
             assertPlaintextRemoteApiKeyIsNotInLegacyPrefs()
 
             sendPrompt("请记住：蓝色机器人喜欢端侧 AI")
+            composeRule.waitForText("已记住这条本地偏好", substring = true)
+            server.assertNoPost()
+
+            sendPrompt("用一句话介绍端侧 AI")
             composeRule.waitForText("模拟器回答")
             val firstRequest = server.awaitPost()
             assertTrue(firstRequest.path.endsWith("/v1/chat/completions"))
-            assertTrue(firstRequest.body.contains("蓝色机器人"))
+            assertTrue(firstRequest.body.contains("用一句话介绍端侧 AI"))
+            assertFalse(firstRequest.body.contains("请记住"))
+            assertFalse(firstRequest.body.contains("已记住这条本地偏好"))
 
             sendPrompt("蓝色机器人偏好是什么")
             val memoryRequest = server.awaitPost()
             assertFalse(memoryRequest.body.contains("本地记忆："))
             assertFalse(memoryRequest.body.contains("设备上下文："))
+            assertFalse(memoryRequest.body.contains("请记住"))
+            assertFalse(memoryRequest.body.contains("蓝色机器人喜欢端侧 AI"))
+            assertFalse(memoryRequest.body.contains("已记住这条本地偏好"))
             composeRule.waitForText("记忆回答")
 
             sendPrompt("打开 Wi-Fi 设置")
@@ -69,6 +78,8 @@ class MainActivityComprehensiveTest {
             sendPrompt("请慢慢回答")
             composeRule.waitForText("慢")
             val streamingRequest = server.awaitPost()
+            assertFalse(streamingRequest.body.contains("请记住"))
+            assertFalse(streamingRequest.body.contains("已记住这条本地偏好"))
             assertFalse(streamingRequest.body.contains("打开 Wi-Fi 设置"))
             assertFalse(streamingRequest.body.contains("动作草稿"))
             composeRule.onNodeWithTag("composer_send_button").performClick()
@@ -255,6 +266,11 @@ private class LocalOpenAiServer : Closeable {
 
     fun awaitPost(): RequestRecord =
         requests.poll(10, TimeUnit.SECONDS) ?: error("Timed out waiting for remote request")
+
+    fun assertNoPost(timeoutMillis: Long = 1_000) {
+        val request = requests.poll(timeoutMillis, TimeUnit.MILLISECONDS) ?: return
+        fail("Expected no remote request, but received ${request.method} ${request.path}: ${request.body}")
+    }
 
     fun awaitDownloadGet(): RequestRecord {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)

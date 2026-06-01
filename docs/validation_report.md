@@ -3810,3 +3810,38 @@ scripts/verify_emulator.sh
 - 记录：真机 `fb6272c` 构建与主 APK 安装通过，但测试 APK 安装被设备策略
   拦截为 `INSTALL_FAILED_USER_RESTRICTED`；需要在手机开发者选项中允许 USB
   安装后再跑真机 instrumentation。
+
+## 2026-06-02 Remote memory privacy emulator regression
+
+本轮覆盖项：
+
+- 修正 `MainActivityComprehensiveTest` 中过时的远程模型期望：
+  `请记住：...` / `remember ...` 是本地长期记忆控制命令，应等待本地确认，
+  不应产生远程 chat completion 请求。
+- 综合 emulator walkthrough 新增远程隐私断言：后续远程请求不得携带原始
+  记忆命令、显式偏好内容、本地确认消息、本地记忆上下文或设备上下文。
+- 保留普通远程聊天、远程流式取消、本地动作草稿、session 切换、模型管理与
+  自定义下载入口的端到端覆盖。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandBypassesRouterAndRemoteRuntime' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteRememberCommandDoesNotEnterLaterRemoteHistory'
+
+AVD_NAME=focus_agent_api36_arm64 \
+EMULATOR_ARGS='-no-snapshot -no-audio -no-window -no-boot-anim' \
+EMULATOR_SELECT_TIMEOUT_SECONDS=120 \
+BOOT_TIMEOUT_SECONDS=300 \
+scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：AndroidTest Kotlin 编译与远程记忆隐私契约单测。
+- 通过：`focus_agent_api36_arm64` AVD，serial `emulator-5554`，API 36，
+  ABI `arm64-v8a`，instrumentation `OK (13 tests)`。
+- 失败根因关闭：先前失败停在 `请记住：蓝色机器人喜欢端侧 AI` 后等待
+  `模拟器回答`；当前实现和单测契约要求该命令本地处理、绕过 router 和远程
+  runtime，因此应修 instrumentation 断言而不是产品代码。
