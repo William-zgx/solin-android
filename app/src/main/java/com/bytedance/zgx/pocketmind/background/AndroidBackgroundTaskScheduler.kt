@@ -71,6 +71,9 @@ class AndroidBackgroundTaskScheduler(
     override fun disablePeriodicCheckPolicy(): Result<PeriodicCheckPolicySummary> =
         periodicCheckScheduler.disablePeriodicCheckPolicy()
 
+    override fun reconcilePeriodicCheckOnStartup(): Result<PeriodicCheckPolicySummary> =
+        periodicCheckScheduler.reconcilePeriodicCheckOnStartup()
+
     override fun rescheduleScheduledReminders(limit: Int): Result<ReminderRescheduleReport> =
         runCatching {
             ReminderRescheduler(

@@ -70,6 +70,105 @@ class PeriodicCheckSchedulerTest {
     }
 
     @Test
+    fun reconcileStartupReenqueuesEnabledScheduledPolicy() {
+        val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 10_000L })
+        val workClient = FakePeriodicCheckWorkClient()
+        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        repository.createOrUpdatePeriodicCheck(
+            PeriodicCheckScheduleRequest(
+                intervalMinutes = 120L,
+                minNotificationSpacingMinutes = 180L,
+            ),
+        )
+
+        val policy = scheduler.reconcilePeriodicCheckOnStartup().getOrThrow()
+
+        assertEquals(ScheduledTaskStatus.Scheduled, policy.taskStatus)
+        assertEquals(1, workClient.enqueuedRequests.size)
+        assertEquals(120L, workClient.enqueuedRequests.single().intervalMinutes)
+        assertEquals(180L, workClient.enqueuedRequests.single().minNotificationSpacingMinutes)
+    }
+
+    @Test
+    fun reconcileStartupMarksScheduledPeriodicCheckFailedWhenWorkClientRejectsEnqueue() {
+        val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 10_000L })
+        val workClient = FakePeriodicCheckWorkClient(
+            enqueueResult = Result.failure(IllegalStateException("work unavailable")),
+        )
+        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        repository.createOrUpdatePeriodicCheck(PeriodicCheckScheduleRequest())
+
+        val policy = scheduler.reconcilePeriodicCheckOnStartup().getOrThrow()
+
+        assertEquals(ScheduledTaskStatus.Failed, policy.taskStatus)
+        assertEquals(1, workClient.enqueuedRequests.size)
+        assertEquals(ScheduledTaskStatus.Failed, repository.periodicCheck()?.status)
+    }
+
+    @Test
+    fun reconcileStartupSkipsDisabledTerminalAndFreshRunningPolicies() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000_000L })
+        val workClient = FakePeriodicCheckWorkClient()
+        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        repository.createOrUpdatePeriodicCheck(PeriodicCheckScheduleRequest())
+        repository.disablePeriodicCheck()
+
+        assertEquals(ScheduledTaskStatus.Cancelled, scheduler.reconcilePeriodicCheckOnStartup().getOrThrow().taskStatus)
+        assertTrue(workClient.enqueuedRequests.isEmpty())
+
+        dao.upsert(
+            entity(
+                id = PeriodicCheckScheduleRequest.TASK_ID,
+                type = ScheduledTaskType.PeriodicCheck,
+                status = ScheduledTaskStatus.Failed,
+                triggerAtMillis = 10_000L,
+                updatedAtMillis = 1_000L,
+            ),
+        )
+        assertEquals(ScheduledTaskStatus.Failed, scheduler.reconcilePeriodicCheckOnStartup().getOrThrow().taskStatus)
+        assertTrue(workClient.enqueuedRequests.isEmpty())
+
+        dao.upsert(
+            entity(
+                id = PeriodicCheckScheduleRequest.TASK_ID,
+                type = ScheduledTaskType.PeriodicCheck,
+                status = ScheduledTaskStatus.Running,
+                triggerAtMillis = 10_000L,
+                updatedAtMillis = 999_000L,
+            ),
+        )
+        assertEquals(ScheduledTaskStatus.Running, scheduler.reconcilePeriodicCheckOnStartup().getOrThrow().taskStatus)
+        assertTrue(workClient.enqueuedRequests.isEmpty())
+    }
+
+    @Test
+    fun reconcileStartupRecoversStaleRunningPeriodicCheckBeforeReenqueue() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000_000L })
+        val workClient = FakePeriodicCheckWorkClient()
+        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        dao.upsert(
+            entity(
+                id = PeriodicCheckScheduleRequest.TASK_ID,
+                type = ScheduledTaskType.PeriodicCheck,
+                status = ScheduledTaskStatus.Running,
+                triggerAtMillis = 10_000L,
+                updatedAtMillis = 1_000L,
+            ),
+        )
+
+        val policy = scheduler.reconcilePeriodicCheckOnStartup().getOrThrow()
+
+        assertEquals(ScheduledTaskStatus.Scheduled, policy.taskStatus)
+        assertEquals(1, workClient.enqueuedRequests.size)
+        assertEquals(
+            listOf(ScheduledTaskStatus.Running, ScheduledTaskStatus.Scheduled),
+            dao.statusHistory(PeriodicCheckScheduleRequest.TASK_ID),
+        )
+    }
+
+    @Test
     fun disablePeriodicCheckLeavesLocalPolicyDisabledWhenWorkCancelFails() {
         val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 10_000L })
         val workClient = FakePeriodicCheckWorkClient(

@@ -27,6 +27,19 @@ class PeriodicCheckScheduler(
     fun disablePeriodicCheckPolicy(): Result<PeriodicCheckPolicySummary> =
         disablePeriodicCheck().map { repository.periodicCheckPolicy() }
 
+    fun reconcilePeriodicCheckOnStartup(): Result<PeriodicCheckPolicySummary> =
+        runCatching {
+            repository.recoverStaleRunningPeriodicCheck()
+            val policy = repository.periodicCheckPolicy()
+            if (policy.request.enabled && policy.taskStatus == ScheduledTaskStatus.Scheduled) {
+                workClient.enqueue(policy.request)
+                    .onFailure {
+                        repository.markScheduledFailed(PeriodicCheckScheduleRequest.TASK_ID)
+                    }
+            }
+            repository.periodicCheckPolicy()
+        }
+
     fun setPeriodicCheck(request: PeriodicCheckScheduleRequest): Result<ScheduledTask> =
         runCatching {
             val normalized = request.normalized()

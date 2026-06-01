@@ -173,6 +173,9 @@ interface BackgroundTaskScheduler {
     fun disablePeriodicCheckPolicy(): Result<PeriodicCheckPolicySummary> =
         Result.failure(UnsupportedOperationException("Periodic check scheduler unavailable"))
 
+    fun reconcilePeriodicCheckOnStartup(): Result<PeriodicCheckPolicySummary> =
+        Result.success(periodicCheckPolicy())
+
     fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask>
     fun cancel(taskId: String): Result<Unit>
     fun cancelScheduledTask(taskId: String): Result<Unit> = cancel(taskId)

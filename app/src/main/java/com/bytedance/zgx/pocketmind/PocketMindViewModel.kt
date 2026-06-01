@@ -165,6 +165,14 @@ class PocketMindViewModel(
 
     private fun recoverBackgroundTasksOnStartup() {
         backgroundTaskScheduler.rescheduleScheduledReminders()
+        backgroundTaskScheduler.reconcilePeriodicCheckOnStartup()
+        _uiState.update {
+            it.copy(
+                backgroundTasks = loadBackgroundTasks(),
+                backgroundTaskHistory = loadBackgroundTaskHistory(),
+                periodicCheckPolicy = loadPeriodicCheckPolicy(),
+            )
+        }
     }
 
     fun startModelDownload() {

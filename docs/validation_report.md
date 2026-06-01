@@ -1,5 +1,29 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Periodic check startup reconcile 增量验证
+
+本轮覆盖项：
+
+- `BackgroundTaskScheduler` 新增 `reconcilePeriodicCheckOnStartup()`，Android
+  实现委托 `PeriodicCheckScheduler`。
+- App 启动恢复先重排 reminder alarm，再 reconcile `periodic-check-local`，
+  然后重新加载 active tasks、history 和 typed periodic policy。
+- Periodic check startup reconcile 会恢复 stale `Running`、重入队 enabled
+  `Scheduled` WorkManager periodic work；入队失败时将本地任务标为 `Failed`。
+- Disabled、terminal 或 fresh `Running` periodic check 不会在启动时被重入队或
+  被错误改写。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateReconcilesPeriodicCheckBeforeLoadingBackgroundTasks' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateReschedulesReminderAlarmsBeforeLoadingBackgroundTasks'
+```
+
+结果：targeted periodic check startup reconcile 回归测试通过。
+
 ## 2026-06-01 Reminder audit metadata minimization 增量验证
 
 本轮覆盖项：

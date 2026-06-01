@@ -2245,6 +2245,46 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun restoreStartupStateReconcilesPeriodicCheckBeforeLoadingBackgroundTasks() = runTest(dispatcher) {
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask(
+                    id = "task-1",
+                    type = ScheduledTaskType.Reminder,
+                    status = ScheduledTaskStatus.Scheduled,
+                    title = "喝水",
+                ),
+                scheduledTask(
+                    id = PeriodicCheckScheduleRequest.TASK_ID,
+                    type = ScheduledTaskType.PeriodicCheck,
+                    status = ScheduledTaskStatus.Scheduled,
+                    title = PeriodicCheckScheduleRequest.TITLE,
+                    body = PeriodicCheckScheduleRequest().storageSummary(),
+                ),
+            ),
+            onReconcilePeriodicCheckOnStartup = { tasks ->
+                val existing = tasks.getValue(PeriodicCheckScheduleRequest.TASK_ID)
+                tasks[existing.id] = existing.copy(
+                    status = ScheduledTaskStatus.Failed,
+                    updatedAtMillis = existing.updatedAtMillis + 1L,
+                )
+            },
+        )
+        val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertEquals(1, scheduler.reconcilePeriodicCheckCount)
+        assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTasks.map { it.id })
+        assertEquals(
+            listOf(PeriodicCheckScheduleRequest.TASK_ID),
+            viewModel.uiState.value.backgroundTaskHistory.map { it.id },
+        )
+        assertEquals(ScheduledTaskStatus.Failed, viewModel.uiState.value.periodicCheckPolicy.taskStatus)
+    }
+
+    @Test
     fun backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory() = runTest(dispatcher) {
         val store = FakeMemoryRecordStore()
         val memoryRepository = MemoryRepository(recordStore = store)
@@ -3324,12 +3364,14 @@ class PocketMindViewModelTest {
         private val cancelFailureStatus: ScheduledTaskStatus? = null,
         private val periodicSetFailure: Throwable? = null,
         private val periodicDisableFailure: Throwable? = null,
+        private val onReconcilePeriodicCheckOnStartup: (MutableMap<String, ScheduledTask>) -> Unit = {},
     ) : BackgroundTaskScheduler {
         private val tasks = linkedMapOf<String, ScheduledTask>()
         val cancelledTaskIds = mutableListOf<String>()
         val periodicPolicyRequests = mutableListOf<PeriodicCheckScheduleRequest>()
         var disablePeriodicCheckCount = 0
         var rescheduleCount = 0
+        var reconcilePeriodicCheckCount = 0
 
         init {
             scheduledTasks.forEach { task -> tasks[task.id] = task }
@@ -3390,6 +3432,12 @@ class PocketMindViewModelTest {
                     failed = 0,
                 ),
             )
+        }
+
+        override fun reconcilePeriodicCheckOnStartup(): Result<PeriodicCheckPolicySummary> {
+            reconcilePeriodicCheckCount += 1
+            onReconcilePeriodicCheckOnStartup(tasks)
+            return Result.success(periodicCheckPolicy())
         }
 
         override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> {

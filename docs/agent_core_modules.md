@@ -892,6 +892,10 @@ Current status:
   check.
 - A stale `Running` periodic check is reclaimed before a new worker run tries to
   acquire it, using the same bounded lease as reminder delivery recovery.
+- App startup now reconciles the singleton periodic check after reminder alarm
+  recovery: stale `Running` checks are reclaimed, enabled `Scheduled` policy is
+  re-enqueued through WorkManager, enqueue failure marks the task `Failed`, and
+  the ViewModel reloads active/history/policy state from the recovered store.
 - Periodic check worker state updates are conditional transitions:
   `Scheduled -> Running` and `Running -> Scheduled/Failed`. If the user disables
   the policy while a worker is notifying, the final `Cancelled` state is kept
