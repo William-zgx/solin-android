@@ -1998,6 +1998,49 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution() = runTest(dispatcher) {
+        val parseError = "远程模型一次返回了多个工具调用，已拒绝执行"
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-malformed-tool",
+                promptForModel = "执行远程工具",
+                memoryHits = emptyList(),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime(
+            events = listOf(RemoteChatEvent.ParseError(parseError)),
+        )
+        val executor = RecordingToolExecutor()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("执行远程工具")
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals("远程生成失败", viewModel.uiState.value.statusText)
+        assertEquals(0, assistantRouter.observeModelToolCallCount)
+        assertTrue(executor.executedRequests.isEmpty())
+        assertTrue(remoteRuntime.calls.single().tools.any { tool -> tool.name == MobileActionFunctions.WEB_SEARCH })
+        assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.first().privacy)
+        assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.last().privacy)
+        assertTrue(sessionStore.messages.last().text.contains(parseError))
+        assertFalse(sessionStore.messages.last().text.contains("动作草稿"))
+    }
+
+    @Test
     fun localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory() = runTest(dispatcher) {
         val secretPayload = "SECRET_SHARE_TEXT"
         val localCall = """call:share_text{"text":"$secretPayload"}"""

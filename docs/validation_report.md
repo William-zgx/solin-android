@@ -1,5 +1,29 @@
 # PocketMind 验证报告
 
+## 2026-06-02 远程 tool_calls 解析失败闭环增量验证
+
+本轮覆盖项：
+
+- 新增 `PocketMindViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution`。
+- 远程 OpenAI-compatible runtime 返回 `RemoteChatEvent.ParseError` 时，ViewModel
+  fail closed：不创建 `pendingConfirmation`、不调用 Agent model-tool observation、
+  不执行 Android 工具，并将状态置为 `远程生成失败`。
+- 测试同时断言远程请求仍携带 tool specs，但错误消息不会伪装成动作草稿，也不会进入
+  确认/执行边界。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+./gradlew :app:testDebugUnitTest
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk scripts/verify_local.sh
+git diff --check
+git diff --unified=0 | rg -n '(sk-[A-Za-z0-9_-]{20,}|B[e]arer [A-Za-z0-9._-]{20,}|(?i)(api[_-]?key|s[e]cret|p[a]ssword|d[e]epseek))' || true
+```
+
+结果：通过；敏感串扫描无命中。
+
 ## 2026-06-02 远程 tool_calls 确认卡 UI 增量验证
 
 本轮覆盖项：
