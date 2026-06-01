@@ -38,6 +38,21 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
+    fun contactLookupSkillFirstConfirmationStillRequestsContactsPermission() {
+        val confirmation = confirmationFor(
+            toolName = MobileActionFunctions.QUERY_CONTACTS,
+            arguments = mapOf("query" to "Alice"),
+            skillId = "contact_lookup_skill",
+        )
+
+        assertEquals(
+            listOf(Manifest.permission.READ_CONTACTS),
+            confirmation.runtimePermissionsFor(),
+        )
+        assertTrue(confirmation.specialAccessRequirementsFor().isEmpty())
+    }
+
+    @Test
     fun recentFilesUsesLegacyStoragePermissionBeforeAndroid13() {
         assertEquals(
             listOf(Manifest.permission.READ_EXTERNAL_STORAGE),
@@ -329,6 +344,7 @@ class AgentRuntimePermissionPolicyTest {
     private fun confirmationFor(
         toolName: String,
         arguments: Map<String, String> = emptyMap(),
+        skillId: String? = null,
     ): PendingAgentConfirmation =
         PendingAgentConfirmation(
             runId = "run-1",
@@ -344,7 +360,7 @@ class AgentRuntimePermissionPolicyTest {
                 arguments = arguments,
                 reason = "test",
             ),
-            skillId = null,
+            skillId = skillId,
             plannedByModel = false,
             fallbackReason = null,
         )

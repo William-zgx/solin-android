@@ -20,7 +20,15 @@ class MobileActionPlanner : ActionPlanner {
             "导航",
             "邮件",
             "日程",
-            "联系人",
+            "查询联系人",
+            "查联系人",
+            "查找联系人",
+            "搜索联系人",
+            "找联系人",
+            "联系人查询",
+            "新建联系人",
+            "创建联系人",
+            "添加联系人",
             "手电筒",
             "剪贴板",
             "分享",
@@ -53,7 +61,14 @@ class MobileActionPlanner : ActionPlanner {
             "calendar",
             "email",
             "map",
-            "contact",
+            "find contact",
+            "find contacts",
+            "search contact",
+            "search contacts",
+            "look up contact",
+            "look up contacts",
+            "create contact",
+            "add contact",
             "clipboard",
             "share",
             "availability",
@@ -141,8 +156,8 @@ class MobileActionPlanner : ActionPlanner {
             isCalendarAvailabilityRequest(input) && calendarWindowParameters != null ->
                 MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY.toDraft(calendarWindowParameters)
 
-            isContactQueryRequest(input) ->
-                MobileActionFunctions.QUERY_CONTACTS.toDraft(contactQueryParameters(input))
+            ContactQueryActionParser.matches(input) ->
+                ContactQueryActionParser.draft(input)
 
             isCancelReminderRequest(input) ->
                 MobileActionFunctions.CANCEL_REMINDER.toDraft(cancelReminderParameters(input))
@@ -150,7 +165,7 @@ class MobileActionPlanner : ActionPlanner {
             CalendarDraftActionParser.matches(input) ->
                 CalendarDraftActionParser.draft(input)
 
-            "联系人" in input || "contact" in normalized ->
+            isCreateContactRequest(input) ->
                 MobileActionFunctions.CREATE_CONTACT_DRAFT.toDraft(mapOf("name" to cleanedObject(input)))
 
             WebSearchActionParser.matches(input) ->
@@ -405,20 +420,6 @@ class MobileActionPlanner : ActionPlanner {
         return mentionsCurrentScreen && asksForAccessibleText && !asksForVisualOnly
     }
 
-    private fun isContactQueryRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        return listOf(
-            "查询联系人",
-            "查联系人",
-            "查找联系人",
-            "搜索联系人",
-            "找联系人",
-            "联系人查询",
-        ).any { it in input } ||
-            Regex("""\b(contact|contacts)\b""").containsMatchIn(normalized) &&
-                Regex("""(查询|查找|搜索|找|find|search)""").containsMatchIn(normalized)
-    }
-
     private fun recentScreenshotOcrParameters(input: String): Map<String, String> =
         if (Regex("""(?:最近|latest|recent)\s*1\s*(?:张|个)?""", RegexOption.IGNORE_CASE).containsMatchIn(input)) {
             mapOf("maxCount" to "1")
@@ -460,45 +461,23 @@ class MobileActionPlanner : ActionPlanner {
                 ?.toIntOrNull()
     }
 
-    private fun contactQueryParameters(input: String): Map<String, String> {
-        val cleaned = cleanedObject(input)
-        val normalizedForCount = cleaned.replace(Regex("\\s+"), "")
-        val maxMatch = Regex("""(?:前|最多)\s*(\d{1,2})\s*(个|位|条)""")
-            .find(normalizedForCount)
-        val maxCount = maxMatch?.groupValues?.getOrNull(1)
-            ?.toIntOrNull()
-            ?.takeIf { it > 0 }
-            ?.toString()
-        val query = cleaned
-            .replace(
-                Regex(
-                    """^请?\s*(?:帮我\s*)?(?:查询|查找|查|搜索|找)\s*联系人\s*""",
-                    RegexOption.IGNORE_CASE,
-                ),
-                "",
-            )
-            .replace(
-                Regex("""\b(contact|contacts)\b""", RegexOption.IGNORE_CASE),
-                "",
-            )
-            .replace(
-                Regex(
-                    """(?:^|[\s，,;；]*)?(?:前|最多)\s*\d{1,2}\s*(?:个|位|条)""",
-                ),
-                "",
-            )
-            .replace(Regex("""\bcontacts?\s*""", RegexOption.IGNORE_CASE), "")
-            .trim()
-            .ifBlank { "联系人" }
-
-        return if (maxCount == null) {
-            mapOf("query" to query)
-        } else {
-            mapOf(
-                "query" to query,
-                "maxCount" to maxCount,
-            )
-        }
+    private fun isCreateContactRequest(input: String): Boolean {
+        val normalized = input.lowercase()
+        val looksLikeNonAction = listOf(
+            "联系人权限",
+            "联系人页面",
+            "联系人组件",
+            "怎么实现",
+            "如何实现",
+            "怎么设计",
+            "是什么",
+        ).any { it in input } ||
+            normalized.contains(Regex("""\b(contact\s+(permission|form|page|component|api|screen|tracing|support)|how\s+to|implement|design)\b"""))
+        if (looksLikeNonAction) return false
+        return listOf("新建联系人", "创建联系人", "添加联系人", "联系人草稿")
+            .any { it in input } ||
+            Regex("""\b(create|add|new)\s+(?:a\s+)?contacts?\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(normalized)
     }
 
     private fun isOpenAppIntentRequest(input: String): Boolean {

@@ -1,5 +1,56 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Contact lookup skill-first routing 增量验证
+
+本轮覆盖项：
+
+- 显式“查联系人 Alice / look up Alice in contacts”请求可由 built-in Skill
+  runtime 直接规划为 `query_contacts` 待确认工具，不再依赖 action planner。
+- Shared contact parser 要求明确查询对象；拒绝裸“联系人/contact(s)”、空
+  “查询联系人”、联系人权限、ContactsContract/API/实现讨论、否定、导出/全量
+  列表、编辑/新建联系人等非查询意图。
+- 新增 `contact_lookup_skill` manifest，风险级别为 `LowReadOnly`；registry
+  schema 将 `maxCount` 限制为 `1..20`，executor 也按同一上限规范化。
+- 权限和隐私边界保持最小化：skill-first pending confirmation 仍只请求
+  `READ_CONTACTS`；工具只返回 `name`/`phone`，不返回 email、头像、地址、备注、
+  contact id 或全量通讯录导出；`query` 和 `contactsJson` 标记为 private
+  output，trace/audit 中使用“已读取联系人摘要”替代手机号明文。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.parsesContactQueryCallOutput' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.contactQueryRequiresExplicitQueryAndRejectsNonLookupInputs' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansContactLookupWithoutActionDraftWhenQueryIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstContactLookupBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.contactObservationRedactsPrivateTraceFields' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.contactLookupSkillFirstConfirmationStillRequestsContactsPermission' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.contactSummarySuccessReturnsMinimalLocalOnlyFields' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest.contactSummaryFailureIsRetryableAndLocalOnly' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.contactSchemaRejectsMissingQueryAndUnsupportedMaxCount' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
+```
+
+补充回归：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+```
+
+结果：通过。
+
 ## 2026-06-01 Current-app notification skill-first routing 增量验证
 
 本轮覆盖项：

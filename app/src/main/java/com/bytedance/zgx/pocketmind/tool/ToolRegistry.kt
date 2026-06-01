@@ -386,7 +386,8 @@ private val contactQuerySchemaJson = """
         },
         "maxCount": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 20
         }
       },
       "additionalProperties": false
@@ -686,6 +687,8 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.LowReadOnly,
             confirmationPolicy = ConfirmationPolicy.Required,
+            privateOutputKeys = setOf("query", "contactsJson"),
+            redactedResultSummary = "已读取联系人摘要",
         ),
     ),
     ToolDefinition(

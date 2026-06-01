@@ -100,6 +100,19 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun parsesContactQueryCallOutput() {
+        val draft = planner.parseModelOutput(
+            """call:query_contacts{"query":"Alice","maxCount":"2"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, draft.functionName)
+        assertEquals("Alice", draft.parameters["query"])
+        assertEquals("2", draft.parameters["maxCount"])
+        assertTrue(draft.summary.contains("查询最多 2 个联系人"))
+    }
+
+    @Test
     fun parsesUsageAccessSettingsCallOutput() {
         val draft = planner.parseModelOutput("""call:open_usage_access_settings{}""")
 
@@ -328,6 +341,37 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, plan.draft?.functionName)
         assertEquals("2026-06-01T09:00:00Z", plan.draft?.parameters?.get("start"))
         assertEquals("2026-06-01T10:00:00Z", plan.draft?.parameters?.get("end"))
+    }
+
+    @Test
+    fun contactQueryRequiresExplicitQueryAndRejectsNonLookupInputs() {
+        val chinesePlan = planner.plan("最多 3 个联系人里查 Alice")
+        assertEquals(ActionPlanKind.Draft, chinesePlan.kind)
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, chinesePlan.draft?.functionName)
+        assertEquals("Alice", chinesePlan.draft?.parameters?.get("query"))
+        assertEquals("3", chinesePlan.draft?.parameters?.get("maxCount"))
+
+        val englishPlan = planner.plan("look up Alice in contacts")
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, englishPlan.draft?.functionName)
+        assertEquals("Alice", englishPlan.draft?.parameters?.get("query"))
+
+        val phonePlan = planner.plan("find Alice contact number")
+        assertEquals(ActionPlanKind.Draft, phonePlan.kind)
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, phonePlan.draft?.functionName)
+        assertEquals("Alice", phonePlan.draft?.parameters?.get("query"))
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("联系人").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("contact").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("查询联系人").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("联系人权限").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("ContactsContract 怎么用").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("search contacts API").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要查联系人 Alice").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("do not search contacts for Alice").kind)
+        assertEquals(ActionPlanKind.Draft, planner.plan("新建联系人 Alice").kind)
+        assertEquals(MobileActionFunctions.CREATE_CONTACT_DRAFT, planner.plan("新建联系人 Alice").draft?.functionName)
+        assertFalse(planner.isLikelyAction("联系人权限怎么申请"))
     }
 
     @Test

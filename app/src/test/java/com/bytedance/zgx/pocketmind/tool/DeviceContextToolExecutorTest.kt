@@ -238,6 +238,21 @@ class DeviceContextToolExecutorTest {
         assertEquals("+1 555 0100", contact.getString("phone"))
         assertFalse(contact.has("email"))
         assertFalse(contact.has("id"))
+
+        val clampedProvider = RecordingContactSummaryProvider(
+            ContactSummaryReadResult.Available(emptyList()),
+        )
+        val clamped = ContactSummaryToolExecutor(clampedProvider).execute(
+            ToolRequest(
+                id = "contacts-too-many",
+                toolName = MobileActionFunctions.QUERY_CONTACTS,
+                arguments = mapOf("query" to "Alice", "maxCount" to "99"),
+                reason = "test",
+            ),
+        )
+        assertEquals(ToolStatus.Succeeded, clamped.status)
+        assertEquals(20, clampedProvider.lastMaxCount)
+        assertEquals("20", clamped.data["maxCount"])
     }
 
     @Test

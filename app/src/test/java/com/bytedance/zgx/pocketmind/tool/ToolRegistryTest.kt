@@ -107,6 +107,7 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.ReadsDeviceContext in contactsSpec.permissions)
         assertTrue(ToolPermission.ReadsContacts in contactsSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission in contactsSpec.permissions)
+        assertTrue(contactsSpec.inputSchemaJson.contains("\"maximum\": 20"))
 
         val recentFilesSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_FILES)
         assertNotNull(recentFilesSpec)
@@ -229,6 +230,35 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun contactSchemaRejectsMissingQueryAndUnsupportedMaxCount() {
+        val missingQuery = registry.validate(
+            ToolRequest(
+                id = "contacts-missing-query",
+                toolName = MobileActionFunctions.QUERY_CONTACTS,
+                arguments = mapOf("maxCount" to "2"),
+                reason = "schema contract",
+            ),
+        )
+        assertNotNull(missingQuery)
+        requireNotNull(missingQuery)
+        assertEquals(ToolStatus.Rejected, missingQuery.status)
+        assertTrue(missingQuery.summary.contains("requires argument"))
+
+        val tooMany = registry.validate(
+            ToolRequest(
+                id = "contacts-too-many",
+                toolName = MobileActionFunctions.QUERY_CONTACTS,
+                arguments = mapOf("query" to "Alice", "maxCount" to "21"),
+                reason = "schema contract",
+            ),
+        )
+        assertNotNull(tooMany)
+        requireNotNull(tooMany)
+        assertEquals(ToolStatus.Rejected, tooMany.status)
+        assertTrue(tooMany.summary.contains("at most 20"))
+    }
+
+    @Test
     fun allToolInputSchemasAreParseableAndClosed() {
         registry.specs().forEach { spec ->
             assertTrue("${spec.name} schema should declare object type", spec.inputSchemaJson.contains("\"object\""))
@@ -266,6 +296,7 @@ class ToolRegistryTest {
     fun privateToolOutputsAreDeclaredByToolPolicy() {
         val expectedPrivateOutputs = mapOf(
             MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
+            MobileActionFunctions.QUERY_CONTACTS to setOf("query", "contactsJson"),
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to setOf("ocrText"),
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to setOf("ocrText"),
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("screenText"),

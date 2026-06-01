@@ -33,9 +33,10 @@ Google AI Edge LiteRT-LM.
 - Confirmed external navigation for safe HTTPS deep links and package-level app launches.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map
   search, information lookup, device settings, local reminders, clipboard
-  context, current foreground app context, current-app notification summaries,
-  recent media metadata, HTTPS link navigation, and system sharing, with
-  manifest input schemas enforced before confirmation or execution.
+  context, contact lookup, current foreground app context, current-app
+  notification summaries, recent media metadata, HTTPS link navigation, and
+  system sharing, with manifest input schemas enforced before confirmation or
+  execution.
 - Skill-first routing for explicit clipboard context, current-app notification
   summary, and clipboard-summary-share requests that do not need
   action-planner parameter extraction.
@@ -138,6 +139,12 @@ minimal summaries without notification body text, extras, unread state,
 notification shade contents, other apps, or Notification Listener data. This
 query does not request Android notification runtime permission; if app
 notifications are disabled, it returns a structured permission-denied result.
+Requests such as “查联系人 Alice” become confirmed `query_contacts` tool
+calls. The tool requests `READ_CONTACTS` only after confirmation, searches by
+the explicit query, defaults to 5 entries, caps requests at 20, and returns
+LocalOnly minimal `name`/`phone` summaries. It does not return email, avatar,
+address, notes, contact IDs, or full address-book exports; the contact query and
+result JSON are redacted from trace and audit summaries.
 Requests such as “读取当前屏幕文字” are reserved for a confirmed current-screen
 Accessibility text snapshot tool. After confirmation, it may read only the
 current Accessibility text-node snapshot exposed by Android accessibility
@@ -170,8 +177,8 @@ any remote model request is made.
 Agent and skill module responsibilities are documented in
 `docs/agent_core_modules.md`. The current code includes the Tool Registry,
 single-run Agent planning, confirmation, tool observation, built-in one-step,
-skill-first information lookup/recent-media-metadata/current-app-notification
-summary/foreground-app/HTTPS-link-navigation/device-settings/map/email/calendar/text sharing, and one conservative
+skill-first information lookup/recent-media-metadata/contact-lookup/current-app
+notification-summary/foreground-app/HTTPS-link-navigation/device-settings/map/email/calendar/text sharing, and one conservative
 clipboard-summary-share composite flow,
 conservative observe-after-success replanning for explicit next actions, a
 gated skill-run executor, minimal device context

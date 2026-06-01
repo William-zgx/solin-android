@@ -25,6 +25,7 @@ import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
 import org.json.JSONArray
 import org.json.JSONObject
 
+private const val MAX_CONTACT_SUMMARY_COUNT = 20
 private const val MAX_NOTIFICATION_SUMMARY_COUNT = 20
 
 interface ToolExecutor {
@@ -232,7 +233,8 @@ class ContactSummaryToolExecutor(
         }
 
         val query = request.arguments["query"]?.trim().orEmpty()
-        val maxCount = request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: 5
+        val maxCount = (request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: 5)
+            .coerceIn(1, MAX_CONTACT_SUMMARY_COUNT)
         return when (val result = provider.queryContacts(query, maxCount)) {
             is ContactSummaryReadResult.Available ->
                 request.succeeded(

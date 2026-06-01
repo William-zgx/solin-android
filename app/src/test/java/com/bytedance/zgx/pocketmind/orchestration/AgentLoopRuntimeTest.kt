@@ -691,6 +691,78 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstContactLookupBypassesActionPlannerAndRequestsConfirmation() {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "查联系人 Alice",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, result.plan.request.toolName)
+        assertEquals("Alice", result.plan.request.arguments["query"])
+        assertEquals(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL, runtime.latestPendingConfirmation()?.skillId)
+    }
+
+    @Test
+    fun contactObservationRedactsPrivateTraceFields() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "查联系人 Alice",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val rawContactsJson = """[{"name":"Alice","phone":"+1 555 0100"}]"""
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已查询到 1 个联系人。",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.QUERY_CONTACTS,
+                    "query" to "Alice",
+                    "maxCount" to "5",
+                    "contactCount" to "1",
+                    "contactsJson" to rawContactsJson,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertTrue(observed.decision is AgentObservationDecision.Complete)
+        assertEquals(null, observed.continuationPromptForModel)
+        assertEquals("[redacted]", observed.result.data["query"])
+        assertEquals("[redacted]", observed.result.data["contactsJson"])
+        assertEquals("已读取联系人摘要", observed.result.summary)
+        val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
+        assertEquals("[redacted]", toolObserved.result.data["contactsJson"])
+        assertFalse(observed.steps.toString().contains("+1 555 0100"))
+    }
+
+    @Test
     fun skillFirstMapEmailAndCalendarBypassActionPlannerAndRequestConfirmation() {
         val cases = listOf(
             SkillFirstDraftCase(
@@ -783,6 +855,15 @@ class AgentLoopRuntimeTest {
             "push notification",
             "系统通知",
             "通知栏",
+            "联系人",
+            "contact",
+            "查询联系人",
+            "联系人权限",
+            "ContactsContract 怎么用",
+            "search contacts API",
+            "不要查联系人 Alice",
+            "do not search contacts for Alice",
+            "新建联系人 Alice",
         )
 
         inputs.forEach { input ->

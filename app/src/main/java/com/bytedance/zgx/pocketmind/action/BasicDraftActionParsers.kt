@@ -578,6 +578,150 @@ internal object RecentNotificationsActionParser {
     }
 }
 
+internal object ContactQueryActionParser {
+    private val englishPattern =
+        Regex(
+            """\b(?:find|search|look\s+up)\s+(?:my\s+)?contacts?\b|\b(?:find|search|look\s+up)\s+.+\s+in\s+(?:my\s+)?contacts?\b|\bfind\s+.+\s+contact\s+(?:number|phone)\b|\bcontacts?\s+(?:search|lookup|query)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeContactQueryNonAction()) return false
+        val normalized = input.lowercase()
+        val hasChineseTrigger = listOf(
+            "查询联系人",
+            "查联系人",
+            "查找联系人",
+            "搜索联系人",
+            "找联系人",
+            "联系人查询",
+            "通讯录找",
+            "通讯录里找",
+            "搜索通讯录",
+            "查通讯录",
+        ).any { it in input } ||
+            Regex("""(?:联系人|通讯录)(?:里|里的)?\s*(?:查询|查找|查|搜索|找)""").containsMatchIn(input) ||
+            Regex("""(?:前|最多)\s*\d{1,2}\s*(?:个|位|条)?\s*(?:联系人|通讯录)(?:里|里的)?\s*(?:查询|查找|查|搜索|找)""")
+                .containsMatchIn(input)
+        if (!hasChineseTrigger && !englishPattern.containsMatchIn(normalized)) return false
+        return cleanedContactQuery(input).isMeaningfulContactQuery()
+    }
+
+    fun draft(input: String): ActionDraft {
+        val parameters = parameters(input)
+        val query = parameters.getValue("query")
+        return ActionDraft(
+            functionName = MobileActionFunctions.QUERY_CONTACTS,
+            title = "查询联系人",
+            summary = summary(query, parameters["maxCount"]),
+            parameters = parameters,
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun parameters(input: String): Map<String, String> {
+        val maxCount = maxCount(input)
+        val query = cleanedContactQuery(input)
+        return buildMap {
+            put("query", query)
+            if (maxCount != null) {
+                put("maxCount", maxCount)
+            }
+        }
+    }
+
+    private fun maxCount(input: String): String? {
+        val cleaned = input.replace(Regex("\\s+"), "")
+        val normalized = input.lowercase()
+        val match = Regex("""(?:前|最多)(\d{1,2})(?:个|位|条)?""").find(cleaned)
+            ?: Regex("""\b(?:top|first|max|limit)\s+(\d{1,2})\s*(?:contacts?|results?)?\b""")
+                .find(normalized)
+        return match?.groupValues?.getOrNull(1)?.toIntOrNull()?.takeIf { it > 0 }?.toString()
+    }
+
+    private fun cleanedContactQuery(input: String): String {
+        val cleaned = cleanedObject(input)
+        return cleaned
+            .replace(
+                Regex("""^(?:前|最多)\s*\d{1,2}\s*(?:个|位|条)?\s*(?:联系人|通讯录)(?:里|里的)?\s*(?:查询|查找|查|搜索|找)\s*[:：]?\s*"""),
+                "",
+            )
+            .replace(
+                Regex("""^(?:联系人|通讯录)(?:里|里的)?\s*(?:查询|查找|查|搜索|找)\s*[:：]?\s*"""),
+                "",
+            )
+            .replace(
+                Regex(
+                    """^请?\s*(?:帮我\s*)?(?:查询|查找|查|搜索|找)\s*联系人\s*[:：]?\s*""",
+                    RegexOption.IGNORE_CASE,
+                ),
+                "",
+            )
+            .replace(Regex("""^联系人查询\s*[:：]?\s*"""), "")
+            .replace(Regex("""^(?:从)?通讯录(?:里|里的)?(?:查询|查找|查|搜索|找)\s*[:：]?\s*"""), "")
+            .replace(Regex("""^(?:查询|查找|查|搜索|找)\s*通讯录(?:里|里的)?\s*[:：]?\s*"""), "")
+            .replace(
+                Regex("""^(?:find|search|look\s+up)\s+(?:my\s+)?contacts?\s*(?:for|named|called)?\s*[:：]?\s*""", RegexOption.IGNORE_CASE),
+                "",
+            )
+            .replace(
+                Regex("""^(?:find|search|look\s+up)\s+(.+?)\s+in\s+(?:my\s+)?contacts?\s*$""", RegexOption.IGNORE_CASE),
+                "$1",
+            )
+            .replace(
+                Regex("""^find\s+(.+?)\s+contact\s+(?:number|phone)\s*$""", RegexOption.IGNORE_CASE),
+                "$1",
+            )
+            .replace(Regex("""^contacts?\s+(?:search|lookup|query)\s*[:：]?\s*""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""(?:^|[\s，,;；]*)?(?:前|最多)\s*\d{1,2}\s*(?:个|位|条)?"""), "")
+            .replace(Regex("""(?:^|[\s,;]*)?(?:top|first|max|limit)\s*\d{1,2}\s*(?:contacts?|results?)?""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\bcontacts?\b""", RegexOption.IGNORE_CASE), "")
+            .replace("联系人", "")
+            .trim()
+    }
+
+    private fun summary(query: String, maxCount: String?): String =
+        if (maxCount.isNullOrBlank()) {
+            "将按“$query”查询联系人。"
+        } else {
+            "将按“$query”查询最多 ${maxCount} 个联系人。"
+        }
+
+    private fun String.isMeaningfulContactQuery(): Boolean {
+        val normalized = lowercase()
+        return isNotBlank() &&
+            normalized !in setOf("contact", "contacts", "联系人", "permission", "permissions") &&
+            this !in setOf("权限", "联系人权限")
+    }
+
+    private fun String.looksLikeContactQueryNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "联系人权限",
+            "联系人列表权限",
+            "通讯录权限",
+            "联系人页面",
+            "联系人组件",
+            "联系人接口",
+            "联系人列表",
+            "通讯录列表",
+            "读取所有联系人",
+            "所有联系人",
+            "导出通讯录",
+            "不要查联系人",
+            "不要查询联系人",
+            "别查联系人",
+            "编辑联系人",
+            "怎么实现",
+            "如何实现",
+            "怎么设计",
+        ).any { it in this } ||
+            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:find|search|look\s+up)\s+(?:my\s+)?contacts?\b""")) ||
+            normalized.contains(Regex("""\b(contacts?\s+(permission|permissions|form|page|component|api|screen|tracing|support|provider)|contactscontract|delete\s+contacts?|edit\s+contacts?|export\s+contacts?|all\s+contacts?|contacts?\s+list)\b""")) ||
+            normalized.contains(Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\bcontacts?\b"""))
+    }
+}
+
 private fun String.looksLikeDiscussion(): Boolean {
     val normalized = lowercase()
     return listOf("什么意思", "什么含义", "怎么说", "如何表达", "解释", "怎么理解", "怎么写", "是什么")

@@ -29,6 +29,7 @@ class BuiltInSkillRuntimeTest {
         assertTrue(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL in manifests)
+        assertTrue(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL in manifests)
         assertTrue(manifests.values.all { it.version >= 1 })
         assertTrue(manifests.values.all { it.inputSchemaJson.contains("additionalProperties") })
     }
@@ -142,6 +143,7 @@ class BuiltInSkillRuntimeTest {
             "打开链接 https://example.com" to requireNotNull(runtime.plan("打开链接 https://example.com")),
             "当前应用是什么" to requireNotNull(runtime.plan("当前应用是什么")),
             "最近通知" to requireNotNull(runtime.plan("最近通知")),
+            "查联系人 Alice" to requireNotNull(runtime.plan("查联系人 Alice")),
         )
 
         plans.forEach { (input, plan) ->
@@ -568,6 +570,38 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("push notification"))
         assertEquals(null, runtime.plan("系统通知"))
         assertEquals(null, runtime.plan("通知栏"))
+    }
+
+    @Test
+    fun plansContactLookupWithoutActionDraftWhenQueryIsExplicit() {
+        val plan = requireNotNull(runtime.plan("最多 3 个联系人里查 Alice"))
+
+        assertEquals(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL, plan.request.skillId)
+        assertEquals(mapOf("input" to "最多 3 个联系人里查 Alice"), plan.request.arguments)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, step.request.toolName)
+        assertEquals("Alice", step.request.arguments["query"])
+        assertEquals("3", step.request.arguments["maxCount"])
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, step.draft.functionName)
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+
+        val englishPlan = requireNotNull(runtime.plan("look up Alice in contacts"))
+        assertEquals(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL, englishPlan.request.skillId)
+        val englishStep = englishPlan.steps.single()
+        require(englishStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, englishStep.request.toolName)
+        assertEquals("Alice", englishStep.request.arguments["query"])
+
+        assertEquals(null, runtime.plan("联系人"))
+        assertEquals(null, runtime.plan("contact"))
+        assertEquals(null, runtime.plan("查询联系人"))
+        assertEquals(null, runtime.plan("联系人权限"))
+        assertEquals(null, runtime.plan("ContactsContract 怎么用"))
+        assertEquals(null, runtime.plan("search contacts API"))
+        assertEquals(null, runtime.plan("不要查联系人 Alice"))
+        assertEquals(null, runtime.plan("do not search contacts for Alice"))
+        assertEquals(null, runtime.plan("新建联系人 Alice"))
     }
 
     @Test

@@ -190,6 +190,13 @@ Current status:
   tool scoped to confirmed LocalOnly summaries of PocketMind/current-app active
   notifications. `maxCount` is schema-bounded to 20 and the query does not
   request Android runtime permission or special access.
+- Explicit contact lookup requests now also have a conservative Skill-first
+  path. The shared parser requires an explicit query, rejects bare
+  contact/contacts wording, permission/API/implementation/list/export/negative
+  phrasing, and keeps create/edit contact requests outside the lookup skill.
+  `query_contacts` still requires confirmed `READ_CONTACTS`, schema-bounds
+  `maxCount` to 20, returns only name/phone summaries, and marks both query and
+  contacts JSON as private trace outputs.
 - Skill model-step results can now be consumed generically: when a declarative
   `ToolStep` depends on a `ModelStep`, the model output is bound through the
   tool step's `argumentBindings`, then validated, safety-checked, audited, and
@@ -216,6 +223,8 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstHttpsDeepLinkBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstForegroundAppBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstRecentNotificationsBypassesActionPlannerAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.skillFirstContactLookupBypassesActionPlannerAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.contactObservationRedactsPrivateTraceFields`
 - `AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation`
 - `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
@@ -336,6 +345,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.plansHttpsDeepLinkWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.plansForegroundAppWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.plansRecentNotificationsWithoutActionDraftWhenCurrentAppRequestIsExplicit`
+- `BuiltInSkillRuntimeTest.plansContactLookupWithoutActionDraftWhenQueryIsExplicit`
 - `BuiltInSkillRuntimeTest.skillFirstPlannerDoesNotTreatOrdinaryShareDiscussionAsShareTool`
 - `BuiltInSkillRuntimeTest.validateStructureRejectsUnorderedOrInvalidCompositePlan`
 - `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`

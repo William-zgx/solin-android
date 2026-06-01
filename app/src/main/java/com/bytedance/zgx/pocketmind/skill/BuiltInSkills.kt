@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
+import com.bytedance.zgx.pocketmind.action.ContactQueryActionParser
 import com.bytedance.zgx.pocketmind.action.DeepLinkActionParser
 import com.bytedance.zgx.pocketmind.action.DeviceSettingsActionParser
 import com.bytedance.zgx.pocketmind.action.EmailDraftActionParser
@@ -33,6 +34,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.OPEN_DEEP_LINK to DEEP_LINK_NAVIGATION_SKILL,
         MobileActionFunctions.QUERY_FOREGROUND_APP to FOREGROUND_APP_CONTEXT_SKILL,
         MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS to RECENT_NOTIFICATIONS_CONTEXT_SKILL,
+        MobileActionFunctions.QUERY_CONTACTS to CONTACT_LOOKUP_SKILL,
     )
 
     override fun manifests(): List<SkillManifest> = builtInSkillManifests
@@ -51,6 +53,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && DeviceSettingsActionParser.matches(input) ->
                 plan(input, DeviceSettingsActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && ContactQueryActionParser.matches(input) ->
+                plan(input, ContactQueryActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && WebSearchActionParser.matches(input) ->
                 plan(input, WebSearchActionParser.draft(input).toRequestPair())
@@ -208,6 +213,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val DEEP_LINK_NAVIGATION_SKILL = "deep_link_navigation_skill"
         const val FOREGROUND_APP_CONTEXT_SKILL = "foreground_app_context_skill"
         const val RECENT_NOTIFICATIONS_CONTEXT_SKILL = "recent_notifications_context_skill"
+        const val CONTACT_LOOKUP_SKILL = "contact_lookup_skill"
     }
 }
 
@@ -399,6 +405,16 @@ private val builtInSkillManifests = listOf(
         description = "在用户明确要求时读取当前应用最近通知的最小摘要。",
         triggerExamples = listOf("最近通知", "current app notifications"),
         requiredTools = listOf(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.LowReadOnly,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL,
+        version = 1,
+        title = "联系人查询",
+        description = "在用户明确提供查询词时读取联系人最小摘要。",
+        triggerExamples = listOf("查联系人 Alice", "find contact Alice"),
+        requiredTools = listOf(MobileActionFunctions.QUERY_CONTACTS),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.LowReadOnly,
     ),
