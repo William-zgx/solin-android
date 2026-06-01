@@ -24,7 +24,7 @@ Google AI Edge LiteRT-LM.
 - Minimal device context snapshots plus confirmed clipboard, calendar, contact,
   current-app notification summary, foreground-app, recent-file metadata, and
   recent-screenshot OCR plus recent-image OCR reads, with a documented
-  confirmed current-screen Accessibility text snapshot boundary for controlled
+  confirmed current-screen Accessibility text snapshot path for controlled
   context access.
 - Confirmed Android runtime permission requests for tools that need calendar,
   contact, media, or reminder notification posting access.
@@ -34,12 +34,13 @@ Google AI Edge LiteRT-LM.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map
   search, information lookup, device settings, local reminders, calendar
   availability, clipboard context, contact lookup, current foreground app
-  context, current-app notification summaries, recent media metadata, HTTPS
-  link navigation, and system sharing, with manifest input schemas enforced
-  before confirmation or execution.
+  context, current-app notification summaries, current-screen Accessibility
+  text context, recent media metadata, HTTPS link navigation, and system
+  sharing, with manifest input schemas enforced before confirmation or
+  execution.
 - Skill-first routing for explicit clipboard context, current-app notification
-  summary, and clipboard-summary-share requests that do not need
-  action-planner parameter extraction.
+  summary, current-screen Accessibility text, and clipboard-summary-share
+  requests that do not need action-planner parameter extraction.
 - A conservative clipboard-summary-share composite flow that keeps summarization local and asks again before opening the Android share sheet.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
 - Running background task review for still-scheduled reminders and periodic checks, including explicit cancellation.
@@ -150,13 +151,15 @@ become confirmed `query_calendar_availability` tool calls. The tool requires
 `READ_CALENDAR` after confirmation, accepts only explicit timezone-qualified
 ISO start/end windows, and returns LocalOnly busy/free blocks without event
 titles, locations, attendees, notes, or calendar IDs.
-Requests such as “读取当前屏幕文字” are reserved for a confirmed current-screen
-Accessibility text snapshot tool. After confirmation, it may read only the
-current Accessibility text-node snapshot exposed by Android accessibility
-services, mark the result `LocalOnly`, and use it only for immediate local
-continuation. It is not screenshot capture, OCR, pixel analysis, or semantic
-screen understanding; raw `screenText` must not enter trace, audit, persisted
-tool-observation messages, or remote model requests.
+Requests such as “读取当前屏幕文字” become confirmed skill-first
+`read_current_screen_text` tool calls. After confirmation, the tool may read
+only the current Accessibility text-node snapshot exposed by Android
+accessibility services, mark the result `LocalOnly`, and use it only for
+immediate local continuation. It is not screenshot capture, OCR, pixel
+analysis, or semantic screen understanding; raw `screenText` must not enter
+trace, audit, persisted tool-observation messages, or remote model requests.
+Accessibility access is modeled as special access, not an Android runtime
+permission.
 Requests such as “总结剪贴板并分享” use one constrained composite flow: after
 the user confirms the clipboard read, PocketMind summarizes locally, then opens
 a second confirmation for `share_text` with the generated summary. The share

@@ -1,5 +1,48 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Current-screen text skill-first routing 增量验证
+
+本轮覆盖项：
+
+- 显式“读取/总结当前屏幕文字”请求可由 built-in Skill runtime 直接规划为
+  `read_current_screen_text` 待确认工具，不再依赖 action planner。
+- Shared current-screen parser 只接受明确当前屏幕/当前界面的 Accessibility
+  文本快照意图；拒绝“这页/页面内容”泛称、截图、OCR、像素、视觉/语义屏幕理解、
+  API/实现/权限讨论和否定命令。
+- 新增 `current_screen_text_context_skill` manifest，风险级别为
+  `MediumDraftOrNavigation`；工具继续走 registry schema、safety、audit 和用户确认。
+- 权限和数据边界保持最小化：skill-first pending confirmation 仍只声明
+  Accessibility special access，不请求 Android runtime permission；raw
+  `screenText` 仍只用于本地 continuation，并由 trace/audit 脱敏。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersCurrentScreenTextOnlyForAccessibleTextRequests' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansCurrentScreenTextWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstCurrentScreenTextBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.currentScreenTextSkillFirstConfirmationDeclaresAccessibilitySpecialAccessOnly'
+```
+
+补充回归：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+```
+
+结果：通过。
+
 ## 2026-06-01 Calendar availability skill-first routing 增量验证
 
 本轮覆盖项：

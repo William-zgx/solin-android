@@ -4,6 +4,7 @@ import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.CalendarAvailabilityActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
 import com.bytedance.zgx.pocketmind.action.ContactQueryActionParser
+import com.bytedance.zgx.pocketmind.action.CurrentScreenTextActionParser
 import com.bytedance.zgx.pocketmind.action.DeepLinkActionParser
 import com.bytedance.zgx.pocketmind.action.DeviceSettingsActionParser
 import com.bytedance.zgx.pocketmind.action.EmailDraftActionParser
@@ -35,6 +36,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.OPEN_DEEP_LINK to DEEP_LINK_NAVIGATION_SKILL,
         MobileActionFunctions.QUERY_FOREGROUND_APP to FOREGROUND_APP_CONTEXT_SKILL,
         MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS to RECENT_NOTIFICATIONS_CONTEXT_SKILL,
+        MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to CURRENT_SCREEN_TEXT_CONTEXT_SKILL,
         MobileActionFunctions.QUERY_CONTACTS to CONTACT_LOOKUP_SKILL,
         MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY to CALENDAR_AVAILABILITY_SKILL,
     )
@@ -76,6 +78,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && RecentNotificationsActionParser.matches(input) ->
                 plan(input, RecentNotificationsActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && CurrentScreenTextActionParser.matches(input) ->
+                plan(input, CurrentScreenTextActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
@@ -218,6 +223,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val DEEP_LINK_NAVIGATION_SKILL = "deep_link_navigation_skill"
         const val FOREGROUND_APP_CONTEXT_SKILL = "foreground_app_context_skill"
         const val RECENT_NOTIFICATIONS_CONTEXT_SKILL = "recent_notifications_context_skill"
+        const val CURRENT_SCREEN_TEXT_CONTEXT_SKILL = "current_screen_text_context_skill"
         const val CONTACT_LOOKUP_SKILL = "contact_lookup_skill"
         const val CALENDAR_AVAILABILITY_SKILL = "calendar_availability_skill"
     }
@@ -413,6 +419,16 @@ private val builtInSkillManifests = listOf(
         requiredTools = listOf(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.LowReadOnly,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL,
+        version = 1,
+        title = "当前屏幕可访问文本上下文",
+        description = "在用户确认后读取当前屏幕的 Accessibility 可访问文本快照；不读取截图、OCR、像素或视觉语义内容。",
+        triggerExamples = listOf("读取当前屏幕文字", "summarize current screen text"),
+        requiredTools = listOf(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
     ),
     SkillManifest(
         id = BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL,

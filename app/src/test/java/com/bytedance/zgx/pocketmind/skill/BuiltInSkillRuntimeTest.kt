@@ -29,6 +29,7 @@ class BuiltInSkillRuntimeTest {
         assertTrue(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL in manifests)
+        assertTrue(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL in manifests)
         assertTrue(manifests.values.all { it.version >= 1 })
@@ -144,6 +145,7 @@ class BuiltInSkillRuntimeTest {
             "打开链接 https://example.com" to requireNotNull(runtime.plan("打开链接 https://example.com")),
             "当前应用是什么" to requireNotNull(runtime.plan("当前应用是什么")),
             "最近通知" to requireNotNull(runtime.plan("最近通知")),
+            "总结当前屏幕文字" to requireNotNull(runtime.plan("总结当前屏幕文字")),
             "查联系人 Alice" to requireNotNull(runtime.plan("查联系人 Alice")),
             "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z" to requireNotNull(
                 runtime.plan("查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"),
@@ -574,6 +576,40 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("push notification"))
         assertEquals(null, runtime.plan("系统通知"))
         assertEquals(null, runtime.plan("通知栏"))
+    }
+
+    @Test
+    fun plansCurrentScreenTextWithoutActionDraftWhenCommandIsExplicit() {
+        val input = "总结当前屏幕文字，最多1200字"
+        val plan = requireNotNull(runtime.plan(input))
+
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL, plan.request.skillId)
+        assertEquals(mapOf("input" to input), plan.request.arguments)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, step.request.toolName)
+        assertEquals("1200", step.request.arguments["maxChars"])
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, step.draft.functionName)
+        assertTrue(step.draft.summary.contains("可访问文本快照"))
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+
+        val englishPlan = requireNotNull(runtime.plan("summarize current screen text max 1200 chars"))
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL, englishPlan.request.skillId)
+        val englishStep = englishPlan.steps.single()
+        require(englishStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, englishStep.request.toolName)
+        assertEquals("1200", englishStep.request.arguments["maxChars"])
+
+        assertEquals(null, runtime.plan("看看当前屏幕"))
+        assertEquals(null, runtime.plan("识别当前屏幕截图文字"))
+        assertEquals(null, runtime.plan("当前屏幕 OCR"))
+        assertEquals(null, runtime.plan("current screen screenshot text"))
+        assertEquals(null, runtime.plan("不要读取当前屏幕文字"))
+        assertEquals(null, runtime.plan("总结这页内容"))
+        assertEquals(null, runtime.plan("总结页面内容"))
+        assertEquals(null, runtime.plan("what is current screen text"))
+        assertEquals(null, runtime.plan("current screen text API"))
+        assertEquals(null, runtime.plan("how to implement current screen state"))
     }
 
     @Test

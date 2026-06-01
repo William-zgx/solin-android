@@ -5,6 +5,7 @@ import android.os.Build
 import android.provider.Settings
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
@@ -290,6 +291,21 @@ class AgentRuntimePermissionPolicyTest {
         assertEquals(SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT, requirements.single().id)
         assertEquals("无障碍屏幕文本权限", requirements.single().title)
         assertTrue(requirements.single().rationale.contains("当前屏幕"))
+        assertEquals(Settings.ACTION_ACCESSIBILITY_SETTINGS, requirements.single().settingsAction)
+    }
+
+    @Test
+    fun currentScreenTextSkillFirstConfirmationDeclaresAccessibilitySpecialAccessOnly() {
+        val confirmation = confirmationFor(
+            toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            arguments = mapOf("maxChars" to "1200"),
+            skillId = BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL,
+        )
+        val requirements = confirmation.specialAccessRequirementsFor()
+
+        assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
+        assertEquals(1, requirements.size)
+        assertEquals(SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT, requirements.single().id)
         assertEquals(Settings.ACTION_ACCESSIBILITY_SETTINGS, requirements.single().settingsAction)
     }
 

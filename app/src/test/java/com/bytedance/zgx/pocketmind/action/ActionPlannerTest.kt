@@ -318,8 +318,19 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, plan.draft?.functionName)
         assertEquals("1200", plan.draft?.parameters?.get("maxChars"))
+        val englishPlan = planner.plan("summarize current screen text max 1200 chars")
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, englishPlan.draft?.functionName)
+        assertEquals("1200", englishPlan.draft?.parameters?.get("maxChars"))
         assertEquals(ActionPlanKind.NoAction, planner.plan("看看当前屏幕").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("识别当前屏幕截图文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("当前屏幕 OCR").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要读取当前屏幕文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("总结这页内容").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("总结页面内容").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("what is current screen text").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("current screen text API").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("how to implement current screen state").kind)
     }
 
     @Test

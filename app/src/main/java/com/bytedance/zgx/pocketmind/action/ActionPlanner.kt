@@ -146,8 +146,8 @@ class MobileActionPlanner : ActionPlanner {
             isRecentImageOcrRequest(input) ->
                 MobileActionFunctions.READ_RECENT_IMAGE_OCR.toDraft(recentImageOcrParameters(input))
 
-            isCurrentScreenTextRequest(input) ->
-                MobileActionFunctions.READ_CURRENT_SCREEN_TEXT.toDraft(currentScreenTextParameters(input))
+            CurrentScreenTextActionParser.matches(input) ->
+                CurrentScreenTextActionParser.draft(input)
 
             RecentFilesActionParser.matches(input, includeNonMediaKinds = true) ->
                 RecentFilesActionParser.draft(input)
@@ -363,54 +363,6 @@ class MobileActionPlanner : ActionPlanner {
         return mentionsRecentImage && asksForTextExtraction
     }
 
-    private fun isCurrentScreenTextRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        val mentionsCurrentScreen = listOf(
-            "当前屏幕",
-            "当前界面",
-            "现在屏幕",
-            "屏幕内容",
-            "屏幕文字",
-            "屏幕文本",
-            "这个界面",
-            "这页",
-            "页面内容",
-        ).any { marker -> marker in input } ||
-            Regex("""\b(current|active|this)\s+(screen|page|window|view)\b""")
-                .containsMatchIn(normalized)
-        val asksForAccessibleText = listOf(
-            "文字",
-            "文本",
-            "内容",
-            "读取",
-            "读一下",
-            "总结",
-            "摘要",
-            "提取",
-            "识别",
-            "text",
-            "summarize",
-            "summary",
-            "read",
-            "extract",
-        ).any { marker -> marker in normalized }
-        val asksForVisualOnly = listOf(
-            "截图",
-            "截屏",
-            "拍屏",
-            "像素",
-            "图片",
-            "照片",
-            "ocr",
-            "screenshot",
-            "screen capture",
-            "image",
-            "photo",
-            "pixel",
-        ).any { marker -> marker in normalized }
-        return mentionsCurrentScreen && asksForAccessibleText && !asksForVisualOnly
-    }
-
     private fun recentScreenshotOcrParameters(input: String): Map<String, String> =
         if (Regex("""(?:最近|latest|recent)\s*1\s*(?:张|个)?""", RegexOption.IGNORE_CASE).containsMatchIn(input)) {
             mapOf("maxCount" to "1")
@@ -421,9 +373,6 @@ class MobileActionPlanner : ActionPlanner {
     private fun recentImageOcrParameters(input: String): Map<String, String> =
         mapOf("maxCount" to (recentCountFrom(input)?.coerceIn(1, 3) ?: 3).toString())
 
-    private fun currentScreenTextParameters(input: String): Map<String, String> =
-        mapOf("maxChars" to (maxCharsFrom(input)?.coerceIn(1, 4000) ?: 2000).toString())
-
     private fun recentCountFrom(input: String): Int? {
         val normalized = input.lowercase()
         val cleaned = input.replace(Regex("\\s+"), "")
@@ -432,20 +381,6 @@ class MobileActionPlanner : ActionPlanner {
             ?.getOrNull(1)
             ?.toIntOrNull()
             ?: Regex("""(?:recent|latest)\s+(\d{1,2})""")
-                .find(normalized)
-                ?.groupValues
-                ?.getOrNull(1)
-                ?.toIntOrNull()
-    }
-
-    private fun maxCharsFrom(input: String): Int? {
-        val normalized = input.lowercase()
-        val cleaned = input.replace(Regex("\\s+"), "")
-        return Regex("""最多(\d{1,5})字""").find(cleaned)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toIntOrNull()
-            ?: Regex("""(?:max|limit)\s*(\d{1,5})\s*(?:chars?|characters?)""")
                 .find(normalized)
                 ?.groupValues
                 ?.getOrNull(1)

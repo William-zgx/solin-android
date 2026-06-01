@@ -691,6 +691,44 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstCurrentScreenTextBypassesActionPlannerAndRequestsConfirmation() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "总结当前屏幕文字，最多1200字",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, result.plan.request.toolName)
+        assertEquals("1200", result.plan.request.arguments["maxChars"])
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertTrue(result.plan.draft.summary.contains("可访问文本快照"))
+        assertEquals(
+            listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
+            auditSink.events.map { it.eventType },
+        )
+        assertTrue(auditSink.events.all { event ->
+            event.toolName == MobileActionFunctions.READ_CURRENT_SCREEN_TEXT &&
+                event.skillId == BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL &&
+                ToolPermission.ReadsAccessibilityText in event.permissions
+        })
+    }
+
+    @Test
     fun skillFirstContactLookupBypassesActionPlannerAndRequestsConfirmation() {
         val actionRuntime = RecordingActionRuntime(likelyAction = false)
         val runtime = AgentLoopRuntime(
@@ -883,6 +921,16 @@ class AgentLoopRuntimeTest {
             "push notification",
             "系统通知",
             "通知栏",
+            "看看当前屏幕",
+            "识别当前屏幕截图文字",
+            "当前屏幕 OCR",
+            "current screen screenshot text",
+            "不要读取当前屏幕文字",
+            "总结这页内容",
+            "总结页面内容",
+            "what is current screen text",
+            "current screen text API",
+            "how to implement current screen state",
             "联系人",
             "contact",
             "查询联系人",

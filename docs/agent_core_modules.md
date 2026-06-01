@@ -36,9 +36,10 @@ Current status:
   confirmed clipboard text reads, outbound system sharing for text, current
   foreground app summaries, contact lookup, recent notification summaries,
   calendar availability, recent file metadata summaries, confirmed recent
-  screenshot OCR, safe HTTPS deep-link navigation, package-level app launches,
-  and allowlisted app deep targets.
-- The current-screen Accessibility text snapshot tool belongs to this
+  screenshot OCR, confirmed recent image OCR, confirmed current-screen
+  Accessibility text snapshots, safe HTTPS deep-link navigation, package-level
+  app launches, and allowlisted app deep targets.
+- `read_current_screen_text` belongs to this
   tool boundary as a confirmed, `LocalOnly` device-context read. It may expose
   only a bounded current Accessibility text-node snapshot, not screenshots, OCR
   output, pixels, or semantic screen understanding.
@@ -83,10 +84,11 @@ Non-responsibilities:
 Current status:
 
 - Implemented single-run planning for chat and tool requests.
-- Implemented conservative Skill-first routing for explicit clipboard context
-  and clipboard-summary-share requests. These requests can enter
-  `AwaitingUserConfirmation` without first being classified by the action
-  planner, because their first tool step does not require parameter extraction.
+- Implemented conservative Skill-first routing for explicit clipboard context,
+  current-screen Accessibility text, and clipboard-summary-share requests.
+  These requests can enter `AwaitingUserConfirmation` without first being
+  classified by the action planner, because their first tool step does not
+  require model-driven parameter extraction.
 - Implemented confirmation state and post-confirmation observation.
 - Confirmed clipboard observations can now create a follow-up model prompt so
   the assistant can answer from the just-read tool result instead of stopping at
@@ -204,6 +206,12 @@ Current status:
   `query_calendar_availability` boundary: confirmed `READ_CALENDAR`, at most
   the schema/provider window, and busy/free blocks without event titles,
   locations, attendees, notes, or calendar IDs.
+- Explicit current-screen text requests now also have a conservative
+  Skill-first path. The shared parser accepts only current-screen Accessibility
+  text snapshot wording, rejects screenshot/OCR/pixel/visual/semantic
+  screen-understanding phrasing, and routes to confirmed
+  `read_current_screen_text` with `LocalOnly` private `screenText` output and
+  Accessibility special-access handling rather than Android runtime permission.
 - Skill model-step results can now be consumed generically: when a declarative
   `ToolStep` depends on a `ModelStep`, the model output is bound through the
   tool step's `argumentBindings`, then validated, safety-checked, audited, and
@@ -446,8 +454,8 @@ Current status:
   same trace/audit redaction, remote-mode protection, and private Skill output
   boundary as screenshot OCR. Plain `query_recent_files(kind="images")` remains
   metadata-only and does not read pixels.
-- The current-screen Accessibility text snapshot tool is a separate
-  confirmed Device Context read for explicit current-screen text requests. It
+- `read_current_screen_text` is a separate confirmed Device Context read for
+  explicit current-screen text requests. It
   reads only the current Accessibility text nodes exposed by Android
   accessibility services at confirmation time, returns a bounded `screenText`
   snapshot marked
@@ -455,6 +463,8 @@ Current status:
   continuation. It must not capture a screenshot, run OCR, inspect pixels,
   infer visual or semantic screen state, or persist/expose raw `screenText` in
   trace, audit, persisted tool-observation messages, or remote model prompts.
+  Its Accessibility requirement is special access, not a normal runtime
+  permission.
 - JVM executor matrix tests cover foreground app, notification summary, contact
   summary, calendar availability, recent file metadata, recent screenshot OCR,
   and recent image OCR success, permission denied, provider failure, LocalOnly,

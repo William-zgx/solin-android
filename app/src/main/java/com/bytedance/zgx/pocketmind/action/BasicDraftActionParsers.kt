@@ -581,6 +581,116 @@ internal object RecentNotificationsActionParser {
     }
 }
 
+internal object CurrentScreenTextActionParser {
+    private val currentScreenPattern =
+        Regex("""\b(current|active|this)\s+(screen|page|window|view)\b""", RegexOption.IGNORE_CASE)
+    private val currentVisibleTextPattern =
+        Regex("""\bcurrent\s+(?:visible|accessibility|accessible)\s+text\b""", RegexOption.IGNORE_CASE)
+    private val maxCharsPattern =
+        Regex("""(?:max|limit)\s*(\d{1,5})\s*(?:chars?|characters?)""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeCurrentScreenTextNonAction()) return false
+        val normalized = input.lowercase()
+        val mentionsCurrentScreen = listOf(
+            "当前屏幕",
+            "当前界面",
+            "现在屏幕",
+            "屏幕内容",
+            "屏幕文字",
+            "屏幕文本",
+            "这个界面",
+        ).any { marker -> marker in input } ||
+            currentScreenPattern.containsMatchIn(normalized) ||
+            currentVisibleTextPattern.containsMatchIn(normalized)
+        val asksForAccessibleText = listOf(
+            "文字",
+            "文本",
+            "内容",
+            "读取",
+            "读一下",
+            "总结",
+            "摘要",
+            "提取",
+            "text",
+            "summarize",
+            "summary",
+            "read",
+            "extract",
+        ).any { marker -> marker in normalized }
+        return mentionsCurrentScreen && asksForAccessibleText
+    }
+
+    fun draft(input: String): ActionDraft {
+        val parameters = parameters(input)
+        val maxChars = parameters.getValue("maxChars")
+        return ActionDraft(
+            functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            title = "读取当前屏幕文本",
+            summary = "将读取当前屏幕的可访问文本快照（最多 ${maxChars} 字符）；不会读取截图、像素、坐标或完整节点树。",
+            parameters = parameters,
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun parameters(input: String): Map<String, String> =
+        mapOf("maxChars" to (maxChars(input)?.coerceIn(1, 4000) ?: 2000).toString())
+
+    private fun maxChars(input: String): Int? {
+        val normalized = input.lowercase()
+        val cleaned = input.replace(Regex("\\s+"), "")
+        return Regex("""最多(\d{1,5})字""").find(cleaned)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?: maxCharsPattern.find(normalized)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.toIntOrNull()
+    }
+
+    private fun String.looksLikeCurrentScreenTextNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "不要读取",
+            "别读取",
+            "不要读",
+            "别读",
+            "不要总结",
+            "别总结",
+            "不要提取",
+            "别提取",
+            "当前屏幕截图",
+            "当前界面截图",
+            "屏幕截图",
+            "截图",
+            "截屏",
+            "拍屏",
+            "ocr",
+            "OCR",
+            "像素",
+            "图片",
+            "照片",
+            "视觉理解",
+            "语义屏幕理解",
+            "屏幕理解",
+            "图像理解",
+            "看图",
+            "怎么实现",
+            "如何实现",
+            "怎么设计",
+            "无障碍权限",
+            "无障碍文本权限",
+        ).any { it in this } ||
+            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:read|extract|summarize)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view)\b""")) ||
+            normalized.contains(Regex("""\b(?:current|active|this)\s+(?:screen|page|window|view)\s+(?:screenshots?|screen\s+captures?|images?|photos?|pixels?|ocr|api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?|state)\b""")) ||
+            normalized.contains(Regex("""\b(?:current|active|this)\s+(?:screen|page|window|view)\s+text\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?|state)\b""")) ||
+            normalized.contains(Regex("""\b(?:screenshots?|screen\s+captures?|images?|photos?|pixels?|ocr)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view)\b""")) ||
+            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view|screen\s+text)\b""")) ||
+            normalized.contains(Regex("""\b(?:how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view|screen\s+text)\b"""))
+    }
+}
+
 internal object ContactQueryActionParser {
     private val englishPattern =
         Regex(
