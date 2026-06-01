@@ -3845,3 +3845,31 @@ scripts/verify_emulator.sh
 - 失败根因关闭：先前失败停在 `请记住：蓝色机器人喜欢端侧 AI` 后等待
   `模拟器回答`；当前实现和单测契约要求该命令本地处理、绕过 router 和远程
   runtime，因此应修 instrumentation 断言而不是产品代码。
+
+## 2026-06-02 PDF shared-input text-layer and remote read guard
+
+本轮覆盖项：
+
+- 用户主动分享或选择 `application/pdf` 附件时，可以在本地读取有界 PDF
+  文本层摘录。该能力只扫描受限 PDF bytes/content streams，支持普通/Flate
+  text-showing stream，最多进入 shared-input prompt 4000 字符。
+- PDF 摘录是文本层预览，不是 PDF OCR、图片扫描、版式理解或完整 PDF 解析；
+  图片型/扫描型 PDF 没有可读文本层时保持 metadata-only。
+- `MainActivity` 会按当前推理模式选择 `ShareIntentReader` 读取策略。远程模式
+  下只生成 value-free protected share signal；不会读取 `EXTRA_TEXT` 值、查询
+  附件 metadata、打开文件流、解析文本层或运行 OCR。
+- 远程模式 `ingestSharedInput` 的本地提示更新为“不会读取或自动发送”分享文本、
+  RTF/PDF/Office 摘录、OCR 摘录或附件元数据。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsShared*'
+```
+
+结果：
+
+- 通过：PDF text-layer reader、protected shared-input prompt、远程模式 shared
+  input 保护回归测试。

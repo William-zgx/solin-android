@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import com.bytedance.zgx.pocketmind.device.PocketMindAccessibilityService
+import com.bytedance.zgx.pocketmind.multimodal.SharedInputReadMode
 import com.bytedance.zgx.pocketmind.multimodal.ShareIntentReader
 import com.bytedance.zgx.pocketmind.ui.PocketMindScreen
 import com.bytedance.zgx.pocketmind.ui.theme.PocketMindTheme
@@ -186,8 +187,9 @@ class MainActivity : ComponentActivity() {
     private fun handleSharedIntent(intent: Intent?) {
         val sharedIntent = intent ?: return
         shareIntentScope.launch {
+            val readMode = sharedInputReadMode()
             val sharedInput = withContext(Dispatchers.IO) {
-                ShareIntentReader(applicationContext).read(sharedIntent)
+                ShareIntentReader(applicationContext).read(sharedIntent, mode = readMode)
             }
             sharedInput?.let(viewModel::ingestSharedInput)
         }
@@ -196,12 +198,20 @@ class MainActivity : ComponentActivity() {
     private fun handlePickedSharedUris(uris: List<Uri>) {
         if (uris.isEmpty()) return
         shareIntentScope.launch {
+            val readMode = sharedInputReadMode()
             val sharedInput = withContext(Dispatchers.IO) {
-                ShareIntentReader(applicationContext).readUris(uris)
+                ShareIntentReader(applicationContext).readUris(uris, mode = readMode)
             }
             sharedInput?.let(viewModel::ingestSharedInput)
         }
     }
+
+    private fun sharedInputReadMode(): SharedInputReadMode =
+        if (viewModel.uiState.value.inferenceMode == InferenceMode.Remote) {
+            SharedInputReadMode.ProtectedSignal
+        } else {
+            SharedInputReadMode.LocalPrompt
+        }
 
     private fun startVoiceInput() {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)

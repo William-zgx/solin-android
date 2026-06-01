@@ -11,10 +11,16 @@ class ShareIntentReader(
     private val context: Context,
     private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
 ) {
-    fun read(intent: Intent?): SharedInput? {
+    fun read(
+        intent: Intent?,
+        mode: SharedInputReadMode = SharedInputReadMode.LocalPrompt,
+    ): SharedInput? {
         if (intent == null) return null
         val action = intent.action ?: return null
         if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return null
+        if (mode == SharedInputReadMode.ProtectedSignal) {
+            return intent.protectedSharedInput(action)
+        }
 
         val text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
         val uris = when (action) {
@@ -22,14 +28,23 @@ class ShareIntentReader(
             Intent.ACTION_SEND_MULTIPLE -> intent.streamUris()
             else -> emptyList()
         }
-        return readUris(uris = uris, text = text, intentMimeType = intent.type)
+        return readUris(uris = uris, text = text, intentMimeType = intent.type, mode = mode)
     }
 
     fun readUris(
         uris: List<Uri>,
         text: String = "",
         intentMimeType: String? = null,
+        mode: SharedInputReadMode = SharedInputReadMode.LocalPrompt,
     ): SharedInput? {
+        if (mode == SharedInputReadMode.ProtectedSignal) {
+            val sourceCount = uris.take(MAX_SHARED_ATTACHMENTS).size + if (text.isNotBlank()) 1 else 0
+            return SharedInput(
+                text = "",
+                attachments = emptyList(),
+                protectedSourceCount = sourceCount,
+            ).takeUnless { it.isEmpty }
+        }
         val attachments = uris
             .take(MAX_SHARED_ATTACHMENTS)
             .map { uri -> uri.toSharedAttachment(intentMimeType) }
@@ -52,6 +67,21 @@ class ShareIntentReader(
             @Suppress("DEPRECATION")
             getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
         }
+
+    private fun Intent.protectedSharedInput(action: String): SharedInput? {
+        val hasText = hasExtra(Intent.EXTRA_TEXT)
+        val streamCount = when (action) {
+            Intent.ACTION_SEND -> if (hasExtra(Intent.EXTRA_STREAM)) 1 else 0
+            Intent.ACTION_SEND_MULTIPLE -> streamUris().take(MAX_SHARED_ATTACHMENTS).size
+            else -> 0
+        }
+        val sourceCount = streamCount + if (hasText) 1 else 0
+        return SharedInput(
+            text = "",
+            attachments = emptyList(),
+            protectedSourceCount = sourceCount,
+        ).takeUnless { it.isEmpty }
+    }
 
     private fun Uri.toSharedAttachment(intentMimeType: String?): SharedAttachment {
         val resolvedMimeType = runCatching { context.contentResolver.getType(this) }.getOrNull() ?: intentMimeType
@@ -113,8 +143,11 @@ internal fun readSharedAttachmentTextPreview(
     kind: SharedAttachmentKind,
     openInputStream: () -> InputStream?,
     extractImageText: () -> SharedTextPreview?,
+    mode: SharedInputReadMode = SharedInputReadMode.LocalPrompt,
 ): SharedTextPreview? =
     when {
+        mode == SharedInputReadMode.ProtectedSignal -> null
+
         kind == SharedAttachmentKind.Document && canReadTextPreviewFor(mimeType) ->
             readSharedAttachmentTextPreviewFromStream(openInputStream) { input ->
                 TextAttachmentPreviewReader.read(input)
@@ -123,6 +156,11 @@ internal fun readSharedAttachmentTextPreview(
         kind == SharedAttachmentKind.Document && canReadRichTextPreviewFor(mimeType) ->
             readSharedAttachmentTextPreviewFromStream(openInputStream) { input ->
                 RichTextPreviewReader.read(input, mimeType)
+            }
+
+        kind == SharedAttachmentKind.Document && canReadPdfTextPreviewFor(mimeType) ->
+            readSharedAttachmentTextPreviewFromStream(openInputStream) { input ->
+                PdfTextPreviewReader.read(input, mimeType)
             }
 
         kind == SharedAttachmentKind.Document && canReadOfficeOpenXmlTextPreviewFor(mimeType) ->
@@ -135,6 +173,11 @@ internal fun readSharedAttachmentTextPreview(
 
         else -> null
     }
+
+enum class SharedInputReadMode {
+    LocalPrompt,
+    ProtectedSignal,
+}
 
 private fun readSharedAttachmentTextPreviewFromStream(
     openInputStream: () -> InputStream?,

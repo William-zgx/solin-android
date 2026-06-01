@@ -164,7 +164,7 @@ class PocketMindViewModelTest {
         assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
         assertFalse(sessionStore.messages.single().text.contains("private excerpt"))
         assertFalse(sessionStore.messages.single().text.contains("private.txt"))
-        assertTrue(sessionStore.messages.single().text.contains("不会自动发送分享文本、RTF/Office 文档摘录、OCR 摘录或附件元数据"))
+        assertTrue(sessionStore.messages.single().text.contains("不会读取或自动发送分享文本、RTF/PDF/Office 文档摘录、OCR 摘录或附件元数据"))
     }
 
     @Test
@@ -208,7 +208,7 @@ class PocketMindViewModelTest {
         assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
         assertFalse(sessionStore.messages.single().text.contains("private screenshot text"))
         assertFalse(sessionStore.messages.single().text.contains("private-screen.png"))
-        assertTrue(sessionStore.messages.single().text.contains("不会自动发送分享文本、RTF/Office 文档摘录、OCR 摘录或附件元数据"))
+        assertTrue(sessionStore.messages.single().text.contains("不会读取或自动发送分享文本、RTF/PDF/Office 文档摘录、OCR 摘录或附件元数据"))
     }
 
     @Test
@@ -252,7 +252,7 @@ class PocketMindViewModelTest {
         assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
         assertFalse(sessionStore.messages.single().text.contains("private office document excerpt"))
         assertFalse(sessionStore.messages.single().text.contains("private-plan.docx"))
-        assertTrue(sessionStore.messages.single().text.contains("不会自动发送分享文本、RTF/Office 文档摘录、OCR 摘录或附件元数据"))
+        assertTrue(sessionStore.messages.single().text.contains("不会读取或自动发送分享文本、RTF/PDF/Office 文档摘录、OCR 摘录或附件元数据"))
     }
 
     @Test
@@ -296,7 +296,51 @@ class PocketMindViewModelTest {
         assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
         assertFalse(sessionStore.messages.single().text.contains("private rich text excerpt"))
         assertFalse(sessionStore.messages.single().text.contains("private-notes.rtf"))
-        assertTrue(sessionStore.messages.single().text.contains("RTF/Office 文档摘录"))
+        assertTrue(sessionStore.messages.single().text.contains("RTF/PDF/Office 文档摘录"))
+    }
+
+    @Test
+    fun remoteModeRejectsSharedPdfTextLayerPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.ingestSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Document,
+                        mimeType = "application/pdf",
+                        displayName = "private-plan.pdf",
+                        sizeBytes = 12L,
+                        textPreview = SharedTextPreview(
+                            text = "private pdf text layer excerpt",
+                            truncated = false,
+                            source = SharedTextPreviewSource.PdfTextLayer,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(1, sessionStore.messages.size)
+        assertEquals(MessageRole.Assistant, sessionStore.messages.single().role)
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
+        assertFalse(sessionStore.messages.single().text.contains("private pdf text layer excerpt"))
+        assertFalse(sessionStore.messages.single().text.contains("private-plan.pdf"))
+        assertTrue(sessionStore.messages.single().text.contains("RTF/PDF/Office 文档摘录"))
     }
 
     @Test

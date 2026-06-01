@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.multimodal
 
 import java.io.ByteArrayOutputStream
+import java.util.zip.DeflaterOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertEquals
@@ -131,6 +132,33 @@ class SharedInputTest {
     }
 
     @Test
+    fun promptIncludesPdfTextLayerPreviewForDocumentAttachment() {
+        val input = SharedInput(
+            text = "请总结 PDF",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/pdf",
+                    displayName = "brief.pdf",
+                    sizeBytes = 120L,
+                    textPreview = SharedTextPreview(
+                        text = "PDF 第一段\nPDF 第二段",
+                        truncated = true,
+                        source = SharedTextPreviewSource.PdfTextLayer,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("RTF/PDF 文本层"))
+        assertTrue(prompt.contains("PDF 文本摘录（已截断）"))
+        assertTrue(prompt.contains("PDF 第一段"))
+        assertTrue(prompt.contains("PDF 第二段"))
+    }
+
+    @Test
     fun promptIncludesRichTextPreviewForRtfAttachment() {
         val input = SharedInput(
             text = "请总结 RTF",
@@ -151,7 +179,7 @@ class SharedInputTest {
 
         val prompt = input.toPrompt()
 
-        assertTrue(prompt.contains("RTF 文档"))
+        assertTrue(prompt.contains("RTF/PDF 文本层"))
         assertTrue(prompt.contains("RTF 文本摘录（已截断）"))
         assertTrue(prompt.contains("标题"))
         assertTrue(prompt.contains("正文"))
@@ -346,6 +374,44 @@ class SharedInputTest {
     }
 
     @Test
+    fun pdfPreviewSourceIsIgnoredForNonPdfDocuments() {
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/msword",
+                    displayName = "legacy.doc",
+                    sizeBytes = 42L,
+                    textPreview = SharedTextPreview(
+                        text = "legacy pdf source secret",
+                        truncated = false,
+                        source = SharedTextPreviewSource.PdfTextLayer,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("legacy.doc"))
+        assertFalse(prompt.contains("legacy pdf source secret"))
+        assertFalse(prompt.contains("\n   PDF 文本摘录"))
+    }
+
+    @Test
+    fun protectedSharedInputBuildsValueFreePrompt() {
+        val input = SharedInput(text = "", attachments = emptyList(), protectedSourceCount = 2)
+
+        val prompt = input.toPrompt()
+
+        assertFalse(input.isEmpty)
+        assertTrue(prompt.contains("已收到受保护分享"))
+        assertTrue(prompt.contains("未读取分享文本、附件元数据、文本摘录或 OCR"))
+        assertFalse(prompt.contains("2"))
+    }
+
+    @Test
     fun promptUsesSafeAttachmentNameOnly() {
         val input = SharedInput(
             text = "",
@@ -456,6 +522,16 @@ class SharedInputTest {
         assertFalse(canReadOfficeOpenXmlTextPreviewFor("application/msword"))
         assertFalse(canReadOfficeOpenXmlTextPreviewFor("text/plain"))
         assertFalse(canReadOfficeOpenXmlTextPreviewFor(null))
+    }
+
+    @Test
+    fun pdfPreviewReaderOnlyAllowsPdfMediaType() {
+        assertTrue(canReadPdfTextPreviewFor("application/pdf"))
+        assertTrue(canReadPdfTextPreviewFor(" application/pdf; charset=binary "))
+        assertFalse(canReadPdfTextPreviewFor("text/plain"))
+        assertFalse(canReadPdfTextPreviewFor("application/rtf"))
+        assertFalse(canReadPdfTextPreviewFor("application/msword"))
+        assertFalse(canReadPdfTextPreviewFor(null))
     }
 
     @Test
@@ -583,6 +659,33 @@ class SharedInputTest {
     }
 
     @Test
+    fun sharedAttachmentTextPreviewDispatchesPdfTextLayer() {
+        val preview = readSharedAttachmentTextPreview(
+            mimeType = "application/pdf",
+            kind = SharedAttachmentKind.Document,
+            openInputStream = { pdfBytes("BT (PDF title) Tj ET").inputStream() },
+            extractImageText = { error("image OCR should not be used for PDF") },
+        )
+
+        assertNotNull(preview)
+        assertEquals("PDF title", preview!!.text)
+        assertEquals(SharedTextPreviewSource.PdfTextLayer, preview.source)
+    }
+
+    @Test
+    fun protectedSharedAttachmentTextPreviewDoesNotOpenStreamsOrRunOcr() {
+        val preview = readSharedAttachmentTextPreview(
+            mimeType = "text/plain",
+            kind = SharedAttachmentKind.Document,
+            openInputStream = { error("protected share must not open attachment stream") },
+            extractImageText = { error("protected share must not run OCR") },
+            mode = SharedInputReadMode.ProtectedSignal,
+        )
+
+        assertNull(preview)
+    }
+
+    @Test
     fun officeOpenXmlPreviewReaderExtractsWordBodyText() {
         val preview = OfficeOpenXmlPreviewReader.read(
             officeZip(
@@ -671,6 +774,61 @@ class SharedInputTest {
         assertTrue(preview.truncated)
     }
 
+    @Test
+    fun pdfTextPreviewReaderExtractsLiteralArrayHexAndEscapedText() {
+        val preview = PdfTextPreviewReader.read(
+            pdfBytes(
+                """
+                BT
+                (First paragraph) Tj
+                [(Sec) 12 (ond)] TJ
+                <504446> Tj
+                (escaped \(value\)\nnext) Tj
+                ET
+                """.trimIndent(),
+            ).inputStream(),
+            "application/pdf",
+        )
+
+        assertNotNull(preview)
+        assertEquals("First paragraph\nSecond\nPDF\nescaped (value) next", preview!!.text)
+        assertEquals(SharedTextPreviewSource.PdfTextLayer, preview.source)
+        assertFalse(preview.truncated)
+    }
+
+    @Test
+    fun pdfTextPreviewReaderExtractsFlateEncodedTextLayer() {
+        val preview = PdfTextPreviewReader.read(
+            pdfBytes(
+                content = "BT (compressed text layer) Tj ET",
+                flateEncoded = true,
+            ).inputStream(),
+            "application/pdf",
+        )
+
+        assertNotNull(preview)
+        assertEquals("compressed text layer", preview!!.text)
+    }
+
+    @Test
+    fun pdfTextPreviewReaderRejectsUnsupportedOrImageOnlyInput() {
+        assertNull(PdfTextPreviewReader.read("%PDF-1.4\n%%EOF".byteInputStream(), "application/pdf"))
+        assertNull(PdfTextPreviewReader.read(pdfBytes("(secret) Tj").inputStream(), "text/plain"))
+        assertNull(PdfTextPreviewReader.read("plain text".byteInputStream(), "application/pdf"))
+    }
+
+    @Test
+    fun pdfTextPreviewReaderTruncatesLargeTextLayer() {
+        val preview = PdfTextPreviewReader.read(
+            pdfBytes("BT (${ "a".repeat(4_100) }) Tj ET").inputStream(),
+            "application/pdf",
+        )
+
+        assertNotNull(preview)
+        assertEquals(4_000, preview!!.text.length)
+        assertTrue(preview.truncated)
+    }
+
     private fun officeZip(vararg entries: Pair<String, String>): ByteArray {
         val output = ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
@@ -681,5 +839,29 @@ class SharedInputTest {
             }
         }
         return output.toByteArray()
+    }
+
+    private fun pdfBytes(
+        content: String,
+        flateEncoded: Boolean = false,
+    ): ByteArray {
+        val streamBytes = if (flateEncoded) {
+            val output = ByteArrayOutputStream()
+            DeflaterOutputStream(output).use { deflater ->
+                deflater.write(content.toByteArray(Charsets.ISO_8859_1))
+            }
+            output.toByteArray()
+        } else {
+            content.toByteArray(Charsets.ISO_8859_1)
+        }
+        val filter = if (flateEncoded) "/Filter /FlateDecode " else ""
+        return (
+            "%PDF-1.4\n" +
+                "1 0 obj\n" +
+                "<< $filter/Length ${streamBytes.size} >>\n" +
+                "stream\n"
+        ).toByteArray(Charsets.ISO_8859_1) +
+            streamBytes +
+            "\nendstream\nendobj\n%%EOF".toByteArray(Charsets.ISO_8859_1)
     }
 }

@@ -9,9 +9,10 @@ private const val MAX_SHARED_TEXT_CHARS = 4_000
 data class SharedInput(
     val text: String,
     val attachments: List<SharedAttachment>,
+    val protectedSourceCount: Int = 0,
 ) {
     val isEmpty: Boolean
-        get() = text.toBoundedSharedText().text.isBlank() && attachments.isEmpty()
+        get() = text.toBoundedSharedText().text.isBlank() && attachments.isEmpty() && protectedSourceCount <= 0
 
     fun toPrompt(): String {
         val sharedText = text.toBoundedSharedText()
@@ -34,18 +35,25 @@ data class SharedInput(
             }
             .joinToString(separator = "\n")
         return buildString {
+            if (protectedSourceCount > 0) {
+                append(
+                    "已收到受保护分享。为保护隐私，本次未读取分享文本、附件元数据、文本摘录或 OCR；请切换到本地模型后重新分享，或手动粘贴你愿意处理的内容。",
+                )
+            }
             if (sharedText.text.isNotBlank()) {
+                if (isNotEmpty()) append("\n\n")
                 if (sharedText.truncated) {
                     append("分享文本（已截断）：\n")
                 }
                 append(sharedText.text)
             } else if (attachments.isNotEmpty()) {
+                if (isNotEmpty()) append("\n\n")
                 append("请根据我分享的附件信息进行处理。")
             }
             if (attachmentBlock.isNotBlank()) {
                 append("\n\n")
                 append(
-                    "已分享附件（默认只读取元数据；text/* 文档、RTF 文档、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n",
+                    "已分享附件（默认只读取元数据；text/* 文档、RTF/PDF 文本层、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n",
                 )
                 append(attachmentBlock)
             }
@@ -107,6 +115,7 @@ data class SharedTextPreview(
 enum class SharedTextPreviewSource(val label: String) {
     TextFile("文本摘录"),
     RichTextDocument("RTF 文本摘录"),
+    PdfTextLayer("PDF 文本摘录"),
     OfficeDocument("Office 文本摘录"),
     ImageOcr("图片文字摘录"),
 }
@@ -142,6 +151,9 @@ fun canReadTextPreviewFor(mimeType: String?): Boolean =
 fun canReadRichTextPreviewFor(mimeType: String?): Boolean =
     mimeType.normalizedMediaType() in richTextMimeTypes
 
+fun canReadPdfTextPreviewFor(mimeType: String?): Boolean =
+    mimeType.normalizedMediaType() == "application/pdf"
+
 fun canReadOfficeOpenXmlTextPreviewFor(mimeType: String?): Boolean =
     mimeType.normalizedMediaType() in officeOpenXmlMimeTypes
 
@@ -160,6 +172,10 @@ fun canUseTextPreviewFor(attachment: SharedAttachment): Boolean =
         SharedTextPreviewSource.RichTextDocument ->
             attachment.kind == SharedAttachmentKind.Document &&
                 canReadRichTextPreviewFor(attachment.mimeType)
+
+        SharedTextPreviewSource.PdfTextLayer ->
+            attachment.kind == SharedAttachmentKind.Document &&
+                canReadPdfTextPreviewFor(attachment.mimeType)
 
         SharedTextPreviewSource.OfficeDocument ->
             attachment.kind == SharedAttachmentKind.Document &&

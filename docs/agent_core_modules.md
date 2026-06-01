@@ -1024,9 +1024,9 @@ Code:
 Responsibilities:
 
 - Accept user-initiated shared text, bounded `text/*` document excerpts,
-  bounded RTF and Office Open XML text-layer excerpts, bounded local OCR text
-  excerpts for user-provided `image/*` attachments, and attachment metadata from
-  Android share targets and the in-app picker.
+  bounded RTF/PDF and Office Open XML text-layer excerpts, bounded local OCR
+  text excerpts for user-provided `image/*` attachments, and attachment metadata
+  from Android share targets and the in-app picker.
 - Classify attachments by MIME type; keep unsupported non-text files
   metadata-only.
 - Keep multimodal source handling separate from chat generation and tools.
@@ -1043,13 +1043,13 @@ Current status:
   text plus attachment metadata such as kind, MIME type, display name, and byte
   size.
 - Implemented bounded local text excerpts for user-initiated shared `text/*`
-  documents, bounded text-layer excerpts for user-provided RTF and Office Open
-  XML `.docx` / `.xlsx` / `.pptx` files, and bounded local OCR text excerpts for
-  user-provided `image/*` attachments. Excerpts are user-visible and limited to
-  the local shared-input prompt.
-- Audio, video, PDF, legacy Office binary formats, binary, and other unsupported
-  attachments stay metadata-only; the app does not parse or embed their bytes
-  into prompts.
+  documents, bounded text-layer excerpts for user-provided RTF, PDF text layers,
+  and Office Open XML `.docx` / `.xlsx` / `.pptx` files, and bounded local OCR
+  text excerpts for user-provided `image/*` attachments. Excerpts are
+  user-visible and limited to the local shared-input prompt.
+- Audio, video, image-only PDFs, legacy Office binary formats, binary, and other
+  unsupported attachments stay metadata-only; the app does not parse or embed
+  their bytes into prompts.
 - Implemented a voice input entry that launches Android system speech
   recognition and returns the transcript as a one-shot compose-box draft.
   Transcripts are not auto-sent, do not create chat messages until the user
@@ -1057,16 +1057,19 @@ Current status:
 - Shared-input prompts are marked `LocalOnly` when generated automatically, so
   local processing can continue without later leaking shared text, generated
   excerpts, attachment metadata, or local assistant responses into remote chat
-  history. Remote mode rejects automatically generated shared-input prompts
-  before calling a remote backend.
+  history. Remote mode now selects a protected shared-input read mode before
+  parsing the share intent or picked URIs; this value-free path does not read
+  `EXTRA_TEXT` values, query attachment metadata, open file streams, parse text
+  layers, or run OCR before showing the local privacy notice.
 - The voice entry does not read or parse audio files. Recent screenshot OCR and
   recent image OCR are implemented as confirmed Device Context tools, not
   automatic shared-input ingestion. The current-screen Accessibility
   text snapshot tool follows the same Device Context boundary and reads text
-  nodes only; screenshot capture, screen semantic understanding, PDF parsing,
-  legacy Office parsing, full rich-text fidelity, image semantic understanding,
-  and media content understanding are pending. RTF and Office Open XML extraction
-  are text-layer only, not complete document parsing. Image OCR is limited to
+  nodes only; screenshot capture, screen semantic understanding, PDF OCR/layout
+  parsing, legacy Office parsing, full rich-text fidelity, image semantic
+  understanding, and media content understanding are pending. RTF, PDF, and
+  Office Open XML extraction are text-layer only, not complete document parsing.
+  Image OCR is limited to
   user-provided `image/*` attachments, the user-confirmed recent screenshot OCR
   tool, or the user-confirmed recent image OCR tool, and produces text excerpts
   only.
@@ -1076,6 +1079,7 @@ Tests:
 - `SharedInputTest`
 - `PocketMindViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory`
 - `PocketMindViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt`
+- `PocketMindViewModelTest.remoteModeRejectsSharedPdfTextLayerPreviewBeforeBuildingPrompt`
 - `PocketMindViewModelTest.remoteModeRejectsLocalOnlyPromptBeforeCallingRemoteRuntime`
 - `PocketMindViewModelTest.remoteModeProtectsRecentScreenshotOcrBeforeRemoteContinuation`
 - `PocketMindViewModelTest.remoteModeProtectsRecentImageOcrBeforeRemoteContinuation`
