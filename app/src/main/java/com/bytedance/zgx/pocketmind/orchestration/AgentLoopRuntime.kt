@@ -269,6 +269,52 @@ class AgentLoopRuntime(
         )
     }
 
+    fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? {
+        val run = traceStore.run(runId) ?: return null
+        if (run.state != AgentRunState.GeneratingAnswer) return null
+        val draft = draftForRemoteToolRequest(request)
+        val plan = buildInitialToolPlan(
+            request = request,
+            draft = draft,
+            plannedByModel = true,
+            fallbackReason = "remote tool call",
+            skillPlan = null,
+        )
+        return when (plan) {
+            is AgentPlan.UseTool -> {
+                appendToolPlanSteps(runId, plan)
+                val decision = AgentObservationDecision.PlanNextTool(
+                    plan = plan,
+                    reason = "Remote model requested a tool call.",
+                )
+                traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+                val updatedRun = traceStore.updateState(runId, AgentRunState.AwaitingUserConfirmation)
+                traceStore.savePendingConfirmation(plan.toPendingSnapshot(updatedRun))
+                AgentModelObservationResult(
+                    run = updatedRun,
+                    decision = decision,
+                    steps = traceStore.steps(runId),
+                )
+            }
+
+            is AgentPlan.RejectedTool -> {
+                traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
+                traceStore.appendStep(runId, AgentStep.ToolRejected(plan.result))
+                auditRejectedTool(runId, plan.result)
+                val decision = AgentObservationDecision.Fail(plan.result.summary)
+                traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+                val updatedRun = traceStore.updateState(runId, AgentRunState.Failed)
+                AgentModelObservationResult(
+                    run = updatedRun,
+                    decision = decision,
+                    steps = traceStore.steps(runId),
+                )
+            }
+
+            else -> null
+        }
+    }
+
     private fun observeToolResultInternal(
         runId: String,
         result: ToolResult,
@@ -638,6 +684,17 @@ class AgentLoopRuntime(
             plannedByModel = result.usedModel,
             fallbackReason = result.fallbackReason,
             skillPlan = skillPlan,
+        )
+    }
+
+    private fun draftForRemoteToolRequest(request: ToolRequest): ActionDraft {
+        val spec = toolRegistry.specFor(request.toolName)
+        return ActionDraft(
+            functionName = request.toolName,
+            title = spec?.title ?: request.toolName,
+            summary = spec?.title?.let { title -> "$title · 远程模型请求" } ?: "远程模型请求执行 ${request.toolName}",
+            parameters = request.arguments,
+            requiresConfirmation = true,
         )
     }
 

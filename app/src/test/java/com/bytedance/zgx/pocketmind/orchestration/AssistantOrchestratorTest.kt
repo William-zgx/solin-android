@@ -89,6 +89,71 @@ class AssistantOrchestratorTest {
     }
 
     @Test
+    fun remoteModelToolRequestEntersConfirmationBoundary() {
+        val orchestrator = AssistantOrchestrator(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = NeverActionRuntime(),
+        )
+        val route = orchestrator.route(
+            input = "搜索 Kotlin",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(route is AssistantRoute.Chat)
+
+        val observed = orchestrator.observeModelToolRequest(
+            runId = requireNotNull(route.runId),
+            request = ToolRequest(
+                id = "call-1",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "Kotlin"),
+                reason = "remote tool call",
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, observed.decision.plan.request.toolName)
+        assertEquals(true, observed.decision.plan.plannedByModel)
+        assertEquals("remote tool call", observed.decision.plan.fallbackReason)
+        val restored = orchestrator.restorePendingAction()
+        requireNotNull(restored)
+        assertEquals(route.runId, restored.runId)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, restored.toolRequest?.toolName)
+    }
+
+    @Test
+    fun remoteModelUnknownToolRequestFailsRun() {
+        val orchestrator = AssistantOrchestrator(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = NeverActionRuntime(),
+        )
+        val route = orchestrator.route(
+            input = "do unknown",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(route is AssistantRoute.Chat)
+
+        val observed = orchestrator.observeModelToolRequest(
+            runId = requireNotNull(route.runId),
+            request = ToolRequest(
+                id = "call-unknown",
+                toolName = "unknown_tool",
+                arguments = emptyMap(),
+                reason = "remote tool call",
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        require(observed.decision is AgentObservationDecision.Fail)
+        assertTrue(observed.decision.reason.contains("Unknown tool"))
+        assertEquals(null, orchestrator.restorePendingAction())
+    }
+
+    @Test
     fun injectsMemoryContextWhenMemoryIsEnabledWithoutRequiringEmbeddingModel() {
         val memoryRepository = MemoryRepository()
         memoryRepository.index("one", "用户喜欢端侧离线聊天")

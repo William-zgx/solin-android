@@ -3960,3 +3960,45 @@ scripts/verify_emulator.sh
   ViewModel 删除会话 pending 清理回归测试。
 - 通过：AndroidTest APK 编译，包含 Room 9->10 migration 编译覆盖。
 - 通过：完整 JVM 单测 `:app:testDebugUnitTest`。
+
+## 2026-06-02 Remote OpenAI tool_calls confirmation path
+
+本轮覆盖项：
+
+- `RemoteChatRuntime` 保留旧 `send(): Flow<String>`，新增 tool-aware
+  `sendWithTools()` 事件流；请求体可序列化 `ToolSpec` 为 OpenAI-compatible
+  `tools[]`，并继续过滤 `LocalOnly` history。
+- SSE / 非流式 Chat Completions 响应可解析 OpenAI-style `tool_calls`，
+  支持流式 `function.arguments` 分片累积；一次多个 tool call、malformed
+  arguments JSON 会结构化拒绝，不进入执行。混合 `tool_calls` /
+  legacy `function_call`、以及缺少 `index` 的多工具流式片段也会拒绝。
+- ViewModel 远程分支把 `RemoteChatEvent.ToolCall` 交给
+  `AssistantRouter.observeModelToolRequest()`，由 Agent loop 复用
+  `ToolRegistry.validate`、`SafetyPolicy`、trace/audit 和 pending
+  confirmation 链路。远程模型不能直接执行 Android tool。
+- 远程 tool-call 草稿消息写为 `LocalOnly`，后续远程 history 不会带上本地
+  待确认动作提示；被拒绝的远程 tool-call 会刷新 trace 并停在
+  `动作不可执行` 状态；用户确认后仍走现有 runtime permission /
+  special access / `confirmToolRequest` / tool result privacy gate。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteToolCallBecomesPendingConfirmationWithoutExecutingTool' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rejectedRemoteToolCallShowsActionFailureAndRefreshesTrace'
+
+./gradlew :app:testDebugUnitTest --rerun-tasks
+
+./gradlew :app:assembleDebugAndroidTest
+```
+
+结果：
+
+- 通过：RemoteChatRuntime tools body、非流式/流式 tool_calls parser、
+  混合/缺 index 多工具拒绝、AssistantOrchestrator remote ToolRequest
+  确认边界、ViewModel pending / rejected UI 回归测试。
+- 通过：完整 JVM 单测 `:app:testDebugUnitTest --rerun-tasks`。
+- 通过：AndroidTest APK 编译。

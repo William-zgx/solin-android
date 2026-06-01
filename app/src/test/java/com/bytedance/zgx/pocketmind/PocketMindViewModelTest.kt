@@ -56,6 +56,7 @@ import com.bytedance.zgx.pocketmind.orchestration.AssistantRouter
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.pocketmind.orchestration.InMemoryAgentTraceStore
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
+import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
@@ -65,7 +66,9 @@ import com.bytedance.zgx.pocketmind.tool.ToolExecutor
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
+import com.bytedance.zgx.pocketmind.tool.ToolSpec
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import java.io.File
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -1696,6 +1699,144 @@ class PocketMindViewModelTest {
         assertTrue(call.history.isEmpty())
         assertFalse(call.history.toString().contains("打开 Wi-Fi 设置"))
         assertFalse(call.history.toString().contains("动作草稿"))
+    }
+
+    @Test
+    fun remoteToolCallBecomesPendingConfirmationWithoutExecutingTool() = runTest(dispatcher) {
+        val request = ToolRequest(
+            id = "call-1",
+            toolName = MobileActionFunctions.WEB_SEARCH,
+            arguments = mapOf("query" to "Kotlin"),
+            reason = "remote tool call",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.WEB_SEARCH,
+            title = "Web 搜索",
+            summary = "将在浏览器中搜索：Kotlin",
+            parameters = request.arguments,
+        )
+        val plan = AgentPlan.UseTool(
+            request = request,
+            draft = draft,
+            plannedByModel = true,
+            fallbackReason = "remote tool call",
+            safetyDecision = SafetyDecision(
+                outcome = SafetyOutcome.RequireConfirmation,
+                reason = "Remote tool call requires confirmation.",
+            ),
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-tool",
+                promptForModel = "搜索 Kotlin",
+                memoryHits = emptyList(),
+            ),
+            modelToolObservation = AgentModelObservationResult(
+                run = AgentRun("run-remote-tool", "搜索 Kotlin", AgentRunState.AwaitingUserConfirmation, 1L, 2L),
+                decision = AgentObservationDecision.PlanNextTool(plan, "Remote model requested a tool call."),
+                steps = emptyList(),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime(
+            events = listOf(RemoteChatEvent.ToolCall(request)),
+        )
+        val executor = RecordingToolExecutor()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("搜索 Kotlin")
+        advanceUntilIdle()
+
+        val pending = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(pending)
+        assertEquals("run-remote-tool", pending.runId)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, pending.toolRequest?.toolName)
+        assertEquals(mapOf("query" to "Kotlin"), pending.toolRequest?.arguments)
+        assertEquals(true, pending.plannedByModel)
+        assertEquals("remote tool call", pending.fallbackReason)
+        assertEquals(1, assistantRouter.observeModelToolCallCount)
+        assertEquals(request, assistantRouter.lastObservedModelToolRequest)
+        assertTrue(executor.executedRequests.isEmpty())
+        assertTrue(remoteRuntime.calls.single().tools.any { tool -> tool.name == MobileActionFunctions.WEB_SEARCH })
+        assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.first().privacy)
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
+        assertTrue(sessionStore.messages.last().text.contains("请确认后再执行"))
+        assertFalse(sessionStore.messages.last().text.contains("Kotlin"))
+        assertEquals("动作草稿待确认 · 远程模型", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun rejectedRemoteToolCallShowsActionFailureAndRefreshesTrace() = runTest(dispatcher) {
+        val request = ToolRequest(
+            id = "call-unknown",
+            toolName = "unknown_tool",
+            arguments = emptyMap(),
+            reason = "remote tool call",
+        )
+        val traceSummary = agentTraceRunSummary(
+            runId = "run-remote-rejected",
+            input = "执行未知工具",
+            state = AgentRunState.Failed,
+            stepSummary = "Unknown tool: unknown_tool",
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-rejected",
+                promptForModel = "执行未知工具",
+                memoryHits = emptyList(),
+            ),
+            modelToolObservation = AgentModelObservationResult(
+                run = AgentRun("run-remote-rejected", "执行未知工具", AgentRunState.Failed, 1L, 2L),
+                decision = AgentObservationDecision.Fail("Unknown tool: unknown_tool"),
+                steps = emptyList(),
+            ),
+            recentTraceRuns = listOf(traceSummary),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime(
+            events = listOf(RemoteChatEvent.ToolCall(request)),
+        )
+        val executor = RecordingToolExecutor()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("执行未知工具")
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals("动作不可执行", viewModel.uiState.value.statusText)
+        assertEquals(1, assistantRouter.observeModelToolCallCount)
+        assertEquals(request, assistantRouter.lastObservedModelToolRequest)
+        assertTrue(executor.executedRequests.isEmpty())
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
+        assertTrue(sessionStore.messages.last().text.contains("Unknown tool: unknown_tool"))
+        val traceRun = viewModel.uiState.value.agentTraceRuns.single()
+        assertEquals(traceSummary.run.id, traceRun.id)
+        assertEquals(AgentRunState.Failed, traceRun.state)
+        assertEquals("Unknown tool: unknown_tool", traceRun.steps.single().summary)
     }
 
     @Test
@@ -3612,6 +3753,7 @@ class PocketMindViewModelTest {
     private data class RemoteCall(
         val prompt: String,
         val history: List<ChatMessage>,
+        val tools: List<ToolSpec> = emptyList(),
     )
 
     private fun agentTraceRunSummary(
@@ -3649,7 +3791,9 @@ class PocketMindViewModelTest {
                 record.text == taskStateMemoryId
         }
 
-    private class RecordingRemoteChatRuntime : RemoteChatRuntime {
+    private class RecordingRemoteChatRuntime(
+        private val events: List<RemoteChatEvent> = listOf(RemoteChatEvent.TextDelta("远程回复")),
+    ) : RemoteChatRuntime {
         val calls = mutableListOf<RemoteCall>()
 
         override fun send(
@@ -3660,6 +3804,17 @@ class PocketMindViewModelTest {
         ): Flow<String> {
             calls += RemoteCall(prompt, history)
             return flowOf("远程回复")
+        }
+
+        override fun sendWithTools(
+            prompt: String,
+            history: List<ChatMessage>,
+            parameters: GenerationParameters,
+            config: RemoteModelConfig,
+            tools: List<ToolSpec>,
+        ): Flow<RemoteChatEvent> {
+            calls += RemoteCall(prompt, history, tools)
+            return flowOf(*events.toTypedArray())
         }
 
         override fun stop() = Unit
@@ -3724,6 +3879,7 @@ class PocketMindViewModelTest {
         private val toolObservation: AgentObservationResult? = null,
         private val toolObservationsByRunId: Map<String, AgentObservationResult> = emptyMap(),
         private val modelObservation: AgentModelObservationResult? = null,
+        private val modelToolObservation: AgentModelObservationResult? = null,
         private val restoredPendingRoute: AssistantRoute.Action? = null,
         private val recoveryRoute: AssistantRoute? = null,
         private val recentTraceRuns: List<AgentTraceRunSummary> = emptyList(),
@@ -3738,9 +3894,13 @@ class PocketMindViewModelTest {
             private set
         var observeToolCallCount: Int = 0
             private set
+        var observeModelToolCallCount: Int = 0
+            private set
         var failPendingCallCount: Int = 0
             private set
         var lastObservedResult: ToolResult? = null
+            private set
+        var lastObservedModelToolRequest: ToolRequest? = null
             private set
         var lastFailedPendingResult: ToolResult? = null
             private set
@@ -3825,6 +3985,12 @@ class PocketMindViewModelTest {
 
         override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? = modelObservation
 
+        override fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? {
+            observeModelToolCallCount += 1
+            lastObservedModelToolRequest = request
+            return modelToolObservation
+        }
+
         override fun restorePendingAction(sessionId: String?): AssistantRoute.Action? {
             lastRestorePendingSessionId = sessionId
             return restoredPendingRoute
@@ -3840,6 +4006,9 @@ class PocketMindViewModelTest {
             deletedTraceSessionIds += sessionId
             return 1
         }
+
+        override fun availableToolSpecs(): List<ToolSpec> =
+            ToolRegistry().specs()
 
         override fun close() = Unit
     }

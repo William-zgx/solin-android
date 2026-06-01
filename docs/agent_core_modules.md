@@ -140,6 +140,12 @@ Current status:
   call `observeModelResult()` after generation, so successful answers finish as
   `Completed` instead of being recovered as stale `GeneratingAnswer` failures on
   the next process start.
+- Remote OpenAI-compatible chat can now opt into `tools` and parse
+  OpenAI-style `tool_calls`. Parsed remote tool calls are converted into
+  `ToolRequest` values and handed back to the Agent loop, which still performs
+  registry validation, safety evaluation, trace/audit recording, and explicit
+  user confirmation before any Android tool execution. The legacy remote
+  `send()` text stream remains available for pure chat compatibility.
 - Successful observations can now call `AgentObservationReplanner` to produce a
   next tool plan. The default production strategy is conservative: it only
   replans one explicit next action after sequence words such as "然后" / "then",

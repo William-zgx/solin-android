@@ -5,6 +5,8 @@ import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import java.io.IOException
 import java.util.concurrent.CompletableFuture
 import kotlinx.coroutines.async
@@ -71,6 +73,26 @@ class RemoteChatRuntimeTest {
     }
 
     @Test
+    fun buildChatCompletionBody_serializesToolSpecAsOpenAiFunctionTool() {
+        val body = buildChatCompletionBody(
+            prompt = "搜索 Kotlin",
+            history = emptyList(),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.example.com/v1", "model-a"),
+            tools = ToolRegistry.fromSupportedActions(setOf(MobileActionFunctions.WEB_SEARCH)).specs(),
+        )
+
+        val tool = body.getJSONArray("tools").getJSONObject(0)
+        val function = tool.getJSONObject("function")
+
+        assertEquals("function", tool.getString("type"))
+        assertEquals(MobileActionFunctions.WEB_SEARCH, function.getString("name"))
+        assertTrue(function.getString("description").isNotBlank())
+        assertEquals("object", function.getJSONObject("parameters").getString("type"))
+        assertEquals("auto", body.getString("tool_choice"))
+    }
+
+    @Test
     fun parseChatCompletionChunkText_readsDeltaContent() {
         assertEquals(
             "你",
@@ -92,6 +114,126 @@ class RemoteChatRuntimeTest {
             "fallback",
             parseChatCompletionText("""{"choices":[{"message":{"content":null},"text":"fallback"}]}"""),
         )
+    }
+
+    @Test
+    fun parseChatCompletionEvents_readsNonStreamingToolCall() {
+        val events = parseChatCompletionEvents(
+            """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "tool_calls": [
+                      {
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                          "name": "web_search",
+                          "arguments": "{\"query\":\"Kotlin\"}"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val toolCall = events.single() as RemoteChatEvent.ToolCall
+        assertEquals("call-1", toolCall.request.id)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, toolCall.request.toolName)
+        assertEquals(mapOf("query" to "Kotlin"), toolCall.request.arguments)
+    }
+
+    @Test
+    fun parseChatCompletionEventsRejectsMixedToolCallFormats() {
+        val events = parseChatCompletionEvents(
+            """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "tool_calls": [
+                      {
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                          "name": "web_search",
+                          "arguments": "{\"query\":\"Kotlin\"}"
+                        }
+                      }
+                    ],
+                    "function_call": {
+                      "name": "open_wifi_settings",
+                      "arguments": "{}"
+                    }
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val error = events.single() as RemoteChatEvent.ParseError
+        assertTrue(error.summary.contains("多种工具调用格式"))
+    }
+
+    @Test
+    fun remoteToolCallAccumulatorCombinesFragmentedArguments() {
+        val accumulator = RemoteToolCallAccumulator()
+
+        accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"web_search","arguments":""}}]}}]}""")
+        accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"query\""}}]}}]}""")
+        accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"Kotlin\"}"}}]}}]}""")
+
+        val toolCall = accumulator.finish().single() as RemoteChatEvent.ToolCall
+        assertEquals("call-1", toolCall.request.id)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, toolCall.request.toolName)
+        assertEquals(mapOf("query" to "Kotlin"), toolCall.request.arguments)
+    }
+
+    @Test
+    fun remoteToolCallAccumulatorCombinesUnindexedContinuationFragments() {
+        val accumulator = RemoteToolCallAccumulator()
+
+        accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"id":"call-1","type":"function","function":{"name":"web_search","arguments":""}}]}}]}""")
+        accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"query\""}}]}}]}""")
+        accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":":\"Kotlin\"}"}}]}}]}""")
+
+        val toolCall = accumulator.finish().single() as RemoteChatEvent.ToolCall
+        assertEquals("call-1", toolCall.request.id)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, toolCall.request.toolName)
+        assertEquals(mapOf("query" to "Kotlin"), toolCall.request.arguments)
+    }
+
+    @Test
+    fun remoteToolCallAccumulatorRejectsMultipleToolCalls() {
+        val accumulator = RemoteToolCallAccumulator()
+
+        accumulator.absorb(
+            """
+            {"choices":[{"delta":{"tool_calls":[
+              {"index":0,"id":"call-1","type":"function","function":{"name":"web_search","arguments":"{}"}},
+              {"index":1,"id":"call-2","type":"function","function":{"name":"open_wifi_settings","arguments":"{}"}}
+            ]}}]}
+            """.trimIndent(),
+        )
+
+        val error = accumulator.finish().single() as RemoteChatEvent.ParseError
+        assertTrue(error.summary.contains("多个工具调用"))
+    }
+
+    @Test
+    fun remoteToolCallAccumulatorRejectsUnindexedDistinctToolCalls() {
+        val accumulator = RemoteToolCallAccumulator()
+
+        accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"id":"call-1","type":"function","function":{"name":"web_search","arguments":"{}"}}]}}]}""")
+        accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"id":"call-2","type":"function","function":{"name":"open_wifi_settings","arguments":"{}"}}]}}]}""")
+
+        val error = accumulator.finish().single() as RemoteChatEvent.ParseError
+        assertTrue(error.summary.contains("多个工具调用"))
     }
 
     @Test
@@ -159,6 +301,49 @@ class RemoteChatRuntimeTest {
             ).toList()
 
             assertEquals(listOf("完成"), chunks)
+        }
+    }
+
+    @Test
+    fun sendWithToolsStreamsToolCallsFromSse() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(200)
+                    .addHeader("Content-Type", "text/event-stream")
+                    .body(
+                        """
+                        data: {"choices":[{"delta":{"content":"我会准备搜索。"}}]}
+
+                        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"web_search","arguments":""}}]}}]}
+
+                        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"query\":\"Kotlin\"}"}}]}}]}
+
+                        data: [DONE]
+
+                        """.trimIndent(),
+                    )
+                    .build(),
+            )
+            server.start()
+            val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
+
+            val events = runtime.sendWithTools(
+                prompt = "搜索 Kotlin",
+                history = emptyList(),
+                parameters = GenerationParameters(),
+                config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a"),
+                tools = ToolRegistry.fromSupportedActions(setOf(MobileActionFunctions.WEB_SEARCH)).specs(),
+            ).toList()
+
+            assertEquals("我会准备搜索。", (events[0] as RemoteChatEvent.TextDelta).text)
+            val toolCall = events[1] as RemoteChatEvent.ToolCall
+            assertEquals("call-1", toolCall.request.id)
+            assertEquals(MobileActionFunctions.WEB_SEARCH, toolCall.request.toolName)
+            assertEquals(mapOf("query" to "Kotlin"), toolCall.request.arguments)
+            val requestBody = server.takeRequest().body!!.utf8()
+            assertTrue(requestBody.contains(""""tools""""))
+            assertTrue(requestBody.contains(MobileActionFunctions.WEB_SEARCH))
         }
     }
 

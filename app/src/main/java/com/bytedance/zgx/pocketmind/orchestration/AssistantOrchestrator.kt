@@ -10,6 +10,8 @@ import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
+import com.bytedance.zgx.pocketmind.tool.ToolSpec
 
 sealed class AssistantRoute {
     data class Chat(
@@ -61,16 +63,21 @@ interface AssistantRouter : AutoCloseable {
 
     fun observeModelResult(runId: String, text: String): AgentModelObservationResult?
 
+    fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult?
+
     fun restorePendingAction(sessionId: String? = null): AssistantRoute.Action?
 
     fun recentTraceRuns(limit: Int = 5, stepLimit: Int = 20): List<AgentTraceRunSummary> = emptyList()
 
     fun deleteRunsForSession(sessionId: String): Int = 0
+
+    fun availableToolSpecs(): List<ToolSpec> = emptyList()
 }
 
 class AssistantOrchestrator(
     private val memoryIndex: MemoryIndex,
     private val actionPlanningRuntime: ActionPlanningRuntime,
+    private val toolRegistry: ToolRegistry = ToolRegistry(),
     toolAuditSink: ToolAuditSink = NoOpToolAuditSink,
     private val traceStore: AgentTraceStore = InMemoryAgentTraceStore(),
     observationReplanner: AgentObservationReplanner = SequentialActionObservationReplanner(actionPlanningRuntime),
@@ -78,6 +85,7 @@ class AssistantOrchestrator(
     private val agentLoopRuntime = AgentLoopRuntime(
         memoryIndex = memoryIndex,
         actionPlanningRuntime = actionPlanningRuntime,
+        toolRegistry = toolRegistry,
         auditSink = toolAuditSink,
         traceStore = traceStore,
         observationReplanner = observationReplanner,
@@ -126,6 +134,9 @@ class AssistantOrchestrator(
     override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? =
         agentLoopRuntime.observeModelResult(runId, text)
 
+    override fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? =
+        agentLoopRuntime.observeModelToolRequest(runId, request)
+
     override fun restorePendingAction(sessionId: String?): AssistantRoute.Action? =
         agentLoopRuntime.latestPendingConfirmation(sessionId)?.toAssistantRoute()
 
@@ -134,6 +145,9 @@ class AssistantOrchestrator(
 
     override fun deleteRunsForSession(sessionId: String): Int =
         traceStore.deleteRunsForSession(sessionId)
+
+    override fun availableToolSpecs(): List<ToolSpec> =
+        toolRegistry.specs()
 
     override fun close() {
         (actionPlanningRuntime as? AutoCloseable)?.close()

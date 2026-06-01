@@ -36,6 +36,7 @@ import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceFrom
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceRecordId
 import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
+import com.bytedance.zgx.pocketmind.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
@@ -45,6 +46,7 @@ import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRouter
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRoute
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
+import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
@@ -1027,32 +1029,104 @@ class PocketMindViewModel(
                         }
 
                         val partial = StringBuilder()
-                        val response = if (useRemoteModel) {
-                            remoteRuntime.send(
+                        var remoteToolObservation: AgentModelObservationResult? = null
+                        if (useRemoteModel) {
+                            remoteRuntime.sendWithTools(
                                 prompt = route.promptForModel,
                                 history = remoteHistory,
                                 parameters = _uiState.value.generationParameters,
                                 config = remoteConfig,
-                            )
+                                tools = assistantOrchestrator.availableToolSpecs(),
+                            ).collect { event ->
+                                when (event) {
+                                    is RemoteChatEvent.TextDelta -> {
+                                        if (remoteToolObservation == null) {
+                                            partial.append(event.text)
+                                            _uiState.updateLastAssistant(partial.toString())
+                                        }
+                                    }
+
+                                    is RemoteChatEvent.ToolCall -> {
+                                        val runId = route.runId ?: error("远程工具调用缺少 Agent run")
+                                        remoteToolObservation =
+                                            assistantOrchestrator.observeModelToolRequest(runId, event.request)
+                                                ?: error("远程工具调用无法进入确认流程")
+                                    }
+
+                                    is RemoteChatEvent.ParseError -> error(event.summary)
+                                }
+                            }
                         } else {
-                            runtime.send(route.promptForModel)
+                            runtime.send(route.promptForModel).collect { chunk ->
+                                partial.append(chunk)
+                                _uiState.updateLastAssistant(partial.toString())
+                            }
                         }
-                        response.collect { chunk ->
-                            partial.append(chunk)
-                            _uiState.updateLastAssistant(partial.toString())
-                        }
-                        if (partial.isBlank()) {
-                            _uiState.updateLastAssistant("没有生成内容")
-                        } else if (!useRemoteModel) {
-                            _uiState.updateLastAssistantStats(
-                                runCatching { runtime.lastGenerationStats() }.getOrNull(),
+                        if (remoteToolObservation != null) {
+                            val nextToolPlan =
+                                (remoteToolObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
+                            if (nextToolPlan != null) {
+                                val assistantText = buildString {
+                                    if (partial.isNotBlank()) {
+                                        append(partial)
+                                        append("\n\n")
+                                    }
+                                    append("已准备远程动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。")
+                                }
+                                _uiState.updateLastAssistantLocalOnly(assistantText)
+                                persistActiveSessionFromUi()
+                                rebuildMemoryIndex()
+                                _uiState.update {
+                                    it.copy(
+                                        pendingConfirmation = PendingAgentConfirmation(
+                                            runId = remoteToolObservation?.run?.id
+                                                ?: error("远程工具调用缺少 Agent run"),
+                                            draft = nextToolPlan.draft,
+                                            toolRequest = nextToolPlan.request,
+                                            skillId = nextToolPlan.skillRequest?.skillId,
+                                            plannedByModel = nextToolPlan.plannedByModel,
+                                            fallbackReason = nextToolPlan.fallbackReason,
+                                        ),
+                                        isBusy = false,
+                                        isGenerating = false,
+                                        isReady = true,
+                                        auditEvents = loadAuditEvents(),
+                                        agentTraceRuns = loadAgentTraceRuns(),
+                                        statusText = "动作草稿待确认 · 远程模型",
+                                    )
+                                }
+                                return@launch
+                            }
+                            _uiState.updateLastAssistantLocalOnly(
+                                "无法准备这个动作：${(remoteToolObservation?.decision as? AgentObservationDecision.Fail)?.reason.orEmpty()}",
                             )
+                            persistActiveSessionFromUi()
+                            rebuildMemoryIndex()
+                            _uiState.update {
+                                it.copy(
+                                    isBusy = false,
+                                    isGenerating = false,
+                                    isReady = true,
+                                    auditEvents = loadAuditEvents(),
+                                    agentTraceRuns = loadAgentTraceRuns(),
+                                    statusText = "动作不可执行",
+                                )
+                            }
+                            return@launch
+                        } else {
+                            if (partial.isBlank()) {
+                                _uiState.updateLastAssistant("没有生成内容")
+                            } else if (!useRemoteModel) {
+                                _uiState.updateLastAssistantStats(
+                                    runCatching { runtime.lastGenerationStats() }.getOrNull(),
+                                )
+                            }
+                            route.runId?.let { runId ->
+                                assistantOrchestrator.observeModelResult(runId, partial.toString())
+                            }
                         }
                         persistActiveSessionFromUi()
                         rebuildMemoryIndex()
-                        route.runId?.let { runId ->
-                            assistantOrchestrator.observeModelResult(runId, partial.toString())
-                        }
                         _uiState.update {
                             it.copy(
                                 isBusy = false,
@@ -1573,38 +1647,78 @@ class PocketMindViewModel(
                 }
 
                 val partial = StringBuilder()
-                val response = if (useRemoteModel) {
-                    remoteRuntime.send(
+                var modelObservation: AgentModelObservationResult? = null
+                if (useRemoteModel) {
+                    remoteRuntime.sendWithTools(
                         prompt = promptForModel,
                         history = remoteHistory,
                         parameters = _uiState.value.generationParameters,
                         config = remoteConfig,
-                    )
+                        tools = assistantOrchestrator.availableToolSpecs(),
+                    ).collect { event ->
+                        when (event) {
+                            is RemoteChatEvent.TextDelta -> {
+                                if (modelObservation == null) {
+                                    partial.append(event.text)
+                                    _uiState.updateLastAssistant(partial.toString())
+                                }
+                            }
+
+                            is RemoteChatEvent.ToolCall -> {
+                                val id = runId ?: error("远程工具调用缺少 Agent run")
+                                modelObservation =
+                                    assistantOrchestrator.observeModelToolRequest(id, event.request)
+                                        ?: error("远程工具调用无法进入确认流程")
+                            }
+
+                            is RemoteChatEvent.ParseError -> error(event.summary)
+                        }
+                    }
                 } else {
-                    runtime.send(promptForModel)
+                    runtime.send(promptForModel).collect { chunk ->
+                        partial.append(chunk)
+                        _uiState.updateLastAssistant(partial.toString())
+                    }
                 }
-                response.collect { chunk ->
-                    partial.append(chunk)
-                    _uiState.updateLastAssistant(partial.toString())
-                }
-                if (partial.isBlank()) {
-                    _uiState.updateLastAssistant("没有生成内容")
-                } else if (!useRemoteModel) {
-                    _uiState.updateLastAssistantStats(
-                        runCatching { runtime.lastGenerationStats() }.getOrNull(),
-                    )
+                if (modelObservation == null) {
+                    if (partial.isBlank()) {
+                        _uiState.updateLastAssistant("没有生成内容")
+                    } else if (!useRemoteModel) {
+                        _uiState.updateLastAssistantStats(
+                            runCatching { runtime.lastGenerationStats() }.getOrNull(),
+                        )
+                    }
+                    modelObservation = runId?.let { id ->
+                        assistantOrchestrator.observeModelResult(id, partial.toString())
+                    }
+                } else {
+                    val remotePlan = (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
+                    if (remotePlan != null) {
+                        val assistantText = buildString {
+                            if (partial.isNotBlank()) {
+                                append(partial)
+                                append("\n\n")
+                            }
+                            append("已准备远程动作草稿：${remotePlan.draft.title}\n请确认后再执行。")
+                        }
+                        _uiState.updateLastAssistantLocalOnly(assistantText)
+                        persistActiveSessionFromUi()
+                        rebuildMemoryIndex()
+                    } else {
+                        _uiState.updateLastAssistantLocalOnly(
+                            "无法准备这个动作：${(modelObservation?.decision as? AgentObservationDecision.Fail)?.reason.orEmpty()}",
+                        )
+                    }
                 }
                 persistActiveSessionFromUi()
                 rebuildMemoryIndex()
-                val modelObservation = runId?.let { id ->
-                    assistantOrchestrator.observeModelResult(id, partial.toString())
-                }
                 val nextToolPlan = (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
                 if (nextToolPlan != null) {
+                    val observedForPending = modelObservation ?: error("远程工具调用缺少 Agent observation")
                     _uiState.update {
                         it.copy(
                             pendingConfirmation = PendingAgentConfirmation(
-                                runId = modelObservation.run.id,
+                                runId = observedForPending.run.id,
                                 draft = nextToolPlan.draft,
                                 toolRequest = nextToolPlan.request,
                                 skillId = nextToolPlan.skillRequest?.skillId,
@@ -2469,6 +2583,21 @@ class PocketMindViewModel(
                 updatedMessages[index] = updatedMessages[index].copy(
                     text = text,
                     generationStats = null,
+                )
+            }
+            state.copy(messages = updatedMessages)
+        }
+    }
+
+    private fun MutableStateFlow<ChatUiState>.updateLastAssistantLocalOnly(text: String) {
+        update { state ->
+            val updatedMessages = state.messages.toMutableList()
+            val index = updatedMessages.indexOfLast { it.role == MessageRole.Assistant }
+            if (index >= 0) {
+                updatedMessages[index] = updatedMessages[index].copy(
+                    text = text,
+                    generationStats = null,
+                    privacy = MessagePrivacy.LocalOnly,
                 )
             }
             state.copy(messages = updatedMessages)
