@@ -476,6 +476,10 @@ Current status:
 - Chat history now carries `MessagePrivacy`; messages marked `LocalOnly` are
   persisted for the local conversation but are filtered from remote history, and
   a `LocalOnly` current prompt is rejected before any remote request is made.
+- Local action draft turns are persisted as `LocalOnly` user/assistant messages,
+  even when the app is in remote mode. The confirmation flow executes Android
+  tools locally and does not make that action text part of later remote-model
+  history.
 - Unknown stored `MessagePrivacy` enum values restore as `LocalOnly` rather
   than `RemoteEligible`, so future-version or corrupted history fails closed at
   the remote-history boundary.
@@ -837,20 +841,25 @@ Current status:
   Missing, cancelled, deleted, or failed tasks are ignored without changing
   state or posting stale notifications.
 - Reminder cancellation and deletion now use a conditional Scheduled-only
-  database update so a stale cancellation path cannot overwrite a task that has
-  already moved to `Running`, `Delivered`, `Failed`, or another terminal state.
+  database update before cancelling the platform alarm/work. This closes the
+  in-flight broadcast window because delivery still gates on the database row
+  being `Scheduled`; a stale cancellation path also cannot overwrite a task that
+  has already moved to `Running`, `Delivered`, `Failed`, or another terminal
+  state.
 - Reminder delivery completion and reschedule failures also use conditional
   state updates, so old delivery/rescheduler snapshots cannot overwrite a
   concurrently written terminal state.
 - `ReminderBootReceiver` listens for `BOOT_COMPLETED` and asks
   `ReminderRescheduler` to restore every still-`Scheduled` reminder after the
-  system clears alarms on reboot. Past-due reminders are rescheduled with a
-  short catch-up delay instead of being silently dropped; after the catch-up
-  alarm is accepted, the stored `triggerAtMillis` is conditionally moved to the
-  same catch-up time while the row is still `Reminder` + `Scheduled`. After
-  registering the new data-URI alarm identity, the rescheduler performs a
-  best-effort cleanup of the legacy hash-only identity to prevent duplicate
-  wakeups after upgrade.
+  system clears alarms on reboot. The rescheduler first recovers stale
+  `Running` reminder rows whose lease has expired, then pages through scheduled
+  reminders by stable `(triggerAtMillis, id)` order instead of stopping at the
+  first batch. Past-due reminders are rescheduled with a short catch-up delay
+  instead of being silently dropped; after the catch-up alarm is accepted, the
+  stored `triggerAtMillis` is conditionally moved to the same catch-up time
+  while the row is still `Reminder` + `Scheduled`. After registering the new
+  data-URI alarm identity, the rescheduler performs a best-effort cleanup of the
+  legacy hash-only identity to prevent duplicate wakeups after upgrade.
 - If an alarm cannot be scheduled or restored while the row is still
   `Scheduled`, the task is marked `Failed` so repository state does not claim a
   reminder is still pending when Android has no alarm registered.
@@ -861,6 +870,8 @@ Current status:
   to `Scheduled` after a successful scan. Runner or Worker exceptions mark the
   periodic task `Failed` so local state no longer claims a healthy scheduled
   check.
+- A stale `Running` periodic check is reclaimed before a new worker run tries to
+  acquire it, using the same bounded lease as reminder delivery recovery.
 - Periodic check worker state updates are conditional transitions:
   `Scheduled -> Running` and `Running -> Scheduled/Failed`. If the user disables
   the policy while a worker is notifying, the final `Cancelled` state is kept

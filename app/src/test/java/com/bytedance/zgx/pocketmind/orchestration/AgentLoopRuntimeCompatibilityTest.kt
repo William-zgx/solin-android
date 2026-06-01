@@ -65,8 +65,8 @@ class AgentLoopRuntimeCompatibilityTest {
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, route.toolRequest?.toolName)
         assertTrue(route.draft.requiresConfirmation)
         assertTrue(!route.plannedByModel)
-        assertEquals("test fallback", route.fallbackReason)
-        assertEquals(1, actionRuntime.planCallCount)
+        assertEquals("skill-first", route.fallbackReason)
+        assertEquals(0, actionRuntime.planCallCount)
     }
 
     private class RecordingActionRuntime(

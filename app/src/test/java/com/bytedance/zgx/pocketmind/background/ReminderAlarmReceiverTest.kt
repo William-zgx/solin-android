@@ -183,6 +183,72 @@ class ReminderAlarmReceiverTest {
     }
 
     @Test
+    fun staleRunningReminderIsRecoveredAndDelivered() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000_000L })
+        dao.upsert(
+            entity(
+                id = "stale-running",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Running,
+                triggerAtMillis = 2_000L,
+                updatedAtMillis = 1_000L,
+            ),
+        )
+        val deliveredTaskIds = mutableListOf<String>()
+        val handler = ReminderAlarmDeliveryHandler(
+            repository = repository,
+            postReminder = { taskId, _, _ ->
+                deliveredTaskIds += taskId
+                true
+            },
+        )
+
+        handler.deliver("stale-running")
+
+        assertEquals(listOf("stale-running"), deliveredTaskIds)
+        assertEquals(ScheduledTaskStatus.Delivered, repository.task("stale-running")?.status)
+        assertEquals(
+            listOf(
+                ScheduledTaskStatus.Running,
+                ScheduledTaskStatus.Scheduled,
+                ScheduledTaskStatus.Running,
+                ScheduledTaskStatus.Delivered,
+            ),
+            dao.statusHistory("stale-running"),
+        )
+    }
+
+    @Test
+    fun freshRunningReminderIsNotDeliveredTwice() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000_000L })
+        dao.upsert(
+            entity(
+                id = "fresh-running",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Running,
+                triggerAtMillis = 2_000L,
+                updatedAtMillis = 999_000L,
+            ),
+        )
+        val deliveredTaskIds = mutableListOf<String>()
+        val handler = ReminderAlarmDeliveryHandler(
+            repository = repository,
+            postReminder = { taskId, _, _ ->
+                deliveredTaskIds += taskId
+                true
+            },
+        )
+
+        handler.deliver("fresh-running")
+
+        assertEquals(emptyList<String>(), deliveredTaskIds)
+        assertEquals(ScheduledTaskStatus.Running, repository.task("fresh-running")?.status)
+        assertEquals(listOf(ScheduledTaskStatus.Running), dao.statusHistory("fresh-running"))
+    }
+
+    @Test
     fun deliveryUsesStoredTaskPayloadInsteadOfAlarmExtras() {
         val dao = FakeScheduledTaskDao()
         val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000L })
@@ -231,7 +297,23 @@ class ReminderAlarmReceiverTest {
         override fun scheduledByType(type: String, limit: Int): List<ScheduledTaskEntity> =
             tasks.values
                 .filter { it.status == ScheduledTaskStatus.Scheduled.name && it.type == type }
-                .sortedBy { it.triggerAtMillis }
+                .sortedWith(compareBy<ScheduledTaskEntity> { it.triggerAtMillis }.thenBy { it.id })
+                .take(limit)
+
+        override fun scheduledByTypeAfter(
+            type: String,
+            afterTriggerAtMillis: Long?,
+            afterId: String?,
+            limit: Int,
+        ): List<ScheduledTaskEntity> =
+            tasks.values
+                .filter { it.status == ScheduledTaskStatus.Scheduled.name && it.type == type }
+                .filter {
+                    afterTriggerAtMillis == null ||
+                        it.triggerAtMillis > afterTriggerAtMillis ||
+                        (it.triggerAtMillis == afterTriggerAtMillis && it.id > afterId.orEmpty())
+                }
+                .sortedWith(compareBy<ScheduledTaskEntity> { it.triggerAtMillis }.thenBy { it.id })
                 .take(limit)
 
         override fun recent(limit: Int): List<ScheduledTaskEntity> =
@@ -335,6 +417,50 @@ class ReminderAlarmReceiverTest {
             return 1
         }
 
+        override fun markStaleRunningTaskScheduled(
+            taskId: String,
+            type: String,
+            staleUpdatedAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != type ||
+                existing.status != ScheduledTaskStatus.Running.name ||
+                existing.updatedAtMillis > staleUpdatedAtMillis
+            ) {
+                return 0
+            }
+            upsert(
+                existing.copy(
+                    status = ScheduledTaskStatus.Scheduled.name,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
+        override fun markStaleRunningTasksScheduledByType(
+            type: String,
+            staleUpdatedAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int {
+            val staleTasks = tasks.values
+                .filter {
+                    it.type == type &&
+                        it.status == ScheduledTaskStatus.Running.name &&
+                        it.updatedAtMillis <= staleUpdatedAtMillis
+                }
+            staleTasks.forEach { existing ->
+                upsert(
+                    existing.copy(
+                        status = ScheduledTaskStatus.Scheduled.name,
+                        updatedAtMillis = updatedAtMillis,
+                    ),
+                )
+            }
+            return staleTasks.size
+        }
+
         override fun updateScheduledStatusIfScheduled(
             taskId: String,
             status: String,
@@ -380,4 +506,22 @@ class ReminderAlarmReceiverTest {
         fun statusHistory(taskId: String): List<ScheduledTaskStatus> =
             upsertedStatuses[taskId].orEmpty()
     }
+
+    private fun entity(
+        id: String,
+        type: ScheduledTaskType,
+        status: ScheduledTaskStatus,
+        triggerAtMillis: Long,
+        updatedAtMillis: Long,
+    ): ScheduledTaskEntity =
+        ScheduledTaskEntity(
+            id = id,
+            type = type.name,
+            title = id,
+            body = "",
+            triggerAtMillis = triggerAtMillis,
+            status = status.name,
+            createdAtMillis = 1_000L,
+            updatedAtMillis = updatedAtMillis,
+        )
 }

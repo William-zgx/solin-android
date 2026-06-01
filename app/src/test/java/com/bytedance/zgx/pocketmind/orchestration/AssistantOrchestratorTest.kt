@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlan
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
@@ -68,9 +69,9 @@ class AssistantOrchestratorTest {
 
     @Test
     fun defaultSequentialReplannerPlansExplicitNextActionAfterObservation() {
-        val orchestrator = AssistantOrchestrator(MemoryRepository(), RuleActionRuntime())
+        val orchestrator = AssistantOrchestrator(MemoryRepository(), SearchThenWifiActionRuntime())
         val route = orchestrator.route(
-            input = "先搜索 Kotlin，然后打开 Wi-Fi 设置",
+            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -170,6 +171,38 @@ class AssistantOrchestratorTest {
             val plan: ActionPlan = planner.plan(input)
             return ActionPlanningResult(
                 plan = plan,
+                usedModel = false,
+                fallbackReason = "test fallback",
+            )
+        }
+    }
+
+    private class SearchThenWifiActionRuntime : ActionPlanningRuntime {
+        private var planCallCount = 0
+
+        override fun isLikelyAction(input: String): Boolean = true
+
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
+            planCallCount += 1
+            val draft = if (planCallCount == 1) {
+                ActionDraft(
+                    functionName = MobileActionFunctions.WEB_SEARCH,
+                    title = "Web 搜索",
+                    summary = "将在浏览器中搜索：Kotlin",
+                    parameters = mapOf("query" to "Kotlin"),
+                    requiresConfirmation = true,
+                )
+            } else {
+                ActionDraft(
+                    functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    title = "打开 Wi-Fi 设置",
+                    summary = "将打开系统 Wi-Fi 设置页。",
+                    parameters = emptyMap(),
+                    requiresConfirmation = true,
+                )
+            }
+            return ActionPlanningResult(
+                plan = ActionPlan(kind = ActionPlanKind.Draft, draft = draft),
                 usedModel = false,
                 fallbackReason = "test fallback",
             )

@@ -9,7 +9,8 @@ class ReminderRescheduler(
 ) {
     fun reschedulePendingReminders(limit: Int = DEFAULT_LIMIT): ReminderRescheduleReport {
         val now = clockMillis()
-        val tasks = repository.scheduledReminders(limit)
+        repository.recoverStaleRunningReminders()
+        val tasks = repository.allScheduledReminders(pageSize = limit)
         var scheduled = 0
         var failed = 0
 

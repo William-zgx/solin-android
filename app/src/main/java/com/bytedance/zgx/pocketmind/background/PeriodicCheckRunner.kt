@@ -27,6 +27,7 @@ class PeriodicCheckRunner(
             return PeriodicCheckRunOutcome.Skipped(PeriodicCheckSkipReason.Disabled)
         }
 
+        repository.recoverStaleRunningPeriodicCheck()
         val state = repository.periodicCheck()
         if (state?.status != ScheduledTaskStatus.Scheduled) {
             return PeriodicCheckRunOutcome.Skipped(PeriodicCheckSkipReason.NotEnabledInStore)

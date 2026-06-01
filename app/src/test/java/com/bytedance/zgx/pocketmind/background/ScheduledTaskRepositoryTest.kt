@@ -13,7 +13,7 @@ class ScheduledTaskRepositoryTest {
     @Test
     fun createReminderPersistsScheduledTaskAndStatusTransitions() {
         val dao = FakeScheduledTaskDao()
-        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000L })
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000_000L })
 
         val task = repository.createReminder(
             title = "喝水",
@@ -258,6 +258,36 @@ class ScheduledTaskRepositoryTest {
     }
 
     @Test
+    fun startReminderDeliveryRecoversStaleRunningReminder() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000_000L })
+        dao.upsert(
+            entity(
+                id = "stale-running",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Running,
+                updatedAtMillis = 1_000L,
+            ),
+        )
+        dao.upsert(
+            entity(
+                id = "fresh-running",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Running,
+                updatedAtMillis = 999_000L,
+            ),
+        )
+
+        val recovered = repository.startReminderDelivery("stale-running")
+
+        assertEquals("stale-running", recovered?.id)
+        assertEquals(ScheduledTaskStatus.Running, recovered?.status)
+        assertEquals(1_000_000L, repository.task("stale-running")?.updatedAtMillis)
+        assertEquals(null, repository.startReminderDelivery("fresh-running"))
+        assertEquals(ScheduledTaskStatus.Running, repository.task("fresh-running")?.status)
+    }
+
+    @Test
     fun scheduledOrRunningReturnsScheduledTasksAndKnownRunningPeriodicCheck() {
         val dao = FakeScheduledTaskDao()
         val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000L })
@@ -444,6 +474,57 @@ class ScheduledTaskRepositoryTest {
         assertEquals(ScheduledTaskStatus.Cancelled, repository.task(task.id)?.status)
     }
 
+    @Test
+    fun reschedulerPagesPastLimitAndRecoversStaleRunningReminders() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000_000L })
+        listOf(
+            entity(
+                id = "scheduled-1",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Scheduled,
+                triggerAtMillis = 1_000L,
+            ),
+            entity(
+                id = "scheduled-2",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Scheduled,
+                triggerAtMillis = 2_000L,
+            ),
+            entity(
+                id = "scheduled-3",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Scheduled,
+                triggerAtMillis = 3_000L,
+            ),
+            entity(
+                id = "stale-running",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Running,
+                triggerAtMillis = 4_000L,
+                updatedAtMillis = 1_000L,
+            ),
+        ).forEach(dao::upsert)
+        val scheduledTaskIds = mutableListOf<String>()
+        val rescheduler = ReminderRescheduler(
+            repository = repository,
+            scheduleAlarm = { task, _ ->
+                scheduledTaskIds += task.id
+                Result.success(Unit)
+            },
+            clockMillis = { 1_000_000L },
+        )
+
+        val report = rescheduler.reschedulePendingReminders(limit = 2)
+
+        assertEquals(ReminderRescheduleReport(total = 4, scheduled = 4, failed = 0), report)
+        assertEquals(
+            listOf("scheduled-1", "scheduled-2", "scheduled-3", "stale-running"),
+            scheduledTaskIds,
+        )
+        assertEquals(ScheduledTaskStatus.Scheduled, repository.task("stale-running")?.status)
+    }
+
     private class FakeScheduledTaskDao : ScheduledTaskDao {
         private val tasks = linkedMapOf<String, ScheduledTaskEntity>()
         var beforeUpdateScheduledStatusIfScheduled: (() -> Unit)? = null
@@ -469,7 +550,23 @@ class ScheduledTaskRepositoryTest {
         override fun scheduledByType(type: String, limit: Int): List<ScheduledTaskEntity> =
             tasks.values
                 .filter { it.status == ScheduledTaskStatus.Scheduled.name && it.type == type }
-                .sortedBy { it.triggerAtMillis }
+                .sortedWith(compareBy<ScheduledTaskEntity> { it.triggerAtMillis }.thenBy { it.id })
+                .take(limit)
+
+        override fun scheduledByTypeAfter(
+            type: String,
+            afterTriggerAtMillis: Long?,
+            afterId: String?,
+            limit: Int,
+        ): List<ScheduledTaskEntity> =
+            tasks.values
+                .filter { it.status == ScheduledTaskStatus.Scheduled.name && it.type == type }
+                .filter {
+                    afterTriggerAtMillis == null ||
+                        it.triggerAtMillis > afterTriggerAtMillis ||
+                        (it.triggerAtMillis == afterTriggerAtMillis && it.id > afterId.orEmpty())
+                }
+                .sortedWith(compareBy<ScheduledTaskEntity> { it.triggerAtMillis }.thenBy { it.id })
                 .take(limit)
 
         override fun recent(limit: Int): List<ScheduledTaskEntity> =
@@ -561,6 +658,46 @@ class ScheduledTaskRepositoryTest {
                 updatedAtMillis = updatedAtMillis,
             )
             return 1
+        }
+
+        override fun markStaleRunningTaskScheduled(
+            taskId: String,
+            type: String,
+            staleUpdatedAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != type ||
+                existing.status != ScheduledTaskStatus.Running.name ||
+                existing.updatedAtMillis > staleUpdatedAtMillis
+            ) {
+                return 0
+            }
+            tasks[taskId] = existing.copy(
+                status = ScheduledTaskStatus.Scheduled.name,
+                updatedAtMillis = updatedAtMillis,
+            )
+            return 1
+        }
+
+        override fun markStaleRunningTasksScheduledByType(
+            type: String,
+            staleUpdatedAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int {
+            val staleTasks = tasks.values
+                .filter {
+                    it.type == type &&
+                        it.status == ScheduledTaskStatus.Running.name &&
+                        it.updatedAtMillis <= staleUpdatedAtMillis
+                }
+            staleTasks.forEach { existing ->
+                tasks[existing.id] = existing.copy(
+                    status = ScheduledTaskStatus.Scheduled.name,
+                    updatedAtMillis = updatedAtMillis,
+                )
+            }
+            return staleTasks.size
         }
 
         override fun updateScheduledStatusIfScheduled(

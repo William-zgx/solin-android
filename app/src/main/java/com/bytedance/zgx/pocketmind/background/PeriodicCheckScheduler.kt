@@ -31,8 +31,9 @@ class PeriodicCheckScheduler(
         runCatching {
             val normalized = request.normalized()
             if (!normalized.enabled) {
+                val task = repository.disablePeriodicCheck()
                 cancelPeriodicWork().getOrThrow()
-                return@runCatching repository.disablePeriodicCheck()
+                return@runCatching task
             }
 
             val task = repository.createOrUpdatePeriodicCheck(normalized)
@@ -46,8 +47,8 @@ class PeriodicCheckScheduler(
 
     fun disablePeriodicCheck(): Result<Unit> =
         runCatching {
-            cancelPeriodicWork().getOrThrow()
             repository.disablePeriodicCheck()
+            cancelPeriodicWork().getOrThrow()
         }
 
     fun cancelPeriodicWork(): Result<Unit> =

@@ -418,8 +418,8 @@ class PocketMindViewModelTest {
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals(
             listOf(
-                MessagePrivacy.RemoteEligible,
-                MessagePrivacy.RemoteEligible,
+                MessagePrivacy.LocalOnly,
+                MessagePrivacy.LocalOnly,
                 MessagePrivacy.LocalOnly,
                 MessagePrivacy.LocalOnly,
             ),
@@ -1016,6 +1016,170 @@ class PocketMindViewModelTest {
         assertEquals(1, executor.executedRequests.size)
         assertEquals(request.id, executor.executedRequests.single().id)
         assertEquals(1, assistantRouter.confirmCallCount)
+    }
+
+    @Test
+    fun confirmAgentConfirmationWhenConfirmToolRequestThrowsClearsBusyAndKeepsPending() = runTest(dispatcher) {
+        val request = ToolRequest(toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS)
+        val executor = RecordingToolExecutor()
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-throws",
+                toolRequest = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    title = "打开 Wi-Fi 设置",
+                    summary = "将打开系统 Wi-Fi 设置页。",
+                    parameters = emptyMap(),
+                ),
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+            ),
+            confirmFailure = IllegalStateException("trace store unavailable"),
+        )
+        val viewModel = createViewModel(
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("打开 Wi-Fi 设置")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+
+        viewModel.confirmAgentConfirmation(confirmation)
+        advanceUntilIdle()
+
+        assertEquals(confirmation, viewModel.uiState.value.pendingConfirmation)
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertFalse(viewModel.uiState.value.isGenerating)
+        assertTrue(executor.executedRequests.isEmpty())
+        assertEquals(1, assistantRouter.confirmCallCount)
+        assertEquals("工具确认失败，未执行动作。", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun dismissAgentConfirmationWithNullPendingDoesNotReportCancellation() = runTest(dispatcher) {
+        val assistantRouter = FakeAssistantRouter()
+        val viewModel = createViewModel(assistantRouter = assistantRouter)
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        val previousStatus = viewModel.uiState.value.statusText
+
+        viewModel.dismissAgentConfirmation(null)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals(0, assistantRouter.cancelCallCount)
+        assertEquals("工具确认已处理", viewModel.uiState.value.statusText)
+        assertTrue(previousStatus != "已取消动作草稿")
+    }
+
+    @Test
+    fun staleDismissAgentConfirmationDoesNotClearCurrentPending() = runTest(dispatcher) {
+        val request = ToolRequest(
+            id = "request-current",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "current summary"),
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-current",
+                toolRequest = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.SHARE_TEXT,
+                    title = "分享摘要",
+                    summary = "将分享当前摘要。",
+                    parameters = request.arguments,
+                ),
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
+            ),
+        )
+        val viewModel = createViewModel(
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("分享摘要")
+        advanceUntilIdle()
+        val current = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(current)
+        val stale = current.copy(
+            toolRequest = current.toolRequest?.copy(arguments = mapOf("text" to "stale summary")),
+            draft = current.draft.copy(parameters = mapOf("text" to "stale summary")),
+        )
+
+        viewModel.dismissAgentConfirmation(stale)
+        advanceUntilIdle()
+
+        assertEquals(current, viewModel.uiState.value.pendingConfirmation)
+        assertEquals(0, assistantRouter.cancelCallCount)
+        assertEquals("工具确认已处理", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun remoteModeLocalActionDraftMessagesAreLocalOnlyAndExcludedFromLaterRemoteHistory() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore()
+        val remoteStore = FakeRemoteModelStore(
+            mode = InferenceMode.Remote,
+            config = configuredRemoteModel(),
+        )
+        val actionRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-local-action",
+                toolRequest = ToolRequest(toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS),
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    title = "打开 Wi-Fi 设置",
+                    summary = "将打开系统 Wi-Fi 设置页。",
+                    parameters = emptyMap(),
+                ),
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+            ),
+        )
+        val actionViewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteStore = remoteStore,
+            assistantRouter = actionRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        actionViewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        actionViewModel.sendMessage("打开 Wi-Fi 设置")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
+            sessionStore.messages.map { it.privacy },
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val chatViewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = remoteStore,
+            assistantRouter = FakeAssistantRouter(),
+        )
+        chatViewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        chatViewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val call = remoteRuntime.calls.single()
+        assertTrue(call.history.isEmpty())
+        assertFalse(call.history.toString().contains("打开 Wi-Fi 设置"))
+        assertFalse(call.history.toString().contains("动作草稿"))
     }
 
     @Test
@@ -2613,6 +2777,7 @@ class PocketMindViewModelTest {
         private val routeResult: AssistantRoute? = null,
         private val routeFailure: Throwable? = null,
         private val confirmedRun: AgentRun? = null,
+        private val confirmFailure: Throwable? = null,
         private val confirmedRunsById: Map<String, AgentRun> = emptyMap(),
         private val cancelObservation: AgentObservationResult? = null,
         private val toolObservation: AgentObservationResult? = null,
@@ -2627,6 +2792,8 @@ class PocketMindViewModelTest {
         var requestRecoveryCallCount: Int = 0
             private set
         var confirmCallCount: Int = 0
+            private set
+        var cancelCallCount: Int = 0
             private set
         var observeToolCallCount: Int = 0
             private set
@@ -2674,10 +2841,14 @@ class PocketMindViewModelTest {
 
         override fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
             confirmCallCount += 1
+            confirmFailure?.let { throw it }
             return confirmedRunsById[runId] ?: confirmedRun
         }
 
-        override fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult? = cancelObservation
+        override fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult? {
+            cancelCallCount += 1
+            return cancelObservation
+        }
 
         override fun failPendingToolRequest(
             runId: String,

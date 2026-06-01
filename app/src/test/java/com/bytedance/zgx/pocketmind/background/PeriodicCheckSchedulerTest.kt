@@ -237,6 +237,46 @@ class PeriodicCheckSchedulerTest {
         assertEquals(emptyList<PeriodicCheckNotification>(), notifier.notifications)
     }
 
+    @Test
+    fun runnerRecoversStaleRunningPeriodicCheck() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000_000L })
+        dao.upsert(
+            entity(
+                id = PeriodicCheckScheduleRequest.TASK_ID,
+                type = ScheduledTaskType.PeriodicCheck,
+                status = ScheduledTaskStatus.Running,
+                triggerAtMillis = 10_000L,
+                updatedAtMillis = 1_000L,
+            ),
+        )
+        val notifier = FakeLocalPeriodicCheckNotifier()
+        val runner = PeriodicCheckRunner(
+            repository = repository,
+            notifier = notifier,
+            clockMillis = { 1_000_000L },
+        )
+
+        val outcome = runner.runOnce(PeriodicCheckScheduleRequest())
+
+        assertEquals(
+            PeriodicCheckRunOutcome.NoLocalReminderNeeded(
+                1_000_000L + PeriodicCheckScheduleRequest.DEFAULT_MIN_NOTIFICATION_SPACING_MINUTES * 60_000L,
+            ),
+            outcome,
+        )
+        assertEquals(ScheduledTaskStatus.Scheduled, repository.periodicCheck()?.status)
+        assertEquals(
+            listOf(
+                ScheduledTaskStatus.Running,
+                ScheduledTaskStatus.Scheduled,
+                ScheduledTaskStatus.Running,
+                ScheduledTaskStatus.Scheduled,
+            ),
+            dao.statusHistory(PeriodicCheckScheduleRequest.TASK_ID),
+        )
+    }
+
     private class FakePeriodicCheckWorkClient(
         private val enqueueResult: Result<Unit> = Result.success(Unit),
         private val cancelResult: Result<Unit> = Result.success(Unit),
@@ -294,7 +334,23 @@ class PeriodicCheckSchedulerTest {
         override fun scheduledByType(type: String, limit: Int): List<ScheduledTaskEntity> =
             tasks.values
                 .filter { it.status == ScheduledTaskStatus.Scheduled.name && it.type == type }
-                .sortedBy { it.triggerAtMillis }
+                .sortedWith(compareBy<ScheduledTaskEntity> { it.triggerAtMillis }.thenBy { it.id })
+                .take(limit)
+
+        override fun scheduledByTypeAfter(
+            type: String,
+            afterTriggerAtMillis: Long?,
+            afterId: String?,
+            limit: Int,
+        ): List<ScheduledTaskEntity> =
+            tasks.values
+                .filter { it.status == ScheduledTaskStatus.Scheduled.name && it.type == type }
+                .filter {
+                    afterTriggerAtMillis == null ||
+                        it.triggerAtMillis > afterTriggerAtMillis ||
+                        (it.triggerAtMillis == afterTriggerAtMillis && it.id > afterId.orEmpty())
+                }
+                .sortedWith(compareBy<ScheduledTaskEntity> { it.triggerAtMillis }.thenBy { it.id })
                 .take(limit)
 
         override fun recent(limit: Int): List<ScheduledTaskEntity> =
@@ -398,6 +454,50 @@ class PeriodicCheckSchedulerTest {
             return 1
         }
 
+        override fun markStaleRunningTaskScheduled(
+            taskId: String,
+            type: String,
+            staleUpdatedAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != type ||
+                existing.status != ScheduledTaskStatus.Running.name ||
+                existing.updatedAtMillis > staleUpdatedAtMillis
+            ) {
+                return 0
+            }
+            upsert(
+                existing.copy(
+                    status = ScheduledTaskStatus.Scheduled.name,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
+        override fun markStaleRunningTasksScheduledByType(
+            type: String,
+            staleUpdatedAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int {
+            val staleTasks = tasks.values
+                .filter {
+                    it.type == type &&
+                        it.status == ScheduledTaskStatus.Running.name &&
+                        it.updatedAtMillis <= staleUpdatedAtMillis
+                }
+            staleTasks.forEach { existing ->
+                upsert(
+                    existing.copy(
+                        status = ScheduledTaskStatus.Scheduled.name,
+                        updatedAtMillis = updatedAtMillis,
+                    ),
+                )
+            }
+            return staleTasks.size
+        }
+
         override fun updateScheduledStatusIfScheduled(
             taskId: String,
             status: String,
@@ -449,6 +549,7 @@ class PeriodicCheckSchedulerTest {
         type: ScheduledTaskType,
         status: ScheduledTaskStatus,
         triggerAtMillis: Long,
+        updatedAtMillis: Long = 1_000L,
     ): ScheduledTaskEntity =
         ScheduledTaskEntity(
             id = id,
@@ -458,6 +559,6 @@ class PeriodicCheckSchedulerTest {
             triggerAtMillis = triggerAtMillis,
             status = status.name,
             createdAtMillis = 1_000L,
-            updatedAtMillis = 1_000L,
+            updatedAtMillis = updatedAtMillis,
         )
 }

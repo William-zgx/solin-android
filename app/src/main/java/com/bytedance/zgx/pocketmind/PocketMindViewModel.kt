@@ -850,6 +850,7 @@ class PocketMindViewModel(
                 )
                 when (route) {
                     is AssistantRoute.Action -> {
+                        val localUserMessage = userMessage.copy(privacy = MessagePrivacy.LocalOnly)
                         val planningLabel = if (route.plannedByModel) {
                             "动作模型实验"
                         } else {
@@ -857,14 +858,14 @@ class PocketMindViewModel(
                         }
                         val assistantMessage = ChatMessage(
                             role = MessageRole.Assistant,
-                            text = "已准备动作草稿（$planningLabel）：${route.draft.summary}\n请确认后再执行。",
-                            privacy = messagePrivacy,
+                            text = "已准备本地动作草稿（$planningLabel）：${route.draft.summary}\n请确认后再执行。",
+                            privacy = MessagePrivacy.LocalOnly,
                         )
                         replaceActiveSessionMessages(
-                            stateBeforeSend.messages + userMessage + assistantMessage,
+                            stateBeforeSend.messages + localUserMessage + assistantMessage,
                             persistNow = true,
                         )
-                        persistExplicitPreferenceMemory(userMessage)
+                        persistExplicitPreferenceMemory(localUserMessage)
                         _uiState.update {
                             it.copy(
                                 isBusy = false,
@@ -1192,21 +1193,27 @@ class PocketMindViewModel(
             }
             return
         }
-        _uiState.update {
-            it.copy(
-                pendingConfirmation = null,
-                isBusy = true,
-                isGenerating = false,
-                statusText = "工具执行中",
-            )
-        }
         val request = confirmation.toolRequest ?: ToolRequest(
             toolName = confirmation.draft.functionName,
             arguments = confirmation.draft.parameters,
             reason = confirmation.draft.summary,
         )
-        val confirmedRun = confirmation.runId?.let { runId ->
-            assistantOrchestrator.confirmToolRequest(runId, request.id)
+        val confirmedRun = try {
+            confirmation.runId?.let { runId ->
+                assistantOrchestrator.confirmToolRequest(runId, request.id)
+            }
+        } catch (_: Exception) {
+            _uiState.update {
+                it.copy(
+                    pendingConfirmation = pendingConfirmation,
+                    isBusy = false,
+                    isGenerating = false,
+                    auditEvents = loadAuditEvents(),
+                    agentTraceRuns = loadAgentTraceRuns(),
+                    statusText = "工具确认失败，未执行动作。",
+                )
+            }
+            return
         }
         if (confirmation.runId != null && confirmedRun?.state != AgentRunState.ExecutingTool) {
             replaceActiveSessionMessages(
@@ -1227,6 +1234,14 @@ class PocketMindViewModel(
                 )
             }
             return
+        }
+        _uiState.update {
+            it.copy(
+                pendingConfirmation = null,
+                isBusy = true,
+                isGenerating = false,
+                statusText = "工具执行中",
+            )
         }
         var result = actionExecutor.execute(request)
         var observation = confirmation.runId?.let { runId ->
@@ -1556,16 +1571,26 @@ class PocketMindViewModel(
         }
     }
 
-    fun dismissAgentConfirmation() {
-        val confirmation = _uiState.value.pendingConfirmation
-        val request = confirmation?.toolRequest ?: confirmation?.let {
-            ToolRequest(
-                toolName = it.draft.functionName,
-                arguments = it.draft.parameters,
-                reason = it.draft.summary,
-            )
+    fun dismissAgentConfirmation(confirmation: PendingAgentConfirmation? = _uiState.value.pendingConfirmation) {
+        val pendingConfirmation = _uiState.value.pendingConfirmation
+        if (confirmation == null || pendingConfirmation == null) {
+            _uiState.update {
+                it.copy(statusText = "工具确认已处理")
+            }
+            return
         }
-        val observation = if (confirmation?.runId != null && request != null) {
+        if (!pendingConfirmation.matchesExecution(confirmation)) {
+            _uiState.update {
+                it.copy(statusText = "工具确认已处理")
+            }
+            return
+        }
+        val request = confirmation.toolRequest ?: ToolRequest(
+            toolName = confirmation.draft.functionName,
+            arguments = confirmation.draft.parameters,
+            reason = confirmation.draft.summary,
+        )
+        val observation = if (confirmation.runId != null) {
             assistantOrchestrator.cancelToolRequest(confirmation.runId, request.id)
         } else {
             null

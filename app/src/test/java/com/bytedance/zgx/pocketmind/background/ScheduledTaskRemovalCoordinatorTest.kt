@@ -97,7 +97,7 @@ class ScheduledTaskRemovalCoordinatorTest {
     }
 
     @Test
-    fun localStateRaceAfterPlatformCancellationFailsInsteadOfReportingSuccess() {
+    fun localStateIsRemovedBeforePlatformCancellation() {
         val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 1_000L })
         val reminder = repository.createReminder(
             title = "喝水",
@@ -105,11 +105,18 @@ class ScheduledTaskRemovalCoordinatorTest {
             triggerAtMillis = 10_000L,
         )
         val alarmCancellations = mutableListOf<String>()
+        val deliveredTaskIds = mutableListOf<String>()
         val coordinator = ScheduledTaskRemovalCoordinator(
             repository = repository,
             cancelReminderAlarm = { task ->
                 alarmCancellations += task.id
-                repository.markDelivered(task.id)
+                ReminderAlarmDeliveryHandler(
+                    repository = repository,
+                    postReminder = { taskId, _, _ ->
+                        deliveredTaskIds += taskId
+                        true
+                    },
+                ).deliver(task.id)
                 Result.success(Unit)
             },
             cancelPeriodicWork = { Result.success(Unit) },
@@ -117,15 +124,15 @@ class ScheduledTaskRemovalCoordinatorTest {
 
         val result = coordinator.cancelScheduled(reminder.id)
 
-        assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(result.isSuccess)
         assertEquals(listOf(reminder.id), alarmCancellations)
-        assertEquals(ScheduledTaskStatus.Delivered, repository.task(reminder.id)?.status)
+        assertEquals(emptyList<String>(), deliveredTaskIds)
+        assertEquals(ScheduledTaskStatus.Cancelled, repository.task(reminder.id)?.status)
         assertFalse(repository.scheduled().any { task -> task.id == reminder.id })
     }
 
     @Test
-    fun platformCancellationFailureLeavesTaskScheduled() {
+    fun platformCancellationFailureLeavesTaskLocallyRemoved() {
         val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 1_000L })
         repository.createOrUpdatePeriodicCheck(PeriodicCheckScheduleRequest())
         val coordinator = ScheduledTaskRemovalCoordinator(
@@ -137,7 +144,7 @@ class ScheduledTaskRemovalCoordinatorTest {
         val result = coordinator.cancelScheduled(PeriodicCheckScheduleRequest.TASK_ID)
 
         assertTrue(result.isFailure)
-        assertEquals(ScheduledTaskStatus.Scheduled, repository.periodicCheck()?.status)
+        assertEquals(ScheduledTaskStatus.Cancelled, repository.periodicCheck()?.status)
     }
 
     private class FakeScheduledTaskDao : ScheduledTaskDao {
@@ -164,7 +171,23 @@ class ScheduledTaskRemovalCoordinatorTest {
         override fun scheduledByType(type: String, limit: Int): List<ScheduledTaskEntity> =
             tasks.values
                 .filter { it.status == ScheduledTaskStatus.Scheduled.name && it.type == type }
-                .sortedBy { it.triggerAtMillis }
+                .sortedWith(compareBy<ScheduledTaskEntity> { it.triggerAtMillis }.thenBy { it.id })
+                .take(limit)
+
+        override fun scheduledByTypeAfter(
+            type: String,
+            afterTriggerAtMillis: Long?,
+            afterId: String?,
+            limit: Int,
+        ): List<ScheduledTaskEntity> =
+            tasks.values
+                .filter { it.status == ScheduledTaskStatus.Scheduled.name && it.type == type }
+                .filter {
+                    afterTriggerAtMillis == null ||
+                        it.triggerAtMillis > afterTriggerAtMillis ||
+                        (it.triggerAtMillis == afterTriggerAtMillis && it.id > afterId.orEmpty())
+                }
+                .sortedWith(compareBy<ScheduledTaskEntity> { it.triggerAtMillis }.thenBy { it.id })
                 .take(limit)
 
         override fun recent(limit: Int): List<ScheduledTaskEntity> =
@@ -256,6 +279,46 @@ class ScheduledTaskRemovalCoordinatorTest {
                 updatedAtMillis = updatedAtMillis,
             )
             return 1
+        }
+
+        override fun markStaleRunningTaskScheduled(
+            taskId: String,
+            type: String,
+            staleUpdatedAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != type ||
+                existing.status != ScheduledTaskStatus.Running.name ||
+                existing.updatedAtMillis > staleUpdatedAtMillis
+            ) {
+                return 0
+            }
+            tasks[taskId] = existing.copy(
+                status = ScheduledTaskStatus.Scheduled.name,
+                updatedAtMillis = updatedAtMillis,
+            )
+            return 1
+        }
+
+        override fun markStaleRunningTasksScheduledByType(
+            type: String,
+            staleUpdatedAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int {
+            val staleTasks = tasks.values
+                .filter {
+                    it.type == type &&
+                        it.status == ScheduledTaskStatus.Running.name &&
+                        it.updatedAtMillis <= staleUpdatedAtMillis
+                }
+            staleTasks.forEach { existing ->
+                tasks[existing.id] = existing.copy(
+                    status = ScheduledTaskStatus.Scheduled.name,
+                    updatedAtMillis = updatedAtMillis,
+                )
+            }
+            return staleTasks.size
         }
 
         override fun updateScheduledStatusIfScheduled(

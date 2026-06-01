@@ -172,7 +172,7 @@ fun PocketMindScreen(
     onDisablePeriodicCheckPolicy: () -> Unit,
     onOpenSpecialAccessSettings: (SpecialAccessRequirement) -> Unit,
     onConfirmAgentConfirmation: (PendingAgentConfirmation) -> Unit,
-    onDismissAgentConfirmation: () -> Unit,
+    onDismissAgentConfirmation: (PendingAgentConfirmation?) -> Unit,
     onOpenRecoveryAction: (AgentRecoveryAction) -> Unit,
     onSendMessage: (String) -> Unit,
     onStartVoiceInput: () -> Unit,
@@ -386,13 +386,13 @@ fun PocketMindScreen(
             state.pendingConfirmation?.let { confirmation ->
                 ModalBottomSheet(
                     sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                    onDismissRequest = onDismissAgentConfirmation,
+                    onDismissRequest = { onDismissAgentConfirmation(confirmation) },
                 ) {
                     ActionDraftSheet(
                         confirmation = confirmation,
                         onOpenSpecialAccessSettings = onOpenSpecialAccessSettings,
                         onConfirm = { onConfirmAgentConfirmation(confirmation) },
-                        onDismiss = onDismissAgentConfirmation,
+                        onDismiss = { onDismissAgentConfirmation(confirmation) },
                     )
                 }
             }

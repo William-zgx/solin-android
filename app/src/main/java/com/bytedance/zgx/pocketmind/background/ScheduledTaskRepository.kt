@@ -56,6 +56,28 @@ class ScheduledTaskRepository(
     fun scheduledReminders(limit: Int = 100): List<ScheduledTask> =
         dao.scheduledByType(ScheduledTaskType.Reminder.name, limit).map { it.toModel() }
 
+    fun allScheduledReminders(pageSize: Int = 100): List<ScheduledTask> {
+        if (pageSize <= 0) return emptyList()
+        val tasks = mutableListOf<ScheduledTask>()
+        var afterTriggerAtMillis: Long? = null
+        var afterId: String? = null
+        while (true) {
+            val page = dao.scheduledByTypeAfter(
+                type = ScheduledTaskType.Reminder.name,
+                afterTriggerAtMillis = afterTriggerAtMillis,
+                afterId = afterId,
+                limit = pageSize,
+            ).map { it.toModel() }
+            if (page.isEmpty()) break
+            tasks += page
+            if (page.size < pageSize) break
+            val last = page.last()
+            afterTriggerAtMillis = last.triggerAtMillis
+            afterId = last.id
+        }
+        return tasks
+    }
+
     fun recent(limit: Int = 20): List<ScheduledTask> =
         if (limit <= 0) {
             emptyList()
@@ -116,6 +138,12 @@ class ScheduledTaskRepository(
             updatedAtMillis = clockMillis(),
         ) > 0
 
+    fun recoverStaleRunningPeriodicCheck(): Boolean =
+        recoverStaleRunningTask(
+            taskId = PeriodicCheckScheduleRequest.TASK_ID,
+            type = ScheduledTaskType.PeriodicCheck,
+        )
+
     fun finishPeriodicCheckRunIfRunning(
         nextAllowedRunAtMillis: Long,
         summary: String,
@@ -174,6 +202,7 @@ class ScheduledTaskRepository(
         updateReminderStatusIfRunning(taskId, ScheduledTaskStatus.Delivered)
 
     fun startReminderDelivery(taskId: String): ScheduledTask? {
+        recoverStaleRunningReminder(taskId)
         val existing = dao.task(taskId) ?: return null
         if (existing.type != ScheduledTaskType.Reminder.name) return null
         if (existing.status != ScheduledTaskStatus.Scheduled.name) return null
@@ -184,6 +213,21 @@ class ScheduledTaskRepository(
             status = ScheduledTaskStatus.Running.name,
             updatedAtMillis = updatedAtMillis,
         ).toModel()
+    }
+
+    fun recoverStaleRunningReminder(taskId: String): Boolean =
+        recoverStaleRunningTask(
+            taskId = taskId,
+            type = ScheduledTaskType.Reminder,
+        )
+
+    fun recoverStaleRunningReminders(): Int {
+        val now = clockMillis()
+        return dao.markStaleRunningTasksScheduledByType(
+            type = ScheduledTaskType.Reminder.name,
+            staleUpdatedAtMillis = now - RUNNING_TASK_LEASE_MILLIS,
+            updatedAtMillis = now,
+        )
     }
 
     fun markCancelled(taskId: String) {
@@ -237,6 +281,19 @@ class ScheduledTaskRepository(
             status = status.name,
             updatedAtMillis = clockMillis(),
         ) > 0
+
+    private fun recoverStaleRunningTask(
+        taskId: String,
+        type: ScheduledTaskType,
+    ): Boolean {
+        val now = clockMillis()
+        return dao.markStaleRunningTaskScheduled(
+            taskId = taskId,
+            type = type.name,
+            staleUpdatedAtMillis = now - RUNNING_TASK_LEASE_MILLIS,
+            updatedAtMillis = now,
+        ) > 0
+    }
 
     private fun updateStatus(taskId: String, status: ScheduledTaskStatus) {
         val existing = dao.task(taskId) ?: return
@@ -308,5 +365,6 @@ class ScheduledTaskRepository(
 
     private companion object {
         const val MAX_TASK_ID_ATTEMPTS = 8
+        const val RUNNING_TASK_LEASE_MILLIS = 15L * 60L * 1_000L
     }
 }

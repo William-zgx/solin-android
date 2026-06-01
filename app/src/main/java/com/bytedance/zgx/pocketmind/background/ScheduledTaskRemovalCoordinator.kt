@@ -21,10 +21,10 @@ internal class ScheduledTaskRemovalCoordinator(
             if (task.status != ScheduledTaskStatus.Scheduled) {
                 throw IllegalArgumentException("Scheduled task is not cancellable: $taskId (${task.status.name})")
             }
-            cancelPlatformSchedule(task).getOrThrow()
             if (!markRemoved(taskId)) {
                 throw IllegalArgumentException("Scheduled task was not updated: $taskId")
             }
+            cancelPlatformSchedule(task).getOrThrow()
         }
 
     private fun cancelPlatformSchedule(task: ScheduledTask): Result<Unit> =

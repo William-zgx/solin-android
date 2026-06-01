@@ -204,8 +204,29 @@ interface ScheduledTaskDao {
     @Query("SELECT * FROM scheduled_tasks WHERE status IN ('Scheduled', 'Running') ORDER BY triggerAtMillis ASC, id ASC LIMIT :limit")
     fun scheduledOrRunning(limit: Int): List<ScheduledTaskEntity>
 
-    @Query("SELECT * FROM scheduled_tasks WHERE status = 'Scheduled' AND type = :type ORDER BY triggerAtMillis ASC LIMIT :limit")
+    @Query("SELECT * FROM scheduled_tasks WHERE status = 'Scheduled' AND type = :type ORDER BY triggerAtMillis ASC, id ASC LIMIT :limit")
     fun scheduledByType(type: String, limit: Int): List<ScheduledTaskEntity>
+
+    @Query(
+        """
+        SELECT * FROM scheduled_tasks
+        WHERE status = 'Scheduled'
+            AND type = :type
+            AND (
+                :afterTriggerAtMillis IS NULL
+                OR triggerAtMillis > :afterTriggerAtMillis
+                OR (triggerAtMillis = :afterTriggerAtMillis AND id > :afterId)
+            )
+        ORDER BY triggerAtMillis ASC, id ASC
+        LIMIT :limit
+        """,
+    )
+    fun scheduledByTypeAfter(
+        type: String,
+        afterTriggerAtMillis: Long?,
+        afterId: String?,
+        limit: Int,
+    ): List<ScheduledTaskEntity>
 
     @Query("SELECT * FROM scheduled_tasks ORDER BY updatedAtMillis DESC, id ASC LIMIT :limit")
     fun recent(limit: Int): List<ScheduledTaskEntity>
@@ -266,6 +287,38 @@ interface ScheduledTaskDao {
     fun updatePeriodicCheckStatusIfRunning(
         taskId: String,
         status: String,
+        updatedAtMillis: Long,
+    ): Int
+
+    @Query(
+        """
+        UPDATE scheduled_tasks
+        SET status = 'Scheduled', updatedAtMillis = :updatedAtMillis
+        WHERE id = :taskId
+            AND type = :type
+            AND status = 'Running'
+            AND updatedAtMillis <= :staleUpdatedAtMillis
+        """,
+    )
+    fun markStaleRunningTaskScheduled(
+        taskId: String,
+        type: String,
+        staleUpdatedAtMillis: Long,
+        updatedAtMillis: Long,
+    ): Int
+
+    @Query(
+        """
+        UPDATE scheduled_tasks
+        SET status = 'Scheduled', updatedAtMillis = :updatedAtMillis
+        WHERE type = :type
+            AND status = 'Running'
+            AND updatedAtMillis <= :staleUpdatedAtMillis
+        """,
+    )
+    fun markStaleRunningTasksScheduledByType(
+        type: String,
+        staleUpdatedAtMillis: Long,
         updatedAtMillis: Long,
     ): Int
 
