@@ -158,8 +158,8 @@ class MobileActionPlanner : ActionPlanner {
             ContactQueryActionParser.matches(input) ->
                 ContactQueryActionParser.draft(input)
 
-            isCancelReminderRequest(input) ->
-                MobileActionFunctions.CANCEL_REMINDER.toDraft(cancelReminderParameters(input))
+            CancelReminderActionParser.matches(input) ->
+                CancelReminderActionParser.draft(input)
 
             CalendarDraftActionParser.matches(input) ->
                 CalendarDraftActionParser.draft(input)
@@ -311,10 +311,8 @@ class MobileActionPlanner : ActionPlanner {
     private fun isReminderRequest(input: String): Boolean =
         ReminderActionParser.matches(input)
 
-    private fun isCancelReminderRequest(input: String): Boolean {
-        return ("取消" in input || "撤销" in input) &&
-            TASK_ID_PATTERN.containsMatchIn(input)
-    }
+    private fun isCancelReminderRequest(input: String): Boolean =
+        CancelReminderActionParser.matches(input)
 
     private fun isUsageAccessSettingsRequest(input: String): Boolean {
         val normalized = input.lowercase()
@@ -380,11 +378,6 @@ class MobileActionPlanner : ActionPlanner {
         ).any { it in normalized }
     }
 
-    private fun cancelReminderParameters(input: String): Map<String, String> {
-        val taskId = TASK_ID_PATTERN.find(input)?.value.orEmpty()
-        return mapOf("taskId" to taskId)
-    }
-
     private fun parseJsonLikeObject(raw: String): Map<String, String> {
         val content = raw.trim().removePrefix("{").removeSuffix("}")
         if (content.isBlank()) return emptyMap()
@@ -397,7 +390,6 @@ class MobileActionPlanner : ActionPlanner {
     private companion object {
         val CALL_PATTERN = Regex("""^call:([a-zA-Z0-9_]+)\s*(\{.*\})$""", RegexOption.DOT_MATCHES_ALL)
         val KEY_VALUE_PATTERN = Regex(""""([^"]+)"\s*:\s*"([^"]*)"""")
-        val TASK_ID_PATTERN = Regex("task-[A-Za-z0-9_-]+")
         val APP_INTENT_TRIGGER_PATTERN = Regex("""(打开|打开并|启动|启动并)\s*(?:应用|app|应用程序)?""")
         val APP_INTENT_PACKAGE_PATTERN = Regex("""\b[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+\b""")
         val URI_SCHEME_PATTERN = Regex("""\b[a-zA-Z][a-zA-Z0-9+.-]*://""")

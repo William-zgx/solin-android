@@ -597,6 +597,18 @@ class ToolRegistryTest {
         requireNotNull(blank)
         assertTrue(blank.summary.contains("taskId"))
 
+        val invalidPrefix = registry.validate(
+            ToolRequest(
+                id = "request-cancel-reminder-invalid-prefix",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                arguments = mapOf("taskId" to "abc-1"),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidPrefix)
+        requireNotNull(invalidPrefix)
+        assertTrue(invalidPrefix.summary.contains("pattern"))
+
         val valid = registry.validate(
             ToolRequest(
                 id = "request-cancel-reminder-valid",

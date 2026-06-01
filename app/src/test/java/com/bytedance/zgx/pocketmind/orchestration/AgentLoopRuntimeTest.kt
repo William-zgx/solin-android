@@ -338,6 +338,43 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstCancelReminderBypassesActionPlannerAndRequestsConfirmation() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "取消提醒 task-123",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, result.plan.request.toolName)
+        assertEquals("task-123", result.plan.request.arguments["taskId"])
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(
+            listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
+            auditSink.events.map { it.eventType },
+        )
+        assertTrue(auditSink.events.all { event ->
+            event.toolName == MobileActionFunctions.CANCEL_REMINDER &&
+                event.skillId == BuiltInSkillRuntime.REMINDER_SKILL &&
+                event.permissions.isEmpty()
+        })
+    }
+
+    @Test
     fun reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation() {
         val input = "提醒我一下，“15 分钟后”是什么意思"
         val auditSink = InMemoryToolAuditSink()
@@ -1076,6 +1113,10 @@ class AgentLoopRuntimeTest {
             "明天我有空吗",
             "日历权限怎么申请",
             "不要查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z",
+            "取消提醒",
+            "不要取消提醒 task-123",
+            "取消提醒 API task-123",
+            "取消日程 task-123",
             "what is free/busy",
             "API availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z",
             "calendar availability API",

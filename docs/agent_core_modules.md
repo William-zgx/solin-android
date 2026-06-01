@@ -802,6 +802,11 @@ Current status:
   its platform schedule cancelled and local state moved out of `Scheduled`.
   Missing, already delivered, already cancelled, or concurrently changed tasks
   fail as non-retryable stale rollback requests instead of claiming success.
+- Explicit cancel reminder requests now also have a conservative Skill-first
+  path. The shared parser accepts only cancel/undo reminder wording with a
+  `task-*` id, and rejects missing task ids, API/implementation/explanation
+  discussions, negated commands, and non-reminder cancellations such as
+  calendar/contact/mail cancellation.
 - Implemented runtime background task review UI for still-`Scheduled` tasks.
   The UI shows pending task metadata and exposes explicit
   cancellation that cancels the platform schedule, updates local task state to

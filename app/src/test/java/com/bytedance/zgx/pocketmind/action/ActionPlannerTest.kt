@@ -300,6 +300,16 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.CANCEL_REMINDER, plan.draft?.functionName)
         assertEquals("task-123", plan.draft?.parameters?.get("taskId"))
+
+        val englishPlan = planner.plan("cancel reminder task-abc_123")
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, englishPlan.draft?.functionName)
+        assertEquals("task-abc_123", englishPlan.draft?.parameters?.get("taskId"))
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("取消提醒").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要取消提醒 task-123").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("取消提醒 API task-123").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("取消日程 task-123").kind)
     }
 
     @Test

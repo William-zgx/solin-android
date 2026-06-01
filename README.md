@@ -110,6 +110,11 @@ still-`Scheduled` reminders, using the stored title/body instead of trusting
 alarm extras. The running background tasks view lists still-scheduled tasks;
 canceling one cancels the pending AlarmManager or WorkManager work, marks the
 local record as `Cancelled`, and removes it from the running list.
+Requests such as “取消提醒 task-123” use the skill-first path and become
+confirmed `cancel_reminder` tool calls only when the request explicitly
+mentions a reminder and a `task-*` id. Requests without a task id, API or
+implementation discussions, negated commands, and non-reminder cancellations
+are not routed to the tool.
 The same entry also exposes recent persisted tool audit events for review. The
 audit list shows only event time, event type, tool name, status, risk,
 permission names, and a parameter-free generated summary; it does not show tool

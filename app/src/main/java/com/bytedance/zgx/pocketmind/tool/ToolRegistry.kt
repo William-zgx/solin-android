@@ -497,7 +497,8 @@ private val cancelReminderSchemaJson = """
       "properties": {
         "taskId": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^task-[A-Za-z0-9_-]+$"
         }
       },
       "additionalProperties": false

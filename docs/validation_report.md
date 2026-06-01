@@ -1,5 +1,36 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Cancel reminder skill-first routing 增量验证
+
+本轮覆盖项：
+
+- 显式“取消/撤销提醒 + `task-*` id”请求可由 built-in Skill runtime 直接规划为
+  受确认保护的 `cancel_reminder`，不再依赖 action planner。
+- Shared cancel-reminder parser 只接受 reminder/background-task 取消语义和
+  `task-*` id；拒绝无 task id、API/实现/解释、否定命令，以及取消日历/联系人/
+  邮件等非 reminder 任务。
+- `cancel_reminder` 继续归属 `reminder_skill`，风险级别为
+  `MediumDraftOrNavigation`；registry schema 也要求 `taskId` 匹配
+  `^task-[A-Za-z0-9_-]+$`，避免绕过 parser。
+- 权限和执行边界保持本地：取消提醒不请求 Android runtime permission 或
+  special access；仍必须用户确认，并只在对应 still-`Scheduled` task 被平台取消且
+  本地状态更新后报告成功。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersCancelReminderDraftWithTaskId' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansCancelReminderSkillFirstWithoutActionDraft' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansReminderAsBackgroundToolStep' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstCancelReminderBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.validatesCancelReminderTaskId'
+```
+
+结果：通过。
+
 ## 2026-06-01 Contact draft skill-first routing 增量验证
 
 本轮覆盖项：

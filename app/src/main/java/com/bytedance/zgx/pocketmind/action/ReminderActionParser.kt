@@ -111,3 +111,64 @@ internal object ReminderActionParser {
         val range: IntRange,
     )
 }
+
+internal object CancelReminderActionParser {
+    private val taskIdPattern = Regex("""task-[A-Za-z0-9_-]+""")
+    private val englishPattern =
+        Regex(
+            """\b(?:cancel|undo|dismiss|remove)\s+(?:the\s+)?(?:reminder|scheduled\s+reminder|background\s+task)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeCancelReminderNonAction()) return false
+        val normalized = input.lowercase()
+        val hasTrigger = listOf("取消提醒", "撤销提醒", "取消后台提醒", "撤销后台提醒")
+            .any { it in input } ||
+            englishPattern.containsMatchIn(normalized)
+        return hasTrigger && taskIdPattern.containsMatchIn(input)
+    }
+
+    fun draft(input: String): ActionDraft {
+        val taskId = taskId(input).orEmpty()
+        return ActionDraft(
+            functionName = MobileActionFunctions.CANCEL_REMINDER,
+            title = "取消提醒",
+            summary = "将取消提醒任务：$taskId",
+            parameters = mapOf("taskId" to taskId),
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun taskId(input: String): String? =
+        taskIdPattern.find(input)?.value
+
+    private fun String.looksLikeCancelReminderNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "不要取消提醒",
+            "别取消提醒",
+            "不要撤销提醒",
+            "别撤销提醒",
+            "取消提醒是什么意思",
+            "取消提醒怎么",
+            "提醒取消怎么",
+            "取消提醒 API",
+            "取消提醒 接口",
+            "取消提醒 实现",
+            "取消提醒 设计",
+            "取消提醒 文档",
+            "取消提醒 测试",
+            "取消日程",
+            "取消联系人",
+            "取消邮件",
+            "取消搜索",
+            "怎么实现",
+            "如何实现",
+            "怎么设计",
+        ).any { it in this } ||
+            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:cancel|undo|dismiss|remove)\s+(?:the\s+)?(?:reminder|scheduled\s+reminder|background\s+task)\b""")) ||
+            normalized.contains(Regex("""\b(?:cancel|undo|dismiss|remove)\s+(?:reminder|scheduled\s+reminder|background\s+task)\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?)\b""")) ||
+            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:cancel|undo|dismiss|remove)\s+(?:reminder|scheduled\s+reminder|background\s+task)\b"""))
+    }
+}

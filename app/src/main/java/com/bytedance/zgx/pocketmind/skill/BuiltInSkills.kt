@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.skill
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.CalendarAvailabilityActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
+import com.bytedance.zgx.pocketmind.action.CancelReminderActionParser
 import com.bytedance.zgx.pocketmind.action.ContactDraftActionParser
 import com.bytedance.zgx.pocketmind.action.ContactQueryActionParser
 import com.bytedance.zgx.pocketmind.action.CurrentScreenTextActionParser
@@ -34,6 +35,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.OPEN_WIFI_SETTINGS to DEVICE_SETTINGS_SKILL,
         MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS to DEVICE_SETTINGS_SKILL,
         MobileActionFunctions.SCHEDULE_REMINDER to REMINDER_SKILL,
+        MobileActionFunctions.CANCEL_REMINDER to REMINDER_SKILL,
         MobileActionFunctions.READ_CLIPBOARD to CLIPBOARD_CONTEXT_SKILL,
         MobileActionFunctions.SHARE_TEXT to SHARE_TEXT_SKILL,
         MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to RECENT_SCREENSHOT_OCR_CONTEXT_SKILL,
@@ -96,6 +98,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && CurrentScreenTextActionParser.matches(input) ->
                 plan(input, CurrentScreenTextActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && CancelReminderActionParser.matches(input) ->
+                plan(input, CancelReminderActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
@@ -370,8 +375,11 @@ private val builtInSkillManifests = listOf(
         version = 1,
         title = "后台提醒",
         description = "把自然语言提醒请求整理成本地后台提醒工具调用。",
-        triggerExamples = listOf("提醒我 10 分钟后喝水", "remind me in 1 hour"),
-        requiredTools = listOf(MobileActionFunctions.SCHEDULE_REMINDER),
+        triggerExamples = listOf("提醒我 10 分钟后喝水", "取消提醒 task-123", "remind me in 1 hour"),
+        requiredTools = listOf(
+            MobileActionFunctions.SCHEDULE_REMINDER,
+            MobileActionFunctions.CANCEL_REMINDER,
+        ),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
     ),

@@ -130,6 +130,7 @@ class BuiltInSkillRuntimeTest {
                     ),
                 ),
             ),
+            "取消提醒 task-123" to requireNotNull(runtime.plan("取消提醒 task-123")),
             "读取剪贴板" to requireNotNull(runtime.plan("读取剪贴板")),
             "分享这段文字：明天十点开会" to requireNotNull(
                 runtime.plan(
@@ -243,7 +244,8 @@ class BuiltInSkillRuntimeTest {
 
         requireNotNull(plan)
         assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, plan.request.skillId)
-        assertEquals(listOf(MobileActionFunctions.SCHEDULE_REMINDER), plan.manifest.requiredTools)
+        assertTrue(MobileActionFunctions.SCHEDULE_REMINDER in plan.manifest.requiredTools)
+        assertTrue(MobileActionFunctions.CANCEL_REMINDER in plan.manifest.requiredTools)
         assertEquals(1, plan.steps.size)
     }
 
@@ -273,6 +275,32 @@ class BuiltInSkillRuntimeTest {
         assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, step.request.toolName)
         assertEquals("60", step.request.arguments["delayMinutes"])
         assertEquals("check build status", step.request.arguments["title"])
+    }
+
+    @Test
+    fun plansCancelReminderSkillFirstWithoutActionDraft() {
+        val plan = runtime.plan("取消提醒 task-123")
+
+        requireNotNull(plan)
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, plan.request.skillId)
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, step.request.toolName)
+        assertEquals("task-123", step.request.arguments["taskId"])
+        assertEquals(step.request.arguments, step.draft.parameters)
+
+        val englishPlan = runtime.plan("cancel reminder task-abc_123")
+        requireNotNull(englishPlan)
+        val englishStep = englishPlan.steps.single()
+        require(englishStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, englishStep.request.toolName)
+        assertEquals("task-abc_123", englishStep.request.arguments["taskId"])
+
+        assertEquals(null, runtime.plan("取消提醒"))
+        assertEquals(null, runtime.plan("不要取消提醒 task-123"))
+        assertEquals(null, runtime.plan("取消提醒 API task-123"))
+        assertEquals(null, runtime.plan("取消日程 task-123"))
     }
 
     @Test
