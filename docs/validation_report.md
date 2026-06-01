@@ -1,5 +1,26 @@
 # PocketMind 验证报告
 
+## 2026-06-02 运行时权限确认卡 UI 增量验证
+
+本轮覆盖项：
+
+- 新增 `MainActivityRuntimePermissionUiTest`，通过真实 `MainActivity` 输入
+  `查联系人 Alice`，覆盖联系人查询动作草稿到 Compose 确认卡的 Activity/UI 路径。
+- 确认卡现在有 instrumentation 覆盖：显示 `runtime_permission_requirements`
+  区块、联系人权限标题和只读联系人摘要 rationale。
+- 测试明确断言联系人查询不展示 `special_access_requirements`，避免 runtime
+  permission 和系统特殊授权 UI 边界混淆。
+- 测试只点击取消，不点击“确认执行”，因此不会触发 Android 系统权限弹窗，也不读取
+  真实通讯录。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin
+```
+
+结果：通过。
+
 ## 2026-06-02 长期记忆真实 UI 路径增量验证
 
 本轮覆盖项：

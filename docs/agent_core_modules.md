@@ -73,6 +73,7 @@ Tests:
 - `RoutingAndValidatingToolExecutorTest`
 - `ActionExecutorTest`
 - `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
+- `MainActivityRuntimePermissionUiTest` runtime permission requirement confirmation UI
 
 ## Agent Loop
 
