@@ -74,6 +74,7 @@ Tests:
 - `ActionExecutorTest`
 - `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
 - `MainActivityRuntimePermissionUiTest` runtime permission requirement confirmation UI
+- `MainActivitySpecialAccessUiTest` special access requirement confirmation UI
 
 ## Agent Loop
 

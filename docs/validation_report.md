@@ -1,5 +1,28 @@
 # PocketMind 验证报告
 
+## 2026-06-02 系统特殊授权确认卡 UI 增量验证
+
+本轮覆盖项：
+
+- 新增 `MainActivitySpecialAccessUiTest`，通过真实 `MainActivity` 输入
+  `总结当前屏幕文字，最多1200字`，覆盖 `read_current_screen_text` 动作草稿到
+  Compose 确认卡的 Activity/UI 路径。
+- 确认卡现在有 instrumentation 覆盖：显示 `special_access_requirements`
+  区块、无障碍屏幕文本权限 rationale，以及
+  `open_special_access_accessibility_screen_text` 系统设置入口按钮。
+- 测试明确断言当前屏幕文本读取不展示 `runtime_permission_requirements`，避免系统
+  特殊授权和 Android runtime permission UI 边界混淆。
+- 测试只点击取消，不点击“打开系统设置”或“确认执行”，因此不会跳出 App、不读取
+  当前屏幕 Accessibility 文本，也不依赖设备是否已开启该服务。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin
+```
+
+结果：通过。
+
 ## 2026-06-02 运行时权限确认卡 UI 增量验证
 
 本轮覆盖项：
