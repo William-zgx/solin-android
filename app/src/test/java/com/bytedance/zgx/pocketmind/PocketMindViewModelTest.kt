@@ -2586,8 +2586,14 @@ class PocketMindViewModelTest {
         assertEquals("用户偏好：我喜欢简洁回答", record.text)
         assertTrue(memoryRepository.search("简洁回答").any { it.id == record.id })
         assertEquals(listOf(record.id), viewModel.uiState.value.longTermMemories.map { it.id })
+        assertEquals(
+            listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
+            viewModel.uiState.value.messages.map { it.privacy },
+        )
         assertEquals("记住：我喜欢简洁回答", viewModel.uiState.value.messages.first().text)
-        assertEquals(2, remoteRuntime.calls.size)
+        assertTrue(viewModel.uiState.value.messages.last().text.contains("已记住这条本地偏好"))
+        assertEquals("长期记忆已更新", viewModel.uiState.value.statusText)
+        assertTrue(remoteRuntime.calls.isEmpty())
     }
 
     @Test
@@ -2617,15 +2623,17 @@ class PocketMindViewModelTest {
         assertEquals(listOf(record.id), viewModel.uiState.value.longTermMemories.map { it.id })
         assertTrue(memoryRepository.search("简洁").isEmpty())
         assertEquals(record.id, memoryRepository.search("详细回答").first().id)
-        assertEquals(2, remoteRuntime.calls.size)
+        assertTrue(remoteRuntime.calls.isEmpty())
     }
 
     @Test
     fun rememberCommandPersistsEnglishPreferenceMemory() = runTest(dispatcher) {
         val store = FakeMemoryRecordStore()
         val memoryRepository = MemoryRepository(recordStore = store)
+        val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
             remoteStore = FakeRemoteModelStore(
                 mode = InferenceMode.Remote,
                 config = configuredRemoteModel(),
@@ -2642,6 +2650,7 @@ class PocketMindViewModelTest {
         assertEquals("用户偏好：I prefer concise answers", record.text)
         assertTrue(memoryRepository.search("concise answers").any { it.id == record.id })
         assertEquals(listOf(record.id), viewModel.uiState.value.longTermMemories.map { it.id })
+        assertTrue(remoteRuntime.calls.isEmpty())
     }
 
     @Test
@@ -2672,14 +2681,21 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun rememberCommandDoesNotPersistWhenRouteFailsBeforeMessageIsSaved() = runTest(dispatcher) {
+    fun rememberCommandBypassesRouterAndRemoteRuntime() = runTest(dispatcher) {
         val store = FakeMemoryRecordStore()
         val memoryRepository = MemoryRepository(recordStore = store)
         val sessionStore = FakeSessionStore()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val assistantRouter = FakeAssistantRouter(routeFailure = IllegalStateException("planner unavailable"))
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             memoryRepository = memoryRepository,
-            assistantRouter = FakeAssistantRouter(routeFailure = IllegalStateException("planner unavailable")),
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
         )
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
@@ -2687,9 +2703,100 @@ class PocketMindViewModelTest {
         viewModel.sendMessage("记住：我喜欢简洁回答")
         advanceUntilIdle()
 
-        assertTrue(store.records().isEmpty())
-        assertTrue(sessionStore.messages.isEmpty())
-        assertTrue(viewModel.uiState.value.longTermMemories.isEmpty())
+        val record = store.records().single()
+        assertEquals("用户偏好：我喜欢简洁回答", record.text)
+        assertEquals(0, assistantRouter.routeCallCount)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(
+            listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
+            sessionStore.messages.map { it.privacy },
+        )
+        assertTrue(sessionStore.messages.last().text.contains("已记住这条本地偏好"))
+    }
+
+    @Test
+    fun remoteRememberCommandDoesNotEnterLaterRemoteHistory() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("记住：我喜欢简洁回答")
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val call = remoteRuntime.calls.single()
+        assertEquals("普通远程问题", call.prompt)
+        assertTrue(call.history.isEmpty())
+        assertFalse(call.history.toString().contains("记住"))
+        assertFalse(call.history.toString().contains("简洁回答"))
+        assertFalse(call.history.toString().contains("已记住这条本地偏好"))
+        assertEquals("用户偏好：我喜欢简洁回答", store.records().single().text)
+    }
+
+    @Test
+    fun rememberCommandMemoryStoreFailureDoesNotFallbackToRemote() = runTest(dispatcher) {
+        val memoryRepository = MemoryRepository(
+            recordStore = FakeMemoryRecordStore(failure = IllegalStateException("memory unavailable")),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("记住：我喜欢简洁回答")
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertTrue(viewModel.uiState.value.messages.last().text.contains("本地记忆暂不可用"))
+        assertEquals("本地记忆暂不可用", viewModel.uiState.value.statusText)
+        assertEquals(
+            listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
+            viewModel.uiState.value.messages.map { it.privacy },
+        )
+    }
+
+    @Test
+    fun rememberCommandWorksBeforeModelIsReady() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val runtime = FakeLiteRtRuntime()
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            runtime = runtime,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isReady)
+
+        viewModel.sendMessage("记住：我喜欢简洁回答")
+        advanceUntilIdle()
+
+        assertEquals("用户偏好：我喜欢简洁回答", store.records().single().text)
+        assertTrue(runtime.prompts.isEmpty())
+        assertEquals("长期记忆已更新", viewModel.uiState.value.statusText)
     }
 
     @Test

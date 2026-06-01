@@ -805,9 +805,14 @@ class PocketMindViewModel(
             }
             return
         }
-        if (trimmed.isEmpty() || !_uiState.value.isReady || _uiState.value.isBusy || generationJob?.isActive == true) {
+        if (trimmed.isEmpty() || _uiState.value.isBusy || generationJob?.isActive == true) {
             return
         }
+        if (explicitUserPreferenceFrom(trimmed) != null) {
+            handleExplicitPreferenceCommand(trimmed)
+            return
+        }
+        if (!_uiState.value.isReady) return
 
         syncTaskStateMemories()
         rebuildMemoryIndex()
@@ -2218,10 +2223,10 @@ class PocketMindViewModel(
             }
         }.getOrDefault(emptyList())
 
-    private fun persistExplicitPreferenceMemory(message: ChatMessage) {
-        if (message.role != MessageRole.User) return
-        val preference = explicitUserPreferenceFrom(message.text) ?: return
-        runCatching {
+    private fun persistExplicitPreferenceMemory(message: ChatMessage): Boolean {
+        if (message.role != MessageRole.User) return false
+        val preference = explicitUserPreferenceFrom(message.text) ?: return false
+        return runCatching {
             longTermMemoryControls.indexPreference(explicitUserPreferenceRecordId(preference), preference)
             loadLongTermMemories()
         }.onSuccess { records ->
@@ -2235,6 +2240,41 @@ class PocketMindViewModel(
                     statusText = "本地记忆暂不可用",
                 )
             }
+        }.isSuccess
+    }
+
+    private fun handleExplicitPreferenceCommand(trimmed: String) {
+        syncTaskStateMemories()
+        val userMessage = ChatMessage(
+            role = MessageRole.User,
+            text = trimmed,
+            privacy = MessagePrivacy.LocalOnly,
+        )
+        replaceActiveSessionMessages(
+            _uiState.value.messages + userMessage,
+            persistNow = true,
+        )
+        val persisted = persistExplicitPreferenceMemory(userMessage)
+        val assistantText = if (persisted) {
+            "已记住这条本地偏好。你可以在长期记忆中查看或删除。"
+        } else {
+            "本地记忆暂不可用，未保存这条偏好。"
+        }
+        replaceActiveSessionMessages(
+            _uiState.value.messages + ChatMessage(
+                role = MessageRole.Assistant,
+                text = assistantText,
+                privacy = MessagePrivacy.LocalOnly,
+            ),
+            persistNow = true,
+        )
+        rebuildMemoryIndex()
+        _uiState.update { state ->
+            state.copy(
+                memoryHits = emptyList(),
+                longTermMemories = loadLongTermMemories(),
+                statusText = if (persisted) "长期记忆已更新" else "本地记忆暂不可用",
+            )
         }
     }
 

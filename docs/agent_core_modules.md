@@ -490,9 +490,10 @@ Current status:
   prompts; it asks the user to switch local or manually provide text they agree
   to upload.
 - Remote model mode also strips memory hits and device context from ordinary
-  chat prompts. Android share-intent text, generated shared-input text excerpts,
-  and attachment metadata are held back from automatic remote generation unless
-  the user manually provides the content they are willing to upload.
+  chat prompts. Local memory-control commands such as `记住：...` / `remember ...`,
+  Android share-intent text, generated shared-input text excerpts, and
+  attachment metadata are held back from automatic remote generation unless the
+  user manually provides the content they are willing to upload.
 - Chat history now carries `MessagePrivacy`; messages marked `LocalOnly` are
   persisted for the local conversation but are filtered from remote history, and
   a `LocalOnly` current prompt is rejected before any remote request is made.
@@ -778,10 +779,12 @@ Current status:
   forgotten on refresh. When the user explicitly forgets one of these active
   auto-managed records or clears long-term memory, a hidden suppression marker
   keeps later startup, refresh, or chat-triggered sync from recreating it.
-- `sendMessage` persists explicit user preference statements such as
-  `记住：...` / `remember ...` after the user message is accepted into the
-  session; `rebuild` reloads persisted records and saved non-control session
-  history into the in-memory index.
+- `sendMessage` treats explicit user preference statements such as
+  `记住：...` / `remember ...` as local memory-control commands. They update
+  persisted `Preference` records without invoking the chat/action router or
+  remote runtime; visible control/status messages are stored as `LocalOnly`.
+  `rebuild` reloads persisted records and saved non-control session history into
+  the in-memory index.
 - Explicit preference records use deterministic ids derived from normalized
   preference text, so repeating the same remember command upserts one record
   instead of creating duplicate long-term memories.
@@ -789,9 +792,9 @@ Current status:
   by replacing older records in the same preference family, so `记住` commands
   update the user's current answer-style preference instead of keeping
   contradictory long-term memories.
-- Explicit remember control messages are not re-derived from chat history, so
-  forgetting a persisted preference prevents it from being restored by a later
-  memory rebuild.
+- Explicit local remember control messages are not re-derived from chat history,
+  so forgetting a persisted preference prevents it from being restored by a
+  later memory rebuild.
 - Agent planning treats memory lookup/context formatting as optional: failures
   fall back to empty memory context and continue ordinary chat/planning.
 - CJK memory recall requires specific multi-character overlap when the query

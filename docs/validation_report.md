@@ -1,5 +1,51 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Local remember control command 增量验证
+
+本轮覆盖项：
+
+- `记住：...` / `remember ...` 从远程可发送的普通聊天输入收窄为本地记忆控制命令。
+- 显式 remember 命令会绕过 chat/action router、远程 runtime 和本地模型 runtime，
+  直接 upsert 本地 `Preference` 长期记忆；会话中可见的控制命令与确认消息均为
+  `LocalOnly`。
+- 远程模型模式下，remember 命令不会作为当前 prompt 发送，也不会进入后续远程
+  history；偏好内容和本地确认消息同样不会自动上传。
+- 记忆存储失败时 fail closed：展示本地失败提示，不把 remember prompt 兜底发送
+  给远程模型。
+- remember 仍受待确认动作门禁保护；有 pending confirmation 时必须先确认或取消。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --rerun-tasks \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandPersistsPreferenceMemoryOnceForDuplicateCommands' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandReplacesConflictingPreferenceMemory' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandPersistsEnglishPreferenceMemory' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandBypassesRouterAndRemoteRuntime' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteRememberCommandDoesNotEnterLaterRemoteHistory' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandMemoryStoreFailureDoesNotFallbackToRemote' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.rememberCommandWorksBeforeModelIsReady' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetRememberCommandMemoryDoesNotReindexFromHistory'
+```
+
+结果：targeted remember 本地控制命令、远程模式保护、存储失败 fail-closed 和遗忘
+后不从历史重新派生回归测试通过。
+
+补充验证：
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：全量 JVM 单测、AndroidTest Kotlin 编译、diff whitespace 检查、敏感串扫描
+和本地完整验证脚本通过。
+
 ## 2026-06-01 RTF shared-input text-layer excerpt 增量验证
 
 本轮覆盖项：
@@ -1196,8 +1242,9 @@ scripts/install_and_test_device.sh
 - 新的同族显式偏好会删除旧的同族偏好记录，再写入当前偏好，避免
   `记住：回答尽量简洁` 与 `记住：回答要详细` 同时进入长期记忆。
 - 不同偏好族仍可共存，例如回答长短和回答语言不会相互覆盖。
-- `PocketMindViewModel` 继续只在用户消息成功进入会话后持久化 `记住` 偏好；
-  冲突替换后长期记忆 UI 和 in-memory 索引同步展示当前偏好。
+- 当时 `PocketMindViewModel` 仍在用户消息成功进入会话后持久化 `记住` 偏好；
+  冲突替换后长期记忆 UI 和 in-memory 索引同步展示当前偏好。该入口口径已被
+  2026-06-01 Local remember control command 增量验证收窄为本地控制命令。
 
 验证命令：
 
@@ -2383,9 +2430,9 @@ git diff --check
   Answer 计划，trace 记录空记忆上下文。
 - 长期记忆 store 读取或重建失败时不阻断启动、恢复或远程聊天；长期记忆
   列表降级为空。
-- 用户发送 `记住：...` / `remember ...` 时，显式偏好在 `sendMessage`
-  生产路径的消息落会话后持久化为 Preference 记录；route 失败且消息未保存时
-  不留下孤儿长期记忆。
+- 当时用户发送 `记住：...` / `remember ...` 时，显式偏好在 `sendMessage`
+  生产路径的消息落会话后持久化为 Preference 记录；该入口口径已被
+  2026-06-01 Local remember control command 增量验证收窄为本地控制命令。
 - 同一规范化偏好文本使用确定性 id/upsert，重复发送同一句 remember 命令
   不产生重复长期记忆。
 - 遗忘显式偏好后，`rebuild` 不会从历史 remember 控制消息重新派生同一偏好。

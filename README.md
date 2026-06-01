@@ -98,7 +98,10 @@ single record, and clearing explicit memory records. Its persisted scope is only
 explicit preference and task-state records stored locally in Room; ordinary
 conversation recall is still rebuilt from saved chat-session history. Forgotten
 auto-managed task-state records stay suppressed so background task refreshes do
-not recreate them in long-term memory. Explicit response-length and
+not recreate them in long-term memory. `记住：...` / `remember ...` is handled as
+a local memory-control command: it updates local long-term preferences, records
+only `LocalOnly` control/status messages if visible in the session, and is not
+sent to a remote model as ordinary chat. Explicit response-length and
 response-language preferences replace older conflicting preferences instead of
 accumulating contradictory records, and LiteRT embedding-model-backed semantic
 retrieval is still pending. Mobile actions can use the
