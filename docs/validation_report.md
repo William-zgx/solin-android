@@ -1,5 +1,44 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Current-screen text summary share Skill 增量验证
+
+本轮覆盖项：
+
+- 新增 `current_screen_text_summary_share_skill`：用户明确要求“总结当前屏幕文字并分享”时，
+  先进入确认式 `read_current_screen_text`，再用本地 `ModelStep` 生成摘要，最后进入第二个
+  `share_text` 确认。
+- 该 Skill 只处理 Accessibility 可访问文本快照，不声明截图、OCR、像素读取或语义屏幕理解；
+  说明型/否定型请求不会被当作动作。
+- raw `screenText` 继续作为 private tool output：只能进入当前进程内的本地模型
+  continuation，不能直接绑定到 `share_text.text`，也不进入 trace、audit、public outputs、
+  pending checkpoint、持久消息或远程 runtime。
+- 到第二个 payload-bearing `share_text` 确认卡后重启，恢复应 fail closed：不恢复摘要参数、
+  不打开分享面板、不重跑旧 `read_current_screen_text`，旧 request id 不能继续推进。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.executesCompositeCurrentScreenTextSummaryShareSkillInDependencyOrder' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.currentScreenTextPrivateOutputCannotBindDirectlyToLaterShareArgument' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.currentScreenTextSummarySharePlansShareAfterLocalModelResult' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredCurrentScreenTextSummarySharePendingFailsClosedAfterRestart' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.currentScreenTextSummaryShareShowsSecondConfirmationAfterLocalSummary' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsCurrentScreenTextSummaryShareBeforeRemoteContinuation'
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：targeted Skill manifest/plan、executor privacy fence、Agent loop second-confirmation、
+restart fail-closed、ViewModel 远程保护、全量 JVM 单测、AndroidTest Kotlin 编译、
+diff whitespace 检查、敏感串扫描和本地完整验证脚本通过。
+
 ## 2026-06-01 Preference/TaskState alias memory 增量验证
 
 本轮覆盖项：

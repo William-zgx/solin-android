@@ -61,6 +61,56 @@ class SkillRunExecutorTest {
     }
 
     @Test
+    fun executesCompositeCurrentScreenTextSummaryShareSkillInDependencyOrder() {
+        val rawScreenText = "当前屏幕里的私密验证码 654321"
+        val toolExecutor = RecordingToolExecutor(
+            results = listOf(
+                ToolResult(
+                    requestId = "",
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取当前屏幕可访问文本快照",
+                    data = mapOf("screenText" to rawScreenText, "screenTextIncluded" to "true"),
+                ),
+                ToolResult(
+                    requestId = "",
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开系统分享面板",
+                ),
+            ),
+        )
+        val modelExecutor = SkillModelStepExecutor { step, inputs ->
+            assertEquals("summarize_current_screen_text", step.id)
+            assertEquals(rawScreenText, inputs["screenText"])
+            Result.success("屏幕摘要：验证码用于本地确认")
+        }
+        val plan = BuiltInSkillRuntime().planCurrentScreenTextSummaryShare("总结当前屏幕文字并分享")
+        val executor = SkillRunExecutor(
+            toolExecutor = toolExecutor,
+            modelExecutor = modelExecutor,
+            toolGate = SkillToolGate.allowAllForTests(),
+        )
+
+        val result = executor.execute(plan)
+
+        assertEquals(SkillRunState.Succeeded, result.state)
+        assertEquals(
+            listOf(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, MobileActionFunctions.SHARE_TEXT),
+            toolExecutor.requests.map { it.toolName },
+        )
+        assertEquals(
+            "屏幕摘要：验证码用于本地确认",
+            toolExecutor.requests.last().arguments["text"],
+        )
+        assertEquals(
+            "屏幕摘要：验证码用于本地确认",
+            result.outputs["summarize_current_screen_text"]?.get("shareText"),
+        )
+        assertFalse(result.trace.toString().contains(rawScreenText))
+        assertFalse(result.outputs.toString().contains(rawScreenText))
+        assertTrue(result.trace.any { it is SkillRunTrace.ModelFinished })
+    }
+
+    @Test
     fun defaultGateStopsBeforeExecutingToolsThatNeedConfirmation() {
         val toolExecutor = RecordingToolExecutor(emptyList())
         val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
@@ -264,6 +314,55 @@ class SkillRunExecutorTest {
         assertFalse(rejected.outputs.toString().contains(rawClipboardText))
         assertFalse(rejected.trace.toString().contains(rawClipboardText))
         assertFalse(requireNotNull(awaitingRead.continuation).toString().contains(rawClipboardText))
+    }
+
+    @Test
+    fun currentScreenTextPrivateOutputCannotBindDirectlyToLaterShareArgument() {
+        val rawScreenText = "当前屏幕里的私密文本不应成为分享参数"
+        val modelSummary = "安全屏幕摘要"
+        val toolExecutor = RecordingToolExecutor(emptyList())
+        val executor = SkillRunExecutor(
+            toolExecutor = toolExecutor,
+            modelExecutor = SkillModelStepExecutor { _, _ -> Result.success(modelSummary) },
+        )
+        val validPlan = BuiltInSkillRuntime().planCurrentScreenTextSummaryShare("总结当前屏幕文字并分享")
+        val readStep = validPlan.steps[0]
+        val modelStep = validPlan.steps[1]
+        val shareStep = validPlan.steps[2] as SkillStep.ToolStep
+        val maliciousPlan = validPlan.copy(
+            steps = listOf(
+                readStep,
+                modelStep,
+                shareStep.copy(argumentBindings = mapOf("text" to "read_current_screen_text.screenText")),
+            ),
+        )
+        val awaitingRead = executor.execute(maliciousPlan)
+
+        val rejected = executor.resume(
+            plan = maliciousPlan,
+            continuation = requireNotNull(awaitingRead.continuation),
+            result = ToolResult(
+                requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕可访问文本快照",
+                data = mapOf("screenText" to rawScreenText, "screenTextIncluded" to "true"),
+            ),
+        )
+
+        assertEquals(SkillRunState.Failed, rejected.state)
+        assertTrue(rejected.error.orEmpty().contains("private tool output cannot be bound directly"))
+        assertTrue(rejected.error.orEmpty().contains("read_current_screen_text.screenText"))
+        assertEquals(null, rejected.pendingToolRequest)
+        assertEquals(null, rejected.continuation)
+        assertEquals(modelSummary, rejected.outputs["summarize_current_screen_text"]?.get("shareText"))
+        assertTrue(toolExecutor.requests.isEmpty())
+        assertFalse(rejected.trace.any { trace ->
+            trace is SkillRunTrace.AwaitingConfirmation &&
+                trace.toolName == MobileActionFunctions.SHARE_TEXT
+        })
+        assertFalse(rejected.outputs.toString().contains(rawScreenText))
+        assertFalse(rejected.trace.toString().contains(rawScreenText))
+        assertFalse(requireNotNull(awaitingRead.continuation).toString().contains(rawScreenText))
     }
 
     @Test

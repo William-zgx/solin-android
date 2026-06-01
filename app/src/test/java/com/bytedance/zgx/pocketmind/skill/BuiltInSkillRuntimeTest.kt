@@ -27,6 +27,7 @@ class BuiltInSkillRuntimeTest {
         assertTrue(BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.SHARE_TEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL in manifests)
+        assertTrue(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL in manifests)
@@ -149,6 +150,7 @@ class BuiltInSkillRuntimeTest {
                 ),
             ),
             "总结剪贴板并分享" to runtime.planClipboardSummaryShare("总结剪贴板并分享"),
+            "总结当前屏幕文字并分享" to requireNotNull(runtime.plan("总结当前屏幕文字并分享")),
             "识别最近截图文字" to requireNotNull(runtime.plan("识别最近截图文字")),
             "识别最近图片文字" to requireNotNull(runtime.plan("识别最近图片文字")),
             "最近图片" to requireNotNull(runtime.plan("最近图片")),
@@ -1051,6 +1053,48 @@ class BuiltInSkillRuntimeTest {
         assertEquals(MobileActionFunctions.SHARE_TEXT, shareStep.request.toolName)
         assertEquals(listOf(summarizeStep.id), shareStep.dependsOn)
         assertEquals(mapOf("text" to "summarize_clipboard.shareText"), shareStep.argumentBindings)
+    }
+
+    @Test
+    fun plansCurrentScreenTextSummaryShareAsOrderedCompositeSkill() {
+        val plan = runtime.planCurrentScreenTextSummaryShare("总结当前屏幕文字并分享")
+
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL, plan.request.skillId)
+        assertEquals(
+            listOf(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, MobileActionFunctions.SHARE_TEXT),
+            plan.manifest.requiredTools,
+        )
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+        assertEquals(3, plan.steps.size)
+
+        val readStep = plan.steps[0]
+        require(readStep is SkillStep.ToolStep)
+        assertEquals("read_current_screen_text", readStep.id)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, readStep.request.toolName)
+        assertEquals(mapOf("maxChars" to "2000"), readStep.request.arguments)
+        assertTrue(readStep.dependsOn.isEmpty())
+
+        val summarizeStep = plan.steps[1]
+        require(summarizeStep is SkillStep.ModelStep)
+        assertEquals("summarize_current_screen_text", summarizeStep.id)
+        assertEquals(listOf(readStep.id), summarizeStep.dependsOn)
+        assertEquals(mapOf("screenText" to "read_current_screen_text.screenText"), summarizeStep.inputBindings)
+        assertEquals("shareText", summarizeStep.outputKey)
+        assertTrue(summarizeStep.keepsSensitiveInputLocal)
+
+        val shareStep = plan.steps[2]
+        require(shareStep is SkillStep.ToolStep)
+        assertEquals("share_screen_summary", shareStep.id)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, shareStep.request.toolName)
+        assertEquals(listOf(summarizeStep.id), shareStep.dependsOn)
+        assertEquals(mapOf("text" to "summarize_current_screen_text.shareText"), shareStep.argumentBindings)
+    }
+
+    @Test
+    fun currentScreenTextSummaryShareRejectsFalsePositiveQuestionsAndNegations() {
+        assertEquals(null, runtime.plan("如何总结当前屏幕文字并分享"))
+        assertEquals(null, runtime.plan("不要总结当前屏幕文字并分享"))
+        assertEquals(null, runtime.plan("explain how to summarize current screen text and share it"))
     }
 
     @Test

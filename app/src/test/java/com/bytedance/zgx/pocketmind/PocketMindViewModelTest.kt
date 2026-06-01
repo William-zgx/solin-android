@@ -538,6 +538,140 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun currentScreenTextSummaryShareShowsSecondConfirmationAfterLocalSummary() = runTest(dispatcher) {
+        val rawScreenText = "当前屏幕里的私密验证码 654321"
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val localRuntime = FakeLiteRtRuntime(localResponse = "屏幕摘要：验证码仅用于本地确认")
+        val readRequest = ToolRequest(
+            toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            arguments = mapOf("maxChars" to "2000"),
+        )
+        val readDraft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            title = "读取当前屏幕文本",
+            summary = "将读取当前屏幕的可访问文本快照，用于生成可分享摘要。",
+            parameters = readRequest.arguments,
+        )
+        val shareRequest = ToolRequest(
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "屏幕摘要：验证码仅用于本地确认"),
+            reason = "将打开系统分享面板并填入上一步生成的屏幕文本摘要。",
+        )
+        val shareDraft = ActionDraft(
+            functionName = MobileActionFunctions.SHARE_TEXT,
+            title = "分享屏幕摘要",
+            summary = "将打开系统分享面板并填入上一步生成的屏幕文本摘要。",
+            parameters = shareRequest.arguments,
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-screen-share",
+                toolRequest = readRequest,
+                draft = readDraft,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
+            ),
+            confirmedRun = AgentRun("run-screen-share", "总结当前屏幕文字并分享", AgentRunState.ExecutingTool, 1L, 2L),
+            toolObservation = AgentObservationResult(
+                run = AgentRun("run-screen-share", "总结当前屏幕文字并分享", AgentRunState.GeneratingAnswer, 1L, 3L),
+                result = ToolResult(
+                    requestId = readRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取当前屏幕可访问文本快照",
+                    data = mapOf(
+                        "screenText" to "[redacted]",
+                        "screenTextIncluded" to "true",
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                    ),
+                ),
+                assistantMessage = "工具执行结果：已读取当前屏幕可访问文本快照",
+                decision = AgentObservationDecision.ContinueWithModel(
+                    requiresLocalModel = true,
+                    reason = "当前屏幕文本仅可在本地继续处理。",
+                ),
+                continuationPromptForModel = "请摘要当前屏幕文本：$rawScreenText",
+                continuationRequiresLocalModel = true,
+                steps = emptyList(),
+            ),
+            modelObservation = AgentModelObservationResult(
+                run = AgentRun("run-screen-share", "总结当前屏幕文字并分享", AgentRunState.AwaitingUserConfirmation, 1L, 4L),
+                decision = AgentObservationDecision.PlanNextTool(
+                    plan = AgentPlan.UseTool(
+                        request = shareRequest,
+                        draft = shareDraft,
+                        plannedByModel = false,
+                        fallbackReason = "skill model step",
+                        skillRequest = SkillRequest(
+                            id = "skill-screen-share",
+                            skillId = BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
+                            arguments = mapOf("input" to "总结当前屏幕文字并分享"),
+                            reason = "总结当前屏幕文字并分享",
+                        ),
+                        safetyDecision = SafetyDecision(
+                            outcome = SafetyOutcome.RequireConfirmation,
+                            reason = "Tool share_text requires user confirmation before execution.",
+                        ),
+                    ),
+                    reason = "Model output satisfied the next skill step.",
+                ),
+                steps = emptyList(),
+            ),
+        )
+        val actionExecutor = object : ToolExecutor {
+            override fun execute(request: ToolRequest): ToolResult =
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取当前屏幕可访问文本快照",
+                    data = mapOf(
+                        "screenText" to rawScreenText,
+                        "screenTextIncluded" to "true",
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                    ),
+                )
+        }
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            runtime = localRuntime,
+            remoteRuntime = remoteRuntime,
+            assistantRouter = assistantRouter,
+            actionExecutor = actionExecutor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("总结当前屏幕文字并分享")
+        advanceUntilIdle()
+        val firstConfirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(firstConfirmation)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, firstConfirmation.draft.functionName)
+
+        viewModel.confirmAgentConfirmation(firstConfirmation)
+        advanceUntilIdle()
+
+        val secondConfirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(secondConfirmation)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, secondConfirmation.draft.functionName)
+        assertEquals("屏幕摘要：验证码仅用于本地确认", secondConfirmation.toolRequest?.arguments?.get("text"))
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL, secondConfirmation.skillId)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(
+            listOf(
+                MessagePrivacy.LocalOnly,
+                MessagePrivacy.LocalOnly,
+                MessagePrivacy.LocalOnly,
+                MessagePrivacy.LocalOnly,
+            ),
+            sessionStore.messages.map { it.privacy },
+        )
+        assertTrue(sessionStore.messages.last().text.contains("屏幕摘要：验证码仅用于本地确认"))
+        assertTrue(sessionStore.messages.none { message -> message.text.contains(rawScreenText) })
+    }
+
+    @Test
     fun remoteModeProtectsRecentScreenshotOcrBeforeRemoteContinuation() = runTest(dispatcher) {
         val rawOcrText = "截图里的私密验证码 123456"
         val remoteRuntime = RecordingRemoteChatRuntime()
@@ -832,6 +966,109 @@ class PocketMindViewModelTest {
         val confirmation = viewModel.uiState.value.pendingConfirmation
         requireNotNull(confirmation)
         assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, confirmation.draft.functionName)
+
+        viewModel.confirmAgentConfirmation(confirmation)
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals("已保护当前屏幕文本", viewModel.uiState.value.statusText)
+        assertTrue(sessionStore.messages.last().text.contains("不会自动发送当前屏幕文本到远程模型"))
+        assertTrue(sessionStore.messages.none { message -> message.text.contains(rawScreenText) })
+    }
+
+    @Test
+    fun remoteModeProtectsCurrentScreenTextSummaryShareBeforeRemoteContinuation() = runTest(dispatcher) {
+        val rawScreenText = "当前屏幕里的私密验证码 654321"
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val readRequest = ToolRequest(
+            toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            arguments = mapOf("maxChars" to "2000"),
+        )
+        val readDraft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            title = "读取当前屏幕文本",
+            summary = "将读取当前屏幕的可访问文本快照，用于生成可分享摘要。",
+            parameters = readRequest.arguments,
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-screen-share",
+                toolRequest = readRequest,
+                draft = readDraft,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
+            ),
+            confirmedRun = AgentRun(
+                "run-screen-share",
+                "总结当前屏幕文字并分享",
+                AgentRunState.ExecutingTool,
+                1L,
+                2L,
+            ),
+            toolObservation = AgentObservationResult(
+                run = AgentRun(
+                    "run-screen-share",
+                    "总结当前屏幕文字并分享",
+                    AgentRunState.GeneratingAnswer,
+                    1L,
+                    3L,
+                ),
+                result = ToolResult(
+                    requestId = readRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取当前屏幕可访问文本快照",
+                    data = mapOf(
+                        "screenText" to "[redacted]",
+                        "screenTextIncluded" to "true",
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                    ),
+                ),
+                assistantMessage = "工具执行结果：已读取当前屏幕可访问文本快照",
+                decision = AgentObservationDecision.ContinueWithModel(
+                    requiresLocalModel = true,
+                    reason = "当前屏幕文本仅可在本地继续处理。",
+                ),
+                continuationPromptForModel = "请摘要当前屏幕文本并分享：$rawScreenText",
+                continuationRequiresLocalModel = true,
+                steps = emptyList(),
+            ),
+        )
+        val actionExecutor = object : ToolExecutor {
+            override fun execute(request: ToolRequest): ToolResult =
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取当前屏幕可访问文本快照",
+                    data = mapOf(
+                        "screenText" to rawScreenText,
+                        "screenTextIncluded" to "true",
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                    ),
+                )
+        }
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            actionExecutor = actionExecutor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("总结当前屏幕文字并分享")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+        assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, confirmation.draft.functionName)
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL, confirmation.skillId)
 
         viewModel.confirmAgentConfirmation(confirmation)
         advanceUntilIdle()

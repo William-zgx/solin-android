@@ -175,8 +175,10 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 - “读取剪贴板” 应进入剪贴板上下文 Skill，最终使用 `read_clipboard` 工具且仍需确认。
 - “分享这段文字：明天十点开会” 应进入系统分享 Skill，最终使用 `share_text` 工具且仍需确认。
 - “总结剪贴板并分享” 即使不先进入普通动作草稿识别，也应进入剪贴板摘要分享 Skill：先确认 `read_clipboard`，本地摘要后再确认 `share_text`。
+- “总结当前屏幕文字并分享” 应进入当前屏幕文本摘要分享 Skill：先确认 `read_current_screen_text`，只用本地模型摘要后再确认 `share_text`；raw `screenText` 不应直接绑定到 `share_text.text`，也不应进入远程 runtime、持久 trace、audit、长期消息或 checkpoint。
 - 声明式多步 Skill 的模型输出只能通过 `argumentBindings` 进入后续工具确认卡；缺失 binding 或直接绑定私密工具原文到外发工具时应失败，不应生成确认卡、执行外发工具或泄漏原文。
 - “总结剪贴板并分享” 到第二个 `share_text` 确认卡后杀进程并重启 App，如果该确认卡包含模型生成的外发 payload，应 fail closed，不应恢复摘要参数、自动打开分享面板、重跑旧 `read_clipboard`，或让旧 request id 继续推进。
+- “总结当前屏幕文字并分享” 到第二个 `share_text` 确认卡后杀进程并重启 App，也应 fail closed，不应恢复摘要参数、自动打开分享面板、重跑旧 `read_current_screen_text`，或让旧 request id 继续推进。
 - 多步 Skill 的 pending checkpoint 只能持久化 run/request/step id、manifest identity、输出 key 名和 private-output refs；不得写入 `SkillRunContinuation.outputs` 值、模型输出、剪贴板/OCR/屏幕文本、工具参数明文或原始用户输入。checkpoint 与 redacted `SkillPlan` 或当前工具 registry 不匹配时应 fail closed。
 - 多步 Skill 在任一待确认工具处取消后，不应继续执行后续工具；已读取的私密工具输出不应出现在公开 trace、audit 或 UI 摘要里。
 - Skill manifest 输入 schema 契约由 JVM 覆盖：有效自然语言输入会以 `input` 字段进入对应 Skill；缺失、空白或额外 Skill 输入字段不应生成确认卡，也不应调用工具。模拟器/真机仍用于验证确认卡和多步 UI 链路。

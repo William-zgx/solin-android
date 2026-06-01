@@ -45,9 +45,12 @@ Google AI Edge LiteRT-LM.
   and system sharing, with manifest input schemas enforced before confirmation
   or execution.
 - Skill-first routing for explicit clipboard context, current-app notification
-  summary, current-screen Accessibility text, and clipboard-summary-share
-  requests that do not need action-planner parameter extraction.
-- A conservative clipboard-summary-share composite flow that keeps summarization local and asks again before opening the Android share sheet.
+  summary, current-screen Accessibility text, clipboard-summary-share, and
+  current-screen-text-summary-share requests that do not need action-planner
+  parameter extraction.
+- Conservative clipboard-summary-share and current-screen-text-summary-share
+  composite flows that keep summarization local and ask again before opening
+  the Android share sheet.
 - AlarmManager-backed local reminder scheduling with a dedicated notification channel.
 - Running background task review for still-scheduled reminders and periodic checks, including explicit cancellation.
 - Recent tool audit review from the background task entry, limited to redacted event metadata.
@@ -195,6 +198,12 @@ analysis, or semantic screen understanding; raw `screenText` must not enter
 trace, audit, persisted tool-observation messages, or remote model requests.
 Accessibility access is modeled as special access, not an Android runtime
 permission.
+Requests such as “总结当前屏幕文字并分享” use one constrained composite flow:
+after the user confirms the current-screen Accessibility text read, PocketMind
+summarizes locally, then opens a second confirmation for `share_text` with the
+generated summary. The raw `screenText` cannot be bound directly to
+`share_text`, and a restarted app fails closed at the payload-bearing share
+confirmation instead of restoring or sending the summary.
 Requests such as “总结剪贴板并分享” use one constrained composite flow: after
 the user confirms the clipboard read, PocketMind summarizes locally, then opens
 a second confirmation for `share_text` with the generated summary. The share
@@ -234,7 +243,7 @@ in-app picker text plus bounded `text/*` document excerpt ingestion, bounded
 RTF and Office Open XML text-layer excerpts, system speech-recognition input,
 confirmed recent screenshot/image OCR, and restart restoration for the latest
 pending tool confirmation without auto-execution, plus confirmed current-screen
-Accessibility text snapshot reads.
+Accessibility text snapshot reads and current-screen text summary sharing.
 Broad semantic screen understanding, generalized typed run recovery, complete
 document parsing, screenshot capture/current-screen semantic understanding,
 PDF parsing, legacy Office parsing, full rich-text fidelity, image semantic understanding,

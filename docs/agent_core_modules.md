@@ -94,10 +94,11 @@ Current status:
 
 - Implemented single-run planning for chat and tool requests.
 - Implemented conservative Skill-first routing for explicit clipboard context,
-  current-screen Accessibility text, and clipboard-summary-share requests.
-  These requests can enter `AwaitingUserConfirmation` without first being
-  classified by the action planner, because their first tool step does not
-  require model-driven parameter extraction.
+  current-screen Accessibility text, clipboard-summary-share, and
+  current-screen-text-summary-share requests. These requests can enter
+  `AwaitingUserConfirmation` without first being classified by the action
+  planner, because their first tool step does not require model-driven
+  parameter extraction.
 - Implemented confirmation state and post-confirmation observation.
 - Confirmed clipboard observations can now create a follow-up model prompt so
   the assistant can answer from the just-read tool result instead of stopping at
@@ -162,7 +163,7 @@ Current status:
 - Model-bound multi-step Skills that reach a second confirmation persist that
   second pending tool request as the active pending confirmation. If that
   request carries model-produced outbound payload, startup restore fails the run
-  closed; confirm or observe calls using either the earlier `read_clipboard`
+  closed; confirm or observe calls using either the earlier private-read
   request id or the un-restored share request id cannot advance, rerun, or
   overwrite the current run.
 - Completed persisted runs now rehydrate summary-only `RestoredSummary` steps
@@ -256,6 +257,12 @@ Current status:
   screen-understanding phrasing, and routes to confirmed
   `read_current_screen_text` with `LocalOnly` private `screenText` output and
   Accessibility special-access handling rather than Android runtime permission.
+- Explicit current-screen-text summary share requests now have a constrained
+  composite Skill: confirmed `read_current_screen_text`, local-only `ModelStep`
+  summary, then a second confirmed `share_text`. Raw `screenText` remains a
+  private tool output and cannot bind directly to `share_text.text`; if the app
+  restarts at the payload-bearing share confirmation, restore fails closed
+  instead of recovering the generated text or rerunning the screen read.
 - Skill model-step results can now be consumed generically: when a declarative
   `ToolStep` depends on a `ModelStep`, the model output is bound through the
   tool step's `argumentBindings`, then validated, safety-checked, audited, and
@@ -419,6 +426,8 @@ Tests:
 
 - `BuiltInSkillRuntimeTest`
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareAsOrderedCompositeSkill`
+- `BuiltInSkillRuntimeTest.plansCurrentScreenTextSummaryShareAsOrderedCompositeSkill`
+- `BuiltInSkillRuntimeTest.currentScreenTextSummaryShareRejectsFalsePositiveQuestionsAndNegations`
 - `BuiltInSkillRuntimeTest.routesClipboardSummaryShareInputToCompositePlan`
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareWithoutActionDraft`
 - `BuiltInSkillRuntimeTest.clipboardSummaryShareSkillFirstRejectsSequentialFollowUp`

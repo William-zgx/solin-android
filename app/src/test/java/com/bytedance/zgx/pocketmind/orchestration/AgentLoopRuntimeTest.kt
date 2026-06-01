@@ -1741,6 +1741,77 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun currentScreenTextSummarySharePlansShareAfterLocalModelResult() {
+        val auditSink = InMemoryToolAuditSink()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val rawScreenText = "当前屏幕里的私密验证码 654321"
+        val modelSummary = "屏幕摘要：验证码仅用于本地确认。"
+        val planned = runtime.runOnce(
+            input = "总结当前屏幕文字并分享",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL, planned.plan.skillRequest?.skillId)
+        assertTrue(planned.plan.skillPlan?.steps?.size == 3)
+        assertTrue(planned.steps.any { step ->
+            step is AgentStep.SkillPlanned &&
+                step.plan?.request?.skillId == BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL
+        })
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕可访问文本快照",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
+                    "screenText" to rawScreenText,
+                    "truncated" to "false",
+                    "screenTextIncluded" to "true",
+                ),
+            ),
+        )
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("摘要当前屏幕文本"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("适合分享的简短摘要"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains(rawScreenText))
+        assertFalse(observed.continuationPromptForModel.orEmpty().contains("不是截图捕获"))
+        assertEquals("[redacted]", observed.result.data["screenText"])
+        assertTrue(!observed.steps.toString().contains(rawScreenText))
+
+        val modelObserved = runtime.observeModelResult(planned.run.id, modelSummary)
+
+        requireNotNull(modelObserved)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, modelObserved.run.state)
+        require(modelObserved.decision is AgentObservationDecision.PlanNextTool)
+        val sharePlan = modelObserved.decision.plan
+        assertEquals(MobileActionFunctions.SHARE_TEXT, sharePlan.request.toolName)
+        assertEquals(modelSummary, sharePlan.request.arguments["text"])
+        assertEquals(modelSummary, sharePlan.draft.parameters["text"])
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL, sharePlan.skillRequest?.skillId)
+        assertEquals(
+            listOf(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, MobileActionFunctions.SHARE_TEXT),
+            modelObserved.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+        )
+        assertTrue(modelObserved.steps.toString().contains(modelSummary))
+        assertTrue(!modelObserved.steps.toString().contains(rawScreenText))
+        assertTrue(!auditSink.events.toString().contains(rawScreenText))
+        assertTrue(!auditSink.events.toString().contains(modelSummary))
+    }
+
+    @Test
     fun modelStepOutputBindsToDependentToolStepAndRequestsConfirmation() {
         val customSkillRuntime = CustomClipboardTransformSkillRuntime()
         val runtime = AgentLoopRuntime(
@@ -2926,6 +2997,104 @@ class AgentLoopRuntimeTest {
         assertTrue(!persistedTrace.contains(rawClipboardText))
         assertTrue(!persistedTrace.contains(modelSummary))
         assertTrue(!auditSink.events.toString().contains(rawClipboardText))
+        assertTrue(!auditSink.events.toString().contains(modelSummary))
+    }
+
+    @Test
+    fun restoredCurrentScreenTextSummarySharePendingFailsClosedAfterRestart() {
+        val dao = FakeAgentTraceDao()
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-restored-screen-share" },
+            ),
+        )
+        val rawScreenText = "重启后不应重新进入 trace 的屏幕文本"
+        val modelSummary = "摘要：恢复后可分享的屏幕摘要"
+        val planned = initialRuntime.runOnce(
+            input = "总结当前屏幕文字并分享",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        val readRequestId = planned.plan.request.id
+        initialRuntime.confirmToolRequest(planned.run.id, readRequestId)
+        val readObserved = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = readRequestId,
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕可访问文本快照",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                    "screenText" to rawScreenText,
+                    "screenTextIncluded" to "true",
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
+                ),
+            ),
+        )
+        requireNotNull(readObserved)
+        assertEquals(AgentRunState.GeneratingAnswer, readObserved.run.state)
+
+        val modelObserved = initialRuntime.observeModelResult(planned.run.id, modelSummary)
+
+        requireNotNull(modelObserved)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, modelObserved.run.state)
+        require(modelObserved.decision is AgentObservationDecision.PlanNextTool)
+        val shareRequestId = modelObserved.decision.plan.request.id
+        assertEquals(MobileActionFunctions.SHARE_TEXT, modelObserved.decision.plan.request.toolName)
+        assertEquals(modelSummary, modelObserved.decision.plan.request.arguments["text"])
+        val persistedPending = dao.latestPendingConfirmation()
+        requireNotNull(persistedPending)
+        assertEquals(shareRequestId, persistedPending.requestId)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, persistedPending.toolName)
+        assertFalse(JSONObject(persistedPending.argumentsJson).has("text"))
+        assertFalse(JSONObject(persistedPending.draftParametersJson).has("text"))
+        assertFalse(persistedPending.argumentsJson.contains(modelSummary))
+        assertFalse(persistedPending.draftParametersJson.contains(modelSummary))
+        assertNull(persistedPending.nextActionInput)
+
+        val restoredTraceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 2_000L },
+        )
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = restoredTraceStore,
+        )
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+
+        assertNull(restoredPending)
+        assertEquals(AgentRunState.Failed, restoredTraceStore.run(planned.run.id)?.state)
+        assertNull(restoredRuntime.latestPendingConfirmation())
+        assertTrue(dao.pendingConfirmations().isEmpty())
+        assertTrue(restoredTraceStore.steps(planned.run.id).any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending tool confirmation could not be restored")
+        })
+        assertFalse(
+            restoredRuntime.confirmToolRequest(planned.run.id, shareRequestId)?.state ==
+                AgentRunState.ExecutingTool,
+        )
+        assertFalse(
+            restoredRuntime.confirmToolRequest(planned.run.id, readRequestId)?.state ==
+                AgentRunState.ExecutingTool,
+        )
+        val persistedTrace = dao.steps(planned.run.id).joinToString("\n") { step ->
+            "${step.summary}\n${step.json}"
+        }
+        assertTrue(!persistedTrace.contains(rawScreenText))
+        assertTrue(!persistedTrace.contains(modelSummary))
+        assertTrue(!auditSink.events.toString().contains(rawScreenText))
         assertTrue(!auditSink.events.toString().contains(modelSummary))
     }
 

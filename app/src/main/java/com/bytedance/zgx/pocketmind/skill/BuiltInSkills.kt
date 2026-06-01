@@ -57,7 +57,11 @@ class BuiltInSkillRuntime : SkillRuntime {
 
     override fun plan(input: String): SkillPlan? =
         when {
+            input.looksLikeCurrentScreenTextSummaryShareNonAction(input.lowercase()) -> null
             !input.looksLikeSequentialAction() && input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
+            !input.looksLikeSequentialAction() && input.requestsCurrentScreenTextSummaryShare() ->
+                planCurrentScreenTextSummaryShare(input)
+
             !input.looksLikeSequentialAction() && MapSearchActionParser.matches(input) ->
                 plan(input, MapSearchActionParser.draft(input).toRequestPair())
 
@@ -240,6 +244,68 @@ class BuiltInSkillRuntime : SkillRuntime {
         )
     }
 
+    fun planCurrentScreenTextSummaryShare(
+        input: String,
+        readRequest: ToolRequest? = null,
+        readDraft: ActionDraft? = null,
+    ): SkillPlan {
+        val manifest = manifestsById.getValue(CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL)
+        val readStepId = "read_current_screen_text"
+        val summarizeStepId = "summarize_current_screen_text"
+
+        val resolvedReadDraft = readDraft ?: CurrentScreenTextActionParser.draft(input).copy(
+            summary = "将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。",
+        )
+        val resolvedReadRequest = readRequest ?: ToolRequest(
+            toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            arguments = resolvedReadDraft.parameters,
+            reason = resolvedReadDraft.summary,
+        )
+        val shareDraft = ActionDraft(
+            functionName = MobileActionFunctions.SHARE_TEXT,
+            title = "分享屏幕摘要",
+            summary = "将打开系统分享面板并填入上一步生成的屏幕文本摘要。",
+            parameters = emptyMap(),
+        )
+        val shareRequest = ToolRequest(
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            reason = shareDraft.summary,
+        )
+
+        return SkillPlan(
+            request = SkillRequest(
+                id = UUID.randomUUID().toString(),
+                skillId = CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
+                arguments = mapOf("input" to input),
+                reason = input,
+            ),
+            manifest = manifest,
+            steps = listOf(
+                SkillStep.ToolStep(
+                    id = readStepId,
+                    request = resolvedReadRequest,
+                    draft = resolvedReadDraft,
+                ),
+                SkillStep.ModelStep(
+                    id = summarizeStepId,
+                    dependsOn = listOf(readStepId),
+                    title = "摘要当前屏幕文本",
+                    instruction = "把用户确认读取的当前屏幕 Accessibility 文本整理成适合分享的简短摘要，语言尽量跟随用户请求。",
+                    inputBindings = mapOf("screenText" to "$readStepId.screenText"),
+                    outputKey = "shareText",
+                    keepsSensitiveInputLocal = true,
+                ),
+                SkillStep.ToolStep(
+                    id = "share_screen_summary",
+                    dependsOn = listOf(summarizeStepId),
+                    request = shareRequest,
+                    draft = shareDraft,
+                    argumentBindings = mapOf("text" to "$summarizeStepId.shareText"),
+                ),
+            ),
+        )
+    }
+
     companion object {
         const val EMAIL_DRAFT_SKILL = "email_draft_skill"
         const val CALENDAR_DRAFT_SKILL = "calendar_draft_skill"
@@ -251,6 +317,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val CLIPBOARD_CONTEXT_SKILL = "clipboard_context_skill"
         const val SHARE_TEXT_SKILL = "share_text_skill"
         const val CLIPBOARD_SUMMARY_SHARE_SKILL = "clipboard_summary_share_skill"
+        const val CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL = "current_screen_text_summary_share_skill"
         const val RECENT_SCREENSHOT_OCR_CONTEXT_SKILL = "recent_screenshot_ocr_context_skill"
         const val RECENT_IMAGE_OCR_CONTEXT_SKILL = "recent_image_ocr_context_skill"
         const val RECENT_FILES_CONTEXT_SKILL = "recent_files_context_skill"
@@ -263,6 +330,48 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val APP_NAVIGATION_SKILL = "app_navigation_skill"
     }
 }
+
+private fun String.requestsCurrentScreenTextSummaryShare(): Boolean {
+    val normalized = lowercase()
+    if (looksLikeCurrentScreenTextSummaryShareNonAction(normalized)) return false
+    val referencesCurrentScreen = currentScreenTextReferences(normalized)
+    val asksForSummary = listOf("总结", "摘要", "概括", "归纳").any { it in this } ||
+        Regex("""\b(summarize|summary|brief|recap)\b""").containsMatchIn(normalized)
+    val asksToShare = "分享" in this ||
+        Regex("""\bshare\b""").containsMatchIn(normalized)
+    return referencesCurrentScreen && asksForSummary && asksToShare
+}
+
+private fun String.currentScreenTextReferences(normalized: String): Boolean =
+    listOf(
+        "当前屏幕",
+        "当前界面",
+        "现在屏幕",
+        "屏幕内容",
+        "屏幕文字",
+        "屏幕文本",
+        "这个界面",
+    ).any { marker -> marker in this } ||
+        Regex("""\b(current|active|this)\s+(screen|page|window|view)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized) ||
+        Regex("""\bcurrent\s+(?:visible|accessibility|accessible)\s+text\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
+
+private fun String.looksLikeCurrentScreenTextSummaryShareNonAction(normalized: String): Boolean =
+    (
+        Regex("""^\s*(?:请问|问一下|如何|怎么|怎样|为什么|解释|说明|介绍)""").containsMatchIn(this) ||
+            Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b""").containsMatchIn(normalized)
+        ) &&
+        currentScreenTextReferences(normalized) &&
+        ("分享" in this || Regex("""\bshare\b""").containsMatchIn(normalized)) ||
+        Regex("""^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:不想|不需要|不用|不必|不要|别|请勿|请不要|先别|暂时别|不).*(?:总结|摘要|概括|归纳).*(?:当前屏幕|当前界面|现在屏幕|屏幕内容|屏幕文字|屏幕文本|这个界面).*(?:分享)""")
+        .containsMatchIn(this) ||
+        Regex("""^\s*(?:请问|问一下|如何|怎么|怎样|为什么|解释|说明|介绍).*(?:总结|摘要|概括|归纳).*(?:当前屏幕|当前界面|现在屏幕|屏幕内容|屏幕文字|屏幕文本|这个界面).*(?:分享)""")
+            .containsMatchIn(this) ||
+        Regex("""^\s*(?:(?:please\s+)?(?:do\s+not|don't|dont|never)|i\s+(?:do\s+not|don't|dont)\s+want\s+to)\b.*\b(?:summarize|summary|brief|recap)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view)\b.*\bshare\b""")
+            .containsMatchIn(normalized) ||
+        Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b.*\b(?:summarize|summary|brief|recap)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view)\b.*\bshare\b""")
+            .containsMatchIn(normalized)
 
 private fun String.requestsClipboardSummaryShare(): Boolean {
     val normalized = lowercase()
@@ -455,6 +564,19 @@ private val builtInSkillManifests = listOf(
         triggerExamples = listOf("总结剪贴板并分享", "summarize my clipboard and share it"),
         requiredTools = listOf(
             MobileActionFunctions.READ_CLIPBOARD,
+            MobileActionFunctions.SHARE_TEXT,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.HighExternalSend,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
+        version = 1,
+        title = "当前屏幕文本摘要分享",
+        description = "读取当前屏幕 Accessibility 文本，先由本地模型生成摘要，再通过系统分享面板外发。",
+        triggerExamples = listOf("总结当前屏幕文字并分享", "summarize current screen text and share it"),
+        requiredTools = listOf(
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
             MobileActionFunctions.SHARE_TEXT,
         ),
         inputSchemaJson = simpleTextInputSchema,
