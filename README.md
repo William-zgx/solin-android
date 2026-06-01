@@ -426,6 +426,7 @@ docs/
   agent_core_modules.md    Agent core module ownership and status
   phone_acceptance.md       Manual device acceptance checklist
   privacy_notice.md        Local/remote privacy boundary summary for release review
+  release_checklist.md     Manual release candidate checklist
   release_readiness.md      External distribution checklist
   validation_report.md      Recent validation notes
 scripts/

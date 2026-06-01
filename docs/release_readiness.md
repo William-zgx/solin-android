@@ -11,6 +11,8 @@ items below.
 - Privacy notice drafted for local chat storage, remote context transfer,
   encrypted API key storage, model downloads, Android intents, device context
   tools, audit traces, and retention controls.
+- Manual release checklist added for store metadata, screenshots,
+  privacy/license review, signing, test gates, and rollback planning.
 - Recommended downloads are registered only after SHA-256 verification.
 - Legacy recommended files are registered as `LegacyUnverified` and verified
   asynchronously before they can become active.
@@ -37,4 +39,3 @@ items below.
 - Configure release signing outside source control.
 - Run `connectedDebugAndroidTest` on a physical device or a prepared emulator
   before publishing a release candidate.
-- Add a manual release checklist for store metadata, screenshots, and rollback.

@@ -1,5 +1,26 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Release checklist 增量验证
+
+本轮覆盖项：
+
+- 新增 `docs/release_checklist.md`，覆盖 release scope、store metadata、
+  screenshots、privacy/license、signing/build、device/emulator validation、
+  rollback 和 final gate。
+- `docs/release_readiness.md` 将手工 release checklist 从 Remaining 移到
+  Completed；release signing、模型 license 人工核对和 connected/emulator
+  release candidate 验证仍保留为 Remaining。
+- README 文档目录补充 release checklist。
+
+验证命令：
+
+```bash
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+```
+
+结果：通过。该切片仅更新文档，未运行 Gradle。
+
 ## 2026-06-02 Release privacy/model docs 增量验证
 
 本轮覆盖项：
