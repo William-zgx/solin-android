@@ -1,5 +1,47 @@
 # PocketMind 验证报告
 
+## 2026-06-01 RTF shared-input text-layer excerpt 增量验证
+
+本轮覆盖项：
+
+- 用户主动分享或选择 `application/rtf` / `text/rtf` 附件时，可以在本地读取
+  有界 RTF 文本层摘录，最多读取 96 KiB、最多进入 prompt 4000 字符。
+- `text/rtf` 不再走通用 `text/*` raw preview；RTF preview 只在附件 kind 为
+  `Document` 且 MIME 为 RTF 时进入 shared-input prompt。
+- RTF 摘录跳过常见 metadata / object / pict / style destination，并保持
+  `LocalOnly` shared-input 边界；远程模式在构造 prompt 前拒绝，不会自动发送
+  分享文本、RTF/Office 摘录、OCR 摘录、附件名或附件元数据。
+- 本轮是 best-effort 文本层摘录，不实现完整富文档解析、版式理解、codepage
+  保真、PDF 解析或旧版 Office 解析。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --rerun-tasks \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedRichTextPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt'
+```
+
+结果：targeted RTF/Text/OCR/Office shared-input 和远程模式保护回归测试通过。
+
+补充验证：
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：全量 JVM 单测、AndroidTest Kotlin 编译、diff whitespace 检查、敏感串扫描
+和本地完整验证脚本通过。
+
 ## 2026-06-01 Value-free Skill checkpoint persistence 增量验证
 
 本轮覆盖项：
@@ -91,8 +133,8 @@ scripts/verify_local.sh
   附件可以在本地解析 ZIP XML 文本层，生成最多 4000 字符的用户可见摘录。
 - 摘录只进入自动生成的 `LocalOnly` shared-input prompt；远程模型模式下不构造
   包含文件名、附件元数据或文档摘录的 prompt，也不会调用远程 runtime。
-- PDF、RTF、旧版 Office 二进制、音频、视频、任意二进制文件仍保持
-  metadata-only；本轮不实现完整文档解析、PDF 解析、版式理解或语义理解。
+- PDF、旧版 Office 二进制、音频、视频、任意二进制文件仍保持 metadata-only；
+  本轮不实现完整文档解析、PDF 解析、版式理解或语义理解。
 - 解析器限制 ZIP entry 数量、XML entry bytes、总 XML bytes 和 prompt 字符数，
   并使用禁用外部实体的 XML parser。
 
@@ -1633,8 +1675,8 @@ adb devices -l
 
 - Android share-target 的 `ACTION_SEND` / `ACTION_SEND_MULTIPLE` MIME 覆盖与
   in-app document picker 对齐，补齐 RTF、legacy Office 和 OOXML Office 类型。
-- Office / RTF 分享仍复用现有 `SharedInput` metadata-only 边界，不读取正文、
-  不做 PDF/Office 解析。
+- 该轮的 Office 与 RTF 分享仍复用当时的 `SharedInput` 只读元数据边界，
+  不读取正文、不做 PDF/Office 解析。
 - `query_recent_notifications` 的草稿文案收窄为“当前应用最近通知摘要”，与
   provider 只读取本应用 active notification 摘要的实现一致，不再暗示“未读”或
   跨 App 通知读取。

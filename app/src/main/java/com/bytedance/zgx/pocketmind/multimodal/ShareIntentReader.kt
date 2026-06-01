@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
+import java.io.InputStream
 
 class ShareIntentReader(
     private val context: Context,
@@ -56,14 +57,12 @@ class ShareIntentReader(
         val resolvedMimeType = runCatching { context.contentResolver.getType(this) }.getOrNull() ?: intentMimeType
         val metadata = queryMetadata(this)
         val kind = sharedAttachmentKindFor(resolvedMimeType)
-        val textPreview = when {
-            canReadTextPreviewFor(resolvedMimeType) -> readTextPreview()
-            canReadOfficeOpenXmlTextPreviewFor(resolvedMimeType) -> readOfficeOpenXmlTextPreview(resolvedMimeType)
-            kind == SharedAttachmentKind.Image && canReadImageTextPreviewFor(resolvedMimeType) ->
-                imageTextExtractor.extract(this)
-
-            else -> null
-        }
+        val textPreview = readSharedAttachmentTextPreview(
+            mimeType = resolvedMimeType,
+            kind = kind,
+            openInputStream = { context.contentResolver.openInputStream(this) },
+            extractImageText = { imageTextExtractor.extract(this) },
+        )
         return SharedAttachment(
             kind = kind,
             mimeType = resolvedMimeType,
@@ -72,20 +71,6 @@ class ShareIntentReader(
             textPreview = textPreview,
         )
     }
-
-    private fun Uri.readTextPreview(): SharedTextPreview? =
-        runCatching {
-            context.contentResolver.openInputStream(this)?.use { input ->
-                TextAttachmentPreviewReader.read(input)
-            }
-        }.getOrNull()
-
-    private fun Uri.readOfficeOpenXmlTextPreview(mimeType: String?): SharedTextPreview? =
-        runCatching {
-            context.contentResolver.openInputStream(this)?.use { input ->
-                OfficeOpenXmlPreviewReader.read(input, mimeType)
-            }
-        }.getOrNull()
 
     private fun queryMetadata(uri: Uri): AttachmentMetadata {
         var displayName: String? = null
@@ -122,3 +107,41 @@ class ShareIntentReader(
         const val MAX_SHARED_ATTACHMENTS = 5
     }
 }
+
+internal fun readSharedAttachmentTextPreview(
+    mimeType: String?,
+    kind: SharedAttachmentKind,
+    openInputStream: () -> InputStream?,
+    extractImageText: () -> SharedTextPreview?,
+): SharedTextPreview? =
+    when {
+        kind == SharedAttachmentKind.Document && canReadTextPreviewFor(mimeType) ->
+            readSharedAttachmentTextPreviewFromStream(openInputStream) { input ->
+                TextAttachmentPreviewReader.read(input)
+            }
+
+        kind == SharedAttachmentKind.Document && canReadRichTextPreviewFor(mimeType) ->
+            readSharedAttachmentTextPreviewFromStream(openInputStream) { input ->
+                RichTextPreviewReader.read(input, mimeType)
+            }
+
+        kind == SharedAttachmentKind.Document && canReadOfficeOpenXmlTextPreviewFor(mimeType) ->
+            readSharedAttachmentTextPreviewFromStream(openInputStream) { input ->
+                OfficeOpenXmlPreviewReader.read(input, mimeType)
+            }
+
+        kind == SharedAttachmentKind.Image && canReadImageTextPreviewFor(mimeType) ->
+            extractImageText()
+
+        else -> null
+    }
+
+private fun readSharedAttachmentTextPreviewFromStream(
+    openInputStream: () -> InputStream?,
+    readPreview: (InputStream) -> SharedTextPreview?,
+): SharedTextPreview? =
+    runCatching {
+        openInputStream()?.use { input ->
+            readPreview(input)
+        }
+    }.getOrNull()

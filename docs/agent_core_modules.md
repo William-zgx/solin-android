@@ -995,9 +995,9 @@ Code:
 Responsibilities:
 
 - Accept user-initiated shared text, bounded `text/*` document excerpts,
-  bounded Office Open XML text-layer excerpts, bounded local OCR text excerpts
-  for user-provided `image/*` attachments, and attachment metadata from Android
-  share targets and the in-app picker.
+  bounded RTF and Office Open XML text-layer excerpts, bounded local OCR text
+  excerpts for user-provided `image/*` attachments, and attachment metadata from
+  Android share targets and the in-app picker.
 - Classify attachments by MIME type; keep unsupported non-text files
   metadata-only.
 - Keep multimodal source handling separate from chat generation and tools.
@@ -1014,13 +1014,13 @@ Current status:
   text plus attachment metadata such as kind, MIME type, display name, and byte
   size.
 - Implemented bounded local text excerpts for user-initiated shared `text/*`
-  documents, bounded text-layer excerpts for user-provided Office Open XML
-  `.docx` / `.xlsx` / `.pptx` files, and bounded local OCR text excerpts for
+  documents, bounded text-layer excerpts for user-provided RTF and Office Open
+  XML `.docx` / `.xlsx` / `.pptx` files, and bounded local OCR text excerpts for
   user-provided `image/*` attachments. Excerpts are user-visible and limited to
   the local shared-input prompt.
-- Audio, video, PDF, RTF, legacy Office binary formats, binary, and other
-  unsupported attachments stay metadata-only; the app does not parse or embed
-  their bytes into prompts.
+- Audio, video, PDF, legacy Office binary formats, binary, and other unsupported
+  attachments stay metadata-only; the app does not parse or embed their bytes
+  into prompts.
 - Implemented a voice input entry that launches Android system speech
   recognition and returns the transcript as a one-shot compose-box draft.
   Transcripts are not auto-sent, do not create chat messages until the user
@@ -1035,11 +1035,12 @@ Current status:
   automatic shared-input ingestion. The current-screen Accessibility
   text snapshot tool follows the same Device Context boundary and reads text
   nodes only; screenshot capture, screen semantic understanding, PDF parsing,
-  legacy Office/RTF parsing, image semantic understanding, and media content
-  understanding are pending. Office Open XML extraction is text-layer only, not
-  complete document parsing. Image OCR is limited to user-provided `image/*`
-  attachments, the user-confirmed recent screenshot OCR tool, or the
-  user-confirmed recent image OCR tool, and produces text excerpts only.
+  legacy Office parsing, full rich-text fidelity, image semantic understanding,
+  and media content understanding are pending. RTF and Office Open XML extraction
+  are text-layer only, not complete document parsing. Image OCR is limited to
+  user-provided `image/*` attachments, the user-confirmed recent screenshot OCR
+  tool, or the user-confirmed recent image OCR tool, and produces text excerpts
+  only.
 
 Tests:
 

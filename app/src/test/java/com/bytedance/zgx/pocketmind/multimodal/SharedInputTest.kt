@@ -131,6 +131,72 @@ class SharedInputTest {
     }
 
     @Test
+    fun promptIncludesRichTextPreviewForRtfAttachment() {
+        val input = SharedInput(
+            text = "请总结 RTF",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/rtf",
+                    displayName = "notes.rtf",
+                    sizeBytes = 120L,
+                    textPreview = SharedTextPreview(
+                        text = "标题\n正文",
+                        truncated = true,
+                        source = SharedTextPreviewSource.RichTextDocument,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("RTF 文档"))
+        assertTrue(prompt.contains("RTF 文本摘录（已截断）"))
+        assertTrue(prompt.contains("标题"))
+        assertTrue(prompt.contains("正文"))
+    }
+
+    @Test
+    fun promptDoesNotIncludeRichTextPreviewForNonRtfOrNonDocumentAttachment() {
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "text/plain",
+                    displayName = "notes.txt",
+                    sizeBytes = 120L,
+                    textPreview = SharedTextPreview(
+                        text = "plain text source mismatch secret",
+                        truncated = false,
+                        source = SharedTextPreviewSource.RichTextDocument,
+                    ),
+                ),
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = "application/rtf",
+                    displayName = "image.rtf",
+                    sizeBytes = 121L,
+                    textPreview = SharedTextPreview(
+                        text = "non document kind secret",
+                        truncated = false,
+                        source = SharedTextPreviewSource.RichTextDocument,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("notes.txt"))
+        assertTrue(prompt.contains("image.rtf"))
+        assertFalse(prompt.contains("plain text source mismatch secret"))
+        assertFalse(prompt.contains("non document kind secret"))
+        assertFalse(prompt.contains("\n   RTF 文本摘录"))
+    }
+
+    @Test
     fun binaryAndRichDocumentAttachmentsRemainMetadataOnlyWithoutPreview() {
         val input = SharedInput(
             text = "",
@@ -208,10 +274,9 @@ class SharedInputTest {
     }
 
     @Test
-    fun legacyOfficePdfAndRtfAttachmentsRemainMetadataOnlyWithoutPreview() {
+    fun legacyOfficeAndPdfAttachmentsRemainMetadataOnlyWithoutPreview() {
         val richDocumentMimeTypes = listOf(
             "application/pdf",
-            "application/rtf",
             "application/msword",
             "application/vnd.ms-excel",
             "application/vnd.ms-powerpoint",
@@ -349,6 +414,7 @@ class SharedInputTest {
     fun textPreviewReaderOnlyAllowsTextMediaTypes() {
         assertTrue(canReadTextPreviewFor("text/plain"))
         assertTrue(canReadTextPreviewFor(" text/markdown; charset=utf-8 "))
+        assertFalse(canReadTextPreviewFor("text/rtf"))
         assertFalse(canReadTextPreviewFor("application/json"))
         assertFalse(canReadTextPreviewFor("application/pdf"))
         assertFalse(canReadTextPreviewFor("image/png"))
@@ -356,6 +422,16 @@ class SharedInputTest {
         assertFalse(canReadTextPreviewFor("video/mp4"))
         assertFalse(canReadTextPreviewFor("application/octet-stream"))
         assertFalse(canReadTextPreviewFor(null))
+    }
+
+    @Test
+    fun richTextPreviewReaderOnlyAllowsRtfMediaTypes() {
+        assertTrue(canReadRichTextPreviewFor("application/rtf"))
+        assertTrue(canReadRichTextPreviewFor(" text/rtf; charset=utf-8 "))
+        assertFalse(canReadRichTextPreviewFor("text/plain"))
+        assertFalse(canReadRichTextPreviewFor("application/pdf"))
+        assertFalse(canReadRichTextPreviewFor("application/msword"))
+        assertFalse(canReadRichTextPreviewFor(null))
     }
 
     @Test
@@ -430,6 +506,80 @@ class SharedInputTest {
         assertNotNull(truncated)
         assertEquals(4_000, truncated!!.text.length)
         assertTrue(truncated.truncated)
+    }
+
+    @Test
+    fun richTextPreviewReaderExtractsBoundedPlainText() {
+        val preview = RichTextPreviewReader.read(
+            """{\rtf1\ansi\uc1{\fonttbl{\f0 Arial;}}\b Title\b0\par Body \tab text \u20320?}"""
+                .byteInputStream(),
+            "application/rtf",
+        )
+
+        assertNotNull(preview)
+        assertEquals("Title\nBody \ttext 你", preview!!.text)
+        assertEquals(SharedTextPreviewSource.RichTextDocument, preview.source)
+        assertFalse(preview.truncated)
+    }
+
+    @Test
+    fun richTextPreviewReaderSkipsMetadataAndRejectsUnsupportedInput() {
+        val preview = RichTextPreviewReader.read(
+            """{\rtf1\ansi{\info{\title private title}} Visible text}""".byteInputStream(),
+            "application/rtf",
+        )
+
+        assertNotNull(preview)
+        assertEquals("Visible text", preview!!.text)
+        assertNull(RichTextPreviewReader.read("plain text".byteInputStream(), "application/rtf"))
+        assertNull(RichTextPreviewReader.read("""{\rtf1 secret}""".byteInputStream(), "application/pdf"))
+    }
+
+    @Test
+    fun richTextPreviewReaderTruncatesLargeText() {
+        val preview = RichTextPreviewReader.read(
+            """{\rtf1 ${"a".repeat(4_100)}}""".byteInputStream(),
+            "application/rtf",
+        )
+
+        assertNotNull(preview)
+        assertEquals(4_000, preview!!.text.length)
+        assertTrue(preview.truncated)
+    }
+
+    @Test
+    fun sharedAttachmentTextPreviewDispatchesRtfBeforeGenericTextPreview() {
+        listOf("application/rtf", "text/rtf; charset=utf-8").forEach { mimeType ->
+            var streamOpened = false
+            val preview = readSharedAttachmentTextPreview(
+                mimeType = mimeType,
+                kind = SharedAttachmentKind.Document,
+                openInputStream = {
+                    streamOpened = true
+                    """{\rtf1\ansi Visible RTF text}""".byteInputStream()
+                },
+                extractImageText = { error("image OCR should not be used for RTF") },
+            )
+
+            assertTrue(streamOpened)
+            assertNotNull(preview)
+            assertEquals("Visible RTF text", preview!!.text)
+            assertEquals(SharedTextPreviewSource.RichTextDocument, preview.source)
+            assertFalse(preview.text.contains("""{\rtf"""))
+        }
+
+        var mismatchStreamOpened = false
+        val mismatchedKindPreview = readSharedAttachmentTextPreview(
+            mimeType = "application/rtf",
+            kind = SharedAttachmentKind.Image,
+            openInputStream = {
+                mismatchStreamOpened = true
+                """{\rtf1 should not be read}""".byteInputStream()
+            },
+            extractImageText = { error("image OCR should not be used for application/rtf") },
+        )
+        assertNull(mismatchedKindPreview)
+        assertFalse(mismatchStreamOpened)
     }
 
     @Test

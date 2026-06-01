@@ -45,7 +45,7 @@ data class SharedInput(
             if (attachmentBlock.isNotBlank()) {
                 append("\n\n")
                 append(
-                    "已分享附件（默认只读取元数据；text/* 文档、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n",
+                    "已分享附件（默认只读取元数据；text/* 文档、RTF 文档、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n",
                 )
                 append(attachmentBlock)
             }
@@ -106,6 +106,7 @@ data class SharedTextPreview(
 
 enum class SharedTextPreviewSource(val label: String) {
     TextFile("文本摘录"),
+    RichTextDocument("RTF 文本摘录"),
     OfficeDocument("Office 文本摘录"),
     ImageOcr("图片文字摘录"),
 }
@@ -135,8 +136,11 @@ fun sharedAttachmentKindFor(mimeType: String?): SharedAttachmentKind =
 fun canReadTextPreviewFor(mimeType: String?): Boolean =
     when (val normalizedMimeType = mimeType.normalizedMediaType()) {
         null -> false
-        else -> normalizedMimeType.startsWith("text/")
+        else -> normalizedMimeType.startsWith("text/") && normalizedMimeType !in richTextMimeTypes
     }
+
+fun canReadRichTextPreviewFor(mimeType: String?): Boolean =
+    mimeType.normalizedMediaType() in richTextMimeTypes
 
 fun canReadOfficeOpenXmlTextPreviewFor(mimeType: String?): Boolean =
     mimeType.normalizedMediaType() in officeOpenXmlMimeTypes
@@ -149,7 +153,14 @@ fun canReadImageTextPreviewFor(mimeType: String?): Boolean =
 
 fun canUseTextPreviewFor(attachment: SharedAttachment): Boolean =
     when (attachment.textPreview?.source) {
-        SharedTextPreviewSource.TextFile -> canReadTextPreviewFor(attachment.mimeType)
+        SharedTextPreviewSource.TextFile ->
+            attachment.kind == SharedAttachmentKind.Document &&
+                canReadTextPreviewFor(attachment.mimeType)
+
+        SharedTextPreviewSource.RichTextDocument ->
+            attachment.kind == SharedAttachmentKind.Document &&
+                canReadRichTextPreviewFor(attachment.mimeType)
+
         SharedTextPreviewSource.OfficeDocument ->
             attachment.kind == SharedAttachmentKind.Document &&
                 canReadOfficeOpenXmlTextPreviewFor(attachment.mimeType)
@@ -238,6 +249,11 @@ private val documentMimeTypes = setOf(
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+)
+
+private val richTextMimeTypes = setOf(
+    "application/rtf",
+    "text/rtf",
 )
 
 internal val officeOpenXmlMimeTypes = setOf(
