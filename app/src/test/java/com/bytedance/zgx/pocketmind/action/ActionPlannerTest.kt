@@ -657,6 +657,11 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.OPEN_APP_INTENT, plan.draft?.functionName)
         assertEquals("com.tencent.mm", plan.draft?.parameters?.get("packageName"))
+
+        val packagePlan = planner.plan("打开 com.example.app")
+        assertEquals(ActionPlanKind.Draft, packagePlan.kind)
+        assertEquals(MobileActionFunctions.OPEN_APP_INTENT, packagePlan.draft?.functionName)
+        assertEquals("com.example.app", packagePlan.draft?.parameters?.get("packageName"))
     }
 
     @Test
@@ -668,13 +673,41 @@ class ActionPlannerTest {
         assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, plan.draft?.parameters?.get("targetId"))
         assertEquals("com.tencent.mm", plan.draft?.parameters?.get("packageName"))
         assertTrue(plan.draft?.summary.orEmpty().contains("应用详情设置"))
+
+        val packagePlan = planner.plan("打开 com.example.app 应用详情设置")
+        assertEquals(ActionPlanKind.Draft, packagePlan.kind)
+        assertEquals(MobileActionFunctions.OPEN_APP_DEEP_TARGET, packagePlan.draft?.functionName)
+        assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, packagePlan.draft?.parameters?.get("targetId"))
+        assertEquals("com.example.app", packagePlan.draft?.parameters?.get("packageName"))
     }
 
     @Test
-    fun doesNotInferAppDeepTargetForAmbiguousTargetPhrase() {
-        val plan = planner.plan("打开应用详情设置")
-
-        assertEquals(ActionPlanKind.NoAction, plan.kind)
+    fun doesNotInferAppNavigationForAmbiguousOrUnsupportedTargets() {
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开应用").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("启动 app").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开应用详情设置").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要打开微信").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("别启动微信").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("如何打开微信").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("怎么打开微信").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开微信小程序").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开微信支付收款码").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开微信应用设置").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("open WeChat app settings").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("open source WeChat SDK").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("start using WeChat").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("微信打不开怎么办").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("微信打开方式").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开微信扫一扫").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开微信聊天").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开微信朋友圈").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开微信权限页").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开微信通知设置").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开 package:com.example.app").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开 intent://scan/#Intent;scheme=zxing;end").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开 file:///sdcard/private.txt").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开 com.example.app/.MainActivity 应用详情设置").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开微信应用详情设置然后发消息").kind)
     }
 
     @Test

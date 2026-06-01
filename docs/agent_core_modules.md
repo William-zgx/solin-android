@@ -295,7 +295,8 @@ Current status:
   can safely build their first tool step from the raw user input.
 - Implemented built-in manifests for email drafts, calendar drafts, map search,
   information lookup, device settings including Usage Access settings,
-  background reminders, clipboard context, and system text sharing.
+  background reminders, clipboard context, app navigation, and system text
+  sharing.
 - `SkillRequest.arguments` is now validated against
   `SkillManifest.inputSchemaJson` before confirmation or execution. Missing
   required inputs, blank required string inputs, extra fields, type mismatches,
@@ -533,6 +534,11 @@ Current status:
   first target opens Android's application details settings for a package using
   a fixed system action and `package:` URI; the tool accepts only `targetId`
   and target-declared arguments, not arbitrary Intent payloads.
+- Explicit app launch and app details settings requests now also have a
+  conservative `app_navigation_skill` Skill-first path. The shared parser
+  rejects negation, troubleshooting, docs/API/Intent payloads, app-internal
+  targets such as mini-programs or payment codes, and non-allowlisted settings
+  pages instead of downgrading them to a generic app launch.
 - External Activity tool results now make this launch-only completion explicit
   with allowlisted metadata: `completionState`, `completionVerified=false`,
   `externalOutcome=Unknown`, `targetKind`, and safe target identifiers such as

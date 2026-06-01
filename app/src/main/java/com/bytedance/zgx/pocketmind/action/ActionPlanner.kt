@@ -85,6 +85,7 @@ class MobileActionPlanner : ActionPlanner {
             isReminderRequest(input) ||
             isCancelReminderRequest(input) ||
             DeviceSettingsActionParser.matches(input) ||
+            AppNavigationActionParser.matches(input) ||
             WebSearchActionParser.matches(input)
     }
 
@@ -116,11 +117,8 @@ class MobileActionPlanner : ActionPlanner {
             DeepLinkActionParser.matches(input) ->
                 DeepLinkActionParser.draft(input)
 
-            isOpenAppDeepTargetRequest(input) ->
-                MobileActionFunctions.OPEN_APP_DEEP_TARGET.toDraft(openAppDeepTargetParameters(input))
-
-            isOpenAppIntentRequest(input) ->
-                MobileActionFunctions.OPEN_APP_INTENT.toDraft(openAppIntentParameters(input))
+            AppNavigationActionParser.matches(input) ->
+                AppNavigationActionParser.draft(input)
 
             isReminderRequest(input) ->
                 ReminderActionParser.draft(input)
@@ -311,58 +309,6 @@ class MobileActionPlanner : ActionPlanner {
     private fun isCancelReminderRequest(input: String): Boolean =
         CancelReminderActionParser.matches(input)
 
-    private fun isOpenAppIntentRequest(input: String): Boolean {
-        if (URI_SCHEME_PATTERN.containsMatchIn(input)) return false
-        val hasTrigger = APP_INTENT_TRIGGER_PATTERN.containsMatchIn(input)
-        val hasKnownPackage = knownPackageFromInput(input) != null
-        val hasPackageLike = APP_INTENT_PACKAGE_PATTERN.containsMatchIn(input)
-        return hasTrigger && (hasKnownPackage || hasPackageLike)
-    }
-
-    private fun isOpenAppDeepTargetRequest(input: String): Boolean {
-        if (URI_SCHEME_PATTERN.containsMatchIn(input)) return false
-        val hasTrigger = APP_INTENT_TRIGGER_PATTERN.containsMatchIn(input)
-        val hasKnownPackage = knownPackageFromInput(input) != null
-        val hasPackageLike = APP_INTENT_PACKAGE_PATTERN.containsMatchIn(input)
-        return hasTrigger && isAppDetailsSettingsTarget(input) && (hasKnownPackage || hasPackageLike)
-    }
-
-    private fun openAppIntentParameters(input: String): Map<String, String> {
-        val packageName = knownPackageFromInput(input)
-            ?: APP_INTENT_PACKAGE_PATTERN.find(input)?.value
-            ?: return emptyMap()
-        return mapOf("packageName" to packageName)
-    }
-
-    private fun openAppDeepTargetParameters(input: String): Map<String, String> {
-        val packageName = knownPackageFromInput(input)
-            ?: APP_INTENT_PACKAGE_PATTERN.find(input)?.value
-            ?: return emptyMap()
-        return mapOf(
-            AppDeepTargets.TARGET_ID_ARGUMENT to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
-            AppDeepTargets.PACKAGE_NAME_ARGUMENT to packageName,
-        )
-    }
-
-    private fun knownPackageFromInput(input: String): String? {
-        val normalized = input.lowercase()
-        return KNOWN_APP_PACKAGES.entries.firstNotNullOfOrNull { (alias, packageName) ->
-            if (normalized.contains(alias.lowercase())) packageName else null
-        }
-    }
-
-    private fun isAppDetailsSettingsTarget(input: String): Boolean {
-        val normalized = input.lowercase()
-        return listOf(
-            "应用详情",
-            "应用信息",
-            "应用设置",
-            "app info",
-            "app settings",
-            "application details",
-        ).any { it in normalized }
-    }
-
     private fun parseJsonLikeObject(raw: String): Map<String, String> {
         val content = raw.trim().removePrefix("{").removeSuffix("}")
         if (content.isBlank()) return emptyMap()
@@ -375,22 +321,5 @@ class MobileActionPlanner : ActionPlanner {
     private companion object {
         val CALL_PATTERN = Regex("""^call:([a-zA-Z0-9_]+)\s*(\{.*\})$""", RegexOption.DOT_MATCHES_ALL)
         val KEY_VALUE_PATTERN = Regex(""""([^"]+)"\s*:\s*"([^"]*)"""")
-        val APP_INTENT_TRIGGER_PATTERN = Regex("""(打开|打开并|启动|启动并)\s*(?:应用|app|应用程序)?""")
-        val APP_INTENT_PACKAGE_PATTERN = Regex("""\b[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+\b""")
-        val URI_SCHEME_PATTERN = Regex("""\b[a-zA-Z][a-zA-Z0-9+.-]*://""")
-        val KNOWN_APP_PACKAGES = mapOf(
-            "微信" to "com.tencent.mm",
-            "wechat" to "com.tencent.mm",
-            "支付宝" to "com.eg.android.AlipayGphone",
-            "alipay" to "com.eg.android.AlipayGphone",
-            "抖音" to "com.ss.android.ugc.aweme",
-            "douyin" to "com.ss.android.ugc.aweme",
-            "哔哩哔哩" to "tv.danmaku.bili",
-            "bilibili" to "tv.danmaku.bili",
-            "淘宝" to "com.taobao.taobao",
-            "taobao" to "com.taobao.taobao",
-            "美团" to "com.sankuai.meituan",
-            "meituan" to "com.sankuai.meituan",
-        )
     }
 }

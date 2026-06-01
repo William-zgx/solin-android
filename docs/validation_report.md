@@ -1608,11 +1608,16 @@ adb devices -l
   Android 应用详情设置 action 和 `package:` URI。
 - `open_app_intent` 保持 package launcher 语义，不接受 `targetId`、任意
   activity/action/data/extras；应用深层目标和启动页目标分离。
+- `open_app_intent` 与 `open_app_deep_target` 现在共用 `app_navigation_skill`
+  的 Skill-first 路由；显式“启动微信”“打开微信应用详情设置”可直接进入确认卡，
+  不再等待 action planner。
 - `ActionExecutor` 对未知 target、额外 URI/action/extras、非法包名在启动外部
   Activity 前拒绝；结果 metadata 只包含 `targetId`、`targetPackage`、completion
   状态和 allowlist policy，不保存 raw URI path/query。
 - `MobileActionPlanner` 只在用户明确指定 App/包名和“应用详情设置”时生成
   deep target 草稿；模糊“打开应用详情设置”不自动执行。
+- 反例覆盖否定、故障/文档/API/Intent payload、裸 app 目标、微信小程序/支付码/
+  App 内设置等未白名单深层目标，避免把这些请求降级成普通 App 启动。
 - Agent trace 的 `ToolObserved` completion metadata allowlist 新增 `targetId`，
   仍过滤 raw payload。
 

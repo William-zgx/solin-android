@@ -509,6 +509,21 @@ class ToolRegistryTest {
         requireNotNull(invalidTarget)
         assertTrue(invalidTarget.summary.contains("target"))
 
+        val invalidTargetPackage = registry.validate(
+            ToolRequest(
+                id = "request-invalid-intent-target-package",
+                toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                arguments = mapOf(
+                    "targetId" to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
+                    "packageName" to "not a package",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidTargetPackage)
+        requireNotNull(invalidTargetPackage)
+        assertTrue(invalidTargetPackage.summary.contains("packageName"))
+
         val invalidTargetExtra = registry.validate(
             ToolRequest(
                 id = "request-invalid-intent-target-extra",

@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.AppNavigationActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarAvailabilityActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
 import com.bytedance.zgx.pocketmind.action.CancelReminderActionParser
@@ -48,6 +49,8 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to CURRENT_SCREEN_TEXT_CONTEXT_SKILL,
         MobileActionFunctions.QUERY_CONTACTS to CONTACT_LOOKUP_SKILL,
         MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY to CALENDAR_AVAILABILITY_SKILL,
+        MobileActionFunctions.OPEN_APP_INTENT to APP_NAVIGATION_SKILL,
+        MobileActionFunctions.OPEN_APP_DEEP_TARGET to APP_NAVIGATION_SKILL,
     )
 
     override fun manifests(): List<SkillManifest> = builtInSkillManifests
@@ -90,6 +93,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && DeepLinkActionParser.matches(input) ->
                 plan(input, DeepLinkActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && AppNavigationActionParser.matches(input) ->
+                plan(input, AppNavigationActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && ForegroundAppActionParser.matches(input) ->
                 plan(input, ForegroundAppActionParser.draft().toRequestPair())
@@ -250,6 +256,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val CURRENT_SCREEN_TEXT_CONTEXT_SKILL = "current_screen_text_context_skill"
         const val CONTACT_LOOKUP_SKILL = "contact_lookup_skill"
         const val CALENDAR_AVAILABILITY_SKILL = "calendar_availability_skill"
+        const val APP_NAVIGATION_SKILL = "app_navigation_skill"
     }
 }
 
@@ -455,6 +462,19 @@ private val builtInSkillManifests = listOf(
         description = "在用户明确要求时打开 HTTPS 外部链接，拒绝非 HTTPS scheme。",
         triggerExamples = listOf("打开链接 https://example.com", "open https://example.com"),
         requiredTools = listOf(MobileActionFunctions.OPEN_DEEP_LINK),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.APP_NAVIGATION_SKILL,
+        version = 1,
+        title = "应用导航",
+        description = "打开指定应用启动页或 allowlisted 应用详情设置，不接受任意 Intent 参数。",
+        triggerExamples = listOf("启动微信", "打开微信应用详情设置"),
+        requiredTools = listOf(
+            MobileActionFunctions.OPEN_APP_INTENT,
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+        ),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
     ),

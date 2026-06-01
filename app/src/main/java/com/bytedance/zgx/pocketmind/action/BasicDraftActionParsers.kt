@@ -679,6 +679,135 @@ internal object DeepLinkActionParser {
     private const val TRAILING_URI_PUNCTUATION = ".,;:!?)]}。！）；】"
 }
 
+internal object AppNavigationActionParser {
+    private val packageNamePattern =
+        Regex("""\b[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+\b""")
+    private val uriSchemePattern =
+        Regex("""\b[a-zA-Z][a-zA-Z0-9+.-]*://""")
+    private val chineseLaunchPattern =
+        Regex("""(?:打开|打开并|启动|启动并)\s*(?:应用|app|应用程序)?""")
+    private val englishLaunchPattern =
+        Regex("""\b(?:open|launch|start)\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean = targetTool(input) != null
+
+    fun draft(input: String): ActionDraft {
+        val packageName = packageNameFromInput(input).orEmpty()
+        return when (targetTool(input)) {
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> ActionDraft(
+                functionName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                title = "打开应用深层目标",
+                summary = "将打开应用详情设置：$packageName",
+                parameters = mapOf(
+                    AppDeepTargets.TARGET_ID_ARGUMENT to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
+                    AppDeepTargets.PACKAGE_NAME_ARGUMENT to packageName,
+                ),
+                requiresConfirmation = true,
+            )
+            else -> ActionDraft(
+                functionName = MobileActionFunctions.OPEN_APP_INTENT,
+                title = "打开应用",
+                summary = "将打开应用启动页：$packageName",
+                parameters = mapOf("packageName" to packageName),
+                requiresConfirmation = true,
+            )
+        }
+    }
+
+    private fun targetTool(input: String): String? {
+        if (input.looksLikeAppNavigationNonAction() || uriSchemePattern.containsMatchIn(input)) return null
+        if (!input.hasAppLaunchTrigger()) return null
+        packageNameFromInput(input) ?: return null
+        return if (input.isAppDetailsSettingsTarget()) {
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET
+        } else {
+            MobileActionFunctions.OPEN_APP_INTENT
+        }
+    }
+
+    private fun packageNameFromInput(input: String): String? {
+        val normalized = input.lowercase()
+        return knownAppPackages.entries.firstNotNullOfOrNull { (alias, packageName) ->
+            if (normalized.contains(alias.lowercase())) packageName else null
+        } ?: packageNamePattern.find(input)?.value
+    }
+
+    private fun String.hasAppLaunchTrigger(): Boolean =
+        chineseLaunchPattern.containsMatchIn(this) ||
+            englishLaunchPattern.containsMatchIn(this)
+
+    private fun String.isAppDetailsSettingsTarget(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "应用详情",
+            "应用信息",
+            "app info",
+            "application details",
+            "application info",
+        ).any { it in normalized }
+    }
+
+    private fun String.looksLikeAppNavigationNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "不要打开",
+            "别打开",
+            "不要启动",
+            "别启动",
+            "不要进入",
+            "别进入",
+            "解释",
+            "说明",
+            "是什么",
+            "什么意思",
+            "在哪里",
+            "在哪",
+            "哪里",
+            "怎么",
+            "如何",
+            "代码",
+            "组件",
+            "接口",
+            "小程序",
+            "应用设置",
+            "支付",
+            "收款码",
+            "扫一扫",
+            "聊天",
+            "朋友圈",
+            "权限",
+            "通知页",
+            "通知设置",
+            "打不开",
+            "无法打开",
+            "不能打开",
+            "启动失败",
+            "打开方式",
+            "然后",
+            "接着",
+            "/",
+        ).any { it in this } ||
+            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:open|launch|start)\b""")) ||
+            normalized.contains(Regex("""(?:open\s+source|start\s+using|package:|intent:|content:|file:)""")) ||
+            normalized.contains(Regex("""\b(what\s+is|explain|meaning|how\s+do\s+i|how\s+to|implement|design|api|sdk|code|schema|tests?|parser|docs?|architecture|activity|extras?|data\s+uri|intent|app\s+settings|then|after\s+that)\b"""))
+    }
+
+    private val knownAppPackages = mapOf(
+        "微信" to "com.tencent.mm",
+        "wechat" to "com.tencent.mm",
+        "支付宝" to "com.eg.android.AlipayGphone",
+        "alipay" to "com.eg.android.AlipayGphone",
+        "抖音" to "com.ss.android.ugc.aweme",
+        "douyin" to "com.ss.android.ugc.aweme",
+        "哔哩哔哩" to "tv.danmaku.bili",
+        "bilibili" to "tv.danmaku.bili",
+        "淘宝" to "com.taobao.taobao",
+        "taobao" to "com.taobao.taobao",
+        "美团" to "com.sankuai.meituan",
+        "meituan" to "com.sankuai.meituan",
+    )
+}
+
 internal object ForegroundAppActionParser {
     private val englishPattern =
         Regex(

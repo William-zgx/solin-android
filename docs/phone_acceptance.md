@@ -144,8 +144,8 @@ ANDROID_SERIAL=emulator-5554 scripts/install_and_test_device.sh
 - 通过受确认保护的当前屏幕 Accessibility 文本快照工具读取当前屏幕文字时，应只在用户确认后读取当前 Accessibility 文本节点快照；结果应标记为 `LocalOnly`，raw `screenText` 不应进入 trace、audit、持久消息或远程 runtime。
 - 当前屏幕 Accessibility 文本快照不等于截图、OCR、像素读取或语义屏幕理解；无 Accessibility 服务授权或节点读取失败时，应返回结构化失败，不应自动退化为截图/OCR/屏幕扫描。
 - “打开链接 https://example.com” 应先出现确认；确认后只打开 HTTPS 链接，`http`、`file`、`content`、`javascript` 和自定义 scheme 应被拒绝。
-- “启动微信” 或指定合法包名的 App 启动请求应先出现确认；确认后只打开应用启动页，不接受任意 activity/action/data/extras。
-- “打开微信应用详情设置” 或指定合法包名的 `android_app_details_settings` 请求应先出现确认；确认后只打开白名单固定目标，不接受任意 targetId、URI、activity/action/data/extras。
+- “启动微信” 或指定合法包名的 App 启动请求应通过 Skill-first 先出现确认；确认后只打开应用启动页，不接受任意 activity/action/data/extras。
+- “打开微信应用详情设置” 或指定合法包名的 `android_app_details_settings` 请求应通过 Skill-first 先出现确认；确认后只打开白名单固定目标，不接受任意 targetId、URI、activity/action/data/extras。微信小程序、支付码、App 内设置或故障/文档问题不应降级成打开 App。
 - 外部 Activity、分享面板、草稿页或 App 启动页打开后，UI、Agent trace 和 audit 只能说明“外部界面已打开，最终结果未验证”；不应声称分享、发送、保存或目标 App 内操作已经完成，也不应基于该未验证结果自动规划下一步工具。
 - 未知工具、缺少参数或没有可处理 Intent 的设备，应显示明确失败原因，不应崩溃。
 - 工具参数错误、权限拒绝或 provider 失败应返回结构化失败；校验拒绝时不应执行 delegate。

@@ -30,15 +30,16 @@ Google AI Edge LiteRT-LM.
   contact, media, or reminder notification posting access.
 - Runtime permission denial is observed as a structured tool failure without
   executing or automatically retrying the tool.
-- Confirmed external navigation for safe HTTPS deep links and package-level app launches.
+- Confirmed external navigation for safe HTTPS deep links, package-level app
+  launches, and allowlisted app details settings.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map
   search, information lookup, device settings including Usage Access settings,
   local reminders, calendar
   availability, clipboard context, contact lookup, current foreground app
   context, current-app notification summaries, current-screen Accessibility
-  text context, recent media metadata, HTTPS link navigation, and system
-  sharing, with manifest input schemas enforced before confirmation or
-  execution.
+  text context, recent media metadata, HTTPS link navigation, app navigation,
+  and system sharing, with manifest input schemas enforced before confirmation
+  or execution.
 - Skill-first routing for explicit clipboard context, current-app notification
   summary, current-screen Accessibility text, and clipboard-summary-share
   requests that do not need action-planner parameter extraction.

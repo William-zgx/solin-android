@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import org.json.JSONObject
@@ -30,6 +31,7 @@ class BuiltInSkillRuntimeTest {
         assertTrue(BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL in manifests)
+        assertTrue(BuiltInSkillRuntime.APP_NAVIGATION_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL in manifests)
@@ -151,6 +153,8 @@ class BuiltInSkillRuntimeTest {
             "识别最近图片文字" to requireNotNull(runtime.plan("识别最近图片文字")),
             "最近图片" to requireNotNull(runtime.plan("最近图片")),
             "打开链接 https://example.com" to requireNotNull(runtime.plan("打开链接 https://example.com")),
+            "启动微信" to requireNotNull(runtime.plan("启动微信")),
+            "打开微信应用详情设置" to requireNotNull(runtime.plan("打开微信应用详情设置")),
             "当前应用是什么" to requireNotNull(runtime.plan("当前应用是什么")),
             "最近通知" to requireNotNull(runtime.plan("最近通知")),
             "总结当前屏幕文字" to requireNotNull(runtime.plan("总结当前屏幕文字")),
@@ -647,6 +651,62 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("打开链接 http://example.com/path"))
         assertEquals(null, runtime.plan("打开链接 file:///tmp/a"))
         assertEquals(null, runtime.plan("打开链接 javascript:alert(1)"))
+    }
+
+    @Test
+    fun plansAppNavigationWithoutActionDraftWhenCommandIsExplicit() {
+        val launchPlan = requireNotNull(runtime.plan("启动微信"))
+
+        assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, launchPlan.request.skillId)
+        assertEquals(mapOf("input" to "启动微信"), launchPlan.request.arguments)
+        val launchStep = launchPlan.steps.single()
+        require(launchStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.OPEN_APP_INTENT, launchStep.request.toolName)
+        assertEquals("com.tencent.mm", launchStep.request.arguments["packageName"])
+        assertEquals(MobileActionFunctions.OPEN_APP_INTENT, launchStep.draft.functionName)
+        assertTrue(launchPlan.validateStructure().errors.joinToString(), launchPlan.validateStructure().isValid)
+
+        val packagePlan = requireNotNull(runtime.plan("打开 com.example.app"))
+        val packageStep = packagePlan.steps.single()
+        require(packageStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.OPEN_APP_INTENT, packageStep.request.toolName)
+        assertEquals("com.example.app", packageStep.request.arguments["packageName"])
+
+        val detailsPlan = requireNotNull(runtime.plan("打开微信应用详情设置"))
+        assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, detailsPlan.request.skillId)
+        val detailsStep = detailsPlan.steps.single()
+        require(detailsStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.OPEN_APP_DEEP_TARGET, detailsStep.request.toolName)
+        assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, detailsStep.request.arguments["targetId"])
+        assertEquals("com.tencent.mm", detailsStep.request.arguments["packageName"])
+        assertEquals(MobileActionFunctions.OPEN_APP_DEEP_TARGET, detailsStep.draft.functionName)
+        assertTrue(detailsPlan.validateStructure().errors.joinToString(), detailsPlan.validateStructure().isValid)
+
+        assertEquals(null, runtime.plan("打开应用"))
+        assertEquals(null, runtime.plan("启动 app"))
+        assertEquals(null, runtime.plan("打开应用详情设置"))
+        assertEquals(null, runtime.plan("不要打开微信"))
+        assertEquals(null, runtime.plan("别启动微信"))
+        assertEquals(null, runtime.plan("如何打开微信"))
+        assertEquals(null, runtime.plan("怎么打开微信"))
+        assertEquals(null, runtime.plan("打开微信小程序"))
+        assertEquals(null, runtime.plan("打开微信支付收款码"))
+        assertEquals(null, runtime.plan("打开微信应用设置"))
+        assertEquals(null, runtime.plan("open WeChat app settings"))
+        assertEquals(null, runtime.plan("open source WeChat SDK"))
+        assertEquals(null, runtime.plan("start using WeChat"))
+        assertEquals(null, runtime.plan("微信打不开怎么办"))
+        assertEquals(null, runtime.plan("微信打开方式"))
+        assertEquals(null, runtime.plan("打开微信扫一扫"))
+        assertEquals(null, runtime.plan("打开微信聊天"))
+        assertEquals(null, runtime.plan("打开微信朋友圈"))
+        assertEquals(null, runtime.plan("打开微信权限页"))
+        assertEquals(null, runtime.plan("打开微信通知设置"))
+        assertEquals(null, runtime.plan("打开 package:com.example.app"))
+        assertEquals(null, runtime.plan("打开 intent://scan/#Intent;scheme=zxing;end"))
+        assertEquals(null, runtime.plan("打开 file:///sdcard/private.txt"))
+        assertEquals(null, runtime.plan("打开 com.example.app/.MainActivity 应用详情设置"))
+        assertEquals(null, runtime.plan("打开微信应用详情设置然后发消息"))
     }
 
     @Test

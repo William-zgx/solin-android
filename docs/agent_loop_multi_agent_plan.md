@@ -282,6 +282,7 @@ data class SkillRun(
 | `calendar_draft_skill` | 根据自然语言生成日程草稿 | `create_calendar_event` | 支持标题/描述，确认后打开日历 |
 | `map_search_skill` | 提取地点并打开地图搜索 | `search_maps` | 能从中文请求提取 query |
 | `device_settings_skill` | 打开 Wi-Fi/Usage Access/系统设置 | `open_wifi_settings`, `open_usage_access_settings`, `open_flashlight_settings` | 不直接修改系统开关 |
+| `app_navigation_skill` | 打开应用启动页或白名单应用详情页 | `open_app_intent`, `open_app_deep_target` | 不接受任意 Intent、Activity、URI、extras 或未白名单应用内目标 |
 
 ## Context 与记忆
 

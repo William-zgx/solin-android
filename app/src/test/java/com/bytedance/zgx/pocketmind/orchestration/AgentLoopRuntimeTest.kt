@@ -7,6 +7,7 @@ import com.bytedance.zgx.pocketmind.action.ActionPlan
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
+import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
 import com.bytedance.zgx.pocketmind.audit.InMemoryToolAuditSink
@@ -753,6 +754,44 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstAppNavigationBypassesActionPlannerAndRequestsConfirmation() {
+        val cases = listOf(
+            "启动微信" to MobileActionFunctions.OPEN_APP_INTENT,
+            "打开微信应用详情设置" to MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+        )
+
+        cases.forEach { (input, toolName) ->
+            val actionRuntime = RecordingActionRuntime(likelyAction = false)
+            val runtime = AgentLoopRuntime(
+                memoryIndex = MemoryRepository(),
+                actionPlanningRuntime = actionRuntime,
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            )
+
+            val result = runtime.runOnce(
+                input = input,
+                installedCapabilities = setOf(ModelCapability.Chat),
+                memoryEnabled = false,
+            )
+
+            assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+            require(result.plan is AgentPlan.UseTool)
+            assertEquals(toolName, result.plan.request.toolName)
+            if (toolName == MobileActionFunctions.OPEN_APP_INTENT) {
+                assertEquals("com.tencent.mm", result.plan.request.arguments["packageName"])
+            } else {
+                assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, result.plan.request.arguments["targetId"])
+                assertEquals("com.tencent.mm", result.plan.request.arguments["packageName"])
+            }
+            assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, result.plan.skillRequest?.skillId)
+            assertEquals("skill-first", result.plan.fallbackReason)
+            assertEquals(0, actionRuntime.isLikelyActionCallCount)
+            assertEquals(0, actionRuntime.planCallCount)
+            assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        }
+    }
+
+    @Test
     fun skillFirstForegroundAppBypassesActionPlannerAndRequestsConfirmation() {
         val actionRuntime = RecordingActionRuntime(likelyAction = false)
         val runtime = AgentLoopRuntime(
@@ -1081,6 +1120,31 @@ class AgentLoopRuntimeTest {
             "how do I open https://example.com/path",
             "不要打开 https://example.com/path",
             "打开链接 http://example.com/path",
+            "打开应用",
+            "启动 app",
+            "打开应用详情设置",
+            "不要打开微信",
+            "别启动微信",
+            "如何打开微信",
+            "怎么打开微信",
+            "打开微信小程序",
+            "打开微信支付收款码",
+            "打开微信应用设置",
+            "open WeChat app settings",
+            "open source WeChat SDK",
+            "start using WeChat",
+            "微信打不开怎么办",
+            "微信打开方式",
+            "打开微信扫一扫",
+            "打开微信聊天",
+            "打开微信朋友圈",
+            "打开微信权限页",
+            "打开微信通知设置",
+            "打开 package:com.example.app",
+            "打开 intent://scan/#Intent;scheme=zxing;end",
+            "打开 file:///sdcard/private.txt",
+            "打开 com.example.app/.MainActivity 应用详情设置",
+            "打开微信应用详情设置然后发消息",
             "前台服务限制是什么",
             "current app architecture",
             "how do I implement current app state",
