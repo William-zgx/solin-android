@@ -876,8 +876,10 @@ Current status:
   `Scheduled -> Running` and `Running -> Scheduled/Failed`. If the user disables
   the policy while a worker is notifying, the final `Cancelled` state is kept
   and worker completion or outer worker failure cannot revive or fail it.
-- `schedule_reminder` and `cancel_reminder` tool results include `taskStatus`
-  metadata for downstream observation and debugging.
+- `schedule_reminder` and `cancel_reminder` tool observation audit includes
+  bounded task metadata (`taskId`, `taskStatus`, `triggerAtMillis`,
+  `recoveryToolName`, `recoveryTaskId`) while continuing to omit reminder
+  title/body content from audit display.
 - Successful `schedule_reminder` results now include bounded rollback metadata:
   `recoveryToolName=cancel_reminder` and the scheduled `recoveryTaskId`. Agent
   trace preserves only this recovery metadata, not reminder title/body content.

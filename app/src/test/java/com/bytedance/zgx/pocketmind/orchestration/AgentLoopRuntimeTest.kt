@@ -2380,9 +2380,11 @@ class AgentLoopRuntimeTest {
 
     @Test
     fun reminderObservationSurfacesBoundedRecoveryHint() {
+        val auditSink = InMemoryToolAuditSink()
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            auditSink = auditSink,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val planned = runtime.runOnce(
@@ -2431,6 +2433,16 @@ class AgentLoopRuntimeTest {
                 step.text.contains("taskId=task-1") &&
                 !step.text.contains("提醒我喝水")
         })
+        val observedAudit = auditSink.events.single { event ->
+            event.eventType == ToolAuditEventType.ToolObserved
+        }
+        assertTrue(observedAudit.summary.contains("taskId=task-1"))
+        assertTrue(observedAudit.summary.contains("taskStatus=Scheduled"))
+        assertTrue(observedAudit.summary.contains("triggerAtMillis=10000"))
+        assertTrue(observedAudit.summary.contains("recoveryToolName=${MobileActionFunctions.CANCEL_REMINDER}"))
+        assertTrue(observedAudit.summary.contains("recoveryTaskId=task-1"))
+        assertFalse(observedAudit.summary.contains("喝水"))
+        assertFalse(observedAudit.summary.contains("提醒我喝水"))
     }
 
     @Test

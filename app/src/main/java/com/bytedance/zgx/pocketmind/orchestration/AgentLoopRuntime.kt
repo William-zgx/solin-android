@@ -818,8 +818,33 @@ class AgentLoopRuntime(
             else -> null
         }
 
-    private fun ToolResult.auditSummaryForObservation(): String =
-        if (isUnverifiedExternalLaunch()) unverifiedExternalLaunchSummary() else summary
+    private fun ToolResult.auditSummaryForObservation(): String {
+        val baseSummary = if (isUnverifiedExternalLaunch()) unverifiedExternalLaunchSummary() else summary
+        val metadata = reminderAuditMetadata()
+        return if (metadata.isEmpty()) {
+            baseSummary
+        } else {
+            "$baseSummary (${metadata.joinToString(separator = "; ")})"
+        }
+    }
+
+    private fun ToolResult.reminderAuditMetadata(): List<String> {
+        val toolName = data["toolName"].orEmpty()
+        if (toolName != MobileActionFunctions.SCHEDULE_REMINDER &&
+            toolName != MobileActionFunctions.CANCEL_REMINDER
+        ) {
+            return emptyList()
+        }
+        return listOf(
+            "taskId",
+            "taskStatus",
+            "triggerAtMillis",
+            "recoveryToolName",
+            "recoveryTaskId",
+        ).mapNotNull { key ->
+            data[key]?.takeIf { value -> value.isNotBlank() }?.let { value -> "$key=$value" }
+        }
+    }
 
     private fun nextRetryAttempt(runId: String, result: ToolResult): Int {
         if (result.status != ToolStatus.Failed || !result.retryable) return 0

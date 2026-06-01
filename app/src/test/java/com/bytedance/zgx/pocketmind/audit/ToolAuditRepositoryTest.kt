@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.audit
 
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.data.ToolAuditDao
 import com.bytedance.zgx.pocketmind.data.ToolAuditEventEntity
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
@@ -115,6 +116,37 @@ class ToolAuditRepositoryTest {
         val record = repository.recentAuditEvents(limit = 1).single()
 
         assertEquals("外部界面已打开，最终结果未验证。", record.summary)
+    }
+
+    @Test
+    fun recentReminderAuditShowsTaskMetadataWithoutReminderContent() {
+        val dao = FakeToolAuditDao()
+        val repository = ToolAuditRepository(dao)
+        repository.record(
+            ToolAuditEvent(
+                id = "reminder",
+                runId = "run-reminder",
+                requestId = "request-reminder",
+                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                skillId = null,
+                eventType = ToolAuditEventType.ToolObserved,
+                status = ToolStatus.Succeeded,
+                riskLevel = RiskLevel.MediumDraftOrNavigation,
+                permissions = setOf(ToolPermission.SchedulesBackgroundWork, ToolPermission.PostsNotification),
+                summary = "已安排后台提醒 (taskId=task-1; taskStatus=Scheduled; triggerAtMillis=10000; recoveryToolName=cancel_reminder; recoveryTaskId=task-1)",
+                createdAtMillis = 1_000L,
+            ),
+        )
+
+        val record = repository.recentAuditEvents(limit = 1).single()
+
+        assertTrue(record.summary.contains("taskId=task-1"))
+        assertTrue(record.summary.contains("taskStatus=Scheduled"))
+        assertTrue(record.summary.contains("triggerAtMillis=10000"))
+        assertTrue(record.summary.contains("recoveryToolName=cancel_reminder"))
+        assertTrue(record.summary.contains("recoveryTaskId=task-1"))
+        assertFalse(record.summary.contains("喝水"))
+        assertFalse(record.summary.contains("提醒我喝水"))
     }
 
     private class FakeToolAuditDao : ToolAuditDao {

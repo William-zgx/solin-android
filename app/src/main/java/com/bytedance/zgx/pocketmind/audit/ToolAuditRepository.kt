@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.audit
 
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.data.ToolAuditDao
 import com.bytedance.zgx.pocketmind.data.ToolAuditEventEntity
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
@@ -83,6 +84,10 @@ class ToolAuditRepository(
         when (status) {
             ToolStatus.Succeeded.name -> if (summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX)) {
                 "外部界面已打开，最终结果未验证。"
+            } else if (toolName == MobileActionFunctions.SCHEDULE_REMINDER ||
+                toolName == MobileActionFunctions.CANCEL_REMINDER
+            ) {
+                summary
             } else {
                 "工具执行成功，结果详情不在审计视图中展示。"
             }
