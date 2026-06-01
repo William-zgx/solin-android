@@ -70,7 +70,7 @@ case "${1:-}" in
     shift
     case "$*" in
       "getprop ro.product.cpu.abilist64")
-        echo "arm64-v8a,armeabi-v7a"
+        echo "${FAKE_ABI_LIST:-arm64-v8a,armeabi-v7a}"
         ;;
       "getprop ro.build.version.sdk")
         echo "36"
@@ -80,7 +80,7 @@ case "${1:-}" in
         ;;
       "df -k /data")
         printf 'Filesystem 1K-blocks Used Available Use%% Mounted on\n'
-        printf '/dev/block 5000000 1000 4000000 1%% /data\n'
+        printf '/dev/block 5000000 1000 %s 1%% /data\n' "${FAKE_DATA_FREE_KB:-4000000}"
         ;;
       am\ instrument\ -w\ -r*)
         if [[ -n "${FAKE_INSTRUMENTATION_OUTPUT:-}" ]]; then
@@ -235,6 +235,31 @@ expect_failure \
   FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-b" GRADLE_CMD="$FAKE_GRADLE" \
   scripts/install_and_test_device.sh
 assert_no_gradle_call
+
+reset_logs
+expect_failure \
+  "install helper rejects non arm64 device before Gradle" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' FAKE_ABI_LIST="armeabi-v7a,x86" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
+assert_no_gradle_call
+grep -q "not arm64-v8a compatible" <<<"$LAST_OUTPUT" ||
+  fail "Expected install helper to reject non arm64-v8a devices"
+grep -q -- "-s device-a shell getprop ro.product.cpu.abilist64" "$FAKE_ADB_LOG" ||
+  fail "Expected install helper to check selected device ABI before Gradle"
+
+reset_logs
+expect_failure \
+  "install helper rejects low data partition space before Gradle" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' FAKE_ABI_LIST="arm64-v8a,armeabi-v7a" \
+  FAKE_DATA_FREE_KB="3145727" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
+assert_no_gradle_call
+grep -q "less than 3 GB free on /data" <<<"$LAST_OUTPUT" ||
+  fail "Expected install helper to reject devices with low /data free space"
+grep -q -- "-s device-a shell df -k /data" "$FAKE_ADB_LOG" ||
+  fail "Expected install helper to check /data free space before Gradle"
 
 reset_logs
 expect_success \

@@ -1,5 +1,43 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Device preflight script coverage 增量验证
+
+本轮覆盖项：
+
+- `scripts/test_validation_scripts.sh` 的 fake adb 增加 `FAKE_ABI_LIST` 和
+  `FAKE_DATA_FREE_KB`，可以覆盖设备预检失败分支。
+- 新增非 `arm64-v8a` 设备失败用例，确认 `scripts/install_and_test_device.sh`
+  在 Gradle 组装前停止，并输出 ABI 不兼容提示。
+- 新增 `/data` 可用空间低于 3 GB 失败用例，确认在 Gradle 组装前停止，并输出
+  空间不足提示。
+- 本轮只锁定既有设备预检行为，不改变真机安装、模拟器选择、instrumentation
+  或产品代码。
+
+验证命令：
+
+```bash
+bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：shell 语法检查和 validation script fake 回归通过，覆盖新增 ABI/空间失败
+前置边界。
+
+补充验证：
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：全量 JVM 单测、AndroidTest Kotlin 编译、diff whitespace 检查、敏感串扫描
+和本地完整验证脚本通过。
+
 ## 2026-06-01 Local remember control command 增量验证
 
 本轮覆盖项：
