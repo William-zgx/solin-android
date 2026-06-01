@@ -489,9 +489,10 @@ class AgentLoopRuntime(
                 observedResult = result,
                 priorRequests = toolRequestsFor(run.id),
                 nextActionInput = traceStore.nextActionInput(run.id),
+                completedSegmentCount = plannedSequentialSegmentCount(run.id),
             ),
         ) ?: return NextObservationPlan.None
-        val skillPlan = skillRuntime.plan(run.input, replan.draft, replan.request)
+        val skillPlan = skillRuntime.plan(replan.input ?: run.input, replan.draft, replan.request)
         return buildNextToolPlan(
             runId = run.id,
             request = replan.request,
@@ -692,7 +693,7 @@ class AgentLoopRuntime(
             skillPlan = skillPlan,
             plannedByModel = plannedByModel,
             fallbackReason = fallbackReason,
-            nextActionInput = run.input.explicitSequentialActionTextAt(toolRequestsFor(run.id).size),
+            nextActionInput = run.input.explicitSequentialActionTextAt(plannedSequentialSegmentCount(run.id)),
             skillRunCheckpoint = skillPlan?.valueFreeCheckpointForPendingTool(
                 runId = run.id,
                 pendingRequest = request,
@@ -718,13 +719,26 @@ class AgentLoopRuntime(
             allowDirectSkillPlan = true,
             allowMultiStepSkillPlan = true,
         ) ?: input.initialSequentialActionInput()?.let { firstActionInput ->
-            planToolForInput(
-                input = firstActionInput,
+            planInitialSequentialSegment(firstActionInput, actionModelPath)
+        }
+
+    private fun planInitialSequentialSegment(
+        input: String,
+        actionModelPath: String?,
+    ): AgentPlan? =
+        planCompositeSkillForInitialSequentialSegment(input)
+            ?: planToolForInput(
+                input = input,
                 actionModelPath = actionModelPath,
                 allowDirectSkillPlan = false,
                 allowMultiStepSkillPlan = false,
             )
-        }
+
+    private fun planCompositeSkillForInitialSequentialSegment(input: String): AgentPlan? {
+        val skillPlan = skillRuntime.plan(input) ?: return null
+        if (skillPlan.isSingleToolStepPlan()) return null
+        return buildInitialToolPlanFromSkill(skillPlan)
+    }
 
     private fun planToolForInput(
         input: String,
@@ -1286,6 +1300,26 @@ class AgentLoopRuntime(
             .asSequence()
             .mapNotNull { step -> (step as? AgentStep.ToolRequested)?.request }
             .toList()
+
+    private fun plannedSequentialSegmentCount(runId: String): Int {
+        val segmentKeys = linkedSetOf<String>()
+        var pendingSkillSegmentKey: String? = null
+        traceStore.steps(runId).forEach { step ->
+            when (step) {
+                is AgentStep.SkillPlanned -> {
+                    pendingSkillSegmentKey = "skill:${step.request.id}"
+                }
+
+                is AgentStep.ToolRequested -> {
+                    segmentKeys += pendingSkillSegmentKey ?: "tool:${step.request.id}"
+                    pendingSkillSegmentKey = null
+                }
+
+                else -> Unit
+            }
+        }
+        return segmentKeys.size
+    }
 
     private fun latestPendingToolRequest(runId: String): ToolRequest? =
         traceStore.steps(runId)

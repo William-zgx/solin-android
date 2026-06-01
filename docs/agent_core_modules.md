@@ -156,17 +156,20 @@ Current status:
   tool arguments do not become later remote history.
 - Successful observations can now call `AgentObservationReplanner` to produce a
   next tool plan. The default production strategy is conservative: it splits
-  explicit sequence words such as "然后" / "then" into bounded single-action
-  segments, replans at most one next segment after each verified successful
+  explicit sequence words such as "然后" / "then" into bounded segments,
+  replans at most one next segment after each verified successful segment
   observation, and returns to user confirmation before any execution. The
-  next-action cursor is kept only in process memory; Room restore no longer
-  persists or resumes raw remaining sequence text across process death.
+  cursor counts completed sequence segments rather than raw tool requests, so a
+  composite Skill segment can complete its internal tools before the next
+  segment is considered. The next-action cursor is kept only in process memory;
+  Room restore no longer persists or resumes raw remaining sequence text across
+  process death.
 - Initial planning can also use the first explicit sequence segment to start a
-  single-tool or single-step Skill plan, so rule-only planning can enter the
-  loop for requests like "search, then open Wi-Fi." Multi-step Skill segments
-  and private-read segments that would require a local model continuation are
-  not split at the initial boundary yet; those still fall back instead of
-  starting a partial flow that cannot advance the remaining sequence.
+  single-tool, single-step Skill, or validated composite Skill plan, so rule-only
+  planning can enter the loop for requests like "search, then open Wi-Fi" and
+  local composite flows like "summarize clipboard and share, then open Wi-Fi."
+  A bare private-read segment that would require local model continuation while
+  more segments remain still falls back instead of starting a partial flow.
 - Later sequential replans apply the same continuation guard: clipboard,
   current-screen text, and OCR reads may appear as the final segment, but are
   not planned while another explicit segment remains.
@@ -312,15 +315,17 @@ Current status:
   from skipping required tool or model prerequisites.
 - Default sequential replanning now splits explicit connectors such as
   "then", "然后", and "再" into a live-only bounded sequence. A verified
-  successful observation can plan only the next segment, returns to
+  successful segment can plan only the next segment, returns to
   `AwaitingUserConfirmation`, and stops after the final segment or the
-  configured step limit.
+  configured step limit. The cursor is segment-based, so internal tools from a
+  composite Skill do not prematurely skip the remaining explicit sequence.
 - Pending confirmations keep only the immediate next segment in process memory.
   Room persistence still writes `nextActionInput = null`, so a restart can
   restore the current pending tool but cannot resume raw remaining sequence text.
-- Skill-first clipboard context and clipboard-summary-share planning reject
-  sequential commands such as "read clipboard, then open Wi-Fi settings" so the
-  one-step or composite skill cannot swallow later user intent.
+- Full-input Skill-first planning still rejects sequential commands so a Skill
+  cannot swallow later user intent. The initial first-segment fallback may start
+  a composite Skill for that segment only, while a bare private-read segment
+  such as "read clipboard, then open Wi-Fi settings" remains fail-closed.
 - Planned-tool audit persistence stores parameter-free planned/confirmation
   summaries; tool arguments remain out of persisted audit text.
 - Open-ended model-driven replanning, arbitrary multi-confirmation skill UI
@@ -359,7 +364,8 @@ Tests:
 - `AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions`
 - `AgentLoopRuntimeTest.roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears`
 - `AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues`
-- `AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentFallsBackToAnswer`
+- `AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill`
+- `AgentLoopRuntimeTest.sequentialCompositeSkillSegmentContinuesToNextSegmentAfterInternalToolsComplete`
 - `AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer`
 - `AgentLoopRuntimeTest.sequentialReplannerSkipsPrivateReadWhenMoreSegmentsRemain`
 - `AgentLoopRuntimeTest.sequentialReplannerAllowsFinalPrivateReadSegment`

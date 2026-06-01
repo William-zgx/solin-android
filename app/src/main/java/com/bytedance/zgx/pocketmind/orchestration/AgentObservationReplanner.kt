@@ -28,6 +28,7 @@ data class AgentObservationReplanContext(
     val observedResult: ToolResult,
     val priorRequests: List<ToolRequest>,
     val nextActionInput: String? = null,
+    val completedSegmentCount: Int = priorRequests.size,
 )
 
 data class AgentObservationReplan(
@@ -35,6 +36,7 @@ data class AgentObservationReplan(
     val draft: ActionDraft,
     val plannedByModel: Boolean = false,
     val fallbackReason: String? = null,
+    val input: String? = null,
 ) {
     init {
         require(request.toolName == draft.functionName) {
@@ -55,10 +57,10 @@ class SequentialActionObservationReplanner(
 
     override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? {
         if (context.observedResult.status != ToolStatus.Succeeded) return null
-        val completedActionCount = context.priorRequests.size
-        if (completedActionCount <= 0 || completedActionCount >= sequentialActionLimit) return null
+        val completedSegmentCount = context.completedSegmentCount
+        if (completedSegmentCount <= 0 || completedSegmentCount >= sequentialActionLimit) return null
         val nextInput = context.nextActionInput?.immediateSequentialActionText()
-            ?: context.run.input.explicitSequentialActionTextAt(completedActionCount)
+            ?: context.run.input.explicitSequentialActionTextAt(completedSegmentCount)
             ?: return null
         if (!actionPlanningRuntime.isLikelyAction(nextInput)) return null
         val planningResult = actionPlanningRuntime.plan(nextInput, actionModelPath = null)
@@ -66,7 +68,7 @@ class SequentialActionObservationReplanner(
         if (planningResult.plan.kind != ActionPlanKind.Draft) return null
         if (
             draft.functionName.requiresLocalModelBeforeSequentialTail() &&
-            context.run.input.explicitSequentialActionTextAt(completedActionCount + 1) != null
+            context.run.input.explicitSequentialActionTextAt(completedSegmentCount + 1) != null
         ) {
             return null
         }
@@ -79,6 +81,7 @@ class SequentialActionObservationReplanner(
             draft = draft,
             plannedByModel = planningResult.usedModel,
             fallbackReason = planningResult.fallbackReason,
+            input = nextInput,
         )
     }
 

@@ -1,5 +1,39 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Sequential composite Skill segment 增量验证
+
+本轮覆盖项：
+
+- 显式顺序输入的第一段现在可以启动 validated composite Skill，例如
+  “总结剪贴板并分享，然后打开 Wi-Fi 设置”会先进入
+  `clipboard_summary_share_skill` 的 `read_clipboard` 确认。
+- 顺序游标改为按 logical segment 计数，而不是按 tool request 计数；同一个
+  composite Skill 内部的 `read_clipboard -> local model -> share_text` 不会跳过
+  后续 “打开 Wi-Fi 设置” segment。
+- 后续 replan 使用当前 segment 文本绑定 Skill，避免把整条顺序输入作为下一段
+  Skill 的 `input`。
+- 单独私密读取首段（如“读取剪贴板，然后打开 Wi-Fi 设置”）仍 fail closed。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialCompositeSkillSegmentContinuesToNextSegmentAfterInternalToolsComplete' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions'
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+git diff --unified=0 | rg -n "^\\+.*<sensitive endpoint/model/key patterns>"
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：通过。`scripts/verify_local.sh` 覆盖 doctor、脚本校验、unit、lint、
+debug/androidTest/release assemble 和 APK 检查；新增 diff 行敏感串扫描无命中。
+
 ## 2026-06-02 Local verification KSP/lint ordering 增量验证
 
 本轮覆盖项：
@@ -32,9 +66,9 @@ git diff --unified=0 | rg -n "^\\+.*<sensitive endpoint/model/key patterns>"
   重新尝试单工具/单步 Skill 规划。
 - “先搜一下 Kotlin，然后打开 Wi-Fi 设置”现在能用规则路径进入 `web_search`
   确认，观察成功后继续规划 Wi-Fi 确认。
-- 第一段如果会形成 composite Skill（如“总结剪贴板并分享”）或观察后必然进入
-  本地模型 continuation 的私密读取（如“读取剪贴板”）则不拆，避免启动半截流程后
-  丢失后续 segment cursor。
+- 第一段如果是 bare 私密读取（如“读取剪贴板”）且后面还有 segment，则不拆，
+  避免启动半截流程后必须跨过本地模型 continuation 继续执行后续 segment。
+  后续增量已放行带自身 local model boundary 的 composite Skill 首段。
 - 后续 replan 也对私密读取做同样保护：当后面还有 explicit segment 时不规划
   剪贴板/OCR/当前屏幕读取；如果它们是最后一段，则仍可进入确认。
 - 解释性“先搜索再打开设置这个流程怎么实现”仍走普通回答，不进入确认。
@@ -44,7 +78,7 @@ git diff --unified=0 | rg -n "^\\+.*<sensitive endpoint/model/key patterns>"
 ```bash
 ./gradlew :app:testDebugUnitTest \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentFallsBackToAnswer' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialReplannerSkipsPrivateReadWhenMoreSegmentsRemain' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialReplannerAllowsFinalPrivateReadSegment' \

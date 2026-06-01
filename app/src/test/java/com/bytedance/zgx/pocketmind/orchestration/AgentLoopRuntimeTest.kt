@@ -685,7 +685,7 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
-    fun skillFirstSequentialInputFallsBackToAnswerWhenRulePlannerRejectsIt() {
+    fun skillFirstSequentialCompositeSegmentPlansFirstSkillWhenRulePlannerRejectsFullInput() {
         val input = "总结剪贴板并分享，然后打开 Wi-Fi 设置"
         val planner = MobileActionPlanner()
         val auditSink = InMemoryToolAuditSink()
@@ -712,10 +712,18 @@ class AgentLoopRuntimeTest {
             memoryEnabled = false,
         )
 
-        assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
-        assertTrue(result.plan is AgentPlan.Answer)
-        assertEquals(null, runtime.latestPendingConfirmation())
-        assertTrue(auditSink.events.isEmpty())
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, result.plan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("打开 Wi-Fi 设置", runtime.latestPendingConfirmation()?.nextActionInput)
+        assertEquals(
+            listOf(
+                ToolAuditEventType.ToolPlanned,
+                ToolAuditEventType.ConfirmationRequested,
+            ),
+            auditSink.events.map { it.eventType },
+        )
     }
 
     @Test
@@ -3753,7 +3761,7 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
-    fun initialSequentialCompositeSkillSegmentFallsBackToAnswer() {
+    fun initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RuleActionRuntime(),
@@ -3767,9 +3775,95 @@ class AgentLoopRuntimeTest {
             memoryEnabled = false,
         )
 
-        assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
-        require(result.plan is AgentPlan.Answer)
-        assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, result.plan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("打开 Wi-Fi 设置", runtime.latestPendingConfirmation()?.nextActionInput)
+    }
+
+    @Test
+    fun sequentialCompositeSkillSegmentContinuesToNextSegmentAfterInternalToolsComplete() {
+        val actionRuntime = RuleActionRuntime()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val planned = runtime.runOnce(
+            input = "总结剪贴板并分享，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, planned.plan.request.toolName)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observedRead = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = clipboardResultData("只应留在本地模型 continuation 的剪贴板原文"),
+            ),
+        )
+        requireNotNull(observedRead)
+        assertEquals(AgentRunState.GeneratingAnswer, observedRead.run.state)
+        require(observedRead.decision is AgentObservationDecision.ContinueWithModel)
+
+        val modelObserved = runtime.observeModelResult(planned.run.id, "剪贴板摘要")
+
+        requireNotNull(modelObserved)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, modelObserved.run.state)
+        require(modelObserved.decision is AgentObservationDecision.PlanNextTool)
+        val sharePlan = modelObserved.decision.plan
+        assertEquals(MobileActionFunctions.SHARE_TEXT, sharePlan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL, sharePlan.skillRequest?.skillId)
+        assertEquals("打开 Wi-Fi 设置", runtime.latestPendingConfirmation()?.nextActionInput)
+
+        runtime.confirmToolRequest(planned.run.id, sharePlan.request.id)
+        val wifiPlanned = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = sharePlan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开系统分享面板",
+                data = externalActivityResultData(MobileActionFunctions.SHARE_TEXT),
+            ),
+        )
+
+        requireNotNull(wifiPlanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, wifiPlanned.run.state)
+        require(wifiPlanned.decision is AgentObservationDecision.PlanNextTool)
+        val wifiPlan = wifiPlanned.decision.plan
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wifiPlan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, wifiPlan.skillRequest?.skillId)
+        assertEquals("打开 Wi-Fi 设置", wifiPlan.skillPlan?.request?.arguments?.get("input"))
+
+        runtime.confirmToolRequest(planned.run.id, wifiPlan.request.id)
+        val completed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = wifiPlan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+
+        requireNotNull(completed)
+        assertEquals(AgentRunState.Completed, completed.run.state)
+        assertEquals(AgentObservationDecision.Complete, completed.decision)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.READ_CLIPBOARD,
+                MobileActionFunctions.SHARE_TEXT,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            ),
+            completed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+        )
     }
 
     @Test
