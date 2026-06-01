@@ -1,5 +1,34 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Explicit preference forget command 增量验证
+
+本轮覆盖项：
+
+- `explicitUserPreferenceForgetFrom` 支持 `忘记：...` / `forget that ...`
+  等中英文显式偏好删除命令，并归一化 `用户偏好：` 前缀后计算同一个
+  deterministic preference id。
+- `MemoryRepository.rebuild` 会跳过显式 remember / forget 控制命令；用户删除
+  偏好后，历史里的控制命令不会把已删除偏好重新索引回来。
+- `PocketMindViewModel.sendMessage` 在模型尚未准备或远程模式下也会本地处理
+  forget 命令，只写入 `LocalOnly` 控制/status 消息，绕过 chat/action router 与
+  remote runtime。
+- 后续远程问题不会携带 remember/forget 控制消息、已删除偏好文本或本地状态消息。
+- 该切片不改变 LiteRT embedding 边界：生产仍未接入真正 embedding runtime；
+  verified memory asset 仍只有 runtime `Active` 时才代表语义召回。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetPreferenceCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteForgetPreferenceCommandDoesNotEnterLaterRemoteHistory' \
+  --no-daemon
+```
+
+结果：targeted memory / ViewModel forget-command 回归通过；完整 JVM 单测、
+AndroidTest Kotlin 编译、diff whitespace 检查和敏感 diff 扫描通过。
+
 ## 2026-06-02 Model observation replanner 增量验证
 
 本轮覆盖项：

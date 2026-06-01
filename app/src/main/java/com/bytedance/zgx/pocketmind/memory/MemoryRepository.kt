@@ -166,7 +166,13 @@ class MemoryRepository(
             )
         }
         messages.forEach { message ->
-            if (message.role == MessageRole.User && explicitUserPreferenceFrom(message.text) != null) {
+            if (
+                message.role == MessageRole.User &&
+                (
+                    explicitUserPreferenceFrom(message.text) != null ||
+                        explicitUserPreferenceForgetFrom(message.text) != null
+                    )
+            ) {
                 return@forEach
             }
             val rolePrefix = when (message.role) {
@@ -376,6 +382,24 @@ internal fun explicitUserPreferenceFrom(text: String): String? {
         ?.takeIf { it.isNotBlank() }
 }
 
+internal fun explicitUserPreferenceForgetFrom(text: String): String? {
+    val trimmed = text.trim()
+    val chinesePrefix = Regex("""^(?:请)?(?:忘记|遗忘|删除|移除|不要再记住|别再记住)[:：]?\s*(.+)$""")
+    chinesePrefix.find(trimmed)?.groupValues?.getOrNull(1)?.toPreferenceForgetTarget()?.let { preference ->
+        if (preference.isNotBlank()) return preference
+    }
+
+    val englishPrefix = Regex(
+        pattern = """^(?:please\s+)?(?:forget|delete|remove)\s+(?:that\s+)?(.+)$""",
+        option = RegexOption.IGNORE_CASE,
+    )
+    return englishPrefix.find(trimmed)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toPreferenceForgetTarget()
+        ?.takeIf { it.isNotBlank() }
+}
+
 internal fun explicitUserPreferenceRecordId(preference: String): String {
     val key = preference.trim().replace(Regex("""\s+"""), " ").lowercase(Locale.ROOT)
     val hash = MessageDigest.getInstance("SHA-256")
@@ -385,6 +409,12 @@ internal fun explicitUserPreferenceRecordId(preference: String): String {
         }
     return "preference-${hash.take(16)}"
 }
+
+private fun String.toPreferenceForgetTarget(): String =
+    trim()
+        .removePrefix("用户偏好：")
+        .removePrefix("user preference:")
+        .trim()
 
 internal fun explicitPreferenceConflictKey(preference: String): String? {
     return explicitPreferenceConflictKeys(preference).firstOrNull()

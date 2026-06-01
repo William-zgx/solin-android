@@ -34,6 +34,7 @@ import com.bytedance.zgx.pocketmind.memory.TASK_STATE_MEMORY_RECORD_PREFIX
 import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeController
 import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceFrom
+import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceForgetFrom
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceRecordId
 import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
@@ -820,6 +821,10 @@ class PocketMindViewModel(
             return
         }
         if (trimmed.isEmpty() || _uiState.value.isBusy || generationJob?.isActive == true) {
+            return
+        }
+        if (explicitUserPreferenceForgetFrom(trimmed) != null) {
+            handleExplicitPreferenceForgetCommand(trimmed)
             return
         }
         if (explicitUserPreferenceFrom(trimmed) != null) {
@@ -2496,6 +2501,45 @@ class PocketMindViewModel(
                 memoryHits = emptyList(),
                 longTermMemories = loadLongTermMemories(),
                 statusText = if (persisted) "长期记忆已更新" else "本地记忆暂不可用",
+            )
+        }
+    }
+
+    private fun handleExplicitPreferenceForgetCommand(trimmed: String) {
+        syncTaskStateMemories()
+        val userMessage = ChatMessage(
+            role = MessageRole.User,
+            text = trimmed,
+            privacy = MessagePrivacy.LocalOnly,
+        )
+        replaceActiveSessionMessages(
+            _uiState.value.messages + userMessage,
+            persistNow = true,
+        )
+        val preference = explicitUserPreferenceForgetFrom(trimmed)
+        val removed = preference?.let { target ->
+            runCatching { longTermMemoryControls.forget(explicitUserPreferenceRecordId(target)) }
+                .getOrDefault(false)
+        } == true
+        val assistantText = if (removed) {
+            "已遗忘这条本地偏好。"
+        } else {
+            "未找到这条本地偏好。"
+        }
+        replaceActiveSessionMessages(
+            _uiState.value.messages + ChatMessage(
+                role = MessageRole.Assistant,
+                text = assistantText,
+                privacy = MessagePrivacy.LocalOnly,
+            ),
+            persistNow = true,
+        )
+        rebuildMemoryIndex()
+        _uiState.update { state ->
+            state.copy(
+                memoryHits = emptyList(),
+                longTermMemories = loadLongTermMemories(),
+                statusText = if (removed) "长期记忆已更新" else "未找到这条记忆",
             )
         }
     }

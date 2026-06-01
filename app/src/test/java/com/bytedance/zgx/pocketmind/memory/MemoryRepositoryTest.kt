@@ -449,10 +449,33 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun rebuildSkipsExplicitPreferenceForgetCommandsWithoutConversationRecord() {
+        val repository = MemoryRepository()
+        val message = ChatMessage(
+            role = MessageRole.User,
+            text = "忘记：我喜欢简洁的中文回答",
+            id = 8L,
+        )
+
+        repository.rebuild(listOf(message))
+
+        assertTrue(repository.search("简洁中文回答", topK = 3).isEmpty())
+        assertTrue(repository.search("忘记", topK = 3).isEmpty())
+    }
+
+    @Test
     fun explicitPreferenceExtractorSupportsChineseAndEnglishCommands() {
         assertEquals("我喜欢简洁的中文回答", explicitUserPreferenceFrom("请记住：我喜欢简洁的中文回答"))
         assertEquals("I prefer concise answers", explicitUserPreferenceFrom("please remember that I prefer concise answers"))
         assertEquals(null, explicitUserPreferenceFrom("我们讨论一下记忆系统"))
+    }
+
+    @Test
+    fun explicitPreferenceForgetExtractorSupportsChineseAndEnglishCommands() {
+        assertEquals("我喜欢简洁的中文回答", explicitUserPreferenceForgetFrom("请忘记：我喜欢简洁的中文回答"))
+        assertEquals("回答要详细", explicitUserPreferenceForgetFrom("不要再记住：用户偏好：回答要详细"))
+        assertEquals("I prefer concise answers", explicitUserPreferenceForgetFrom("please forget that I prefer concise answers"))
+        assertEquals(null, explicitUserPreferenceForgetFrom("我们讨论一下遗忘机制"))
     }
 
     @Test

@@ -958,6 +958,12 @@ Current status:
   remote runtime; visible control/status messages are stored as `LocalOnly`.
   `rebuild` reloads persisted records and saved non-control session history into
   the in-memory index.
+- `sendMessage` also treats explicit preference deletion statements such as
+  `忘记：...` / `forget ...` as local memory-control commands. They delete the
+  deterministic `Preference` record for the normalized target, store only
+  `LocalOnly` control/status messages, bypass the chat/action router and remote
+  runtime, and are skipped during memory rebuild so a forgotten preference is
+  not reindexed from command history.
 - Explicit preference records use deterministic ids derived from normalized
   preference text, so repeating the same remember command upserts one record
   instead of creating duplicate long-term memories.
@@ -1017,12 +1023,16 @@ Tests:
 - `MemoryRepositoryTest.conflictingResponseLengthPreferenceReplacesOlderRecord`
 - `MemoryRepositoryTest.unrelatedResponsePreferenceFamiliesCanCoexist`
 - `MemoryRepositoryTest.combinedResponsePreferenceReplacesBothFamilies`
+- `MemoryRepositoryTest.explicitPreferenceForgetExtractorSupportsChineseAndEnglishCommands`
+- `MemoryRepositoryTest.rebuildSkipsExplicitPreferenceForgetCommandsWithoutConversationRecord`
 - `MemoryRepositoryTest.semanticRuntimeControllerSwitchesBetweenFallbackAndSemanticRuntime`
 - `MemoryRepositoryTest.memoryModelPathDoesNotEnableSemanticRecallWithoutRuntimeSupport`
 - `ModelRepositoryPathTest`
 - `MemoryRepositoryTest.taskStateMemoryRecordIdIsStableForWhitespace`
 - `PocketMindViewModelTest`
 - `PocketMindViewModelTest.rememberCommandReplacesConflictingPreferenceMemory`
+- `PocketMindViewModelTest.forgetPreferenceCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime`
+- `PocketMindViewModelTest.remoteForgetPreferenceCommandDoesNotEnterLaterRemoteHistory`
 - `PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex`
 - `PocketMindViewModelTest.restoreStartupStateIndexesScheduledTasksAsForgettableTaskState`
 - `PocketMindViewModelTest.backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory`

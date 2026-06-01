@@ -111,6 +111,9 @@ updates local long-term preferences, records only `LocalOnly` control/status
 messages if visible in the session, and is not sent to a remote model as
 ordinary chat. Explicit response-length and response-language preferences replace
 older conflicting preferences instead of accumulating contradictory records.
+`忘记：...` / `forget ...` can delete the matching explicit preference through
+the same local-only command path without invoking the chat/action router or a
+remote model.
 The semantic-memory boundary can verify a downloaded MemoryEmbedding asset, but
 production does not yet wire a LiteRT embedding runtime. Installing the memory
 asset only changes asset/status reporting; recall falls back to the lightweight
