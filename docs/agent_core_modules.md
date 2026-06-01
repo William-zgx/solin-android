@@ -1059,11 +1059,12 @@ Current status:
   `task-*` id, and rejects missing task ids, API/implementation/explanation
   discussions, negated commands, and non-reminder cancellations such as
   calendar/contact/mail cancellation.
-- Implemented runtime background task review UI for active `Scheduled` and
-  `Running` tasks. The UI shows pending or executing task metadata; explicit
+- Implemented runtime background task review UI for active `Scheduled` tasks.
+  Internal `Running` rows stay available to task-state memory and recovery
+  logic, but they are not shown as user-cancellable running tasks. Explicit
   cancellation is shown only for still-`Scheduled` tasks, where it cancels the
   platform schedule, updates local task state to `Cancelled`, and removes the
-  task from the running-task list. Cancellation failure paths reload active and
+  task from the active-task list. Cancellation failure paths reload active and
   history lists from the scheduler so stale UI rows do not keep old status.
 - Implemented recent background task history in the same review surface for
   terminal `Delivered`, `Cancelled`, `Deleted`, and `Failed` tasks. History rows
@@ -1087,12 +1088,14 @@ Tests:
 - `ActionExecutorTest.reportsStaleReminderCancellationAsNonRetryableInvalidRequest`
 - `AgentTraceStoreTest.roomStorePersistsReminderRecoveryMetadataWithoutReminderContent`
 - `ScheduledTaskRemovalCoordinatorTest`
-- `PocketMindViewModelTest.restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork`
-- `PocketMindViewModelTest.cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler`
+- `PocketMindViewModelTest.restoreStartupStateLoadsScheduledBackgroundTasksAndIndexesRunningTaskStateWithoutRemoteWork`
+- `PocketMindViewModelTest.cancelScheduledBackgroundTaskRefreshesUiAndCancelsScheduler`
+- `PocketMindViewModelTest.cancelScheduledBackgroundTaskFailureKeepsTaskVisible`
+- `PocketMindViewModelTest.cancelScheduledBackgroundTaskFailureHidesConcurrentlyRunningTask`
 - `PocketMindViewModelTest.setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi`
 - `PocketMindViewModelTest.setPeriodicCheckPolicyFailureDoesNotShowHealthyRunningTask`
 - `PocketMindViewModelTest.disablePeriodicCheckPolicyMovesTaskToHistory`
-- `PocketMindViewModelTest.disablePeriodicCheckPolicyFailureKeepsRunningTaskVisible`
+- `PocketMindViewModelTest.disablePeriodicCheckPolicyFailureKeepsScheduledTaskVisible`
 - `MainActivitySmokeTest.backgroundTaskManagerShowsEmptyState`
 - `ActionExecutorTest`
 - `ActionPlannerTest.infersReminderDraftWithDelayMinutes`

@@ -1,5 +1,32 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Background task active-list 语义增量验证
+
+本轮覆盖项：
+
+- 后台任务入口的 active list 只展示仍处于 `Scheduled` 的可管理任务；竞态进入
+  `Running` 的任务不会继续显示成可取消项。
+- `Running` 任务仍参与 task-state long-term memory 索引和恢复逻辑，避免修 UI
+  语义时丢失 Agent 可召回的后台任务状态。
+- 取消失败后会重新加载 active/history/policy；若底层任务仍是 `Scheduled` 则保留
+  可见，若已进入 `Running` 则从可管理列表隐藏，同时显示失败提示。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateLoadsScheduledBackgroundTasksAndIndexesRunningTaskStateWithoutRemoteWork' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelScheduledBackgroundTaskRefreshesUiAndCancelsScheduler' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelScheduledBackgroundTaskFailureKeepsTaskVisible' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.cancelScheduledBackgroundTaskFailureHidesConcurrentlyRunningTask' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.setPeriodicCheckPolicyFailureDoesNotShowHealthyRunningTask' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.disablePeriodicCheckPolicyMovesTaskToHistory' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.disablePeriodicCheckPolicyFailureKeepsScheduledTaskVisible'
+```
+
+结果：通过。
+
 ## 2026-06-02 JSON/XML/YAML 共享附件摘录增量验证
 
 本轮覆盖项：

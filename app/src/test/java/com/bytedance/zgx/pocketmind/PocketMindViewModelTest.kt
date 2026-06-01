@@ -3649,7 +3649,9 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork() = runTest(dispatcher) {
+    fun restoreStartupStateLoadsScheduledBackgroundTasksAndIndexesRunningTaskStateWithoutRemoteWork() = runTest(
+        dispatcher,
+    ) {
         val store = FakeMemoryRecordStore()
         val memoryRepository = MemoryRepository(recordStore = store)
         val scheduler = FakeBackgroundTaskScheduler(
@@ -3682,7 +3684,7 @@ class PocketMindViewModelTest {
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
-        assertEquals(listOf("task-1", "task-running"), viewModel.uiState.value.backgroundTasks.map { it.id })
+        assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTasks.map { it.id })
         assertEquals(listOf("task-3", "task-2"), viewModel.uiState.value.backgroundTaskHistory.map { it.id })
         assertEquals(
             listOf(taskStateMemoryRecordId("task-1"), taskStateMemoryRecordId("task-running")),
@@ -3694,7 +3696,7 @@ class PocketMindViewModelTest {
         viewModel.refreshBackgroundTasks()
         advanceUntilIdle()
 
-        assertEquals(listOf("task-1", "task-running"), viewModel.uiState.value.backgroundTasks.map { it.id })
+        assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTasks.map { it.id })
         assertEquals(listOf("task-3", "task-2"), viewModel.uiState.value.backgroundTaskHistory.map { it.id })
         assertTrue(remoteRuntime.calls.isEmpty())
         assertTrue(executor.executedRequests.isEmpty())
@@ -3802,7 +3804,7 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun cancelRunningBackgroundTaskRefreshesUiAndCancelsScheduler() = runTest(dispatcher) {
+    fun cancelScheduledBackgroundTaskRefreshesUiAndCancelsScheduler() = runTest(dispatcher) {
         val scheduler = FakeBackgroundTaskScheduler(
             scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled)),
         )
@@ -3820,7 +3822,7 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun cancelRunningBackgroundTaskFailureKeepsTaskVisible() = runTest(dispatcher) {
+    fun cancelScheduledBackgroundTaskFailureKeepsTaskVisible() = runTest(dispatcher) {
         val scheduler = FakeBackgroundTaskScheduler(
             scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled)),
             cancelFailure = IllegalStateException("alarm unavailable"),
@@ -3838,7 +3840,7 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun cancelRunningBackgroundTaskFailureRefreshesStaleTaskLists() = runTest(dispatcher) {
+    fun cancelScheduledBackgroundTaskFailureHidesConcurrentlyRunningTask() = runTest(dispatcher) {
         val scheduler = FakeBackgroundTaskScheduler(
             scheduledTasks = listOf(scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled)),
             cancelFailure = IllegalStateException("already running"),
@@ -3852,8 +3854,7 @@ class PocketMindViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("task-1"), scheduler.cancelledTaskIds)
-        assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTasks.map { it.id })
-        assertEquals(ScheduledTaskStatus.Running, viewModel.uiState.value.backgroundTasks.single().status)
+        assertTrue(viewModel.uiState.value.backgroundTasks.isEmpty())
         assertTrue(viewModel.uiState.value.statusText.contains("后台任务取消失败"))
     }
 
@@ -3933,7 +3934,7 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun disablePeriodicCheckPolicyFailureKeepsRunningTaskVisible() = runTest(dispatcher) {
+    fun disablePeriodicCheckPolicyFailureKeepsScheduledTaskVisible() = runTest(dispatcher) {
         val scheduler = FakeBackgroundTaskScheduler(
             scheduledTasks = listOf(
                 scheduledTask(
