@@ -1,5 +1,28 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Built-in Skill manifest contract 增量验证
+
+本轮覆盖项：
+
+- `BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills` 从包含式断言
+  收紧为测试自有字面量快照，防止新增、删除、改名或常量同步误改导致 Skill
+  静默漂移。
+- 每个 built-in Skill manifest 必须有固定 version、固定 risk level、非空
+  title/description、精确 trigger examples、精确 required tools、raw closed input
+  schema；required tools 的 union 必须覆盖 `MobileActionFunctions.supported`，
+  且每个 required tool 必须存在于 `ToolRegistry`。
+- 每个 trigger example 必须 route 回声明它的 Skill，单步 tool request 必须通过
+  `ToolRegistry` 校验；代表性规划 fixture 集合也必须覆盖全部 built-in manifest。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest'
+```
+
+结果：通过。
+
 ## 2026-06-02 Background task active-list 语义增量验证
 
 本轮覆盖项：

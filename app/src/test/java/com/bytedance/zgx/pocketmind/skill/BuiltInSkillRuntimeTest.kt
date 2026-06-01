@@ -3,10 +3,13 @@ package com.bytedance.zgx.pocketmind.skill
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.tool.RiskLevel
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -15,36 +18,49 @@ class BuiltInSkillRuntimeTest {
 
     @Test
     fun exposesVersionedManifestsForCoreSkills() {
-        val manifests = runtime.manifests().associateBy { it.id }
+        val manifestList = runtime.manifests()
+        val manifests = manifestList.associateBy { it.id }
+        val registry = ToolRegistry()
 
-        assertTrue(BuiltInSkillRuntime.EMAIL_DRAFT_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.CALENDAR_DRAFT_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.CONTACT_DRAFT_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.MAP_SEARCH_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.INFORMATION_LOOKUP_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.REMINDER_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.SHARE_TEXT_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.RECENT_SCREENSHOT_OCR_CONTEXT_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.APP_NAVIGATION_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL in manifests)
-        assertTrue(BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL in manifests)
-        assertTrue(manifests.values.all { it.version >= 1 })
-        assertTrue(manifests.values.all { it.inputSchemaJson.contains("additionalProperties") })
+        assertEquals("Built-in skill ids must be unique", manifestList.size, manifests.size)
+        assertEquals("Expected built-in skill ids must be unique", expectedBuiltInSkillManifests.size, expectedBuiltInSkillIds.size)
+        assertEquals(expectedBuiltInSkillIds, manifests.keys)
+        assertEquals(MobileActionFunctions.supported, expectedBuiltInSkillManifests.flatMap { it.requiredTools }.toSet())
+        expectedBuiltInSkillManifests.forEach { expected ->
+            val manifest = manifests.getValue(expected.id)
+            assertEquals("${manifest.id} version changed without contract review", expected.version, manifest.version)
+            assertTrue("${manifest.id} title must be present", manifest.title.isNotBlank())
+            assertTrue("${manifest.id} description must be present", manifest.description.isNotBlank())
+            assertEquals(
+                "${manifest.id} trigger examples changed without contract review",
+                expected.triggerExamples,
+                manifest.triggerExamples,
+            )
+            assertEquals(
+                "${manifest.id} required tools changed without contract review",
+                expected.requiredTools,
+                manifest.requiredTools,
+            )
+            assertEquals(
+                "${manifest.id} risk level changed without contract review",
+                expected.riskLevel,
+                manifest.riskLevel,
+            )
+            manifest.requiredTools.forEach { toolName ->
+                assertTrue("${manifest.id} requires unknown tool $toolName", registry.isKnownTool(toolName))
+            }
+            assertEquals(
+                "${manifest.id} input schema changed without contract review",
+                expectedBuiltInSkillInputSchema,
+                manifest.inputSchemaJson,
+            )
+        }
     }
 
     @Test
     fun builtInManifestSchemasAreClosedTextInputContracts() {
         runtime.manifests().forEach { manifest ->
+            assertEquals(expectedBuiltInSkillInputSchema, manifest.inputSchemaJson)
             val schema = JSONObject(manifest.inputSchemaJson)
             assertEquals("object", schema.getString("type"))
             assertEquals(false, schema.getBoolean("additionalProperties"))
@@ -169,6 +185,31 @@ class BuiltInSkillRuntimeTest {
         plans.forEach { (input, plan) ->
             assertEquals(mapOf("input" to input), plan.request.arguments)
             assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+        }
+        assertEquals(expectedBuiltInSkillIds, plans.map { (_, plan) -> plan.manifest.id }.toSet())
+    }
+
+    @Test
+    fun builtInManifestTriggerExamplesRouteToDeclaredSkills() {
+        val registry = ToolRegistry()
+
+        expectedBuiltInSkillManifests.forEach { expected ->
+            expected.triggerExamples.forEach { example ->
+                val plan = requireNotNull(runtime.plan(example)) {
+                    "Trigger example `$example` did not route to any built-in skill"
+                }
+                assertEquals("Trigger example `$example` routed to wrong skill", expected.id, plan.manifest.id)
+                assertEquals(mapOf("input" to example), plan.request.arguments)
+                assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+                plan.steps.filterIsInstance<SkillStep.ToolStep>()
+                    .filter { step -> step.argumentBindings.isEmpty() }
+                    .forEach { step ->
+                        assertNull(
+                            "Trigger example `$example` produced invalid request ${step.request}",
+                            registry.validate(step.request),
+                        )
+                    }
+            }
         }
     }
 
@@ -1114,6 +1155,162 @@ class BuiltInSkillRuntimeTest {
         assertTrue(validation.errors.any { it.contains("share_summary depends on missing or later step") })
         assertTrue(validation.errors.any { it.contains("summarize_clipboard depends on missing or later step") })
     }
+
+    private data class ExpectedBuiltInSkillManifest(
+        val id: String,
+        val requiredTools: List<String>,
+        val riskLevel: RiskLevel,
+        val triggerExamples: List<String>,
+        val version: Int = 1,
+    )
+
+    private val expectedBuiltInSkillManifests = listOf(
+        ExpectedBuiltInSkillManifest(
+            id = "email_draft_skill",
+            requiredTools = listOf("compose_email"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("帮我写封邮件", "draft an email"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "calendar_draft_skill",
+            requiredTools = listOf("create_calendar_event"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("帮我建个日程", "add a calendar event"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "contact_draft_skill",
+            requiredTools = listOf("create_contact_draft"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("新建联系人 Alice", "create contact Alice"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "map_search_skill",
+            requiredTools = listOf("search_maps"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("查去机场的路线", "search maps for coffee nearby"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "information_lookup_skill",
+            requiredTools = listOf("web_search"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("搜一下 Kotlin", "look up Kotlin"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "device_settings_skill",
+            requiredTools = listOf("open_wifi_settings", "open_usage_access_settings", "open_flashlight_settings"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("打开 Wi-Fi 设置", "打开使用情况访问权限设置", "打开手电筒设置"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "reminder_skill",
+            requiredTools = listOf("schedule_reminder", "cancel_reminder"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("提醒我 10 分钟后喝水", "取消提醒 task-123", "remind me in 1 hour"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "clipboard_context_skill",
+            requiredTools = listOf("read_clipboard"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("读取剪贴板", "summarize my clipboard"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "share_text_skill",
+            requiredTools = listOf("share_text"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("分享这段文字", "share this text"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "clipboard_summary_share_skill",
+            requiredTools = listOf("read_clipboard", "share_text"),
+            riskLevel = RiskLevel.HighExternalSend,
+            triggerExamples = listOf("总结剪贴板并分享", "summarize my clipboard and share it"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "current_screen_text_summary_share_skill",
+            requiredTools = listOf("read_current_screen_text", "share_text"),
+            riskLevel = RiskLevel.HighExternalSend,
+            triggerExamples = listOf("总结当前屏幕文字并分享", "summarize current screen text and share it"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "recent_screenshot_ocr_context_skill",
+            requiredTools = listOf("read_recent_screenshot_ocr"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("识别最近截图文字", "read text from latest screenshot"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "recent_image_ocr_context_skill",
+            requiredTools = listOf("read_recent_image_ocr"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("识别最近图片文字", "read text from recent photos"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "recent_files_context_skill",
+            requiredTools = listOf("query_recent_files"),
+            riskLevel = RiskLevel.LowReadOnly,
+            triggerExamples = listOf("最近图片", "recent screenshots"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "deep_link_navigation_skill",
+            requiredTools = listOf("open_deep_link"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("打开链接 https://example.com", "open https://example.com"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "app_navigation_skill",
+            requiredTools = listOf("open_app_intent", "open_app_deep_target"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("启动微信", "打开微信应用详情设置"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "foreground_app_context_skill",
+            requiredTools = listOf("query_foreground_app"),
+            riskLevel = RiskLevel.LowReadOnly,
+            triggerExamples = listOf("当前应用是什么", "what app is currently open"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "recent_notifications_context_skill",
+            requiredTools = listOf("query_recent_notifications"),
+            riskLevel = RiskLevel.LowReadOnly,
+            triggerExamples = listOf("最近通知", "current app notifications"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "current_screen_text_context_skill",
+            requiredTools = listOf("read_current_screen_text"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("读取当前屏幕文字", "summarize current screen text"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "contact_lookup_skill",
+            requiredTools = listOf("query_contacts"),
+            riskLevel = RiskLevel.LowReadOnly,
+            triggerExamples = listOf("查联系人 Alice", "find contact Alice"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "calendar_availability_skill",
+            requiredTools = listOf("query_calendar_availability"),
+            riskLevel = RiskLevel.LowReadOnly,
+            triggerExamples = listOf(
+                "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z",
+                "calendar availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z",
+            ),
+        ),
+    )
+
+    private val expectedBuiltInSkillIds = expectedBuiltInSkillManifests.mapTo(linkedSetOf()) { it.id }
+
+    private val expectedBuiltInSkillInputSchema = """
+        {
+          "type": "object",
+          "required": ["input"],
+          "properties": {
+            "input": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+    """.trimIndent()
 
     private fun draft(
         toolName: String,

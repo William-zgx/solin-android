@@ -502,12 +502,21 @@ Current status:
   not leave an invisible confirmation zombie.
   Corrupt or stale rows are skipped instead of reviving an unexplainable skill
   continuation.
+- Built-in Skill manifest tests now lock the exact manifest id set using
+  test-owned literal ids, version, trigger examples, risk level, exact required
+  tool declarations, raw closed input schema text, and required-tool presence in
+  `ToolRegistry`. Every trigger example must route back to its owning Skill, and
+  the representative planning fixture set must cover every built-in manifest, so
+  adding or removing a built-in Skill requires an explicit contract update.
 
 Tests:
 
 - `BuiltInSkillRuntimeTest`
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareAsOrderedCompositeSkill`
 - `BuiltInSkillRuntimeTest.plansCurrentScreenTextSummaryShareAsOrderedCompositeSkill`
+- `BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills`
+- `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`
+- `BuiltInSkillRuntimeTest.builtInManifestTriggerExamplesRouteToDeclaredSkills`
 - `BuiltInSkillRuntimeTest.currentScreenTextSummaryShareRejectsFalsePositiveQuestionsAndNegations`
 - `BuiltInSkillRuntimeTest.routesClipboardSummaryShareInputToCompositePlan`
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareWithoutActionDraft`
