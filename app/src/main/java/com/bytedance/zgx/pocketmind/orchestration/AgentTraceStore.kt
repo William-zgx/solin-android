@@ -655,7 +655,7 @@ private fun AgentStep.traceSummary(): String =
         }
 
         is AgentStep.ModelPlanned -> plan.traceSummary()
-        is AgentStep.ToolRequested -> "Requested tool ${request.toolName}: ${request.reason.shortTraceText()}"
+        is AgentStep.ToolRequested -> "Requested tool ${request.toolName}."
         is AgentStep.SkillPlanned -> "Planned skill ${request.skillId} with ${plan?.steps?.size ?: 0} step(s)."
         is AgentStep.SafetyChecked -> "Safety ${decision.outcome}: ${decision.reason.shortTraceText()}"
         is AgentStep.UserConfirmationRequested -> "Requested confirmation for ${request.toolName}."
@@ -673,7 +673,7 @@ private fun AgentStep.traceSummary(): String =
 private fun AgentPlan.traceSummary(): String =
     when (this) {
         is AgentPlan.Answer -> "Planned answer generation."
-        is AgentPlan.UseTool -> "Planned tool ${request.toolName}: ${request.reason.shortTraceText()}"
+        is AgentPlan.UseTool -> "Planned tool ${request.toolName}."
         is AgentPlan.RejectedTool -> "Rejected tool plan: ${result.summary.shortTraceText()}"
         is AgentPlan.MissingModel -> "Missing model capability ${capability.name}."
     }
@@ -702,7 +702,6 @@ private fun AgentStep.traceJson(type: String): JSONObject {
         is AgentStep.ToolRequested -> json
             .put("requestId", request.id)
             .put("toolName", request.toolName)
-            .put("reason", request.reason.shortTraceText())
             .put("argumentKeys", request.arguments.keys.sorted())
             .put("draftTitle", draft.title.shortTraceText())
 

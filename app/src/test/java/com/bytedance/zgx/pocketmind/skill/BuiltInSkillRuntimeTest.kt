@@ -394,6 +394,12 @@ class BuiltInSkillRuntimeTest {
     }
 
     @Test
+    fun clipboardSummaryShareSkillFirstRejectsSequentialFollowUp() {
+        assertEquals(null, runtime.plan("总结剪贴板并分享，然后打开 Wi-Fi 设置"))
+        assertEquals(null, runtime.plan("summarize clipboard and share it, then open Wi-Fi settings"))
+    }
+
+    @Test
     fun plansClipboardContextWithoutActionDraft() {
         val plan = runtime.plan("读取剪贴板")
 

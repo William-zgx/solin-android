@@ -2031,9 +2031,12 @@ class PocketMindViewModelTest {
 
     @Test
     fun restoreStartupStateLoadsRunningBackgroundTasksWithoutRemoteWork() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
         val scheduler = FakeBackgroundTaskScheduler(
             scheduledTasks = listOf(
                 scheduledTask("task-1", ScheduledTaskType.Reminder, ScheduledTaskStatus.Scheduled),
+                scheduledTask("task-running", ScheduledTaskType.Reminder, ScheduledTaskStatus.Running),
                 scheduledTask(
                     id = "task-2",
                     type = ScheduledTaskType.Reminder,
@@ -2051,6 +2054,7 @@ class PocketMindViewModelTest {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val executor = RecordingToolExecutor()
         val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
             backgroundTaskScheduler = scheduler,
             remoteRuntime = remoteRuntime,
             actionExecutor = executor,
@@ -2059,7 +2063,19 @@ class PocketMindViewModelTest {
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
-        assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTasks.map { it.id })
+        assertEquals(listOf("task-1", "task-running"), viewModel.uiState.value.backgroundTasks.map { it.id })
+        assertEquals(listOf("task-3", "task-2"), viewModel.uiState.value.backgroundTaskHistory.map { it.id })
+        assertEquals(
+            listOf(taskStateMemoryRecordId("task-1"), taskStateMemoryRecordId("task-running")),
+            store.records()
+                .filter { record -> record.type == MemoryRecordType.TaskState }
+                .map { record -> record.id },
+        )
+
+        viewModel.refreshBackgroundTasks()
+        advanceUntilIdle()
+
+        assertEquals(listOf("task-1", "task-running"), viewModel.uiState.value.backgroundTasks.map { it.id })
         assertEquals(listOf("task-3", "task-2"), viewModel.uiState.value.backgroundTaskHistory.map { it.id })
         assertTrue(remoteRuntime.calls.isEmpty())
         assertTrue(executor.executedRequests.isEmpty())

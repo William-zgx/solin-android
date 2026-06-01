@@ -152,9 +152,11 @@ Current status:
   full prompt to Room or recent trace summaries.
 - Persisted trace summaries and JSON previews now reuse the audit redactor for
   credential-like assignments, bearer values, API-key-shaped strings, and email
-  addresses before truncation. This covers tool reasons, draft titles, observed
-  summaries, retry/failure reasons, assistant text previews, and allowlisted
-  completion metadata values.
+  addresses before truncation. Tool request and `UseTool` planning trace is
+  parameter-free: it records tool names, argument keys, and draft titles only,
+  not parameterized request reasons. Redaction still covers draft titles,
+  observed summaries, retry/failure reasons, assistant text previews, and
+  allowlisted completion metadata values.
 - Background reminder requests with explicit relative delays now also have a
   Skill-first path. The reminder skill reuses the same delay/title parser as
   the action planner, then enters the normal confirmation and runtime
@@ -226,6 +228,9 @@ Current status:
   returned to `AwaitingUserConfirmation`. The progression fails closed if the
   next tool still depends on another unsatisfied step, preventing model output
   from skipping required tool or model prerequisites.
+- Skill-first clipboard-summary-share planning rejects sequential commands such
+  as "summarize clipboard and share it, then open Wi-Fi settings" so the
+  composite skill cannot swallow later user intent.
 - Open-ended model-driven replanning, arbitrary multi-confirmation skill UI
   orchestration, and full argument-bearing typed step rehydration are still
   pending.
@@ -260,6 +265,7 @@ Tests:
 - `AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation`
 - `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare`
 - `AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments`
+- `AgentTraceStoreTest.roomStoreToolPlanningTraceDoesNotPersistParameterLikeReasonText`
 - `AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson`
 - `AgentTraceStoreTest.roomStoreRedactsAllowlistedCompletionMetadataValues`
 - `AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace`
@@ -369,6 +375,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareAsOrderedCompositeSkill`
 - `BuiltInSkillRuntimeTest.routesClipboardSummaryShareInputToCompositePlan`
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareWithoutActionDraft`
+- `BuiltInSkillRuntimeTest.clipboardSummaryShareSkillFirstRejectsSequentialFollowUp`
 - `BuiltInSkillRuntimeTest.plansClipboardContextWithoutActionDraft`
 - `BuiltInSkillRuntimeTest.plansDeviceSettingsWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.plansWebSearchWithoutActionDraftWhenCommandIsExplicit`
@@ -435,6 +442,9 @@ Current status:
 - Chat history now carries `MessagePrivacy`; messages marked `LocalOnly` are
   persisted for the local conversation but are filtered from remote history, and
   a `LocalOnly` current prompt is rejected before any remote request is made.
+- Unknown stored `MessagePrivacy` enum values restore as `LocalOnly` rather
+  than `RemoteEligible`, so future-version or corrupted history fails closed at
+  the remote-history boundary.
 - ViewModel dependencies now sit behind narrow ports for model state, sessions,
   generation settings, remote settings, downloads, memory, tool execution, and
   assistant routing so privacy behavior can be regression-tested without
@@ -827,10 +837,11 @@ Current status:
   `task-*` id, and rejects missing task ids, API/implementation/explanation
   discussions, negated commands, and non-reminder cancellations such as
   calendar/contact/mail cancellation.
-- Implemented runtime background task review UI for still-`Scheduled` tasks.
-  The UI shows pending task metadata and exposes explicit
-  cancellation that cancels the platform schedule, updates local task state to
-  `Cancelled`, and removes it from the running-task list.
+- Implemented runtime background task review UI for active `Scheduled` and
+  `Running` tasks. The UI shows pending or executing task metadata; explicit
+  cancellation is shown only for still-`Scheduled` tasks, where it cancels the
+  platform schedule, updates local task state to `Cancelled`, and removes the
+  task from the running-task list.
 - Implemented recent background task history in the same review surface for
   terminal `Delivered`, `Cancelled`, `Deleted`, and `Failed` tasks. History rows
   are read-only and cannot be mistaken for still-running tasks.

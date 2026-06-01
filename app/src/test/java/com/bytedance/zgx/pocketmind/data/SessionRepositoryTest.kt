@@ -3,7 +3,9 @@ package com.bytedance.zgx.pocketmind.data
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
+import com.bytedance.zgx.pocketmind.remoteEligibleMessages
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionRepositoryTest {
@@ -37,7 +39,7 @@ class SessionRepositoryTest {
     }
 
     @Test
-    fun unknownStoredPrivacyFallsBackToRemoteEligible() {
+    fun unknownStoredPrivacyFallsBackToLocalOnlyAndIsExcludedFromRemoteHistory() {
         val dao = FakeSessionDao()
         dao.deleteMessages("session-1")
         dao.insertMessages(
@@ -55,7 +57,9 @@ class SessionRepositoryTest {
         )
         val repository = SessionRepository(dao, FakeActiveSessionStore("session-1"))
 
-        assertEquals(MessagePrivacy.RemoteEligible, repository.activeMessages().single().privacy)
+        val activeMessages = repository.activeMessages()
+        assertEquals(MessagePrivacy.LocalOnly, activeMessages.single().privacy)
+        assertTrue(activeMessages.remoteEligibleMessages().isEmpty())
     }
 
     private class FakeActiveSessionStore(

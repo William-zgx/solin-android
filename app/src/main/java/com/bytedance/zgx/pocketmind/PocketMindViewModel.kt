@@ -2115,7 +2115,10 @@ class PocketMindViewModel(
 
     private fun loadBackgroundTasks(): List<BackgroundTaskSummary> =
         backgroundTaskScheduler.scheduledTasks()
-            .filter { task -> task.status == ScheduledTaskStatus.Scheduled }
+            .filter { task ->
+                task.status == ScheduledTaskStatus.Scheduled ||
+                    task.status == ScheduledTaskStatus.Running
+            }
             .map { task -> task.toSummary() }
 
     private fun loadBackgroundTaskHistory(): List<BackgroundTaskSummary> =

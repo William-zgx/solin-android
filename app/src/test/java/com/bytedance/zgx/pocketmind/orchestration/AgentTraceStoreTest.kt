@@ -6,6 +6,8 @@ import com.bytedance.zgx.pocketmind.data.AgentRunEntity
 import com.bytedance.zgx.pocketmind.data.AgentStepEntity
 import com.bytedance.zgx.pocketmind.data.AgentTraceDao
 import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
+import com.bytedance.zgx.pocketmind.safety.SafetyDecision
+import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
@@ -87,6 +89,57 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreToolPlanningTraceDoesNotPersistParameterLikeReasonText() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-private-reason" },
+        )
+        val privateQuery = "private medical query"
+        val request = ToolRequest(
+            id = "request-search",
+            toolName = MobileActionFunctions.WEB_SEARCH,
+            arguments = mapOf("query" to privateQuery),
+            reason = "将在浏览器中搜索：$privateQuery",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.WEB_SEARCH,
+            title = "联网搜索",
+            summary = request.reason,
+            parameters = request.arguments,
+        )
+        val run = store.createRun("search")
+
+        store.appendStep(
+            run.id,
+            AgentStep.ModelPlanned(
+                AgentPlan.UseTool(
+                    request = request,
+                    draft = draft,
+                    plannedByModel = true,
+                    fallbackReason = null,
+                    safetyDecision = SafetyDecision(
+                        outcome = SafetyOutcome.RequireConfirmation,
+                        reason = "Search needs confirmation.",
+                    ),
+                ),
+            ),
+        )
+        store.appendStep(run.id, AgentStep.ToolRequested(request, draft))
+
+        val persistedTrace = store.stepSummaries(run.id).joinToString("\n") { step ->
+            "${step.summary}\n${step.json}"
+        }
+        val requestedJson = JSONObject(store.stepSummaries(run.id).last().json)
+
+        assertFalse(persistedTrace.contains(privateQuery))
+        assertFalse(persistedTrace.contains(request.reason))
+        assertTrue(persistedTrace.contains(MobileActionFunctions.WEB_SEARCH))
+        assertTrue(persistedTrace.contains("argumentKeys"))
+        assertFalse(requestedJson.has("reason"))
+    }
+
+    @Test
     fun roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(
@@ -130,7 +183,6 @@ class AgentTraceStoreTest {
         assertFalse(persistedTrace.contains(bearer))
         assertFalse(persistedTrace.contains(email))
         assertFalse(persistedTrace.contains("raw argument should stay out"))
-        assertTrue(persistedTrace.contains("api_key=[redacted]"))
         assertTrue(persistedTrace.contains("Authorization=[redacted]"))
         assertTrue(persistedTrace.contains("sk-[redacted]"))
         assertTrue(persistedTrace.contains("Bearer [redacted]"))

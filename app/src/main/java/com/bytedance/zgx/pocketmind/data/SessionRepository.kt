@@ -144,7 +144,7 @@ class SessionRepository(
                     ).takeIf { it.isUsable() }
                 },
                 privacy = runCatching { MessagePrivacy.valueOf(entity.privacy) }
-                    .getOrDefault(MessagePrivacy.RemoteEligible),
+                    .getOrDefault(MessagePrivacy.LocalOnly),
             )
         }
 }

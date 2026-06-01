@@ -57,7 +57,7 @@ class BuiltInSkillRuntime : SkillRuntime {
 
     override fun plan(input: String): SkillPlan? =
         when {
-            input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
+            !input.looksLikeSequentialAction() && input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
             !input.looksLikeSequentialAction() && MapSearchActionParser.matches(input) ->
                 plan(input, MapSearchActionParser.draft(input).toRequestPair())
 
@@ -150,7 +150,11 @@ class BuiltInSkillRuntime : SkillRuntime {
         plan(input, pair.draft, pair.request)
 
     override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? {
-        if (request.toolName == MobileActionFunctions.READ_CLIPBOARD && input.requestsClipboardSummaryShare()) {
+        if (
+            request.toolName == MobileActionFunctions.READ_CLIPBOARD &&
+            !input.looksLikeSequentialAction() &&
+            input.requestsClipboardSummaryShare()
+        ) {
             return planClipboardSummaryShare(
                 input = input,
                 readRequest = request,

@@ -1833,7 +1833,11 @@ private fun BackgroundTaskSheet(
                 BackgroundTaskRow(
                     task = task,
                     enabled = !state.isBusy,
-                    onCancel = { onCancelBackgroundTask(task.id) },
+                    onCancel = if (task.status == ScheduledTaskStatus.Scheduled) {
+                        { onCancelBackgroundTask(task.id) }
+                    } else {
+                        null
+                    },
                 )
             }
         }
