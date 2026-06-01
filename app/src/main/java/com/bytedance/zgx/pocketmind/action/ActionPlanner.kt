@@ -8,85 +8,26 @@ interface ActionPlanner {
 class MobileActionPlanner : ActionPlanner {
     override fun isLikelyAction(input: String): Boolean {
         val normalized = input.lowercase()
-        return listOf(
-            "打开",
-            "设置",
-            "wifi",
-            "wi-fi",
-            "使用情况",
-            "usage access",
-            "usage stats",
-            "地图",
-            "导航",
-            "邮件",
-            "日程",
-            "查询联系人",
-            "查联系人",
-            "查找联系人",
-            "搜索联系人",
-            "找联系人",
-            "联系人查询",
-            "新建联系人",
-            "创建联系人",
-            "添加联系人",
-            "手电筒",
-            "剪贴板",
-            "分享",
-            "前台",
-            "当前应用",
-            "当前 app",
-            "当前app",
-            "app",
-            "应用",
-            "文件",
-            "最近文件",
-            "文件列表",
-            "图片",
-            "截图文字",
-            "ocr",
-            "OCR",
-            "当前屏幕",
-            "当前界面",
-            "屏幕文字",
-            "screen text",
-            "current screen",
-            "视频",
-            "音频",
-            "文档",
-            "最近通知",
-            "通知摘要",
-            "忙闲",
-            "空闲",
-            "有空",
-            "calendar",
-            "email",
-            "map",
-            "find contact",
-            "find contacts",
-            "search contact",
-            "search contacts",
-            "look up contact",
-            "look up contacts",
-            "create contact",
-            "add contact",
-            "clipboard",
-            "share",
-            "availability",
-            "free/busy",
-            "取消",
-            "取消提醒",
-            "撤销",
-            "链接",
-            "网址",
-            "网页",
-            "打开应用",
-            "启动应用",
-        ).any { it in normalized } ||
+        return DeviceSettingsActionParser.matches(input) ||
+            MapSearchActionParser.matches(input) ||
+            EmailDraftActionParser.matches(input) ||
+            CalendarDraftActionParser.matches(input) ||
+            ContactDraftActionParser.matches(input) ||
+            DeepLinkActionParser.matches(input) ||
+            AppNavigationActionParser.matches(input) ||
+            ShareTextActionParser.matches(input) ||
+            ForegroundAppActionParser.matches(input) ||
+            RecentNotificationsActionParser.matches(input) ||
+            RecentFilesActionParser.matches(input, includeNonMediaKinds = true) ||
+            RecentScreenshotOcrActionParser.matches(input) ||
+            RecentImageOcrActionParser.matches(input) ||
+            CurrentScreenTextActionParser.matches(input) ||
+            CalendarAvailabilityActionParser.matches(input) ||
+            ContactQueryActionParser.matches(input) ||
             isReminderRequest(input) ||
             isCancelReminderRequest(input) ||
-            DeviceSettingsActionParser.matches(input) ||
-            AppNavigationActionParser.matches(input) ||
-            WebSearchActionParser.matches(input)
+            WebSearchActionParser.matches(input) ||
+            (("剪贴板" in input || "clipboard" in normalized) && !input.looksLikeClipboardContextNonAction())
     }
 
     override fun plan(input: String): ActionPlan =

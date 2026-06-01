@@ -423,6 +423,55 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun genericAppFileAndMediaWordsFallBackToAnswerWithoutActionPlanning() {
+        val cases = listOf(
+            "帮我写一份文档",
+            "这张图片是什么",
+            "这个 app 架构怎么设计",
+            "文件列表怎么实现",
+        )
+
+        cases.forEach { input ->
+            val auditSink = InMemoryToolAuditSink()
+            val actionRuntime = RecordingActionRuntime(
+                likelyAction = MobileActionPlanner().isLikelyAction(input),
+                planningResult = ActionPlanningResult(
+                    plan = ActionPlan(
+                        kind = ActionPlanKind.Draft,
+                        draft = ActionDraft(
+                            functionName = MobileActionFunctions.QUERY_RECENT_FILES,
+                            title = "should not be used",
+                            summary = "should not be used",
+                            parameters = mapOf("kind" to "documents"),
+                        ),
+                    ),
+                    usedModel = true,
+                    fallbackReason = null,
+                ),
+            )
+            val runtime = AgentLoopRuntime(
+                memoryIndex = MemoryRepository(),
+                actionPlanningRuntime = actionRuntime,
+                auditSink = auditSink,
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            )
+
+            val result = runtime.runOnce(
+                input = input,
+                installedCapabilities = setOf(ModelCapability.Chat),
+                memoryEnabled = false,
+            )
+
+            assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
+            assertTrue(result.plan is AgentPlan.Answer)
+            assertEquals(1, actionRuntime.isLikelyActionCallCount)
+            assertEquals(0, actionRuntime.planCallCount)
+            assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
+            assertTrue(auditSink.events.isEmpty())
+        }
+    }
+
+    @Test
     fun skillFirstSequentialInputFallsBackToAnswerWhenRulePlannerRejectsIt() {
         val input = "总结剪贴板并分享，然后打开 Wi-Fi 设置"
         val planner = MobileActionPlanner()

@@ -1,5 +1,31 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Action preflight gate 收窄验证
+
+本轮覆盖项：
+
+- `MobileActionPlanner.isLikelyAction` 不再使用 app/file/document/image/video/audio
+  等泛词作为动作入口信号，而是复用各工具已有的 conservative parser。
+- 普通聊天输入如“帮我写一份文档”“这张图片是什么”“这个 app 架构怎么设计”
+  会停在普通 Answer 路径；即使测试里注入了一个可执行工具草稿，也不会调用
+  action planner 生成确认卡。
+- 明确工具意图仍保留：最近图片 metadata 查询、当前应用查询、剪贴板读取等请求
+  仍能进入各自 Skill-first 或动作规划路径。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.genericAppFileAndMediaWordsFallBackToAnswerWithoutActionPlanning' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation'
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+```
+
+结果：通过。此前一次 Agent loop 定向命令因测试名不存在失败，未反映产品代码问题；
+已改用当前存在的测试名重新验证通过。
+
 ## 2026-06-01 Current-screen text summary share Skill 增量验证
 
 本轮覆盖项：

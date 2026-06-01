@@ -225,6 +225,21 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun likelyActionRequiresExplicitToolIntentForGenericAppFileAndMediaWords() {
+        assertFalse(planner.isLikelyAction("帮我写一份文档"))
+        assertFalse(planner.isLikelyAction("这张图片是什么"))
+        assertFalse(planner.isLikelyAction("视频编码是什么"))
+        assertFalse(planner.isLikelyAction("音频格式怎么选"))
+        assertFalse(planner.isLikelyAction("这个 app 架构怎么设计"))
+        assertFalse(planner.isLikelyAction("应用权限怎么申请"))
+        assertFalse(planner.isLikelyAction("文件列表怎么实现"))
+
+        assertTrue(planner.isLikelyAction("查询最近5个图片文件列表"))
+        assertTrue(planner.isLikelyAction("当前应用是什么"))
+        assertTrue(planner.isLikelyAction("读取剪贴板"))
+    }
+
+    @Test
     fun infersDraftForNaturalLanguageWebSearch() {
         val plan = planner.plan("帮我搜一下 Kotlin 协程最新用法")
 

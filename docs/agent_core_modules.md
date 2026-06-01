@@ -140,6 +140,10 @@ Current status:
   resumes it across process death.
 - Replanned tools are validated, safety checked, audited, traced, and returned
   to `AwaitingUserConfirmation` instead of being executed directly.
+- The action-planner preflight gate now reuses the same conservative parsers as
+  the eventual draft planner. Generic words such as app, file, document, image,
+  video, or audio no longer make ordinary chat enter the action-planning path
+  unless an explicit supported tool intent is present.
 - Confirmation and observation are now bound to the current pending/confirmed
   request id, so stale request ids from earlier steps cannot advance the run.
 - Implemented trace steps for skill planning, user confirmation, tool
