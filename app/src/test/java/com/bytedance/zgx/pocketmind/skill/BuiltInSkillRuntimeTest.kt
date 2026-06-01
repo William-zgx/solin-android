@@ -400,6 +400,14 @@ class BuiltInSkillRuntimeTest {
     }
 
     @Test
+    fun clipboardSummaryShareRejectsNegativeAndDiscussionRequests() {
+        assertEquals(null, runtime.plan("不要总结剪贴板并分享"))
+        assertEquals(null, runtime.plan("如何总结剪贴板并分享"))
+        assertEquals(null, runtime.plan("do not summarize clipboard and share it"))
+        assertEquals(null, runtime.plan("how to summarize clipboard and share it"))
+    }
+
+    @Test
     fun plansClipboardContextWithoutActionDraft() {
         val plan = runtime.plan("读取剪贴板")
 
@@ -425,6 +433,27 @@ class BuiltInSkillRuntimeTest {
         val plan = runtime.plan("分享一下你对端侧 Agent 的看法")
 
         assertEquals(null, plan)
+    }
+
+    @Test
+    fun shareTextSkillFirstRejectsNegativeRequests() {
+        assertEquals(null, runtime.plan("不要分享这段文字：明天十点开会"))
+        assertEquals(null, runtime.plan("别分享这段文字：明天十点开会"))
+        assertEquals(null, runtime.plan("不要把这段文字分享出去：明天十点开会"))
+        assertEquals(null, runtime.plan("我不想分享这段文字"))
+        assertEquals(null, runtime.plan("不分享这段文字"))
+        assertEquals(null, runtime.plan("不需要分享这段文字"))
+        assertEquals(null, runtime.plan("don't share this text: meeting at ten"))
+        assertEquals(null, runtime.plan("I don't want to share this text"))
+        assertEquals(null, runtime.plan("never share this text"))
+    }
+
+    @Test
+    fun shareTextSkillFirstRejectsQuestionAndDocumentationRequests() {
+        assertEquals(null, runtime.plan("如何分享这段文字"))
+        assertEquals(null, runtime.plan("Android 分享到微信怎么实现"))
+        assertEquals(null, runtime.plan("share this text API"))
+        assertEquals(null, runtime.plan("how to share this text"))
     }
 
     @Test
@@ -918,6 +947,16 @@ class BuiltInSkillRuntimeTest {
         assertEquals("明天十点开会", shareStep.draft.parameters["text"])
         assertTrue(shareStep.draft.requiresConfirmation)
         assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+
+        val negativePayloadPlan = requireNotNull(runtime.plan("分享这段文字：不要分享内部资料"))
+        val negativePayloadStep = negativePayloadPlan.steps.single()
+        require(negativePayloadStep is SkillStep.ToolStep)
+        assertEquals("不要分享内部资料", negativePayloadStep.request.arguments["text"])
+
+        val englishNegativePayloadPlan = requireNotNull(runtime.plan("share this text: don't share credentials"))
+        val englishNegativePayloadStep = englishNegativePayloadPlan.steps.single()
+        require(englishNegativePayloadStep is SkillStep.ToolStep)
+        assertEquals("don't share credentials", englishNegativePayloadStep.request.arguments["text"])
     }
 
     @Test

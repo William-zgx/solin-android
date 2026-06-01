@@ -266,6 +266,7 @@ class BuiltInSkillRuntime : SkillRuntime {
 
 private fun String.requestsClipboardSummaryShare(): Boolean {
     val normalized = lowercase()
+    if (looksLikeClipboardSummaryShareNonAction(normalized)) return false
     val referencesClipboard = "剪贴板" in this || "clipboard" in normalized
     val asksForSummary = listOf("总结", "摘要", "概括", "归纳").any { it in this } ||
         Regex("""\b(summarize|summary|brief|recap)\b""").containsMatchIn(normalized)
@@ -273,6 +274,16 @@ private fun String.requestsClipboardSummaryShare(): Boolean {
         Regex("""\bshare\b""").containsMatchIn(normalized)
     return referencesClipboard && asksForSummary && asksToShare
 }
+
+private fun String.looksLikeClipboardSummaryShareNonAction(normalized: String): Boolean =
+    Regex("""^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:不想|不需要|不用|不必|不要|别|请勿|请不要|先别|暂时别|不).*(?:总结|摘要|概括|归纳).*(?:剪贴板).*(?:分享)""")
+        .containsMatchIn(this) ||
+        Regex("""^\s*(?:请问|问一下|如何|怎么|怎样|为什么|解释|说明|介绍).*(?:总结|摘要|概括|归纳).*(?:剪贴板).*(?:分享)""")
+            .containsMatchIn(this) ||
+        Regex("""^\s*(?:(?:please\s+)?(?:do\s+not|don't|dont|never)|i\s+(?:do\s+not|don't|dont)\s+want\s+to)\b.*\b(?:summarize|summary|brief|recap)\b.*\bclipboard\b.*\bshare\b""")
+            .containsMatchIn(normalized) ||
+        Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b.*\b(?:summarize|summary|brief|recap)\b.*\bclipboard\b.*\bshare\b""")
+            .containsMatchIn(normalized)
 
 private fun String.requestsClipboardContext(): Boolean {
     val normalized = lowercase()

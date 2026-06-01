@@ -636,15 +636,21 @@
   runtime 直接规划为待确认工具，不再依赖 action planner 判定。
 - share 文本解析逻辑抽到 `ShareTextActionParser`，Action planner 与 Skill
   runtime 复用同一组触发和参数提取规则。
-- 普通讨论类“分享一下你的看法”仍不触发系统分享工具。
+- 普通讨论类和否定类输入不触发系统分享工具，避免“分享一下你的看法”、
+  “不要分享这段文字”、“how to share this text”或 “don't share this text”
+  进入分享确认。
+- `ShareTextActionParser` 只在命令头部判断否定/讨论意图，待分享正文中的
+  “不要分享”或 “don't share” 不会误杀明确分享请求。
+- 剪贴板总结并分享的 Skill-first 路径拒绝否定和讨论输入，避免读取剪贴板
+  的组合 skill 被“不要总结剪贴板并分享/如何总结剪贴板并分享”误触发。
 - Agent loop skill-first 路径会进入确认，不执行工具；audit 计划事件不记录待分享原文。
 
 验证命令：
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersShareTextDraft' \
   --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstShareTextBypassesActionPlannerAndRequestsConfirmation'
 ```
 

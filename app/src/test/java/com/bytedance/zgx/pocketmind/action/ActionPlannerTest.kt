@@ -364,6 +364,35 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.SHARE_TEXT, plan.draft?.functionName)
         assertEquals("明天十点开会", plan.draft?.parameters?.get("text"))
+
+        val negativePayloadPlan = planner.plan("分享这段文字：不要分享内部资料")
+        assertEquals(ActionPlanKind.Draft, negativePayloadPlan.kind)
+        assertEquals("不要分享内部资料", negativePayloadPlan.draft?.parameters?.get("text"))
+
+        val englishNegativePayloadPlan = planner.plan("share this text: don't share credentials")
+        assertEquals(ActionPlanKind.Draft, englishNegativePayloadPlan.kind)
+        assertEquals("don't share credentials", englishNegativePayloadPlan.draft?.parameters?.get("text"))
+    }
+
+    @Test
+    fun shareTextRejectsNegativeRequests() {
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要分享这段文字：明天十点开会").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("别分享这段文字：明天十点开会").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要把这段文字分享出去：明天十点开会").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("我不想分享这段文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不分享这段文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不需要分享这段文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("don't share this text: meeting at ten").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("I don't want to share this text").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("never share this text").kind)
+    }
+
+    @Test
+    fun shareTextRejectsQuestionAndDocumentationRequests() {
+        assertEquals(ActionPlanKind.NoAction, planner.plan("如何分享这段文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("Android 分享到微信怎么实现").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("share this text API").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("how to share this text").kind)
     }
 
     @Test
