@@ -11,7 +11,7 @@ internal object MapSearchActionParser {
 
     fun matches(input: String): Boolean {
         val normalized = input.lowercase()
-        if (input.looksLikeDiscussion()) return false
+        if (input.startsWithActionNegation() || input.looksLikeDiscussion()) return false
         return listOf("地图搜索", "搜索地图", "导航到", "导航去", "查路线", "查一下路线")
             .any { it in input } ||
             chineseRoutePattern.containsMatchIn(input) ||
@@ -46,7 +46,7 @@ internal object EmailDraftActionParser {
 
     fun matches(input: String): Boolean {
         val normalized = input.lowercase()
-        if (input.looksLikeDiscussion()) return false
+        if (input.startsWithActionNegation() || input.looksLikeDiscussion()) return false
         if (normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(send|write|compose|draft)\s+(an?\s+)?(?:email|mail)\b""")) ||
             "不要发邮件" in input || "不要写邮件" in input
         ) {
@@ -84,7 +84,7 @@ internal object CalendarDraftActionParser {
 
     fun matches(input: String): Boolean {
         val normalized = input.lowercase()
-        if (input.looksLikeDiscussion()) return false
+        if (input.startsWithActionNegation() || input.looksLikeDiscussion()) return false
         if ("不要创建日程" in input || "不要新建日程" in input) return false
         return listOf("建个日程", "新建日程", "创建日程", "加个日程", "添加日程", "安排日程")
             .any { it in input } ||
@@ -266,7 +266,8 @@ internal object WebSearchActionParser {
 
     private fun String.looksLikeWebSearchNonAction(): Boolean {
         val normalized = lowercase()
-        return "不要搜索" in this ||
+        return startsWithActionNegation() ||
+            "不要搜索" in this ||
             "别搜索" in this ||
             "不要搜" in this ||
             "别搜" in this ||
@@ -534,7 +535,8 @@ internal object RecentScreenshotOcrActionParser {
 
     private fun String.looksLikeRecentScreenshotOcrNonAction(): Boolean {
         val normalized = lowercase()
-        return listOf(
+        return startsWithActionNegation() ||
+            listOf(
             "不要识别",
             "不要提取",
             "不要读取",
@@ -638,7 +640,8 @@ internal object RecentImageOcrActionParser {
 
     private fun String.looksLikeRecentImageOcrNonAction(): Boolean {
         val normalized = lowercase()
-        return listOf(
+        return startsWithActionNegation() ||
+            listOf(
             "不要识别",
             "不要提取",
             "不要读取",
@@ -704,7 +707,8 @@ internal object DeepLinkActionParser {
 
     private fun String.looksLikeDeepLinkNonAction(): Boolean {
         val normalized = lowercase()
-        return listOf(
+        return startsWithActionNegation() ||
+            listOf(
             "不要打开",
             "别打开",
             "不要访问",
@@ -1060,7 +1064,8 @@ internal object CurrentScreenTextActionParser {
 
     private fun String.looksLikeCurrentScreenTextNonAction(): Boolean {
         val normalized = lowercase()
-        return listOf(
+        return startsWithActionNegation() ||
+            listOf(
             "不要读取",
             "别读取",
             "不要读",
@@ -1218,7 +1223,8 @@ internal object ContactQueryActionParser {
 
     private fun String.looksLikeContactQueryNonAction(): Boolean {
         val normalized = lowercase()
-        return listOf(
+        return startsWithActionNegation() ||
+            listOf(
             "联系人权限",
             "联系人列表权限",
             "通讯录权限",
@@ -1302,7 +1308,8 @@ internal object ContactDraftActionParser {
 
     private fun String.looksLikeContactDraftNonAction(): Boolean {
         val normalized = lowercase()
-        return listOf(
+        return startsWithActionNegation() ||
+            listOf(
             "不要新建联系人",
             "不要创建联系人",
             "不要添加联系人",
@@ -1376,7 +1383,8 @@ internal object CalendarAvailabilityActionParser {
 
     private fun String.looksLikeCalendarAvailabilityNonAction(): Boolean {
         val normalized = lowercase()
-        return listOf(
+        return startsWithActionNegation() ||
+            listOf(
             "日历权限",
             "不要查忙闲",
             "不要查询忙闲",
@@ -1410,6 +1418,20 @@ private fun String.looksLikeDiscussion(): Boolean {
         .any { it in this } ||
         listOf("错误原因", "日志", "算法", "数据结构", "功能测试", "路线图", "导航栏").any { it in this } ||
         normalized.contains(Regex("""\b(how\s+do\s+i|what\s+does|what\s+is|explain|meaning|parser|tests?|listener|handler|schema|stream)\b"""))
+}
+
+internal fun String.looksLikeSequentialAction(): Boolean {
+    val normalized = lowercase()
+    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消).+""")
+        .containsMatchIn(this) ||
+        normalized.contains(Regex("""\b(?:and\s+then|then|after\s+that)\b"""))
+}
+
+internal fun String.startsWithActionNegation(): Boolean {
+    val normalized = lowercase()
+    return Regex("""^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:我\s*)?(?:不想|不需要|不用|不必|不要|别|请勿|请不要|先别|暂时别|不)\s*""")
+        .containsMatchIn(this) ||
+        normalized.contains(Regex("""^\s*(?:(?:please\s+)?(?:do\s+not|don't|dont|never)|i\s+(?:do\s+not|don't|dont)\s+want\s+to)\b"""))
 }
 
 private fun String.looksLikeDeviceSettingsNonAction(): Boolean {

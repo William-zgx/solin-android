@@ -425,7 +425,14 @@ class BuiltInSkillRuntimeTest {
     @Test
     fun clipboardContextSkillFirstRejectsSequentialFollowUp() {
         assertEquals(null, runtime.plan("读取剪贴板，然后打开 Wi-Fi 设置"))
+        assertEquals(null, runtime.plan("读取剪贴板再打开 Wi-Fi 设置"))
         assertEquals(null, runtime.plan("read clipboard, then open Wi-Fi settings"))
+    }
+
+    @Test
+    fun clipboardContextSkillFirstRejectsNegativeAndDiscussionRequests() {
+        assertEquals(null, runtime.plan("不要读取剪贴板"))
+        assertEquals(null, runtime.plan("如何读取剪贴板"))
     }
 
     @Test
@@ -480,12 +487,16 @@ class BuiltInSkillRuntimeTest {
         assertEquals("周五评审", calendarStep.request.arguments["title"])
 
         assertEquals(null, runtime.plan("地图是什么"))
+        assertEquals(null, runtime.plan("不要导航到机场"))
         assertEquals(null, runtime.plan("查到这个错误原因了吗？"))
         assertEquals(null, runtime.plan("How do I navigate to a Compose screen?"))
         assertEquals(null, runtime.plan("邮件是什么意思"))
+        assertEquals(null, runtime.plan("别发邮件：明天延期到周五"))
         assertEquals(null, runtime.plan("不要发邮件，只帮我总结这段话"))
         assertEquals(null, runtime.plan("Do not send email; summarize only"))
         assertEquals(null, runtime.plan("日程这个词怎么理解"))
+        assertEquals(null, runtime.plan("不要添加日程：周五评审"))
+        assertEquals(null, runtime.plan("do not create calendar event: review"))
         assertEquals(null, runtime.plan("add event listener to the button"))
     }
 
@@ -568,6 +579,7 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("查一下 Kotlin 协程"))
         assertEquals(null, runtime.plan("网页搜索是什么"))
         assertEquals(null, runtime.plan("不要搜索 Kotlin，只解释一下"))
+        assertEquals(null, runtime.plan("不要百度一下 Kotlin"))
         assertEquals(null, runtime.plan("what is web search"))
         assertEquals(null, runtime.plan("查一下这个错误原因了吗？"))
     }
@@ -638,6 +650,7 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("read text from recent 2 screenshots"))
         assertEquals(null, runtime.plan("读取所有截图 OCR"))
         assertEquals(null, runtime.plan("不要识别最近截图文字"))
+        assertEquals(null, runtime.plan("别读最近截图文字"))
         assertEquals(null, runtime.plan("截图 OCR 怎么实现"))
         assertEquals(null, runtime.plan("screenshot OCR API"))
         assertEquals(null, runtime.plan("当前屏幕 OCR"))
@@ -672,6 +685,7 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("read text from recent 4 photos"))
         assertEquals(null, runtime.plan("读取所有图片 OCR"))
         assertEquals(null, runtime.plan("不要识别最近图片文字"))
+        assertEquals(null, runtime.plan("不要 OCR 最近图片"))
         assertEquals(null, runtime.plan("图片 OCR API"))
         assertEquals(null, runtime.plan("描述最近图片"))
         assertEquals(null, runtime.plan("图片里有什么"))
@@ -694,6 +708,7 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("解释 https://example.com/path 是什么"))
         assertEquals(null, runtime.plan("how do I open https://example.com/path"))
         assertEquals(null, runtime.plan("不要打开 https://example.com/path"))
+        assertEquals(null, runtime.plan("不要跳转到 https://example.com/path"))
         assertEquals(null, runtime.plan("打开链接 http://example.com/path"))
         assertEquals(null, runtime.plan("打开链接 file:///tmp/a"))
         assertEquals(null, runtime.plan("打开链接 javascript:alert(1)"))
@@ -836,6 +851,7 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("当前屏幕 OCR"))
         assertEquals(null, runtime.plan("current screen screenshot text"))
         assertEquals(null, runtime.plan("不要读取当前屏幕文字"))
+        assertEquals(null, runtime.plan("不要查看当前屏幕内容"))
         assertEquals(null, runtime.plan("总结这页内容"))
         assertEquals(null, runtime.plan("总结页面内容"))
         assertEquals(null, runtime.plan("what is current screen text"))
@@ -871,6 +887,7 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("ContactsContract 怎么用"))
         assertEquals(null, runtime.plan("search contacts API"))
         assertEquals(null, runtime.plan("不要查联系人 Alice"))
+        assertEquals(null, runtime.plan("不要搜索联系人 Alice"))
         assertEquals(null, runtime.plan("do not search contacts for Alice"))
     }
 
@@ -929,6 +946,7 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("明天我有空吗"))
         assertEquals(null, runtime.plan("日历权限怎么申请"))
         assertEquals(null, runtime.plan("不要查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"))
+        assertEquals(null, runtime.plan("不要看我有空 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"))
         assertEquals(null, runtime.plan("what is free/busy"))
         assertEquals(null, runtime.plan("API availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z"))
         assertEquals(null, runtime.plan("calendar availability API"))

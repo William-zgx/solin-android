@@ -421,6 +421,40 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstSequentialInputFallsBackToAnswerWhenRulePlannerRejectsIt() {
+        val input = "总结剪贴板并分享，然后打开 Wi-Fi 设置"
+        val planner = MobileActionPlanner()
+        val auditSink = InMemoryToolAuditSink()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = object : ActionPlanningRuntime {
+                override fun isLikelyAction(input: String): Boolean =
+                    planner.isLikelyAction(input)
+
+                override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
+                    ActionPlanningResult(
+                        plan = planner.plan(input),
+                        usedModel = false,
+                        fallbackReason = "test rule fallback",
+                    )
+            },
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = input,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
+        assertTrue(result.plan is AgentPlan.Answer)
+        assertEquals(null, runtime.latestPendingConfirmation())
+        assertTrue(auditSink.events.isEmpty())
+    }
+
+    @Test
     fun clipboardActionInputUsesClipboardSkillAndRequestsConfirmation() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,

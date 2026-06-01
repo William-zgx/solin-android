@@ -358,6 +358,31 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun rejectsNegativeDiscussionAndSequentialSensitiveActions() {
+        val noActionInputs = listOf(
+            "不要读取剪贴板",
+            "如何读取剪贴板",
+            "总结剪贴板并分享，然后打开 Wi-Fi 设置",
+            "summarize clipboard and share it, then open Wi-Fi settings",
+            "不要导航到机场",
+            "别发邮件：明天延期到周五",
+            "不要添加日程：周五评审",
+            "do not create calendar event: review",
+            "不要百度一下 Kotlin",
+            "不要跳转到 https://example.com",
+            "不要查看当前屏幕内容",
+            "不要搜索联系人 Alice",
+            "不要看我有空 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z",
+            "别读最近截图文字",
+            "不要 OCR 最近图片",
+        )
+
+        noActionInputs.forEach { input ->
+            assertEquals(input, ActionPlanKind.NoAction, planner.plan(input).kind)
+        }
+    }
+
+    @Test
     fun infersShareTextDraft() {
         val plan = planner.plan("分享这段文字：明天十点开会")
 

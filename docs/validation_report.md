@@ -1,5 +1,27 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Direct parser non-action guard 增量验证
+
+本轮覆盖项：
+
+- Action planner 和 built-in Skill runtime 对句首否定输入 fail closed，覆盖
+  地图、邮件、日程、Web 搜索、深链、联系人、当前屏幕、日历忙闲和最近 OCR。
+- 剪贴板上下文读取拒绝否定/讨论输入，避免“不要读取剪贴板/如何读取剪贴板”
+  进入读取确认。
+- 复合顺序输入不再被 skill-first 拒绝后由 rule action planner 接住后半段，
+  避免“总结剪贴板并分享，然后打开 Wi-Fi 设置”直接变成 Wi-Fi 确认卡。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstSequentialInputFallsBackToAnswerWhenRulePlannerRejectsIt'
+```
+
+结果：通过。
+
 ## 2026-06-01 Legacy 会话隐私迁移增量验证
 
 本轮覆盖项：

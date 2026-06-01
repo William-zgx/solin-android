@@ -104,6 +104,7 @@ class MobileActionPlanner : ActionPlanner {
 
     private fun inferDraft(input: String): ActionDraft? {
         val normalized = input.lowercase()
+        if (input.looksLikeSequentialAction()) return null
         return when {
             DeviceSettingsActionParser.matches(input) ->
                 DeviceSettingsActionParser.draft(input)
@@ -123,7 +124,7 @@ class MobileActionPlanner : ActionPlanner {
             isReminderRequest(input) ->
                 ReminderActionParser.draft(input)
 
-            "剪贴板" in input || "clipboard" in normalized ->
+            ("剪贴板" in input || "clipboard" in normalized) && !input.looksLikeClipboardContextNonAction() ->
                 MobileActionFunctions.READ_CLIPBOARD.toDraft(emptyMap())
 
             ShareTextActionParser.matches(input) ->
@@ -322,4 +323,21 @@ class MobileActionPlanner : ActionPlanner {
         val CALL_PATTERN = Regex("""^call:([a-zA-Z0-9_]+)\s*(\{.*\})$""", RegexOption.DOT_MATCHES_ALL)
         val KEY_VALUE_PATTERN = Regex(""""([^"]+)"\s*:\s*"([^"]*)"""")
     }
+}
+
+private fun String.looksLikeClipboardContextNonAction(): Boolean {
+    val normalized = lowercase()
+    return startsWithActionNegation() ||
+        listOf(
+            "剪贴板权限",
+            "剪贴板接口",
+            "剪贴板 API",
+            "剪贴板api",
+            "剪贴板怎么",
+            "如何读取剪贴板",
+            "怎么读取剪贴板",
+            "剪贴板是什么",
+        ).any { it in this } ||
+        normalized.contains(Regex("""\b(?:clipboard)\s+(?:permissions?|api|implementation|docs?|documentation|schema|tests?)\b""")) ||
+        normalized.contains(Regex("""\b(?:how\s+(?:do|can|to)|what\s+is|explain)\b.*\bclipboard\b"""))
 }

@@ -172,6 +172,9 @@ Current status:
   parameter parsers as the action planner, rejects discussion/negative
   phrasing, and still routes through registry validation, safety checks, audit,
   and user confirmation before any external app opens.
+- Compound sequential inputs are not collapsed into a single direct parser
+  result; if a full Agent plan cannot preserve the sequence, the request falls
+  back to an answer instead of silently executing only one later action.
 - Explicit Wi-Fi, Usage Access, and flashlight settings commands now also have
   a conservative Skill-first path. The shared device-settings parser accepts
   only settings navigation requests, rejects explanation/implementation/negative

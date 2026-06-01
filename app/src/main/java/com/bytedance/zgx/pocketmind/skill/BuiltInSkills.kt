@@ -287,6 +287,7 @@ private fun String.looksLikeClipboardSummaryShareNonAction(normalized: String): 
 
 private fun String.requestsClipboardContext(): Boolean {
     val normalized = lowercase()
+    if (looksLikeClipboardContextNonAction(normalized)) return false
     val referencesClipboard = "剪贴板" in this || "clipboard" in normalized
     val asksToRead = listOf("读取", "读一下", "看看", "查看", "总结", "摘要", "概括").any { it in this } ||
         Regex("""\b(read|summarize|summary|recap)\b""").containsMatchIn(normalized)
@@ -294,9 +295,28 @@ private fun String.requestsClipboardContext(): Boolean {
     return referencesClipboard && asksToRead && !asksToShare
 }
 
+private fun String.looksLikeClipboardContextNonAction(normalized: String): Boolean =
+    Regex("""^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:我\s*)?(?:不想|不需要|不用|不必|不要|别|请勿|请不要|先别|暂时别|不)\s*""")
+        .containsMatchIn(this) ||
+        Regex("""^\s*(?:(?:please\s+)?(?:do\s+not|don't|dont|never)|i\s+(?:do\s+not|don't|dont)\s+want\s+to)\b""")
+            .containsMatchIn(normalized) ||
+        listOf(
+            "剪贴板权限",
+            "剪贴板接口",
+            "剪贴板 API",
+            "剪贴板api",
+            "剪贴板怎么",
+            "如何读取剪贴板",
+            "怎么读取剪贴板",
+            "剪贴板是什么",
+        ).any { it in this } ||
+        normalized.contains(Regex("""\b(?:clipboard)\s+(?:permissions?|api|implementation|docs?|documentation|schema|tests?)\b""")) ||
+        normalized.contains(Regex("""\b(?:how\s+(?:do|can|to)|what\s+is|explain)\b.*\bclipboard\b"""))
+
 private fun String.looksLikeSequentialAction(): Boolean {
     val normalized = lowercase()
-    return listOf("然后", "接着", "之后再", "随后").any { it in this } ||
+    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消).+""")
+        .containsMatchIn(this) ||
         Regex("""\b(then|after\s+that)\b""").containsMatchIn(normalized)
 }
 
