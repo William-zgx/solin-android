@@ -9,6 +9,7 @@ import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
+import com.bytedance.zgx.pocketmind.skill.SkillStep
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
@@ -505,6 +506,62 @@ class AgentTraceStoreTest {
         assertTrue(skillIndex >= 0)
         assertTrue(toolIndex >= 0)
         assertTrue(skillIndex < toolIndex)
+    }
+
+    @Test
+    fun roomStoreRedactsSkillPlanInputWhenPersistingPendingConfirmation() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-redacted-skill-plan" },
+        )
+        val rawInput = "总结剪贴板并分享给 alice@example.com"
+        val request = ToolRequest(
+            id = "request-read-clipboard",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "Read clipboard for summary",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CLIPBOARD,
+            title = "读取剪贴板",
+            summary = "将读取剪贴板用于摘要。",
+            parameters = emptyMap(),
+        )
+        val skillPlan = BuiltInSkillRuntime().planClipboardSummaryShare(
+            input = rawInput,
+            readRequest = request,
+            readDraft = draft,
+        )
+        val run = store.createRun(rawInput)
+        val waitingRun = store.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = draft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+
+        val persistedSkillPlanJson = dao.latestPendingConfirmation()?.skillPlanJson.orEmpty()
+        assertFalse(persistedSkillPlanJson.contains(rawInput))
+        assertFalse(persistedSkillPlanJson.contains("alice@example.com"))
+
+        val restored = RoomAgentTraceStore(traceDao = dao).latestPendingConfirmation()
+        requireNotNull(restored)
+        assertEquals("[redacted]", restored.skillPlan?.request?.arguments?.get("input"))
+        assertEquals("[redacted]", restored.skillPlan?.request?.reason)
+        val restoredReadStep = restored.skillPlan?.steps?.firstOrNull() as? SkillStep.ToolStep
+        requireNotNull(restoredReadStep)
+        assertEquals("[redacted]", restoredReadStep.request.reason)
+        assertEquals("[redacted]", restoredReadStep.draft.title)
+        assertEquals("[redacted]", restoredReadStep.draft.summary)
+        assertFalse(restored.run.input.contains(rawInput))
+        assertFalse(restored.request.reason.contains(rawInput))
     }
 
     @Test

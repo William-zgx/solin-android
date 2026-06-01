@@ -469,7 +469,7 @@ private fun PendingToolConfirmationSnapshot.toEntity(now: Long): PendingAgentCon
         draftSummary = draft.summary,
         draftParametersJson = draft.parameters.toJsonObject().toString(),
         skillId = skillId,
-        skillPlanJson = skillPlan?.toJsonObject()?.toString(),
+        skillPlanJson = skillPlan?.redactedForPendingPersistence()?.toJsonObject()?.toString(),
         plannedByModel = plannedByModel,
         fallbackReason = fallbackReason,
         nextActionInput = nextActionInput,
@@ -507,6 +507,37 @@ private fun PendingToolConfirmationSnapshot.hasRestorableSkillPlanRequest(): Boo
             step.request.id == request.id && step.request.toolName == request.toolName
         }
 }
+
+private fun SkillPlan.redactedForPendingPersistence(): SkillPlan =
+    copy(
+        request = request.copy(
+            arguments = request.arguments.redactedValuesForPendingPersistence(),
+            reason = request.reason.redactedIfNotBlank(),
+        ),
+        steps = steps.map { step ->
+            when (step) {
+                is SkillStep.ToolStep -> step.copy(
+                    request = step.request.copy(
+                        arguments = step.request.arguments.redactedValuesForPendingPersistence(),
+                        reason = step.request.reason.redactedIfNotBlank(),
+                    ),
+                    draft = step.draft.copy(
+                        title = step.draft.title.redactedIfNotBlank(),
+                        summary = step.draft.summary.redactedIfNotBlank(),
+                        parameters = step.draft.parameters.redactedValuesForPendingPersistence(),
+                    ),
+                )
+
+                is SkillStep.ModelStep -> step
+            }
+        },
+    )
+
+private fun Map<String, String>.redactedValuesForPendingPersistence(): Map<String, String> =
+    mapValues { (_, value) -> value.redactedIfNotBlank() }
+
+private fun String.redactedIfNotBlank(): String =
+    if (isBlank()) this else REDACTED_AGENT_RUN_INPUT
 
 private fun Map<String, String>.toJsonObject(): JSONObject {
     val json = JSONObject()

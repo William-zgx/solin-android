@@ -339,6 +339,7 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("请解释“提醒我 15 分钟后喝水”这句话"))
         assertEquals(null, runtime.plan("remind me what a 1 hour SLA means"))
         assertEquals(null, runtime.plan("remind me what \"in 15 minutes\" means"))
+        assertEquals(null, runtime.plan("提醒我 10 分钟后喝水，然后提醒我 20 分钟后运动"))
     }
 
     @Test
@@ -547,6 +548,9 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("解释一下 PACKAGE_USAGE_STATS"))
         assertEquals(null, runtime.plan("Android 使用情况访问权限怎么实现"))
         assertEquals(null, runtime.plan("不要打开使用情况访问权限设置"))
+        assertEquals(null, runtime.plan("不打开 Wi-Fi 设置"))
+        assertEquals(null, runtime.plan("请勿打开 Wi-Fi 设置"))
+        assertEquals(null, runtime.plan("不要设置 Wi-Fi"))
         assertEquals(null, runtime.plan("do not open usage access settings"))
     }
 
@@ -615,6 +619,9 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("recent screenshots API"))
         assertEquals(null, runtime.plan("how to read recent images"))
         assertEquals(null, runtime.plan("do not read recent images"))
+        assertEquals(null, runtime.plan("不要查询文件列表"))
+        assertEquals(null, runtime.plan("文件列表怎么实现"))
+        assertEquals(null, runtime.plan("查询文件 API"))
     }
 
     @Test
@@ -748,6 +755,8 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("打开应用详情设置"))
         assertEquals(null, runtime.plan("不要打开微信"))
         assertEquals(null, runtime.plan("别启动微信"))
+        assertEquals(null, runtime.plan("不启动微信"))
+        assertEquals(null, runtime.plan("请勿打开微信"))
         assertEquals(null, runtime.plan("如何打开微信"))
         assertEquals(null, runtime.plan("怎么打开微信"))
         assertEquals(null, runtime.plan("打开微信小程序"))
@@ -792,6 +801,10 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("前台服务限制是什么"))
         assertEquals(null, runtime.plan("current app architecture"))
         assertEquals(null, runtime.plan("how do I implement current app state"))
+        assertEquals(null, runtime.plan("不要查询当前应用"))
+        assertEquals(null, runtime.plan("don't tell me the current app"))
+        assertEquals(null, runtime.plan("当前应用权限怎么申请"))
+        assertEquals(null, runtime.plan("前台应用 API 怎么用"))
     }
 
     @Test
@@ -822,6 +835,9 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("push notification"))
         assertEquals(null, runtime.plan("系统通知"))
         assertEquals(null, runtime.plan("通知栏"))
+        assertEquals(null, runtime.plan("不要读取最近通知"))
+        assertEquals(null, runtime.plan("don't read current app notifications"))
+        assertEquals(null, runtime.plan("current app notifications API"))
     }
 
     @Test

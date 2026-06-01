@@ -177,6 +177,9 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("解释一下 PACKAGE_USAGE_STATS").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("Android 使用情况访问权限怎么实现").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("不要打开使用情况访问权限设置").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不打开 Wi-Fi 设置").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("请勿打开 Wi-Fi 设置").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要设置 Wi-Fi").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("do not open usage access settings").kind)
     }
 
@@ -372,6 +375,13 @@ class ActionPlannerTest {
             "不要跳转到 https://example.com",
             "不要查看当前屏幕内容",
             "不要搜索联系人 Alice",
+            "不要查询当前应用",
+            "当前应用权限怎么申请",
+            "不要读取最近通知",
+            "current app notifications API",
+            "don't read current app notifications",
+            "don't tell me the current app",
+            "提醒我 10 分钟后喝水，然后提醒我 20 分钟后运动",
             "不要看我有空 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z",
             "别读最近截图文字",
             "不要 OCR 最近图片",
@@ -537,6 +547,9 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("push notification").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("系统通知").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("通知栏").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要读取最近通知").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("don't read current app notifications").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("current app notifications API").kind)
         assertFalse(planner.isLikelyAction("通知栏"))
     }
 
@@ -555,6 +568,10 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("前台服务限制是什么").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("current app architecture").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("how do I implement current app state").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要查询当前应用").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("don't tell me the current app").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("当前应用权限怎么申请").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("前台应用 API 怎么用").kind)
     }
 
     @Test
@@ -596,6 +613,9 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("recent screenshots API").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("how to read recent images").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("do not read recent images").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要查询文件列表").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("文件列表怎么实现").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("查询文件 API").kind)
     }
 
     @Test
@@ -751,6 +771,8 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("打开应用详情设置").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("不要打开微信").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("别启动微信").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不启动微信").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("请勿打开微信").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("如何打开微信").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("怎么打开微信").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("打开微信小程序").kind)

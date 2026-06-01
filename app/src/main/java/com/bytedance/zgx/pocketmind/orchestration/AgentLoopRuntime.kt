@@ -1003,8 +1003,13 @@ class AgentLoopRuntime(
     ): String {
         return run.input
             .takeIf { input -> input.isNotBlank() && input != REDACTED_AGENT_RUN_INPUT_VALUE }
-            ?: skillPlan.request.arguments["input"]?.takeIf { input -> input.isNotBlank() }
-            ?: skillPlan.request.reason
+            ?: skillPlan.request.arguments["input"]?.takeIf { input ->
+                input.isNotBlank() && input != REDACTED_AGENT_RUN_INPUT_VALUE
+            }
+            ?: skillPlan.request.reason.takeIf { reason ->
+                reason.isNotBlank() && reason != REDACTED_AGENT_RUN_INPUT_VALUE
+            }
+            ?: skillPlan.manifest.title
     }
 
     private data class ToolObservationContinuation(

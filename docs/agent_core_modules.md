@@ -140,7 +140,9 @@ Current status:
   execution can continue. Pending rows may include bounded recovery metadata
   such as the active request arguments, share-preview text, and sequential
   `nextActionInput`; none of that is written to trace, audit, or recent run
-  summaries, and terminal runs clear the in-memory recovery copy.
+  summaries. Persisted `SkillPlan` recovery stores only redacted plan structure,
+  not the original skill input or tool/draft payload text, and terminal runs
+  clear the in-memory recovery copy.
 - Model-bound multi-step Skills that reach a second confirmation persist that
   second pending tool request as the active pending confirmation. Startup
   restore keeps the new `share_text` request id and model-produced arguments;
@@ -205,16 +207,18 @@ Current status:
   keeps URI-like text out of package app-intent inference.
 - Explicit current foreground app requests now also have a conservative
   Skill-first path. The shared parser accepts only current/foreground/active
-  app metadata requests, rejects foreground-service and implementation/design
-  discussions, and still relies on Usage Access special-app-access handling
-  before reading the minimal app name/package metadata.
+  app metadata requests, rejects foreground-service, implementation/design
+  discussions, and sentence-start negation, and still relies on Usage Access
+  special-app-access handling before reading the minimal app name/package
+  metadata.
 - Explicit current-app notification summary requests now also have a
   conservative Skill-first path. The shared parser accepts recent/current-app
   notification-summary wording, rejects bare English `notification`,
-  permission/channel/push/global/system/shade/listener wording, and keeps the
-  tool scoped to confirmed LocalOnly summaries of PocketMind/current-app active
-  notifications. `maxCount` is schema-bounded to 20 and the query does not
-  request Android runtime permission or special access.
+  permission/channel/push/global/system/shade/listener wording and
+  sentence-start negation, and keeps the tool scoped to confirmed LocalOnly
+  summaries of PocketMind/current-app active notifications. `maxCount` is
+  schema-bounded to 20 and the query does not request Android runtime permission
+  or special access.
 - Explicit contact lookup requests now also have a conservative Skill-first
   path. The shared parser requires an explicit query, rejects bare
   contact/contacts wording, permission/API/implementation/list/export/negative
@@ -378,10 +382,11 @@ Current status:
   exposing private tool outputs.
 - App-level persistence covers the active pending tool confirmation produced by
   model-bound continuations, including the pending request/draft and `SkillPlan`
-  needed to resume from that confirmation boundary after restart. The raw
-  `SkillRunContinuation` object is still not persisted, so private
-  `outputs/privateOutputRefs/trace` remain outside Room; broad arbitrary
-  skill-runner state persistence is still pending.
+  structure needed to resume from that confirmation boundary after restart. The
+  persisted `SkillPlan` is redacted before Room writes it; the raw
+  `SkillRunContinuation` object is still not persisted, so private skill input,
+  `outputs/privateOutputRefs/trace`, and draft payload text remain outside Room;
+  broad arbitrary skill-runner state persistence is still pending.
 - Room restore validates that a persisted pending confirmation with an attached
   `SkillPlan` still points at a tool step in that plan before restoring the UI.
   Corrupt or stale rows are skipped instead of reviving an unexplainable skill

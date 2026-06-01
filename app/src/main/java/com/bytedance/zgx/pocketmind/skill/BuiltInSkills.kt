@@ -315,7 +315,7 @@ private fun String.looksLikeClipboardContextNonAction(normalized: String): Boole
 
 private fun String.looksLikeSequentialAction(): Boolean {
     val normalized = lowercase()
-    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消).+""")
+    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消|提醒|设置提醒).+""")
         .containsMatchIn(this) ||
         Regex("""\b(then|after\s+that)\b""").containsMatchIn(normalized)
 }

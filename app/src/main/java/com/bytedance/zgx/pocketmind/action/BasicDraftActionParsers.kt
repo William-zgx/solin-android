@@ -418,7 +418,16 @@ internal object RecentFilesActionParser {
                 """\b(?:recent|latest|last|most\s+recent)\b.*\b(?:files?|documents?|images?|photos?|pictures?|screenshots?|screen\s+captures?|videos?|audios?)\b""",
                 RegexOption.IGNORE_CASE,
             ).containsMatchIn(normalized)
-        if (!mentionsRecentFiles) return false
+        val mentionsFileQuery = listOf(
+            "查询文件",
+            "文件列表",
+            "文件 API",
+            "文件API",
+            "文件接口",
+            "文件权限",
+        ).any { it in this } ||
+            normalized.contains(Regex("""\bfiles?\s+(?:api|implementation|docs?|documentation|permissions?|list)\b"""))
+        if (!mentionsRecentFiles && !mentionsFileQuery) return false
 
         val hasNegativeIntent = listOf("不要", "别", "请勿", "不需要", "不想", "不用", "不必").any { it in this } ||
             normalized.contains(Regex("""\b(?:do\s+not|don't|dont|never)\b"""))
@@ -796,7 +805,8 @@ internal object AppNavigationActionParser {
 
     private fun String.looksLikeAppNavigationNonAction(): Boolean {
         val normalized = lowercase()
-        return listOf(
+        return startsWithActionNegation() ||
+            listOf(
             "不要打开",
             "别打开",
             "不要启动",
@@ -890,7 +900,8 @@ internal object ForegroundAppActionParser {
 
     private fun String.looksLikeForegroundAppNonAction(): Boolean {
         val normalized = lowercase()
-        return listOf(
+        return startsWithActionNegation() ||
+            listOf(
             "前台服务",
             "前台任务",
             "前台进程",
@@ -899,6 +910,10 @@ internal object ForegroundAppActionParser {
             "代码",
             "模块",
             "组件",
+            "接口",
+            "权限",
+            "api",
+            "API",
             "通知",
             "怎么实现",
             "如何实现",
@@ -971,7 +986,8 @@ internal object RecentNotificationsActionParser {
 
     private fun String.looksLikeNotificationNonAction(): Boolean {
         val normalized = lowercase()
-        return listOf(
+        return startsWithActionNegation() ||
+            listOf(
             "系统通知",
             "所有通知",
             "全局通知",
@@ -982,6 +998,12 @@ internal object RecentNotificationsActionParser {
             "通知架构",
             "通知渠道",
             "通知 channel",
+            "通知 API",
+            "通知API",
+            "通知接口",
+            "通知文档",
+            "当前应用通知 API",
+            "当前应用通知API",
             "通知列表怎么",
             "通知栏",
             "怎么实现",
@@ -989,7 +1011,7 @@ internal object RecentNotificationsActionParser {
             "怎么设计",
         ).any { it in this } ||
             normalized.contains(Regex("""\b(all|global|system|other\s+apps?)\s+notifications?\b""")) ||
-            normalized.contains(Regex("""\b(notification\s+(permission|channel|system|architecture|api|listener|bar|drawer)|push\s+notifications?)\b""")) ||
+            normalized.contains(Regex("""\b(notifications?\s+(permission|permissions|channel|system|architecture|api|implementation|docs?|documentation|listener|bar|drawer)|push\s+notifications?)\b""")) ||
             normalized.contains(Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\bnotifications?\b"""))
     }
 }
@@ -1422,7 +1444,7 @@ private fun String.looksLikeDiscussion(): Boolean {
 
 internal fun String.looksLikeSequentialAction(): Boolean {
     val normalized = lowercase()
-    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消).+""")
+    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消|提醒|设置提醒).+""")
         .containsMatchIn(this) ||
         normalized.contains(Regex("""\b(?:and\s+then|then|after\s+that)\b"""))
 }
@@ -1436,7 +1458,8 @@ internal fun String.startsWithActionNegation(): Boolean {
 
 private fun String.looksLikeDeviceSettingsNonAction(): Boolean {
     val normalized = lowercase()
-    return listOf(
+    return startsWithActionNegation() ||
+        listOf(
         "不要打开",
         "别打开",
         "不要进入",

@@ -1162,6 +1162,9 @@ class AgentLoopRuntimeTest {
             "Wi-Fi 设置页面怎么设计",
             "不要打开 Wi-Fi 设置，只解释一下",
             "Do not open Wi-Fi settings; explain only",
+            "不打开 Wi-Fi 设置",
+            "请勿打开 Wi-Fi 设置",
+            "不要设置 Wi-Fi",
             "手电筒 API 怎么用",
             "打开手电筒",
             "Usage Access API 怎么用",
@@ -1173,6 +1176,7 @@ class AgentLoopRuntimeTest {
             "不要搜索 Kotlin，只解释一下",
             "what is web search",
             "查一下这个错误原因了吗？",
+            "提醒我 10 分钟后喝水，然后提醒我 20 分钟后运动",
             "识别最近4张图片文字",
             "识别最近四张照片文字",
             "read text from recent 4 photos",
@@ -1189,6 +1193,9 @@ class AgentLoopRuntimeTest {
             "截图 OCR 怎么实现",
             "screenshot OCR API",
             "查询最近5个文档",
+            "不要查询文件列表",
+            "文件列表怎么实现",
+            "查询文件 API",
             "最近文件",
             "https://example.com/path",
             "解释 https://example.com/path 是什么",
@@ -1200,6 +1207,8 @@ class AgentLoopRuntimeTest {
             "打开应用详情设置",
             "不要打开微信",
             "别启动微信",
+            "不启动微信",
+            "请勿打开微信",
             "如何打开微信",
             "怎么打开微信",
             "打开微信小程序",
@@ -1223,6 +1232,10 @@ class AgentLoopRuntimeTest {
             "前台服务限制是什么",
             "current app architecture",
             "how do I implement current app state",
+            "不要查询当前应用",
+            "当前应用权限怎么申请",
+            "前台应用 API 怎么用",
+            "don't tell me the current app",
             "notification",
             "notifications",
             "recent app notifications",
@@ -1231,6 +1244,9 @@ class AgentLoopRuntimeTest {
             "push notification",
             "系统通知",
             "通知栏",
+            "不要读取最近通知",
+            "current app notifications API",
+            "don't read current app notifications",
             "看看当前屏幕",
             "识别当前屏幕截图文字",
             "当前屏幕 OCR",
@@ -2722,7 +2738,8 @@ class AgentLoopRuntimeTest {
         require(observed.decision is AgentObservationDecision.ContinueWithModel)
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("剪贴板原文"))
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("摘要剪贴板内容"))
-        assertTrue(observed.continuationPromptForModel.orEmpty().contains("总结剪贴板并分享"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("剪贴板摘要分享"))
+        assertFalse(observed.continuationPromptForModel.orEmpty().contains("总结剪贴板并分享"))
         assertFalse(observed.continuationPromptForModel.orEmpty().contains("[redacted]"))
 
         val modelObserved = restoredRuntime.observeModelResult(
