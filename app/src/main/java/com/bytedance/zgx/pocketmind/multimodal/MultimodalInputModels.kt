@@ -53,7 +53,7 @@ data class SharedInput(
             if (attachmentBlock.isNotBlank()) {
                 append("\n\n")
                 append(
-                    "已分享附件（默认只读取元数据；text/* 文档、RTF/PDF 文本层、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n",
+                    "已分享附件（默认只读取元数据；text/*/JSON/XML/YAML 文档、RTF/PDF 文本层、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n",
                 )
                 append(attachmentBlock)
             }
@@ -135,7 +135,9 @@ fun sharedAttachmentKindFor(mimeType: String?): SharedAttachmentKind =
             normalizedMimeType.startsWith("image/") -> SharedAttachmentKind.Image
             normalizedMimeType.startsWith("audio/") -> SharedAttachmentKind.Audio
             normalizedMimeType.startsWith("video/") -> SharedAttachmentKind.Video
-            normalizedMimeType.startsWith("text/") || normalizedMimeType in documentMimeTypes ->
+            normalizedMimeType.startsWith("text/") ||
+                normalizedMimeType in textLikeApplicationMimeTypes ||
+                normalizedMimeType in documentMimeTypes ->
                 SharedAttachmentKind.Document
 
             else -> SharedAttachmentKind.Other
@@ -145,7 +147,9 @@ fun sharedAttachmentKindFor(mimeType: String?): SharedAttachmentKind =
 fun canReadTextPreviewFor(mimeType: String?): Boolean =
     when (val normalizedMimeType = mimeType.normalizedMediaType()) {
         null -> false
-        else -> normalizedMimeType.startsWith("text/") && normalizedMimeType !in richTextMimeTypes
+        else ->
+            (normalizedMimeType.startsWith("text/") && normalizedMimeType !in richTextMimeTypes) ||
+                normalizedMimeType in textLikeApplicationMimeTypes
     }
 
 fun canReadRichTextPreviewFor(mimeType: String?): Boolean =
@@ -265,6 +269,13 @@ private val documentMimeTypes = setOf(
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+)
+
+private val textLikeApplicationMimeTypes = setOf(
+    "application/json",
+    "application/xml",
+    "application/yaml",
+    "application/x-yaml",
 )
 
 private val richTextMimeTypes = setOf(

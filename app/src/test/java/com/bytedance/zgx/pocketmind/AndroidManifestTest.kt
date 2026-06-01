@@ -1,6 +1,8 @@
 package com.bytedance.zgx.pocketmind
 
 import java.io.File
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -40,6 +42,26 @@ class AndroidManifestTest {
                 sendMultipleFilter.contains("android:mimeType=\"$mimeType\""),
             )
         }
+        assertFalse(sendFilter.contains("android:mimeType=\"application/ld+json\""))
+        assertFalse(sendMultipleFilter.contains("android:mimeType=\"application/ld+json\""))
+    }
+
+    @Test
+    fun composerAttachmentPickerUsesShareTargetMimeTypes() {
+        val mainActivity = readMainFile("java/com/bytedance/zgx/pocketmind/MainActivity.kt")
+        val pickerMimeTypes = Regex("""SHARED_ATTACHMENT_MIME_TYPES = arrayOf\(([\s\S]*?)\)""")
+            .find(mainActivity)
+            ?.groupValues
+            ?.get(1)
+            ?.let { block ->
+                Regex(""""([^"]+)"""")
+                    .findAll(block)
+                    .map { match -> match.groupValues[1] }
+                    .toList()
+            }
+            ?: error("SHARED_ATTACHMENT_MIME_TYPES array not found in MainActivity")
+
+        assertEquals(SHARED_ATTACHMENT_MIME_TYPES, pickerMimeTypes)
     }
 
     private fun readManifest(): String {
@@ -66,6 +88,10 @@ class AndroidManifestTest {
             "image/*",
             "audio/*",
             "video/*",
+            "application/json",
+            "application/xml",
+            "application/yaml",
+            "application/x-yaml",
             "application/pdf",
             "application/rtf",
             "application/msword",

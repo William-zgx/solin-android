@@ -1,5 +1,51 @@
 # PocketMind 验证报告
 
+## 2026-06-02 JSON/XML/YAML 共享附件摘录增量验证
+
+本轮覆盖项：
+
+- 用户主动分享的 `application/json`、`application/xml`、`application/yaml`
+  和 `application/x-yaml` 现在归类为 Document，并复用受限 UTF-8 文本摘录
+  读取器；`application/octet-stream` 等二进制 application MIME 仍保持
+  metadata-only，不打开附件流。
+- Android manifest 的 SEND / SEND_MULTIPLE 入口和 in-app picker MIME 白名单同步
+  接收上述四类 text-like application 文档；未纳入 `application/ld+json`，避免
+  扩大到潜在二进制或图谱语义载荷。
+- Protected share signal 对 `text/*`、JSON/XML/YAML、RTF、PDF、Office 和 image
+  附件均不打开 stream、不跑 OCR、不暴露 protected source 计数。
+- 远程模型模式在构建 prompt 前 fail closed：直接分享文本、metadata-only 附件、
+  protected share signal、文本、JSON/XML/YAML、RTF/PDF/Office 和 OCR preview
+  都只生成本地隐私提示，不向 remote runtime 发送正文、文件名、MIME、大小、摘录
+  或 history。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsDirectSharedTextBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedAttachmentMetadataBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeHandlesProtectedShareSignalWithoutBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedTextLikeApplicationPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedRichTextPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedPdfTextLayerPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest.shareTargetsAcceptPickerSupportedDocumentMimeTypes' \
+  --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest.composerAttachmentPickerUsesShareTargetMimeTypes'
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+git diff --unified=0 | rg -n "(sk-[A-Za-z0-9_-]{20,}|B[e]arer [A-Za-z0-9._-]{20,}|(?i)(api[_-]?key|s[e]cret|p[a]ssword|d[e]epseek))"
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：定向 multimodal/ViewModel/manifest 测试、全量 JVM 单测、AndroidTest Kotlin
+编译、diff whitespace 检查、敏感串扫描和本地完整验证脚本通过。
+
 ## 2026-06-02 Agent retry / Skill checkpoint 状态口径增量验证
 
 本轮覆盖项：

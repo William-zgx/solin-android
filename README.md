@@ -55,8 +55,9 @@ Google AI Edge LiteRT-LM.
 - Running background task review for still-scheduled reminders and periodic checks, including explicit cancellation.
 - Recent tool audit review from the background task entry, limited to redacted event metadata.
 - Android share-target and in-app attachment picker entries for bounded shared text,
-  bounded local `text/*`, RTF/PDF text-layer, and Office Open XML excerpts, and bounded
-  local OCR excerpts from user-provided `image/*` attachments; audio, video,
+  bounded local `text/*` plus JSON/XML/YAML text-like application excerpts,
+  RTF/PDF text-layer, and Office Open XML excerpts, and bounded local OCR
+  excerpts from user-provided `image/*` attachments; audio, video,
   image-only PDFs, legacy Office, and binary attachments remain metadata-only, plus
   confirmed outbound system sharing for text.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
@@ -215,12 +216,13 @@ Requests such as “分享这段文字...” open Android's system share panel t
 Shared text or attachments from other Android apps, as well as files selected
 through the in-app attachment picker, are ingested as privacy-minimal
 multimodal prompts: PocketMind records bounded user-visible shared text, may produce
-bounded local text excerpts for `text/*` documents, bounded local text-layer
-excerpts for user-provided RTF, PDF text layers, and `.docx` / `.xlsx` / `.pptx`
-files, may produce bounded local OCR excerpts for user-provided `image/*`
-attachments, and keeps attachment metadata for local processing. Binary, audio,
-video, image-only PDFs, legacy Office, and other unsupported attachments remain
-metadata-only. Automatically generated shared-input excerpts and metadata are
+bounded local text excerpts for `text/*` plus JSON/XML/YAML text-like
+application documents, bounded local text-layer excerpts for user-provided RTF,
+PDF text layers, and `.docx` / `.xlsx` / `.pptx` files, may produce bounded
+local OCR excerpts for user-provided `image/*` attachments, and keeps attachment
+metadata for local processing. Binary, audio, video, image-only PDFs, legacy
+Office, and other unsupported attachments remain metadata-only. Automatically
+generated shared-input excerpts and metadata are
 marked `LocalOnly`; remote mode now protects at the reader boundary and does not
 read shared text values, attachment metadata, file streams, text excerpts, or OCR
 before showing a local privacy notice.
@@ -243,8 +245,9 @@ snapshots, safety policy, persistent tool audit, long-term memory controls,
 local reminder scheduling, running background task review/cancellation,
 confirmed clipboard/device-context reads, outbound text sharing, safe HTTPS
 deep-link navigation, package-level app launches, Android share intent and
-in-app picker text plus bounded `text/*` document excerpt ingestion, bounded
-RTF/PDF text-layer and Office Open XML excerpts, system speech-recognition input,
+in-app picker text plus bounded `text/*` and JSON/XML/YAML document excerpt
+ingestion, bounded RTF/PDF text-layer and Office Open XML excerpts,
+system speech-recognition input,
 confirmed recent screenshot/image OCR, and restart restoration for the latest
 pending tool confirmation without auto-execution, plus confirmed current-screen
 Accessibility text snapshot reads and current-screen text summary sharing.

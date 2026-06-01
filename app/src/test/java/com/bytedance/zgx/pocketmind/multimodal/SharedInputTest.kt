@@ -225,7 +225,7 @@ class SharedInputTest {
     }
 
     @Test
-    fun binaryAndRichDocumentAttachmentsRemainMetadataOnlyWithoutPreview() {
+    fun unsupportedTextPreviewSourcesRemainMetadataOnlyWithoutPreview() {
         val input = SharedInput(
             text = "",
             attachments = listOf(
@@ -271,6 +271,9 @@ class SharedInputTest {
         assertTrue(prompt.contains("memo.mp3"))
         assertTrue(prompt.contains("doc.docx"))
         assertFalse(prompt.contains("\n   文本摘录"))
+        assertFalse(prompt.contains("\n   图片文字摘录"))
+        assertFalse(prompt.contains("\n   PDF 文本摘录"))
+        assertFalse(prompt.contains("\n   Office 文本摘录"))
         assertFalse(prompt.contains("must not leak"))
         assertFalse(prompt.contains("image text file preview must not leak"))
     }
@@ -406,8 +409,10 @@ class SharedInputTest {
         val prompt = input.toPrompt()
 
         assertFalse(input.isEmpty)
-        assertTrue(prompt.contains("已收到受保护分享"))
-        assertTrue(prompt.contains("未读取分享文本、附件元数据、文本摘录或 OCR"))
+        assertEquals(
+            "已收到受保护分享。为保护隐私，本次未读取分享文本、附件元数据、文本摘录或 OCR；请切换到本地模型后重新分享，或手动粘贴你愿意处理的内容。",
+            prompt,
+        )
         assertFalse(prompt.contains("2"))
     }
 
@@ -462,6 +467,10 @@ class SharedInputTest {
         assertEquals(SharedAttachmentKind.Audio, sharedAttachmentKindFor("audio/mpeg"))
         assertEquals(SharedAttachmentKind.Video, sharedAttachmentKindFor("video/mp4"))
         assertEquals(SharedAttachmentKind.Document, sharedAttachmentKindFor("application/pdf"))
+        assertEquals(SharedAttachmentKind.Document, sharedAttachmentKindFor("application/json"))
+        assertEquals(SharedAttachmentKind.Document, sharedAttachmentKindFor("APPLICATION/XML; charset=utf-8"))
+        assertEquals(SharedAttachmentKind.Document, sharedAttachmentKindFor("application/x-yaml"))
+        assertEquals(SharedAttachmentKind.Other, sharedAttachmentKindFor("application/ld+json"))
         assertEquals(SharedAttachmentKind.Document, sharedAttachmentKindFor("application/msword"))
         assertEquals(
             SharedAttachmentKind.Document,
@@ -477,11 +486,15 @@ class SharedInputTest {
     }
 
     @Test
-    fun textPreviewReaderOnlyAllowsTextMediaTypes() {
+    fun textPreviewReaderAllowsTextAndTextLikeApplicationMediaTypes() {
         assertTrue(canReadTextPreviewFor("text/plain"))
         assertTrue(canReadTextPreviewFor(" text/markdown; charset=utf-8 "))
+        assertTrue(canReadTextPreviewFor("application/json"))
+        assertTrue(canReadTextPreviewFor(" application/xml; charset=utf-8 "))
+        assertTrue(canReadTextPreviewFor("application/yaml"))
+        assertTrue(canReadTextPreviewFor("application/x-yaml"))
         assertFalse(canReadTextPreviewFor("text/rtf"))
-        assertFalse(canReadTextPreviewFor("application/json"))
+        assertFalse(canReadTextPreviewFor("application/ld+json"))
         assertFalse(canReadTextPreviewFor("application/pdf"))
         assertFalse(canReadTextPreviewFor("image/png"))
         assertFalse(canReadTextPreviewFor("audio/mpeg"))
@@ -673,16 +686,65 @@ class SharedInputTest {
     }
 
     @Test
-    fun protectedSharedAttachmentTextPreviewDoesNotOpenStreamsOrRunOcr() {
-        val preview = readSharedAttachmentTextPreview(
-            mimeType = "text/plain",
-            kind = SharedAttachmentKind.Document,
-            openInputStream = { error("protected share must not open attachment stream") },
-            extractImageText = { error("protected share must not run OCR") },
-            mode = SharedInputReadMode.ProtectedSignal,
-        )
+    fun sharedAttachmentTextPreviewDispatchesTextLikeApplicationMediaTypes() {
+        listOf(
+            "application/json; charset=utf-8" to """{"title":"Release notes","items":["one","two"]}""",
+            "application/xml" to "<release><title>Release notes</title></release>",
+            "application/yaml" to "title: Release notes\nitems:\n  - one\n  - two",
+            "application/x-yaml" to "title: Release notes\nitems:\n  - one\n  - two",
+        ).forEach { (mimeType, text) ->
+            val preview = readSharedAttachmentTextPreview(
+                mimeType = mimeType,
+                kind = SharedAttachmentKind.Document,
+                openInputStream = { text.byteInputStream() },
+                extractImageText = { error("image OCR should not be used for $mimeType") },
+            )
 
-        assertNull(preview)
+            assertNotNull(preview)
+            assertEquals(text, preview!!.text)
+            assertEquals(SharedTextPreviewSource.TextFile, preview.source)
+        }
+    }
+
+    @Test
+    fun sharedAttachmentTextPreviewSkipsBinaryApplicationMediaTypes() {
+        listOf("application/octet-stream", "application/ld+json").forEach { mimeType ->
+            var streamOpened = false
+            val preview = readSharedAttachmentTextPreview(
+                mimeType = mimeType,
+                kind = SharedAttachmentKind.Other,
+                openInputStream = {
+                    streamOpened = true
+                    "binary".byteInputStream()
+                },
+                extractImageText = { error("image OCR should not be used for $mimeType") },
+            )
+
+            assertNull(preview)
+            assertFalse(streamOpened)
+        }
+    }
+
+    @Test
+    fun protectedSharedAttachmentTextPreviewDoesNotOpenStreamsOrRunOcr() {
+        listOf(
+            "text/plain" to SharedAttachmentKind.Document,
+            "application/json" to SharedAttachmentKind.Document,
+            "application/rtf" to SharedAttachmentKind.Document,
+            "application/pdf" to SharedAttachmentKind.Document,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" to SharedAttachmentKind.Document,
+            "image/png" to SharedAttachmentKind.Image,
+        ).forEach { (mimeType, kind) ->
+            val preview = readSharedAttachmentTextPreview(
+                mimeType = mimeType,
+                kind = kind,
+                openInputStream = { error("protected share must not open attachment stream") },
+                extractImageText = { error("protected share must not run OCR") },
+                mode = SharedInputReadMode.ProtectedSignal,
+            )
+
+            assertNull(preview)
+        }
     }
 
     @Test

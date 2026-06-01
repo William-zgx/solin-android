@@ -695,9 +695,10 @@ Current status:
   structured failure data still preserves the raw manifest permission names.
 - Startup restoration can rehydrate the latest pending Agent confirmation from
   Room without invoking Android execution or runtime permission requests.
-- Android share-target ingestion for shared text, bounded `text/*` document
-  excerpts, bounded Office Open XML text-layer excerpts, and
-  image/audio/video/PDF/legacy-Office/binary metadata is implemented.
+- Android share-target ingestion for shared text, bounded `text/*` plus
+  JSON/XML/YAML text-like application document excerpts, bounded RTF/PDF and
+  Office Open XML text-layer excerpts, bounded image OCR excerpts, and
+  audio/video/image-only PDF/legacy-Office/binary metadata is implemented.
 - Implemented outbound `share_text` as a confirmed tool that opens Android's
   system share panel. Explicit “分享这段文字...” requests can now enter the
   confirmation flow through the built-in Skill runtime without waiting for the
@@ -1117,10 +1118,11 @@ Code:
 
 Responsibilities:
 
-- Accept user-initiated shared text, bounded `text/*` document excerpts,
-  bounded RTF/PDF and Office Open XML text-layer excerpts, bounded local OCR
-  text excerpts for user-provided `image/*` attachments, and attachment metadata
-  from Android share targets and the in-app picker.
+- Accept user-initiated shared text, bounded `text/*` plus JSON/XML/YAML
+  text-like application document excerpts, bounded RTF/PDF and Office Open XML
+  text-layer excerpts, bounded local OCR text excerpts for user-provided
+  `image/*` attachments, and attachment metadata from Android share targets and
+  the in-app picker.
 - Classify attachments by MIME type; keep unsupported non-text files
   metadata-only.
 - Keep multimodal source handling separate from chat generation and tools.
@@ -1128,19 +1130,21 @@ Responsibilities:
 Current status:
 
 - Implemented Android share-target entry for `ACTION_SEND` and
-  `ACTION_SEND_MULTIPLE`, including text, image, audio, video, PDF, RTF, and
-  Office MIME types.
+  `ACTION_SEND_MULTIPLE`, including text, JSON/XML/YAML text-like application,
+  image, audio, video, PDF, RTF, and Office MIME types.
 - Implemented a composer attachment entry that launches Android's system
-  document picker for user-selected text, image, audio, video, PDF, and Office
-  files. Picked files reuse the same `SharedInput` path as share intents.
+  document picker for user-selected text, JSON/XML/YAML text-like application,
+  image, audio, video, PDF, RTF, and Office files. Picked files reuse the same
+  `SharedInput` path as share intents.
 - Implemented privacy-minimal `SharedInput` prompts for bounded direct shared
   text plus attachment metadata such as kind, MIME type, display name, and byte
   size.
 - Implemented bounded local text excerpts for user-initiated shared `text/*`
-  documents, bounded text-layer excerpts for user-provided RTF, PDF text layers,
-  and Office Open XML `.docx` / `.xlsx` / `.pptx` files, and bounded local OCR
-  text excerpts for user-provided `image/*` attachments. Excerpts are
-  user-visible and limited to the local shared-input prompt.
+  documents and JSON/XML/YAML text-like application MIME types, bounded
+  text-layer excerpts for user-provided RTF, PDF text layers, and Office Open
+  XML `.docx` / `.xlsx` / `.pptx` files, and bounded local OCR text excerpts
+  for user-provided `image/*` attachments. Excerpts are user-visible and limited
+  to the local shared-input prompt.
 - Audio, video, image-only PDFs, legacy Office binary formats, binary, and other
   unsupported attachments stay metadata-only; the app does not parse or embed
   their bytes into prompts.
@@ -1172,12 +1176,21 @@ Tests:
 
 - `SharedInputTest`
 - `PocketMindViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory`
+- `PocketMindViewModelTest.remoteModeRejectsDirectSharedTextBeforeBuildingPrompt`
+- `PocketMindViewModelTest.remoteModeRejectsSharedAttachmentMetadataBeforeBuildingPrompt`
+- `PocketMindViewModelTest.remoteModeHandlesProtectedShareSignalWithoutBuildingPrompt`
+- `PocketMindViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt`
+- `PocketMindViewModelTest.remoteModeRejectsSharedTextLikeApplicationPreviewBeforeBuildingPrompt`
 - `PocketMindViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt`
+- `PocketMindViewModelTest.remoteModeRejectsSharedRichTextPreviewBeforeBuildingPrompt`
 - `PocketMindViewModelTest.remoteModeRejectsSharedPdfTextLayerPreviewBeforeBuildingPrompt`
+- `PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt`
 - `PocketMindViewModelTest.remoteModeRejectsLocalOnlyPromptBeforeCallingRemoteRuntime`
 - `PocketMindViewModelTest.remoteModeProtectsRecentScreenshotOcrBeforeRemoteContinuation`
 - `PocketMindViewModelTest.remoteModeProtectsRecentImageOcrBeforeRemoteContinuation`
 - `PocketMindViewModelTest.voiceTranscriptDraftIsOneShotAndDoesNotSendMessage`
+- `AndroidManifestTest.shareTargetsAcceptPickerSupportedDocumentMimeTypes`
+- `AndroidManifestTest.composerAttachmentPickerUsesShareTargetMimeTypes`
 - `MainActivitySmokeTest` composer attachment and voice entry visibility
 
 ## Regression Strategy

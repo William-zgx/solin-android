@@ -131,6 +131,118 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun remoteModeRejectsDirectSharedTextBeforeBuildingPrompt() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.ingestSharedInput(
+            SharedInput(
+                text = "私密分享正文",
+                attachments = emptyList(),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertRemoteProtectedSharedInput(
+            remoteRuntime = remoteRuntime,
+            sessionStore = sessionStore,
+            statusText = viewModel.uiState.value.statusText,
+            forbiddenText = listOf("私密分享正文"),
+        )
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+        assertTrue(remoteRuntime.calls.single().history.isEmpty())
+    }
+
+    @Test
+    fun remoteModeRejectsSharedAttachmentMetadataBeforeBuildingPrompt() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.ingestSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Document,
+                        mimeType = "application/pdf",
+                        displayName = "private-report.pdf",
+                        sizeBytes = 12_000L,
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertRemoteProtectedSharedInput(
+            remoteRuntime = remoteRuntime,
+            sessionStore = sessionStore,
+            statusText = viewModel.uiState.value.statusText,
+            forbiddenText = listOf(
+                "private-report.pdf",
+                "application/pdf",
+                "12000",
+                "已分享附件",
+            ),
+        )
+    }
+
+    @Test
+    fun remoteModeHandlesProtectedShareSignalWithoutBuildingPrompt() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.ingestSharedInput(
+            SharedInput(
+                text = "",
+                attachments = emptyList(),
+                protectedSourceCount = 2,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertRemoteProtectedSharedInput(
+            remoteRuntime = remoteRuntime,
+            sessionStore = sessionStore,
+            statusText = viewModel.uiState.value.statusText,
+            forbiddenText = listOf("已收到受保护分享", "2"),
+        )
+    }
+
+    @Test
     fun remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()
@@ -164,13 +276,55 @@ class PocketMindViewModelTest {
         )
         advanceUntilIdle()
 
-        assertTrue(remoteRuntime.calls.isEmpty())
-        assertEquals(1, sessionStore.messages.size)
-        assertEquals(MessageRole.Assistant, sessionStore.messages.single().role)
-        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
-        assertFalse(sessionStore.messages.single().text.contains("private excerpt"))
-        assertFalse(sessionStore.messages.single().text.contains("private.txt"))
-        assertTrue(sessionStore.messages.single().text.contains("不会读取或自动发送分享文本、RTF/PDF/Office 文档摘录、OCR 摘录或附件元数据"))
+        assertRemoteProtectedSharedInput(
+            remoteRuntime = remoteRuntime,
+            sessionStore = sessionStore,
+            statusText = viewModel.uiState.value.statusText,
+            forbiddenText = listOf("private excerpt", "private.txt", "text/plain", "12"),
+        )
+    }
+
+    @Test
+    fun remoteModeRejectsSharedTextLikeApplicationPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.ingestSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Document,
+                        mimeType = "application/json",
+                        displayName = "private-data.json",
+                        sizeBytes = 34L,
+                        textPreview = SharedTextPreview(
+                            text = "private json excerpt",
+                            truncated = false,
+                            source = SharedTextPreviewSource.TextFile,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertRemoteProtectedSharedInput(
+            remoteRuntime = remoteRuntime,
+            sessionStore = sessionStore,
+            statusText = viewModel.uiState.value.statusText,
+            forbiddenText = listOf("private json excerpt", "private-data.json", "application/json", "34"),
+        )
     }
 
     @Test
@@ -208,13 +362,12 @@ class PocketMindViewModelTest {
         )
         advanceUntilIdle()
 
-        assertTrue(remoteRuntime.calls.isEmpty())
-        assertEquals(1, sessionStore.messages.size)
-        assertEquals(MessageRole.Assistant, sessionStore.messages.single().role)
-        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
-        assertFalse(sessionStore.messages.single().text.contains("private screenshot text"))
-        assertFalse(sessionStore.messages.single().text.contains("private-screen.png"))
-        assertTrue(sessionStore.messages.single().text.contains("不会读取或自动发送分享文本、RTF/PDF/Office 文档摘录、OCR 摘录或附件元数据"))
+        assertRemoteProtectedSharedInput(
+            remoteRuntime = remoteRuntime,
+            sessionStore = sessionStore,
+            statusText = viewModel.uiState.value.statusText,
+            forbiddenText = listOf("private screenshot text", "private-screen.png", "image/png", "12"),
+        )
     }
 
     @Test
@@ -252,13 +405,17 @@ class PocketMindViewModelTest {
         )
         advanceUntilIdle()
 
-        assertTrue(remoteRuntime.calls.isEmpty())
-        assertEquals(1, sessionStore.messages.size)
-        assertEquals(MessageRole.Assistant, sessionStore.messages.single().role)
-        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
-        assertFalse(sessionStore.messages.single().text.contains("private office document excerpt"))
-        assertFalse(sessionStore.messages.single().text.contains("private-plan.docx"))
-        assertTrue(sessionStore.messages.single().text.contains("不会读取或自动发送分享文本、RTF/PDF/Office 文档摘录、OCR 摘录或附件元数据"))
+        assertRemoteProtectedSharedInput(
+            remoteRuntime = remoteRuntime,
+            sessionStore = sessionStore,
+            statusText = viewModel.uiState.value.statusText,
+            forbiddenText = listOf(
+                "private office document excerpt",
+                "private-plan.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "12",
+            ),
+        )
     }
 
     @Test
@@ -296,13 +453,12 @@ class PocketMindViewModelTest {
         )
         advanceUntilIdle()
 
-        assertTrue(remoteRuntime.calls.isEmpty())
-        assertEquals(1, sessionStore.messages.size)
-        assertEquals(MessageRole.Assistant, sessionStore.messages.single().role)
-        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
-        assertFalse(sessionStore.messages.single().text.contains("private rich text excerpt"))
-        assertFalse(sessionStore.messages.single().text.contains("private-notes.rtf"))
-        assertTrue(sessionStore.messages.single().text.contains("RTF/PDF/Office 文档摘录"))
+        assertRemoteProtectedSharedInput(
+            remoteRuntime = remoteRuntime,
+            sessionStore = sessionStore,
+            statusText = viewModel.uiState.value.statusText,
+            forbiddenText = listOf("private rich text excerpt", "private-notes.rtf", "application/rtf", "12"),
+        )
     }
 
     @Test
@@ -340,13 +496,12 @@ class PocketMindViewModelTest {
         )
         advanceUntilIdle()
 
-        assertTrue(remoteRuntime.calls.isEmpty())
-        assertEquals(1, sessionStore.messages.size)
-        assertEquals(MessageRole.Assistant, sessionStore.messages.single().role)
-        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.single().privacy)
-        assertFalse(sessionStore.messages.single().text.contains("private pdf text layer excerpt"))
-        assertFalse(sessionStore.messages.single().text.contains("private-plan.pdf"))
-        assertTrue(sessionStore.messages.single().text.contains("RTF/PDF/Office 文档摘录"))
+        assertRemoteProtectedSharedInput(
+            remoteRuntime = remoteRuntime,
+            sessionStore = sessionStore,
+            statusText = viewModel.uiState.value.statusText,
+            forbiddenText = listOf("private pdf text layer excerpt", "private-plan.pdf", "application/pdf", "12"),
+        )
     }
 
     @Test
@@ -3843,6 +3998,26 @@ class PocketMindViewModelTest {
             isArm64DeviceProvider = { true },
             ioDispatcher = dispatcher,
         )
+
+    private fun assertRemoteProtectedSharedInput(
+        remoteRuntime: RecordingRemoteChatRuntime,
+        sessionStore: FakeSessionStore,
+        statusText: String,
+        forbiddenText: List<String>,
+    ) {
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(1, sessionStore.messages.size)
+        val message = sessionStore.messages.single()
+        assertEquals(MessageRole.Assistant, message.role)
+        assertEquals(MessagePrivacy.LocalOnly, message.privacy)
+        forbiddenText.forEach { forbidden ->
+            assertFalse("Protected share notice leaked `$forbidden`", message.text.contains(forbidden))
+        }
+        assertTrue(message.text.contains("不会读取或自动发送分享文本"))
+        assertTrue(message.text.contains("附件元数据"))
+        assertTrue(message.text.contains("JSON/XML/YAML 文本摘录"))
+        assertEquals("已保护分享内容", statusText)
+    }
 
     private fun configuredRemoteModel(): RemoteModelConfig =
         RemoteModelConfig(
