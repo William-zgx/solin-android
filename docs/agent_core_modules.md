@@ -696,6 +696,26 @@ Current status:
   and media content understanding are still pending. The Accessibility text
   snapshot boundary does not complete any of those modules.
 
+Tests:
+
+- `DeviceContextModelsTest`
+- `ForegroundAppProviderTest`
+- `CalendarAvailabilityProviderTest`
+- `RecentFileCollectorTest`
+- `DeviceContextToolExecutorTest`
+- `CalendarAvailabilityToolExecutorTest`
+- `RoutingAndValidatingToolExecutorTest.routingExecutorDispatchesDeviceContextToolsBeforeDelegate`
+- `RoutingAndValidatingToolExecutorTest.validatingRoutingExecutorAcceptsPrivateDeviceContextOutputsAndKeepsPrivateKeyBoundary`
+- `AgentRuntimePermissionPolicyTest.foregroundAppDeclaresUsageAccessAsSpecialAccessNotRuntimePermission`
+- `AgentRuntimePermissionPolicyTest.recentNotificationsDeclareNoRuntimePermissionOrSpecialAccess`
+- `AgentRuntimePermissionPolicyTest.currentScreenTextDeclaresAccessibilityAsSpecialAccessNotRuntimePermission`
+- `AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace`
+- `AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace`
+- `AgentLoopRuntimeTest.currentScreenTextSummarySharePlansShareAfterLocalModelResult`
+- `PocketMindViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation`
+- `MainActivityRuntimePermissionUiTest.contactLookupConfirmationShowsRuntimePermissionRequirementWithoutSpecialAccess`
+- `MainActivitySpecialAccessUiTest.currentScreenTextConfirmationShowsSpecialAccessRequirementWithoutRuntimePermission`
+
 ## Execution Boundary
 
 Code:
@@ -1244,6 +1264,14 @@ Local verification:
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:assembleDebug
 ```
+
+Documentation coverage:
+
+- `AgentCoreDocumentationTest` enforces that the ten Agent objective areas in
+  this document keep a stable top-level section order. Each core module section
+  must include code ownership, responsibilities, current status, and at least
+  one documented test class whose source file exists in `app/src/test` or
+  `app/src/androidTest`.
 
 Emulator regression:
 

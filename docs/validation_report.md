@@ -1,5 +1,28 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Agent core documentation contract 增量验证
+
+本轮覆盖项：
+
+- `docs/agent_core_modules.md` 的十个核心目标区域必须保持稳定的顶层模块顺序：
+  Tool Layer、Agent Loop、Skill Framework、Device Context、Execution Boundary、
+  Safety And Audit、Memory、Background Tasks、Multimodal Inputs、Regression Strategy。
+- 除 Regression Strategy 外，每个核心模块都必须记录 code ownership、
+  responsibilities、current status 和至少一个测试条目。
+- 文档中列出的测试类必须在 `app/src/test` 或 `app/src/androidTest` 下存在，
+  避免核心模块文档引用已经删除或未落地的测试文件。
+- Regression Strategy 必须继续记录本地 JVM 验证、模拟器回归入口和该文档契约测试。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+```
+
+结果：通过。新增文档契约测试和完整 JVM 单测通过；diff whitespace 检查与敏感
+diff 扫描无命中。
+
 ## 2026-06-02 Skill pending 恢复 hardening 增量验证
 
 本轮覆盖项：
