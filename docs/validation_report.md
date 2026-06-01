@@ -27,20 +27,52 @@
 
 结果：targeted Tool output schema / routing / device-context 回归测试通过。
 
+## 2026-06-01 Pending confirmation payload minimization 增量验证
+
+本轮覆盖项：
+
+- `ToolSpec` 新增 `pendingArgumentAllowlist`，Room pending confirmation
+  持久化只保留工具声明的安全参数键。当前非空 allowlist 仅覆盖
+  `open_app_intent.packageName`、`open_app_deep_target.targetId/packageName`、
+  `query_calendar_availability.start/end`、近期通知/文件/OCR/屏幕读取的数值
+  上限，以及 `cancel_reminder.taskId`。
+- `share_text`、`web_search`、地图搜索、邮件/日历/联系人草稿、联系人查询、
+  `schedule_reminder` 和 `open_deep_link` 等 payload-bearing pending 不再跨
+  重启恢复；Room row 不保存其 executable payload key/value，恢复时由
+  `ToolRegistry.validate` 判定缺少必需参数并 fail closed。
+- `nextActionInput` 不再写入 Room。当前进程内仍保留 active pending 的 raw
+  snapshot 以支撑 UI/确认，进程重启后不再用 pending row 继续 sequential
+  replan。
+- Room 恢复路径会拒绝含 redacted executable payload、schema 校验失败或
+  SkillPlan 边界不匹配的 pending row，并把所属 awaiting run 标记为
+  `Failed`，避免不可见确认卡或 payload 复活。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+```
+
+结果：targeted pending restore / fail-closed 回归测试通过。
+
 ## 2026-06-01 Restored Agent loop context 增量验证
 
 本轮覆盖项：
 
-- Room pending confirmation 现在只额外保存显式 sequential 后续动作片段
-  `nextActionInput`，用于进程重启后继续 conservative replan；完整 raw run
-  input 仍不会写入 `agent_runs`、trace summary 或 audit。
+- Room pending confirmation 不再保存显式 sequential 后续动作片段
+  `nextActionInput`；完整 raw run input 仍不会写入 `agent_runs`、trace
+  summary 或 audit。
 - pending row 被确认/清理后，DB 不再保留该片段；Room store 仅在内存中保留到
   observation 结束，以便确认后的工具结果仍能规划下一步。
 - 恢复 pending 时会从已持久化的 `ToolRequested` trace JSON 恢复历史
   request id 骨架，仅用于去重；不会恢复旧确认卡，也不会恢复旧 arguments /
   reason。
 - 数据库版本升到 8，新增 `pending_agent_confirmations.nextActionInput`
-  nullable column，并覆盖 7→8 migration。
+  nullable column 并覆盖 7→8 migration；该列保留为兼容字段，当前写入值为
+  null。
 
 验证命令：
 
@@ -1002,12 +1034,13 @@ rg -n --hidden -S \
 - 模型输出仍通过 `SkillRunProgressor.nextToolAfterModelOutput()` 绑定到后续
   `ToolStep.argumentBindings`，然后重新进入 `AwaitingUserConfirmation`；后续工具
   不会被自动执行。
-- 本轮保持既有隐私边界：不持久化完整原始 `SkillRunContinuation` 对象；Room 只
-  恢复 active pending confirmation snapshot + `SkillPlan`，私密
-  `outputs/privateOutputRefs/trace` 不进入持久层。
-- 新增多段回归覆盖 `web_search -> model -> share_text -> model ->
-  open_wifi_settings`，并在第二个确认点重建 `RoomAgentTraceStore`，证明恢复后的
-  pending Skill 仍可继续到下一段模型和第三个工具确认。
+- 本轮保持既有隐私边界：不持久化完整原始 `SkillRunContinuation` 对象；Room
+  只恢复无私密 executable payload 的 active pending confirmation snapshot +
+  redacted `SkillPlan`，私密 `outputs/privateOutputRefs/trace` 不进入持久层。
+- 多段流程仍覆盖 `web_search -> model -> share_text -> model ->
+  open_wifi_settings` 的进程内 continuation。当前 pending payload 最小化策略
+  下，若在 `share_text` payload 确认点进程重启，则该 pending 不再恢复，而是
+  fail closed。
 
 验证命令：
 
@@ -1577,8 +1610,8 @@ adb devices -l
 - 后台任务取消、完成、失败、删除或从活跃列表消失时，对应自动 `TaskState`
   记忆会被遗忘；手动创建的非 auto-managed task-state 记录不受此同步清理。
 - Room-backed Agent trace 会在持久化 `agent_runs.input` 时脱敏完整原始
-  prompt；当前进程内仍保留 raw run input，且 active pending confirmation
-  可暂存 bounded next-action suffix，保证确认、观察和 replan 不被打断。
+  prompt；当前进程内仍保留 raw run input 和 active pending confirmation 的
+  raw snapshot，Room 只保留声明安全参数，不再持久化 bounded next-action suffix。
 - 持久 trace 的 summary、JSON 预览与 allowlisted metadata value 复用 audit
   redactor，对工具 reason、draft title、工具观察 summary、assistant preview
   中的 key/token/email/bearer 片段做脱敏。
@@ -2757,9 +2790,8 @@ git diff --check
 - Agent observe 成功后可通过 `AgentObservationReplanner` 产出下一步工具计划。
 - 默认生产策略 `SequentialActionObservationReplanner` 会在用户输入含明确顺序
   连接词（如“然后”/`then`）且 run 目前只有一个工具计划时，规划下一步动作。
-- Room 恢复路径会从 active pending confirmation 的 `nextActionInput` 继续
-  sequential replan；历史 `ToolRequested` request id 会被恢复为去重骨架，
-  确认或观察不能复用旧 request id。
+- Room 恢复路径会恢复历史 `ToolRequested` request id 去重骨架，但当前策略
+  不再跨重启恢复 `nextActionInput`；确认或观察不能复用旧 request id。
 - 下一步工具会重新经过 Tool Registry 参数校验、SafetyPolicy、trace、audit
   和用户确认；不会因为来自 observe 阶段就直接执行。
 - Replanned request id 不能复用已有 `ToolRequested` id，避免确认/观察串到旧

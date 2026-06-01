@@ -134,9 +134,9 @@ Current status:
 - Successful observations can now call `AgentObservationReplanner` to produce a
   next tool plan. The default production strategy is conservative: it only
   replans one explicit next action after sequence words such as "然后" / "then",
-  and only when the current run has planned exactly one tool so far. Room
-  restore can resume that path from pending recovery metadata by persisting only
-  the explicit next-action suffix, not the full original prompt.
+  and only when the current run has planned exactly one tool so far. The
+  next-action suffix is kept only in memory; Room restore no longer persists or
+  resumes it across process death.
 - Replanned tools are validated, safety checked, audited, traced, and returned
   to `AwaitingUserConfirmation` instead of being executed directly.
 - Confirmation and observation are now bound to the current pending/confirmed
@@ -146,27 +146,25 @@ Current status:
 - Pending tool confirmations are persisted separately from the trace, then
   restored on startup as UI confirmation state only. Restoration does not
   execute tools; explicit user confirmation is still required before Android
-  execution can continue. Pending rows may include bounded recovery metadata
-  such as the active request arguments, share-preview text, and sequential
-  `nextActionInput`; none of that is written to trace, audit, or recent run
-  summaries. Persisted `SkillPlan` recovery stores only redacted plan structure,
-  not the original skill input or tool/draft payload text, and terminal runs
-  clear the in-memory recovery copy.
+  execution can continue. Pending rows only persist `ToolSpec`-declared
+  allowlisted request arguments; payload-bearing tools such as search, share,
+  email, calendar/contact drafts, reminders, contacts, and deep links fail
+  closed after process restart instead of restoring private text. Cross-restart
+  `nextActionInput` persistence is disabled. Persisted `SkillPlan` recovery
+  stores only redacted plan structure and allowlisted tool arguments, not the
+  original skill input or tool/draft payload text, and terminal runs clear the
+  in-memory recovery copy.
 - `AwaitingUserConfirmation` is treated as recoverable only when its pending
   confirmation row can be parsed and still matches the pending tool boundary.
   Startup repair fails awaiting runs without a valid pending row, and malformed
   pending or `SkillPlan` JSON is not silently downgraded into a plain pending
   confirmation.
 - Model-bound multi-step Skills that reach a second confirmation persist that
-  second pending tool request as the active pending confirmation. Startup
-  restore keeps the new `share_text` request id and model-produced arguments;
-  confirm or observe calls using the earlier `read_clipboard` request id cannot
-  advance, rerun, or overwrite the current run.
-- `pending_agent_confirmations` may store and restore the model-produced text
-  that is being previewed for an outbound share confirmation, plus the explicit
-  next-action suffix needed to continue a sequential run after process restart.
-  These payloads are confirmation/recovery UI state, not trace or audit content;
-  tools still open only after the user confirms the current pending request.
+  second pending tool request as the active pending confirmation. If that
+  request carries model-produced outbound payload, startup restore fails the run
+  closed; confirm or observe calls using either the earlier `read_clipboard`
+  request id or the un-restored share request id cannot advance, rerun, or
+  overwrite the current run.
 - Completed persisted runs now rehydrate summary-only `RestoredSummary` steps
   from the trace store. This keeps typed timeline inspection available after a
   restart without restoring raw tool arguments or private payloads.
@@ -175,10 +173,10 @@ Current status:
   `AgentTraceStepSummary` type/summary metadata and does not parse or display
   persisted trace JSON or tool arguments.
 - Room-backed trace stores redact `agent_runs.input` at the persistence
-  boundary. The full raw run input is not written to Room; only an active
-  pending confirmation may temporarily store a bounded next-action suffix so
-  confirmation, observation, and replanning can continue after restore without
-  writing the full prompt to Room or recent trace summaries.
+  boundary. The full raw run input is not written to Room. Active pending
+  confirmations keep their raw snapshot only in memory for the current process;
+  Room stores only declared safe argument keys and does not persist sequential
+  next-action text.
 - Persisted trace summaries and JSON previews now reuse the audit redactor for
   credential-like assignments, bearer values, API-key-shaped strings, and email
   addresses before truncation. Tool request and `UseTool` planning trace is
@@ -396,11 +394,12 @@ Current status:
   exposing private tool outputs.
 - App-level persistence covers the active pending tool confirmation produced by
   model-bound continuations, including the pending request/draft and `SkillPlan`
-  structure needed to resume from that confirmation boundary after restart. The
-  persisted `SkillPlan` is redacted before Room writes it; the raw
-  `SkillRunContinuation` object is still not persisted, so private skill input,
-  `outputs/privateOutputRefs/trace`, and draft payload text remain outside Room;
-  broad arbitrary skill-runner state persistence is still pending.
+  structure needed to resume from that confirmation boundary when the active
+  tool request has no private executable payload. The persisted `SkillPlan` is
+  redacted before Room writes it; the raw `SkillRunContinuation` object is still
+  not persisted, so private skill input, `outputs/privateOutputRefs/trace`, and
+  draft payload text remain outside Room; broad arbitrary skill-runner state
+  persistence is still pending.
 - Room restore validates that a persisted pending confirmation with an attached
   `SkillPlan` still points at a tool step in that plan before restoring the UI.
   Invalid or malformed pending rows fail the owning awaiting run so restart does
@@ -694,9 +693,10 @@ Current status:
   confirmation for restore, and only executes after the user confirms the normal
   action sheet.
 - `pending_agent_confirmations` is a narrower recovery table for the latest
-  awaiting tool confirmation and may hold the tool arguments needed for an
-  explicit later confirmation. It is separate from trace/audit summaries and is
-  cleared when the request is confirmed, cancelled, or found stale.
+  awaiting tool confirmation and may hold only `ToolSpec`-allowlisted arguments
+  needed for an explicit later confirmation. It is separate from trace/audit
+  summaries and is cleared when the request is confirmed, cancelled, or found
+  stale.
 - On startup, persisted in-flight Agent runs that cannot be safely resumed
   after process death (`Created`, context loading, planning, executing,
   observing, retrying, or model generation) are marked `Failed` with a trace

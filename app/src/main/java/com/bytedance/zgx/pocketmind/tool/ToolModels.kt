@@ -15,6 +15,7 @@ data class ToolSpec(
     val permissions: Set<ToolPermission> = emptySet(),
     val riskLevel: RiskLevel = RiskLevel.MediumDraftOrNavigation,
     val confirmationPolicy: ConfirmationPolicy = ConfirmationPolicy.Required,
+    val pendingArgumentAllowlist: Set<String> = emptySet(),
     val privateOutputKeys: Set<String> = emptySet(),
     val redactedResultSummary: String? = null,
 )

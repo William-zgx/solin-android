@@ -26,6 +26,9 @@ class ToolRegistry private constructor(
     fun privateOutputKeysFor(toolName: String): Set<String> =
         specFor(toolName)?.privateOutputKeys.orEmpty()
 
+    fun pendingArgumentAllowlistFor(toolName: String): Set<String> =
+        specFor(toolName)?.pendingArgumentAllowlist.orEmpty()
+
     fun redactedResultSummaryFor(toolName: String): String? =
         specFor(toolName)?.redactedResultSummary
 
@@ -1131,6 +1134,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             outputSchemaJson = externalActivityOutputSchemaJson,
             capability = ToolCapability.ExternalNavigation,
             permissions = setOf(ToolPermission.StartsExternalActivity),
+            pendingArgumentAllowlist = setOf("packageName"),
         ),
     ),
     ToolDefinition(
@@ -1142,6 +1146,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             outputSchemaJson = externalActivityOutputSchemaJson,
             capability = ToolCapability.ExternalNavigation,
             permissions = setOf(ToolPermission.StartsExternalActivity),
+            pendingArgumentAllowlist = setOf("targetId", "packageName"),
         ),
     ),
     ToolDefinition(
@@ -1159,6 +1164,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.LowReadOnly,
             confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("start", "end"),
         ),
     ),
     ToolDefinition(
@@ -1191,6 +1197,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.LowReadOnly,
             confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("maxCount"),
         ),
     ),
     ToolDefinition(
@@ -1208,6 +1215,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.LowReadOnly,
             confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("kind", "maxCount"),
         ),
     ),
     ToolDefinition(
@@ -1225,6 +1233,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("maxCount"),
             privateOutputKeys = setOf("ocrText"),
             redactedResultSummary = "已读取最近截图 OCR 摘录",
         ),
@@ -1244,6 +1253,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("maxCount"),
             privateOutputKeys = setOf("ocrText"),
             redactedResultSummary = "已读取最近图片 OCR 摘录",
         ),
@@ -1262,6 +1272,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("maxChars"),
             privateOutputKeys = setOf("screenText"),
             redactedResultSummary = "已读取当前屏幕可访问文本快照",
         ),
@@ -1277,6 +1288,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             permissions = emptySet(),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("taskId"),
         ),
     ),
 ).associateBy { it.spec.name }

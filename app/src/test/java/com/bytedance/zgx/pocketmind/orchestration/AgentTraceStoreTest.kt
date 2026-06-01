@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.data.AgentRunEntity
 import com.bytedance.zgx.pocketmind.data.AgentStepEntity
@@ -327,7 +328,7 @@ class AgentTraceStoreTest {
     }
 
     @Test
-    fun roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace() {
+    fun roomStoreFailsPayloadPendingConfirmationWithoutPuttingRawArgumentsInTrace() {
         var now = 3_000L
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(
@@ -367,30 +368,167 @@ class AgentTraceStoreTest {
 
         val persistedStep = store.stepSummaries(run.id).single()
         assertFalse(persistedStep.json.contains("private pending text"))
+        val persistedPending = dao.latestPendingConfirmation()
+        requireNotNull(persistedPending)
+        assertFalse(JSONObject(persistedPending.argumentsJson).has("text"))
+        assertFalse(JSONObject(persistedPending.draftParametersJson).has("text"))
+        assertFalse(persistedPending.argumentsJson.contains("private pending text"))
+        assertFalse(persistedPending.reason.contains("Share pending text"))
+        assertFalse(persistedPending.draftParametersJson.contains("private pending text"))
+        assertNull(persistedPending.nextActionInput)
 
         val restartedStore = RoomAgentTraceStore(traceDao = dao)
         val restored = restartedStore.latestPendingConfirmation()
 
-        requireNotNull(restored)
-        assertEquals(waitingRun.id, restored.run.id)
-        assertEquals(AgentRunState.AwaitingUserConfirmation, restored.run.state)
-        assertFalse(restored.run.input.contains(rawPrompt))
-        assertEquals("request-pending", restored.request.id)
-        assertEquals("private pending text", restored.request.arguments["text"])
-        assertEquals("share_skill", restored.skillId)
-        assertEquals("打开 Wi-Fi 设置", restored.nextActionInput)
-        assertEquals("打开 Wi-Fi 设置", restartedStore.nextActionInput(waitingRun.id))
+        assertNull(restored)
+        assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
         assertTrue(restartedStore.steps(waitingRun.id).any { step ->
-            step is AgentStep.ToolRequested && step.request.id == "request-pending"
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending tool confirmation could not be restored")
         })
-        assertTrue(restartedStore.steps(waitingRun.id).any { step ->
-            step is AgentStep.UserConfirmationRequested && step.request.id == "request-pending"
-        })
-
-        assertTrue(restartedStore.clearPendingConfirmation(waitingRun.id, request.id))
-        assertNull(restartedStore.latestPendingConfirmation())
-        restartedStore.updateState(waitingRun.id, AgentRunState.Completed)
+        assertTrue(dao.pendingConfirmations().isEmpty())
         assertNull(restartedStore.nextActionInput(waitingRun.id))
+    }
+
+    @Test
+    fun roomStoreRestoresToolSpecAllowlistedPendingArguments() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-app-deep-target" },
+        )
+        val run = store.updateState(store.createRun("打开应用详情").id, AgentRunState.AwaitingUserConfirmation)
+        val request = ToolRequest(
+            id = "request-app-details",
+            toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+            arguments = mapOf(
+                "targetId" to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
+                "packageName" to "com.example.app",
+            ),
+            reason = "Open app details",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+            title = "打开应用详情",
+            summary = "打开 com.example.app 的详情页。",
+            parameters = request.arguments,
+        )
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = run,
+                request = request,
+                draft = draft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+                nextActionInput = "然后打开 Wi-Fi 设置",
+            ),
+        )
+
+        val persisted = dao.latestPendingConfirmation()
+        requireNotNull(persisted)
+        assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, JSONObject(persisted.argumentsJson).getString("targetId"))
+        assertEquals("com.example.app", JSONObject(persisted.argumentsJson).getString("packageName"))
+        assertNull(persisted.nextActionInput)
+        val restored = RoomAgentTraceStore(traceDao = dao).latestPendingConfirmation()
+        requireNotNull(restored)
+        assertEquals(request.arguments, restored.request.arguments)
+        assertEquals(request.arguments, restored.draft.parameters)
+        assertNull(restored.nextActionInput)
+    }
+
+    @Test
+    fun roomStoreRestoresCancelReminderPendingWithSafeTaskIdOnly() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-cancel-reminder" },
+        )
+        val run = store.updateState(store.createRun("取消提醒").id, AgentRunState.AwaitingUserConfirmation)
+        val request = ToolRequest(
+            id = "request-cancel",
+            toolName = MobileActionFunctions.CANCEL_REMINDER,
+            arguments = mapOf("taskId" to "task-1"),
+            reason = "Cancel reminder task-1",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.CANCEL_REMINDER,
+            title = "取消提醒",
+            summary = "取消提醒 task-1",
+            parameters = request.arguments,
+        )
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = run,
+                request = request,
+                draft = draft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+                nextActionInput = "取消提醒",
+            ),
+        )
+
+        val persisted = dao.latestPendingConfirmation()
+        requireNotNull(persisted)
+        assertTrue(persisted.argumentsJson.contains("task-1"))
+        assertTrue(persisted.draftParametersJson.contains("task-1"))
+        assertNull(persisted.nextActionInput)
+        assertFalse(persisted.reason.contains("Cancel reminder"))
+        val restored = RoomAgentTraceStore(traceDao = dao).latestPendingConfirmation()
+        requireNotNull(restored)
+        assertEquals(request.id, restored.request.id)
+        assertEquals(mapOf("taskId" to "task-1"), restored.request.arguments)
+        assertEquals(mapOf("taskId" to "task-1"), restored.draft.parameters)
+        assertNull(restored.nextActionInput)
+    }
+
+    @Test
+    fun roomStoreFailsUnsafeCancelReminderPendingWithoutPersistingTaskPayload() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-unsafe-cancel-reminder" },
+        )
+        val run = store.updateState(store.createRun("取消提醒").id, AgentRunState.AwaitingUserConfirmation)
+        val unsafeTaskId = "token=secret"
+        val request = ToolRequest(
+            id = "request-unsafe-cancel",
+            toolName = MobileActionFunctions.CANCEL_REMINDER,
+            arguments = mapOf("taskId" to unsafeTaskId),
+            reason = "Cancel reminder $unsafeTaskId",
+        )
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = run,
+                request = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.CANCEL_REMINDER,
+                    title = "取消提醒",
+                    summary = "取消提醒 $unsafeTaskId",
+                    parameters = request.arguments,
+                ),
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+            ),
+        )
+
+        val persisted = dao.latestPendingConfirmation()
+        requireNotNull(persisted)
+        assertFalse(persisted.argumentsJson.contains(unsafeTaskId))
+        assertFalse(persisted.draftParametersJson.contains(unsafeTaskId))
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        assertNull(restartedStore.latestPendingConfirmation())
+        assertEquals(AgentRunState.Failed, restartedStore.run(run.id)?.state)
+        assertTrue(restartedStore.steps(run.id).any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending tool confirmation could not be restored")
+        })
     }
 
     @Test
@@ -439,6 +577,10 @@ class AgentTraceStoreTest {
                 nextActionInput = "打开 Wi-Fi 设置",
             ),
         )
+        assertNull(dao.latestPendingConfirmation()?.nextActionInput)
+        dao.latestPendingConfirmation()
+            ?.copy(nextActionInput = "旧版本持久化的后续动作")
+            ?.let(dao::upsertPendingConfirmation)
 
         val restartedStore = RoomAgentTraceStore(traceDao = dao)
         val restored = restartedStore.latestPendingConfirmation()
@@ -454,7 +596,8 @@ class AgentTraceStoreTest {
             listOf("request-current"),
             hydratedSteps.filterIsInstance<AgentStep.UserConfirmationRequested>().map { step -> step.request.id },
         )
-        assertEquals("打开 Wi-Fi 设置", restored.nextActionInput)
+        assertNull(restored.nextActionInput)
+        assertNull(restartedStore.nextActionInput(waitingRun.id))
     }
 
     @Test

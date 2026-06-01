@@ -336,6 +336,41 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun pendingArgumentAllowlistsAreDeclaredByToolPolicy() {
+        val expectedAllowlists = mapOf(
+            MobileActionFunctions.OPEN_APP_INTENT to setOf("packageName"),
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET to setOf("targetId", "packageName"),
+            MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY to setOf("start", "end"),
+            MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS to setOf("maxCount"),
+            MobileActionFunctions.QUERY_RECENT_FILES to setOf("kind", "maxCount"),
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to setOf("maxCount"),
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR to setOf("maxCount"),
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("maxChars"),
+            MobileActionFunctions.CANCEL_REMINDER to setOf("taskId"),
+        )
+
+        expectedAllowlists.forEach { (toolName, allowlist) ->
+            assertEquals(allowlist, registry.specFor(toolName)?.pendingArgumentAllowlist)
+            assertEquals(allowlist, registry.pendingArgumentAllowlistFor(toolName))
+        }
+
+        val payloadBearingTools = setOf(
+            MobileActionFunctions.SEARCH_MAPS,
+            MobileActionFunctions.WEB_SEARCH,
+            MobileActionFunctions.COMPOSE_EMAIL,
+            MobileActionFunctions.CREATE_CALENDAR_EVENT,
+            MobileActionFunctions.CREATE_CONTACT_DRAFT,
+            MobileActionFunctions.QUERY_CONTACTS,
+            MobileActionFunctions.SCHEDULE_REMINDER,
+            MobileActionFunctions.SHARE_TEXT,
+            MobileActionFunctions.OPEN_DEEP_LINK,
+        )
+        payloadBearingTools.forEach { toolName ->
+            assertTrue(registry.pendingArgumentAllowlistFor(toolName).isEmpty())
+        }
+    }
+
+    @Test
     fun allToolSpecsDeclareClosedOutputSchemas() {
         registry.specs().forEach { spec ->
             val schema = JSONObject(spec.outputSchemaJson)

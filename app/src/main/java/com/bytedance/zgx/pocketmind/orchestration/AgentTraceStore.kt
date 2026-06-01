@@ -11,6 +11,7 @@ import com.bytedance.zgx.pocketmind.skill.SkillPlan
 import com.bytedance.zgx.pocketmind.skill.SkillRequest
 import com.bytedance.zgx.pocketmind.skill.SkillStep
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import org.json.JSONArray
 import org.json.JSONObject
@@ -191,9 +192,11 @@ class RoomAgentTraceStore(
     private val traceDao: AgentTraceDao,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val runIdFactory: () -> String = { "run-${UUID.randomUUID()}" },
+    private val toolRegistry: ToolRegistry = ToolRegistry(),
 ) : AgentTraceStore {
     private val liveRuns = linkedMapOf<String, AgentRun>()
     private val liveSteps = linkedMapOf<String, MutableList<AgentStep>>()
+    private val livePendingConfirmations = linkedMapOf<String, PendingToolConfirmationSnapshot>()
     private val liveNextActionInputs = linkedMapOf<String, String>()
 
     override fun createRun(input: String): AgentRun {
@@ -226,11 +229,13 @@ class RoomAgentTraceStore(
             )
             liveRuns[runId] = updated
             if (state.isTerminal()) {
+                livePendingConfirmations.remove(runId)
                 liveNextActionInputs.remove(runId)
             }
             return updated
         }
         if (state.isTerminal()) {
+            livePendingConfirmations.remove(runId)
             liveNextActionInputs.remove(runId)
         }
         return traceDao.run(runId)?.toDomain()
@@ -270,13 +275,17 @@ class RoomAgentTraceStore(
 
     override fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot) {
         val now = clockMillis()
+        livePendingConfirmations[snapshot.run.id] = snapshot
         snapshot.nextActionInput
             ?.let { nextActionInput -> liveNextActionInputs[snapshot.run.id] = nextActionInput }
             ?: liveNextActionInputs.remove(snapshot.run.id)
-        traceDao.upsertPendingConfirmation(snapshot.toEntity(now))
+        traceDao.upsertPendingConfirmation(snapshot.toEntity(now, toolRegistry))
     }
 
     override fun latestPendingConfirmation(): PendingToolConfirmationSnapshot? {
+        latestLivePendingConfirmation()?.let { snapshot ->
+            return snapshot
+        }
         for (entity in traceDao.pendingConfirmations()) {
             val run = run(entity.runId)
             if (run == null || run.state != AgentRunState.AwaitingUserConfirmation) {
@@ -293,8 +302,15 @@ class RoomAgentTraceStore(
         return null
     }
 
-    override fun clearPendingConfirmation(runId: String, requestId: String): Boolean =
-        traceDao.deletePendingConfirmation(runId, requestId) > 0
+    override fun clearPendingConfirmation(runId: String, requestId: String): Boolean {
+        val liveRemoved = livePendingConfirmations[runId]
+            ?.takeIf { snapshot -> snapshot.request.id == requestId }
+            ?.let {
+                livePendingConfirmations.remove(runId)
+                true
+            } ?: false
+        return traceDao.deletePendingConfirmation(runId, requestId) > 0 || liveRemoved
+    }
 
     override fun nextActionInput(runId: String): String? =
         liveNextActionInputs[runId]
@@ -333,6 +349,21 @@ class RoomAgentTraceStore(
             }
         }
 
+    private fun latestLivePendingConfirmation(): PendingToolConfirmationSnapshot? =
+        livePendingConfirmations.values
+            .sortedByDescending { snapshot -> snapshot.run.updatedAtMillis }
+            .firstNotNullOfOrNull { snapshot ->
+                val run = run(snapshot.run.id)
+                when (run?.state) {
+                    AgentRunState.AwaitingUserConfirmation -> snapshot.copy(run = run)
+                    null -> null
+                    else -> {
+                        livePendingConfirmations.remove(snapshot.run.id)
+                        null
+                    }
+                }
+            }
+
     private fun restorablePendingSnapshotOrFailRun(
         entity: PendingAgentConfirmationEntity,
         run: AgentRun,
@@ -342,7 +373,11 @@ class RoomAgentTraceStore(
         } catch (_: Exception) {
             null
         }
-        if (snapshot == null || !snapshot.hasRestorableSkillPlanRequest()) {
+        if (snapshot == null ||
+            snapshot.hasRedactedExecutablePayload() ||
+            toolRegistry.validate(snapshot.request) != null ||
+            !snapshot.hasRestorableSkillPlanRequest()
+        ) {
             traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
             failRun(run, UNRESTORABLE_PENDING_CONFIRMATION_REASON)
             return null
@@ -496,22 +531,31 @@ private fun AgentStepEntity.toRestoredToolRequestedOrNull(): AgentStep.ToolReque
     }.getOrNull()
 }
 
-private fun PendingToolConfirmationSnapshot.toEntity(now: Long): PendingAgentConfirmationEntity =
+private fun PendingToolConfirmationSnapshot.toEntity(
+    now: Long,
+    toolRegistry: ToolRegistry,
+): PendingAgentConfirmationEntity =
     PendingAgentConfirmationEntity(
         runId = run.id,
         requestId = request.id,
         toolName = request.toolName,
-        argumentsJson = request.arguments.toJsonObject().toString(),
-        reason = request.reason,
+        argumentsJson = request.arguments
+            .persistablePendingArgumentsFor(request.toolName, toolRegistry)
+            .toJsonObject()
+            .toString(),
+        reason = request.reason.redactedIfNotBlank(),
         draftFunctionName = draft.functionName,
-        draftTitle = draft.title,
-        draftSummary = draft.summary,
-        draftParametersJson = draft.parameters.toJsonObject().toString(),
+        draftTitle = draft.title.redactedIfNotBlank(),
+        draftSummary = draft.summary.redactedIfNotBlank(),
+        draftParametersJson = draft.parameters
+            .persistablePendingArgumentsFor(request.toolName, toolRegistry)
+            .toJsonObject()
+            .toString(),
         skillId = skillId,
-        skillPlanJson = skillPlan?.redactedForPendingPersistence()?.toJsonObject()?.toString(),
+        skillPlanJson = skillPlan?.redactedForPendingPersistence(toolRegistry)?.toJsonObject()?.toString(),
         plannedByModel = plannedByModel,
         fallbackReason = fallbackReason,
-        nextActionInput = nextActionInput,
+        nextActionInput = null,
         createdAtMillis = now,
         updatedAtMillis = now,
     )
@@ -535,7 +579,7 @@ private fun PendingAgentConfirmationEntity.toSnapshot(run: AgentRun): PendingToo
         skillPlan = skillPlanJson?.let { json -> JSONObject(json).toSkillPlan() },
         plannedByModel = plannedByModel,
         fallbackReason = fallbackReason,
-        nextActionInput = nextActionInput,
+        nextActionInput = null,
     )
 
 private fun PendingToolConfirmationSnapshot.hasRestorableSkillPlanRequest(): Boolean {
@@ -547,7 +591,29 @@ private fun PendingToolConfirmationSnapshot.hasRestorableSkillPlanRequest(): Boo
         }
 }
 
-private fun SkillPlan.redactedForPendingPersistence(): SkillPlan =
+private fun PendingToolConfirmationSnapshot.hasRedactedExecutablePayload(): Boolean =
+    request.arguments.hasRedactedValue() ||
+        draft.parameters.hasRedactedValue()
+
+private fun Map<String, String>.hasRedactedValue(): Boolean =
+    values.any { value -> value == REDACTED_AGENT_RUN_INPUT }
+
+private fun Map<String, String>.persistablePendingArgumentsFor(
+    toolName: String,
+    toolRegistry: ToolRegistry,
+): Map<String, String> {
+    if (isEmpty()) return emptyMap()
+    val allowlist = toolRegistry.pendingArgumentAllowlistFor(toolName)
+    val originalRequestIsValid = toolRegistry.validate(
+        ToolRequest(toolName = toolName, arguments = this),
+    ) == null
+    return filterKeys { key -> key in allowlist }
+        .mapValues { (_, value) ->
+            if (originalRequestIsValid) value else value.redactedIfNotBlank()
+        }
+}
+
+private fun SkillPlan.redactedForPendingPersistence(toolRegistry: ToolRegistry): SkillPlan =
     copy(
         request = request.copy(
             arguments = request.arguments.redactedValuesForPendingPersistence(),
@@ -557,13 +623,19 @@ private fun SkillPlan.redactedForPendingPersistence(): SkillPlan =
             when (step) {
                 is SkillStep.ToolStep -> step.copy(
                     request = step.request.copy(
-                        arguments = step.request.arguments.redactedValuesForPendingPersistence(),
+                        arguments = step.request.arguments.persistablePendingArgumentsFor(
+                            step.request.toolName,
+                            toolRegistry,
+                        ),
                         reason = step.request.reason.redactedIfNotBlank(),
                     ),
                     draft = step.draft.copy(
                         title = step.draft.title.redactedIfNotBlank(),
                         summary = step.draft.summary.redactedIfNotBlank(),
-                        parameters = step.draft.parameters.redactedValuesForPendingPersistence(),
+                        parameters = step.draft.parameters.persistablePendingArgumentsFor(
+                            step.request.toolName,
+                            toolRegistry,
+                        ),
                     ),
                 )
 
