@@ -26,9 +26,10 @@ items below.
   scheduled with `VERIFY_MODEL_URLS=1`.
 - Memory is documented as a lightweight local index. Action planning is
   documented as experimental model planning with rule fallback.
-- Prepared emulator regression has passed on `focus_agent_api36_arm64`
-  (API 36, `arm64-v8a`) with `scripts/verify_emulator.sh`; instrumentation
-  reported `OK (14 tests)` for the current Agent-loop work branch.
+- Prepared emulator regression has passed on `focus_agent_api36_arm64` /
+  `emulator-5554` (API 36, `arm64-v8a`) with `scripts/verify_emulator.sh`;
+  instrumentation reported `OK (20 tests)` for the current Agent-loop work
+  branch.
 
 ## Remaining
 
