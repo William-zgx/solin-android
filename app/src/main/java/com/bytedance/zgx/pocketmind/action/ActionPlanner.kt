@@ -143,8 +143,8 @@ class MobileActionPlanner : ActionPlanner {
             RecentScreenshotOcrActionParser.matches(input) ->
                 RecentScreenshotOcrActionParser.draft(input)
 
-            isRecentImageOcrRequest(input) ->
-                MobileActionFunctions.READ_RECENT_IMAGE_OCR.toDraft(recentImageOcrParameters(input))
+            RecentImageOcrActionParser.matches(input) ->
+                RecentImageOcrActionParser.draft(input)
 
             CurrentScreenTextActionParser.matches(input) ->
                 CurrentScreenTextActionParser.draft(input)
@@ -326,41 +326,6 @@ class MobileActionPlanner : ActionPlanner {
             "usage stats permission",
         ).any { it in normalized } &&
             listOf("打开", "设置", "开启", "授权", "open", "settings", "grant").any { it in normalized }
-    }
-
-    private fun isRecentImageOcrRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        val mentionsRecentImage = ("最近" in input && ("图片" in input || "照片" in input || "相册" in input)) ||
-            Regex("""\b(recent|latest)\b.*\b(images?|photos?|pictures?)\b""")
-                .containsMatchIn(normalized)
-        val asksForTextExtraction = listOf(
-            "识别",
-            "提取",
-            "摘录",
-            "读取文字",
-            "文字",
-            "文本",
-            "ocr",
-            "text",
-        ).any { marker -> marker in normalized }
-        return mentionsRecentImage && asksForTextExtraction
-    }
-
-    private fun recentImageOcrParameters(input: String): Map<String, String> =
-        mapOf("maxCount" to (recentCountFrom(input)?.coerceIn(1, 3) ?: 3).toString())
-
-    private fun recentCountFrom(input: String): Int? {
-        val normalized = input.lowercase()
-        val cleaned = input.replace(Regex("\\s+"), "")
-        return Regex("最近(\\d{1,2})(?:个|张|条|份)?").find(cleaned)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toIntOrNull()
-            ?: Regex("""(?:recent|latest)\s+(\d{1,2})""")
-                .find(normalized)
-                ?.groupValues
-                ?.getOrNull(1)
-                ?.toIntOrNull()
     }
 
     private fun isCreateContactRequest(input: String): Boolean {

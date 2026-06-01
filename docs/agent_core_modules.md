@@ -451,12 +451,15 @@ Current status:
   MediaStore id, URI, path, original image, or raw pixels.
   Remote mode treats the OCR continuation like other protected local context and
   stops before sending it to a configured backend.
-- `read_recent_image_ocr` is a separate confirmed tool for explicit
-  "识别最近图片/照片文字" requests. It scans up to 3 recent images, returns the first
-  bounded local OCR text excerpt, marks the result `LocalOnly`, and reuses the
-  same trace/audit redaction, remote-mode protection, and private Skill output
-  boundary as screenshot OCR. Plain `query_recent_files(kind="images")` remains
-  metadata-only and does not read pixels.
+- `read_recent_image_ocr` is a separate skill-first, confirmed tool for
+  explicit "识别最近图片/照片文字" requests. It scans up to 3 recent images, returns
+  the first bounded local OCR text excerpt, marks the result `LocalOnly`, and
+  reuses the same trace/audit redaction, remote-mode protection, and private
+  Skill output boundary as screenshot OCR. Plain
+  `query_recent_files(kind="images")` remains metadata-only and does not read
+  pixels. The parser rejects all/many/more-than-3 image OCR, implementation/API
+  or permission discussion, negated reads, and visual/semantic image
+  understanding such as describing what is in an image.
 - `read_current_screen_text` is a separate confirmed Device Context read for
   explicit current-screen text requests. It
   reads only the current Accessibility text nodes exposed by Android

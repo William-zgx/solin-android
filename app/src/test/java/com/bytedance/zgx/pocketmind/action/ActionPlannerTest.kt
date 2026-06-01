@@ -544,6 +544,25 @@ class ActionPlannerTest {
         assertEquals("2", plan.draft?.parameters?.get("maxCount"))
         assertTrue(plan.draft?.summary.orEmpty().contains("最近 2 张图片"))
         assertTrue(plan.draft?.summary.orEmpty().contains("不会保存图片"))
+
+        val defaultPlan = planner.plan("识别最近图片文字")
+        assertEquals(ActionPlanKind.Draft, defaultPlan.kind)
+        assertEquals(MobileActionFunctions.READ_RECENT_IMAGE_OCR, defaultPlan.draft?.functionName)
+        assertEquals("3", defaultPlan.draft?.parameters?.get("maxCount"))
+
+        val englishPlan = planner.plan("read text from recent photos")
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.READ_RECENT_IMAGE_OCR, englishPlan.draft?.functionName)
+        assertEquals("3", englishPlan.draft?.parameters?.get("maxCount"))
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("识别最近4张图片文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("识别最近四张照片文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("read text from recent 4 photos").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("读取所有图片 OCR").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要识别最近图片文字").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("图片 OCR API").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("描述最近图片").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("图片里有什么").kind)
     }
 
     @Test

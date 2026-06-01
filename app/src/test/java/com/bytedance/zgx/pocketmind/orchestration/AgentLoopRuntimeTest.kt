@@ -651,6 +651,44 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstRecentImageOcrBypassesActionPlannerAndRequestsConfirmation() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "识别最近2张照片文字",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.READ_RECENT_IMAGE_OCR, result.plan.request.toolName)
+        assertEquals("2", result.plan.request.arguments["maxCount"])
+        assertEquals(BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(
+            listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
+            auditSink.events.map { it.eventType },
+        )
+        assertTrue(auditSink.events.all { event ->
+            event.toolName == MobileActionFunctions.READ_RECENT_IMAGE_OCR &&
+                event.skillId == BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL &&
+                ToolPermission.ReadsFiles in event.permissions &&
+                ToolPermission.RequiresAndroidRuntimePermission in event.permissions
+        })
+    }
+
+    @Test
     fun skillFirstHttpsDeepLinkBypassesActionPlannerAndRequestsConfirmation() {
         val actionRuntime = RecordingActionRuntime(likelyAction = false)
         val runtime = AgentLoopRuntime(
@@ -939,7 +977,14 @@ class AgentLoopRuntimeTest {
             "不要搜索 Kotlin，只解释一下",
             "what is web search",
             "查一下这个错误原因了吗？",
-            "识别最近图片文字",
+            "识别最近4张图片文字",
+            "识别最近四张照片文字",
+            "read text from recent 4 photos",
+            "读取所有图片 OCR",
+            "不要识别最近图片文字",
+            "图片 OCR API",
+            "描述最近图片",
+            "图片里有什么",
             "识别最近2张截图文字",
             "识别最近两张截图文字",
             "read text from recent 2 screenshots",

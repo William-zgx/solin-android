@@ -166,6 +166,25 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
+    fun recentImageOcrSkillFirstConfirmationStillRequestsImageReadPermission() {
+        val confirmation = confirmationFor(
+            toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+            arguments = mapOf("maxCount" to "3"),
+            skillId = BuiltInSkillRuntime.RECENT_IMAGE_OCR_CONTEXT_SKILL,
+        )
+
+        assertEquals(
+            listOf(Manifest.permission.READ_EXTERNAL_STORAGE),
+            confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.S),
+        )
+        assertEquals(
+            listOf(Manifest.permission.READ_MEDIA_IMAGES),
+            confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU),
+        )
+        assertTrue(confirmation.specialAccessRequirementsFor().isEmpty())
+    }
+
+    @Test
     fun runtimePermissionRequirementsExposeFriendlyLabelsAndRationales() {
         val requirements = confirmationFor(MobileActionFunctions.QUERY_CONTACTS)
             .runtimePermissionRequirementsFor()

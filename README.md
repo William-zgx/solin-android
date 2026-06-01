@@ -131,12 +131,16 @@ on older Android versions; this is not current-screen capture, visual
 understanding, arbitrary media OCR, or multi-screenshot OCR. Remote model mode
 stops before automatic continuation and asks the user to switch local or
 manually provide content they are willing to upload.
-Requests such as “识别最近图片文字” become confirmed `read_recent_image_ocr`
-tool calls. After confirmation, PocketMind scans up to 3 recent images through
-Android media permissions, extracts the first bounded local OCR text excerpt,
-and uses the same LocalOnly, trace/audit redaction, and remote-mode protection
-as screenshot OCR. Plain “最近图片” requests use a skill-first, metadata-only
-`query_recent_files(kind="images")` path.
+Explicit requests such as “识别最近图片文字” use the skill-first path and become
+confirmed `read_recent_image_ocr` tool calls. After confirmation, PocketMind
+scans up to 3 recent images through Android media permissions, extracts the
+first bounded local OCR text excerpt, and uses the same LocalOnly, trace/audit
+redaction, and remote-mode protection as screenshot OCR. Plain “最近图片”
+requests use a skill-first, metadata-only `query_recent_files(kind="images")`
+path and do not read image pixels or OCR text. Requests for all/many/more than
+3 images, implementation/API/permission discussion, negated reads, or
+visual/semantic image understanding such as describing what is in an image are
+rejected from image OCR routing.
 Requests such as “最近通知” become confirmed `query_recent_notifications`
 tool calls. The tool reads only PocketMind/current-app active notification
 metadata, defaults to 5 entries, caps requests at 20, and returns LocalOnly

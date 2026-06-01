@@ -389,7 +389,17 @@ internal object RecentFilesActionParser {
             "ocr",
             "text",
         ).any { marker -> marker in normalized }
-        return mentionsRecentMedia && asksForTextExtraction
+        val asksForVisualUnderstanding = listOf(
+            "描述",
+            "分析",
+            "看图",
+            "图片内容",
+            "照片内容",
+            "图片里有什么",
+            "照片里有什么",
+        ).any { marker -> marker in this } ||
+            normalized.contains(Regex("""\b(describe|analy[sz]e|what\s+is\s+in|what's\s+in)\b.*\b(images?|photos?|pictures?)\b"""))
+        return mentionsRecentMedia && (asksForTextExtraction || asksForVisualUnderstanding)
     }
 }
 
@@ -481,6 +491,117 @@ internal object RecentScreenshotOcrActionParser {
             normalized.contains(Regex("""\b(?:screenshot|screen\s+capture)\s+ocr\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?)\b""")) ||
             normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:screenshot|screen\s+capture)\s+ocr\b""")) ||
             normalized.contains(Regex("""\b(?:all|multiple|many)\s+(?:screenshots?|screen\s+captures?)\b"""))
+    }
+}
+
+internal object RecentImageOcrActionParser {
+    private val englishRecentImagePattern =
+        Regex("""\b(?:recent|latest|last|most\s+recent)\s+(?:\d{1,2}\s+)?(?:images?|photos?|pictures?)\b""", RegexOption.IGNORE_CASE)
+    private val englishCountPattern =
+        Regex("""\b(?:recent|latest|last)\s+(\d{1,2})\s+(?:images?|photos?|pictures?)\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeRecentImageOcrNonAction()) return false
+        val count = requestedImageCount(input)
+        if (count != null && count !in 1..3) return false
+        return input.mentionsRecentImageForOcr() && input.asksForOcrTextExtraction()
+    }
+
+    fun draft(input: String): ActionDraft {
+        val maxCount = requestedImageCount(input)?.coerceIn(1, 3) ?: 3
+        return ActionDraft(
+            functionName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+            title = "读取最近图片 OCR",
+            summary = "将扫描最近 ${maxCount} 张图片并在本地提取第一条 OCR 文本；不会保存图片、URI 或路径。",
+            parameters = mapOf("maxCount" to maxCount.toString()),
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun String.mentionsRecentImageForOcr(): Boolean {
+        val normalized = lowercase()
+        val cleaned = replace(Regex("\\s+"), "")
+        return ("最近" in this && listOf("图片", "照片", "相册").any { it in this }) ||
+            Regex("""最近[一二两三123]?(?:张|个)?(?:图片|照片)""").containsMatchIn(cleaned) ||
+            englishRecentImagePattern.containsMatchIn(normalized)
+    }
+
+    private fun String.asksForOcrTextExtraction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "识别",
+            "提取",
+            "摘录",
+            "读取文字",
+            "读文字",
+            "文字",
+            "文本",
+            "ocr",
+        ).any { marker -> marker in normalized } ||
+            normalized.contains(Regex("""\b(read|extract|recognize|scan)\b.*\btext\b""")) ||
+            normalized.contains(Regex("""\btext\b.*\b(?:from|in)\b.*\b(?:images?|photos?|pictures?)\b"""))
+    }
+
+    private fun requestedImageCount(input: String): Int? {
+        val normalized = input.lowercase()
+        val cleaned = input.replace(Regex("\\s+"), "")
+        Regex("""最近(\d{1,2})(?:张|个)?(?:图片|照片)""").find(cleaned)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?.let { return it }
+        Regex("""最近([一二两三四五六七八九十百千万多几]+)(?:张|个)?(?:图片|照片)""").find(cleaned)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.let { return chineseImageCount(it) }
+        return englishCountPattern.find(normalized)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+    }
+
+    private fun chineseImageCount(value: String): Int =
+        when (value) {
+            "一" -> 1
+            "二", "两" -> 2
+            "三" -> 3
+            else -> 4
+        }
+
+    private fun String.looksLikeRecentImageOcrNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "不要识别",
+            "不要提取",
+            "不要读取",
+            "别识别",
+            "别提取",
+            "别读取",
+            "图片权限",
+            "相册权限",
+            "图片 OCR 怎么",
+            "图片OCR怎么",
+            "怎么实现",
+            "如何实现",
+            "怎么设计",
+            "所有图片",
+            "全部图片",
+            "大量图片",
+            "多张图片",
+            "图片里有什么",
+            "照片里有什么",
+            "描述图片",
+            "描述最近图片",
+            "分析图片",
+            "分析最近图片",
+            "看图",
+            "图片内容",
+        ).any { it in this } ||
+            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:read|extract|recognize|scan)\b.*\b(?:images?|photos?|pictures?)\b""")) ||
+            normalized.contains(Regex("""\b(?:image|photo|picture)\s+ocr\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?)\b""")) ||
+            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:image|photo|picture)\s+ocr\b""")) ||
+            normalized.contains(Regex("""\b(?:all|multiple|many)\s+(?:images?|photos?|pictures?)\b""")) ||
+            normalized.contains(Regex("""\b(?:describe|analy[sz]e|what\s+is\s+in|what's\s+in)\b.*\b(?:images?|photos?|pictures?)\b"""))
     }
 }
 
