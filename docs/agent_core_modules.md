@@ -146,6 +146,14 @@ Current status:
   call `observeModelResult()` after generation, so successful answers finish as
   `Completed` instead of being recovered as stale `GeneratingAnswer` failures on
   the next process start.
+- Model generation and parse failures now close the active run immediately via
+  `failModelGeneration(runId, reason)`. The entry point only applies while the
+  run is still `GeneratingAnswer`, appends a failure decision to trace, refreshes
+  the UI timeline, and ignores late model output instead of waiting for startup
+  stale-run repair.
+- The same immediate failure closure is used when a remote-mode continuation is
+  blocked because the tool result requires a local model, so privacy protection
+  does not leave an in-flight run behind.
 - Remote OpenAI-compatible chat can now opt into `tools` and parse
   OpenAI-style `tool_calls`. Parsed remote tool calls are converted into
   `ToolRequest` values and handed back to the Agent loop, which still performs

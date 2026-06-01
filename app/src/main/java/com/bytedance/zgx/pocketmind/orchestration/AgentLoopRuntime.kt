@@ -132,6 +132,21 @@ class AgentLoopRuntime(
     fun failStaleInFlightRuns(reason: String): Int =
         traceStore.failStaleInFlightRuns(reason)
 
+    fun failModelGeneration(runId: String, reason: String): AgentModelObservationResult? {
+        val run = traceStore.run(runId) ?: return null
+        if (run.state != AgentRunState.GeneratingAnswer) return null
+        val failureReason = reason.ifBlank { "Model generation failed." }
+        val decision = AgentObservationDecision.Fail(failureReason)
+        traceStore.appendStep(runId, AgentStep.Failed(failureReason))
+        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        val updatedRun = traceStore.updateState(runId, AgentRunState.Failed)
+        return AgentModelObservationResult(
+            run = updatedRun,
+            decision = decision,
+            steps = traceStore.steps(runId),
+        )
+    }
+
     fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.AwaitingUserConfirmation) return run

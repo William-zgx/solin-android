@@ -53,6 +53,8 @@ interface AssistantRouter : AutoCloseable {
 
     fun failStaleInFlightRuns(reason: String): Int
 
+    fun failModelGeneration(runId: String, reason: String): AgentModelObservationResult?
+
     fun confirmToolRequest(runId: String, requestId: String): AgentRun?
 
     fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult?
@@ -114,6 +116,9 @@ class AssistantOrchestrator(
 
     override fun failStaleInFlightRuns(reason: String): Int =
         agentLoopRuntime.failStaleInFlightRuns(reason)
+
+    override fun failModelGeneration(runId: String, reason: String): AgentModelObservationResult? =
+        agentLoopRuntime.failModelGeneration(runId, reason)
 
     override fun confirmToolRequest(runId: String, requestId: String): AgentRun? =
         agentLoopRuntime.confirmToolRequest(runId, requestId)

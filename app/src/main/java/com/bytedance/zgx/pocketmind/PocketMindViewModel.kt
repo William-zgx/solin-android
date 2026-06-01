@@ -867,6 +867,7 @@ class PocketMindViewModel(
         }
 
         val job = viewModelScope.launch(ioDispatcher) {
+            var activeModelRunId: String? = null
             try {
                 val userMessage = ChatMessage(
                     role = MessageRole.User,
@@ -972,6 +973,7 @@ class PocketMindViewModel(
                     }
 
                     is AssistantRoute.Chat -> {
+                        activeModelRunId = route.runId
                         val responsePrivacy = if (
                             !useRemoteModel &&
                             (messagePrivacy == MessagePrivacy.LocalOnly || route.memoryHits.isNotEmpty())
@@ -1003,6 +1005,9 @@ class PocketMindViewModel(
                             )
                         }
                         if (!useRemoteModel && !runtime.isLoaded) {
+                            activeModelRunId?.let { runId ->
+                                assistantOrchestrator.failModelGeneration(runId, "本地模型尚未就绪")
+                            }
                             _uiState.updateLastAssistant("模型尚未就绪")
                             persistActiveSessionFromUi()
                             _uiState.update {
@@ -1010,12 +1015,17 @@ class PocketMindViewModel(
                                     isBusy = false,
                                     isGenerating = false,
                                     isReady = false,
+                                    pendingConfirmation = null,
+                                    agentTraceRuns = loadAgentTraceRuns(),
                                     statusText = "未加载模型",
                                 )
                             }
                             return@launch
                         }
                         if (useRemoteModel && !remoteConfig.isConfigured) {
+                            activeModelRunId?.let { runId ->
+                                assistantOrchestrator.failModelGeneration(runId, "远程模型未配置")
+                            }
                             _uiState.updateLastAssistant("请先在模型管理中配置远程模型地址和模型名")
                             persistActiveSessionFromUi()
                             _uiState.update {
@@ -1023,6 +1033,8 @@ class PocketMindViewModel(
                                     isBusy = false,
                                     isGenerating = false,
                                     isReady = false,
+                                    pendingConfirmation = null,
+                                    agentTraceRuns = loadAgentTraceRuns(),
                                     statusText = "请配置远程模型",
                                 )
                             }
@@ -1202,8 +1214,12 @@ class PocketMindViewModel(
                 }
                 throw cancellation
             } catch (throwable: Throwable) {
+                val errorMessage = throwable.cleanMessage()
+                activeModelRunId?.let { runId ->
+                    assistantOrchestrator.failModelGeneration(runId, errorMessage)
+                }
                 if (_uiState.value.isGenerating) {
-                    _uiState.updateLastAssistant("出错了：${throwable.cleanMessage()}")
+                    _uiState.updateLastAssistant("出错了：$errorMessage")
                     persistActiveSessionFromUi()
                 }
                 _uiState.update {
@@ -1211,6 +1227,8 @@ class PocketMindViewModel(
                         isBusy = false,
                         isGenerating = false,
                         isReady = useRemoteModel && remoteConfig.isConfigured,
+                        pendingConfirmation = null,
+                        agentTraceRuns = loadAgentTraceRuns(),
                         statusText = if (useRemoteModel) {
                             "远程生成失败"
                         } else {
@@ -1471,6 +1489,10 @@ class PocketMindViewModel(
                 _uiState.value.inferenceMode == InferenceMode.Remote
             ) {
                 val protectedContentName = request.protectedContinuationContentName()
+                assistantOrchestrator.failModelGeneration(
+                    observation.run.id,
+                    "工具结果需要本地模型续写，未发送到远程模型",
+                )
                 replaceActiveSessionMessages(
                     messagesWithObservation + ChatMessage(
                         role = MessageRole.Assistant,
@@ -1653,6 +1675,9 @@ class PocketMindViewModel(
         val job = viewModelScope.launch(ioDispatcher) {
             try {
                 if (useRemoteModel && responsePrivacy == MessagePrivacy.LocalOnly) {
+                    runId?.let { id ->
+                        assistantOrchestrator.failModelGeneration(id, "工具结果包含仅本地内容，未发送到远程模型")
+                    }
                     _uiState.updateLastAssistant("工具结果包含仅本地内容。当前为远程模型模式，我不会把它发送到远程模型。")
                     persistActiveSessionFromUi()
                     rebuildMemoryIndex()
@@ -1661,12 +1686,17 @@ class PocketMindViewModel(
                             isBusy = false,
                             isGenerating = false,
                             isReady = remoteConfig.isConfigured,
+                            pendingConfirmation = null,
+                            agentTraceRuns = loadAgentTraceRuns(),
                             statusText = "已保护工具结果",
                         )
                     }
                     return@launch
                 }
                 if (!useRemoteModel && !runtime.isLoaded) {
+                    runId?.let { id ->
+                        assistantOrchestrator.failModelGeneration(id, "本地模型尚未就绪")
+                    }
                     _uiState.updateLastAssistant("模型尚未就绪，无法继续处理工具结果")
                     persistActiveSessionFromUi()
                     _uiState.update {
@@ -1674,12 +1704,17 @@ class PocketMindViewModel(
                             isBusy = false,
                             isGenerating = false,
                             isReady = false,
+                            pendingConfirmation = null,
+                            agentTraceRuns = loadAgentTraceRuns(),
                             statusText = "未加载模型",
                         )
                     }
                     return@launch
                 }
                 if (useRemoteModel && !remoteConfig.isConfigured) {
+                    runId?.let { id ->
+                        assistantOrchestrator.failModelGeneration(id, "远程模型未配置")
+                    }
                     _uiState.updateLastAssistant("请先在模型管理中配置远程模型地址和模型名")
                     persistActiveSessionFromUi()
                     _uiState.update {
@@ -1687,6 +1722,8 @@ class PocketMindViewModel(
                             isBusy = false,
                             isGenerating = false,
                             isReady = false,
+                            pendingConfirmation = null,
+                            agentTraceRuns = loadAgentTraceRuns(),
                             statusText = "请配置远程模型",
                         )
                     }
@@ -1803,13 +1840,19 @@ class PocketMindViewModel(
                 finishStoppedGeneration()
                 throw cancellation
             } catch (throwable: Throwable) {
-                _uiState.updateLastAssistant("出错了：${throwable.cleanMessage()}")
+                val errorMessage = throwable.cleanMessage()
+                runId?.let { id ->
+                    assistantOrchestrator.failModelGeneration(id, errorMessage)
+                }
+                _uiState.updateLastAssistant("出错了：$errorMessage")
                 persistActiveSessionFromUi()
                 _uiState.update {
                     it.copy(
                         isBusy = false,
                         isGenerating = false,
                         isReady = useRemoteModel && remoteConfig.isConfigured,
+                        pendingConfirmation = null,
+                        agentTraceRuns = loadAgentTraceRuns(),
                         statusText = if (useRemoteModel) {
                             "远程生成失败"
                         } else {

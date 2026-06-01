@@ -743,6 +743,75 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun clipboardSummaryShareLocalContinuationFailureFailsAgentRunWithoutSecondConfirmation() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val localRuntime = FakeLiteRtRuntime(failure = IllegalStateException("local model crashed"))
+        val readRequest = ToolRequest(toolName = MobileActionFunctions.READ_CLIPBOARD)
+        val readDraft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CLIPBOARD,
+            title = "读取剪贴板",
+            summary = "将读取当前剪贴板文本。",
+            parameters = emptyMap(),
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-share-failure",
+                toolRequest = readRequest,
+                draft = readDraft,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
+            ),
+            confirmedRun = AgentRun("run-share-failure", "总结剪贴板并分享", AgentRunState.ExecutingTool, 1L, 2L),
+            toolObservation = AgentObservationResult(
+                run = AgentRun("run-share-failure", "总结剪贴板并分享", AgentRunState.GeneratingAnswer, 1L, 3L),
+                result = ToolResult(
+                    requestId = readRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取剪贴板文本",
+                    data = mapOf("text" to "[redacted]"),
+                ),
+                assistantMessage = "工具执行结果：已读取剪贴板文本",
+                decision = AgentObservationDecision.ContinueWithModel(
+                    requiresLocalModel = true,
+                    reason = "已读取剪贴板文本",
+                ),
+                continuationPromptForModel = "请总结剪贴板文本",
+                continuationRequiresLocalModel = true,
+                steps = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            runtime = localRuntime,
+            remoteRuntime = remoteRuntime,
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("总结剪贴板并分享")
+        advanceUntilIdle()
+        val firstConfirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(firstConfirmation)
+
+        viewModel.confirmAgentConfirmation(firstConfirmation)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals("生成失败，建议重新加载", viewModel.uiState.value.statusText)
+        assertEquals(1, assistantRouter.failModelGenerationCallCount)
+        assertEquals("run-share-failure", assistantRouter.lastFailedModelRunId)
+        assertEquals("local model crashed", assistantRouter.lastFailedModelReason)
+        assertEquals(listOf("请总结剪贴板文本"), localRuntime.prompts)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(AgentRunState.Failed, viewModel.uiState.value.agentTraceRuns.single().state)
+        assertTrue(sessionStore.messages.last().text.contains("local model crashed"))
+    }
+
+    @Test
     fun currentScreenTextSummaryShareShowsSecondConfirmationAfterLocalSummary() = runTest(dispatcher) {
         val rawScreenText = "当前屏幕里的私密验证码 654321"
         val remoteRuntime = RecordingRemoteChatRuntime()
@@ -1178,6 +1247,9 @@ class PocketMindViewModelTest {
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
         assertEquals("已保护当前屏幕文本", viewModel.uiState.value.statusText)
+        assertEquals(1, assistantRouter.failModelGenerationCallCount)
+        assertEquals("run-screen-text", assistantRouter.lastFailedModelRunId)
+        assertEquals(AgentRunState.Failed, viewModel.uiState.value.agentTraceRuns.single().state)
         assertTrue(sessionStore.messages.last().text.contains("不会自动发送当前屏幕文本到远程模型"))
         assertTrue(sessionStore.messages.none { message -> message.text.contains(rawScreenText) })
     }
@@ -2031,8 +2103,13 @@ class PocketMindViewModelTest {
 
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
         assertEquals("远程生成失败", viewModel.uiState.value.statusText)
+        assertEquals(1, assistantRouter.failModelGenerationCallCount)
+        assertEquals("run-remote-malformed-tool", assistantRouter.lastFailedModelRunId)
+        assertEquals(parseError, assistantRouter.lastFailedModelReason)
         assertEquals(0, assistantRouter.observeModelToolCallCount)
         assertTrue(executor.executedRequests.isEmpty())
+        assertEquals(AgentRunState.Failed, viewModel.uiState.value.agentTraceRuns.single().state)
+        assertTrue(viewModel.uiState.value.agentTraceRuns.single().steps.single().summary.contains(parseError))
         assertTrue(remoteRuntime.calls.single().tools.any { tool -> tool.name == MobileActionFunctions.WEB_SEARCH })
         assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.first().privacy)
         assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.last().privacy)
@@ -4154,6 +4231,7 @@ class PocketMindViewModelTest {
 
     private class FakeLiteRtRuntime(
         private val localResponse: String = "本地回复",
+        private val failure: Throwable? = null,
     ) : LiteRtRuntime {
         val prompts = mutableListOf<String>()
         override var isLoaded: Boolean = false
@@ -4176,6 +4254,7 @@ class PocketMindViewModelTest {
 
         override fun send(prompt: String): Flow<String> {
             prompts += prompt
+            failure?.let { throw it }
             return flowOf(localResponse)
         }
 
@@ -4215,11 +4294,17 @@ class PocketMindViewModelTest {
             private set
         var observeModelToolCallCount: Int = 0
             private set
+        var failModelGenerationCallCount: Int = 0
+            private set
         var failPendingCallCount: Int = 0
             private set
         var lastObservedResult: ToolResult? = null
             private set
         var lastObservedModelToolRequest: ToolRequest? = null
+            private set
+        var lastFailedModelRunId: String? = null
+            private set
+        var lastFailedModelReason: String? = null
             private set
         var lastFailedPendingResult: ToolResult? = null
             private set
@@ -4233,6 +4318,8 @@ class PocketMindViewModelTest {
             private set
         var lastRestorePendingSessionId: String? = null
             private set
+        private val knownRunStates = linkedMapOf<String, AgentRunState>()
+        private var failedModelTraceRun: AgentTraceRunSummary? = null
         val deletedTraceSessionIds = mutableListOf<String>()
 
         override fun route(
@@ -4246,33 +4333,63 @@ class PocketMindViewModelTest {
             routeCallCount += 1
             lastRouteSessionId = sessionId
             routeFailure?.let { throw it }
-            return routeResult ?:
+            val route = routeResult ?:
                 AssistantRoute.Chat(
                     runId = null,
                     promptForModel = input,
                     memoryHits = emptyList(),
                     deviceContext = deviceContext,
                 )
+            recordRoute(route)
+            return route
         }
 
         override fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String?): AssistantRoute {
             requestRecoveryCallCount += 1
             lastRecoverySessionId = sessionId
-            return recoveryRoute ?: AssistantRoute.Action(
+            val route = recoveryRoute ?: AssistantRoute.Action(
                 runId = "run-recovery",
                 toolRequest = action.request,
                 draft = action.draft,
                 plannedByModel = false,
                 fallbackReason = "typed recovery action",
             )
+            recordRoute(route)
+            return route
         }
 
         override fun failStaleInFlightRuns(reason: String): Int = 0
 
+        override fun failModelGeneration(runId: String, reason: String): AgentModelObservationResult? {
+            failModelGenerationCallCount += 1
+            lastFailedModelRunId = runId
+            lastFailedModelReason = reason
+            if (knownRunStates[runId] != AgentRunState.GeneratingAnswer) return null
+            knownRunStates[runId] = AgentRunState.Failed
+            failedModelTraceRun = AgentTraceRunSummary(
+                run = AgentRun(runId, "", AgentRunState.Failed, 1L, 2L),
+                steps = listOf(
+                    AgentTraceStepSummary(
+                        runId = runId,
+                        position = 0,
+                        type = "Failed",
+                        summary = reason,
+                        json = "{}",
+                        createdAtMillis = 2L,
+                    ),
+                ),
+            )
+            return AgentModelObservationResult(
+                run = AgentRun(runId, "", AgentRunState.Failed, 1L, 2L),
+                decision = AgentObservationDecision.Fail(reason),
+                steps = emptyList(),
+            )
+        }
+
         override fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
             confirmCallCount += 1
             confirmFailure?.let { throw it }
-            return confirmedRunsById[runId] ?: confirmedRun
+            return (confirmedRunsById[runId] ?: confirmedRun).also { run -> recordRun(run) }
         }
 
         override fun cancelToolRequest(runId: String, requestId: String): AgentObservationResult? {
@@ -4287,6 +4404,7 @@ class PocketMindViewModelTest {
         ): AgentObservationResult? {
             failPendingCallCount += 1
             lastFailedPendingResult = result
+            knownRunStates[runId] = AgentRunState.Failed
             return AgentObservationResult(
                 run = AgentRun(runId, "", AgentRunState.Failed, 1L, 2L),
                 result = result,
@@ -4299,15 +4417,18 @@ class PocketMindViewModelTest {
         override fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? {
             observeToolCallCount += 1
             lastObservedResult = result
-            return toolObservationsByRunId[runId] ?: toolObservation
+            return (toolObservationsByRunId[runId] ?: toolObservation).also { observation ->
+                recordRun(observation?.run)
+            }
         }
 
-        override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? = modelObservation
+        override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? =
+            modelObservation.also { observation -> recordRun(observation?.run) }
 
         override fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? {
             observeModelToolCallCount += 1
             lastObservedModelToolRequest = request
-            return modelToolObservation
+            return modelToolObservation.also { observation -> recordRun(observation?.run) }
         }
 
         override fun restorePendingAction(sessionId: String?): AssistantRoute.Action? {
@@ -4318,7 +4439,12 @@ class PocketMindViewModelTest {
         override fun recentTraceRuns(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> {
             recentTraceRunLimit = limit
             recentTraceStepLimit = stepLimit
-            return recentTraceRuns
+            val failedTraceRun = failedModelTraceRun
+            return if (failedTraceRun == null) {
+                recentTraceRuns
+            } else {
+                listOf(failedTraceRun) + recentTraceRuns.filterNot { it.run.id == failedTraceRun.run.id }
+            }
         }
 
         override fun deleteRunsForSession(sessionId: String): Int {
@@ -4328,6 +4454,27 @@ class PocketMindViewModelTest {
 
         override fun availableToolSpecs(): List<ToolSpec> =
             ToolRegistry().specs()
+
+        private fun recordRoute(route: AssistantRoute) {
+            when (route) {
+                is AssistantRoute.Action -> route.runId?.let { runId ->
+                    knownRunStates[runId] = AgentRunState.AwaitingUserConfirmation
+                }
+
+                is AssistantRoute.Chat -> route.runId?.let { runId ->
+                    knownRunStates[runId] = AgentRunState.GeneratingAnswer
+                }
+
+                is AssistantRoute.MissingModel,
+                is AssistantRoute.ToolRejected -> Unit
+            }
+        }
+
+        private fun recordRun(run: AgentRun?) {
+            if (run != null) {
+                knownRunStates[run.id] = run.state
+            }
+        }
 
         override fun close() = Unit
     }

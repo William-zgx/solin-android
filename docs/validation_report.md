@@ -5,16 +5,30 @@
 本轮覆盖项：
 
 - 新增 `PocketMindViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution`。
+- 新增 `PocketMindViewModelTest.clipboardSummaryShareLocalContinuationFailureFailsAgentRunWithoutSecondConfirmation`。
+- 扩展 `PocketMindViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation`。
+- 新增 `AgentLoopRuntimeTest.modelGenerationFailureMarksGeneratingRunFailedAndIgnoresLateOutput`。
+- 新增 `AgentLoopRuntimeTest.modelGenerationFailureIsNoOpAfterRunLeavesGeneratingState`。
 - 远程 OpenAI-compatible runtime 返回 `RemoteChatEvent.ParseError` 时，ViewModel
   fail closed：不创建 `pendingConfirmation`、不调用 Agent model-tool observation、
   不执行 Android 工具，并将状态置为 `远程生成失败`。
+- 模型生成/解析失败现在会定点调用 `failModelGeneration(runId, reason)`，只把当前
+  `GeneratingAnswer` run 记录为 `Failed`，立即刷新 Agent trace；迟到模型输出不能再
+  推进这个 run。
+- 工具观察后的本地模型续写失败也会关闭同一个 run，不会生成第二个分享确认卡。
+- 远程模式下，工具结果需要本地模型续写时会先保护本地内容并关闭当前 run，不会把
+  私有文本发送给 remote，也不会留下 `GeneratingAnswer` 等待下次启动修复。
 - 测试同时断言远程请求仍携带 tool specs，但错误消息不会伪装成动作草稿，也不会进入
   确认/执行边界。
 
 验证命令：
 
 ```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelGenerationFailureMarksGeneratingRunFailedAndIgnoresLateOutput'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelGenerationFailureIsNoOpAfterRunLeavesGeneratingState'
 ./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.clipboardSummaryShareLocalContinuationFailureFailsAgentRunWithoutSecondConfirmation'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation'
 ./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
 ./gradlew :app:testDebugUnitTest
 ANDROID_HOME=/Users/bytedance/Library/Android/sdk ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk scripts/verify_local.sh

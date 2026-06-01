@@ -2473,6 +2473,54 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun modelGenerationFailureMarksGeneratingRunFailedAndIgnoresLateOutput() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "远程工具解析失败",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        assertEquals(AgentRunState.GeneratingAnswer, planned.run.state)
+
+        val failed = runtime.failModelGeneration(planned.run.id, "远程模型一次返回了多个工具调用，已拒绝执行")
+
+        requireNotNull(failed)
+        assertEquals(AgentRunState.Failed, failed.run.state)
+        require(failed.decision is AgentObservationDecision.Fail)
+        assertEquals("远程模型一次返回了多个工具调用，已拒绝执行", failed.decision.reason)
+        val failedStep = failed.steps.filterIsInstance<AgentStep.Failed>().single()
+        assertEquals("远程模型一次返回了多个工具调用，已拒绝执行", failedStep.reason)
+        assertNull(runtime.observeModelResult(planned.run.id, "迟到的模型输出"))
+    }
+
+    @Test
+    fun modelGenerationFailureIsNoOpAfterRunLeavesGeneratingState() {
+        val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = traceStore,
+        )
+        val planned = runtime.runOnce(
+            input = "普通聊天",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        val completed = runtime.observeModelResult(planned.run.id, "正常回答")
+        requireNotNull(completed)
+        assertEquals(AgentRunState.Completed, completed.run.state)
+
+        val failed = runtime.failModelGeneration(planned.run.id, "迟到的失败")
+
+        assertNull(failed)
+        assertTrue(traceStore.steps(planned.run.id).none { step -> step is AgentStep.Failed })
+    }
+
+    @Test
     fun clipboardContinuationDoesNotCallObservationReplanner() {
         var replanCallCount = 0
         val actionRuntime = RecordingActionRuntime(
