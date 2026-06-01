@@ -1,5 +1,24 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Foreground app trace privacy 增量验证
+
+本轮覆盖项：
+
+- `query_foreground_app` 的 `packageName` 与 `appLabel` 声明为 private tool
+  outputs。
+- Agent trace / audit / assistant observation 使用 redacted result summary，
+  不再持久化前台应用名或包名。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.foregroundAppObservationRedactsAppIdentityFromTrace'
+```
+
+结果：通过。
+
 ## 2026-06-01 Background terminal-state race 增量验证
 
 本轮覆盖项：

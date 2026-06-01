@@ -852,6 +852,47 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun foregroundAppObservationRedactsAppIdentityFromTrace() {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "当前应用是什么",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "当前前台应用：Mail",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.QUERY_FOREGROUND_APP,
+                    "packageName" to "com.example.mail",
+                    "appLabel" to "Mail",
+                    "lastTimeUsedMillis" to "1234",
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals("[redacted]", observed.result.data["packageName"])
+        assertEquals("[redacted]", observed.result.data["appLabel"])
+        assertEquals("已读取当前前台应用", observed.result.summary)
+        assertFalse(observed.steps.toString().contains("Mail"))
+        assertFalse(observed.steps.toString().contains("com.example.mail"))
+    }
+
+    @Test
     fun skillFirstRecentNotificationsBypassesActionPlannerAndRequestsConfirmation() {
         val actionRuntime = RecordingActionRuntime(likelyAction = false)
         val runtime = AgentLoopRuntime(

@@ -310,6 +310,7 @@ class ToolRegistryTest {
         val expectedPrivateOutputs = mapOf(
             MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
             MobileActionFunctions.QUERY_CONTACTS to setOf("query", "contactsJson"),
+            MobileActionFunctions.QUERY_FOREGROUND_APP to setOf("packageName", "appLabel"),
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to setOf("ocrText"),
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to setOf("ocrText"),
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("screenText"),

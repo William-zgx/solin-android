@@ -162,7 +162,9 @@ Current status:
   parameter-free: it records tool names, argument keys, and draft titles only,
   not parameterized request reasons. Redaction still covers draft titles,
   observed summaries, retry/failure reasons, assistant text previews, and
-  allowlisted completion metadata values.
+  allowlisted completion metadata values. Foreground-app package/name outputs
+  are treated as private device context and are redacted before trace/audit
+  persistence.
 - Background reminder requests with explicit relative delays now also have a
   Skill-first path. The reminder skill reuses the same delay/title parser as
   the action planner, then enters the normal confirmation and runtime

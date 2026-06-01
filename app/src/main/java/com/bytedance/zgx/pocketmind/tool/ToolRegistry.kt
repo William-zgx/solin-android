@@ -802,6 +802,8 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.LowReadOnly,
             confirmationPolicy = ConfirmationPolicy.Required,
+            privateOutputKeys = setOf("packageName", "appLabel"),
+            redactedResultSummary = "已读取当前前台应用",
         ),
     ),
     ToolDefinition(
