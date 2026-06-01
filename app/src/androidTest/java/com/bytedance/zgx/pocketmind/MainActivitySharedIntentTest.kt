@@ -1,6 +1,5 @@
 package com.bytedance.zgx.pocketmind
 
-import android.content.Context
 import android.content.Intent
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.ComposeTestRule
@@ -12,9 +11,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
-import com.bytedance.zgx.pocketmind.data.FirstRunSetupRepository
-import com.bytedance.zgx.pocketmind.data.PocketMindDatabase
-import com.bytedance.zgx.pocketmind.data.PreferenceSettingsStore
 import org.junit.Rule
 import org.junit.Test
 
@@ -25,7 +21,7 @@ class MainActivitySharedIntentTest {
     @Test
     fun actionSendTextIsIngestedThroughActivityShareEntry() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        resetPersistentState(context, inferenceMode = InferenceMode.Local)
+        resetMainActivityPersistentState(context, inferenceMode = InferenceMode.Local)
 
         val sharedText = "Shared ACTION_SEND text from Activity test 42"
         val launchIntent = Intent(Intent.ACTION_SEND).apply {
@@ -53,7 +49,7 @@ class MainActivitySharedIntentTest {
     @Test
     fun actionSendTextUsesProtectedSignalWhenActivityStartsInRemoteMode() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        resetPersistentState(context, inferenceMode = InferenceMode.Remote)
+        resetMainActivityPersistentState(context, inferenceMode = InferenceMode.Remote)
 
         val protectedText = "REMOTE_SHARE_SENTINEL_should_not_render_73"
         val launchIntent = Intent(Intent.ACTION_SEND).apply {
@@ -71,14 +67,6 @@ class MainActivitySharedIntentTest {
                 .assertIsDisplayed()
             composeRule.assertTextAbsent(protectedText)
         }
-    }
-
-    private fun resetPersistentState(context: Context, inferenceMode: InferenceMode) {
-        val settingsStore = PreferenceSettingsStore(context)
-        settingsStore.saveInferenceMode(inferenceMode)
-        settingsStore.saveActiveSessionId("")
-        FirstRunSetupRepository(settingsStore).markSetupDismissed()
-        PocketMindDatabase.get(context).clearAllTables()
     }
 
     private fun ComposeTestRule.waitForTag(tag: String) {

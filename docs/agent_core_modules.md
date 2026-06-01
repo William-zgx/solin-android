@@ -966,6 +966,7 @@ Tests:
 - `PocketMindViewModelTest.backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory`
 - `PocketMindViewModelTest.cancelBackgroundTaskForgetsTaskStateMemory`
 - `PocketMindViewModelTest.refreshBackgroundTasksDropsTerminalTaskStateMemory`
+- `MainActivityLongTermMemoryUiTest` explicit preference review/forget/clear UI path
 - `AgentLoopRuntimeTest`
 
 ## Background Tasks

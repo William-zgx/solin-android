@@ -1,5 +1,28 @@
 # PocketMind 验证报告
 
+## 2026-06-02 长期记忆真实 UI 路径增量验证
+
+本轮覆盖项：
+
+- 新增 `MainActivityLongTermMemoryUiTest`，以真实 `MainActivity` 和 Compose UI
+  路径保存显式“记住”偏好，而不是只测 ViewModel 或 repository。
+- 测试启动前清理主 Room 表、active session，并写入 configured localhost remote
+  模式，让 composer 处于 ready；显式偏好命令仍会在远程调用前被本地记忆分支
+  截获，不访问网络。
+- 模型管理 > 高级 > 长期记忆面板现在有 instrumentation 覆盖：记忆开关开启、
+  保存后的偏好行可见、单条“遗忘”按钮移除对应记录、清空按钮和确认弹窗清除
+  剩余长期记忆。
+- 同时抽出 androidTest 共享状态 helper，避免 share intent 和长期记忆 UI 测试
+  受 DataStore/DB 持久状态串扰。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin
+```
+
+结果：通过。
+
 ## 2026-06-02 Activity share intent 冷启动边界增量验证
 
 本轮覆盖项：
