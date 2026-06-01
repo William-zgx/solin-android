@@ -1203,6 +1203,7 @@ Tests:
 - `PocketMindViewModelTest.voiceTranscriptDraftIsOneShotAndDoesNotSendMessage`
 - `AndroidManifestTest.shareTargetsAcceptPickerSupportedDocumentMimeTypes`
 - `AndroidManifestTest.composerAttachmentPickerUsesShareTargetMimeTypes`
+- `MainActivitySharedIntentTest` cold-start local/protected share-intent entry
 - `MainActivitySmokeTest` composer attachment and voice entry visibility
 
 ## Regression Strategy

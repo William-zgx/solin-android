@@ -1,5 +1,29 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Activity share intent 冷启动边界增量验证
+
+本轮覆盖项：
+
+- 新增 `MainActivitySharedIntentTest`，用 `ActivityScenario` 以自定义
+  `ACTION_SEND text/plain` intent 冷启动 `MainActivity`，覆盖真实
+  Activity 边界的 `handleSharedIntent -> ShareIntentReader -> ingestSharedInput`
+  链路，而不是只测 ViewModel 或 reader。
+- 本地模式下，分享文本会作为 `LocalOnly` shared-input 消息进入 UI，并展示
+  “已接收分享内容”本地提示。
+- 远程模式下，Activity 在读取分享 intent 前选择 protected read mode；测试断言
+  UI 只显示隐私保护提示，分享正文 sentinel 不渲染，避免冷启动 share target
+  因持久化远程模式而读取或展示私有分享文本。
+- 测试启动前显式重置主 Room 表、active session 和推理模式，降低仪器测试之间
+  DataStore/DB 持久状态串扰导致的假阳性或假阴性。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin
+```
+
+结果：通过。
+
 ## 2026-06-02 Built-in Skill manifest contract 增量验证
 
 本轮覆盖项：
