@@ -133,6 +133,10 @@ Current status:
   external sends, notification posting, background scheduling, and high/critical
   risk tools are not automatically replayed even if a lower layer marks the
   failure retryable.
+- A successful retry of a read-only step still resumes the normal observation
+  path: explicit sequential requests may plan the next segment after the retried
+  observation succeeds, while keeping the retry trace to a single bounded
+  `ToolRetryScheduled` step.
 - Tool observation now produces an explicit `AgentObservationDecision`:
   complete, continue with model, retry tool, fail, or cancel. The decision is
   recorded in trace without storing private continuation prompts.
@@ -424,6 +428,10 @@ Current status:
   invalid enum values, regex mismatches, and numeric range failures reject the
   skill plan. Tool parameters remain owned and validated separately by the Tool
   Registry.
+- `SkillPlan` reserves `.` as the `stepId.outputKey` source-reference
+  delimiter. Step ids and model output keys containing that delimiter are
+  rejected during structure validation so bindings and value-free checkpoints
+  cannot misparse private-output refs.
 - Implemented a minimal declarative composition model for ordered skill steps:
   tool steps can declare stable ids, dependencies, and argument bindings; model
   transform steps can consume prior tool outputs and expose named outputs.
@@ -919,6 +927,9 @@ Current status:
 - UI state separates an installed memory asset from an active semantic runtime,
   and local turns produced with memory context are kept local-only so later
   remote chats do not inherit that private context through history.
+- Recommended model cards use asset-oriented labels for memory/action models
+  (`资产已安装`, `实验资产已安装`) so installation is not presented as active
+  semantic recall or production action autonomy.
 
 Tests:
 

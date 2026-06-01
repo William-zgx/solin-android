@@ -4468,6 +4468,82 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun retryableToolFailurePlansNextSequentialActionAfterSuccessfulRetry() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = ForegroundThenWifiActionRuntime()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+            maxToolRetryAttempts = 1,
+        )
+        val input = "当前应用是什么，然后打开 Wi-Fi 设置"
+        val planned = runtime.runOnce(
+            input = input,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.QUERY_FOREGROUND_APP, planned.plan.request.toolName)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val retrying = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Failed,
+                summary = "Usage stats provider temporarily unavailable",
+                retryable = true,
+            ),
+        )
+
+        requireNotNull(retrying)
+        assertEquals(AgentRunState.RetryingTool, retrying.run.state)
+        require(retrying.decision is AgentObservationDecision.RetryTool)
+        assertEquals(1, retrying.retryAttempt)
+
+        val replanned = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "当前前台应用：Mail",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.QUERY_FOREGROUND_APP,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
+                    "packageName" to "com.example.mail",
+                    "appLabel" to "Mail",
+                    "lastTimeUsedMillis" to "1234",
+                ),
+            ),
+        )
+
+        requireNotNull(replanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, replanned.run.state)
+        require(replanned.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(
+            MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            replanned.decision.plan.request.toolName,
+        )
+        assertEquals(listOf(input, "打开 Wi-Fi 设置"), actionRuntime.plannedInputs)
+        assertEquals(1, replanned.steps.filterIsInstance<AgentStep.ToolRetryScheduled>().size)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.QUERY_FOREGROUND_APP,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            ),
+            replanned.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+        )
+        assertTrue(auditSink.events.any { event ->
+            event.eventType == ToolAuditEventType.ToolRetryScheduled &&
+                event.requestId == planned.plan.request.id
+        })
+    }
+
+    @Test
     fun permissionDeniedToolFailureDoesNotScheduleAutomaticRetry() {
         val actionRuntime = RecordingActionRuntime(likelyAction = false)
         val runtime = AgentLoopRuntime(
@@ -5007,6 +5083,48 @@ class AgentLoopRuntimeTest {
                         functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
                         title = "打开手电筒设置",
                         summary = "将打开系统设置，由你手动确认手电筒相关操作。",
+                        parameters = emptyMap(),
+                        requiresConfirmation = true,
+                    )
+
+                else -> return ActionPlanningResult(
+                    plan = ActionPlan(ActionPlanKind.NoAction),
+                    usedModel = false,
+                    fallbackReason = "test fallback",
+                )
+            }
+            return ActionPlanningResult(
+                plan = ActionPlan(kind = ActionPlanKind.Draft, draft = draft),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            )
+        }
+    }
+
+    private class ForegroundThenWifiActionRuntime : ActionPlanningRuntime {
+        val plannedInputs: List<String>
+            get() = mutablePlannedInputs.toList()
+
+        private val mutablePlannedInputs = mutableListOf<String>()
+
+        override fun isLikelyAction(input: String): Boolean = true
+
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
+            mutablePlannedInputs += input
+            val draft = when {
+                mutablePlannedInputs.size == 1 -> ActionDraft(
+                    functionName = MobileActionFunctions.QUERY_FOREGROUND_APP,
+                    title = "查询当前前台应用",
+                    summary = "将读取当前前台应用名称。",
+                    parameters = emptyMap(),
+                    requiresConfirmation = true,
+                )
+
+                input.contains("Wi-Fi", ignoreCase = true) || input.contains("wifi", ignoreCase = true) ->
+                    ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "将打开系统 Wi-Fi 设置页。",
                         parameters = emptyMap(),
                         requiresConfirmation = true,
                     )

@@ -1,5 +1,40 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Agent retry / Skill checkpoint 状态口径增量验证
+
+本轮覆盖项：
+
+- 可重试的只读工具失败后只调度一次 bounded retry；retry 成功后仍回到正常
+  observation path，并继续为显式顺序输入规划下一段确认。
+- `SkillPlan` 明确把 `.` 作为 `stepId.outputKey` 引用分隔符；含 `.` 的 step id
+  或 model output key 在结构校验阶段 fail closed，避免 value-free checkpoint
+  误拆 private-output ref。
+- 推荐模型卡片把 memory/action 模型安装状态显示为资产口径，避免把 memory asset
+  安装误解为语义记忆 runtime 已启用。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.retryableToolFailurePlansNextSequentialActionAfterSuccessfulRetry' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.valueFreeCheckpointRejectsPrivateRefsWhenCompletedStepIdContainsDot'
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest'
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+git diff --unified=0 | rg -n "<sensitive endpoint/model/key patterns>"
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：定向 Agent loop / Skill checkpoint 测试、相关 Agent/Skill 测试类、
+全量 JVM 单测、AndroidTest Kotlin 编译、diff whitespace 检查、敏感串扫描和
+本地完整验证脚本通过。
+
 ## 2026-06-02 语义记忆运行时状态增量验证
 
 本轮覆盖项：

@@ -204,6 +204,47 @@ class SkillRunExecutorTest {
     }
 
     @Test
+    fun valueFreeCheckpointRejectsPrivateRefsWhenCompletedStepIdContainsDot() {
+        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val readStep = plan.steps[0] as SkillStep.ToolStep
+        val summarizeStep = plan.steps[1] as SkillStep.ModelStep
+        val shareStep = plan.steps[2] as SkillStep.ToolStep
+        val ambiguousPlan = plan.copy(
+            steps = listOf(
+                readStep.copy(id = "read.clipboard"),
+                summarizeStep.copy(
+                    dependsOn = listOf("read.clipboard"),
+                    inputBindings = mapOf("clipboardText" to "read.clipboard.text"),
+                ),
+                shareStep,
+            ),
+        )
+
+        val validation = ambiguousPlan.validateStructure()
+        val checkpoint = requireNotNull(
+            ambiguousPlan.valueFreeCheckpointForPendingTool(
+                runId = "run-checkpoint",
+                pendingRequest = shareStep.request,
+            ),
+        )
+
+        assertFalse(validation.isValid)
+        assertTrue(validation.errors.any { it.contains("source-ref delimiter") })
+        assertEquals("skill checkpoint plan is invalid", checkpoint.validationErrorFor(ambiguousPlan))
+
+        val ambiguousOutputKeyPlan = plan.copy(
+            steps = listOf(
+                readStep,
+                summarizeStep.copy(outputKey = "share.text"),
+                shareStep.copy(argumentBindings = mapOf("text" to "summarize_clipboard.share.text")),
+            ),
+        )
+        val outputKeyValidation = ambiguousOutputKeyPlan.validateStructure()
+        assertFalse(outputKeyValidation.isValid)
+        assertTrue(outputKeyValidation.errors.any { it.contains("outputKey must not contain") })
+    }
+
+    @Test
     fun resumesAgainAfterSecondConfirmationAndCompletesSkill() {
         val toolExecutor = RecordingToolExecutor(emptyList())
         val executor = SkillRunExecutor(

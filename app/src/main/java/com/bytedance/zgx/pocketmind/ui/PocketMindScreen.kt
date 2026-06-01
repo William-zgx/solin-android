@@ -2386,6 +2386,8 @@ private fun RecommendedModelCard(
         ModelCapability.MobileAction -> semanticColors.busy
     }
     val statusText = when {
+        installed && model.capability == ModelCapability.MemoryEmbedding -> "资产已安装"
+        installed && model.capability == ModelCapability.MobileAction -> "实验资产已安装"
         installed -> "已安装"
         model.setupTier == SetupTier.BasicRecommended -> "基础包"
         else -> "可选"

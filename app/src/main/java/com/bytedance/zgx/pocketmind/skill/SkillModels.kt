@@ -76,6 +76,9 @@ fun SkillPlan.validateStructure(): SkillPlanValidation {
         if (step.id.isBlank()) {
             errors += "step[$index] id must not be blank"
         }
+        if (step.id.isInvalidSourceRefComponent()) {
+            errors += "step[$index] id must not contain source-ref delimiter: ${step.id}"
+        }
         if (!seenStepIds.add(step.id)) {
             errors += "duplicate step id: ${step.id}"
         }
@@ -104,6 +107,9 @@ fun SkillPlan.validateStructure(): SkillPlanValidation {
             is SkillStep.ModelStep -> {
                 if (step.outputKey.isBlank()) {
                     errors += "model step ${step.id} outputKey must not be blank"
+                }
+                if (step.outputKey.isInvalidSourceRefComponent()) {
+                    errors += "model step ${step.id} outputKey must not contain source-ref delimiter"
                 }
                 step.inputBindings.values.validateSourceRefs(
                     currentStepId = step.id,
@@ -290,6 +296,9 @@ private fun Collection<String>.validateSourceRefs(
         }
     }
 }
+
+private fun String.isInvalidSourceRefComponent(): Boolean =
+    contains('.')
 
 private fun JSONObject.keysSet(): Set<String> {
     val result = linkedSetOf<String>()
