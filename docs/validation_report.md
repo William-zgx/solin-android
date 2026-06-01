@@ -23,6 +23,8 @@ scripts/verify_emulator.sh
 
 结果：通过。设备 `emulator-5554`，API 36，ABI `arm64-v8a`，
 instrumentation `OK (14 tests)`，脚本输出 `Emulator verification passed`。
+在 sequential composite Skill tail 支持提交后，使用同一 AVD/命令对当前
+HEAD 复跑通过，instrumentation 仍为 `OK (14 tests)`。
 
 ## 2026-06-02 Sequential composite Skill segment 增量验证
 
