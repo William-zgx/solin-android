@@ -1,5 +1,31 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Model observation replanner 增量验证
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 只在 successful observation 后调用已验证的本地
+  mobile action model，并且只接受 `usedModel = true` 的 supported `Draft`。
+- Observation prompt 只包含红action 后的 intent preview、工具名、参数 key、
+  状态、红action summary 和 data key 名；不包含原始 `ToolResult.data` 值。
+- 下一步工具仍经过 Tool Registry、SafetyPolicy、trace/audit 和用户确认；模型
+  draft 不会因来自 observe 阶段而自动执行。
+- 每个 run 默认最多接受一次 model-backed observation replan；第二个工具成功后
+  不会继续无界调用模型。
+- 生产 wiring 复用同一个 `ToolRegistry`，无已验证动作模型时模型 replanner
+  让位给原有显式顺序 replanner。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --no-daemon
+```
+
+结果：`AgentLoopRuntimeTest` 单类回归通过；完整 JVM 单测、AndroidTest Kotlin
+编译、diff whitespace 检查和敏感 diff 扫描通过。
+
 ## 2026-06-02 Clipboard LocalOnly metadata 增量验证
 
 本轮覆盖项：

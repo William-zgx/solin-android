@@ -82,7 +82,15 @@ class AssistantOrchestrator(
     private val toolRegistry: ToolRegistry = ToolRegistry(),
     toolAuditSink: ToolAuditSink = NoOpToolAuditSink,
     private val traceStore: AgentTraceStore = InMemoryAgentTraceStore(),
-    observationReplanner: AgentObservationReplanner = SequentialActionObservationReplanner(actionPlanningRuntime),
+    actionModelPathProvider: () -> String? = { null },
+    observationReplanner: AgentObservationReplanner = CompositeAgentObservationReplanner(
+        ModelObservationReplanner(
+            actionPlanningRuntime = actionPlanningRuntime,
+            actionModelPathProvider = actionModelPathProvider,
+            toolRegistry = toolRegistry,
+        ),
+        SequentialActionObservationReplanner(actionPlanningRuntime),
+    ),
 ) : AssistantRouter {
     private val agentLoopRuntime = AgentLoopRuntime(
         memoryIndex = memoryIndex,

@@ -4,12 +4,17 @@ import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.audit.ToolAuditSummaryRedactor
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 
 private const val DEFAULT_MAX_SEQUENTIAL_ACTIONS = 4
+private const val DEFAULT_MAX_MODEL_OBSERVATION_REPLANS = 1
 private const val SEQUENTIAL_REPLAN_REQUEST_REASON = "Explicit sequential action step planned."
+private const val MODEL_OBSERVATION_REPLAN_REQUEST_REASON = "Observation model step planned."
+private const val MODEL_OBSERVATION_REPLAN_FALLBACK_REASON = "observation model replan"
 
 private val SEQUENTIAL_LOCAL_CONTINUATION_TOOL_NAMES = setOf(
     MobileActionFunctions.READ_CLIPBOARD,
@@ -49,6 +54,48 @@ object NoOpAgentObservationReplanner : AgentObservationReplanner {
     override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? = null
 }
 
+class CompositeAgentObservationReplanner(
+    vararg delegates: AgentObservationReplanner,
+) : AgentObservationReplanner {
+    private val delegates = delegates.toList()
+
+    override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? =
+        delegates.firstNotNullOfOrNull { delegate -> delegate.planNext(context) }
+}
+
+class ModelObservationReplanner(
+    private val actionPlanningRuntime: ActionPlanningRuntime,
+    private val actionModelPathProvider: () -> String? = { null },
+    private val toolRegistry: ToolRegistry = ToolRegistry(),
+    maxModelReplans: Int = DEFAULT_MAX_MODEL_OBSERVATION_REPLANS,
+) : AgentObservationReplanner {
+    private val modelReplanLimit = maxModelReplans.coerceAtLeast(0)
+
+    override fun planNext(context: AgentObservationReplanContext): AgentObservationReplan? {
+        if (context.observedResult.status != ToolStatus.Succeeded) return null
+        if (modelReplanLimit == 0) return null
+        if (context.modelObservationReplanCount() >= modelReplanLimit) return null
+        val actionModelPath = actionModelPathProvider()?.takeIf { path -> path.isNotBlank() } ?: return null
+        val planningResult = actionPlanningRuntime.plan(
+            input = context.observationModelPrompt(toolRegistry),
+            actionModelPath = actionModelPath,
+        )
+        if (!planningResult.usedModel) return null
+        if (planningResult.plan.kind != ActionPlanKind.Draft) return null
+        val draft = planningResult.plan.draft ?: return null
+        return AgentObservationReplan(
+            request = ToolRequest(
+                toolName = draft.functionName,
+                arguments = draft.parameters,
+                reason = MODEL_OBSERVATION_REPLAN_REQUEST_REASON,
+            ),
+            draft = draft,
+            plannedByModel = true,
+            fallbackReason = MODEL_OBSERVATION_REPLAN_FALLBACK_REASON,
+        )
+    }
+}
+
 class SequentialActionObservationReplanner(
     private val actionPlanningRuntime: ActionPlanningRuntime,
     maxSequentialActions: Int = DEFAULT_MAX_SEQUENTIAL_ACTIONS,
@@ -85,6 +132,57 @@ class SequentialActionObservationReplanner(
         )
     }
 
+}
+
+private fun AgentObservationReplanContext.modelObservationReplanCount(): Int =
+    priorRequests.count { request -> request.reason == MODEL_OBSERVATION_REPLAN_REQUEST_REASON }
+
+private fun AgentObservationReplanContext.observationModelPrompt(toolRegistry: ToolRegistry): String {
+    val privateOutputKeys = toolRegistry.privateOutputKeysFor(previousRequest.toolName)
+    val publicDataKeys = observedResult.data.keys
+        .filterNot { key -> key in privateOutputKeys }
+        .sorted()
+        .joinToString()
+        .ifBlank { "none" }
+    val omittedPrivateKeys = privateOutputKeys
+        .filter { key -> key in observedResult.data }
+        .sorted()
+        .joinToString()
+        .ifBlank { "none" }
+    val priorTools = priorRequests
+        .joinToString(separator = " -> ") { request -> request.toolName }
+        .ifBlank { "none" }
+    val previousArgumentKeys = previousRequest.arguments.keys
+        .sorted()
+        .joinToString()
+        .ifBlank { "none" }
+    val intentPreview = (nextActionInput?.immediateSequentialActionText() ?: run.input)
+        .safeObservationPromptText()
+    val observationSummary = observedResult.summary.safeObservationPromptText()
+    return """
+        Decide whether the user's request needs exactly one more mobile tool after the latest observation.
+        Output a tool call only when the next action is clearly required; otherwise output ordinary text with no call.
+        Do not repeat a tool that has already satisfied the request.
+
+        User intent preview: $intentPreview
+        Prior tools: $priorTools
+        Previous tool: ${previousRequest.toolName}
+        Previous argument keys: $previousArgumentKeys
+        Observation status: ${observedResult.status}
+        Observation summary: $observationSummary
+        Observation public data keys: $publicDataKeys
+        Observation private data keys omitted: $omittedPrivateKeys
+        Completed segment count: $completedSegmentCount
+    """.trimIndent()
+}
+
+private fun String.safeObservationPromptText(maxLength: Int = 160): String {
+    val compact = lineSequence()
+        .joinToString(" ") { line -> line.trim() }
+        .replace(Regex("\\s+"), " ")
+        .trim()
+    val redacted = ToolAuditSummaryRedactor.redact(compact)
+    return if (redacted.length <= maxLength) redacted else redacted.take(maxLength - 3) + "..."
 }
 
 internal fun String.explicitNextActionText(): String? =

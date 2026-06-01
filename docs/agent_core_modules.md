@@ -178,6 +178,16 @@ Current status:
   segment is considered. The next-action cursor is kept only in process memory;
   Room restore no longer persists or resumes raw remaining sequence text across
   process death.
+- A model-backed observation replanner can now use the verified local mobile
+  action model as a bounded draft source after a schema-valid successful
+  observation. Its prompt contains only a redacted intent preview, tool names,
+  argument keys, status, redacted summary, and data key names; it never includes
+  raw `ToolResult.data` values. The model output is accepted only when the
+  mobile action planner reports `usedModel = true` and returns a supported
+  `Draft`; rule fallback output is ignored. Accepted drafts still re-enter Tool
+  Registry validation, SafetyPolicy, trace/audit, and user confirmation before
+  execution, and the current production limit is one model-backed observation
+  replan per run.
 - Per-segment planning can also use an explicit sequence segment to start a
   single-tool, single-step Skill, or validated composite Skill plan, so rule-only
   planning can enter the loop for requests like "search, then open Wi-Fi" and
@@ -353,9 +363,9 @@ Current status:
   clipboard, then open Wi-Fi settings" remains fail-closed.
 - Planned-tool audit persistence stores parameter-free planned/confirmation
   summaries; tool arguments remain out of persisted audit text.
-- Open-ended model-driven replanning, arbitrary multi-confirmation skill UI
-  orchestration, and full argument-bearing typed step rehydration are still
-  pending.
+- Open-ended autonomous model-driven replanning beyond the bounded
+  observation-draft path, arbitrary multi-confirmation skill UI orchestration,
+  and full argument-bearing typed step rehydration are still pending.
 
 Tests:
 
@@ -388,6 +398,9 @@ Tests:
 - `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare`
 - `AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions`
 - `AgentLoopRuntimeTest.roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears`
+- `AgentLoopRuntimeTest.modelObservationReplannerPlansNextToolAfterVerifiedObservation`
+- `AgentLoopRuntimeTest.modelObservationReplannerDoesNotExposePrivateObservationValuesInPrompt`
+- `AgentLoopRuntimeTest.modelObservationReplannerIgnoresRuleFallbackDraft`
 - `AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues`
 - `AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill`
 - `AgentLoopRuntimeTest.sequentialCompositeSkillSegmentContinuesToNextSegmentAfterInternalToolsComplete`

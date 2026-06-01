@@ -32,11 +32,15 @@ import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.memory.RoomMemoryRecordStore
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
+import com.bytedance.zgx.pocketmind.orchestration.CompositeAgentObservationReplanner
+import com.bytedance.zgx.pocketmind.orchestration.ModelObservationReplanner
 import com.bytedance.zgx.pocketmind.orchestration.RoomAgentTraceStore
+import com.bytedance.zgx.pocketmind.orchestration.SequentialActionObservationReplanner
 import com.bytedance.zgx.pocketmind.runtime.OkHttpRemoteChatRuntime
 import com.bytedance.zgx.pocketmind.runtime.RealLiteRtRuntime
 import com.bytedance.zgx.pocketmind.tool.ValidatingToolExecutor
 import com.bytedance.zgx.pocketmind.tool.RoutingToolExecutor
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
 
 class PocketMindAppContainer(context: Context) {
@@ -87,6 +91,7 @@ class PocketMindAppContainer(context: Context) {
         backgroundTaskSchedulerInternal = AndroidBackgroundTaskScheduler(appContext, scheduledTaskRepository)
         reminderNotificationHelper = ReminderNotificationHelper(appContext)
         actionPlanningRuntime = HybridActionPlanningRuntime(appContext.cacheDir)
+        val toolRegistry = ToolRegistry()
         actionExecutor = ValidatingToolExecutor(
             delegate = RoutingToolExecutor(
                 calendarAvailabilityProvider = AndroidCalendarAvailabilityProvider(appContext),
@@ -102,12 +107,22 @@ class PocketMindAppContainer(context: Context) {
                 recentImageTextProvider = AndroidRecentImageTextProvider(appContext),
                 currentScreenTextProvider = AndroidCurrentScreenTextProvider(),
             ),
+            registry = toolRegistry,
         )
         assistantOrchestrator = AssistantOrchestrator(
             memoryIndex = memoryRepository,
             actionPlanningRuntime = actionPlanningRuntime,
+            toolRegistry = toolRegistry,
             toolAuditSink = toolAuditRepository,
             traceStore = RoomAgentTraceStore(database.agentTraceDao()),
+            observationReplanner = CompositeAgentObservationReplanner(
+                ModelObservationReplanner(
+                    actionPlanningRuntime = actionPlanningRuntime,
+                    actionModelPathProvider = modelRepository::verifiedActionModelPath,
+                    toolRegistry = toolRegistry,
+                ),
+                SequentialActionObservationReplanner(actionPlanningRuntime),
+            ),
         )
     }
 

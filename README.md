@@ -119,7 +119,11 @@ verified action model as an experimental planner; if it is missing or does not
 produce a supported
 `call:function {...}` draft, PocketMind falls back to deterministic local rules
 and still requires explicit user confirmation before opening Android system
-pages, drafts, HTTPS links, or package-level app launches. After confirmation,
+pages, drafts, HTTPS links, or package-level app launches. When the verified
+action model is used for observation replanning, it can only propose one next
+supported tool draft after a successful observed tool result; unsupported or
+malformed drafts fail closed, and every proposed tool still requires explicit
+confirmation. After confirmation,
 Android execution returns a structured tool result that is written back to the
 Agent run trace, audit log, and chat session.
 Reminder requests such as “提醒我 15 分钟后喝水” become confirmed
@@ -242,7 +246,8 @@ single-run Agent planning, confirmation, tool observation, built-in one-step,
 skill-first information lookup/recent-media-metadata/calendar-availability/
 contact-lookup/current-app-notification-summary/foreground-app/HTTPS-link-navigation/device-settings/map/email/calendar/text sharing, and one conservative
 clipboard-summary-share composite flow,
-conservative observe-after-success replanning for explicit next actions, a
+conservative observe-after-success replanning for explicit next actions plus
+bounded model-backed next-tool drafts behind validation and confirmation, a
 gated skill-run executor, minimal device context
 snapshots, safety policy, persistent tool audit, long-term memory controls,
 local reminder scheduling, running background task review/cancellation,

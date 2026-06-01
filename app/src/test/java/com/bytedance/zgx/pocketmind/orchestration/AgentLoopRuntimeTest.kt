@@ -4980,6 +4980,205 @@ class AgentLoopRuntimeTest {
         assertNull(runtime.latestPendingConfirmation())
     }
 
+    @Test
+    fun modelObservationReplannerPlansNextToolAfterVerifiedObservation() {
+        val actionRuntime = ObservationModelActionRuntime(
+            initialDraft = ActionDraft(
+                functionName = MobileActionFunctions.WEB_SEARCH,
+                title = "Web 搜索",
+                summary = "将在浏览器中搜索：Kotlin",
+                parameters = mapOf("query" to "Kotlin"),
+                requiresConfirmation = true,
+            ),
+        )
+        val auditSink = InMemoryToolAuditSink()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = ModelObservationReplanner(
+                actionPlanningRuntime = actionRuntime,
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
+            ),
+        )
+        val planned = runtime.runOnce(
+            input = "搜 Kotlin，并基于结果决定是否打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        val nextPlan = observed.decision.plan
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, nextPlan.request.toolName)
+        assertTrue(nextPlan.plannedByModel)
+        assertEquals("observation model replan", nextPlan.fallbackReason)
+        assertEquals("Observation model step planned.", nextPlan.request.reason)
+        assertEquals(nextPlan.request.id, runtime.latestPendingConfirmation()?.request?.id)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.WEB_SEARCH,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            ),
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+        )
+        assertEquals(2, observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
+        assertEquals(listOf(null, "/verified/mobile-action.litertlm"), actionRuntime.actionModelPaths)
+        assertTrue(actionRuntime.plannedInputs[1].contains("Observation summary: 已打开网页搜索"))
+        assertTrue(actionRuntime.plannedInputs[1].contains("Previous tool: ${MobileActionFunctions.WEB_SEARCH}"))
+        assertEquals(
+            listOf(
+                ToolAuditEventType.ToolPlanned,
+                ToolAuditEventType.ConfirmationRequested,
+                ToolAuditEventType.UserConfirmed,
+                ToolAuditEventType.ToolObserved,
+                ToolAuditEventType.ToolPlanned,
+                ToolAuditEventType.ConfirmationRequested,
+            ),
+            auditSink.events.map { it.eventType },
+        )
+
+        runtime.confirmToolRequest(planned.run.id, nextPlan.request.id)
+        val completed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = nextPlan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+
+        requireNotNull(completed)
+        assertEquals(AgentRunState.Completed, completed.run.state)
+        assertEquals(AgentObservationDecision.Complete, completed.decision)
+        assertEquals(2, actionRuntime.plannedInputs.size)
+    }
+
+    @Test
+    fun modelObservationReplannerDoesNotExposePrivateObservationValuesInPrompt() {
+        val actionRuntime = ObservationModelActionRuntime(
+            initialDraft = ActionDraft(
+                functionName = MobileActionFunctions.QUERY_FOREGROUND_APP,
+                title = "查询当前前台应用",
+                summary = "将读取当前前台应用名称。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = ModelObservationReplanner(
+                actionPlanningRuntime = actionRuntime,
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
+            ),
+        )
+        val planned = runtime.runOnce(
+            input = "当前应用是什么 token=opaque-private-value，并基于结果决定是否打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "当前前台应用：Sensitive Mail",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.QUERY_FOREGROUND_APP,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
+                    "packageName" to "com.private.mail",
+                    "appLabel" to "Sensitive Mail",
+                    "lastTimeUsedMillis" to "1234",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals("已读取当前前台应用", observed.result.summary)
+        assertEquals("[redacted]", observed.result.data["packageName"])
+        assertEquals("[redacted]", observed.result.data["appLabel"])
+        val modelPrompt = actionRuntime.plannedInputs[1]
+        assertTrue(modelPrompt.contains("User intent preview: 当前应用是什么 token=[redacted]"))
+        assertTrue(modelPrompt.contains("Observation summary: 已读取当前前台应用"))
+        assertTrue(modelPrompt.contains("Observation private data keys omitted: appLabel, packageName"))
+        assertTrue(modelPrompt.contains("Observation public data keys: lastTimeUsedMillis, privacy, requiresLocalModel, toolName"))
+        assertFalse(modelPrompt.contains("opaque-private-value"))
+        assertFalse(modelPrompt.contains("Sensitive Mail"))
+        assertFalse(modelPrompt.contains("com.private.mail"))
+        assertFalse(modelPrompt.contains("1234"))
+    }
+
+    @Test
+    fun modelObservationReplannerIgnoresRuleFallbackDraft() {
+        val actionRuntime = ObservationModelActionRuntime(
+            initialDraft = ActionDraft(
+                functionName = MobileActionFunctions.WEB_SEARCH,
+                title = "Web 搜索",
+                summary = "将在浏览器中搜索：Kotlin",
+                parameters = mapOf("query" to "Kotlin"),
+                requiresConfirmation = true,
+            ),
+            modelUsed = false,
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = ModelObservationReplanner(
+                actionPlanningRuntime = actionRuntime,
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
+            ),
+        )
+        val planned = runtime.runOnce(
+            input = "搜 Kotlin，并基于结果决定是否打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertEquals(AgentObservationDecision.Complete, observed.decision)
+        assertEquals(2, actionRuntime.plannedInputs.size)
+        assertNull(runtime.latestPendingConfirmation())
+    }
+
     private fun clipboardResultData(text: String): Map<String, String> =
         mapOf(
             "toolName" to MobileActionFunctions.READ_CLIPBOARD,
@@ -5182,6 +5381,46 @@ class AgentLoopRuntimeTest {
                 usedModel = false,
                 fallbackReason = "test fallback",
             )
+        }
+    }
+
+    private class ObservationModelActionRuntime(
+        private val initialDraft: ActionDraft,
+        private val modelDraft: ActionDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "将打开系统 Wi-Fi 设置页。",
+            parameters = emptyMap(),
+            requiresConfirmation = true,
+        ),
+        private val modelUsed: Boolean = true,
+    ) : ActionPlanningRuntime {
+        val plannedInputs: List<String>
+            get() = mutablePlannedInputs.toList()
+        val actionModelPaths: List<String?>
+            get() = mutableActionModelPaths.toList()
+
+        private val mutablePlannedInputs = mutableListOf<String>()
+        private val mutableActionModelPaths = mutableListOf<String?>()
+
+        override fun isLikelyAction(input: String): Boolean = true
+
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
+            mutablePlannedInputs += input
+            mutableActionModelPaths += actionModelPath
+            return if (mutablePlannedInputs.size == 1) {
+                ActionPlanningResult(
+                    plan = ActionPlan(kind = ActionPlanKind.Draft, draft = initialDraft),
+                    usedModel = false,
+                    fallbackReason = "test initial rule plan",
+                )
+            } else {
+                ActionPlanningResult(
+                    plan = ActionPlan(kind = ActionPlanKind.Draft, draft = modelDraft),
+                    usedModel = modelUsed,
+                    fallbackReason = if (modelUsed) null else "test rule fallback",
+                )
+            }
         }
     }
 
