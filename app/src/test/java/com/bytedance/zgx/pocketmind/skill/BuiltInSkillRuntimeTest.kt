@@ -30,6 +30,7 @@ class BuiltInSkillRuntimeTest {
         assertTrue(BuiltInSkillRuntime.FOREGROUND_APP_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.RECENT_NOTIFICATIONS_CONTEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL in manifests)
+        assertTrue(BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL in manifests)
         assertTrue(manifests.values.all { it.version >= 1 })
         assertTrue(manifests.values.all { it.inputSchemaJson.contains("additionalProperties") })
     }
@@ -144,6 +145,9 @@ class BuiltInSkillRuntimeTest {
             "当前应用是什么" to requireNotNull(runtime.plan("当前应用是什么")),
             "最近通知" to requireNotNull(runtime.plan("最近通知")),
             "查联系人 Alice" to requireNotNull(runtime.plan("查联系人 Alice")),
+            "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z" to requireNotNull(
+                runtime.plan("查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"),
+            ),
         )
 
         plans.forEach { (input, plan) ->
@@ -602,6 +606,39 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("不要查联系人 Alice"))
         assertEquals(null, runtime.plan("do not search contacts for Alice"))
         assertEquals(null, runtime.plan("新建联系人 Alice"))
+    }
+
+    @Test
+    fun plansCalendarAvailabilityWithoutActionDraftWhenIsoWindowIsExplicit() {
+        val input = "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"
+        val plan = requireNotNull(runtime.plan(input))
+
+        assertEquals(BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL, plan.request.skillId)
+        assertEquals(mapOf("input" to input), plan.request.arguments)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, step.request.toolName)
+        assertEquals("2026-06-01T09:00:00Z", step.request.arguments["start"])
+        assertEquals("2026-06-01T10:00:00Z", step.request.arguments["end"])
+        assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, step.draft.functionName)
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+
+        val englishPlan = requireNotNull(
+            runtime.plan("calendar availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z"),
+        )
+        assertEquals(BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL, englishPlan.request.skillId)
+
+        assertEquals(null, runtime.plan("查一下忙闲"))
+        assertEquals(null, runtime.plan("明天我有空吗"))
+        assertEquals(null, runtime.plan("日历权限怎么申请"))
+        assertEquals(null, runtime.plan("不要查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"))
+        assertEquals(null, runtime.plan("what is free/busy"))
+        assertEquals(null, runtime.plan("API availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z"))
+        assertEquals(null, runtime.plan("calendar availability API"))
+        assertEquals(null, runtime.plan("free/busy schema 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z"))
+        assertEquals(null, runtime.plan("how to implement free/busy"))
+        assertEquals(null, runtime.plan("查忙闲 2026-06-01T10:00:00Z 到 2026-06-01T09:00:00Z"))
+        assertEquals(null, runtime.plan("查忙闲 2026-06-01T09:00:00Z 到 2026-07-10T09:00:00Z"))
     }
 
     @Test

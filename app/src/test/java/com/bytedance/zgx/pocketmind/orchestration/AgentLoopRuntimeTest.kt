@@ -717,6 +717,34 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstCalendarAvailabilityBypassesActionPlannerAndRequestsConfirmation() {
+        val input = "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = input,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, result.plan.request.toolName)
+        assertEquals("2026-06-01T09:00:00Z", result.plan.request.arguments["start"])
+        assertEquals("2026-06-01T10:00:00Z", result.plan.request.arguments["end"])
+        assertEquals(BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL, runtime.latestPendingConfirmation()?.skillId)
+    }
+
+    @Test
     fun contactObservationRedactsPrivateTraceFields() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -864,6 +892,17 @@ class AgentLoopRuntimeTest {
             "不要查联系人 Alice",
             "do not search contacts for Alice",
             "新建联系人 Alice",
+            "查一下忙闲",
+            "明天我有空吗",
+            "日历权限怎么申请",
+            "不要查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z",
+            "what is free/busy",
+            "API availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z",
+            "calendar availability API",
+            "free/busy schema 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z",
+            "how to implement free/busy",
+            "查忙闲 2026-06-01T10:00:00Z 到 2026-06-01T09:00:00Z",
+            "查忙闲 2026-06-01T09:00:00Z 到 2026-07-10T09:00:00Z",
         )
 
         inputs.forEach { input ->

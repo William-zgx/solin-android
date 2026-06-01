@@ -1,5 +1,52 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Calendar availability skill-first routing 增量验证
+
+本轮覆盖项：
+
+- 显式“查忙闲 + 两个 ISO 时间”请求可由 built-in Skill runtime 直接规划为
+  `query_calendar_availability` 待确认工具，不再依赖 action planner。
+- Shared calendar-availability parser 要求忙闲/availability/free-busy 意图和
+  两个带时区 ISO-8601 时间同时存在；拒绝空忙闲请求、自然语言日期、日历权限、
+  API/实现/设计讨论。
+- 新增 `calendar_availability_skill` manifest，风险级别为 `LowReadOnly`；
+  工具继续走 registry schema、provider 31 天窗口校验、safety、audit 和用户确认。
+- 权限和数据边界保持最小化：skill-first pending confirmation 仍请求
+  `READ_CALENDAR`；结果只返回 busy/free blocks，不返回事件标题、地点、参与人、
+  备注或 calendar id。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersCalendarAvailabilityDraftWhenIsoWindowIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansCalendarAvailabilityWithoutActionDraftWhenIsoWindowIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstCalendarAvailabilityBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.calendarAvailabilitySkillFirstConfirmationStillRequestsCalendarPermission' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.validatesCalendarAvailabilityStartAndEndArguments' \
+ --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.exposesSpecsForSupportedActionsWithConfirmationRequired'
+```
+
+补充回归：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+```
+
+结果：通过。
+
 ## 2026-06-01 Contact lookup skill-first routing 增量验证
 
 本轮覆盖项：

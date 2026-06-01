@@ -341,6 +341,30 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, plan.draft?.functionName)
         assertEquals("2026-06-01T09:00:00Z", plan.draft?.parameters?.get("start"))
         assertEquals("2026-06-01T10:00:00Z", plan.draft?.parameters?.get("end"))
+
+        val englishPlan = planner.plan(
+            "calendar availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z",
+        )
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, englishPlan.draft?.functionName)
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("查一下忙闲").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("明天我有空吗").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("日历权限怎么申请").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("what is free/busy").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("API availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("calendar availability API").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("free/busy schema 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("how to implement free/busy").kind)
+        assertEquals(
+            ActionPlanKind.NoAction,
+            planner.plan("查忙闲 2026-06-01T10:00:00Z 到 2026-06-01T09:00:00Z").kind,
+        )
+        assertEquals(
+            ActionPlanKind.NoAction,
+            planner.plan("查忙闲 2026-06-01T09:00:00Z 到 2026-07-10T09:00:00Z").kind,
+        )
     }
 
     @Test

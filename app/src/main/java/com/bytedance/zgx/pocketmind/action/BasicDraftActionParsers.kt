@@ -1,5 +1,8 @@
 package com.bytedance.zgx.pocketmind.action
 
+import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityQuery
+import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityQueryValidation
+
 internal object MapSearchActionParser {
     private val englishPattern =
         Regex("""\b(search\s+maps?\s+for|map\s+(?:search|route)\s+(?:to|for)|directions?\s+to|navigate\s+to|route\s+to)\b""", RegexOption.IGNORE_CASE)
@@ -719,6 +722,75 @@ internal object ContactQueryActionParser {
             normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:find|search|look\s+up)\s+(?:my\s+)?contacts?\b""")) ||
             normalized.contains(Regex("""\b(contacts?\s+(permission|permissions|form|page|component|api|screen|tracing|support|provider)|contactscontract|delete\s+contacts?|edit\s+contacts?|export\s+contacts?|all\s+contacts?|contacts?\s+list)\b""")) ||
             normalized.contains(Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\bcontacts?\b"""))
+    }
+}
+
+internal object CalendarAvailabilityActionParser {
+    private val isoOffsetDateTimePattern =
+        Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})""")
+    private val englishPattern =
+        Regex(
+            """\b(calendar\s+availability|calendar\s+free/busy|calendar\s+free busy|free/busy|free busy|am\s+i\s+(?:free|available))\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeCalendarAvailabilityNonAction()) return false
+        val normalized = input.lowercase()
+        val hasTrigger = listOf("忙闲", "空闲", "有空", "日历可用", "日历占用").any { it in input } ||
+            englishPattern.containsMatchIn(normalized)
+        return hasTrigger && parameters(input) != null
+    }
+
+    fun draft(input: String): ActionDraft {
+        val parameters = parameters(input).orEmpty()
+        return ActionDraft(
+            functionName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+            title = "查询日历忙闲",
+            summary = "将只读查询本机日历忙闲：${parameters["start"].orEmpty()} 到 ${parameters["end"].orEmpty()}",
+            parameters = parameters,
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun parameters(input: String): Map<String, String>? {
+        val matches = isoOffsetDateTimePattern.findAll(input).map { it.value }.take(2).toList()
+        if (matches.size < 2) return null
+        val validation = CalendarAvailabilityQuery.parseWindow(matches[0], matches[1])
+        if (validation !is CalendarAvailabilityQueryValidation.Valid) return null
+        return mapOf(
+            "start" to matches[0],
+            "end" to matches[1],
+        )
+    }
+
+    private fun String.looksLikeCalendarAvailabilityNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "日历权限",
+            "不要查忙闲",
+            "不要查询忙闲",
+            "别查忙闲",
+            "不要查日历忙闲",
+            "别查日历忙闲",
+            "读取事件",
+            "事件详情",
+            "事件标题",
+            "日历标题",
+            "日历地点",
+            "参与人",
+            "导出日历",
+            "全量日历",
+            "忙闲是什么意思",
+            "忙闲怎么实现",
+            "日历忙闲怎么实现",
+            "怎么设计",
+            "如何实现",
+        ).any { it in this } ||
+            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:check|query|read)\s+(?:calendar\s+)?(?:availability|free/busy|free busy)\b""")) ||
+            normalized.contains(Regex("""\b(what\s+is\s+free/busy|calendar\s+availability\s+(api|screen|component|implementation|design|schema|tests?|parser|docs?)|free/busy\s+(api|schema|tests?|parser|docs?)|availability\s+api)\b""")) ||
+            normalized.contains(Regex("""\b(event\s+(details?|titles?|locations?|attendees?)|export\s+calendar|all\s+calendar)\b""")) ||
+            normalized.contains(Regex("""\b(how\s+do\s+i|how\s+to|implement|design)\b.*\b(calendar\s+availability|free/busy|free busy|availability)\b"""))
     }
 }
 

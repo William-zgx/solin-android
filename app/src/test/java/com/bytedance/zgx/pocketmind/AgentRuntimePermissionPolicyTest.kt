@@ -53,6 +53,24 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
+    fun calendarAvailabilitySkillFirstConfirmationStillRequestsCalendarPermission() {
+        val confirmation = confirmationFor(
+            toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+            arguments = mapOf(
+                "start" to "2026-06-01T09:00:00Z",
+                "end" to "2026-06-01T10:00:00Z",
+            ),
+            skillId = "calendar_availability_skill",
+        )
+
+        assertEquals(
+            listOf(Manifest.permission.READ_CALENDAR),
+            confirmation.runtimePermissionsFor(),
+        )
+        assertTrue(confirmation.specialAccessRequirementsFor().isEmpty())
+    }
+
+    @Test
     fun recentFilesUsesLegacyStoragePermissionBeforeAndroid13() {
         assertEquals(
             listOf(Manifest.permission.READ_EXTERNAL_STORAGE),

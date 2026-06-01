@@ -197,6 +197,13 @@ Current status:
   `query_contacts` still requires confirmed `READ_CONTACTS`, schema-bounds
   `maxCount` to 20, returns only name/phone summaries, and marks both query and
   contacts JSON as private trace outputs.
+- Explicit calendar availability requests now also have a conservative
+  Skill-first path. The shared parser requires a busy/free intent plus two
+  timezone-qualified ISO timestamps, rejects permissions/API/implementation
+  discussion and natural-language-only dates, and keeps the existing
+  `query_calendar_availability` boundary: confirmed `READ_CALENDAR`, at most
+  the schema/provider window, and busy/free blocks without event titles,
+  locations, attendees, notes, or calendar IDs.
 - Skill model-step results can now be consumed generically: when a declarative
   `ToolStep` depends on a `ModelStep`, the model output is bound through the
   tool step's `argumentBindings`, then validated, safety-checked, audited, and
@@ -225,6 +232,7 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstRecentNotificationsBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstContactLookupBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.contactObservationRedactsPrivateTraceFields`
+- `AgentLoopRuntimeTest.skillFirstCalendarAvailabilityBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation`
 - `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
@@ -346,6 +354,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.plansForegroundAppWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.plansRecentNotificationsWithoutActionDraftWhenCurrentAppRequestIsExplicit`
 - `BuiltInSkillRuntimeTest.plansContactLookupWithoutActionDraftWhenQueryIsExplicit`
+- `BuiltInSkillRuntimeTest.plansCalendarAvailabilityWithoutActionDraftWhenIsoWindowIsExplicit`
 - `BuiltInSkillRuntimeTest.skillFirstPlannerDoesNotTreatOrdinaryShareDiscussionAsShareTool`
 - `BuiltInSkillRuntimeTest.validateStructureRejectsUnorderedOrInvalidCompositePlan`
 - `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`

@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.CalendarAvailabilityActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
 import com.bytedance.zgx.pocketmind.action.ContactQueryActionParser
 import com.bytedance.zgx.pocketmind.action.DeepLinkActionParser
@@ -35,6 +36,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.QUERY_FOREGROUND_APP to FOREGROUND_APP_CONTEXT_SKILL,
         MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS to RECENT_NOTIFICATIONS_CONTEXT_SKILL,
         MobileActionFunctions.QUERY_CONTACTS to CONTACT_LOOKUP_SKILL,
+        MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY to CALENDAR_AVAILABILITY_SKILL,
     )
 
     override fun manifests(): List<SkillManifest> = builtInSkillManifests
@@ -50,6 +52,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && CalendarDraftActionParser.matches(input) ->
                 plan(input, CalendarDraftActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && CalendarAvailabilityActionParser.matches(input) ->
+                plan(input, CalendarAvailabilityActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && DeviceSettingsActionParser.matches(input) ->
                 plan(input, DeviceSettingsActionParser.draft(input).toRequestPair())
@@ -214,6 +219,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val FOREGROUND_APP_CONTEXT_SKILL = "foreground_app_context_skill"
         const val RECENT_NOTIFICATIONS_CONTEXT_SKILL = "recent_notifications_context_skill"
         const val CONTACT_LOOKUP_SKILL = "contact_lookup_skill"
+        const val CALENDAR_AVAILABILITY_SKILL = "calendar_availability_skill"
     }
 }
 
@@ -415,6 +421,19 @@ private val builtInSkillManifests = listOf(
         description = "在用户明确提供查询词时读取联系人最小摘要。",
         triggerExamples = listOf("查联系人 Alice", "find contact Alice"),
         requiredTools = listOf(MobileActionFunctions.QUERY_CONTACTS),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.LowReadOnly,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.CALENDAR_AVAILABILITY_SKILL,
+        version = 1,
+        title = "日历忙闲查询",
+        description = "在用户提供明确 ISO 时间窗口时只读查询本机日历忙闲。",
+        triggerExamples = listOf(
+            "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z",
+            "calendar availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z",
+        ),
+        requiredTools = listOf(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.LowReadOnly,
     ),

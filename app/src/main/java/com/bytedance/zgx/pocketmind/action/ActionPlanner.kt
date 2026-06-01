@@ -103,7 +103,6 @@ class MobileActionPlanner : ActionPlanner {
 
     private fun inferDraft(input: String): ActionDraft? {
         val normalized = input.lowercase()
-        val calendarWindowParameters = calendarAvailabilityParameters(input)
         return when {
             DeviceSettingsActionParser.matches(input) ->
                 DeviceSettingsActionParser.draft(input)
@@ -153,8 +152,8 @@ class MobileActionPlanner : ActionPlanner {
             RecentFilesActionParser.matches(input, includeNonMediaKinds = true) ->
                 RecentFilesActionParser.draft(input)
 
-            isCalendarAvailabilityRequest(input) && calendarWindowParameters != null ->
-                MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY.toDraft(calendarWindowParameters)
+            CalendarAvailabilityActionParser.matches(input) ->
+                CalendarAvailabilityActionParser.draft(input)
 
             ContactQueryActionParser.matches(input) ->
                 ContactQueryActionParser.draft(input)
@@ -311,14 +310,6 @@ class MobileActionPlanner : ActionPlanner {
 
     private fun isReminderRequest(input: String): Boolean =
         ReminderActionParser.matches(input)
-
-    private fun isCalendarAvailabilityRequest(input: String): Boolean {
-        val normalized = input.lowercase()
-        return listOf("忙闲", "空闲", "有空", "日历可用", "日历占用")
-            .any { it in input } ||
-            Regex("""\b(availability|free/busy|free busy|available|calendar availability)\b""")
-                .containsMatchIn(normalized)
-    }
 
     private fun isCancelReminderRequest(input: String): Boolean {
         return ("取消" in input || "撤销" in input) &&
@@ -537,15 +528,6 @@ class MobileActionPlanner : ActionPlanner {
         return mapOf("taskId" to taskId)
     }
 
-    private fun calendarAvailabilityParameters(input: String): Map<String, String>? {
-        val matches = ISO_OFFSET_DATE_TIME_PATTERN.findAll(input).map { it.value }.take(2).toList()
-        if (matches.size < 2) return null
-        return mapOf(
-            "start" to matches[0],
-            "end" to matches[1],
-        )
-    }
-
     private fun parseJsonLikeObject(raw: String): Map<String, String> {
         val content = raw.trim().removePrefix("{").removeSuffix("}")
         if (content.isBlank()) return emptyMap()
@@ -558,8 +540,6 @@ class MobileActionPlanner : ActionPlanner {
     private companion object {
         val CALL_PATTERN = Regex("""^call:([a-zA-Z0-9_]+)\s*(\{.*\})$""", RegexOption.DOT_MATCHES_ALL)
         val KEY_VALUE_PATTERN = Regex(""""([^"]+)"\s*:\s*"([^"]*)"""")
-        val ISO_OFFSET_DATE_TIME_PATTERN =
-            Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})""")
         val TASK_ID_PATTERN = Regex("task-[A-Za-z0-9_-]+")
         val APP_INTENT_TRIGGER_PATTERN = Regex("""(打开|打开并|启动|启动并)\s*(?:应用|app|应用程序)?""")
         val APP_INTENT_PACKAGE_PATTERN = Regex("""\b[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+\b""")
