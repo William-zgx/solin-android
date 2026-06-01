@@ -1,5 +1,41 @@
 # PocketMind 验证报告
 
+## 2026-06-01 HTTPS deep link skill-first routing 增量验证
+
+本轮覆盖项：
+
+- 显式“打开/访问 HTTPS 链接”请求可由 built-in Skill runtime 直接规划为
+  `open_deep_link` 待确认工具，不再依赖 action planner。
+- Shared deep-link parser 要求打开意图和 `https://` URI 同时存在；裸链接、
+  解释类、否定类、`http/file/javascript` 等非 HTTPS scheme 不触发。
+- URI-like 文本不会再被 package-name app intent parser 误判成包名启动请求。
+- 新增 `deep_link_navigation_skill` manifest，仍经 registry schema、safety、
+  audit 和用户确认，工具层继续只允许 HTTPS 外部导航。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersDeepLinkDraftForExplicitUri' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansHttpsDeepLinkWithoutActionDraftWhenCommandIsExplicit' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstHttpsDeepLinkBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.parameterizedSkillFirstDiscussionInputsRemainAnswersWithoutToolAudit'
+```
+
+补充回归：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest'
+```
+
+结果：通过。
+
 ## 2026-06-01 Recent media metadata skill-first routing 增量验证
 
 本轮覆盖项：

@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
+import com.bytedance.zgx.pocketmind.action.DeepLinkActionParser
 import com.bytedance.zgx.pocketmind.action.DeviceSettingsActionParser
 import com.bytedance.zgx.pocketmind.action.EmailDraftActionParser
 import com.bytedance.zgx.pocketmind.action.MapSearchActionParser
@@ -27,6 +28,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.READ_CLIPBOARD to CLIPBOARD_CONTEXT_SKILL,
         MobileActionFunctions.SHARE_TEXT to SHARE_TEXT_SKILL,
         MobileActionFunctions.QUERY_RECENT_FILES to RECENT_FILES_CONTEXT_SKILL,
+        MobileActionFunctions.OPEN_DEEP_LINK to DEEP_LINK_NAVIGATION_SKILL,
     )
 
     override fun manifests(): List<SkillManifest> = builtInSkillManifests
@@ -51,6 +53,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && RecentFilesActionParser.matches(input) ->
                 plan(input, RecentFilesActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && DeepLinkActionParser.matches(input) ->
+                plan(input, DeepLinkActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
@@ -190,6 +195,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val SHARE_TEXT_SKILL = "share_text_skill"
         const val CLIPBOARD_SUMMARY_SHARE_SKILL = "clipboard_summary_share_skill"
         const val RECENT_FILES_CONTEXT_SKILL = "recent_files_context_skill"
+        const val DEEP_LINK_NAVIGATION_SKILL = "deep_link_navigation_skill"
     }
 }
 
@@ -353,5 +359,15 @@ private val builtInSkillManifests = listOf(
         requiredTools = listOf(MobileActionFunctions.QUERY_RECENT_FILES),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.LowReadOnly,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL,
+        version = 1,
+        title = "安全链接跳转",
+        description = "在用户明确要求时打开 HTTPS 外部链接，拒绝非 HTTPS scheme。",
+        triggerExamples = listOf("打开链接 https://example.com", "open https://example.com"),
+        requiredTools = listOf(MobileActionFunctions.OPEN_DEEP_LINK),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
     ),
 )

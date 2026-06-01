@@ -390,6 +390,55 @@ internal object RecentFilesActionParser {
     }
 }
 
+internal object DeepLinkActionParser {
+    private val uriPattern = Regex("""\bhttps://\S+""", RegexOption.IGNORE_CASE)
+    private val englishOpenPattern = Regex("""\b(open|visit|go\s+to|launch)\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeDeepLinkNonAction()) return false
+        val hasUri = uriPattern.containsMatchIn(input)
+        val hasOpenIntent = listOf("打开", "访问", "前往", "跳转", "进入").any { it in input } ||
+            englishOpenPattern.containsMatchIn(input)
+        return hasUri && hasOpenIntent
+    }
+
+    fun draft(input: String): ActionDraft {
+        val uri = extractUri(input)
+        return ActionDraft(
+            functionName = MobileActionFunctions.OPEN_DEEP_LINK,
+            title = "打开深链",
+            summary = "将打开深度链接：$uri",
+            parameters = mapOf("uri" to uri),
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun extractUri(input: String): String =
+        cleanUri(uriPattern.find(input)?.value.orEmpty()).ifBlank { cleanedObject(input) }
+
+    private fun cleanUri(raw: String): String =
+        raw.trim().trimEnd(*TRAILING_URI_PUNCTUATION.toCharArray())
+
+    private fun String.looksLikeDeepLinkNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "不要打开",
+            "别打开",
+            "不要访问",
+            "别访问",
+            "解释",
+            "说明",
+            "什么意思",
+            "是什么",
+        ).any { it in this } ||
+            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:open|visit|go\s+to|launch)\b""")) ||
+            normalized.contains(Regex("""^\s*how\s+do\s+i\s+(?:open|visit|go\s+to|launch)\b""")) ||
+            normalized.contains(Regex("""^\s*(what\s+is|explain|describe)\b"""))
+    }
+
+    private const val TRAILING_URI_PUNCTUATION = ".,;:!?)]}。！）；】"
+}
+
 private fun String.looksLikeDiscussion(): Boolean {
     val normalized = lowercase()
     return listOf("什么意思", "什么含义", "怎么说", "如何表达", "解释", "怎么理解", "怎么写", "是什么")

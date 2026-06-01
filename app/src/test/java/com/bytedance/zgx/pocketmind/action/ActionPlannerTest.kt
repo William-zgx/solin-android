@@ -437,6 +437,18 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.OPEN_DEEP_LINK, plan.draft?.functionName)
         assertEquals("https://example.com/path?q=agent", plan.draft?.parameters?.get("uri"))
+
+        val englishPlan = planner.plan("open https://example.com/path.")
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.OPEN_DEEP_LINK, englishPlan.draft?.functionName)
+        assertEquals("https://example.com/path", englishPlan.draft?.parameters?.get("uri"))
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("https://example.com/path").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("解释 https://example.com/path 是什么").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("how do I open https://example.com/path").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要打开 https://example.com/path").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开链接 http://example.com/path").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开链接 javascript:alert(1)").kind)
     }
 
     @Test

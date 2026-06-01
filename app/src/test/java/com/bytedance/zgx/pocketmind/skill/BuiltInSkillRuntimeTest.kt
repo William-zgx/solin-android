@@ -26,6 +26,7 @@ class BuiltInSkillRuntimeTest {
         assertTrue(BuiltInSkillRuntime.SHARE_TEXT_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL in manifests)
         assertTrue(BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL in manifests)
+        assertTrue(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL in manifests)
         assertTrue(manifests.values.all { it.version >= 1 })
         assertTrue(manifests.values.all { it.inputSchemaJson.contains("additionalProperties") })
     }
@@ -136,6 +137,7 @@ class BuiltInSkillRuntimeTest {
             ),
             "总结剪贴板并分享" to runtime.planClipboardSummaryShare("总结剪贴板并分享"),
             "最近图片" to requireNotNull(runtime.plan("最近图片")),
+            "打开链接 https://example.com" to requireNotNull(runtime.plan("打开链接 https://example.com")),
         )
 
         plans.forEach { (input, plan) ->
@@ -486,6 +488,28 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("识别最近截图文字"))
         assertEquals(null, runtime.plan("查询最近5个文档"))
         assertEquals(null, runtime.plan("最近文件"))
+    }
+
+    @Test
+    fun plansHttpsDeepLinkWithoutActionDraftWhenCommandIsExplicit() {
+        val plan = requireNotNull(runtime.plan("打开链接 https://example.com/path?q=agent"))
+
+        assertEquals(BuiltInSkillRuntime.DEEP_LINK_NAVIGATION_SKILL, plan.request.skillId)
+        assertEquals(mapOf("input" to "打开链接 https://example.com/path?q=agent"), plan.request.arguments)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.OPEN_DEEP_LINK, step.request.toolName)
+        assertEquals("https://example.com/path?q=agent", step.request.arguments["uri"])
+        assertEquals(MobileActionFunctions.OPEN_DEEP_LINK, step.draft.functionName)
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+
+        assertEquals(null, runtime.plan("https://example.com/path"))
+        assertEquals(null, runtime.plan("解释 https://example.com/path 是什么"))
+        assertEquals(null, runtime.plan("how do I open https://example.com/path"))
+        assertEquals(null, runtime.plan("不要打开 https://example.com/path"))
+        assertEquals(null, runtime.plan("打开链接 http://example.com/path"))
+        assertEquals(null, runtime.plan("打开链接 file:///tmp/a"))
+        assertEquals(null, runtime.plan("打开链接 javascript:alert(1)"))
     }
 
     @Test

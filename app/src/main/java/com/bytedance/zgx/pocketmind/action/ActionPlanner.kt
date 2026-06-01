@@ -102,8 +102,8 @@ class MobileActionPlanner : ActionPlanner {
             EmailDraftActionParser.matches(input) ->
                 EmailDraftActionParser.draft(input)
 
-            isOpenDeepLinkRequest(input) ->
-                MobileActionFunctions.OPEN_DEEP_LINK.toDraft(mapOf("uri" to extractUri(input)))
+            DeepLinkActionParser.matches(input) ->
+                DeepLinkActionParser.draft(input)
 
             isOpenAppDeepTargetRequest(input) ->
                 MobileActionFunctions.OPEN_APP_DEEP_TARGET.toDraft(openAppDeepTargetParameters(input))
@@ -534,11 +534,8 @@ class MobileActionPlanner : ActionPlanner {
         }
     }
 
-    private fun isOpenDeepLinkRequest(input: String): Boolean {
-        return DEEP_LINK_PATTERN.containsMatchIn(input)
-    }
-
     private fun isOpenAppIntentRequest(input: String): Boolean {
+        if (URI_SCHEME_PATTERN.containsMatchIn(input)) return false
         val hasTrigger = APP_INTENT_TRIGGER_PATTERN.containsMatchIn(input)
         val hasKnownPackage = knownPackageFromInput(input) != null
         val hasPackageLike = APP_INTENT_PACKAGE_PATTERN.containsMatchIn(input)
@@ -546,6 +543,7 @@ class MobileActionPlanner : ActionPlanner {
     }
 
     private fun isOpenAppDeepTargetRequest(input: String): Boolean {
+        if (URI_SCHEME_PATTERN.containsMatchIn(input)) return false
         val hasTrigger = APP_INTENT_TRIGGER_PATTERN.containsMatchIn(input)
         val hasKnownPackage = knownPackageFromInput(input) != null
         val hasPackageLike = APP_INTENT_PACKAGE_PATTERN.containsMatchIn(input)
@@ -588,17 +586,6 @@ class MobileActionPlanner : ActionPlanner {
         ).any { it in normalized }
     }
 
-    private fun cleanUri(raw: String): String =
-        raw.trim().trimEnd(*TRAILING_URI_PUNCTUATION.toCharArray())
-
-    private fun extractUri(input: String): String {
-        val directMatch = DEEP_LINK_PATTERN.find(input)?.value
-        if (directMatch != null) {
-            return cleanUri(directMatch)
-        }
-        return cleanedObject(input)
-    }
-
     private fun cancelReminderParameters(input: String): Map<String, String> {
         val taskId = TASK_ID_PATTERN.find(input)?.value.orEmpty()
         return mapOf("taskId" to taskId)
@@ -628,9 +615,9 @@ class MobileActionPlanner : ActionPlanner {
         val ISO_OFFSET_DATE_TIME_PATTERN =
             Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})""")
         val TASK_ID_PATTERN = Regex("task-[A-Za-z0-9_-]+")
-        val DEEP_LINK_PATTERN = Regex("""\bhttps://\S+""", RegexOption.IGNORE_CASE)
         val APP_INTENT_TRIGGER_PATTERN = Regex("""(打开|打开并|启动|启动并)\s*(?:应用|app|应用程序)?""")
         val APP_INTENT_PACKAGE_PATTERN = Regex("""\b[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+\b""")
+        val URI_SCHEME_PATTERN = Regex("""\b[a-zA-Z][a-zA-Z0-9+.-]*://""")
         val KNOWN_APP_PACKAGES = mapOf(
             "微信" to "com.tencent.mm",
             "wechat" to "com.tencent.mm",
@@ -645,6 +632,5 @@ class MobileActionPlanner : ActionPlanner {
             "美团" to "com.sankuai.meituan",
             "meituan" to "com.sankuai.meituan",
         )
-        val TRAILING_URI_PUNCTUATION = ".,;:!?)]}。！）；】"
     }
 }

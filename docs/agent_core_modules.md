@@ -174,6 +174,10 @@ Current status:
   or audio metadata requests, keeps documents/downloads/all-files on the action
   fallback path, and rejects OCR/text-extraction phrasing so recent screenshot
   and image OCR remain separate confirmed tools.
+- Explicit HTTPS link navigation now also has a conservative Skill-first path.
+  The shared parser requires an open/visit intent plus an `https://` URI,
+  rejects bare links, explanation/negative phrasing, and non-HTTPS schemes, and
+  keeps URI-like text out of package app-intent inference.
 - Skill model-step results can now be consumed generically: when a declarative
   `ToolStep` depends on a `ModelStep`, the model output is bound through the
   tool step's `argumentBindings`, then validated, safety-checked, audited, and
@@ -197,6 +201,7 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation`
 - `AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.skillFirstHttpsDeepLinkBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation`
 - `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
@@ -314,6 +319,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.plansDeviceSettingsWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.plansWebSearchWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.plansRecentMediaFilesWithoutActionDraftWhenMetadataRequestIsExplicit`
+- `BuiltInSkillRuntimeTest.plansHttpsDeepLinkWithoutActionDraftWhenCommandIsExplicit`
 - `BuiltInSkillRuntimeTest.skillFirstPlannerDoesNotTreatOrdinaryShareDiscussionAsShareTool`
 - `BuiltInSkillRuntimeTest.validateStructureRejectsUnorderedOrInvalidCompositePlan`
 - `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`
