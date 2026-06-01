@@ -20,7 +20,16 @@ class ReminderRescheduler(
                 task.triggerAtMillis
             }
             scheduleAlarm(task, triggerAtMillis)
-                .onSuccess { scheduled += 1 }
+                .onSuccess {
+                    scheduled += 1
+                    if (triggerAtMillis != task.triggerAtMillis) {
+                        repository.updateScheduledReminderTriggerAt(
+                            taskId = task.id,
+                            triggerAtMillis = triggerAtMillis,
+                            updatedAtMillis = now,
+                        )
+                    }
+                }
                 .onFailure {
                     failed += 1
                     repository.markFailed(task.id)

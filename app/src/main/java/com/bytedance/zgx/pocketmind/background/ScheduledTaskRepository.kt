@@ -164,6 +164,17 @@ class ScheduledTaskRepository(
     fun deleteScheduled(taskId: String): Boolean =
         updateScheduledStatus(taskId, ScheduledTaskStatus.Deleted)
 
+    fun updateScheduledReminderTriggerAt(
+        taskId: String,
+        triggerAtMillis: Long,
+        updatedAtMillis: Long = clockMillis(),
+    ): Boolean =
+        dao.updateReminderTriggerAtIfScheduled(
+            taskId = taskId,
+            triggerAtMillis = triggerAtMillis,
+            updatedAtMillis = updatedAtMillis,
+        ) > 0
+
     fun markRunning(taskId: String) {
         updateStatus(taskId, ScheduledTaskStatus.Running)
     }

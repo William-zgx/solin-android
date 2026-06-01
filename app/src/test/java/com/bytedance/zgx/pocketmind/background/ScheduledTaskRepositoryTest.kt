@@ -354,6 +354,9 @@ class ScheduledTaskRepositoryTest {
         assertEquals(ReminderRescheduleReport(total = 2, scheduled = 2, failed = 0), report)
         assertEquals(2_250L, scheduledAlarms[pastDue.id])
         assertEquals(5_000L, scheduledAlarms[future.id])
+        assertEquals(2_250L, repository.task(pastDue.id)?.triggerAtMillis)
+        assertEquals(5_000L, repository.task(future.id)?.triggerAtMillis)
+        assertEquals(2_000L, repository.task(pastDue.id)?.updatedAtMillis)
         assertEquals(
             listOf(
                 "schedule:${pastDue.id}",
@@ -372,18 +375,20 @@ class ScheduledTaskRepositoryTest {
         val task = repository.createReminder(
             title = "失败提醒",
             body = "无法重排",
-            triggerAtMillis = 5_000L,
+            triggerAtMillis = 1_500L,
         )
         val rescheduler = ReminderRescheduler(
             repository = repository,
             scheduleAlarm = { _, _ -> Result.failure(IllegalStateException("alarm unavailable")) },
             clockMillis = { 2_000L },
+            catchUpDelayMillis = 250L,
         )
 
         val report = rescheduler.reschedulePendingReminders()
 
         assertEquals(ReminderRescheduleReport(total = 1, scheduled = 0, failed = 1), report)
         assertEquals(ScheduledTaskStatus.Failed, repository.task(task.id)?.status)
+        assertEquals(1_500L, repository.task(task.id)?.triggerAtMillis)
         assertEquals(emptyList<ScheduledTask>(), repository.scheduledReminders())
     }
 
@@ -437,6 +442,24 @@ class ScheduledTaskRepositoryTest {
             if (existing.status != ScheduledTaskStatus.Scheduled.name) return 0
             tasks[taskId] = existing.copy(
                 status = status,
+                updatedAtMillis = updatedAtMillis,
+            )
+            return 1
+        }
+
+        override fun updateReminderTriggerAtIfScheduled(
+            taskId: String,
+            triggerAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.Reminder.name ||
+                existing.status != ScheduledTaskStatus.Scheduled.name
+            ) {
+                return 0
+            }
+            tasks[taskId] = existing.copy(
+                triggerAtMillis = triggerAtMillis,
                 updatedAtMillis = updatedAtMillis,
             )
             return 1

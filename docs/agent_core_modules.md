@@ -787,9 +787,12 @@ Current status:
 - `ReminderBootReceiver` listens for `BOOT_COMPLETED` and asks
   `ReminderRescheduler` to restore every still-`Scheduled` reminder after the
   system clears alarms on reboot. Past-due reminders are rescheduled with a
-  short catch-up delay instead of being silently dropped. After registering the
-  new data-URI alarm identity, the rescheduler performs a best-effort cleanup
-  of the legacy hash-only identity to prevent duplicate wakeups after upgrade.
+  short catch-up delay instead of being silently dropped; after the catch-up
+  alarm is accepted, the stored `triggerAtMillis` is conditionally moved to the
+  same catch-up time while the row is still `Reminder` + `Scheduled`. After
+  registering the new data-URI alarm identity, the rescheduler performs a
+  best-effort cleanup of the legacy hash-only identity to prevent duplicate
+  wakeups after upgrade.
 - If an alarm cannot be scheduled or restored, the task is marked `Failed` so
   repository state does not claim a reminder is still pending when Android has
   no alarm registered.

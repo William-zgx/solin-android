@@ -276,6 +276,26 @@ class PeriodicCheckSchedulerTest {
             return 1
         }
 
+        override fun updateReminderTriggerAtIfScheduled(
+            taskId: String,
+            triggerAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (existing.type != ScheduledTaskType.Reminder.name ||
+                existing.status != ScheduledTaskStatus.Scheduled.name
+            ) {
+                return 0
+            }
+            upsert(
+                existing.copy(
+                    triggerAtMillis = triggerAtMillis,
+                    updatedAtMillis = updatedAtMillis,
+                ),
+            )
+            return 1
+        }
+
         override fun upsert(task: ScheduledTaskEntity) {
             tasks[task.id] = task
             upsertedStatuses.getOrPut(task.id) { mutableListOf() } +=

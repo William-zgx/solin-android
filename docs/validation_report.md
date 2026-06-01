@@ -1432,6 +1432,29 @@ rg credential-pattern scan excluding build, .gradle, and test fixtures
   `ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh` 或
   `AVD_NAME=<name> scripts/verify_emulator.sh`。
 
+## 2026-06-01 Reminder catch-up trigger persistence 增量验证
+
+本轮覆盖项：
+
+- 开机重排过期 reminder 时，`ReminderRescheduler` 会把实际安排的 catch-up
+  alarm 时间条件写回 `scheduled_tasks.triggerAtMillis`，避免后台任务列表、
+  周期检查和 auto-managed `TaskState` 长期记忆继续看到过去的触发时间。
+- 写回使用 `Reminder + Scheduled` 条件更新；如果任务已被取消、投递或并发进入
+  终态，不通过普通 upsert 覆盖状态。
+- alarm 安排失败时仍标记任务 `Failed`，且不把 catch-up 时间误写入失败任务。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRemovalCoordinatorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ReminderAlarmReceiverTest'
+git diff --check
+rg credential-pattern scan excluding build, .gradle, and test fixtures
+```
+
 ## 2026-05-31 Reminder rollback metadata 增量验证
 
 本轮覆盖项：

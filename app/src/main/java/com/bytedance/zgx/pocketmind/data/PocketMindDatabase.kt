@@ -228,6 +228,19 @@ interface ScheduledTaskDao {
         updatedAtMillis: Long,
     ): Int
 
+    @Query(
+        """
+        UPDATE scheduled_tasks
+        SET triggerAtMillis = :triggerAtMillis, updatedAtMillis = :updatedAtMillis
+        WHERE id = :taskId AND type = 'Reminder' AND status = 'Scheduled'
+        """,
+    )
+    fun updateReminderTriggerAtIfScheduled(
+        taskId: String,
+        triggerAtMillis: Long,
+        updatedAtMillis: Long,
+    ): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsert(task: ScheduledTaskEntity)
 }
