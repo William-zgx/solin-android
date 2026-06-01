@@ -282,11 +282,12 @@ class AgentLoopRuntime(
             return null
         }
         val request = toolRequestFor(runId, result.requestId) ?: return null
+        val safeResult = toolRegistry.validateResult(request, result) ?: result
         traceStore.updateState(runId, AgentRunState.Observing)
-        val continuation = continuationForToolObservation(run, request, result)
+        val continuation = continuationForToolObservation(run, request, safeResult)
         val continuationPrompt = continuation?.prompt
         val continuationRequiresLocalModel = continuation?.requiresLocalModel ?: false
-        val observedResult = result.redactedForTrace(request)
+        val observedResult = safeResult.redactedForTrace(request)
         val retryAttempt = nextRetryAttempt(runId, observedResult)
         val retryRequest = if (retryAttempt > 0) request else null
         traceStore.appendStep(runId, AgentStep.ToolObserved(observedResult))

@@ -1493,6 +1493,60 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun malformedSucceededToolResultFailsBeforeContinuationAndDoesNotLeakPayload() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = readClipboardPlanningResult(),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner {
+                error("invalid tool results must not reach replanning")
+            },
+        )
+        val rawPayload = "malformed clipboard payload must not leak"
+        val planned = runtime.runOnce(
+            input = "读取剪贴板并总结",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "malformed success summary $rawPayload",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+                    "text" to rawPayload,
+                    "truncated" to "false",
+                    "unexpected" to rawPayload,
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        require(observed.decision is AgentObservationDecision.Fail)
+        assertTrue(observed.decision.reason.contains("returned invalid result"))
+        assertEquals(ToolErrorCode.InvalidResult, observed.result.error?.code)
+        assertNull(observed.continuationPromptForModel)
+        assertFalse(observed.steps.any { step ->
+            step is AgentStep.ObservationDecided &&
+                step.decision is AgentObservationDecision.ContinueWithModel
+        })
+        assertFalse(observed.steps.toString().contains(rawPayload))
+        assertFalse(auditSink.events.toString().contains(rawPayload))
+    }
+
+    @Test
     fun recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(
@@ -1533,14 +1587,11 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已从最近截图提取 14 个字符的本地 OCR 摘录。",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-                    "privacy" to "LocalOnly",
-                    "ocrText" to rawOcrText,
-                    "truncated" to "false",
-                    "ocrTextIncluded" to "true",
-                    "rawPayloadIncluded" to "false",
-                    "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted",
+                data = recentImageOcrResultData(
+                    toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                    text = rawOcrText,
+                    source = "recent_screenshot",
+                    maxCount = "1",
                 ),
             ),
         )
@@ -1599,14 +1650,11 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已从最近图片提取 18 个字符的本地 OCR 摘录。",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_RECENT_IMAGE_OCR,
-                    "privacy" to "LocalOnly",
-                    "ocrText" to rawOcrText,
-                    "truncated" to "false",
-                    "ocrTextIncluded" to "true",
-                    "rawPayloadIncluded" to "false",
-                    "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted",
+                data = recentImageOcrResultData(
+                    toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+                    text = rawOcrText,
+                    source = "recent_image",
+                    maxCount = "3",
                 ),
             ),
         )
@@ -1666,16 +1714,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取当前屏幕 17 个字符的可访问文本快照。",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-                    "privacy" to "LocalOnly",
-                    "requiresLocalModel" to "true",
-                    "screenText" to rawScreenText,
-                    "truncated" to "false",
-                    "screenTextIncluded" to "true",
-                    "rawTreeIncluded" to "false",
-                    "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
-                ),
+                data = currentScreenTextResultData(rawScreenText),
             ),
         )
 
@@ -1781,6 +1820,7 @@ class AgentLoopRuntimeTest {
                 requestId = sharePlan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开系统分享面板",
+                data = externalActivityResultData(MobileActionFunctions.SHARE_TEXT),
             ),
         )
 
@@ -1819,14 +1859,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取当前屏幕可访问文本快照",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-                    "privacy" to MessagePrivacy.LocalOnly.name,
-                    "requiresLocalModel" to "true",
-                    "screenText" to rawScreenText,
-                    "truncated" to "false",
-                    "screenTextIncluded" to "true",
-                ),
+                data = currentScreenTextResultData(rawScreenText),
             ),
         )
         requireNotNull(observed)
@@ -1885,10 +1918,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf(
-                    "text" to "不应持久化的剪贴板原文",
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData("不应持久化的剪贴板原文"),
             ),
         )
         requireNotNull(observed)
@@ -1944,10 +1974,11 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取最近截图 OCR 摘录",
-                data = mapOf(
-                    "ocrText" to rawOcrText,
-                    "privacy" to MessagePrivacy.LocalOnly.name,
-                    "requiresLocalModel" to "true",
+                data = recentImageOcrResultData(
+                    toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                    text = rawOcrText,
+                    source = "recent_screenshot",
+                    maxCount = "1",
                 ),
             ),
         )
@@ -1987,10 +2018,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "联系人 Alice：仅本地摘要",
-                data = mapOf(
-                    "privacy" to MessagePrivacy.LocalOnly.name,
-                    "requiresLocalModel" to "true",
-                ),
+                data = contactsResultData(),
             ),
         )
 
@@ -2024,10 +2052,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf(
-                    "text" to "不应持久化的剪贴板原文",
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData("不应持久化的剪贴板原文"),
             ),
         )
         requireNotNull(observed)
@@ -2066,10 +2091,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf(
-                    "text" to "剪贴板原文",
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData("剪贴板原文"),
             ),
         )
         requireNotNull(observed)
@@ -2113,10 +2135,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf(
-                    "text" to secretClipboardText,
-                    "truncated" to "false",
-                ),
+                data = clipboardResultData(secretClipboardText),
             ),
         )
         requireNotNull(observed)
@@ -2472,6 +2491,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
             ),
         )
 
@@ -2579,16 +2599,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已安排 10000 触发的后台提醒",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
-                    "taskId" to "task-1",
-                    "taskStatus" to "Scheduled",
-                    "triggerAtMillis" to "10000",
-                    "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
-                    "recoveryTaskId" to "task-1",
-                    "title" to "喝水",
-                    "body" to "提醒我喝水",
-                ),
+                data = scheduleReminderResultData(taskId = "task-1", triggerAtMillis = "10000"),
             ),
         )
 
@@ -2682,13 +2693,7 @@ class AgentLoopRuntimeTest {
                 requestId = requested.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已取消后台任务：task-1",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.CANCEL_REMINDER,
-                    "taskId" to "task-1",
-                    "taskStatus" to "Cancelled",
-                    "title" to "喝水",
-                    "body" to "提醒我喝水",
-                ),
+                data = cancelReminderResultData(taskId = "task-1"),
             ),
         )
 
@@ -3080,13 +3085,7 @@ class AgentLoopRuntimeTest {
                 requestId = readRequestId,
                 status = ToolStatus.Succeeded,
                 summary = "已读取当前屏幕可访问文本快照",
-                data = mapOf(
-                    "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-                    "screenText" to rawScreenText,
-                    "screenTextIncluded" to "true",
-                    "privacy" to MessagePrivacy.LocalOnly.name,
-                    "requiresLocalModel" to "true",
-                ),
+                data = currentScreenTextResultData(rawScreenText),
             ),
         )
         requireNotNull(readObserved)
@@ -3176,6 +3175,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "搜索结果摘要",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
             ),
         )
         requireNotNull(searchObserved)
@@ -3302,6 +3302,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
             ),
         )
 
@@ -3342,6 +3343,7 @@ class AgentLoopRuntimeTest {
                 requestId = nextRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
             ),
         )
 
@@ -3409,10 +3411,10 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开网页搜索",
-                data = mapOf(
-                    "completionState" to "ExternalActivityOpened",
-                    "completionVerified" to "false",
-                    "externalOutcome" to "Unknown",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
                 ),
             ),
         )
@@ -3483,6 +3485,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
             ),
         )
 
@@ -3563,6 +3566,7 @@ class AgentLoopRuntimeTest {
                 requestId = oldRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
             ),
         )
         requireNotNull(currentPlanned)
@@ -3611,6 +3615,7 @@ class AgentLoopRuntimeTest {
                 requestId = currentRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
             ),
         )
 
@@ -4078,6 +4083,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
             ),
         )
 
@@ -4088,6 +4094,103 @@ class AgentLoopRuntimeTest {
         assertTrue(observed.steps.any { it is AgentStep.ToolRejected })
         assertTrue(observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size == 1)
         assertNull(runtime.latestPendingConfirmation())
+    }
+
+    private fun clipboardResultData(text: String): Map<String, String> =
+        mapOf(
+            "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+            "text" to text,
+            "truncated" to "false",
+        )
+
+    private fun recentImageOcrResultData(
+        toolName: String,
+        text: String,
+        source: String,
+        maxCount: String,
+    ): Map<String, String> =
+        mapOf(
+            "toolName" to toolName,
+            "privacy" to MessagePrivacy.LocalOnly.name,
+            "requiresLocalModel" to "true",
+            "source" to source,
+            "maxCount" to maxCount,
+            "scannedCount" to "1",
+            "ocrText" to text,
+            "truncated" to "false",
+            "ocrTextIncluded" to "true",
+            "rawPayloadIncluded" to "false",
+            "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted",
+        )
+
+    private fun currentScreenTextResultData(text: String): Map<String, String> =
+        mapOf(
+            "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            "privacy" to MessagePrivacy.LocalOnly.name,
+            "requiresLocalModel" to "true",
+            "source" to "accessibility",
+            "maxChars" to "1200",
+            "capturedAtMillis" to "1000",
+            "nodeCount" to "1",
+            "screenText" to text,
+            "truncated" to "false",
+            "screenTextIncluded" to "true",
+            "rawTreeIncluded" to "false",
+            "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
+        )
+
+    private fun contactsResultData(): Map<String, String> =
+        mapOf(
+            "toolName" to MobileActionFunctions.QUERY_CONTACTS,
+            "privacy" to MessagePrivacy.LocalOnly.name,
+            "requiresLocalModel" to "true",
+            "query" to "Alice",
+            "maxCount" to "5",
+            "contactCount" to "1",
+            "contactsJson" to """[{"name":"Alice","phone":"+1 555 0100"}]""",
+        )
+
+    private fun scheduleReminderResultData(
+        taskId: String,
+        triggerAtMillis: String,
+    ): Map<String, String> =
+        mapOf(
+            "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
+            "taskId" to taskId,
+            "taskStatus" to "Scheduled",
+            "triggerAtMillis" to triggerAtMillis,
+            "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
+            "recoveryTaskId" to taskId,
+        )
+
+    private fun cancelReminderResultData(taskId: String): Map<String, String> =
+        mapOf(
+            "toolName" to MobileActionFunctions.CANCEL_REMINDER,
+            "taskId" to taskId,
+            "taskStatus" to "Cancelled",
+        )
+
+    private fun externalActivityResultData(
+        toolName: String,
+        completionVerified: Boolean = true,
+        externalOutcome: String = "Opened",
+    ): Map<String, String> {
+        val (targetKind, intentAction) = when (toolName) {
+            MobileActionFunctions.SHARE_TEXT -> "android_chooser" to "android.intent.action.SEND"
+            MobileActionFunctions.OPEN_WIFI_SETTINGS -> "android_settings" to "android.settings.WIFI_SETTINGS"
+            MobileActionFunctions.WEB_SEARCH -> "browser_search" to "android.intent.action.WEB_SEARCH"
+            else -> "external_activity" to "android.intent.action.VIEW"
+        }
+        return mapOf(
+            "toolName" to toolName,
+            "completionState" to "ExternalActivityOpened",
+            "completionVerified" to completionVerified.toString(),
+            "externalOutcome" to externalOutcome,
+            "targetKind" to targetKind,
+            "intentAction" to intentAction,
+            "metadataPolicy" to "no_raw_payload_persisted",
+            "rawPayloadIncluded" to "false",
+        )
     }
 
     private data class SkillFirstDraftCase(

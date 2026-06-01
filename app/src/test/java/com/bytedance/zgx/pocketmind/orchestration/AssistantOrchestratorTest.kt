@@ -84,6 +84,7 @@ class AssistantOrchestratorTest {
                 requestId = route.toolRequest.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
             ),
         )
 
@@ -219,4 +220,16 @@ class AssistantOrchestratorTest {
                 fallbackReason = null,
             )
     }
+
+    private fun externalActivityResultData(toolName: String): Map<String, String> =
+        mapOf(
+            "toolName" to toolName,
+            "completionState" to "ExternalActivityOpened",
+            "completionVerified" to "true",
+            "externalOutcome" to "Opened",
+            "targetKind" to "browser_search",
+            "intentAction" to "android.intent.action.WEB_SEARCH",
+            "metadataPolicy" to "no_raw_payload_persisted",
+            "rawPayloadIncluded" to "false",
+        )
 }

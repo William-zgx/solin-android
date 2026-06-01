@@ -39,7 +39,10 @@ Current status:
   success schema. Output schema failures are wrapped as non-retryable
   `InvalidResult` failures carrying only tool context, so malformed success
   data cannot flow into Agent observation, trace summaries, audit display, or
-  Skill output binding as a successful observation.
+  Skill output binding as a successful observation. `AgentLoopRuntime` and
+  `SkillRunExecutor` also repeat this validation at observe, execute, and
+  resume boundaries to protect restored or externally supplied tool results
+  that did not come directly from `ValidatingToolExecutor`.
 - Current tools cover Wi-Fi settings, flashlight settings, map search, web
   search, email draft, calendar draft, contact draft, local reminders,
   confirmed clipboard text reads, outbound system sharing for text, current
@@ -100,6 +103,11 @@ Current status:
   planner, because their first tool step does not require model-driven
   parameter extraction.
 - Implemented confirmation state and post-confirmation observation.
+- Confirmed tool observations revalidate successful `ToolResult.data` against
+  the registered output schema before building local continuation prompts,
+  redacting trace, auditing, retrying, or replanning. A malformed successful
+  result becomes a non-retryable `InvalidResult` failure without preserving raw
+  result payload in trace/audit.
 - Confirmed clipboard observations can now create a follow-up model prompt so
   the assistant can answer from the just-read tool result instead of stopping at
   a generic "tool succeeded" message.
@@ -395,6 +403,10 @@ Current status:
   safety policy before execution. Steps that require user confirmation return
   `AwaitingConfirmation` instead of calling the injected `ToolExecutor`
   directly.
+- `SkillRunExecutor` revalidates successful `ToolResult.data` before recording
+  tool-finished trace or binding step outputs, both after direct execution and
+  after resume from a user-confirmed continuation. Malformed successful results
+  fail the Skill before a model step can consume private or schema-extra data.
 - `SkillRunExecutor` now returns an opaque `SkillRunContinuation` at
   confirmation boundaries. A confirmed `ToolResult` can resume from the pending
   tool step, continue through model transforms, and stop again at the next
@@ -459,6 +471,8 @@ Tests:
 - `SkillRunExecutorTest.continuationCheckpointContainsOnlyValueFreeSkillState`
 - `SkillRunExecutorTest.resumesAgainAfterSecondConfirmationAndCompletesSkill`
 - `SkillRunExecutorTest.resumeRejectsToolResultThatDoesNotMatchPendingRequest`
+- `SkillRunExecutorTest.executeRejectsMalformedSucceededToolResultBeforeSkillOutput`
+- `SkillRunExecutorTest.resumeRejectsMalformedSucceededToolResultBeforeModelStep`
 - `SkillRunExecutorTest.privateToolOutputCannotBindDirectlyToLaterToolArgument`
 - `SkillRunExecutorTest.cancelStopsPendingSkillWithoutExecutingOrLeakingPrivateOutputs`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
@@ -466,6 +480,7 @@ Tests:
 - `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
+- `AgentLoopRuntimeTest.malformedSucceededToolResultFailsBeforeContinuationAndDoesNotLeakPayload`
 - `AgentTraceStoreTest.roomStoreSkipsPendingSkillPlanThatDoesNotContainPendingToolRequest`
 - `AgentTraceStoreTest.roomStorePersistsSkillRunCheckpointWithoutRawOutputs`
 - `AgentTraceStoreTest.roomStoreRejectsSkillRunCheckpointWithExecutableOutputValues`

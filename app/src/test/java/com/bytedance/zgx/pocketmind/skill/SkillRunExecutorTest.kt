@@ -23,12 +23,13 @@ class SkillRunExecutorTest {
                     requestId = "",
                     status = ToolStatus.Succeeded,
                     summary = "已读取剪贴板文本",
-                    data = mapOf("text" to rawClipboardText),
+                    data = clipboardSuccess(rawClipboardText),
                 ),
                 ToolResult(
                     requestId = "",
                     status = ToolStatus.Succeeded,
                     summary = "已打开系统分享面板",
+                    data = externalActivitySuccess(MobileActionFunctions.SHARE_TEXT),
                 ),
             ),
         )
@@ -69,12 +70,13 @@ class SkillRunExecutorTest {
                     requestId = "",
                     status = ToolStatus.Succeeded,
                     summary = "已读取当前屏幕可访问文本快照",
-                    data = mapOf("screenText" to rawScreenText, "screenTextIncluded" to "true"),
+                    data = currentScreenTextSuccess(rawScreenText),
                 ),
                 ToolResult(
                     requestId = "",
                     status = ToolStatus.Succeeded,
                     summary = "已打开系统分享面板",
+                    data = externalActivitySuccess(MobileActionFunctions.SHARE_TEXT),
                 ),
             ),
         )
@@ -150,7 +152,7 @@ class SkillRunExecutorTest {
                 requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf("text" to rawClipboardText),
+                data = clipboardSuccess(rawClipboardText),
             ),
         )
 
@@ -182,7 +184,7 @@ class SkillRunExecutorTest {
                 requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf("text" to rawClipboardText),
+                data = clipboardSuccess(rawClipboardText),
             ),
         )
 
@@ -217,7 +219,7 @@ class SkillRunExecutorTest {
                 requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf("text" to "私密剪贴板内容"),
+                data = clipboardSuccess("私密剪贴板内容"),
             ),
         )
 
@@ -228,6 +230,7 @@ class SkillRunExecutorTest {
                 requestId = requireNotNull(awaitingShare.pendingToolRequest).id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开系统分享面板",
+                data = externalActivitySuccess(MobileActionFunctions.SHARE_TEXT),
             ),
         )
 
@@ -269,6 +272,79 @@ class SkillRunExecutorTest {
     }
 
     @Test
+    fun executeRejectsMalformedSucceededToolResultBeforeSkillOutput() {
+        val rawClipboardText = "malformed success payload must not leak"
+        var modelCallCount = 0
+        val toolExecutor = RecordingToolExecutor(
+            results = listOf(
+                ToolResult(
+                    requestId = "",
+                    status = ToolStatus.Succeeded,
+                    summary = "malformed success summary $rawClipboardText",
+                    data = clipboardSuccess(rawClipboardText) + ("unexpected" to rawClipboardText),
+                ),
+            ),
+        )
+        val executor = SkillRunExecutor(
+            toolExecutor = toolExecutor,
+            modelExecutor = SkillModelStepExecutor { _, _ ->
+                modelCallCount += 1
+                Result.success("unused")
+            },
+            toolGate = SkillToolGate.allowAllForTests(),
+        )
+        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+
+        val result = executor.execute(plan)
+
+        assertEquals(SkillRunState.Failed, result.state)
+        assertTrue(result.error.orEmpty().contains("returned invalid result"))
+        assertTrue(result.error.orEmpty().contains("unexpected"))
+        assertEquals(0, modelCallCount)
+        assertEquals(listOf(MobileActionFunctions.READ_CLIPBOARD), toolExecutor.requests.map { it.toolName })
+        assertFalse(result.outputs.toString().contains(rawClipboardText))
+        assertFalse(result.trace.toString().contains(rawClipboardText))
+    }
+
+    @Test
+    fun resumeRejectsMalformedSucceededToolResultBeforeModelStep() {
+        val rawClipboardText = "malformed resume payload must not reach model"
+        var modelCallCount = 0
+        val executor = SkillRunExecutor(
+            toolExecutor = RecordingToolExecutor(emptyList()),
+            modelExecutor = SkillModelStepExecutor { _, _ ->
+                modelCallCount += 1
+                Result.success("unused")
+            },
+        )
+        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val awaitingRead = executor.execute(plan)
+
+        val result = executor.resume(
+            plan = plan,
+            continuation = requireNotNull(awaitingRead.continuation),
+            result = ToolResult(
+                requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
+                status = ToolStatus.Succeeded,
+                summary = "malformed resume summary $rawClipboardText",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+                    "text" to rawClipboardText,
+                ),
+            ),
+        )
+
+        assertEquals(SkillRunState.Failed, result.state)
+        assertTrue(result.error.orEmpty().contains("returned invalid result"))
+        assertTrue(result.error.orEmpty().contains("truncated"))
+        assertEquals(0, modelCallCount)
+        assertEquals(null, result.pendingToolRequest)
+        assertEquals(null, result.continuation)
+        assertFalse(result.outputs.toString().contains(rawClipboardText))
+        assertFalse(result.trace.toString().contains(rawClipboardText))
+    }
+
+    @Test
     fun privateToolOutputCannotBindDirectlyToLaterToolArgument() {
         val rawClipboardText = "私密剪贴板内容不应成为分享参数"
         val modelSummary = "安全摘要"
@@ -297,7 +373,7 @@ class SkillRunExecutorTest {
                 requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf("text" to rawClipboardText),
+                data = clipboardSuccess(rawClipboardText),
             ),
         )
 
@@ -345,7 +421,7 @@ class SkillRunExecutorTest {
                 requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取当前屏幕可访问文本快照",
-                data = mapOf("screenText" to rawScreenText, "screenTextIncluded" to "true"),
+                data = currentScreenTextSuccess(rawScreenText),
             ),
         )
 
@@ -433,7 +509,7 @@ class SkillRunExecutorTest {
                 requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取最近截图 OCR 摘录",
-                data = mapOf("ocrText" to rawOcrText),
+                data = recentScreenshotOcrSuccess(rawOcrText),
             ),
         )
 
@@ -465,7 +541,7 @@ class SkillRunExecutorTest {
                 requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
                 status = ToolStatus.Succeeded,
                 summary = "已读取剪贴板文本",
-                data = mapOf("text" to rawClipboardText),
+                data = clipboardSuccess(rawClipboardText),
             ),
         )
 
@@ -540,6 +616,56 @@ class SkillRunExecutorTest {
         assertEquals(SkillRunState.Failed, result.state)
         assertEquals("skill step limit exceeded", result.error)
     }
+
+    private fun clipboardSuccess(text: String): Map<String, String> =
+        mapOf(
+            "toolName" to MobileActionFunctions.READ_CLIPBOARD,
+            "text" to text,
+            "truncated" to "false",
+        )
+
+    private fun currentScreenTextSuccess(text: String): Map<String, String> =
+        mapOf(
+            "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            "privacy" to "LocalOnly",
+            "requiresLocalModel" to "true",
+            "source" to "accessibility",
+            "maxChars" to "1200",
+            "capturedAtMillis" to "1000",
+            "nodeCount" to "1",
+            "screenText" to text,
+            "truncated" to "false",
+            "screenTextIncluded" to "true",
+            "rawTreeIncluded" to "false",
+            "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
+        )
+
+    private fun recentScreenshotOcrSuccess(text: String): Map<String, String> =
+        mapOf(
+            "toolName" to MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            "privacy" to "LocalOnly",
+            "requiresLocalModel" to "true",
+            "source" to "recent_screenshot",
+            "maxCount" to "1",
+            "scannedCount" to "1",
+            "ocrText" to text,
+            "truncated" to "false",
+            "ocrTextIncluded" to "true",
+            "rawPayloadIncluded" to "false",
+            "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted",
+        )
+
+    private fun externalActivitySuccess(toolName: String): Map<String, String> =
+        mapOf(
+            "toolName" to toolName,
+            "completionState" to "ExternalActivityOpened",
+            "completionVerified" to "false",
+            "externalOutcome" to "user_continues_in_external_activity",
+            "targetKind" to "android_chooser",
+            "intentAction" to "android.intent.action.SEND",
+            "metadataPolicy" to "no_raw_payload_persisted",
+            "rawPayloadIncluded" to "false",
+        )
 
     private class RecordingToolExecutor(
         results: List<ToolResult>,

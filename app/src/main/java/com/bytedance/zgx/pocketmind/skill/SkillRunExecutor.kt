@@ -14,9 +14,10 @@ class SkillRunExecutor(
     private val toolExecutor: ToolExecutor,
     private val modelExecutor: SkillModelStepExecutor,
     private val toolGate: SkillToolGate = RegistrySkillToolGate(),
+    private val toolRegistry: ToolRegistry = ToolRegistry(),
     maxSteps: Int = DEFAULT_MAX_STEPS,
 ) {
-    private val progressor = SkillRunProgressor(maxSteps = maxSteps)
+    private val progressor = SkillRunProgressor(maxSteps = maxSteps, toolRegistry = toolRegistry)
 
     fun execute(plan: SkillPlan): SkillRunResult {
         validatePlanForExecution(plan)?.let { return it }
@@ -70,22 +71,23 @@ class SkillRunExecutor(
         val outputs = continuation.outputs.deepMutableCopy()
         val privateOutputRefs = continuation.privateOutputRefs.toMutableSet()
         val trace = continuation.trace.toMutableList()
+        val validatedResult = validatedResult(continuation.pendingToolRequest, result)
         trace += SkillRunTrace.ToolFinished(
             stepId = step.id,
             toolName = continuation.pendingToolRequest.toolName,
-            status = result.status,
-            summary = result.summary,
+            status = validatedResult.status,
+            summary = validatedResult.summary,
         )
-        if (result.status != ToolStatus.Succeeded) {
+        if (validatedResult.status != ToolStatus.Succeeded) {
             return SkillRunResult(
                 state = SkillRunState.Failed,
                 outputs = progressor.publicOutputs(outputs, privateOutputRefs),
                 trace = trace,
-                error = result.summary,
+                error = validatedResult.summary,
             )
         }
 
-        outputs[step.id] = progressor.outputForToolResult(result, continuation.pendingDraft)
+        outputs[step.id] = progressor.outputForToolResult(validatedResult, continuation.pendingDraft)
         privateOutputRefs += progressor.privateOutputRefsFor(step.id, continuation.pendingToolRequest.toolName)
         return runSteps(
             plan = plan,
@@ -205,7 +207,7 @@ class SkillRunExecutor(
                             return failed(step.id, gateDecision.reason, outputs, privateOutputRefs, trace)
                         }
                     }
-                    val result = toolExecutor.execute(request)
+                    val result = validatedResult(request, toolExecutor.execute(request))
                     trace += SkillRunTrace.ToolFinished(
                         stepId = step.id,
                         toolName = request.toolName,
@@ -268,6 +270,9 @@ class SkillRunExecutor(
             error = message,
         )
     }
+
+    private fun validatedResult(request: ToolRequest, result: ToolResult): ToolResult =
+        toolRegistry.validateResult(request, result) ?: result
 
     private companion object {
         const val DEFAULT_MAX_STEPS = 8

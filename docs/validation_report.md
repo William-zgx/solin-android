@@ -3896,3 +3896,33 @@ scripts/verify_emulator.sh
 结果：
 
 - 通过：SafetyPolicy 边界权限硬门禁和真实 registry confirmation 回归测试。
+
+## 2026-06-02 ToolResult observe/resume schema revalidation
+
+本轮覆盖项：
+
+- `AgentLoopRuntime.observeToolResult` 在生成本地 continuation prompt、trace
+  脱敏、audit、retry 或 replan 之前，重新按当前 `ToolRegistry` 校验 successful
+  `ToolResult.data`。malformed success 会转成 non-retryable `InvalidResult`
+  失败，不把原始 data 或 summary 当作成功观察继续传播。
+- `SkillRunExecutor` 在直接执行 tool step 和从确认点 resume 时，都先校验
+  successful `ToolResult.data`，再写 `ToolFinished` trace 或绑定 step output。
+  这样 schema-extra / 缺字段的成功结果不会进入后续模型步骤或 Skill outputs。
+- 旧单测 fixture 同步补齐真实 output schema 字段，避免测试继续依赖生产路径不会
+  接受的 sparse success。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+
+./gradlew :app:testDebugUnitTest
+```
+
+结果：
+
+- 通过：Skill executor malformed success、Agent observe malformed success、防泄漏
+  回归测试。
+- 通过：完整 JVM 单测 `:app:testDebugUnitTest`。
