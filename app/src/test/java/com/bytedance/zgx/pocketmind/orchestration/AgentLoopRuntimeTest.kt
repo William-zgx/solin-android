@@ -2379,6 +2379,61 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun nonReminderObservationDoesNotSurfaceSpoofedReminderMetadataInAudit() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将在浏览器中搜索：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "搜一下 Kotlin",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
+                    "taskId" to "task-spoofed",
+                    "recoveryTaskId" to "task-spoofed",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        val observedAudit = auditSink.events.single { event ->
+            event.eventType == ToolAuditEventType.ToolObserved
+        }
+        assertFalse(observedAudit.summary.contains("task-spoofed"))
+    }
+
+    @Test
     fun reminderObservationSurfacesBoundedRecoveryHint() {
         val auditSink = InMemoryToolAuditSink()
         val runtime = AgentLoopRuntime(
@@ -2508,6 +2563,9 @@ class AgentLoopRuntimeTest {
                 data = mapOf(
                     "toolName" to MobileActionFunctions.CANCEL_REMINDER,
                     "taskId" to "task-1",
+                    "taskStatus" to "Cancelled",
+                    "title" to "喝水",
+                    "body" to "提醒我喝水",
                 ),
             ),
         )
@@ -2523,13 +2581,22 @@ class AgentLoopRuntimeTest {
             ),
             auditSink.events.map { it.eventType },
         )
+        val observedAudit = auditSink.events.single { event ->
+            event.eventType == ToolAuditEventType.ToolObserved
+        }
+        assertTrue(observedAudit.summary.contains("taskId=task-1"))
+        assertTrue(observedAudit.summary.contains("taskStatus=Cancelled"))
+        assertFalse(observedAudit.summary.contains("喝水"))
+        assertFalse(observedAudit.summary.contains("提醒我喝水"))
     }
 
     @Test
     fun reminderObservationIgnoresUnsafeRecoveryMetadata() {
+        val auditSink = InMemoryToolAuditSink()
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            auditSink = auditSink,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val planned = runtime.runOnce(
@@ -2558,6 +2625,11 @@ class AgentLoopRuntimeTest {
         assertEquals(null, observed.recoveryAction)
         assertFalse(observed.assistantMessage.contains("如需撤销"))
         assertFalse(observed.assistantMessage.contains("token=secret"))
+        val observedAudit = auditSink.events.single { event ->
+            event.eventType == ToolAuditEventType.ToolObserved
+        }
+        assertFalse(observedAudit.summary.contains("token=secret"))
+        assertFalse(observedAudit.summary.contains("recoveryTaskId="))
     }
 
     @Test

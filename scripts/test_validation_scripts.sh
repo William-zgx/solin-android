@@ -83,7 +83,11 @@ case "${1:-}" in
         printf '/dev/block 5000000 1000 4000000 1%% /data\n'
         ;;
       am\ instrument\ -w\ -r*)
-        echo "OK (instrumentation tests)"
+        if [[ -n "${FAKE_INSTRUMENTATION_OUTPUT:-}" ]]; then
+          printf '%s\n' "$FAKE_INSTRUMENTATION_OUTPUT"
+        else
+          echo "OK (instrumentation tests)"
+        fi
         ;;
       am\ start\ -W\ -n*)
         echo "Status: ok"
@@ -124,6 +128,14 @@ create_fake_emulator() {
   cat > "$sdk/emulator/emulator" <<'FAKE_EMULATOR'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "-list-avds" ]]; then
+  if [[ -n "${FAKE_EMULATOR_AVDS+x}" ]]; then
+    printf '%s\n' "$FAKE_EMULATOR_AVDS"
+  else
+    echo "test-avd"
+  fi
+  exit 0
+fi
 printf '%s\n' "$*" >> "${FAKE_EMULATOR_LOG:?}"
 FAKE_EMULATOR
   chmod +x "$sdk/emulator/emulator"
@@ -158,6 +170,7 @@ reset_logs() {
 }
 
 NO_ADB_SDK="$TMP_DIR/no-adb-sdk"
+NO_EMULATOR_SDK="$TMP_DIR/no-emulator-sdk"
 FAKE_SDK="$TMP_DIR/fake-sdk"
 FAKE_GRADLE="$TMP_DIR/fake-gradle"
 export FAKE_ADB_LOG="$TMP_DIR/fake-adb.log"
@@ -165,6 +178,8 @@ export FAKE_EMULATOR_LOG="$TMP_DIR/fake-emulator.log"
 export FAKE_GRADLE_LOG="$TMP_DIR/fake-gradle.log"
 
 create_base_sdk "$NO_ADB_SDK"
+create_base_sdk "$NO_EMULATOR_SDK"
+create_fake_adb "$NO_EMULATOR_SDK"
 create_base_sdk "$FAKE_SDK"
 create_fake_adb "$FAKE_SDK"
 create_fake_emulator "$FAKE_SDK"
@@ -245,6 +260,15 @@ grep -q -- "-s device-b install -r app/build/outputs/apk/debug/app-debug.apk" "$
 
 reset_logs
 expect_failure \
+  "install helper fails failed instrumentation output even when adb exits zero" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  FAKE_INSTRUMENTATION_OUTPUT=$'FAILURES!!!\nINSTRUMENTATION_CODE: -1' \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
+assert_gradle_called
+
+reset_logs
+expect_failure \
   "emulator helper rejects physical serial" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
@@ -259,6 +283,26 @@ expect_failure \
   FAKE_ADB_DEVICES=$'device-a\tdevice' EMULATOR_SELECT_TIMEOUT_SECONDS=0 \
   GRADLE_CMD="$FAKE_GRADLE" scripts/verify_emulator.sh
 assert_no_gradle_call
+
+reset_logs
+expect_failure \
+  "emulator helper without emulator binary" \
+  env ANDROID_SDK_ROOT="$NO_EMULATOR_SDK" ANDROID_HOME="$NO_EMULATOR_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' GRADLE_CMD="$FAKE_GRADLE" \
+  scripts/verify_emulator.sh
+assert_no_gradle_call
+grep -q "Android emulator binary not found" <<<"$LAST_OUTPUT" ||
+  fail "Expected emulator helper to report missing emulator binary"
+
+reset_logs
+expect_failure \
+  "emulator helper rejects unknown requested AVD" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES="" FAKE_EMULATOR_AVDS="other-avd" AVD_NAME="test-avd" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/verify_emulator.sh
+assert_no_gradle_call
+grep -q "AVD_NAME=test-avd not found" <<<"$LAST_OUTPUT" ||
+  fail "Expected emulator helper to report unknown AVD"
 
 reset_logs
 expect_success \

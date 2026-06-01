@@ -1027,7 +1027,10 @@ ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh
 Use `AVD_NAME=<name> scripts/verify_emulator.sh` when the helper should launch
 an AVD first. The emulator helper refuses physical-device serials and exits
 before Gradle, APK install, or instrumentation when it cannot identify exactly
-one authorized `emulator-*` target. Use
+one authorized `emulator-*` target. It also validates requested AVD names before
+startup and treats instrumentation failure markers such as failed test status
+codes, stack traces, and `FAILURES!!!` as hard failures even when `adb shell am
+instrument` exits zero. Use
 `ANDROID_SERIAL=<serial> scripts/install_and_test_device.sh` for physical
 device validation. A full regression report should record the target serial or
 AVD name, API level, ABI, whether `CLEAN_DEVICE=1` was used, and the current

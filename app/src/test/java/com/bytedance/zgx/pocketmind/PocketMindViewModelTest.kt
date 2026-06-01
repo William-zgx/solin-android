@@ -13,6 +13,7 @@ import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
+import com.bytedance.zgx.pocketmind.background.ReminderRescheduleReport
 import com.bytedance.zgx.pocketmind.background.ScheduledTask
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
@@ -1126,6 +1127,55 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun staleConfirmAgentConfirmationDoesNotExecuteOrClearCurrentPending() = runTest(dispatcher) {
+        val request = ToolRequest(
+            id = "request-current",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "current summary"),
+        )
+        val executor = RecordingToolExecutor()
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-current",
+                toolRequest = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.SHARE_TEXT,
+                    title = "分享摘要",
+                    summary = "将分享当前摘要。",
+                    parameters = request.arguments,
+                ),
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
+            ),
+        )
+        val viewModel = createViewModel(
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("分享摘要")
+        advanceUntilIdle()
+        val current = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(current)
+        val stale = current.copy(
+            toolRequest = current.toolRequest?.copy(arguments = mapOf("text" to "stale summary")),
+            draft = current.draft.copy(parameters = mapOf("text" to "stale summary")),
+        )
+
+        viewModel.confirmAgentConfirmation(stale)
+        advanceUntilIdle()
+
+        assertEquals(current, viewModel.uiState.value.pendingConfirmation)
+        assertEquals(0, assistantRouter.confirmCallCount)
+        assertTrue(executor.executedRequests.isEmpty())
+        assertEquals("工具确认已处理", viewModel.uiState.value.statusText)
+    }
+
+    @Test
     fun remoteModeLocalActionDraftMessagesAreLocalOnlyAndExcludedFromLaterRemoteHistory() = runTest(dispatcher) {
         val sessionStore = FakeSessionStore()
         val remoteStore = FakeRemoteModelStore(
@@ -1180,6 +1230,53 @@ class PocketMindViewModelTest {
         assertTrue(call.history.isEmpty())
         assertFalse(call.history.toString().contains("打开 Wi-Fi 设置"))
         assertFalse(call.history.toString().contains("动作草稿"))
+    }
+
+    @Test
+    fun remoteModeRejectedLocalActionMessagesAreLocalOnlyAndExcludedFromLaterRemoteHistory() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore()
+        val remoteStore = FakeRemoteModelStore(
+            mode = InferenceMode.Remote,
+            config = configuredRemoteModel(),
+        )
+        val rejectedRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.ToolRejected(
+                summary = "Unknown tool: open_wifi_settings",
+            ),
+        )
+        val rejectedViewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteStore = remoteStore,
+            assistantRouter = rejectedRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        rejectedViewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        rejectedViewModel.sendMessage("打开 Wi-Fi 设置")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
+            sessionStore.messages.map { it.privacy },
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val chatViewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = remoteStore,
+            assistantRouter = FakeAssistantRouter(),
+        )
+        chatViewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        chatViewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val call = remoteRuntime.calls.single()
+        assertTrue(call.history.isEmpty())
+        assertFalse(call.history.toString().contains("打开 Wi-Fi 设置"))
+        assertFalse(call.history.toString().contains("Unknown tool"))
     }
 
     @Test
@@ -1898,6 +1995,27 @@ class PocketMindViewModelTest {
         assertTrue(viewModel.uiState.value.longTermMemories.none { memory -> memory.text.contains("喝水") })
         assertTrue(memoryRepository.search("喝水").isEmpty())
         assertTrue(remoteRuntime.calls.isEmpty())
+    }
+
+    @Test
+    fun restoreStartupStateReschedulesReminderAlarmsBeforeLoadingBackgroundTasks() = runTest(dispatcher) {
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask(
+                    id = "task-1",
+                    type = ScheduledTaskType.Reminder,
+                    status = ScheduledTaskStatus.Scheduled,
+                    title = "喝水",
+                ),
+            ),
+        )
+        val viewModel = createViewModel(backgroundTaskScheduler = scheduler)
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertEquals(1, scheduler.rescheduleCount)
+        assertEquals(listOf("task-1"), viewModel.uiState.value.backgroundTasks.map { it.id })
     }
 
     @Test
@@ -2981,6 +3099,7 @@ class PocketMindViewModelTest {
         val cancelledTaskIds = mutableListOf<String>()
         val periodicPolicyRequests = mutableListOf<PeriodicCheckScheduleRequest>()
         var disablePeriodicCheckCount = 0
+        var rescheduleCount = 0
 
         init {
             scheduledTasks.forEach { task -> tasks[task.id] = task }
@@ -3029,6 +3148,18 @@ class PocketMindViewModelTest {
             )
             tasks[task.id] = task
             return Result.success(periodicCheckPolicy())
+        }
+
+        override fun rescheduleScheduledReminders(limit: Int): Result<ReminderRescheduleReport> {
+            rescheduleCount += 1
+            val total = tasks.values.count { it.type == ScheduledTaskType.Reminder }
+            return Result.success(
+                ReminderRescheduleReport(
+                    total = total,
+                    scheduled = total,
+                    failed = 0,
+                ),
+            )
         }
 
         override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> {

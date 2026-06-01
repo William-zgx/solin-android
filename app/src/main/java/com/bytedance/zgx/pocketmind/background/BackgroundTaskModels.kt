@@ -177,6 +177,8 @@ interface BackgroundTaskScheduler {
     fun cancel(taskId: String): Result<Unit>
     fun cancelScheduledTask(taskId: String): Result<Unit> = cancel(taskId)
     fun deleteScheduledTask(taskId: String): Result<Unit> = cancelScheduledTask(taskId)
+    fun rescheduleScheduledReminders(limit: Int = 100): Result<ReminderRescheduleReport> =
+        Result.success(ReminderRescheduleReport(total = 0, scheduled = 0, failed = 0))
 }
 
 data class ReminderRescheduleReport(

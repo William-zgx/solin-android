@@ -349,6 +349,7 @@ fun PocketMindScreen(
                             showSessions = false
                         },
                         onDeleteSession = onDeleteSession,
+                        onDismiss = { showSessions = false },
                     )
                 }
             }
@@ -1724,6 +1725,7 @@ private fun SessionManagerSheet(
     onCreateSession: () -> Unit,
     onSessionSelected: (String) -> Unit,
     onDeleteSession: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -1735,11 +1737,13 @@ private fun SessionManagerSheet(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                modifier = Modifier.testTag("session_manager_title"),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("session_manager_title"),
                 text = "会话",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold,
@@ -1750,6 +1754,16 @@ private fun SessionManagerSheet(
                 enabled = !state.isBusy,
             ) {
                 Text("新建")
+            }
+            IconButton(
+                modifier = Modifier.testTag("session_manager_close_button"),
+                onClick = onDismiss,
+                enabled = !state.isBusy,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "关闭会话管理",
+                )
             }
         }
         state.sessions.forEach { session ->

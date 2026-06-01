@@ -149,6 +149,34 @@ class ToolAuditRepositoryTest {
         assertFalse(record.summary.contains("提醒我喝水"))
     }
 
+    @Test
+    fun recentCancelReminderAuditShowsTaskMetadataWithoutReminderContent() {
+        val dao = FakeToolAuditDao()
+        val repository = ToolAuditRepository(dao)
+        repository.record(
+            ToolAuditEvent(
+                id = "cancel-reminder",
+                runId = "run-cancel",
+                requestId = "request-cancel",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                skillId = null,
+                eventType = ToolAuditEventType.ToolObserved,
+                status = ToolStatus.Succeeded,
+                riskLevel = RiskLevel.MediumDraftOrNavigation,
+                permissions = setOf(ToolPermission.SchedulesBackgroundWork),
+                summary = "已取消后台任务 (taskId=task-1; taskStatus=Cancelled)",
+                createdAtMillis = 1_000L,
+            ),
+        )
+
+        val record = repository.recentAuditEvents(limit = 1).single()
+
+        assertTrue(record.summary.contains("taskId=task-1"))
+        assertTrue(record.summary.contains("taskStatus=Cancelled"))
+        assertFalse(record.summary.contains("喝水"))
+        assertFalse(record.summary.contains("提醒我喝水"))
+    }
+
     private class FakeToolAuditDao : ToolAuditDao {
         private val mutableEvents = linkedMapOf<String, ToolAuditEventEntity>()
 

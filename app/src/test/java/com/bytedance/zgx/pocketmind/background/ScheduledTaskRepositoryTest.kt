@@ -525,6 +525,36 @@ class ScheduledTaskRepositoryTest {
         assertEquals(ScheduledTaskStatus.Scheduled, repository.task("stale-running")?.status)
     }
 
+    @Test
+    fun allScheduledRemindersPagesSameTriggerAtMillisById() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000L })
+        listOf(
+            entity(
+                id = "task-c",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Scheduled,
+                triggerAtMillis = 5_000L,
+            ),
+            entity(
+                id = "task-a",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Scheduled,
+                triggerAtMillis = 5_000L,
+            ),
+            entity(
+                id = "task-b",
+                type = ScheduledTaskType.Reminder,
+                status = ScheduledTaskStatus.Scheduled,
+                triggerAtMillis = 5_000L,
+            ),
+        ).forEach(dao::upsert)
+
+        val reminders = repository.allScheduledReminders(pageSize = 2)
+
+        assertEquals(listOf("task-a", "task-b", "task-c"), reminders.map { it.id })
+    }
+
     private class FakeScheduledTaskDao : ScheduledTaskDao {
         private val tasks = linkedMapOf<String, ScheduledTaskEntity>()
         var beforeUpdateScheduledStatusIfScheduled: (() -> Unit)? = null

@@ -14,11 +14,28 @@ GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 BOOT_TIMEOUT_SECONDS="${BOOT_TIMEOUT_SECONDS:-180}"
 EMULATOR_SELECT_TIMEOUT_SECONDS="${EMULATOR_SELECT_TIMEOUT_SECONDS:-10}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/emulator-$(date +%Y%m%d-%H%M%S)}"
+EMULATOR_LOG="${ARTIFACT_DIR}-emulator.log"
 
 SELECTED_SERIAL=""
 
+available_avd_summary() {
+  if [[ ! -x "$EMULATOR_BIN" ]]; then
+    echo "none"
+    return
+  fi
+  local summary
+  summary="$("$EMULATOR_BIN" -list-avds 2>/dev/null | awk 'NF {items = items ? items ", " $0 : $0} END {print items}')"
+  echo "${summary:-none}"
+}
+
 fail() {
   echo "verify_emulator: $*" >&2
+  if [[ -x "$EMULATOR_BIN" ]]; then
+    echo "Available AVDs: $(available_avd_summary)" >&2
+  fi
+  if [[ -f "$EMULATOR_LOG" ]]; then
+    echo "Emulator log: $EMULATOR_LOG" >&2
+  fi
   if [[ -x "$ADB_BIN" ]]; then
     "$ADB_BIN" devices -l >&2 || true
   fi
@@ -34,6 +51,8 @@ capture_failure_artifacts() {
     "$ADB_BIN" -s "$SELECTED_SERIAL" pull /sdcard/pocketmind-window.xml "$ARTIFACT_DIR/window.xml" >/dev/null 2>&1 || true
     "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t 300 > "$ARTIFACT_DIR/logcat.txt" 2>/dev/null || true
     echo "Emulator failure artifacts: $ARTIFACT_DIR" >&2
+  elif [[ "$status" -ne 0 && -f "$EMULATOR_LOG" ]]; then
+    echo "Emulator log: $EMULATOR_LOG" >&2
   fi
   exit "$status"
 }
@@ -73,7 +92,7 @@ wait_for_emulator_selection() {
       return
     fi
     [[ "$SECONDS" -lt "$deadline" ]] ||
-      fail "Timed out waiting for a single authorized emulator."
+      fail "Timed out waiting for a single authorized emulator. Start exactly one emulator-* device or set AVD_NAME to an available AVD."
     sleep 2
   done
 }
@@ -101,13 +120,16 @@ fi
 mkdir -p "$(dirname "$ARTIFACT_DIR")"
 
 if [[ -n "${AVD_NAME:-}" ]]; then
+  "$EMULATOR_BIN" -list-avds 2>/dev/null | grep -Fx -- "$AVD_NAME" >/dev/null ||
+    fail "AVD_NAME=$AVD_NAME not found."
   EXTRA_EMULATOR_ARGS=()
   if [[ -n "${EMULATOR_ARGS:-}" ]]; then
     read -r -a EXTRA_EMULATOR_ARGS <<< "$EMULATOR_ARGS"
   fi
   echo "Starting emulator AVD: $AVD_NAME"
+  echo "Emulator log: $EMULATOR_LOG"
   "$EMULATOR_BIN" -avd "$AVD_NAME" "${EXTRA_EMULATOR_ARGS[@]}" \
-    > "${ARTIFACT_DIR}-emulator.log" 2>&1 &
+    > "$EMULATOR_LOG" 2>&1 &
 fi
 
 wait_for_emulator_selection

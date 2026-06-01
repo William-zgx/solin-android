@@ -109,6 +109,7 @@ class PocketMindViewModel(
         if (startupRestored) return
         startupRestored = true
 
+        recoverBackgroundTasksOnStartup()
         syncTaskStateMemories()
         refreshDeviceStatus()
         rebuildMemoryIndex()
@@ -160,6 +161,10 @@ class PocketMindViewModel(
             }
         }
         restorePendingAgentConfirmationIfAny()
+    }
+
+    private fun recoverBackgroundTasksOnStartup() {
+        backgroundTaskScheduler.rescheduleScheduledReminders()
     }
 
     fun startModelDownload() {
@@ -887,16 +892,17 @@ class PocketMindViewModel(
                     }
 
                     is AssistantRoute.ToolRejected -> {
+                        val localUserMessage = userMessage.copy(privacy = MessagePrivacy.LocalOnly)
                         val assistantMessage = ChatMessage(
                             role = MessageRole.Assistant,
                             text = "无法准备这个动作：${route.summary}",
-                            privacy = messagePrivacy,
+                            privacy = MessagePrivacy.LocalOnly,
                         )
                         replaceActiveSessionMessages(
-                            stateBeforeSend.messages + userMessage + assistantMessage,
+                            stateBeforeSend.messages + localUserMessage + assistantMessage,
                             persistNow = true,
                         )
-                        persistExplicitPreferenceMemory(userMessage)
+                        persistExplicitPreferenceMemory(localUserMessage)
                         _uiState.update {
                             it.copy(
                                 isBusy = false,

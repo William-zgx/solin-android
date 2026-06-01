@@ -74,13 +74,13 @@ class WorkManagerPeriodicCheckClient(
                 PeriodicCheckScheduleRequest.UNIQUE_WORK_NAME,
                 ExistingPeriodicWorkPolicy.UPDATE,
                 workRequest,
-            )
+            ).result.get()
             Unit
         }
 
     override fun cancel(): Result<Unit> =
         runCatching {
-            workManager.cancelUniqueWork(PeriodicCheckScheduleRequest.UNIQUE_WORK_NAME)
+            workManager.cancelUniqueWork(PeriodicCheckScheduleRequest.UNIQUE_WORK_NAME).result.get()
             Unit
         }
 

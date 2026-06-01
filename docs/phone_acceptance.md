@@ -71,6 +71,9 @@ adb devices -l
 ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh
 ```
 
+如果 `adb` 或 `emulator` 不在 `PATH`，先设置 SDK 路径，或直接使用
+`$ANDROID_SDK_ROOT/platform-tools/adb` 与 `$ANDROID_SDK_ROOT/emulator/emulator`。
+
 也可以让脚本先启动指定 AVD，再等待 boot completed 后复用安装和 instrumentation 流程：
 
 ```bash
@@ -78,7 +81,8 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 ```
 
 `verify_emulator.sh` 只接受 `emulator-*` 目标；未指定 `ANDROID_SERIAL` 时要求恰好一台已授权模拟器。如果只有真机或同时存在多台模拟器，脚本会在 Gradle 构建、安装和 instrumentation 前退出。
-失败时会在 `build/verification/` 下尽量保存截图、UI dump 和短 logcat。
+`AVD_NAME` 不存在时会列出可用 AVD 并在 Gradle 前退出。失败时会在
+`build/verification/` 下尽量保存截图、UI dump、短 logcat 和 emulator 日志路径。
 
 完整回归记录至少包含设备序列号或 AVD 名称、API、ABI、是否设置
 `CLEAN_DEVICE=1`、执行命令和 instrumentation 测试总数。

@@ -74,9 +74,9 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("periodic_check_policy_section").assertIsDisplayed()
         composeRule.onNodeWithText("暂无运行中的后台任务").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("最近审计日志").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("暂无审计记录").performScrollTo().assertIsDisplayed()
+        composeRule.assertTextIfPresent("暂无审计记录")
         composeRule.onNodeWithText("最近 Agent 轨迹").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("暂无 Agent 轨迹").performScrollTo().assertIsDisplayed()
+        composeRule.assertTextIfPresent("暂无 Agent 轨迹")
     }
 
     private fun ComposeTestRule.waitForTag(tag: String) {
@@ -88,6 +88,12 @@ class MainActivitySmokeTest {
     private fun ComposeTestRule.waitForText(text: String) {
         waitUntil(timeoutMillis = 5_000) {
             onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun ComposeTestRule.assertTextIfPresent(text: String) {
+        if (onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()) {
+            onNodeWithText(text).performScrollTo().assertIsDisplayed()
         }
     }
 

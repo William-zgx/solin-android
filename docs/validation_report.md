@@ -3201,3 +3201,61 @@ ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk 
 结果：通过。设备 `23127PN0CC - 16` 执行 `3 tests, 0 skipped, 0 failed`，`BUILD SUCCESSFUL in 1m 39s`。
 
 补充修复：instrumentation 进程内自动跳过启动期 pending download / 模型加载工作，并禁止测试期间打开模型来源外链；`MainActivitySmokeTest` 使用稳定的 `testTag` 定位模型管理与自定义下载入口，避免依赖长滚动和占位文案。该改动已由本地验证和真机 UI 测试覆盖。
+
+## 2026-06-01 Emulator regression closure and audit hardening
+
+本轮覆盖项：
+
+- `scripts/install_and_test_device.sh` 不再只信 `adb shell am instrument`
+  的退出码；当 instrumentation 输出包含失败用例、stack trace、`shortMsg`
+  或 failed status code 时直接失败，避免 “OK/FAILURES” 被误判。
+- `scripts/verify_emulator.sh` 在启动前校验 `AVD_NAME`，失败时列出可用
+  AVD，并稳定打印 emulator 日志路径；fake SDK 回归覆盖缺 emulator binary、
+  未知 AVD 和 instrumentation 输出失败。
+- AVD UI 测试修复了会话 sheet 关闭不稳、审计/轨迹 empty-state 受前置测试
+  污染、远程模式本地动作历史泄漏断言缺失的问题。
+- Agent tool observed audit metadata 改为以已确认的 `ToolRequest.toolName`
+  为准，不信工具结果里可伪造的 `toolName`；`taskId`/`recoveryTaskId`
+  也必须满足安全任务 id 格式。
+- App 启动时会触发 reminder alarm 重排，覆盖 “DB 已有 Scheduled reminder
+  但普通重启后 AlarmManager 未注册” 的恢复窗口；WorkManager periodic
+  enqueue/cancel 现在等待 `Operation.result`。
+- 远程模式下被拒绝的本地动作消息标记为 `LocalOnly`，不会进入后续远程
+  prompt/history。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.PeriodicCheckSchedulerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.background.ScheduledTaskRepositoryTest'
+./gradlew :app:compileDebugAndroidTestKotlin
+./gradlew :app:testDebugUnitTest
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+AVD_NAME=pocketmind_api36_arm64 \
+EMULATOR_ARGS='-no-window -no-snapshot -no-audio -gpu swiftshader_indirect' \
+CLEAN_DEVICE=1 \
+BOOT_TIMEOUT_SECONDS=360 \
+EMULATOR_SELECT_TIMEOUT_SECONDS=120 \
+scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：validation script fake SDK 回归。
+- 通过：目标单测、全量 `:app:testDebugUnitTest`、`compileDebugAndroidTestKotlin`。
+- 通过：`scripts/verify_local.sh`，覆盖 validation script tests、unit tests、
+  lintDebug、debug/androidTest/release 构建、APK 资产和 ABI/体积约束。
+- 通过：`pocketmind_api36_arm64` AVD，serial `emulator-5554`，API 36，
+  ABI `arm64-v8a`，`CLEAN_DEVICE=1`，instrumentation `OK (12 tests)`。
+- 记录：真机 `fb6272c` 构建与主 APK 安装通过，但测试 APK 安装被设备策略
+  拦截为 `INSTALL_FAILED_USER_RESTRICTED`；需要在手机开发者选项中允许 USB
+  安装后再跑真机 instrumentation。

@@ -299,7 +299,7 @@ class AgentLoopRuntime(
                 status = observedResult.status,
                 riskLevel = toolRegistry.specFor(request.toolName)?.riskLevel,
                 permissions = toolRegistry.specFor(request.toolName)?.permissions.orEmpty(),
-                summary = observedResult.auditSummaryForObservation(),
+                summary = observedResult.auditSummaryForObservation(request),
             ),
         )
         val recoveryAction = recoveryActionForObservation(request, observedResult)
@@ -818,9 +818,9 @@ class AgentLoopRuntime(
             else -> null
         }
 
-    private fun ToolResult.auditSummaryForObservation(): String {
+    private fun ToolResult.auditSummaryForObservation(request: ToolRequest): String {
         val baseSummary = if (isUnverifiedExternalLaunch()) unverifiedExternalLaunchSummary() else summary
-        val metadata = reminderAuditMetadata()
+        val metadata = reminderAuditMetadata(request.toolName)
         return if (metadata.isEmpty()) {
             baseSummary
         } else {
@@ -828,22 +828,21 @@ class AgentLoopRuntime(
         }
     }
 
-    private fun ToolResult.reminderAuditMetadata(): List<String> {
-        val toolName = data["toolName"].orEmpty()
+    private fun ToolResult.reminderAuditMetadata(toolName: String): List<String> {
         if (toolName != MobileActionFunctions.SCHEDULE_REMINDER &&
             toolName != MobileActionFunctions.CANCEL_REMINDER
         ) {
             return emptyList()
         }
-        return listOf(
-            "taskId",
-            "taskStatus",
-            "triggerAtMillis",
-            "recoveryToolName",
-            "recoveryTaskId",
-        ).mapNotNull { key ->
-            data[key]?.takeIf { value -> value.isNotBlank() }?.let { value -> "$key=$value" }
-        }
+        return listOfNotNull(
+            data["taskId"]?.takeIf { it.isSafeRecoveryTaskId() }?.let { "taskId=$it" },
+            data["taskStatus"]?.takeIf { it.matches(Regex("""[A-Za-z]+""")) }?.let { "taskStatus=$it" },
+            data["triggerAtMillis"]?.takeIf { it.matches(Regex("""\d+""")) }?.let { "triggerAtMillis=$it" },
+            data["recoveryToolName"]
+                ?.takeIf { it == MobileActionFunctions.CANCEL_REMINDER }
+                ?.let { "recoveryToolName=$it" },
+            data["recoveryTaskId"]?.takeIf { it.isSafeRecoveryTaskId() }?.let { "recoveryTaskId=$it" },
+        )
     }
 
     private fun nextRetryAttempt(runId: String, result: ToolResult): Int {

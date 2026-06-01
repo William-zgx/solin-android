@@ -65,11 +65,18 @@ run_device_tests() {
     "${ADB[@]}" shell am instrument -w -r "$TEST_RUNNER"
 }
 
+instrumentation_output_failed() {
+  grep -qE '^(FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2|INSTRUMENTATION_RESULT: shortMsg=|INSTRUMENTATION_STATUS: stack=|Error in )' <<<"$1"
+}
+
 set +e
 TEST_OUTPUT="$(run_device_tests 2>&1)"
 TEST_STATUS=$?
 set -e
 printf '%s\n' "$TEST_OUTPUT"
+if [[ "$TEST_STATUS" -eq 0 ]] && instrumentation_output_failed "$TEST_OUTPUT"; then
+  TEST_STATUS=1
+fi
 if [[ "$TEST_STATUS" -ne 0 ]]; then
   if grep -q "INSTALL_FAILED_USER_RESTRICTED" <<<"$TEST_OUTPUT"; then
     cat >&2 <<'EOF'

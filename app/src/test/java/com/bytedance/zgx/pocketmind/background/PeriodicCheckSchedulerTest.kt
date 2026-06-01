@@ -70,6 +70,23 @@ class PeriodicCheckSchedulerTest {
     }
 
     @Test
+    fun disablePeriodicCheckLeavesLocalPolicyDisabledWhenWorkCancelFails() {
+        val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 10_000L })
+        val workClient = FakePeriodicCheckWorkClient(
+            cancelResult = Result.failure(IllegalStateException("cancel unavailable")),
+        )
+        val scheduler = PeriodicCheckScheduler(repository, workClient)
+        scheduler.setPeriodicCheck(PeriodicCheckScheduleRequest()).getOrThrow()
+
+        val result = scheduler.disablePeriodicCheck()
+
+        assertTrue(result.isFailure)
+        assertEquals(ScheduledTaskStatus.Cancelled, repository.periodicCheck()?.status)
+        assertEquals(false, repository.periodicCheckPolicy().request.enabled)
+        assertEquals(1, workClient.cancelCount)
+    }
+
+    @Test
     fun runnerPostsLocalSummaryForOverdueRemindersWithoutDeliveringThem() {
         val dao = FakeScheduledTaskDao()
         val repository = ScheduledTaskRepository(dao, clockMillis = { 10_000L })
@@ -275,6 +292,35 @@ class PeriodicCheckSchedulerTest {
             ),
             dao.statusHistory(PeriodicCheckScheduleRequest.TASK_ID),
         )
+    }
+
+    @Test
+    fun runnerDoesNotRecoverFreshRunningPeriodicCheck() {
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(dao, clockMillis = { 1_000_000L })
+        dao.upsert(
+            entity(
+                id = PeriodicCheckScheduleRequest.TASK_ID,
+                type = ScheduledTaskType.PeriodicCheck,
+                status = ScheduledTaskStatus.Running,
+                triggerAtMillis = 10_000L,
+                updatedAtMillis = 999_000L,
+            ),
+        )
+        val runner = PeriodicCheckRunner(
+            repository = repository,
+            notifier = FakeLocalPeriodicCheckNotifier(),
+            clockMillis = { 1_000_000L },
+        )
+
+        val outcome = runner.runOnce(PeriodicCheckScheduleRequest())
+
+        assertEquals(
+            PeriodicCheckRunOutcome.Skipped(PeriodicCheckSkipReason.NotEnabledInStore),
+            outcome,
+        )
+        assertEquals(ScheduledTaskStatus.Running, repository.periodicCheck()?.status)
+        assertEquals(listOf(ScheduledTaskStatus.Running), dao.statusHistory(PeriodicCheckScheduleRequest.TASK_ID))
     }
 
     private class FakePeriodicCheckWorkClient(

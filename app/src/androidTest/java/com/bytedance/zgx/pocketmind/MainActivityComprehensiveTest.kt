@@ -68,6 +68,9 @@ class MainActivityComprehensiveTest {
 
             sendPrompt("请慢慢回答")
             composeRule.waitForText("慢")
+            val streamingRequest = server.awaitPost()
+            assertFalse(streamingRequest.body.contains("打开 Wi-Fi 设置"))
+            assertFalse(streamingRequest.body.contains("动作草稿"))
             composeRule.onNodeWithTag("composer_send_button").performClick()
             composeRule.waitForText("远程可用")
 
@@ -184,6 +187,8 @@ class MainActivityComprehensiveTest {
         if (composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()) return
         if (tag == "model_manager_sheet") {
             composeRule.onNodeWithTag("model_manager_close_button").performClick()
+        } else if (tag == "session_manager_title") {
+            composeRule.onNodeWithTag("session_manager_close_button").performClick()
         } else {
             InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         }
