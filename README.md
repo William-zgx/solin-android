@@ -109,9 +109,11 @@ so background task refreshes do not recreate them in long-term memory.
 updates local long-term preferences, records only `LocalOnly` control/status
 messages if visible in the session, and is not sent to a remote model as
 ordinary chat. Explicit response-length and response-language preferences replace
-older conflicting preferences instead of accumulating contradictory records, and
-LiteRT embedding-model-backed semantic retrieval is still pending. Mobile
-actions can use the
+older conflicting preferences instead of accumulating contradictory records.
+The semantic-memory boundary can verify a downloaded MemoryEmbedding asset, but
+production does not yet wire a LiteRT embedding runtime. Installing the memory
+asset only changes asset/status reporting; recall falls back to the lightweight
+index until a runtime reports active. Mobile actions can use the
 verified action model as an experimental planner; if it is missing or does not
 produce a supported
 `call:function {...}` draft, PocketMind falls back to deterministic local rules
@@ -272,6 +274,8 @@ The downloaded files are large:
 | 设备动作模型 | upstream `.litertlm` action model | about 284 MB |
 | 高质量对话 E4B | upstream `.litertlm` chat model | about 3.66 GB |
 
+The memory embedding model is currently a downloadable/verifiable asset for
+future semantic recall; it is not loaded by production memory retrieval yet.
 Use Wi-Fi and keep enough free device storage for the model and runtime cache.
 Model files are intentionally not committed to this repository and should not
 be bundled into the APK.

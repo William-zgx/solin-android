@@ -893,8 +893,9 @@ Current status:
 - CJK memory recall requires specific multi-character overlap when the query
   has multi-character tokens, reducing unrelated single-character matches on
   the lightweight index.
-- `MemoryRepository` has a semantic runtime extension point: a true semantic
-  runtime can return semantic hits without the lightweight term-overlap gate.
+- `MemoryRepository` has a semantic runtime extension point: an injected runtime
+  with `supportsSemanticRecall=true` can return semantic hits without the
+  lightweight term-overlap gate.
 - `ModelRepository` now exposes a verified memory-embedding model path only
   for existing `MemoryEmbedding` assets that passed recommended-model
   verification with stored catalog size, revision, and SHA-256 evidence plus a
@@ -905,6 +906,13 @@ Current status:
   between the default hash runtime and an injected semantic runtime, re-embedding
   current entries on switch. Production still falls back to hash unless a real
   semantic runtime declares support for semantic recall.
+- The controller reports explicit runtime status:
+  `NoVerifiedModel`, `RuntimeUnavailable`, `RuntimeLoadFailed`, or `Active`.
+  ViewModel/UI state uses this status so a verified memory asset without an
+  embedding runtime is not presented as enabled semantic recall.
+- The production app container currently passes no LiteRT embedding runtime
+  factory, so a verified `MemoryEmbedding` asset results in hash fallback and
+  `RuntimeUnavailable` rather than semantic retrieval.
 - The LiteRT embedding adapter is still not wired into runtime retrieval; a
   downloaded memory model asset alone does not mean embedding semantics are
   participating.

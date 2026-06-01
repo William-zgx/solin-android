@@ -27,6 +27,13 @@ enum class MemoryRecordType {
     SuppressedTaskState,
 }
 
+enum class SemanticMemoryRuntimeStatus {
+    NoVerifiedModel,
+    RuntimeUnavailable,
+    RuntimeLoadFailed,
+    Active,
+}
+
 interface EmbeddingRuntime {
     val supportsSemanticRecall: Boolean
         get() = false
@@ -59,6 +66,7 @@ interface LongTermMemoryControls {
 interface SemanticMemoryRuntimeController {
     val activeMemoryModelPath: String?
     val semanticMemoryEnabled: Boolean
+    val semanticMemoryRuntimeStatus: SemanticMemoryRuntimeStatus
     val canLoadSemanticMemoryRuntime: Boolean
         get() = true
     fun useMemoryModel(path: String?)
@@ -93,8 +101,11 @@ class MemoryRepository(
     private var activeEmbeddingRuntime: EmbeddingRuntime = embeddingRuntime
     override var activeMemoryModelPath: String? = null
         private set
+    override var semanticMemoryRuntimeStatus: SemanticMemoryRuntimeStatus =
+        SemanticMemoryRuntimeStatus.NoVerifiedModel
+        private set
     override val semanticMemoryEnabled: Boolean
-        get() = activeMemoryModelPath != null && activeEmbeddingRuntime.supportsSemanticRecall
+        get() = semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.Active
     override val canLoadSemanticMemoryRuntime: Boolean
         get() = semanticRuntimeFactory != null
     override var enabled: Boolean = true
@@ -103,14 +114,26 @@ class MemoryRepository(
         val normalizedPath = path?.trim()?.takeIf { it.isNotBlank() }
         if (normalizedPath == activeMemoryModelPath && semanticMemoryEnabled) return
         if (normalizedPath == null && activeMemoryModelPath == null && activeEmbeddingRuntime === defaultEmbeddingRuntime) {
+            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.NoVerifiedModel
+            return
+        }
+        if (normalizedPath == null) {
+            activeMemoryModelPath = null
+            activeEmbeddingRuntime = defaultEmbeddingRuntime
+            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.NoVerifiedModel
+            reembedEntries()
+            return
+        }
+        val runtimeFactory = semanticRuntimeFactory
+        if (runtimeFactory == null) {
+            activeMemoryModelPath = null
+            activeEmbeddingRuntime = defaultEmbeddingRuntime
+            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.RuntimeUnavailable
+            reembedEntries()
             return
         }
         val semanticRuntime = normalizedPath
-            ?.let { modelPath ->
-                semanticRuntimeFactory?.let { factory ->
-                    runCatching { factory(modelPath) }.getOrNull()
-                }
-            }
+            .let { modelPath -> runCatching { runtimeFactory(modelPath) }.getOrNull() }
             ?.takeIf { runtime ->
                 runtime.supportsSemanticRecall &&
                     runCatching { runtime.embed(SEMANTIC_RUNTIME_PROBE_TEXT) }.isSuccess
@@ -118,13 +141,16 @@ class MemoryRepository(
         if (semanticRuntime == null) {
             activeMemoryModelPath = null
             activeEmbeddingRuntime = defaultEmbeddingRuntime
+            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.RuntimeLoadFailed
         } else {
-            activeMemoryModelPath = checkNotNull(normalizedPath)
+            activeMemoryModelPath = normalizedPath
             activeEmbeddingRuntime = semanticRuntime
+            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.Active
         }
         runCatching { reembedEntries() }.onFailure {
             activeMemoryModelPath = null
             activeEmbeddingRuntime = defaultEmbeddingRuntime
+            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.RuntimeLoadFailed
             reembedEntries()
         }
     }

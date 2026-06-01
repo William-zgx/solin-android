@@ -32,6 +32,7 @@ import com.bytedance.zgx.pocketmind.memory.MemoryIndex
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.memory.TASK_STATE_MEMORY_RECORD_PREFIX
 import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeController
+import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceFrom
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceRecordId
 import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
@@ -2238,6 +2239,7 @@ class PocketMindViewModel(
             showFirstRunSetup = !firstRunSetupRepository.isSetupDismissed(),
             memoryEnabled = firstRunSetupRepository.isMemoryEnabled(),
             semanticMemoryEnabled = currentSemanticMemoryEnabled(),
+            semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
             longTermMemories = loadLongTermMemories(),
             backgroundTasks = loadBackgroundTasks(),
             backgroundTaskHistory = loadBackgroundTaskHistory(),
@@ -2262,6 +2264,7 @@ class PocketMindViewModel(
                 installedModels = modelState.installedModels,
                 selectedModelId = modelState.selectedModelId,
                 semanticMemoryEnabled = currentSemanticMemoryEnabled(),
+                semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
             )
         }
     }
@@ -2321,12 +2324,16 @@ class PocketMindViewModel(
             memoryRepository.enabled = _uiState.value.memoryEnabled
             memoryRepository.rebuild(sessionRepository.allMessages(limit = 500))
             _uiState.update { state ->
-                state.copy(semanticMemoryEnabled = currentSemanticMemoryEnabled())
+                state.copy(
+                    semanticMemoryEnabled = currentSemanticMemoryEnabled(),
+                    semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
+                )
             }
         }.onFailure {
             _uiState.update { state ->
                 state.copy(
                     semanticMemoryEnabled = currentSemanticMemoryEnabled(),
+                    semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
                     memoryHits = emptyList(),
                     longTermMemories = emptyList(),
                     statusText = "本地记忆暂不可用",
@@ -2337,15 +2344,15 @@ class PocketMindViewModel(
 
     private fun syncSemanticMemoryRuntime() {
         val controller = semanticMemoryRuntimeController ?: return
-        if (!controller.canLoadSemanticMemoryRuntime) {
-            controller.useMemoryModel(null)
-            return
-        }
         controller.useMemoryModel(modelRepository.verifiedMemoryEmbeddingModelPath())
     }
 
     private fun currentSemanticMemoryEnabled(): Boolean =
         semanticMemoryRuntimeController?.semanticMemoryEnabled == true
+
+    private fun currentSemanticMemoryRuntimeStatus(): SemanticMemoryRuntimeStatus =
+        semanticMemoryRuntimeController?.semanticMemoryRuntimeStatus
+            ?: SemanticMemoryRuntimeStatus.RuntimeUnavailable
 
     private fun syncTaskStateMemories() {
         runCatching {

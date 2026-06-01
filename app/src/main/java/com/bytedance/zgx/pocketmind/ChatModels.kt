@@ -7,6 +7,7 @@ import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
+import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
@@ -163,6 +164,8 @@ data class ChatUiState(
     val showFirstRunSetup: Boolean = false,
     val memoryEnabled: Boolean = true,
     val semanticMemoryEnabled: Boolean = false,
+    val semanticMemoryRuntimeStatus: SemanticMemoryRuntimeStatus =
+        SemanticMemoryRuntimeStatus.NoVerifiedModel,
     val memoryHits: List<MemoryHit> = emptyList(),
     val longTermMemories: List<LongTermMemorySummary> = emptyList(),
     val backgroundTasks: List<BackgroundTaskSummary> = emptyList(),

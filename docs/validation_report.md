@@ -1,5 +1,40 @@
 # PocketMind 验证报告
 
+## 2026-06-02 语义记忆运行时状态增量验证
+
+本轮覆盖项：
+
+- `MemoryRepository` 明确区分 `NoVerifiedModel`、`RuntimeUnavailable`、
+  `RuntimeLoadFailed` 和 `Active`；`semanticMemoryEnabled` 只在 `Active` 时为真。
+- `PocketMindViewModel`/`ChatUiState` 同步暴露 runtime status，避免把已校验
+  memory asset 误显示为已启用语义召回。
+- 生产默认没有 LiteRT embedding runtime factory；已安装 memory asset 时报告
+  runtime unavailable 并回退轻量索引，测试注入 semantic runtime 才产生
+  `MemoryRecallMode.Semantic` 命中。
+- 状态机覆盖了无 factory、load failed 后清空模型、同一路径失败后重试成功、
+  Active 状态传播，以及无 runtime 时 lexical fallback 仍可用。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateReportsUnavailableSemanticRuntimeWhenFactoryIsMissing' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localModeSemanticMemoryStatusAndPromptUseSemanticHit' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeKeepsSemanticMemoryRuntimeButDoesNotSendMemoryContext'
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+git diff --unified=0 | rg -n "<sensitive endpoint/model/key patterns>"
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：定向记忆/ViewModel 测试、全量 JVM 单测、AndroidTest Kotlin 编译、
+diff whitespace 检查、敏感串扫描和本地完整验证脚本通过。
+
 ## 2026-06-02 Emulator regression 验证
 
 本轮覆盖项：
@@ -287,8 +322,9 @@ diff whitespace 检查、敏感串扫描和本地完整验证脚本通过。
 - 普通 `Conversation`、非回答偏好、非结构化 `TaskState` 和 hidden
   `SuppressedTaskState` 不获得 alias；终态查询如“已取消提醒”不会召回仍活跃的
   Scheduled/Running 任务状态。
-- 语义 runtime 启用时，embedding 输入仍使用原展示文本；检索同时保存原文 token
-  与 alias 后 token，避免 alias-only 命中被误标成普通 lexical recall。
+- 测试注入的 semantic runtime 启用时，embedding 输入仍使用原展示文本；检索同时保存
+  原文 token 与 alias 后 token，避免 alias-only 命中被误标成普通 lexical recall。
+  生产默认仍没有 LiteRT embedding runtime factory，memory asset 不会让该路径启用。
 
 验证命令：
 
@@ -2238,6 +2274,8 @@ adb devices -l
 - 生产默认仍不声明语义召回已启用。安装 memory model asset 不等于 runtime 已接入；
   生产 model-path 路径上，只有 controller 成功切到 `supportsSemanticRecall=true`
   的 runtime 才产生 `MemoryRecallMode.Semantic` 命中。
+- Production `AppContainer` 仍未注入 LiteRT embedding runtime factory；verified
+  memory asset 在生产路径上会报告 runtime 不可用并回退轻量索引。
 - `PocketMindViewModel` 在 memory rebuild 前同步 verified memory model path，确保
   启动/模型校验后的索引使用当前 runtime 边界，同时不要求聊天模型加载。
 
@@ -2652,6 +2690,8 @@ adb devices -l
 - `MemoryRepository` 将默认轻量 token/hash 召回与真正 semantic runtime
   边界拆开：hash runtime 仍要求词项重叠，声明支持 semantic recall 的 runtime
   才能用高分阈值召回无词项重叠命中。
+- Production `AppContainer` 当前未注入 LiteRT embedding runtime factory；安装并校验
+  memory model asset 不会让语义召回路径启用。
 - `MemoryHit` 标记命中来源为 `Lexical` 或 `Semantic`，便于后续接入 LiteRT
   embedding adapter 后验证真实语义召回路径。
 - 模型管理高级页的本地记忆开关不再绑定 memory model asset 安装状态；文案明确

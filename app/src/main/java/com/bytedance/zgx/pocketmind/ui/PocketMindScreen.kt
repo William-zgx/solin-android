@@ -128,6 +128,7 @@ import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
+import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.pocketmind.isUsable
 import com.bytedance.zgx.pocketmind.label
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
@@ -1575,11 +1576,16 @@ private fun MemoryTogglePanel(
                     )
                     Text(
                         text = when {
-                            state.semanticMemoryEnabled ->
+                            state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.Active ->
                                 "语义记忆运行时已启用；记忆仍只在本机检索，不会自动发送到远程模型。"
 
-                            memoryModelInstalled ->
-                                "记忆模型资产已安装；当前 LiteRT-LM 版本尚无公开 embedding API，语义运行时未启用。"
+                            state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.RuntimeUnavailable &&
+                                memoryModelInstalled ->
+                                "记忆模型资产已安装；当前没有可用 embedding runtime，语义运行时未启用。"
+
+                            state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.RuntimeLoadFailed &&
+                                memoryModelInstalled ->
+                                "记忆模型资产已安装；语义运行时加载或探测失败，已回退轻量索引。"
 
                             else ->
                                 "当前使用本地轻量索引；可补装记忆模型资产。"

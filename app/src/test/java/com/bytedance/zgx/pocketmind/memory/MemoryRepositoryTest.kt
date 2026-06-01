@@ -182,11 +182,13 @@ class MemoryRepositoryTest {
         repository.index("pref", "I prefer concise answers")
 
         assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, repository.semanticMemoryRuntimeStatus)
         assertTrue(repository.search("brief replies").isEmpty())
 
         repository.useMemoryModel("/verified/memory.litertlm")
 
         assertTrue(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.Active, repository.semanticMemoryRuntimeStatus)
         assertEquals("/verified/memory.litertlm", repository.activeMemoryModelPath)
         val semanticHits = repository.search("brief replies")
         assertEquals(listOf("pref"), semanticHits.map { it.id })
@@ -195,8 +197,26 @@ class MemoryRepositoryTest {
         repository.useMemoryModel(null)
 
         assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
         assertTrue(repository.search("brief replies").isEmpty())
+    }
+
+    @Test
+    fun semanticRuntimeStatusReportsUnavailableWhenFactoryIsMissing() {
+        val repository = MemoryRepository()
+
+        repository.useMemoryModel("/verified/memory.litertlm")
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeUnavailable, repository.semanticMemoryRuntimeStatus)
+        assertNull(repository.activeMemoryModelPath)
+
+        repository.useMemoryModel(null)
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, repository.semanticMemoryRuntimeStatus)
+        assertNull(repository.activeMemoryModelPath)
     }
 
     @Test
@@ -217,9 +237,14 @@ class MemoryRepositoryTest {
         repository.useMemoryModel("/missing")
 
         assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
         assertTrue(repository.search("brief replies").isEmpty())
         assertEquals(listOf("pref"), repository.search("concise answers").map { it.id })
+
+        repository.useMemoryModel(null)
+
+        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, repository.semanticMemoryRuntimeStatus)
     }
 
     @Test
@@ -239,8 +264,33 @@ class MemoryRepositoryTest {
 
         assertEquals(listOf("/ok", "/broken"), requestedPaths)
         assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
         assertTrue(repository.search("brief replies").isEmpty())
+    }
+
+    @Test
+    fun semanticRuntimeCanRetrySamePathAfterLoadFailure() {
+        var failRuntimeLoad = true
+        val repository = MemoryRepository(
+            semanticRuntimeFactory = {
+                if (failRuntimeLoad) null else ConceptEmbeddingRuntime()
+            },
+        )
+        repository.index("pref", "I prefer concise answers")
+
+        repository.useMemoryModel("/verified/memory.litertlm")
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
+
+        failRuntimeLoad = false
+        repository.useMemoryModel("/verified/memory.litertlm")
+
+        assertTrue(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.Active, repository.semanticMemoryRuntimeStatus)
+        assertEquals("/verified/memory.litertlm", repository.activeMemoryModelPath)
+        assertEquals(listOf("pref"), repository.search("brief replies").map { it.id })
     }
 
     @Test
@@ -253,6 +303,7 @@ class MemoryRepositoryTest {
         repository.useMemoryModel("/broken")
 
         assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
         assertTrue(repository.search("brief replies").isEmpty())
         assertEquals(listOf("pref"), repository.search("concise answers").map { it.id })
@@ -320,6 +371,7 @@ class MemoryRepositoryTest {
         repository.useMemoryModel("/verified/memory.litertlm")
 
         assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeUnavailable, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
         assertTrue(repository.search("laconic replies").isEmpty())
         val aliasHits = repository.search("brief replies")
@@ -338,6 +390,7 @@ class MemoryRepositoryTest {
         restored.rebuild(emptyList())
 
         assertFalse(restored.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeUnavailable, restored.semanticMemoryRuntimeStatus)
         assertNull(restored.activeMemoryModelPath)
         assertTrue(restored.search("laconic replies").isEmpty())
         assertEquals(listOf("pref"), restored.search("brief replies").map { it.id })

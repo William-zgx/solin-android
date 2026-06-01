@@ -38,6 +38,7 @@ import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordStore
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.memory.PersistedMemoryRecord
+import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachment
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachmentKind
@@ -2663,14 +2664,52 @@ class PocketMindViewModelTest {
             modelRepository = FakeModelRepository(memoryEmbeddingModelPath = "/verified/memory.litertlm"),
         )
 
+        assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
+
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
         assertTrue(memoryRepository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.Active, memoryRepository.semanticMemoryRuntimeStatus)
+        assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
         assertEquals("/verified/memory.litertlm", memoryRepository.activeMemoryModelPath)
         val hits = memoryRepository.search("brief replies")
         assertEquals(listOf("pref-1"), hits.map { it.id })
         assertEquals(MemoryRecallMode.Semantic, hits.first().recallMode)
+    }
+
+    @Test
+    fun restoreStartupStateReportsUnavailableSemanticRuntimeWhenFactoryIsMissing() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        memoryRepository.indexPreference("pref-1", "I prefer concise answers")
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            modelRepository = FakeModelRepository(memoryEmbeddingModelPath = "/verified/memory.litertlm"),
+        )
+
+        assertFalse(viewModel.uiState.value.semanticMemoryEnabled)
+        assertEquals(
+            SemanticMemoryRuntimeStatus.RuntimeUnavailable,
+            viewModel.uiState.value.semanticMemoryRuntimeStatus,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertFalse(memoryRepository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeUnavailable, memoryRepository.semanticMemoryRuntimeStatus)
+        assertEquals(null, memoryRepository.activeMemoryModelPath)
+        assertFalse(viewModel.uiState.value.semanticMemoryEnabled)
+        assertEquals(
+            SemanticMemoryRuntimeStatus.RuntimeUnavailable,
+            viewModel.uiState.value.semanticMemoryRuntimeStatus,
+        )
+        assertTrue(memoryRepository.search("laconic replies").isEmpty())
+        val lexicalHits = memoryRepository.search("concise answers")
+        assertEquals(listOf("pref-1"), lexicalHits.map { it.id })
+        assertEquals(MemoryRecallMode.Lexical, lexicalHits.single().recallMode)
     }
 
     @Test
@@ -2706,6 +2745,7 @@ class PocketMindViewModelTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
         val prompt = localRuntime.prompts.single()
         assertTrue(prompt.contains("本地记忆"))
         assertTrue(prompt.contains("I prefer concise answers"))
@@ -2800,6 +2840,7 @@ class PocketMindViewModelTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
         assertTrue(viewModel.uiState.value.memoryHits.isEmpty())
         val call = remoteRuntime.calls.single()
         assertEquals("brief replies", call.prompt)
