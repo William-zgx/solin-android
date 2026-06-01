@@ -31,6 +31,7 @@ data class AgentRun(
     val state: AgentRunState,
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
+    val sessionId: String? = null,
 )
 
 data class AgentContext(

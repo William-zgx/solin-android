@@ -1252,6 +1252,109 @@ class AgentTraceStoreTest {
         assertTrue(store.recentRunSummaries(limit = 1, stepLimit = 0).single().steps.isEmpty())
     }
 
+    @Test
+    fun roomStoreDeletesRunGraphForSessionOnly() {
+        var now = 11_000L
+        var nextRun = 0
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { now++ },
+            runIdFactory = { "run-${++nextRun}" },
+        )
+        val deletedRun = store.updateState(
+            store.createRun("delete me", sessionId = "session-delete").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+        val keptRun = store.updateState(
+            store.createRun("keep me", sessionId = "session-keep").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+        val deletedRequest = ToolRequest(
+            id = "request-delete",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            arguments = emptyMap(),
+            reason = "Open Wi-Fi",
+        )
+        val keptRequest = deletedRequest.copy(id = "request-keep")
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "Wi-Fi",
+            summary = "Open Wi-Fi",
+            parameters = emptyMap(),
+        )
+        store.appendStep(deletedRun.id, AgentStep.UserConfirmationRequested(deletedRequest, draft))
+        store.appendStep(keptRun.id, AgentStep.UserConfirmationRequested(keptRequest, draft))
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = deletedRun,
+                request = deletedRequest,
+                draft = draft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+            ),
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = keptRun,
+                request = keptRequest,
+                draft = draft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+            ),
+        )
+        dao.upsertSkillRunCheckpoint(
+            agentSkillRunCheckpointEntity(
+                runId = deletedRun.id,
+                requestId = deletedRequest.id,
+            ),
+        )
+        dao.upsertSkillRunCheckpoint(
+            agentSkillRunCheckpointEntity(
+                runId = keptRun.id,
+                requestId = keptRequest.id,
+            ),
+        )
+
+        val deletedCount = store.deleteRunsForSession("session-delete")
+
+        assertEquals(1, deletedCount)
+        assertNull(store.run(deletedRun.id))
+        assertTrue(store.stepSummaries(deletedRun.id).isEmpty())
+        assertNull(store.latestPendingConfirmation("session-delete"))
+        assertTrue(dao.skillRunCheckpointsForRun(deletedRun.id).isEmpty())
+        assertEquals(keptRun.id, store.run(keptRun.id)?.id)
+        assertEquals(1, store.stepSummaries(keptRun.id).size)
+        assertEquals(keptRequest.id, store.latestPendingConfirmation("session-keep")?.request?.id)
+        assertEquals(1, dao.skillRunCheckpointsForRun(keptRun.id).size)
+    }
+
+    private fun agentSkillRunCheckpointEntity(
+        runId: String,
+        requestId: String,
+    ): AgentSkillRunCheckpointEntity =
+        AgentSkillRunCheckpointEntity(
+            runId = runId,
+            requestId = requestId,
+            skillId = "skill-1",
+            skillRequestId = "skill-request-1",
+            manifestId = "skill-1",
+            manifestVersion = 1,
+            manifestHash = "a".repeat(64),
+            phase = "AwaitingToolConfirmation",
+            pendingStepIndex = 0,
+            pendingStepId = "tool:$requestId",
+            pendingToolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            completedStepIdsJson = "[]",
+            outputKeysByStepJson = "{}",
+            privateOutputRefsJson = "[]",
+            schemaVersion = 1,
+            createdAtMillis = 1L,
+            updatedAtMillis = 1L,
+        )
+
     private class FakeAgentTraceDao : AgentTraceDao {
         private val runs = linkedMapOf<String, AgentRunEntity>()
         private val steps = mutableListOf<AgentStepEntity>()
@@ -1269,6 +1372,11 @@ class AgentTraceStoreTest {
                         .thenByDescending { run -> run.id },
                 )
                 .take(limit)
+
+        override fun runIdsForSession(sessionId: String): List<String> =
+            runs.values
+                .filter { run -> run.sessionId == sessionId }
+                .map { run -> run.id }
 
         override fun upsertRun(run: AgentRunEntity) {
             runs[run.id] = run
@@ -1304,6 +1412,13 @@ class AgentTraceStoreTest {
                 .filter { step -> step.runId == runId }
                 .sortedBy { step -> step.position }
 
+        override fun deleteStepsForSession(sessionId: String): Int {
+            val runIdSet = runIdsForSession(sessionId).toSet()
+            val before = steps.size
+            steps.removeAll { step -> step.runId in runIdSet }
+            return before - steps.size
+        }
+
         override fun pendingConfirmations(): List<PendingAgentConfirmationEntity> =
             pendingConfirmations.values.sortedWith(
                 compareByDescending<PendingAgentConfirmationEntity> { pending -> pending.updatedAtMillis }
@@ -1323,6 +1438,13 @@ class AgentTraceStoreTest {
             if (existing.requestId != requestId) return 0
             pendingConfirmations.remove(runId)
             return 1
+        }
+
+        override fun deletePendingConfirmationsForSession(sessionId: String): Int {
+            val runIds = runIdsForSession(sessionId)
+            val before = pendingConfirmations.size
+            pendingConfirmations.keys.removeAll(runIds.toSet())
+            return before - pendingConfirmations.size
         }
 
         override fun skillRunCheckpoint(
@@ -1350,6 +1472,20 @@ class AgentTraceStoreTest {
             val before = skillRunCheckpoints.size
             skillRunCheckpoints.keys.removeAll { (checkpointRunId, _) -> checkpointRunId == runId }
             return before - skillRunCheckpoints.size
+        }
+
+        override fun deleteSkillRunCheckpointsForSession(sessionId: String): Int {
+            val runIdSet = runIdsForSession(sessionId).toSet()
+            val before = skillRunCheckpoints.size
+            skillRunCheckpoints.keys.removeAll { (checkpointRunId, _) -> checkpointRunId in runIdSet }
+            return before - skillRunCheckpoints.size
+        }
+
+        override fun deleteRunsForSession(sessionId: String): Int {
+            val runIds = runIdsForSession(sessionId)
+            val before = runs.size
+            runs.keys.removeAll(runIds.toSet())
+            return before - runs.size
         }
     }
 }

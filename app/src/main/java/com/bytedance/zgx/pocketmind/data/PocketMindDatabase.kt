@@ -11,6 +11,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.bytedance.zgx.pocketmind.MessagePrivacy
@@ -98,6 +99,7 @@ data class AgentRunEntity(
     val state: String,
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
+    val sessionId: String? = null,
 )
 
 @Entity(tableName = "agent_steps", primaryKeys = ["runId", "position"])
@@ -399,6 +401,9 @@ interface AgentTraceDao {
     @Query("SELECT * FROM agent_runs ORDER BY updatedAtMillis DESC, createdAtMillis DESC, id DESC LIMIT :limit")
     fun recentRuns(limit: Int): List<AgentRunEntity>
 
+    @Query("SELECT id FROM agent_runs WHERE sessionId = :sessionId")
+    fun runIdsForSession(sessionId: String): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsertRun(run: AgentRunEntity)
 
@@ -417,6 +422,9 @@ interface AgentTraceDao {
     @Query("SELECT * FROM agent_steps WHERE runId = :runId ORDER BY position ASC")
     fun steps(runId: String): List<AgentStepEntity>
 
+    @Query("DELETE FROM agent_steps WHERE runId IN (SELECT id FROM agent_runs WHERE sessionId = :sessionId)")
+    fun deleteStepsForSession(sessionId: String): Int
+
     @Query("SELECT * FROM pending_agent_confirmations ORDER BY updatedAtMillis DESC, createdAtMillis DESC, runId DESC")
     fun pendingConfirmations(): List<PendingAgentConfirmationEntity>
 
@@ -428,6 +436,9 @@ interface AgentTraceDao {
 
     @Query("DELETE FROM pending_agent_confirmations WHERE runId = :runId AND requestId = :requestId")
     fun deletePendingConfirmation(runId: String, requestId: String): Int
+
+    @Query("DELETE FROM pending_agent_confirmations WHERE runId IN (SELECT id FROM agent_runs WHERE sessionId = :sessionId)")
+    fun deletePendingConfirmationsForSession(sessionId: String): Int
 
     @Query("SELECT * FROM agent_skill_run_checkpoints WHERE runId = :runId AND requestId = :requestId LIMIT 1")
     fun skillRunCheckpoint(runId: String, requestId: String): AgentSkillRunCheckpointEntity?
@@ -443,6 +454,20 @@ interface AgentTraceDao {
 
     @Query("DELETE FROM agent_skill_run_checkpoints WHERE runId = :runId")
     fun deleteSkillRunCheckpointsForRun(runId: String): Int
+
+    @Query("DELETE FROM agent_skill_run_checkpoints WHERE runId IN (SELECT id FROM agent_runs WHERE sessionId = :sessionId)")
+    fun deleteSkillRunCheckpointsForSession(sessionId: String): Int
+
+    @Query("DELETE FROM agent_runs WHERE sessionId = :sessionId")
+    fun deleteRunsForSession(sessionId: String): Int
+
+    @Transaction
+    fun deleteRunGraphForSession(sessionId: String): Int {
+        deleteStepsForSession(sessionId)
+        deletePendingConfirmationsForSession(sessionId)
+        deleteSkillRunCheckpointsForSession(sessionId)
+        return deleteRunsForSession(sessionId)
+    }
 }
 
 @Database(
@@ -459,7 +484,7 @@ interface AgentTraceDao {
         PendingAgentConfirmationEntity::class,
         AgentSkillRunCheckpointEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class PocketMindDatabase : RoomDatabase() {
@@ -640,6 +665,12 @@ abstract class PocketMindDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `sessionId` TEXT")
+            }
+        }
+
         fun get(context: Context): PocketMindDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -656,6 +687,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
                         MIGRATION_6_7,
                         MIGRATION_7_8,
                         MIGRATION_8_9,
+                        MIGRATION_9_10,
                     )
                     .allowMainThreadQueries()
                     .build()

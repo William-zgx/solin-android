@@ -44,6 +44,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_6_7,
                 PocketMindDatabase.MIGRATION_7_8,
                 PocketMindDatabase.MIGRATION_8_9,
+                PocketMindDatabase.MIGRATION_9_10,
             )
             .allowMainThreadQueries()
             .build()
@@ -128,6 +129,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_6_7,
                 PocketMindDatabase.MIGRATION_7_8,
                 PocketMindDatabase.MIGRATION_8_9,
+                PocketMindDatabase.MIGRATION_9_10,
             )
             .allowMainThreadQueries()
             .build()
@@ -170,6 +172,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_6_7,
                 PocketMindDatabase.MIGRATION_7_8,
                 PocketMindDatabase.MIGRATION_8_9,
+                PocketMindDatabase.MIGRATION_9_10,
             )
             .allowMainThreadQueries()
             .build()
@@ -224,6 +227,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_6_7,
                 PocketMindDatabase.MIGRATION_7_8,
                 PocketMindDatabase.MIGRATION_8_9,
+                PocketMindDatabase.MIGRATION_9_10,
             )
             .allowMainThreadQueries()
             .build()
@@ -329,7 +333,11 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_7_8, PocketMindDatabase.MIGRATION_8_9)
+            .addMigrations(
+                PocketMindDatabase.MIGRATION_7_8,
+                PocketMindDatabase.MIGRATION_8_9,
+                PocketMindDatabase.MIGRATION_9_10,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -360,7 +368,7 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_8_9)
+            .addMigrations(PocketMindDatabase.MIGRATION_8_9, PocketMindDatabase.MIGRATION_9_10)
             .allowMainThreadQueries()
             .build()
 
@@ -389,6 +397,42 @@ class PocketMindDatabaseMigrationTest {
             val checkpoint = database.agentTraceDao().skillRunCheckpoint("run-1", "request-1")
             assertEquals("skill-1", checkpoint?.skillId)
             assertTrue(database.skillRunCheckpointsTableExists())
+        } finally {
+            database.close()
+            context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
+    @Test
+    fun migration9To10AddsAgentRunSessionIdColumnAndRoomCanOpen() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB_NAME)
+        val dbFile = context.getDatabasePath(TEST_DB_NAME)
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createVersion9Schema(db)
+            db.execSQL(
+                """
+                INSERT INTO agent_runs(id, input, state, createdAtMillis, updatedAtMillis)
+                VALUES('legacy-run', '[redacted]', 'AwaitingUserConfirmation', 1, 1)
+                """.trimIndent(),
+            )
+            db.version = 9
+        }
+
+        val database = Room.databaseBuilder(
+            context,
+            PocketMindDatabase::class.java,
+            TEST_DB_NAME,
+        )
+            .addMigrations(PocketMindDatabase.MIGRATION_9_10)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val restored = database.agentTraceDao().run("legacy-run")
+            assertEquals(null, restored?.sessionId)
+            assertTrue(database.agentRunSessionIdColumnIsNullable())
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
@@ -579,6 +623,34 @@ class PocketMindDatabaseMigrationTest {
         )
     }
 
+    private fun createVersion9Schema(db: SQLiteDatabase) {
+        createVersion8Schema(db)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `agent_skill_run_checkpoints` (
+                `runId` TEXT NOT NULL,
+                `requestId` TEXT NOT NULL,
+                `skillId` TEXT NOT NULL,
+                `skillRequestId` TEXT NOT NULL,
+                `manifestId` TEXT NOT NULL,
+                `manifestVersion` INTEGER NOT NULL,
+                `manifestHash` TEXT NOT NULL,
+                `phase` TEXT NOT NULL,
+                `pendingStepIndex` INTEGER NOT NULL,
+                `pendingStepId` TEXT NOT NULL,
+                `pendingToolName` TEXT NOT NULL,
+                `completedStepIdsJson` TEXT NOT NULL,
+                `outputKeysByStepJson` TEXT NOT NULL,
+                `privateOutputRefsJson` TEXT NOT NULL,
+                `schemaVersion` INTEGER NOT NULL,
+                `createdAtMillis` INTEGER NOT NULL,
+                `updatedAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`runId`, `requestId`)
+            )
+            """.trimIndent(),
+        )
+    }
+
     private fun PocketMindDatabase.agentTraceTablesExist(): Boolean {
         val tables = mutableSetOf<String>()
         openHelper.writableDatabase.query(
@@ -617,6 +689,18 @@ class PocketMindDatabaseMigrationTest {
         ).use { cursor ->
             return cursor.moveToNext()
         }
+    }
+
+    private fun PocketMindDatabase.agentRunSessionIdColumnIsNullable(): Boolean {
+        openHelper.writableDatabase.query("PRAGMA table_info(`agent_runs`)").use { cursor ->
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(cursor.getColumnIndexOrThrow("name"))
+                if (name != "sessionId") continue
+                val notNull = cursor.getInt(cursor.getColumnIndexOrThrow("notnull"))
+                return notNull == 0
+            }
+        }
+        return false
     }
 
     private object NoOpSecretStore : SecretStore {

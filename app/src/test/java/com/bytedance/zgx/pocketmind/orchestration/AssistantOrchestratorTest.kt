@@ -10,6 +10,7 @@ import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
+import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import org.junit.Assert.assertEquals
@@ -30,6 +31,61 @@ class AssistantOrchestratorTest {
         assertTrue(route is AssistantRoute.Action)
         require(route is AssistantRoute.Action)
         assertTrue(!route.plannedByModel)
+    }
+
+    @Test
+    fun routeBindsAgentRunToSessionId() {
+        val traceStore = InMemoryAgentTraceStore()
+        val orchestrator = AssistantOrchestrator(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = NeverActionRuntime(),
+            traceStore = traceStore,
+        )
+
+        val route = orchestrator.route(
+            input = "普通问题",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            sessionId = "session-1",
+        )
+
+        require(route is AssistantRoute.Chat)
+        val run = traceStore.recentRunSummaries(limit = 1).single().run
+        assertEquals(route.runId, run.id)
+        assertEquals("session-1", run.sessionId)
+    }
+
+    @Test
+    fun requestRecoveryActionBindsAgentRunToSessionId() {
+        val traceStore = InMemoryAgentTraceStore()
+        val orchestrator = AssistantOrchestrator(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = NeverActionRuntime(),
+            traceStore = traceStore,
+        )
+        val action = AgentRecoveryAction(
+            sourceRequestId = "request-reminder",
+            sourceToolName = MobileActionFunctions.SCHEDULE_REMINDER,
+            request = ToolRequest(
+                id = "request-cancel",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                arguments = mapOf("taskId" to "task-1"),
+                reason = "Cancel reminder",
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.CANCEL_REMINDER,
+                title = "Cancel",
+                summary = "Cancel reminder",
+                parameters = mapOf("taskId" to "task-1"),
+            ),
+        )
+
+        val route = orchestrator.requestRecoveryAction(action, sessionId = "session-1")
+
+        require(route is AssistantRoute.Action)
+        val run = traceStore.recentRunSummaries(limit = 1).single().run
+        assertEquals(route.runId, run.id)
+        assertEquals("session-1", run.sessionId)
     }
 
     @Test

@@ -752,10 +752,13 @@ class PocketMindViewModel(
                 sessions = sessionRepository.summaries(),
                 activeSessionId = sessionRepository.activeSessionId,
                 messages = emptyList(),
+                pendingConfirmation = null,
                 latestRecoveryAction = null,
+                agentTraceRuns = loadAgentTraceRuns(),
                 statusText = if (!runtime.isLoaded) "新会话" else "正在开启新会话",
             )
         }
+        restorePendingAgentConfirmationIfAny(clearMissing = true)
         if (runtime.isLoaded) {
             recreateConversationForActiveSession("新会话")
         }
@@ -768,10 +771,13 @@ class PocketMindViewModel(
             it.copy(
                 activeSessionId = sessionRepository.activeSessionId,
                 messages = messages,
+                pendingConfirmation = null,
                 latestRecoveryAction = null,
+                agentTraceRuns = loadAgentTraceRuns(),
                 statusText = if (!runtime.isLoaded) "已切换会话" else "正在恢复会话",
             )
         }
+        restorePendingAgentConfirmationIfAny(clearMissing = true)
         if (runtime.isLoaded) {
             recreateConversationForActiveSession("已恢复会话")
         }
@@ -779,16 +785,21 @@ class PocketMindViewModel(
 
     fun deleteActiveSession() {
         if (_uiState.value.isBusy) return
+        val deletedSessionId = sessionRepository.activeSessionId
         val messages = sessionRepository.deleteActiveSession() ?: return
+        assistantOrchestrator.deleteRunsForSession(deletedSessionId)
         _uiState.update {
             it.copy(
                 sessions = sessionRepository.summaries(),
                 activeSessionId = sessionRepository.activeSessionId,
                 messages = messages,
+                pendingConfirmation = null,
                 latestRecoveryAction = null,
+                agentTraceRuns = loadAgentTraceRuns(),
                 statusText = if (!runtime.isLoaded) "已删除会话" else "正在恢复会话",
             )
         }
+        restorePendingAgentConfirmationIfAny(clearMissing = true)
         if (runtime.isLoaded) {
             recreateConversationForActiveSession("已删除会话")
         }
@@ -865,6 +876,7 @@ class PocketMindViewModel(
                     memoryEnabled = stateBeforeSend.memoryEnabled && includePrivateLocalContext,
                     actionModelPath = modelRepository.verifiedActionModelPath(),
                     deviceContext = stateBeforeSend.toDeviceContextSnapshot().takeIf { includePrivateLocalContext },
+                    sessionId = stateBeforeSend.activeSessionId,
                 )
                 when (route) {
                     is AssistantRoute.Action -> {
@@ -1167,7 +1179,7 @@ class PocketMindViewModel(
             }
             return
         }
-        when (val route = assistantOrchestrator.requestRecoveryAction(action)) {
+        when (val route = assistantOrchestrator.requestRecoveryAction(action, state.activeSessionId)) {
             is AssistantRoute.Action -> {
                 val runId = route.runId
                 val request = route.toolRequest
@@ -2353,8 +2365,16 @@ class PocketMindViewModel(
             },
         )
 
-    private fun restorePendingAgentConfirmationIfAny() {
-        val route = assistantOrchestrator.restorePendingAction() ?: return
+    private fun restorePendingAgentConfirmationIfAny(clearMissing: Boolean = false) {
+        val route = assistantOrchestrator.restorePendingAction(sessionRepository.activeSessionId)
+        if (route == null) {
+            if (clearMissing) {
+                _uiState.update {
+                    it.copy(pendingConfirmation = null)
+                }
+            }
+            return
+        }
         _uiState.update {
             it.copy(
                 pendingConfirmation = PendingAgentConfirmation(

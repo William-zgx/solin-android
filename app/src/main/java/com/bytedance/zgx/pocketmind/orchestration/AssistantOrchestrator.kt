@@ -44,9 +44,10 @@ interface AssistantRouter : AutoCloseable {
         memoryEnabled: Boolean,
         actionModelPath: String? = null,
         deviceContext: DeviceContextSnapshot? = null,
+        sessionId: String? = null,
     ): AssistantRoute
 
-    fun requestRecoveryAction(action: AgentRecoveryAction): AssistantRoute
+    fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String? = null): AssistantRoute
 
     fun failStaleInFlightRuns(reason: String): Int
 
@@ -60,9 +61,11 @@ interface AssistantRouter : AutoCloseable {
 
     fun observeModelResult(runId: String, text: String): AgentModelObservationResult?
 
-    fun restorePendingAction(): AssistantRoute.Action?
+    fun restorePendingAction(sessionId: String? = null): AssistantRoute.Action?
 
     fun recentTraceRuns(limit: Int = 5, stepLimit: Int = 20): List<AgentTraceRunSummary> = emptyList()
+
+    fun deleteRunsForSession(sessionId: String): Int = 0
 }
 
 class AssistantOrchestrator(
@@ -86,6 +89,7 @@ class AssistantOrchestrator(
         memoryEnabled: Boolean,
         actionModelPath: String?,
         deviceContext: DeviceContextSnapshot?,
+        sessionId: String?,
     ): AssistantRoute =
         agentLoopRuntime.runOnce(
             input = input,
@@ -93,10 +97,11 @@ class AssistantOrchestrator(
             memoryEnabled = memoryEnabled,
             actionModelPath = actionModelPath,
             deviceContext = deviceContext,
+            sessionId = sessionId,
         ).toAssistantRoute()
 
-    override fun requestRecoveryAction(action: AgentRecoveryAction): AssistantRoute =
-        agentLoopRuntime.requestRecoveryAction(action)?.toAssistantRoute()
+    override fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String?): AssistantRoute =
+        agentLoopRuntime.requestRecoveryAction(action, sessionId)?.toAssistantRoute()
             ?: AssistantRoute.ToolRejected("撤销动作不可用")
 
     override fun failStaleInFlightRuns(reason: String): Int =
@@ -121,11 +126,14 @@ class AssistantOrchestrator(
     override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? =
         agentLoopRuntime.observeModelResult(runId, text)
 
-    override fun restorePendingAction(): AssistantRoute.Action? =
-        agentLoopRuntime.latestPendingConfirmation()?.toAssistantRoute()
+    override fun restorePendingAction(sessionId: String?): AssistantRoute.Action? =
+        agentLoopRuntime.latestPendingConfirmation(sessionId)?.toAssistantRoute()
 
     override fun recentTraceRuns(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> =
         traceStore.recentRunSummaries(limit = limit, stepLimit = stepLimit)
+
+    override fun deleteRunsForSession(sessionId: String): Int =
+        traceStore.deleteRunsForSession(sessionId)
 
     override fun close() {
         (actionPlanningRuntime as? AutoCloseable)?.close()

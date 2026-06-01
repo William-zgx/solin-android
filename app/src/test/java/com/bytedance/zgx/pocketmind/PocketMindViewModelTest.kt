@@ -1367,6 +1367,83 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun sendMessagePassesActiveSessionIdToAgentRoute() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore(initialActiveSessionId = "session-1")
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-1",
+                toolRequest = ToolRequest(toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS),
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    title = "打开 Wi-Fi 设置",
+                    summary = "将打开系统 Wi-Fi 设置页。",
+                    parameters = emptyMap(),
+                ),
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("打开 Wi-Fi 设置")
+        advanceUntilIdle()
+
+        assertEquals("session-1", assistantRouter.lastRouteSessionId)
+    }
+
+    @Test
+    fun deleteActiveSessionClearsSessionAgentTraceAndPendingConfirmation() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore(
+            initialSessions = linkedMapOf(
+                "session-delete" to listOf(ChatMessage(MessageRole.User, "旧会话")),
+                "session-keep" to listOf(ChatMessage(MessageRole.User, "保留会话")),
+            ),
+            initialActiveSessionId = "session-delete",
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-delete",
+                toolRequest = ToolRequest(toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS),
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    title = "打开 Wi-Fi 设置",
+                    summary = "将打开系统 Wi-Fi 设置页。",
+                    parameters = emptyMap(),
+                ),
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+        viewModel.sendMessage("打开 Wi-Fi 设置")
+        advanceUntilIdle()
+        requireNotNull(viewModel.uiState.value.pendingConfirmation)
+
+        viewModel.deleteActiveSession()
+        advanceUntilIdle()
+
+        assertEquals(listOf("session-delete"), assistantRouter.deletedTraceSessionIds)
+        assertEquals("session-keep", viewModel.uiState.value.activeSessionId)
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals("session-keep", assistantRouter.lastRestorePendingSessionId)
+        assertEquals("保留会话", viewModel.uiState.value.messages.single().text)
+    }
+
+    @Test
     fun duplicatePendingConfirmationExecutesOnlyOnce() = runTest(dispatcher) {
         val request = ToolRequest(toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS)
         val executor = RecordingToolExecutor()
@@ -2114,6 +2191,7 @@ class PocketMindViewModelTest {
             assertEquals("撤销提醒待确认", viewModel.uiState.value.statusText)
             assertEquals(listOf(MobileActionFunctions.SCHEDULE_REMINDER), executedRequests.map { it.toolName })
             assertEquals(1, assistantRouter.requestRecoveryCallCount)
+            assertEquals("session-1", assistantRouter.lastRecoverySessionId)
             assertEquals(1, assistantRouter.confirmCallCount)
 
             viewModel.confirmAgentConfirmation(pendingRecovery)
@@ -3670,6 +3748,13 @@ class PocketMindViewModelTest {
             private set
         var recentTraceStepLimit: Int? = null
             private set
+        var lastRouteSessionId: String? = null
+            private set
+        var lastRecoverySessionId: String? = null
+            private set
+        var lastRestorePendingSessionId: String? = null
+            private set
+        val deletedTraceSessionIds = mutableListOf<String>()
 
         override fun route(
             input: String,
@@ -3677,8 +3762,10 @@ class PocketMindViewModelTest {
             memoryEnabled: Boolean,
             actionModelPath: String?,
             deviceContext: com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot?,
+            sessionId: String?,
         ): AssistantRoute {
             routeCallCount += 1
+            lastRouteSessionId = sessionId
             routeFailure?.let { throw it }
             return routeResult ?:
                 AssistantRoute.Chat(
@@ -3689,8 +3776,9 @@ class PocketMindViewModelTest {
                 )
         }
 
-        override fun requestRecoveryAction(action: AgentRecoveryAction): AssistantRoute {
+        override fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String?): AssistantRoute {
             requestRecoveryCallCount += 1
+            lastRecoverySessionId = sessionId
             return recoveryRoute ?: AssistantRoute.Action(
                 runId = "run-recovery",
                 toolRequest = action.request,
@@ -3737,7 +3825,10 @@ class PocketMindViewModelTest {
 
         override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? = modelObservation
 
-        override fun restorePendingAction(): AssistantRoute.Action? = restoredPendingRoute
+        override fun restorePendingAction(sessionId: String?): AssistantRoute.Action? {
+            lastRestorePendingSessionId = sessionId
+            return restoredPendingRoute
+        }
 
         override fun recentTraceRuns(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> {
             recentTraceRunLimit = limit
@@ -3745,31 +3836,59 @@ class PocketMindViewModelTest {
             return recentTraceRuns
         }
 
+        override fun deleteRunsForSession(sessionId: String): Int {
+            deletedTraceSessionIds += sessionId
+            return 1
+        }
+
         override fun close() = Unit
     }
 
-    private class FakeSessionStore : SessionStore {
-        override var activeSessionId: String = "session-1"
-        var messages: List<ChatMessage> = emptyList()
+    private class FakeSessionStore(
+        initialSessions: Map<String, List<ChatMessage>> = mapOf("session-1" to emptyList()),
+        initialActiveSessionId: String = initialSessions.keys.first(),
+    ) : SessionStore {
+        private val sessionsById = linkedMapOf<String, List<ChatMessage>>().apply {
+            putAll(initialSessions)
+        }
+        private var nextSessionId = sessionsById.size + 1
+        override var activeSessionId: String = initialActiveSessionId
+            private set
+        var messages: List<ChatMessage>
+            get() = sessionsById[activeSessionId].orEmpty()
+            set(value) {
+                sessionsById[activeSessionId] = value
+            }
 
         override fun summaries(): List<ChatSessionSummary> =
-            listOf(ChatSessionSummary(activeSessionId, "测试会话", 1L, messages.size))
+            sessionsById.map { (sessionId, messages) ->
+                ChatSessionSummary(sessionId, "测试会话", 1L, messages.size)
+            }
 
         override fun activeMessages(): List<ChatMessage> = messages
 
-        override fun allMessages(limit: Int): List<ChatMessage> = messages.takeLast(limit)
+        override fun allMessages(limit: Int): List<ChatMessage> =
+            sessionsById.values.flatten().takeLast(limit)
 
         override fun createNewSession(): List<ChatMessage> {
-            messages = emptyList()
-            return messages
-        }
-
-        override fun selectSession(sessionId: String): List<ChatMessage>? {
+            val sessionId = "session-${nextSessionId++}"
+            sessionsById[sessionId] = emptyList()
             activeSessionId = sessionId
             return messages
         }
 
-        override fun deleteActiveSession(): List<ChatMessage>? = null
+        override fun selectSession(sessionId: String): List<ChatMessage>? {
+            if (sessionId !in sessionsById) return null
+            activeSessionId = sessionId
+            return messages
+        }
+
+        override fun deleteActiveSession(): List<ChatMessage>? {
+            if (sessionsById.size <= 1) return null
+            sessionsById.remove(activeSessionId)
+            activeSessionId = sessionsById.keys.first()
+            return messages
+        }
 
         override fun replaceActiveSessionMessages(messages: List<ChatMessage>, persistNow: Boolean) {
             this.messages = messages

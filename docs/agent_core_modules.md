@@ -190,6 +190,11 @@ Current status:
   confirmations keep their raw snapshot only in memory for the current process;
   Room stores only declared safe argument keys and does not persist sequential
   next-action text.
+- Agent runs now carry the owning chat `sessionId` at creation time. Startup
+  pending-confirmation restore is scoped to the active session, and deleting a
+  chat session removes that session's agent runs, steps, pending confirmations,
+  and skill-run checkpoints before any stale action can be confirmed from the
+  next active conversation.
 - Persisted trace summaries and JSON previews now reuse the audit redactor for
   credential-like assignments, bearer values, API-key-shaped strings, and email
   addresses before truncation. Tool request and `UseTool` planning trace is

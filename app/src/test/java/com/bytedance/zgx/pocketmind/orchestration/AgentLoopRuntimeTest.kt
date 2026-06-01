@@ -4718,6 +4718,11 @@ class AgentLoopRuntimeTest {
                 )
                 .take(limit)
 
+        override fun runIdsForSession(sessionId: String): List<String> =
+            runs.values
+                .filter { run -> run.sessionId == sessionId }
+                .map { run -> run.id }
+
         override fun upsertRun(run: AgentRunEntity) {
             runs[run.id] = run
         }
@@ -4752,6 +4757,13 @@ class AgentLoopRuntimeTest {
                 .filter { step -> step.runId == runId }
                 .sortedBy { step -> step.position }
 
+        override fun deleteStepsForSession(sessionId: String): Int {
+            val runIdSet = runIdsForSession(sessionId).toSet()
+            val before = steps.size
+            steps.removeAll { step -> step.runId in runIdSet }
+            return before - steps.size
+        }
+
         override fun pendingConfirmations(): List<PendingAgentConfirmationEntity> =
             pendingConfirmations.values.sortedWith(
                 compareByDescending<PendingAgentConfirmationEntity> { pending -> pending.updatedAtMillis }
@@ -4771,6 +4783,13 @@ class AgentLoopRuntimeTest {
             if (existing.requestId != requestId) return 0
             pendingConfirmations.remove(runId)
             return 1
+        }
+
+        override fun deletePendingConfirmationsForSession(sessionId: String): Int {
+            val runIds = runIdsForSession(sessionId)
+            val before = pendingConfirmations.size
+            pendingConfirmations.keys.removeAll(runIds.toSet())
+            return before - pendingConfirmations.size
         }
 
         override fun skillRunCheckpoint(
@@ -4798,6 +4817,20 @@ class AgentLoopRuntimeTest {
             val before = skillRunCheckpoints.size
             skillRunCheckpoints.keys.removeAll { (checkpointRunId, _) -> checkpointRunId == runId }
             return before - skillRunCheckpoints.size
+        }
+
+        override fun deleteSkillRunCheckpointsForSession(sessionId: String): Int {
+            val runIdSet = runIdsForSession(sessionId).toSet()
+            val before = skillRunCheckpoints.size
+            skillRunCheckpoints.keys.removeAll { (checkpointRunId, _) -> checkpointRunId in runIdSet }
+            return before - skillRunCheckpoints.size
+        }
+
+        override fun deleteRunsForSession(sessionId: String): Int {
+            val runIds = runIdsForSession(sessionId)
+            val before = runs.size
+            runs.keys.removeAll(runIds.toSet())
+            return before - runs.size
         }
     }
 

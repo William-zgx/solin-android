@@ -3926,3 +3926,37 @@ scripts/verify_emulator.sh
 - 通过：Skill executor malformed success、Agent observe malformed success、防泄漏
   回归测试。
 - 通过：完整 JVM 单测 `:app:testDebugUnitTest`。
+
+## 2026-06-02 Session-scoped Agent trace cleanup
+
+本轮覆盖项：
+
+- `AgentRun` / `agent_runs` 新增 nullable `sessionId`，新建普通对话 run 和
+  typed recovery run 都绑定当前 active chat session；旧 Room 数据经
+  `MIGRATION_9_10` 保持 `sessionId = null`，不猜测回填。
+- pending action 恢复按当前 active session 过滤。切换、新建或删除 session 时
+  不再把其他会话的 pending confirmation 留在 UI 上阻塞或误执行。
+- 删除 active session 后，同步清理该 session 对应的 `agent_runs`、
+  `agent_steps`、`pending_agent_confirmations` 和
+  `agent_skill_run_checkpoints`，避免已删除会话的工具确认在重启后恢复。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.sendMessagePassesActiveSessionIdToAgentRoute' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deleteActiveSessionClearsSessionAgentTraceAndPendingConfirmation'
+
+./gradlew :app:assembleDebugAndroidTest
+
+./gradlew :app:testDebugUnitTest
+```
+
+结果：
+
+- 通过：session-scoped trace deletion、route/recovery session binding、
+  ViewModel 删除会话 pending 清理回归测试。
+- 通过：AndroidTest APK 编译，包含 Room 9->10 migration 编译覆盖。
+- 通过：完整 JVM 单测 `:app:testDebugUnitTest`。

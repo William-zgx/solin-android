@@ -64,7 +64,7 @@ private const val UNRESTORABLE_PENDING_CONFIRMATION_REASON =
     "Pending tool confirmation could not be restored after process restart."
 
 interface AgentTraceStore {
-    fun createRun(input: String): AgentRun
+    fun createRun(input: String, sessionId: String? = null): AgentRun
     fun run(runId: String): AgentRun?
     fun updateState(runId: String, state: AgentRunState): AgentRun
     fun appendStep(runId: String, step: AgentStep)
@@ -72,10 +72,11 @@ interface AgentTraceStore {
     fun stepSummaries(runId: String): List<AgentTraceStepSummary>
     fun recentRunSummaries(limit: Int = 5, stepLimit: Int = 20): List<AgentTraceRunSummary>
     fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot)
-    fun latestPendingConfirmation(): PendingToolConfirmationSnapshot?
+    fun latestPendingConfirmation(sessionId: String? = null): PendingToolConfirmationSnapshot?
     fun clearPendingConfirmation(runId: String, requestId: String): Boolean
     fun nextActionInput(runId: String): String?
     fun failStaleInFlightRuns(reason: String): Int
+    fun deleteRunsForSession(sessionId: String): Int
 }
 
 class InMemoryAgentTraceStore(
@@ -87,7 +88,7 @@ class InMemoryAgentTraceStore(
     private val runStepSummaries = linkedMapOf<String, MutableList<AgentTraceStepSummary>>()
     private val pendingConfirmations = linkedMapOf<String, PendingToolConfirmationSnapshot>()
 
-    override fun createRun(input: String): AgentRun {
+    override fun createRun(input: String, sessionId: String?): AgentRun {
         val now = clockMillis()
         val run = AgentRun(
             id = "run-${nextRunId.incrementAndGet()}",
@@ -95,6 +96,7 @@ class InMemoryAgentTraceStore(
             state = AgentRunState.Created,
             createdAtMillis = now,
             updatedAtMillis = now,
+            sessionId = sessionId,
         )
         runs[run.id] = run
         runSteps[run.id] = mutableListOf()
@@ -153,11 +155,12 @@ class InMemoryAgentTraceStore(
         pendingConfirmations[snapshot.run.id] = snapshot
     }
 
-    override fun latestPendingConfirmation(): PendingToolConfirmationSnapshot? =
+    override fun latestPendingConfirmation(sessionId: String?): PendingToolConfirmationSnapshot? =
         pendingConfirmations.values
             .sortedByDescending { snapshot -> snapshot.run.updatedAtMillis }
             .firstNotNullOfOrNull { snapshot ->
                 val run = runs[snapshot.run.id]
+                if (sessionId != null && run != null && run.sessionId != sessionId) return@firstNotNullOfOrNull null
                 when (run?.state) {
                     AgentRunState.AwaitingUserConfirmation -> snapshot.copy(run = run)
                     null -> null
@@ -189,6 +192,19 @@ class InMemoryAgentTraceStore(
         }
         return staleRuns.size
     }
+
+    override fun deleteRunsForSession(sessionId: String): Int {
+        val runIds = runs.values
+            .filter { run -> run.sessionId == sessionId }
+            .map { run -> run.id }
+        runIds.forEach { runId ->
+            runs.remove(runId)
+            runSteps.remove(runId)
+            runStepSummaries.remove(runId)
+            pendingConfirmations.remove(runId)
+        }
+        return runIds.size
+    }
 }
 
 class RoomAgentTraceStore(
@@ -202,7 +218,7 @@ class RoomAgentTraceStore(
     private val livePendingConfirmations = linkedMapOf<String, PendingToolConfirmationSnapshot>()
     private val liveNextActionInputs = linkedMapOf<String, String>()
 
-    override fun createRun(input: String): AgentRun {
+    override fun createRun(input: String, sessionId: String?): AgentRun {
         val now = clockMillis()
         val run = AgentRun(
             id = runIdFactory(),
@@ -210,6 +226,7 @@ class RoomAgentTraceStore(
             state = AgentRunState.Created,
             createdAtMillis = now,
             updatedAtMillis = now,
+            sessionId = sessionId,
         )
         liveRuns[run.id] = run
         traceDao.upsertRun(run.toEntity())
@@ -290,12 +307,13 @@ class RoomAgentTraceStore(
             ?: traceDao.deleteSkillRunCheckpoint(snapshot.run.id, snapshot.request.id)
     }
 
-    override fun latestPendingConfirmation(): PendingToolConfirmationSnapshot? {
-        latestLivePendingConfirmation()?.let { snapshot ->
+    override fun latestPendingConfirmation(sessionId: String?): PendingToolConfirmationSnapshot? {
+        latestLivePendingConfirmation(sessionId)?.let { snapshot ->
             return snapshot
         }
         for (entity in traceDao.pendingConfirmations()) {
             val run = run(entity.runId)
+            if (sessionId != null && run != null && run.sessionId != sessionId) continue
             if (run == null || run.state != AgentRunState.AwaitingUserConfirmation) {
                 traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
                 traceDao.deleteSkillRunCheckpointsForRun(entity.runId)
@@ -347,6 +365,19 @@ class RoomAgentTraceStore(
         return staleRuns.size + awaitingWithoutPendingRuns.size
     }
 
+    override fun deleteRunsForSession(sessionId: String): Int {
+        val runIds = traceDao.runIdsForSession(sessionId)
+        if (runIds.isEmpty()) return 0
+        val deletedCount = traceDao.deleteRunGraphForSession(sessionId)
+        runIds.forEach { runId ->
+            liveRuns.remove(runId)
+            liveSteps.remove(runId)
+            livePendingConfirmations.remove(runId)
+            liveNextActionInputs.remove(runId)
+        }
+        return deletedCount
+    }
+
     private fun repairPendingConfirmationsAndCollectValidRunIds(): Set<String> =
         buildSet {
             traceDao.pendingConfirmations().forEach { entity ->
@@ -363,11 +394,12 @@ class RoomAgentTraceStore(
             }
         }
 
-    private fun latestLivePendingConfirmation(): PendingToolConfirmationSnapshot? =
+    private fun latestLivePendingConfirmation(sessionId: String?): PendingToolConfirmationSnapshot? =
         livePendingConfirmations.values
             .sortedByDescending { snapshot -> snapshot.run.updatedAtMillis }
             .firstNotNullOfOrNull { snapshot ->
                 val run = run(snapshot.run.id)
+                if (sessionId != null && run != null && run.sessionId != sessionId) return@firstNotNullOfOrNull null
                 when (run?.state) {
                     AgentRunState.AwaitingUserConfirmation -> snapshot.copy(run = run)
                     null -> null
@@ -471,6 +503,7 @@ private fun AgentRun.toEntity(): AgentRunEntity =
         state = state.name,
         createdAtMillis = createdAtMillis,
         updatedAtMillis = updatedAtMillis,
+        sessionId = sessionId,
     )
 
 private fun AgentRunEntity.toDomain(): AgentRun =
@@ -480,6 +513,7 @@ private fun AgentRunEntity.toDomain(): AgentRun =
         state = runCatching { AgentRunState.valueOf(state) }.getOrDefault(AgentRunState.Failed),
         createdAtMillis = createdAtMillis,
         updatedAtMillis = updatedAtMillis,
+        sessionId = sessionId,
     )
 
 private fun AgentStep.toEntity(runId: String, position: Int, createdAtMillis: Long): AgentStepEntity {

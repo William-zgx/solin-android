@@ -59,8 +59,9 @@ class AgentLoopRuntime(
         memoryEnabled: Boolean,
         actionModelPath: String? = null,
         deviceContext: DeviceContextSnapshot? = null,
+        sessionId: String? = null,
     ): AgentLoopResult {
-        val createdRun = traceStore.createRun(input)
+        val createdRun = traceStore.createRun(input, sessionId)
         traceStore.updateState(createdRun.id, AgentRunState.LoadingContext)
 
         val memoryHits = if (memoryEnabled) {
@@ -106,9 +107,9 @@ class AgentLoopRuntime(
         )
     }
 
-    fun requestRecoveryAction(action: AgentRecoveryAction): AgentLoopResult? {
+    fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String? = null): AgentLoopResult? {
         val recovery = action.normalizedReminderRecovery() ?: return null
-        val createdRun = traceStore.createRun("撤销提醒任务：${recovery.taskId}")
+        val createdRun = traceStore.createRun("撤销提醒任务：${recovery.taskId}", sessionId)
         traceStore.updateState(createdRun.id, AgentRunState.LoadingContext)
         traceStore.appendStep(createdRun.id, AgentStep.ContextLoaded(emptyList()))
         traceStore.updateState(createdRun.id, AgentRunState.Planning)
@@ -586,8 +587,8 @@ class AgentLoopRuntime(
         )
     }
 
-    fun latestPendingConfirmation(): PendingToolConfirmationSnapshot? =
-        traceStore.latestPendingConfirmation()
+    fun latestPendingConfirmation(sessionId: String? = null): PendingToolConfirmationSnapshot? =
+        traceStore.latestPendingConfirmation(sessionId)
 
     private fun AgentPlan.UseTool.toPendingSnapshot(run: AgentRun): PendingToolConfirmationSnapshot =
         PendingToolConfirmationSnapshot(
