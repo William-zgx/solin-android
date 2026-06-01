@@ -167,6 +167,9 @@ Current status:
   and private-read segments that would require a local model continuation are
   not split at the initial boundary yet; those still fall back instead of
   starting a partial flow that cannot advance the remaining sequence.
+- Later sequential replans apply the same continuation guard: clipboard,
+  current-screen text, and OCR reads may appear as the final segment, but are
+  not planned while another explicit segment remains.
 - Replanned tools are validated, safety checked, audited, traced, and returned
   to `AwaitingUserConfirmation` instead of being executed directly.
 - The action-planner preflight gate now reuses the same conservative parsers as
@@ -358,6 +361,8 @@ Tests:
 - `AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues`
 - `AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentFallsBackToAnswer`
 - `AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer`
+- `AgentLoopRuntimeTest.sequentialReplannerSkipsPrivateReadWhenMoreSegmentsRemain`
+- `AgentLoopRuntimeTest.sequentialReplannerAllowsFinalPrivateReadSegment`
 - `AgentLoopRuntimeTest.explanatorySequentialTextStillFallsBackToAnswer`
 - `AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments`
 - `AgentTraceStoreTest.roomStoreToolPlanningTraceDoesNotPersistParameterLikeReasonText`

@@ -3793,6 +3793,77 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun sequentialReplannerSkipsPrivateReadWhenMoreSegmentsRemain() {
+        val actionRuntime = RuleActionRuntime()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val planned = runtime.runOnce(
+            input = "先搜一下 Kotlin，然后读取剪贴板，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertEquals(AgentObservationDecision.Complete, observed.decision)
+        assertTrue(observed.steps.none { step ->
+            step is AgentStep.UserConfirmationRequested &&
+                step.request.toolName == MobileActionFunctions.READ_CLIPBOARD
+        })
+    }
+
+    @Test
+    fun sequentialReplannerAllowsFinalPrivateReadSegment() {
+        val actionRuntime = RuleActionRuntime()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val planned = runtime.runOnce(
+            input = "先搜一下 Kotlin，然后读取剪贴板",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, observed.decision.plan.request.toolName)
+    }
+
+    @Test
     fun explanatorySequentialTextStillFallsBackToAnswer() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),

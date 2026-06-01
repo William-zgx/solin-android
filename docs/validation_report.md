@@ -11,6 +11,8 @@
 - 第一段如果会形成 composite Skill（如“总结剪贴板并分享”）或观察后必然进入
   本地模型 continuation 的私密读取（如“读取剪贴板”）则不拆，避免启动半截流程后
   丢失后续 segment cursor。
+- 后续 replan 也对私密读取做同样保护：当后面还有 explicit segment 时不规划
+  剪贴板/OCR/当前屏幕读取；如果它们是最后一段，则仍可进入确认。
 - 解释性“先搜索再打开设置这个流程怎么实现”仍走普通回答，不进入确认。
 
 验证命令：
@@ -20,6 +22,8 @@
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentFallsBackToAnswer' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialReplannerSkipsPrivateReadWhenMoreSegmentsRemain' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialReplannerAllowsFinalPrivateReadSegment' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.explanatorySequentialTextStillFallsBackToAnswer'
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:compileDebugAndroidTestKotlin

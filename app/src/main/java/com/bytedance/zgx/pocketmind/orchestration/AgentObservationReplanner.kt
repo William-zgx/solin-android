@@ -3,12 +3,20 @@ package com.bytedance.zgx.pocketmind.orchestration
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 
 private const val DEFAULT_MAX_SEQUENTIAL_ACTIONS = 4
 private const val SEQUENTIAL_REPLAN_REQUEST_REASON = "Explicit sequential action step planned."
+
+private val SEQUENTIAL_LOCAL_CONTINUATION_TOOL_NAMES = setOf(
+    MobileActionFunctions.READ_CLIPBOARD,
+    MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+    MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+    MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+)
 
 fun interface AgentObservationReplanner {
     fun planNext(context: AgentObservationReplanContext): AgentObservationReplan?
@@ -56,6 +64,12 @@ class SequentialActionObservationReplanner(
         val planningResult = actionPlanningRuntime.plan(nextInput, actionModelPath = null)
         val draft = planningResult.plan.draft ?: return null
         if (planningResult.plan.kind != ActionPlanKind.Draft) return null
+        if (
+            draft.functionName.requiresLocalModelBeforeSequentialTail() &&
+            context.run.input.explicitSequentialActionTextAt(completedActionCount + 1) != null
+        ) {
+            return null
+        }
         return AgentObservationReplan(
             request = ToolRequest(
                 toolName = draft.functionName,
@@ -77,6 +91,9 @@ internal fun String.explicitSequentialActionTextAt(index: Int): String? {
     if (index < 0) return null
     return explicitSequentialActionSegments().getOrNull(index)
 }
+
+internal fun String.requiresLocalModelBeforeSequentialTail(): Boolean =
+    this in SEQUENTIAL_LOCAL_CONTINUATION_TOOL_NAMES
 
 private fun String.immediateSequentialActionText(): String? =
     (explicitSequentialActionTextAt(0) ?: trimActionText()).takeIf { it.isNotBlank() }

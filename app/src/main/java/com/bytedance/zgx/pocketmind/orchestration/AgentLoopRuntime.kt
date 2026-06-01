@@ -40,13 +40,6 @@ import com.bytedance.zgx.pocketmind.tool.unverifiedExternalLaunchSummary
 
 private const val REDACTED_AGENT_RUN_INPUT_VALUE = "[redacted]"
 
-private val INITIAL_SEQUENTIAL_CONTINUATION_TOOL_NAMES = setOf(
-    MobileActionFunctions.READ_CLIPBOARD,
-    MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-    MobileActionFunctions.READ_RECENT_IMAGE_OCR,
-    MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-)
-
 class AgentLoopRuntime(
     private val memoryIndex: MemoryIndex,
     private val actionPlanningRuntime: ActionPlanningRuntime,
@@ -749,7 +742,7 @@ class AgentLoopRuntime(
         val result = actionPlanningRuntime.plan(input, actionModelPath)
         val draft = result.plan.draft
         if (result.plan.kind != ActionPlanKind.Draft || draft == null) return null
-        if (!allowMultiStepSkillPlan && draft.functionName in INITIAL_SEQUENTIAL_CONTINUATION_TOOL_NAMES) return null
+        if (!allowMultiStepSkillPlan && draft.functionName.requiresLocalModelBeforeSequentialTail()) return null
         val request = ToolRequest(
             toolName = draft.functionName,
             arguments = draft.parameters,
