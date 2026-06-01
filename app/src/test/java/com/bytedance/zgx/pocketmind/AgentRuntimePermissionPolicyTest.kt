@@ -354,6 +354,26 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
+    fun specialAccessDenialSummaryUsesRequirementTitles() {
+        assertEquals(
+            "使用情况访问权限, 无障碍屏幕文本权限",
+            specialAccessDenialSummary(
+                listOf(
+                    confirmationFor(MobileActionFunctions.QUERY_FOREGROUND_APP)
+                        .specialAccessRequirementsFor()
+                        .single(),
+                    confirmationFor(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT)
+                        .specialAccessRequirementsFor()
+                        .single(),
+                    confirmationFor(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT)
+                        .specialAccessRequirementsFor()
+                        .single(),
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun currentScreenTextSkillFirstConfirmationDeclaresAccessibilitySpecialAccessOnly() {
         val confirmation = confirmationFor(
             toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,

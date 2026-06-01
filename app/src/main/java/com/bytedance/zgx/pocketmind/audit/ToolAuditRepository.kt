@@ -31,9 +31,19 @@ class ToolAuditRepository(
                 .map(ToolPermission::name)
                 .sorted()
                 .joinToString(separator = ","),
-            summary = sanitizedSummary(),
+            summary = persistedSummary(),
             createdAtMillis = createdAtMillis,
         )
+
+    private fun ToolAuditEvent.persistedSummary(): String =
+        if (eventType == ToolAuditEventType.ToolObserved &&
+            status == ToolStatus.Succeeded &&
+            toolName.isReminderAuditTool()
+        ) {
+            reminderMetadataFor(summary, toolName).joinToString(separator = "; ")
+        } else {
+            sanitizedSummary()
+        }
 
     private fun ToolAuditEventEntity.toRecord(): ToolAuditRecord =
         ToolAuditRecord(
@@ -87,7 +97,7 @@ class ToolAuditRepository(
             } else if (toolName == MobileActionFunctions.SCHEDULE_REMINDER ||
                 toolName == MobileActionFunctions.CANCEL_REMINDER
             ) {
-                summary
+                reminderDisplaySummary()
             } else {
                 "工具执行成功，结果详情不在审计视图中展示。"
             }
@@ -96,4 +106,50 @@ class ToolAuditRepository(
             ToolStatus.Cancelled.name -> "工具执行已取消。"
             else -> "工具执行结果已记录，详情不在审计视图中展示。"
         }
+
+    private fun ToolAuditEventEntity.reminderDisplaySummary(): String {
+        val metadata = reminderMetadataFor(summary, toolName)
+        val prefix = if (toolName == MobileActionFunctions.SCHEDULE_REMINDER) {
+            "后台提醒已安排"
+        } else {
+            "后台提醒已取消"
+        }
+        return if (metadata.isEmpty()) {
+            "$prefix，任务 metadata 不在审计视图中展示。"
+        } else {
+            "$prefix (${metadata.joinToString(separator = "; ")})"
+        }
+    }
+
+    private fun reminderMetadataFor(summary: String, toolName: String?): List<String> =
+        metadataKeysFor(toolName).mapNotNull { key ->
+            safeMetadataValue(summary, key)?.let { value -> "$key=$value" }
+        }
+
+    private fun safeMetadataValue(summary: String, key: String): String? {
+        val pattern = Regex("""(?:^|[\s(;])${Regex.escape(key)}=([A-Za-z0-9_.:-]{1,120})(?=$|[\s;)])""")
+        return pattern.find(summary)?.groupValues?.getOrNull(1)
+    }
+
+    private fun metadataKeysFor(toolName: String?): List<String> =
+        if (toolName == MobileActionFunctions.SCHEDULE_REMINDER) {
+            REMINDER_AUDIT_METADATA_KEYS
+        } else {
+            CANCEL_REMINDER_AUDIT_METADATA_KEYS
+        }
+
+    private fun String?.isReminderAuditTool(): Boolean =
+        this == MobileActionFunctions.SCHEDULE_REMINDER ||
+            this == MobileActionFunctions.CANCEL_REMINDER
+
+    private companion object {
+        val REMINDER_AUDIT_METADATA_KEYS = listOf(
+            "taskId",
+            "taskStatus",
+            "triggerAtMillis",
+            "recoveryToolName",
+            "recoveryTaskId",
+        )
+        val CANCEL_REMINDER_AUDIT_METADATA_KEYS = listOf("taskId", "taskStatus")
+    }
 }

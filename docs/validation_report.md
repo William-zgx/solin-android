@@ -1,5 +1,72 @@
 # PocketMind 验证报告
 
+## 2026-06-01 Reminder audit metadata minimization 增量验证
+
+本轮覆盖项：
+
+- `ToolAuditRepository` 不再把 `schedule_reminder` / `cancel_reminder`
+  成功事件的 stored summary 原样展示或持久化到审计 UI；写入审计库时只提取
+  严格格式的 allowlisted task recovery metadata。
+- 允许展示的字段限定为 `taskId`、`taskStatus`、`triggerAtMillis`、
+  `recoveryToolName`、`recoveryTaskId`；提醒标题、正文、用户原文、邮箱、token
+  或其他未声明 payload 不进入 `ToolAuditRecord.summary`。
+- `ToolRegistryTest` 锁定 reminder/cancel output schema 不暴露 title/body/prompt/
+  summary/text，避免未来把提醒内容加入成功结果契约。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deniedSpecialAccessFailsPendingToolWithoutExecutingIt' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.specialAccessDenialSummaryUsesRequirementTitles' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.accessibilitySpecialAccessReturnUpdatesStatusTextWithoutExecutingTools'
+```
+
+结果：targeted reminder audit metadata minimization 回归测试通过。
+
+补充验证：
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+```
+
+结果：全量 JVM 单测、AndroidTest Kotlin 编译、diff whitespace 检查通过；
+敏感串扫描无命中。
+
+## 2026-06-01 Accessibility special-access execution boundary 增量验证
+
+本轮覆盖项：
+
+- `read_current_screen_text` 的 Accessibility 屏幕文本授权返回路径与 Usage Access
+  一样，只更新 UI 状态，不确认 pending tool、不执行工具、不读取屏幕文本。
+- `read_current_screen_text` 确认前会重查 Accessibility special access；若未开启，
+  ViewModel 以 `PermissionDenied` fail pending tool，返回
+  `specialAccess/settingsAction` 结构化 metadata，且不调用 executor。
+- pre-executor 保证由 JVM ViewModel 测试验证；UI-only AndroidTest 在无障碍未开启
+  时无法区分 MainActivity 预检失败与 executor 防御失败，因此本轮以
+  AndroidTest Kotlin 编译保持 instrumentation 源可用。
+- `docs/agent_core_modules.md` 中的 Execution Boundary 状态改为反映当前代码：
+  已覆盖 Usage Access 与 Accessibility screen text 两类 bounded special access；
+  更广泛的特殊授权面仍待实现。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.accessibilitySpecialAccessReturnUpdatesStatusTextWithoutExecutingTools' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deniedSpecialAccessFailsPendingToolWithoutExecutingIt' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.specialAccessDenialSummaryUsesRequirementTitles' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.currentScreenTextDeclaresAccessibilityAsSpecialAccessNotRuntimePermission' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest.pendingSpecialAccessRequirementRestoresFromCurrentPendingConfirmationOnly'
+```
+
+结果：targeted Accessibility special-access boundary 回归测试通过。
+
 ## 2026-06-01 ToolResult output schema 执行边界增量验证
 
 本轮覆盖项：

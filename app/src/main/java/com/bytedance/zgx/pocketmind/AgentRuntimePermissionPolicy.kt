@@ -103,6 +103,12 @@ fun runtimePermissionDenialSummary(permissions: List<String>): String =
         .distinct()
         .joinToString()
 
+fun specialAccessDenialSummary(requirements: List<SpecialAccessRequirement>): String =
+    requirements
+        .map { it.title }
+        .distinct()
+        .joinToString()
+
 private fun recentFilePermissionRequirementsFor(kind: String, apiLevel: Int): List<RuntimePermissionRequirement> {
     if (apiLevel < Build.VERSION_CODES.TIRAMISU) {
         return listOf(Manifest.permission.READ_EXTERNAL_STORAGE.requirement())

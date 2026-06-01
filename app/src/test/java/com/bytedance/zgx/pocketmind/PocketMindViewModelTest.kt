@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind
 
 import android.net.Uri
+import android.provider.Settings
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlan
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
@@ -316,6 +317,26 @@ class PocketMindViewModelTest {
 
         viewModel.reportSpecialAccessResult(requirement, granted = true)
         assertEquals("使用情况访问权限已开启", viewModel.uiState.value.statusText)
+        assertTrue(executor.executedRequests.isEmpty())
+    }
+
+    @Test
+    fun accessibilitySpecialAccessReturnUpdatesStatusTextWithoutExecutingTools() = runTest(dispatcher) {
+        val executor = RecordingToolExecutor()
+        val viewModel = createViewModel(actionExecutor = executor)
+        val requirement = SpecialAccessRequirement(
+            id = SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
+            title = "无障碍屏幕文本权限",
+            rationale = "用于只读获取当前屏幕可访问文本。",
+            settingsAction = "android.settings.ACCESSIBILITY_SETTINGS",
+        )
+
+        viewModel.reportSpecialAccessResult(requirement, granted = false)
+        assertEquals("返回后仍未开启无障碍屏幕文本权限", viewModel.uiState.value.statusText)
+        assertTrue(executor.executedRequests.isEmpty())
+
+        viewModel.reportSpecialAccessResult(requirement, granted = true)
+        assertEquals("无障碍屏幕文本权限已开启", viewModel.uiState.value.statusText)
         assertTrue(executor.executedRequests.isEmpty())
     }
 
@@ -1337,6 +1358,74 @@ class PocketMindViewModelTest {
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
         assertTrue(sessionStore.messages.last().text.contains("权限"))
         assertEquals("权限被拒，工具未执行", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun deniedSpecialAccessFailsPendingToolWithoutExecutingIt() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore()
+        val request = ToolRequest(
+            id = "request-screen-text",
+            toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            arguments = mapOf("maxChars" to "1200"),
+        )
+        val executor = RecordingToolExecutor()
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-screen-text",
+                toolRequest = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                    title = "读取屏幕文本",
+                    summary = "将读取当前屏幕可访问文本。",
+                    parameters = request.arguments,
+                ),
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = null,
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("总结当前屏幕文字")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+
+        viewModel.rejectAgentConfirmationForSpecialAccessDenial(
+            confirmation = confirmation,
+            deniedRequirements = confirmation.specialAccessRequirementsFor(),
+        )
+        advanceUntilIdle()
+
+        assertTrue(executor.executedRequests.isEmpty())
+        assertEquals(0, assistantRouter.confirmCallCount)
+        assertEquals(1, assistantRouter.failPendingCallCount)
+        assertEquals(request.id, assistantRouter.lastFailedPendingResult?.requestId)
+        assertEquals(ToolErrorCode.PermissionDenied, assistantRouter.lastFailedPendingResult?.error?.code)
+        assertTrue(assistantRouter.lastFailedPendingResult?.summary.orEmpty().contains("无障碍屏幕文本权限"))
+        assertEquals(
+            SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
+            assistantRouter.lastFailedPendingResult?.data?.get("specialAccess"),
+        )
+        assertEquals(
+            "无障碍屏幕文本权限",
+            assistantRouter.lastFailedPendingResult?.data?.get("specialAccessLabels"),
+        )
+        assertEquals(
+            Settings.ACTION_ACCESSIBILITY_SETTINGS,
+            assistantRouter.lastFailedPendingResult?.data?.get("settingsAction"),
+        )
+        assertFalse(assistantRouter.lastFailedPendingResult?.data?.containsKey("screenText") == true)
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertTrue(sessionStore.messages.last().text.contains("权限"))
+        assertEquals("特殊权限未开启，工具未执行", viewModel.uiState.value.statusText)
     }
 
     @Test

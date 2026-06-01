@@ -1444,6 +1444,57 @@ class PocketMindViewModel(
         }
     }
 
+    fun rejectAgentConfirmationForSpecialAccessDenial(
+        confirmation: PendingAgentConfirmation,
+        deniedRequirements: List<SpecialAccessRequirement>,
+    ) {
+        val pendingConfirmation = _uiState.value.pendingConfirmation
+        if (pendingConfirmation == null || !pendingConfirmation.matchesExecution(confirmation)) {
+            _uiState.update {
+                it.copy(statusText = "工具确认已处理")
+            }
+            return
+        }
+        val request = confirmation.toolRequest ?: ToolRequest(
+            toolName = confirmation.draft.functionName,
+            arguments = confirmation.draft.parameters,
+            reason = confirmation.draft.summary,
+        )
+        val deniedSummary = specialAccessDenialSummary(deniedRequirements)
+        val result = request.failed(
+            code = ToolErrorCode.PermissionDenied,
+            summary = "未开启所需系统特殊权限，工具未执行：$deniedSummary",
+            retryable = false,
+            data = mapOf(
+                "toolName" to request.toolName,
+                "specialAccess" to deniedRequirements.joinToString { it.id },
+                "specialAccessLabels" to deniedSummary,
+                "settingsAction" to deniedRequirements.joinToString { it.settingsAction },
+            ),
+        )
+        val observation = confirmation.runId?.let { runId ->
+            assistantOrchestrator.failPendingToolRequest(runId, request.id, result)
+        }
+        replaceActiveSessionMessages(
+            _uiState.value.messages + ChatMessage(
+                role = MessageRole.Assistant,
+                text = observation?.assistantMessage ?: "工具执行失败：${result.summary}",
+            ),
+            persistNow = true,
+        )
+        rebuildMemoryIndex()
+        _uiState.update {
+            it.copy(
+                pendingConfirmation = null,
+                isBusy = false,
+                isGenerating = false,
+                auditEvents = loadAuditEvents(),
+                agentTraceRuns = loadAgentTraceRuns(),
+                statusText = "特殊权限未开启，工具未执行",
+            )
+        }
+    }
+
     private fun continueAfterToolObservation(
         runId: String?,
         promptForModel: String,

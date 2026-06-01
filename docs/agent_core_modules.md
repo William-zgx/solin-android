@@ -619,20 +619,27 @@ Current status:
   metadata directly. When an external activity is opened but completion is not
   verified, PocketMind reports that boundary explicitly and does not auto-plan
   a next tool from that unverified result.
-- Usage Access special-app-access flow is modeled for `query_foreground_app`:
-  the confirmation UI warns with a special-access requirement and settings
-  entry, denial returns structured `specialAccess/settingsAction` recovery
-  metadata, and `open_usage_access_settings` can open Android Usage Access
-  settings. The confirmation-sheet settings entry now uses an ActivityResult
-  boundary: when the user returns from Android settings, MainActivity rechecks
-  Usage Access with AppOps and updates UI status without executing the pending
-  tool. Broad special-access flows beyond Usage Access are still pending.
+- Special-app-access flow is modeled for both Usage Access
+  (`query_foreground_app`) and Accessibility screen text
+  (`read_current_screen_text`): the confirmation UI warns with a
+  special-access requirement and settings entry, denial returns structured
+  `specialAccess/settingsAction` recovery metadata, and settings-return handling
+  updates UI status without executing the pending tool. Before confirmation
+  executes a tool, MainActivity rechecks required special access and fails the
+  pending tool with `PermissionDenied` when access is still disabled, so the
+  executor is not entered. Usage Access is rechecked with AppOps; Accessibility
+  screen text is rechecked against the enabled PocketMind AccessibilityService.
+  Broader special-access surfaces beyond these two bounded reads are still
+  pending.
 
 Tests:
 
 - `AgentRuntimePermissionPolicyTest.deniedGrantResultKeepsToolFromExecutingUntilPermissionIsActuallyGranted`
 - `PocketMindViewModelTest.specialAccessReturnUpdatesStatusTextWithoutExecutingTools`
+- `PocketMindViewModelTest.accessibilitySpecialAccessReturnUpdatesStatusTextWithoutExecutingTools`
 - `PocketMindViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt`
+- `PocketMindViewModelTest.deniedSpecialAccessFailsPendingToolWithoutExecutingIt`
+- `AgentRuntimePermissionPolicyTest.specialAccessDenialSummaryUsesRequirementTitles`
 - `AgentLoopRuntimeTest.pendingToolPermissionDenialIsObservedWithoutEnteringExecutionState`
 - `AgentLoopRuntimeTest.permissionDeniedToolFailureDoesNotScheduleAutomaticRetry`
 - `ActionExecutorTest.opensAllowedDeepLinkAsActionViewIntent`

@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
             hasRuntimePermission = ::hasRuntimePermission,
         )
         if (deniedPermissions.isEmpty()) {
-            viewModel.confirmAgentConfirmation(confirmation)
+            confirmAgentConfirmationWithPermissions(confirmation)
         } else {
             viewModel.rejectAgentConfirmationForRuntimePermissionDenial(
                 confirmation = confirmation,
@@ -230,6 +230,15 @@ class MainActivity : ComponentActivity() {
         if (missingPermissions.isNotEmpty()) {
             pendingRuntimePermissionConfirmation = confirmation
             runtimePermissionLauncher.launch(missingPermissions.toTypedArray())
+            return
+        }
+        val missingSpecialAccess = confirmation.specialAccessRequirementsFor()
+            .filterNot(::hasSpecialAccess)
+        if (missingSpecialAccess.isNotEmpty()) {
+            viewModel.rejectAgentConfirmationForSpecialAccessDenial(
+                confirmation = confirmation,
+                deniedRequirements = missingSpecialAccess,
+            )
             return
         }
         viewModel.confirmAgentConfirmation(confirmation)

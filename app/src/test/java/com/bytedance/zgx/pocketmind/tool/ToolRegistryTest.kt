@@ -383,6 +383,24 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun reminderOutputSchemasExposeOnlyTaskRecoveryMetadata() {
+        val forbiddenKeys = listOf("title", "body", "prompt", "summary", "text")
+        listOf(
+            MobileActionFunctions.SCHEDULE_REMINDER,
+            MobileActionFunctions.CANCEL_REMINDER,
+        ).forEach { toolName ->
+            val spec = registry.specFor(toolName)
+            assertNotNull(spec)
+            requireNotNull(spec)
+            val properties = JSONObject(spec.outputSchemaJson).getJSONObject("properties")
+
+            forbiddenKeys.forEach { key ->
+                assertFalse("$toolName output schema must not expose $key", properties.has(key))
+            }
+        }
+    }
+
+    @Test
     fun privateDeviceOutputKeysRemainDeclaredInOutputSchemas() {
         val expectedPrivateOutputs = mapOf(
             MobileActionFunctions.READ_CLIPBOARD to setOf("text"),

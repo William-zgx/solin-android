@@ -122,6 +122,7 @@ class ToolAuditRepositoryTest {
     fun recentReminderAuditShowsTaskMetadataWithoutReminderContent() {
         val dao = FakeToolAuditDao()
         val repository = ToolAuditRepository(dao)
+        val apiKey = "sk-" + "a".repeat(32)
         repository.record(
             ToolAuditEvent(
                 id = "reminder",
@@ -133,7 +134,9 @@ class ToolAuditRepositoryTest {
                 status = ToolStatus.Succeeded,
                 riskLevel = RiskLevel.MediumDraftOrNavigation,
                 permissions = setOf(ToolPermission.SchedulesBackgroundWork, ToolPermission.PostsNotification),
-                summary = "已安排后台提醒 (taskId=task-1; taskStatus=Scheduled; triggerAtMillis=10000; recoveryToolName=cancel_reminder; recoveryTaskId=task-1)",
+                summary = "已安排后台提醒：喝水 title=喝水 body=提醒我喝水 email alice@example.com token $apiKey " +
+                    "(taskId=task-1; taskStatus=Scheduled; triggerAtMillis=10000; " +
+                    "recoveryToolName=cancel_reminder; recoveryTaskId=task-1)",
                 createdAtMillis = 1_000L,
             ),
         )
@@ -147,12 +150,17 @@ class ToolAuditRepositoryTest {
         assertTrue(record.summary.contains("recoveryTaskId=task-1"))
         assertFalse(record.summary.contains("喝水"))
         assertFalse(record.summary.contains("提醒我喝水"))
+        assertFalse(record.summary.contains("alice@example.com"))
+        assertFalse(record.summary.contains(apiKey))
+        assertFalse(record.summary.contains("title="))
+        assertFalse(record.summary.contains("body="))
     }
 
     @Test
     fun recentCancelReminderAuditShowsTaskMetadataWithoutReminderContent() {
         val dao = FakeToolAuditDao()
         val repository = ToolAuditRepository(dao)
+        val apiKey = "sk-" + "b".repeat(32)
         repository.record(
             ToolAuditEvent(
                 id = "cancel-reminder",
@@ -164,7 +172,8 @@ class ToolAuditRepositoryTest {
                 status = ToolStatus.Succeeded,
                 riskLevel = RiskLevel.MediumDraftOrNavigation,
                 permissions = setOf(ToolPermission.SchedulesBackgroundWork),
-                summary = "已取消后台任务 (taskId=task-1; taskStatus=Cancelled)",
+                summary = "已取消后台任务：喝水 body=提醒我喝水 email alice@example.com token $apiKey " +
+                    "(taskId=task-1; taskStatus=Cancelled)",
                 createdAtMillis = 1_000L,
             ),
         )
@@ -175,6 +184,9 @@ class ToolAuditRepositoryTest {
         assertTrue(record.summary.contains("taskStatus=Cancelled"))
         assertFalse(record.summary.contains("喝水"))
         assertFalse(record.summary.contains("提醒我喝水"))
+        assertFalse(record.summary.contains("alice@example.com"))
+        assertFalse(record.summary.contains(apiKey))
+        assertFalse(record.summary.contains("body="))
     }
 
     private class FakeToolAuditDao : ToolAuditDao {
