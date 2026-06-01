@@ -1375,6 +1375,27 @@ adb devices -l
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace'
 ```
 
+## 2026-06-01 Task-state memory suppression 增量验证
+
+本轮覆盖项：
+
+- 用户显式遗忘或清空仍处于 `Scheduled` / `Running` 的 auto-managed
+  `TaskState` 长期记忆后，系统会持久化隐藏 suppression marker。
+- 后续后台任务 refresh、startup sync 或 `sendMessage` 触发的 task-state sync
+  会跳过被 suppress 的记录，确保已忘记的任务状态不会重新出现在长期记忆 UI、
+  召回索引或远程上下文中。
+- Hidden suppression marker 不进入 `savedRecords()`、memory rebuild 或长期记忆
+  UI；普通 terminal/missing task-state 清理语义保持不变。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.suppressedTaskStateRecordsAreHiddenAndNotIndexed' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetActiveTaskStateMemoryDoesNotReappearOnRefreshOrChat' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.clearLongTermMemorySuppressesActiveTaskStateMemoryResync'
+```
+
 ## 2026-05-31 Reminder rollback metadata 增量验证
 
 本轮覆盖项：

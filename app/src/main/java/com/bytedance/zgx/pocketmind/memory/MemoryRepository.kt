@@ -24,6 +24,7 @@ enum class MemoryRecordType {
     Conversation,
     Preference,
     TaskState,
+    SuppressedTaskState,
 }
 
 interface EmbeddingRuntime {
@@ -48,6 +49,9 @@ interface LongTermMemoryControls {
     fun savedRecords(): List<PersistedMemoryRecord>
     fun indexPreference(id: String, text: String)
     fun indexTaskState(id: String, text: String)
+    fun suppressAutoManagedTaskState(id: String)
+    fun unsuppressAutoManagedTaskState(id: String)
+    fun isAutoManagedTaskStateSuppressed(id: String): Boolean
     fun forget(id: String): Boolean
     fun clear()
 }
@@ -108,7 +112,7 @@ class MemoryRepository(
 
     override fun rebuild(messages: List<ChatMessage>) {
         entries.clear()
-        recordStore.records().forEach { record ->
+        visibleRecords().forEach { record ->
             indexRecord(
                 id = record.id,
                 text = record.text,
@@ -136,7 +140,7 @@ class MemoryRepository(
     }
 
     override fun savedRecords(): List<PersistedMemoryRecord> =
-        recordStore.records()
+        visibleRecords()
 
     override fun indexPreference(id: String, text: String) {
         if (text.isBlank()) return
@@ -145,8 +149,32 @@ class MemoryRepository(
     }
 
     override fun indexTaskState(id: String, text: String) {
+        if (isAutoManagedTaskStateSuppressed(id)) return
         indexRecord(id, "任务状态：$text", MemoryRecordType.TaskState, persist = true)
     }
+
+    override fun suppressAutoManagedTaskState(id: String) {
+        if (!id.startsWith(TASK_STATE_MEMORY_RECORD_PREFIX)) return
+        entries.remove(id)
+        recordStore.delete(id)
+        recordStore.upsert(
+            PersistedMemoryRecord(
+                id = suppressedTaskStateMemoryRecordId(id),
+                type = MemoryRecordType.SuppressedTaskState,
+                text = id,
+            ),
+        )
+    }
+
+    override fun unsuppressAutoManagedTaskState(id: String) {
+        recordStore.delete(suppressedTaskStateMemoryRecordId(id))
+    }
+
+    override fun isAutoManagedTaskStateSuppressed(id: String): Boolean =
+        recordStore.records().any { record ->
+            record.type == MemoryRecordType.SuppressedTaskState &&
+                record.text == id
+        }
 
     override fun forget(id: String): Boolean {
         val removedInMemory = entries.remove(id) != null
@@ -158,6 +186,12 @@ class MemoryRepository(
         entries.clear()
         recordStore.clear()
     }
+
+    private fun visibleRecords(): List<PersistedMemoryRecord> =
+        recordStore.records().filter { record ->
+            record.type == MemoryRecordType.Preference ||
+                record.type == MemoryRecordType.TaskState
+        }
 
     private fun indexRecord(
         id: String,
@@ -326,6 +360,9 @@ internal fun taskStateMemoryRecordId(taskId: String): String {
         ?: "unknown"
     return "$TASK_STATE_MEMORY_RECORD_PREFIX$normalized"
 }
+
+internal fun suppressedTaskStateMemoryRecordId(taskStateMemoryId: String): String =
+    "suppressed-$taskStateMemoryId"
 
 data class PersistedMemoryRecord(
     val id: String,

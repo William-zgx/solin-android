@@ -234,6 +234,9 @@ class PocketMindViewModel(
     fun forgetLongTermMemory(memoryId: String) {
         if (_uiState.value.isBusy) return
         val removed = longTermMemoryControls.forget(memoryId)
+        if (memoryId.startsWith(TASK_STATE_MEMORY_RECORD_PREFIX)) {
+            longTermMemoryControls.suppressAutoManagedTaskState(memoryId)
+        }
         rebuildMemoryIndex()
         val records = loadLongTermMemories()
         _uiState.update {
@@ -247,7 +250,11 @@ class PocketMindViewModel(
 
     fun clearLongTermMemory() {
         if (_uiState.value.isBusy) return
+        val activeTaskMemoryIds = activeTaskStateMemoryIds()
         longTermMemoryControls.clear()
+        activeTaskMemoryIds.forEach { memoryId ->
+            longTermMemoryControls.suppressAutoManagedTaskState(memoryId)
+        }
         rebuildMemoryIndex()
         _uiState.update {
             it.copy(
@@ -2055,13 +2062,25 @@ class PocketMindViewModel(
                 }
                 .forEach { record -> longTermMemoryControls.forget(record.id) }
             activeTasks.forEach { task ->
+                val memoryId = taskStateMemoryRecordId(task.id)
+                if (longTermMemoryControls.isAutoManagedTaskStateSuppressed(memoryId)) return@forEach
                 longTermMemoryControls.indexTaskState(
-                    id = taskStateMemoryRecordId(task.id),
+                    id = memoryId,
                     text = task.toTaskStateMemoryText(),
                 )
             }
         }
     }
+
+    private fun activeTaskStateMemoryIds(): Set<String> =
+        runCatching {
+            backgroundTaskScheduler.scheduledTasks()
+                .filter { task ->
+                    task.status == ScheduledTaskStatus.Scheduled ||
+                        task.status == ScheduledTaskStatus.Running
+                }
+                .mapTo(mutableSetOf()) { task -> taskStateMemoryRecordId(task.id) }
+        }.getOrDefault(emptySet())
 
     private fun loadLongTermMemories(): List<LongTermMemorySummary> =
         runCatching {

@@ -685,7 +685,9 @@ Current status:
   status, trigger time, and an opaque auto-managed record id; reminder titles,
   bodies, prompts, tool arguments, and remote responses are not written to
   long-term memory. Terminal or missing auto-managed task-state records are
-  forgotten on refresh.
+  forgotten on refresh. When the user explicitly forgets one of these active
+  auto-managed records or clears long-term memory, a hidden suppression marker
+  keeps later startup, refresh, or chat-triggered sync from recreating it.
 - `sendMessage` persists explicit user preference statements such as
   `记住：...` / `remember ...` after the user message is accepted into the
   session; `rebuild` reloads persisted records and saved non-control session

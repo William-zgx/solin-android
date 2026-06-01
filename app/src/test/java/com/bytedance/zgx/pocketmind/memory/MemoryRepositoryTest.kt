@@ -281,6 +281,38 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun suppressedTaskStateRecordsAreHiddenAndNotIndexed() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+        val memoryId = taskStateMemoryRecordId("task-1")
+
+        repository.indexTaskState(memoryId, "等待确认分享摘要")
+        repository.suppressAutoManagedTaskState(memoryId)
+
+        assertTrue(repository.isAutoManagedTaskStateSuppressed(memoryId))
+        assertEquals(listOf(suppressedTaskStateMemoryRecordId(memoryId)), store.records().map { it.id })
+        assertTrue(repository.savedRecords().isEmpty())
+        assertTrue(repository.search("确认分享").isEmpty())
+
+        val restored = MemoryRepository(recordStore = store)
+        restored.rebuild(emptyList())
+
+        assertTrue(restored.isAutoManagedTaskStateSuppressed(memoryId))
+        assertTrue(restored.savedRecords().isEmpty())
+        assertTrue(restored.search("确认分享").isEmpty())
+
+        restored.indexTaskState(memoryId, "重新同步的任务状态")
+
+        assertTrue(restored.savedRecords().isEmpty())
+        assertTrue(restored.search("重新同步").isEmpty())
+
+        restored.unsuppressAutoManagedTaskState(memoryId)
+
+        assertFalse(restored.isAutoManagedTaskStateSuppressed(memoryId))
+        assertTrue(store.records().isEmpty())
+    }
+
+    @Test
     fun conflictingResponseLengthPreferenceReplacesOlderRecord() {
         val store = FakeMemoryRecordStore()
         val repository = MemoryRepository(recordStore = store)

@@ -1714,6 +1714,7 @@ private fun MemoryRecordType.label(): String =
     when (this) {
         MemoryRecordType.Preference -> "偏好"
         MemoryRecordType.TaskState -> "任务状态"
+        MemoryRecordType.SuppressedTaskState -> "已隐藏任务状态"
         MemoryRecordType.Conversation -> "会话"
     }
 
