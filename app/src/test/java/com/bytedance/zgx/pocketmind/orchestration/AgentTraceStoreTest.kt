@@ -640,6 +640,10 @@ class AgentTraceStoreTest {
                 skillPlan = skillPlan,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
+                skillRunCheckpoint = skillPlan.valueFreeCheckpointForPendingTool(
+                    runId = waitingRun.id,
+                    pendingRequest = request,
+                ),
             ),
         )
 
@@ -725,6 +729,63 @@ class AgentTraceStoreTest {
         assertFalse(persisted.contains("alice@example.com"))
         assertTrue(persisted.contains("shareText"))
         assertTrue(persisted.contains("read_clipboard.text"))
+    }
+
+    @Test
+    fun roomStoreFailsCheckpointWhenCompletedOutputKeysChange() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-bad-checkpoint-output-keys" },
+        )
+        val readRequest = ToolRequest(
+            id = "request-read-clipboard",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "Read clipboard for summary",
+        )
+        val readDraft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CLIPBOARD,
+            title = "读取剪贴板",
+            summary = "将读取当前剪贴板文本。",
+            parameters = emptyMap(),
+        )
+        val skillPlan = BuiltInSkillRuntime().planClipboardSummaryShare(
+            input = "总结剪贴板并分享",
+            readRequest = readRequest,
+            readDraft = readDraft,
+        )
+        val shareStep = skillPlan.steps.filterIsInstance<SkillStep.ToolStep>().last()
+        val waitingRun = store.updateState(
+            store.createRun("总结剪贴板并分享").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = shareStep.request,
+                draft = shareStep.draft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillRunCheckpoint = skillPlan.valueFreeCheckpointForPendingTool(
+                    runId = waitingRun.id,
+                    pendingRequest = shareStep.request,
+                ),
+            ),
+        )
+        dao.skillRunCheckpoint(waitingRun.id, shareStep.request.id)
+            ?.copy(
+                outputKeysByStepJson = """{"read_clipboard":["summary","text"],"summarize_clipboard":["summary"]}""",
+            )
+            ?.let(dao::upsertSkillRunCheckpoint)
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        assertNull(restartedStore.latestPendingConfirmation())
+        assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
+        assertTrue(dao.pendingConfirmations().isEmpty())
+        assertTrue(dao.skillRunCheckpointsForRun(waitingRun.id).isEmpty())
     }
 
     @Test
@@ -867,6 +928,10 @@ class AgentTraceStoreTest {
                 skillPlan = skillPlan,
                 plannedByModel = false,
                 fallbackReason = "test fallback",
+                skillRunCheckpoint = skillPlan.valueFreeCheckpointForPendingTool(
+                    runId = waitingRun.id,
+                    pendingRequest = request,
+                ),
             ),
         )
 
@@ -885,6 +950,107 @@ class AgentTraceStoreTest {
         assertEquals("[redacted]", restoredReadStep.draft.summary)
         assertFalse(restored.run.input.contains(rawInput))
         assertFalse(restored.request.reason.contains(rawInput))
+    }
+
+    @Test
+    fun roomStoreFailsSkillPendingWithoutCheckpoint() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-skill-without-checkpoint" },
+        )
+        val request = ToolRequest(
+            id = "request-read-clipboard",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "Read clipboard for summary",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CLIPBOARD,
+            title = "读取剪贴板",
+            summary = "将读取剪贴板用于摘要。",
+            parameters = emptyMap(),
+        )
+        val skillPlan = BuiltInSkillRuntime().planClipboardSummaryShare(
+            input = "总结剪贴板并分享",
+            readRequest = request,
+            readDraft = draft,
+        )
+        val waitingRun = store.updateState(
+            store.createRun("总结剪贴板并分享").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = draft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test missing checkpoint",
+            ),
+        )
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        assertNull(restartedStore.latestPendingConfirmation())
+        assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
+        assertTrue(restartedStore.steps(waitingRun.id).any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending tool confirmation could not be restored")
+        })
+        assertTrue(dao.pendingConfirmations().isEmpty())
+        assertTrue(dao.skillRunCheckpointsForRun(waitingRun.id).isEmpty())
+    }
+
+    @Test
+    fun roomStoreClearsStaleCheckpointWhenSavingPlainPendingConfirmation() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-plain-pending-clears-checkpoint" },
+        )
+        val request = ToolRequest(
+            id = "request-open-wifi",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = "Open Wi-Fi settings",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "Wi-Fi",
+            summary = "Open Wi-Fi settings",
+            parameters = emptyMap(),
+        )
+        val waitingRun = store.updateState(
+            store.createRun("open wifi").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+        dao.upsertSkillRunCheckpoint(
+            agentSkillRunCheckpointEntity(
+                runId = waitingRun.id,
+                requestId = request.id,
+            ),
+        )
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = draft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+            ),
+        )
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+        val restored = restartedStore.latestPendingConfirmation()
+
+        requireNotNull(restored)
+        assertEquals(waitingRun.id, restored.run.id)
+        assertEquals(request.id, restored.request.id)
+        assertNull(dao.skillRunCheckpoint(waitingRun.id, request.id))
     }
 
     @Test
@@ -1032,8 +1198,60 @@ class AgentTraceStoreTest {
         assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
         assertTrue(restartedStore.steps(waitingRun.id).any { step ->
             step is AgentStep.Failed &&
+            step.reason.contains("Pending tool confirmation could not be restored")
+        })
+    }
+
+    @Test
+    fun roomStoreFailsSkillPendingWithoutCheckpointOnStartupRepair() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-skill-without-checkpoint-repair" },
+        )
+        val request = ToolRequest(
+            id = "request-read-clipboard",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "Read clipboard for summary",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.READ_CLIPBOARD,
+            title = "读取剪贴板",
+            summary = "将读取剪贴板用于摘要。",
+            parameters = emptyMap(),
+        )
+        val skillPlan = BuiltInSkillRuntime().planClipboardSummaryShare(
+            input = "总结剪贴板并分享",
+            readRequest = request,
+            readDraft = draft,
+        )
+        val waitingRun = store.updateState(
+            store.createRun("总结剪贴板并分享").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = request,
+                draft = draft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test missing checkpoint",
+            ),
+        )
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        val failedCount = restartedStore.failStaleInFlightRuns("process restarted")
+
+        assertEquals(1, failedCount)
+        assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
+        assertTrue(restartedStore.steps(waitingRun.id).any { step ->
+            step is AgentStep.Failed &&
                 step.reason.contains("Pending tool confirmation could not be restored")
         })
+        assertTrue(dao.pendingConfirmations().isEmpty())
+        assertTrue(dao.skillRunCheckpointsForRun(waitingRun.id).isEmpty())
     }
 
     @Test

@@ -61,6 +61,9 @@ data class SkillRunCheckpoint(
         if (outputKeysByStep.keys != completedStepIdSet) {
             return "skill checkpoint output frontier changed"
         }
+        val expectedOutputKeysByStep = plan.steps
+            .take(pendingStepIndex)
+            .associate { step -> step.id to step.knownValueFreeOutputKeys(toolRegistry) }
         outputKeysByStep.forEach { (stepId, keys) ->
             if (stepId !in completedStepIdSet) return "skill checkpoint output keys reference incomplete step"
             if (keys.isEmpty()) return "skill checkpoint output keys are missing"
@@ -68,6 +71,9 @@ data class SkillRunCheckpoint(
                 return "skill checkpoint output key is unsafe"
             }
             if (keys != keys.distinct().sorted()) return "skill checkpoint output keys are not canonical"
+        }
+        if (outputKeysByStep != expectedOutputKeysByStep) {
+            return "skill checkpoint output keys changed"
         }
         privateOutputRefs.forEach { ref ->
             val stepId = ref.substringBefore('.', missingDelimiterValue = "")
@@ -127,6 +133,7 @@ data class SkillRunCheckpoint(
 fun SkillRunContinuation.toValueFreeCheckpoint(
     runId: String,
     plan: SkillPlan,
+    toolRegistry: ToolRegistry = ToolRegistry(),
 ): SkillRunCheckpoint =
     SkillRunCheckpoint(
         runId = runId,
@@ -141,9 +148,9 @@ fun SkillRunContinuation.toValueFreeCheckpoint(
         pendingRequestId = pendingToolRequest.id,
         pendingToolName = pendingToolRequest.toolName,
         completedStepIds = plan.steps.take(pendingStepIndex).map { step -> step.id },
-        outputKeysByStep = outputs
-            .filterKeys { stepId -> plan.steps.any { step -> step.id == stepId } }
-            .mapValues { (_, values) -> values.keys.sorted() },
+        outputKeysByStep = plan.steps
+            .take(pendingStepIndex)
+            .associate { step -> step.id to step.knownValueFreeOutputKeys(toolRegistry) },
         privateOutputRefs = privateOutputRefs.toSet(),
     )
 

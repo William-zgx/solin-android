@@ -196,11 +196,34 @@ class SkillRunExecutorTest {
         assertEquals(MobileActionFunctions.SHARE_TEXT, checkpoint.pendingToolName)
         assertEquals(listOf("read_clipboard", "summarize_clipboard"), checkpoint.completedStepIds)
         assertEquals(setOf("read_clipboard.text"), checkpoint.privateOutputRefs)
+        assertEquals(listOf("summary", "text"), checkpoint.outputKeysByStep["read_clipboard"])
         assertEquals(listOf("shareText"), checkpoint.outputKeysByStep["summarize_clipboard"])
         assertNull(checkpoint.validationErrorFor(plan))
         assertFalse(serialized.contains(rawClipboardText))
         assertFalse(serialized.contains(summaryText))
         assertFalse(serialized.contains("已读取剪贴板文本"))
+    }
+
+    @Test
+    fun valueFreeCheckpointRejectsChangedOutputKeysForCompletedStep() {
+        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val shareStep = plan.steps[2] as SkillStep.ToolStep
+        val checkpoint = requireNotNull(
+            plan.valueFreeCheckpointForPendingTool(
+                runId = "run-checkpoint",
+                pendingRequest = shareStep.request,
+            ),
+        )
+
+        val missingModelOutputKey = checkpoint.copy(
+            outputKeysByStep = checkpoint.outputKeysByStep + ("summarize_clipboard" to listOf("summary")),
+        )
+        val extraToolOutputKey = checkpoint.copy(
+            outputKeysByStep = checkpoint.outputKeysByStep + ("read_clipboard" to listOf("summary", "text", "toolName")),
+        )
+
+        assertEquals("skill checkpoint output keys changed", missingModelOutputKey.validationErrorFor(plan))
+        assertEquals("skill checkpoint output keys changed", extraToolOutputKey.validationErrorFor(plan))
     }
 
     @Test

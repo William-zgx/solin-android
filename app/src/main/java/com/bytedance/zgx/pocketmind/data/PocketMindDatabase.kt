@@ -458,6 +458,33 @@ interface AgentTraceDao {
     @Query("DELETE FROM agent_skill_run_checkpoints WHERE runId IN (SELECT id FROM agent_runs WHERE sessionId = :sessionId)")
     fun deleteSkillRunCheckpointsForSession(sessionId: String): Int
 
+    @Transaction
+    fun upsertPendingConfirmationWithCheckpoint(
+        pending: PendingAgentConfirmationEntity,
+        checkpoint: AgentSkillRunCheckpointEntity?,
+    ) {
+        upsertPendingConfirmation(pending)
+        if (checkpoint == null) {
+            deleteSkillRunCheckpoint(pending.runId, pending.requestId)
+        } else {
+            upsertSkillRunCheckpoint(checkpoint)
+        }
+    }
+
+    @Transaction
+    fun deletePendingConfirmationWithCheckpoint(runId: String, requestId: String): Int {
+        val deletedPending = deletePendingConfirmation(runId, requestId)
+        deleteSkillRunCheckpoint(runId, requestId)
+        return deletedPending
+    }
+
+    @Transaction
+    fun deletePendingConfirmationWithRunCheckpoints(runId: String, requestId: String): Int {
+        val deletedPending = deletePendingConfirmation(runId, requestId)
+        deleteSkillRunCheckpointsForRun(runId)
+        return deletedPending
+    }
+
     @Query("DELETE FROM agent_runs WHERE sessionId = :sessionId")
     fun deleteRunsForSession(sessionId: String): Int
 

@@ -215,6 +215,15 @@ Current status:
   Startup repair fails awaiting runs without a valid pending row, and malformed
   pending or `SkillPlan` JSON is not silently downgraded into a plain pending
   confirmation.
+- Skill pending restore treats a redacted `SkillPlan` as recoverable only when
+  the same pending row has a matching value-free `SkillRunCheckpoint`. Missing,
+  malformed, or mismatched checkpoints fail the owning awaiting run closed and
+  clear the pending/checkpoint recovery rows. Plain pending confirmations
+  without a `SkillPlan` do not require a checkpoint, and saving a plain pending
+  clears any stale checkpoint for that run/request.
+- Pending confirmation and skill checkpoint writes/deletes go through Room
+  transaction helpers so restore never observes a pending row and checkpoint
+  that were saved or removed separately.
 - Model-bound multi-step Skills that reach a second confirmation persist that
   second pending tool request as the active pending confirmation. If that
   request carries model-produced outbound payload, startup restore fails the run
@@ -502,11 +511,13 @@ Current status:
 - Pending Skill confirmations now also get a separate
   `agent_skill_run_checkpoints` Room row. The checkpoint is value-free: it
   stores schema version, run/request/step ids, manifest id/version/hash, phase,
-  completed step ids, output key names, and private-output refs only. Restore
-  validates the checkpoint against the redacted `SkillPlan` and current
-  `ToolRegistry`; malformed JSON, changed pending step/tool, manifest mismatch,
-  noncanonical output keys, or private-ref drift fails the owning awaiting run
-  closed. The checkpoint is not enough to replay private prior outputs, so broad
+  completed step ids, exact value-free output key names for each completed
+  step, and private-output refs only. Restore validates the checkpoint against
+  the redacted `SkillPlan` and current `ToolRegistry`; missing checkpoints for
+  redacted skill pending rows, malformed JSON, changed pending step/tool,
+  manifest mismatch, noncanonical or changed output keys, or private-ref drift
+  fails the owning awaiting run closed and clears the pending/checkpoint rows.
+  The checkpoint is not enough to replay private prior outputs, so broad
   arbitrary skill-runner state persistence is still pending.
 - Room restore validates that a persisted pending confirmation with an attached
   `SkillPlan` still points at a tool step in that plan before restoring the UI.

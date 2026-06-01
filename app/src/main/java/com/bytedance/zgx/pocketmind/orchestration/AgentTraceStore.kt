@@ -63,6 +63,11 @@ private const val REDACTED_AGENT_RUN_INPUT = "[redacted]"
 private const val UNRESTORABLE_PENDING_CONFIRMATION_REASON =
     "Pending tool confirmation could not be restored after process restart."
 
+private data class PendingConfirmationRepairResult(
+    val validPendingRunIds: Set<String>,
+    val failedRunIds: Set<String>,
+)
+
 interface AgentTraceStore {
     fun createRun(input: String, sessionId: String? = null): AgentRun
     fun run(runId: String): AgentRun?
@@ -301,10 +306,10 @@ class RoomAgentTraceStore(
         snapshot.nextActionInput
             ?.let { nextActionInput -> liveNextActionInputs[snapshot.run.id] = nextActionInput }
             ?: liveNextActionInputs.remove(snapshot.run.id)
-        traceDao.upsertPendingConfirmation(snapshot.toEntity(now, toolRegistry))
-        snapshot.skillRunCheckpoint
-            ?.let { checkpoint -> traceDao.upsertSkillRunCheckpoint(checkpoint.toEntity(now)) }
-            ?: traceDao.deleteSkillRunCheckpoint(snapshot.run.id, snapshot.request.id)
+        traceDao.upsertPendingConfirmationWithCheckpoint(
+            pending = snapshot.toEntity(now, toolRegistry),
+            checkpoint = snapshot.skillRunCheckpoint?.toEntity(now),
+        )
     }
 
     override fun latestPendingConfirmation(sessionId: String?): PendingToolConfirmationSnapshot? {
@@ -315,8 +320,7 @@ class RoomAgentTraceStore(
             val run = run(entity.runId)
             if (sessionId != null && run != null && run.sessionId != sessionId) continue
             if (run == null || run.state != AgentRunState.AwaitingUserConfirmation) {
-                traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
-                traceDao.deleteSkillRunCheckpointsForRun(entity.runId)
+                traceDao.deletePendingConfirmationWithRunCheckpoints(entity.runId, entity.requestId)
                 continue
             }
             val checkpointEntity = traceDao.skillRunCheckpoint(entity.runId, entity.requestId)
@@ -337,8 +341,7 @@ class RoomAgentTraceStore(
                 livePendingConfirmations.remove(runId)
                 true
             } ?: false
-        val persistedRemoved = traceDao.deletePendingConfirmation(runId, requestId) > 0
-        traceDao.deleteSkillRunCheckpoint(runId, requestId)
+        val persistedRemoved = traceDao.deletePendingConfirmationWithCheckpoint(runId, requestId) > 0
         return persistedRemoved || liveRemoved
     }
 
@@ -346,7 +349,7 @@ class RoomAgentTraceStore(
         liveNextActionInputs[runId]
 
     override fun failStaleInFlightRuns(reason: String): Int {
-        val validPendingRunIds = repairPendingConfirmationsAndCollectValidRunIds()
+        val pendingRepair = repairPendingConfirmations()
         val runs = traceDao.recentRuns(Int.MAX_VALUE)
             .map { entity -> entity.toDomain() }
         val staleRuns = runs.filter { run -> run.state.isStaleAfterProcessRestart() }
@@ -357,12 +360,12 @@ class RoomAgentTraceStore(
             .map { entity -> entity.toDomain() }
             .filter { run ->
                 run.state == AgentRunState.AwaitingUserConfirmation &&
-                    run.id !in validPendingRunIds
+                    run.id !in pendingRepair.validPendingRunIds
             }
         awaitingWithoutPendingRuns.forEach { run ->
             failRun(run, UNRESTORABLE_PENDING_CONFIRMATION_REASON)
         }
-        return staleRuns.size + awaitingWithoutPendingRuns.size
+        return pendingRepair.failedRunIds.size + staleRuns.size + awaitingWithoutPendingRuns.size
     }
 
     override fun deleteRunsForSession(sessionId: String): Int {
@@ -378,21 +381,27 @@ class RoomAgentTraceStore(
         return deletedCount
     }
 
-    private fun repairPendingConfirmationsAndCollectValidRunIds(): Set<String> =
-        buildSet {
-            traceDao.pendingConfirmations().forEach { entity ->
-                val run = run(entity.runId)
-                if (run == null || run.state != AgentRunState.AwaitingUserConfirmation) {
-                    traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
-                    traceDao.deleteSkillRunCheckpointsForRun(entity.runId)
-                    return@forEach
-                }
-                val checkpointEntity = traceDao.skillRunCheckpoint(entity.runId, entity.requestId)
-                if (restorablePendingSnapshotOrFailRun(entity, checkpointEntity, run) != null) {
-                    add(run.id)
-                }
+    private fun repairPendingConfirmations(): PendingConfirmationRepairResult {
+        val validPendingRunIds = mutableSetOf<String>()
+        val failedRunIds = mutableSetOf<String>()
+        traceDao.pendingConfirmations().forEach { entity ->
+            val run = run(entity.runId)
+            if (run == null || run.state != AgentRunState.AwaitingUserConfirmation) {
+                traceDao.deletePendingConfirmationWithRunCheckpoints(entity.runId, entity.requestId)
+                return@forEach
+            }
+            val checkpointEntity = traceDao.skillRunCheckpoint(entity.runId, entity.requestId)
+            if (restorablePendingSnapshotOrFailRun(entity, checkpointEntity, run) != null) {
+                validPendingRunIds += run.id
+            } else {
+                failedRunIds += run.id
             }
         }
+        return PendingConfirmationRepairResult(
+            validPendingRunIds = validPendingRunIds,
+            failedRunIds = failedRunIds,
+        )
+    }
 
     private fun latestLivePendingConfirmation(sessionId: String?): PendingToolConfirmationSnapshot? =
         livePendingConfirmations.values
@@ -429,8 +438,7 @@ class RoomAgentTraceStore(
             !snapshot.hasRestorableSkillPlanRequest() ||
             !snapshot.hasRestorableSkillRunCheckpoint(toolRegistry)
         ) {
-            traceDao.deletePendingConfirmation(entity.runId, entity.requestId)
-            traceDao.deleteSkillRunCheckpoint(entity.runId, entity.requestId)
+            traceDao.deletePendingConfirmationWithCheckpoint(entity.runId, entity.requestId)
             failRun(run, UNRESTORABLE_PENDING_CONFIRMATION_REASON)
             return null
         }
@@ -692,8 +700,10 @@ private fun PendingToolConfirmationSnapshot.hasRestorableSkillPlanRequest(): Boo
 private fun PendingToolConfirmationSnapshot.hasRestorableSkillRunCheckpoint(
     toolRegistry: ToolRegistry,
 ): Boolean {
-    val checkpoint = skillRunCheckpoint ?: return true
-    val plan = skillPlan ?: return false
+    val plan = skillPlan
+    val checkpoint = skillRunCheckpoint
+    if (plan == null) return checkpoint == null
+    if (checkpoint == null) return false
     if (checkpoint.runId != run.id) return false
     if (checkpoint.pendingRequestId != request.id) return false
     if (checkpoint.pendingToolName != request.toolName) return false

@@ -1,5 +1,49 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Skill pending 恢复 hardening 增量验证
+
+本轮覆盖项：
+
+- 带 redacted `SkillPlan` 的 pending 恢复必须同时存在同 run/request 的
+  value-free `SkillRunCheckpoint`；缺失、pending step/tool 不一致、manifest
+  不匹配、checkpoint JSON 无效或 value-free 内容漂移都 fail closed，并清理
+  pending/checkpoint 恢复行。
+- Plain pending 不附加 `SkillPlan` 时仍按普通 pending 边界恢复；保存 plain
+  pending 会清掉同 run/request 的 stale checkpoint，避免旧 checkpoint 污染后续
+  恢复。
+- `pending_agent_confirmations` 与 `agent_skill_run_checkpoints` 的保存和删除通过
+  Room transaction helper 成对处理，避免恢复时看到半更新状态。
+- `SkillRunCheckpoint` 校验 completed step 的 value-free output key 集合必须与
+  当前 `SkillPlan`/`ToolRegistry` 精确一致；缺失 model output key 或多出 tool
+  output key 都拒绝恢复。
+- Startup repair 复用同一恢复判定，不能把缺 checkpoint 的 Skill pending 留成可确认
+  状态。
+
+应跑验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsSkillPendingWithoutCheckpoint' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsSkillPendingWithoutCheckpointOnStartupRepair' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsCheckpointWhenCompletedOutputKeysChange' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreClearsStaleCheckpointWhenSavingPlainPendingConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.valueFreeCheckpointRejectsChangedOutputKeysForCompletedStep'
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest'
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+git diff --unified=0 | rg -n '(sk-[A-Za-z0-9_-]{20,}|B[e]arer [A-Za-z0-9._-]{20,}|(?i)(api[_-]?key|s[e]cret|p[a]ssword|d[e]epseek))' || true
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+scripts/verify_local.sh
+```
+
+结果：通过。定向 `AgentTraceStoreTest` / `SkillRunExecutorTest` 回归、完整 JVM
+单测、AndroidTest Kotlin 编译、diff whitespace 检查、敏感 diff 扫描和本地完整
+验证脚本通过。
+
 ## 2026-06-02 PDF scanned-page OCR fallback 增量验证
 
 本轮覆盖项：
