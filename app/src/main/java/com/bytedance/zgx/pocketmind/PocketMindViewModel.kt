@@ -1002,6 +1002,9 @@ class PocketMindViewModel(
                         }
                         persistActiveSessionFromUi()
                         rebuildMemoryIndex()
+                        route.runId?.let { runId ->
+                            assistantOrchestrator.observeModelResult(runId, partial.toString())
+                        }
                         _uiState.update {
                             it.copy(
                                 isBusy = false,
@@ -1575,13 +1578,13 @@ class PocketMindViewModel(
     }
 
     private fun AgentObservationResult?.privacyForObservation(): MessagePrivacy =
-        if (
-            this?.continuationRequiresLocalModel == true ||
-            this?.result?.data?.get("privacy") == MessagePrivacy.LocalOnly.name
-        ) {
+        if (this?.continuationRequiresLocalModel == true) {
             MessagePrivacy.LocalOnly
         } else {
-            MessagePrivacy.RemoteEligible
+            val declaredPrivacy = this?.result?.data?.get("privacy")
+                ?: return MessagePrivacy.RemoteEligible
+            runCatching { MessagePrivacy.valueOf(declaredPrivacy) }
+                .getOrDefault(MessagePrivacy.LocalOnly)
         }
 
     private fun ToolRequest.protectedContinuationContentName(): String =

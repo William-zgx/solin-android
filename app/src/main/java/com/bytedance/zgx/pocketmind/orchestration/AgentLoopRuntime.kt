@@ -1158,6 +1158,7 @@ class AgentLoopRuntime(
 fun AgentLoopResult.toAssistantRoute(): AssistantRoute =
     when (val planned = plan) {
         is AgentPlan.Answer -> AssistantRoute.Chat(
+            runId = run.id,
             promptForModel = planned.promptForModel,
             memoryHits = planned.memoryHits,
             deviceContext = planned.deviceContext,

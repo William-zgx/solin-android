@@ -2,6 +2,10 @@ package com.bytedance.zgx.pocketmind
 
 import android.net.Uri
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.ActionPlan
+import com.bytedance.zgx.pocketmind.action.ActionPlanKind
+import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
+import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
 import com.bytedance.zgx.pocketmind.audit.ToolAuditRecord
@@ -47,6 +51,8 @@ import com.bytedance.zgx.pocketmind.orchestration.AgentTraceRunSummary
 import com.bytedance.zgx.pocketmind.orchestration.AgentTraceStepSummary
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRoute
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRouter
+import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
+import com.bytedance.zgx.pocketmind.orchestration.InMemoryAgentTraceStore
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
@@ -813,6 +819,122 @@ class PocketMindViewModelTest {
         assertEquals("已保护本地工具结果", viewModel.uiState.value.statusText)
         assertTrue(sessionStore.messages.last().text.contains("不会自动发送本地工具结果到远程模型"))
         assertFalse(sessionStore.messages.last().text.contains("剪贴板内容"))
+    }
+
+    @Test
+    fun unknownToolResultPrivacyIsTreatedAsLocalOnlyBeforeRemoteContinuation() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val request = ToolRequest(
+            toolName = MobileActionFunctions.QUERY_CONTACTS,
+            arguments = mapOf("query" to "Alice"),
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.QUERY_CONTACTS,
+            title = "查询联系人",
+            summary = "将读取联系人摘要。",
+            parameters = request.arguments,
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-unknown-privacy-tool",
+                toolRequest = request,
+                draft = draft,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = null,
+            ),
+            confirmedRun = AgentRun(
+                "run-unknown-privacy-tool",
+                "查联系人 Alice",
+                AgentRunState.ExecutingTool,
+                1L,
+                2L,
+            ),
+            toolObservation = AgentObservationResult(
+                run = AgentRun(
+                    "run-unknown-privacy-tool",
+                    "查联系人 Alice",
+                    AgentRunState.GeneratingAnswer,
+                    1L,
+                    3L,
+                ),
+                result = ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "联系人 Alice：仅本地摘要",
+                    data = mapOf("privacy" to "UnknownFutureValue"),
+                ),
+                assistantMessage = "工具执行结果：联系人 Alice：仅本地摘要",
+                decision = AgentObservationDecision.ContinueWithModel(
+                    requiresLocalModel = false,
+                    reason = "继续处理工具结果。",
+                ),
+                continuationPromptForModel = "请根据联系人 Alice 的摘要回答",
+                continuationRequiresLocalModel = false,
+                steps = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            actionExecutor = object : ToolExecutor {
+                override fun execute(request: ToolRequest): ToolResult =
+                    ToolResult(
+                        requestId = request.id,
+                        status = ToolStatus.Succeeded,
+                        summary = "联系人 Alice：仅本地摘要",
+                        data = mapOf("privacy" to "UnknownFutureValue"),
+                    )
+            },
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("查联系人 Alice")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+
+        viewModel.confirmAgentConfirmation(confirmation)
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals("已保护工具结果", viewModel.uiState.value.statusText)
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
+        assertTrue(sessionStore.messages.last().text.contains("不会把它发送到远程模型"))
+    }
+
+    @Test
+    fun pureChatAnswerCompletesAgentTraceRun() = runTest(dispatcher) {
+        val traceStore = InMemoryAgentTraceStore()
+        val orchestrator = AssistantOrchestrator(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = traceStore,
+        )
+        val viewModel = createViewModel(
+            assistantRouter = orchestrator,
+            runtime = FakeLiteRtRuntime(localResponse = "完成"),
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通问题")
+        advanceUntilIdle()
+
+        assertEquals(
+            AgentRunState.Completed,
+            orchestrator.recentTraceRuns(limit = 1).single().run.state,
+        )
     }
 
     @Test
@@ -2331,7 +2453,7 @@ class PocketMindViewModelTest {
         memoryRepository: MemoryRepository = MemoryRepository(),
         backgroundTaskScheduler: BackgroundTaskScheduler = FakeBackgroundTaskScheduler(),
         toolAuditLog: ToolAuditLog = FakeToolAuditLog(),
-        assistantRouter: FakeAssistantRouter = FakeAssistantRouter(),
+        assistantRouter: AssistantRouter = FakeAssistantRouter(),
         actionExecutor: ToolExecutor = object : ToolExecutor {
             override fun execute(request: ToolRequest): ToolResult =
                 ToolResult(
@@ -2510,6 +2632,7 @@ class PocketMindViewModelTest {
             routeFailure?.let { throw it }
             return routeResult ?:
                 AssistantRoute.Chat(
+                    runId = null,
                     promptForModel = input,
                     memoryHits = emptyList(),
                     deviceContext = deviceContext,
@@ -2601,6 +2724,19 @@ class PocketMindViewModelTest {
         override fun persistActiveSessionFrom(messages: List<ChatMessage>) {
             this.messages = messages
         }
+    }
+
+    private class RecordingActionRuntime(
+        private val likelyAction: Boolean,
+    ) : ActionPlanningRuntime {
+        override fun isLikelyAction(input: String): Boolean = likelyAction
+
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
+            ActionPlanningResult(
+                plan = ActionPlan(ActionPlanKind.NoAction),
+                usedModel = false,
+                fallbackReason = null,
+            )
     }
 
     private class FakeMemoryRecordStore(

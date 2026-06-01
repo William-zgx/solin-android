@@ -12,6 +12,10 @@
   fail-closed。
 - Agent trace 的 `ToolRequested` 和 `UseTool` planning 摘要/JSON 不再保存
   参数化 `request.reason`，仅保留工具名、参数 key 和草稿标题。
+- 普通 Chat 的 Agent trace 在生成完成后回写 `Completed`，避免重启 stale
+  recovery 把已经成功回答的 run 标成 `Failed`。
+- 工具结果里的未知 `privacy` metadata 按 `LocalOnly` 处理，防止未来值或坏值
+  被当成可远程续写。
 - 后台任务 UI 的 active 列表与 task-state memory 口径一致，包含
   `Scheduled` 与 `Running`；取消入口只展示给 still-`Scheduled` 任务。
 
@@ -32,6 +36,17 @@
 ```bash
 ./gradlew :app:testDebugUnitTest \
   --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest'
+```
+
+结果：通过。
+
+补充验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.pureChatAnswerCompletesAgentTraceRun' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.unknownToolResultPrivacyIsTreatedAsLocalOnlyBeforeRemoteContinuation' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeProtectsGenericLocalOnlyContinuationAsLocalToolResult'
 ```
 
 结果：通过。

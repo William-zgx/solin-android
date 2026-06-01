@@ -13,6 +13,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolRequest
 
 sealed class AssistantRoute {
     data class Chat(
+        val runId: String?,
         val promptForModel: String,
         val memoryHits: List<MemoryHit>,
         val deviceContext: DeviceContextSnapshot? = null,

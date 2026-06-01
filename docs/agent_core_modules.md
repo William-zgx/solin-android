@@ -107,6 +107,8 @@ Current status:
 - Generic Skill model continuations also honor tool-result privacy metadata:
   `privacy=LocalOnly` or `requiresLocalModel=true` forces the continuation to
   stay local even when the `ModelStep` is otherwise marked remote-eligible.
+- Unknown tool-result privacy metadata fails closed as `LocalOnly` before any
+  remote continuation, matching the stored-message privacy boundary.
 - Retryable local read failures now schedule one bounded retry on the already
   confirmed request, record a `ToolRetryScheduled` trace/audit event, and only
   fail the run after the retry budget is exhausted. External Activity launches,
@@ -116,6 +118,10 @@ Current status:
 - Tool observation now produces an explicit `AgentObservationDecision`:
   complete, continue with model, retry tool, fail, or cancel. The decision is
   recorded in trace without storing private continuation prompts.
+- Plain chat answer runs now carry their trace `runId` through the ViewModel and
+  call `observeModelResult()` after generation, so successful answers finish as
+  `Completed` instead of being recovered as stale `GeneratingAnswer` failures on
+  the next process start.
 - Successful observations can now call `AgentObservationReplanner` to produce a
   next tool plan. The default production strategy is conservative: it only
   replans one explicit next action after sequence words such as "然后" / "then",
