@@ -422,9 +422,10 @@ app/
   src/test/                 JVM unit tests
   src/androidTest/          Device smoke tests
 docs/
-  model_manifest.md        Pinned recommended model provenance and hashes
+  model_manifest.md        Pinned recommended model provenance, hashes, and license checklist
   agent_core_modules.md    Agent core module ownership and status
   phone_acceptance.md       Manual device acceptance checklist
+  privacy_notice.md        Local/remote privacy boundary summary for release review
   release_readiness.md      External distribution checklist
   validation_report.md      Recent validation notes
 scripts/
@@ -473,4 +474,7 @@ scripts/install_and_test_device.sh
 
 ## License
 
-PocketMind Android is distributed under the MIT License. See `LICENSE`.
+PocketMind Android app code is distributed under the MIT License. See
+`LICENSE`. Recommended model downloads are third-party artifacts governed by
+their upstream licenses; see `docs/model_manifest.md` for provenance and the
+release license checklist.

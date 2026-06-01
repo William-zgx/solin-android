@@ -1,5 +1,28 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Release privacy/model docs 增量验证
+
+本轮覆盖项：
+
+- 新增 `docs/privacy_notice.md`，覆盖本地存储、远程模型模式、设备上下文工具、
+  外部 Intent/分享、模型下载、audit/trace 与保留控制。文档明确这是内部测试
+  隐私边界说明草案，不是最终公开法律政策。
+- `docs/model_manifest.md` 增加每个推荐模型的上游仓库和 license readiness
+  checklist；本地缺少足够 license 证据时，保持发布前人工核对 blocker，而不是
+  误写成已完成。
+- `docs/release_readiness.md` 将 privacy notice 移到 Completed 草案项，并保留
+  发布前 release/security/legal 审核；模型 license 核对保留为 Remaining blocker。
+- README 文档目录与 License 段落已指向隐私说明和模型 manifest。
+
+验证命令：
+
+```bash
+git diff --check
+rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '!**/.gradle/**'
+```
+
+结果：通过。该切片仅更新文档，未运行 Gradle。
+
 ## 2026-06-02 Action preflight gate 收窄验证
 
 本轮覆盖项：
