@@ -34,22 +34,12 @@ class SafetyPolicy {
             )
         }
 
-        if (
-            ToolPermission.SendsTextToExternalApp in spec.permissions &&
-            spec.confirmationPolicy == ConfirmationPolicy.NotRequired
-        ) {
-            return SafetyDecision(
-                outcome = SafetyOutcome.Reject,
-                reason = "Tool ${request.toolName} sends text to another app and cannot skip confirmation.",
-            )
-        }
-
-        if (spec.permissions.any { permission -> permission in privateReadPermissions } &&
+        if (spec.permissions.any { permission -> permission in confirmationRequiredPermissions } &&
             spec.confirmationPolicy != ConfirmationPolicy.Required
         ) {
             return SafetyDecision(
                 outcome = SafetyOutcome.Reject,
-                reason = "Tool ${request.toolName} reads private device data and must require confirmation.",
+                reason = "Tool ${request.toolName} crosses a device, external app, background, notification, permission, or private-read boundary and must require confirmation.",
             )
         }
 
@@ -70,7 +60,12 @@ class SafetyPolicy {
         this == RiskLevel.HighExternalSend || this == RiskLevel.CriticalDeviceOrPayment
 
     private companion object {
-        val privateReadPermissions = setOf(
+        val confirmationRequiredPermissions = setOf(
+            ToolPermission.StartsExternalActivity,
+            ToolPermission.SendsTextToExternalApp,
+            ToolPermission.RequiresAndroidRuntimePermission,
+            ToolPermission.SchedulesBackgroundWork,
+            ToolPermission.PostsNotification,
             ToolPermission.ReadsClipboard,
             ToolPermission.ReadsContacts,
             ToolPermission.ReadsFiles,

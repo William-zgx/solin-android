@@ -703,10 +703,12 @@ Current status:
 - Implemented risk and permission declarations, `SafetyPolicy`, in-memory run
   trace, and persistent audit events for tool planning, confirmation request,
   user confirmation, user cancellation, rejection, and observation.
-- `SafetyPolicy` rejects private device read tools whose specs do not require
-  confirmation. This covers clipboard, contacts, files, calendar, and generic
-  device-context reads, so future registry mistakes cannot silently downgrade a
-  private read to optional/no confirmation.
+- `SafetyPolicy` rejects tools whose specs cross execution/privacy boundaries
+  without mandatory confirmation. This covers external Activity launches,
+  outbound text sharing, Android runtime permissions, background scheduling,
+  notifications, clipboard, contacts, files, calendar, Accessibility text, and
+  generic device-context reads, so future registry mistakes cannot silently
+  downgrade a boundary tool to optional/no confirmation.
 - Audit events store request metadata, status, risk, permission names, and a
   short sanitized summary. They intentionally do not store tool arguments,
   prompts, remote responses, or secrets.
@@ -752,6 +754,7 @@ Current status:
 Tests:
 
 - `SafetyPolicyTest`
+- `SafetyPolicyTest.registeredBoundaryToolsRequireConfirmationBeforeExecution`
 - `ToolRegistryTest.privateDeviceReadToolsMustRequireConfirmation`
 - `ToolAuditEventTest`
 - `ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess`

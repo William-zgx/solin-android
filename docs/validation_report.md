@@ -3873,3 +3873,26 @@ scripts/verify_emulator.sh
 
 - 通过：PDF text-layer reader、protected shared-input prompt、远程模式 shared
   input 保护回归测试。
+
+## 2026-06-02 Safety boundary confirmation hardening
+
+本轮覆盖项：
+
+- `SafetyPolicy` 不再只硬拦截私密读取和高风险外发；凡是 ToolSpec 声明会
+  启动外部 Activity、外发文本、请求 Android runtime permission、调度后台任务、
+  发通知，或读取剪贴板/联系人/文件/日历/Accessibility/设备上下文，都必须声明
+  `ConfirmationPolicy.Required`。
+- 新增真实 `ToolRegistry` 遍历回归：所有已注册边界工具在用户确认前必须返回
+  `RequireConfirmation`，确认后才允许执行。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.safety.SafetyPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+```
+
+结果：
+
+- 通过：SafetyPolicy 边界权限硬门禁和真实 registry confirmation 回归测试。
