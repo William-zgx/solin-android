@@ -587,6 +587,46 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstPeriodicCheckBypassesActionPlannerAndRequestsConfirmation() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "开启周期检查，每 2 小时",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, result.plan.request.toolName)
+        assertEquals("true", result.plan.request.arguments["enabled"])
+        assertEquals("120", result.plan.request.arguments["intervalMinutes"])
+        assertEquals(BuiltInSkillRuntime.PERIODIC_CHECK_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(BuiltInSkillRuntime.PERIODIC_CHECK_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(
+            listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
+            auditSink.events.map { it.eventType },
+        )
+        assertTrue(auditSink.events.all { event ->
+            event.toolName == MobileActionFunctions.CONFIGURE_PERIODIC_CHECK &&
+                event.skillId == BuiltInSkillRuntime.PERIODIC_CHECK_SKILL &&
+                ToolPermission.SchedulesBackgroundWork in event.permissions &&
+                ToolPermission.PostsNotification in event.permissions &&
+                ToolPermission.RequiresAndroidRuntimePermission in event.permissions
+        })
+    }
+
+    @Test
     fun reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation() {
         val input = "提醒我一下，“15 分钟后”是什么意思"
         val auditSink = InMemoryToolAuditSink()
@@ -3010,6 +3050,57 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun periodicCheckObservationDoesNotSurfaceUnsupportedRecoveryAction() {
+        val auditSink = InMemoryToolAuditSink()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "开启周期检查，每 2 小时",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, planned.plan.request.toolName)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已开启本地提醒周期检查：每 120 分钟",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+                    "enabled" to "true",
+                    "taskStatus" to "Scheduled",
+                    "intervalMinutes" to "120",
+                    "minNotificationSpacingMinutes" to "360",
+                    "overdueGraceMinutes" to "30",
+                    "requiresBatteryNotLow" to "true",
+                    "requiresCharging" to "false",
+                    "recoveryToolName" to MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+                    "recoveryEnabled" to "false",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertNull(observed.recoveryAction)
+        assertFalse(observed.assistantMessage.contains("如需撤销"))
+        assertFalse(observed.assistantMessage.contains("recoveryEnabled"))
+        val observedAudit = auditSink.events.single { event ->
+            event.eventType == ToolAuditEventType.ToolObserved
+        }
+        assertFalse(observedAudit.summary.contains("recoveryToolName"))
+        assertFalse(observedAudit.summary.contains("recoveryEnabled"))
+    }
+
+    @Test
     fun reminderRecoveryActionRequestsAuditedCancelConfirmation() {
         val auditSink = InMemoryToolAuditSink()
         val runtime = AgentLoopRuntime(
@@ -4998,6 +5089,7 @@ class AgentLoopRuntimeTest {
             "搜一下 Kotlin" to MobileActionFunctions.WEB_SEARCH,
             "分享这段文字：hello" to MobileActionFunctions.SHARE_TEXT,
             "提醒我 15 分钟后喝水" to MobileActionFunctions.SCHEDULE_REMINDER,
+            "开启周期检查，每 2 小时" to MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
         )
 
         cases.forEach { (input, toolName) ->

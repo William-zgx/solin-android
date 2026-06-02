@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.action
 
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import kotlin.math.roundToLong
 
 internal object ReminderActionParser {
@@ -170,5 +171,116 @@ internal object CancelReminderActionParser {
             normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:cancel|undo|dismiss|remove)\s+(?:the\s+)?(?:reminder|scheduled\s+reminder|background\s+task)\b""")) ||
             normalized.contains(Regex("""\b(?:cancel|undo|dismiss|remove)\s+(?:reminder|scheduled\s+reminder|background\s+task)\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?)\b""")) ||
             normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:cancel|undo|dismiss|remove)\s+(?:reminder|scheduled\s+reminder|background\s+task)\b"""))
+    }
+}
+
+internal object PeriodicCheckActionParser {
+    private const val AMOUNT_PATTERN = """\d+(?:\.\d+)?"""
+    private val intervalPattern =
+        Regex("""\b(?:every|interval)\s+(?<![\d.])($AMOUNT_PATTERN)\s*(minutes?|mins?|hours?|hrs?)\b""", RegexOption.IGNORE_CASE)
+    private val chineseIntervalPattern =
+        Regex("""(?:每|间隔)\s*(?<![\d.])($AMOUNT_PATTERN)\s*(分钟|小时)""")
+    private val enablePattern =
+        Regex("""\b(?:enable|turn\s+on|start)\s+(?:local\s+)?periodic\s+checks?\b""", RegexOption.IGNORE_CASE)
+    private val disablePattern =
+        Regex("""\b(?:disable|turn\s+off|stop)\s+(?:local\s+)?periodic\s+checks?\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikePeriodicCheckNonAction()) return false
+        return requestedMode(input) != null
+    }
+
+    fun parameters(input: String): Map<String, String> {
+        val enabled = requestedMode(input) ?: true
+        return buildMap {
+            put("enabled", enabled.toString())
+            if (enabled) {
+                put(
+                    "intervalMinutes",
+                    (intervalMinutes(input) ?: PeriodicCheckScheduleRequest.DEFAULT_INTERVAL_MINUTES).toString(),
+                )
+            }
+        }
+    }
+
+    fun draft(input: String): ActionDraft {
+        val parameters = parameters(input)
+        val enabled = parameters["enabled"].toBoolean()
+        return ActionDraft(
+            functionName = MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+            title = if (enabled) "开启周期检查" else "关闭周期检查",
+            summary = if (enabled) {
+                "将开启本地提醒周期检查，间隔 ${parameters["intervalMinutes"].orEmpty()} 分钟。"
+            } else {
+                "将关闭本地提醒周期检查。"
+            },
+            parameters = parameters,
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun requestedMode(input: String): Boolean? {
+        val normalized = input.lowercase()
+        val requestsPeriodicCheck = "周期检查" in input ||
+            "后台检查" in input ||
+            Regex("""\bperiodic\s+checks?\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        if (!requestsPeriodicCheck) return null
+
+        val requestsDisable = listOf("关闭", "停用", "禁用", "取消周期检查", "停止周期检查", "关闭后台检查")
+            .any { it in input } ||
+            disablePattern.containsMatchIn(normalized)
+        if (requestsDisable) return false
+
+        val requestsEnable = listOf("开启", "启用", "打开", "启动", "设置", "保存")
+            .any { it in input } ||
+            enablePattern.containsMatchIn(normalized)
+        return true.takeIf { requestsEnable }
+    }
+
+    private fun intervalMinutes(input: String): Long? =
+        (
+            chineseIntervalPattern.findAll(input).mapNotNull { match ->
+                match.toIntervalMinutes(amountGroupIndex = 1, unitGroupIndex = 2)
+            } + intervalPattern.findAll(input).mapNotNull { match ->
+                match.toIntervalMinutes(amountGroupIndex = 1, unitGroupIndex = 2)
+            }
+            ).minOrNull()
+
+    private fun MatchResult.toIntervalMinutes(amountGroupIndex: Int, unitGroupIndex: Int): Long? {
+        val amount = groupValues.getOrNull(amountGroupIndex)?.toDoubleOrNull() ?: return null
+        val unit = groupValues.getOrNull(unitGroupIndex)?.lowercase().orEmpty()
+        val minutes = when {
+            unit == "小时" || unit.startsWith("hour") || unit.startsWith("hr") -> amount * 60.0
+            else -> amount
+        }.roundToLong()
+        return minutes.coerceIn(
+            PeriodicCheckScheduleRequest.MIN_INTERVAL_MINUTES,
+            PeriodicCheckScheduleRequest.MAX_INTERVAL_MINUTES,
+        )
+    }
+
+    private fun String.looksLikePeriodicCheckNonAction(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "周期检查是什么",
+            "周期检查怎么",
+            "周期检查如何",
+            "周期检查 api",
+            "周期检查 接口",
+            "周期检查 实现",
+            "周期检查 设计",
+            "周期检查 文档",
+            "周期检查 测试",
+            "后台检查是什么",
+            "怎么实现",
+            "如何实现",
+            "怎么设计",
+        ).any { it in this } ||
+            normalized.contains(
+                Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+(?:do|can|to)|implement|design)\b.*\bperiodic\s+checks?\b"""),
+            ) ||
+            normalized.contains(
+                Regex("""\bperiodic\s+checks?\s+(?:api|implementation|architecture|design|schema|tests?|docs?)\b"""),
+            )
     }
 }

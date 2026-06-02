@@ -16,13 +16,20 @@ import org.junit.Test
 
 class AgentRuntimePermissionPolicyTest {
     @Test
-    fun reminderRequestsNotificationPermissionOnlyOnAndroid13Plus() {
+    fun backgroundNotificationToolsRequestNotificationPermissionOnlyOnAndroid13Plus() {
         val confirmation = confirmationFor(MobileActionFunctions.SCHEDULE_REMINDER)
 
         assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.S).isEmpty())
         assertEquals(
             listOf(Manifest.permission.POST_NOTIFICATIONS),
             confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU),
+        )
+
+        val periodicCheckConfirmation = confirmationFor(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK)
+        assertTrue(periodicCheckConfirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.S).isEmpty())
+        assertEquals(
+            listOf(Manifest.permission.POST_NOTIFICATIONS),
+            periodicCheckConfirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU),
         )
     }
 
@@ -302,6 +309,7 @@ class AgentRuntimePermissionPolicyTest {
         assertEquals(
             setOf(
                 MobileActionFunctions.SCHEDULE_REMINDER,
+                MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
                 MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
                 MobileActionFunctions.QUERY_CONTACTS,
                 MobileActionFunctions.QUERY_RECENT_FILES,

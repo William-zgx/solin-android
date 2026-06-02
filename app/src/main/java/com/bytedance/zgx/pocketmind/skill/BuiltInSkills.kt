@@ -14,6 +14,7 @@ import com.bytedance.zgx.pocketmind.action.EmailDraftActionParser
 import com.bytedance.zgx.pocketmind.action.ForegroundAppActionParser
 import com.bytedance.zgx.pocketmind.action.MapSearchActionParser
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.action.PeriodicCheckActionParser
 import com.bytedance.zgx.pocketmind.action.RecentFilesActionParser
 import com.bytedance.zgx.pocketmind.action.RecentImageOcrActionParser
 import com.bytedance.zgx.pocketmind.action.RecentNotificationsActionParser
@@ -38,6 +39,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS to DEVICE_SETTINGS_SKILL,
         MobileActionFunctions.SCHEDULE_REMINDER to REMINDER_SKILL,
         MobileActionFunctions.CANCEL_REMINDER to REMINDER_SKILL,
+        MobileActionFunctions.CONFIGURE_PERIODIC_CHECK to PERIODIC_CHECK_SKILL,
         MobileActionFunctions.READ_CLIPBOARD to CLIPBOARD_CONTEXT_SKILL,
         MobileActionFunctions.SHARE_TEXT to SHARE_TEXT_SKILL,
         MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to RECENT_SCREENSHOT_OCR_CONTEXT_SKILL,
@@ -112,6 +114,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && CancelReminderActionParser.matches(input) ->
                 plan(input, CancelReminderActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && PeriodicCheckActionParser.matches(input) ->
+                plan(input, PeriodicCheckActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
@@ -314,6 +319,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val INFORMATION_LOOKUP_SKILL = "information_lookup_skill"
         const val DEVICE_SETTINGS_SKILL = "device_settings_skill"
         const val REMINDER_SKILL = "reminder_skill"
+        const val PERIODIC_CHECK_SKILL = "periodic_check_skill"
         const val CLIPBOARD_CONTEXT_SKILL = "clipboard_context_skill"
         const val SHARE_TEXT_SKILL = "share_text_skill"
         const val CLIPBOARD_SUMMARY_SHARE_SKILL = "clipboard_summary_share_skill"
@@ -527,6 +533,16 @@ private val builtInSkillManifests = listOf(
             MobileActionFunctions.SCHEDULE_REMINDER,
             MobileActionFunctions.CANCEL_REMINDER,
         ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.PERIODIC_CHECK_SKILL,
+        version = 1,
+        title = "周期检查",
+        description = "开启或关闭本地提醒周期检查；不执行后台聊天、屏幕扫描或文件内容扫描。",
+        triggerExamples = listOf("开启周期检查", "关闭周期检查", "enable periodic check"),
+        requiredTools = listOf(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
     ),

@@ -72,6 +72,19 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.PostsNotification in reminderSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission in reminderSpec.permissions)
 
+        val periodicCheckSpec = registry.specFor(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK)
+        assertNotNull(periodicCheckSpec)
+        requireNotNull(periodicCheckSpec)
+        assertEquals(ToolCapability.BackgroundTask, periodicCheckSpec.capability)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, periodicCheckSpec.riskLevel)
+        assertEquals(ConfirmationPolicy.Required, periodicCheckSpec.confirmationPolicy)
+        assertTrue(ToolPermission.SchedulesBackgroundWork in periodicCheckSpec.permissions)
+        assertTrue(ToolPermission.PostsNotification in periodicCheckSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission in periodicCheckSpec.permissions)
+        assertTrue(periodicCheckSpec.inputSchemaJson.contains("\"enabled\""))
+        assertTrue(periodicCheckSpec.inputSchemaJson.contains("\"intervalMinutes\""))
+        assertTrue(periodicCheckSpec.description.contains("不执行后台聊天"))
+
         val cancelReminderSpec = registry.specFor(MobileActionFunctions.CANCEL_REMINDER)
         assertNotNull(cancelReminderSpec)
         requireNotNull(cancelReminderSpec)
@@ -247,6 +260,46 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun periodicCheckSchemaRejectsInvalidValues() {
+        val invalidEnabled = registry.validate(
+            ToolRequest(
+                id = "periodic-check-invalid-enabled",
+                toolName = MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+                arguments = mapOf("enabled" to "yes"),
+                reason = "schema contract",
+            ),
+        )
+        assertNotNull(invalidEnabled)
+        requireNotNull(invalidEnabled)
+        assertEquals(ToolStatus.Rejected, invalidEnabled.status)
+        assertTrue(invalidEnabled.summary.contains("true or false"))
+
+        val invalidInterval = registry.validate(
+            ToolRequest(
+                id = "periodic-check-invalid-interval",
+                toolName = MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+                arguments = mapOf("enabled" to "true", "intervalMinutes" to "30"),
+                reason = "schema contract",
+            ),
+        )
+        assertNotNull(invalidInterval)
+        requireNotNull(invalidInterval)
+        assertEquals(ToolStatus.Rejected, invalidInterval.status)
+        assertTrue(invalidInterval.summary.contains("at least 60"))
+
+        assertNull(
+            registry.validate(
+                ToolRequest(
+                    id = "periodic-check-valid-disable",
+                    toolName = MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+                    arguments = mapOf("enabled" to "false"),
+                    reason = "schema contract",
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun contactSchemaRejectsMissingQueryAndUnsupportedMaxCount() {
         val missingQuery = registry.validate(
             ToolRequest(
@@ -355,6 +408,14 @@ class ToolRegistryTest {
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to setOf("maxCount"),
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("maxChars"),
             MobileActionFunctions.CANCEL_REMINDER to setOf("taskId"),
+            MobileActionFunctions.CONFIGURE_PERIODIC_CHECK to setOf(
+                "enabled",
+                "intervalMinutes",
+                "minNotificationSpacingMinutes",
+                "overdueGraceMinutes",
+                "requiresBatteryNotLow",
+                "requiresCharging",
+            ),
         )
 
         expectedAllowlists.forEach { (toolName, allowlist) ->

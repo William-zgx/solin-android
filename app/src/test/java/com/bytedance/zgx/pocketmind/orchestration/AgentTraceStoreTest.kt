@@ -538,6 +538,17 @@ class AgentTraceStoreTest {
                 toolName = MobileActionFunctions.CANCEL_REMINDER,
                 arguments = mapOf("taskId" to "task-allowlisted"),
             ),
+            PendingAllowlistCase(
+                toolName = MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+                arguments = mapOf(
+                    "enabled" to "true",
+                    "intervalMinutes" to "120",
+                    "minNotificationSpacingMinutes" to "180",
+                    "overdueGraceMinutes" to "15",
+                    "requiresBatteryNotLow" to "false",
+                    "requiresCharging" to "true",
+                ),
+            ),
         )
 
         cases.forEachIndexed { index, case ->

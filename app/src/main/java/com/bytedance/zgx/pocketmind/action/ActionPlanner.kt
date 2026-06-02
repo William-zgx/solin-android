@@ -30,6 +30,7 @@ class MobileActionPlanner : ActionPlanner {
             ContactQueryActionParser.matches(input) ||
             isReminderRequest(input) ||
             isCancelReminderRequest(input) ||
+            PeriodicCheckActionParser.matches(input) ||
             WebSearchActionParser.matches(input) ||
             (("剪贴板" in input || "clipboard" in normalized) && !input.looksLikeClipboardContextNonAction())
     }
@@ -91,6 +92,9 @@ class MobileActionPlanner : ActionPlanner {
 
             isReminderRequest(input) ->
                 ReminderActionParser.draft(input)
+
+            PeriodicCheckActionParser.matches(input) ->
+                PeriodicCheckActionParser.draft(input)
 
             ("剪贴板" in input || "clipboard" in normalized) && !input.looksLikeClipboardContextNonAction() ->
                 MobileActionFunctions.READ_CLIPBOARD.toDraft(emptyMap())
@@ -158,6 +162,7 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "联系人草稿"
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> "打开手电筒设置"
             MobileActionFunctions.SCHEDULE_REMINDER -> "后台提醒"
+            MobileActionFunctions.CONFIGURE_PERIODIC_CHECK -> "周期检查"
             MobileActionFunctions.READ_CLIPBOARD -> "读取剪贴板"
             MobileActionFunctions.SHARE_TEXT -> "系统分享"
             MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY -> "查询日历忙闲"
@@ -187,6 +192,14 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> "将打开系统设置，由你手动确认手电筒相关操作。"
             MobileActionFunctions.SCHEDULE_REMINDER ->
                 "将在 ${parameters["delayMinutes"].orEmpty()} 分钟后提醒：${parameters["title"].orEmpty()}"
+            MobileActionFunctions.CONFIGURE_PERIODIC_CHECK -> {
+                if (parameters["enabled"] == "false") {
+                    "将关闭本地提醒周期检查。"
+                } else {
+                    val intervalMinutes = parameters["intervalMinutes"].orEmpty().ifBlank { "360" }
+                    "将开启本地提醒周期检查，间隔 $intervalMinutes 分钟。"
+                }
+            }
             MobileActionFunctions.READ_CLIPBOARD -> "将读取当前剪贴板文本。"
             MobileActionFunctions.SHARE_TEXT -> "将打开系统分享面板并填入文本。"
             MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY ->

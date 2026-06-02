@@ -167,6 +167,33 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun parsesPeriodicCheckCallOutput() {
+        val draft = planner.parseModelOutput(
+            """call:configure_periodic_check{"enabled":"true","intervalMinutes":"120"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, draft.functionName)
+        assertEquals("true", draft.parameters["enabled"])
+        assertEquals("120", draft.parameters["intervalMinutes"])
+        assertTrue(draft.summary.contains("周期检查"))
+        assertTrue(draft.requiresConfirmation)
+    }
+
+    @Test
+    fun strictModelToolOutputParsesPeriodicCheckBooleans() {
+        val parsed = planner.parseModelToolOutput(
+            """call:configure_periodic_check{"enabled":true,"intervalMinutes":120,"requiresCharging":false}""",
+        )
+
+        val draft = (parsed as ModelToolOutputParseResult.Parsed).draft
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, draft.functionName)
+        assertEquals("true", draft.parameters["enabled"])
+        assertEquals("120", draft.parameters["intervalMinutes"])
+        assertEquals("false", draft.parameters["requiresCharging"])
+    }
+
+    @Test
     fun rejectsUnsupportedFunctionCalls() {
         assertNull(planner.parseModelOutput("""call:delete_contact{"name":"A"}"""))
     }
@@ -177,6 +204,24 @@ class ActionPlannerTest {
 
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, plan.draft?.functionName)
+    }
+
+    @Test
+    fun infersPeriodicCheckDraftsAndRejectsDiscussionInputs() {
+        val enablePlan = planner.plan("开启周期检查，每 2 小时")
+
+        assertEquals(ActionPlanKind.Draft, enablePlan.kind)
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, enablePlan.draft?.functionName)
+        assertEquals("true", enablePlan.draft?.parameters?.get("enabled"))
+        assertEquals("120", enablePlan.draft?.parameters?.get("intervalMinutes"))
+
+        val disablePlan = planner.plan("disable periodic check")
+        assertEquals(ActionPlanKind.Draft, disablePlan.kind)
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, disablePlan.draft?.functionName)
+        assertEquals("false", disablePlan.draft?.parameters?.get("enabled"))
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("周期检查是什么").kind)
+        assertFalse(planner.isLikelyAction("how to implement periodic check"))
     }
 
     @Test

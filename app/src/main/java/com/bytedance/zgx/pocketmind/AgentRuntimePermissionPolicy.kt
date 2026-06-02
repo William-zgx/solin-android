@@ -40,6 +40,17 @@ fun PendingAgentConfirmation.runtimePermissionRequirementsFor(
                 emptyList()
             }
 
+        MobileActionFunctions.CONFIGURE_PERIODIC_CHECK ->
+            if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
+                listOf(
+                    Manifest.permission.POST_NOTIFICATIONS.requirement(
+                        rationale = "用于周期检查发现过期本地提醒时发送通知。",
+                    ),
+                )
+            } else {
+                emptyList()
+            }
+
         MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY ->
             listOf(Manifest.permission.READ_CALENDAR.requirement())
 

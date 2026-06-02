@@ -5198,3 +5198,43 @@ git diff --check
 - 通过：`AgentCoreDocumentationTest` 文档契约。
 - 通过：`git diff --check` whitespace 检查。
 - 通过：全量 `./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin`。
+
+## 2026-06-02 Periodic check Agent tool
+
+本轮覆盖项：
+
+- 新增 confirmed `configure_periodic_check` 工具，输入为闭合 schema：
+  `enabled` 加 bounded interval/spacing/grace 与 battery constraints。该工具只管理
+  WorkManager-backed 本地提醒巡检策略，不执行后台聊天、屏幕扫描、文件扫描或任意周期任务。
+- `ActionExecutor` 将该工具接入 `BackgroundTaskScheduler.setPeriodicCheckPolicy`
+  和 `disablePeriodicCheckPolicy`；启用时沿用通知权限检查，缺 scheduler、缺权限、
+  参数非法或 WorkManager 入队失败都返回结构化 `ToolResult`。
+- `ToolRegistry` 声明 BackgroundTask capability、通知/后台调度权限、closed output
+  schema 和低语义 pending argument allowlist。成功启用可输出 bounded
+  `recoveryToolName=configure_periodic_check`/`recoveryEnabled=false`，但 Agent loop
+  当前不会把它升级成可点击 recovery action；关闭仍走独立 confirmed tool。
+- `PeriodicCheckActionParser` 和 `BuiltInSkillRuntime` 新增 conservative Skill-first
+  路由，接受明确开启/关闭周期检查与可选间隔，拒绝 API/实现/解释类讨论输入。
+- Agent loop 防重试矩阵加入该后台副作用工具，即使底层失败标记 retryable 也不自动重放。
+
+验证命令：
+
+```bash
+./gradlew testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstPeriodicCheckBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.retryableSideEffectToolFailuresDoNotScheduleAutomaticRetry' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.periodicCheckObservationDoesNotSurfaceUnsupportedRecoveryAction' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRestoresEveryToolSpecAllowlistedPendingArgumentShape'
+```
+
+结果：
+
+- 通过：定向 action/tool/permission/skill/agent-loop/pending restore 回归。
+- 通过：`AgentCoreDocumentationTest` 文档契约。
+- 通过：`git diff --check` whitespace 检查。
+- 通过：全量 `./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin`。

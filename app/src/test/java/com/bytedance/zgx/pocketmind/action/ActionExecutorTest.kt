@@ -5,6 +5,8 @@ import android.content.Intent
 import android.provider.Settings
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTask
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
@@ -36,6 +38,95 @@ class ActionExecutorTest {
         assertEquals("task-1", result.data["recoveryTaskId"])
         assertEquals("喝水", scheduler.lastReminderRequest?.title)
         assertEquals(15L, scheduler.lastReminderRequest?.delayMinutes)
+    }
+
+    @Test
+    fun configuresPeriodicCheckThroughBackgroundScheduler() {
+        val scheduler = RecordingBackgroundTaskScheduler()
+        val executor = ActionExecutor(
+            context = null,
+            backgroundTaskScheduler = scheduler,
+            canPostReminderNotifications = { true },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-periodic-check",
+                toolName = MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+                arguments = mapOf(
+                    "enabled" to "true",
+                    "intervalMinutes" to "120",
+                    "minNotificationSpacingMinutes" to "180",
+                    "overdueGraceMinutes" to "15",
+                    "requiresBatteryNotLow" to "false",
+                    "requiresCharging" to "true",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals("true", result.data["enabled"])
+        assertEquals("Scheduled", result.data["taskStatus"])
+        assertEquals("120", result.data["intervalMinutes"])
+        assertEquals("180", result.data["minNotificationSpacingMinutes"])
+        assertEquals("15", result.data["overdueGraceMinutes"])
+        assertEquals("false", result.data["requiresBatteryNotLow"])
+        assertEquals("true", result.data["requiresCharging"])
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, result.data["recoveryToolName"])
+        assertEquals("false", result.data["recoveryEnabled"])
+        assertEquals(120L, scheduler.lastPeriodicCheckRequest?.intervalMinutes)
+        assertEquals(180L, scheduler.lastPeriodicCheckRequest?.minNotificationSpacingMinutes)
+        assertEquals(15L, scheduler.lastPeriodicCheckRequest?.overdueGraceMinutes)
+        assertEquals(false, scheduler.lastPeriodicCheckRequest?.constraints?.requiresBatteryNotLow)
+        assertEquals(true, scheduler.lastPeriodicCheckRequest?.constraints?.requiresCharging)
+    }
+
+    @Test
+    fun disablesPeriodicCheckThroughBackgroundScheduler() {
+        val scheduler = RecordingBackgroundTaskScheduler()
+        val executor = ActionExecutor(
+            context = null,
+            backgroundTaskScheduler = scheduler,
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-disable-periodic-check",
+                toolName = MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+                arguments = mapOf("enabled" to "false"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals("false", result.data["enabled"])
+        assertEquals("Cancelled", result.data["taskStatus"])
+        assertEquals(1, scheduler.disablePeriodicCheckCount)
+    }
+
+    @Test
+    fun rejectsPeriodicCheckWhenNotificationPermissionIsMissing() {
+        val scheduler = RecordingBackgroundTaskScheduler()
+        val executor = ActionExecutor(
+            context = null,
+            backgroundTaskScheduler = scheduler,
+            canPostReminderNotifications = { false },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-periodic-check",
+                toolName = MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+                arguments = mapOf("enabled" to "true"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.PermissionDenied, result.error?.code)
+        assertTrue(result.summary.contains("通知权限"))
+        assertEquals(null, scheduler.lastPeriodicCheckRequest)
     }
 
     @Test
@@ -587,6 +678,10 @@ class ActionExecutorTest {
             private set
         var lastCancelledTaskId: String? = null
             private set
+        var lastPeriodicCheckRequest: PeriodicCheckScheduleRequest? = null
+            private set
+        var disablePeriodicCheckCount: Int = 0
+            private set
 
         override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> {
             lastReminderRequest = request
@@ -601,6 +696,37 @@ class ActionExecutorTest {
                     status = ScheduledTaskStatus.Scheduled,
                     createdAtMillis = 1_000L,
                     updatedAtMillis = 1_000L,
+                ),
+            )
+        }
+
+        override fun setPeriodicCheckPolicy(
+            request: PeriodicCheckScheduleRequest,
+        ): Result<PeriodicCheckPolicySummary> {
+            lastPeriodicCheckRequest = request
+            failure?.let { return Result.failure(it) }
+            val normalized = request.normalized()
+            return Result.success(
+                PeriodicCheckPolicySummary(
+                    request = normalized,
+                    taskStatus = ScheduledTaskStatus.Scheduled,
+                    nextAllowedRunAtMillis = 10_000L,
+                    lastRunSummary = null,
+                    updatedAtMillis = 2_000L,
+                ),
+            )
+        }
+
+        override fun disablePeriodicCheckPolicy(): Result<PeriodicCheckPolicySummary> {
+            disablePeriodicCheckCount += 1
+            failure?.let { return Result.failure(it) }
+            return Result.success(
+                PeriodicCheckPolicySummary(
+                    request = PeriodicCheckScheduleRequest(enabled = false).normalized(),
+                    taskStatus = ScheduledTaskStatus.Cancelled,
+                    nextAllowedRunAtMillis = null,
+                    lastRunSummary = null,
+                    updatedAtMillis = 3_000L,
                 ),
             )
         }

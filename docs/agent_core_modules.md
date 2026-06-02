@@ -64,14 +64,20 @@ Current status:
   `task-*` ids, while cancel results must report `taskStatus=Cancelled` with a
   safe `task-*` id. Unsafe or spoofed recovery metadata becomes a non-retryable
   `InvalidResult` before Agent observation can surface an undo action.
+- `configure_periodic_check` exposes the existing WorkManager-backed local
+  reminder patrol policy as a confirmed BackgroundTask tool. Its schema keeps
+  only structural booleans and bounded minute values, and successful output is
+  closed to typed policy/status metadata plus optional recovery metadata for
+  disabling the policy.
 - Current tools cover Wi-Fi settings, flashlight settings, map search, web
-  search, email draft, calendar draft, contact draft, local reminders,
-  confirmed clipboard text reads, outbound system sharing for text, current
-  foreground app summaries, contact lookup, recent notification summaries,
-  calendar availability, recent file metadata summaries, confirmed recent
-  screenshot OCR, confirmed recent image OCR, confirmed current-screen
-  Accessibility text snapshots, safe HTTPS deep-link navigation, package-level
-  app launches, and allowlisted app deep targets.
+  search, email draft, calendar draft, contact draft, local reminders, local
+  periodic reminder-check configuration, confirmed clipboard text reads,
+  outbound system sharing for text, current foreground app summaries, contact
+  lookup, recent notification summaries, calendar availability, recent file
+  metadata summaries, confirmed recent screenshot OCR, confirmed recent image
+  OCR, confirmed current-screen Accessibility text snapshots, safe HTTPS
+  deep-link navigation, package-level app launches, and allowlisted app deep
+  targets.
 - `read_current_screen_text` belongs to this
   tool boundary as a confirmed, `LocalOnly` device-context read. It may expose
   only a bounded current Accessibility text-node snapshot, not screenshots, OCR
@@ -299,6 +305,14 @@ Current status:
   Skill-first path. The reminder skill reuses the same delay/title parser as
   the action planner, then enters the normal confirmation and runtime
   permission boundary before scheduling any AlarmManager work.
+- Explicit local periodic reminder-check configuration now also has a
+  Skill-first path. The shared parser accepts only clear enable/disable
+  periodic-check wording with optional bounded intervals, rejects
+  API/implementation/explanation phrasing, and still routes through
+  notification runtime permission, registry validation, safety checks, audit,
+  and user confirmation before WorkManager policy changes. This tool only
+  patrols local reminders; it is not a background chat runner, screen scanner,
+  file scanner, or arbitrary periodic automation executor.
 - Explicit map search, email draft, and calendar draft commands now also have a
   conservative Skill-first path. The built-in Skill runtime reuses the same
   parameter parsers as the action planner, rejects discussion/negative
@@ -472,6 +486,8 @@ Tests:
 - `BuiltInSkillRuntimeTest.plansEnglishReminderSkillFirstWithoutActionDraft`
 - `BuiltInSkillRuntimeTest.plansReminderSkillFirstWithVariantDelayPhrases`
 - `BuiltInSkillRuntimeTest.reminderSkillFirstRejectsTimingDiscussionFalsePositives`
+- `BuiltInSkillRuntimeTest.plansPeriodicCheckSkillFirstWithoutActionDraft`
+- `AgentLoopRuntimeTest.skillFirstPeriodicCheckBypassesActionPlannerAndRequestsConfirmation`
 - `AssistantOrchestratorTest.defaultSequentialReplannerPlansExplicitNextActionAfterObservation`
 - `AssistantOrchestratorTest.clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation`
 - `AssistantOrchestratorTest.skillFirstClipboardSummaryShareRoutesEvenWhenActionRuntimeDoesNotClassifyAction`
@@ -1239,6 +1255,11 @@ Current status:
   constraints, task status, next allowed check time, and latest run summary.
   Policy changes are persisted through the singleton `periodic-check-local`
   task and remain separate from one-shot reminder scheduling.
+- `configure_periodic_check` now lets the Agent propose the same local reminder
+  patrol policy changes as a confirmed tool/Skill. The tool is deliberately
+  limited to WorkManager policy updates for local reminders and does not create
+  background chat tasks, screen scans, file scans, or arbitrary repeated
+  execution.
 - Periodic check run summaries preserve the saved policy fields instead of
   replacing them, so the UI reads typed policy state from the background layer
   rather than parsing task history rows.
@@ -1249,6 +1270,8 @@ Tests:
 - `PeriodicCheckSchedulerTest`
 - `ReminderAlarmReceiverTest`
 - `ActionExecutorTest.schedulesReminderThroughBackgroundScheduler`
+- `ActionExecutorTest.configuresPeriodicCheckThroughBackgroundScheduler`
+- `ActionExecutorTest.disablesPeriodicCheckThroughBackgroundScheduler`
 - `ActionExecutorTest.reportsStaleReminderCancellationAsNonRetryableInvalidRequest`
 - `AgentTraceStoreTest.roomStorePersistsReminderRecoveryMetadataWithoutReminderContent`
 - `ScheduledTaskRemovalCoordinatorTest`

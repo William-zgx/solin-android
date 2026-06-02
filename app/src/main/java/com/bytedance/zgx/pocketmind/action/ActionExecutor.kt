@@ -11,6 +11,9 @@ import android.provider.ContactsContract
 import android.provider.Settings
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckConstraints
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
@@ -41,6 +44,9 @@ class ActionExecutor(
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName == MobileActionFunctions.SCHEDULE_REMINDER) {
             return scheduleReminder(request)
+        }
+        if (request.toolName == MobileActionFunctions.CONFIGURE_PERIODIC_CHECK) {
+            return configurePeriodicCheck(request)
         }
         if (request.toolName == MobileActionFunctions.CANCEL_REMINDER) {
             return cancelReminder(request)
@@ -136,6 +142,61 @@ class ActionExecutor(
         )
     }
 
+    private fun configurePeriodicCheck(request: ToolRequest): ToolResult {
+        val enabled = request.arguments["enabled"]?.toBooleanStrictOrNull()
+            ?: return request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = "周期检查启用参数无效",
+                retryable = false,
+            )
+        if (enabled && !canPostReminderNotifications()) {
+            return request.failed(
+                code = ToolErrorCode.PermissionDenied,
+                summary = "需要通知权限才能开启本地提醒周期检查",
+                retryable = true,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+        val scheduler = backgroundTaskScheduler
+            ?: return request.failed(
+                code = ToolErrorCode.ExecutionFailed,
+                summary = "后台任务调度器不可用",
+                retryable = true,
+            )
+        val scheduleRequest = request.toPeriodicCheckScheduleRequest(enabled)
+            ?: return request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = "周期检查参数无效",
+                retryable = false,
+            )
+
+        val result = if (enabled) {
+            scheduler.setPeriodicCheckPolicy(scheduleRequest)
+        } else {
+            scheduler.disablePeriodicCheckPolicy()
+        }
+        return result.fold(
+            onSuccess = { policy ->
+                request.succeeded(
+                    summary = if (policy.request.enabled) {
+                        "已开启本地提醒周期检查：每 ${policy.request.intervalMinutes} 分钟"
+                    } else {
+                        "已关闭本地提醒周期检查"
+                    },
+                    data = policy.toPeriodicCheckToolData(request.toolName),
+                )
+            },
+            onFailure = { throwable ->
+                request.failed(
+                    code = ToolErrorCode.ExecutionFailed,
+                    summary = "周期检查配置失败：${throwable.cleanMessage()}",
+                    retryable = true,
+                    data = mapOf("toolName" to request.toolName),
+                )
+            },
+        )
+    }
+
     private fun cancelReminder(request: ToolRequest): ToolResult {
         val taskId = request.arguments["taskId"].orEmpty().trim()
         if (taskId.isBlank()) {
@@ -173,6 +234,70 @@ class ActionExecutor(
                     )
                 },
             )
+    }
+
+    private fun ToolRequest.toPeriodicCheckScheduleRequest(enabled: Boolean): PeriodicCheckScheduleRequest? {
+        fun longArg(name: String, default: Long): Long =
+            arguments[name]?.toLongOrNull() ?: default
+
+        fun booleanArg(name: String, default: Boolean): Boolean? =
+            arguments[name]?.toBooleanStrictOrNull() ?: if (name in arguments) null else default
+
+        val requiresBatteryNotLow = booleanArg(
+            "requiresBatteryNotLow",
+            PeriodicCheckConstraints().requiresBatteryNotLow,
+        ) ?: return null
+        val requiresCharging = booleanArg(
+            "requiresCharging",
+            PeriodicCheckConstraints().requiresCharging,
+        ) ?: return null
+
+        return PeriodicCheckScheduleRequest(
+            enabled = enabled,
+            intervalMinutes = longArg(
+                "intervalMinutes",
+                PeriodicCheckScheduleRequest.DEFAULT_INTERVAL_MINUTES,
+            ),
+            minNotificationSpacingMinutes = longArg(
+                "minNotificationSpacingMinutes",
+                PeriodicCheckScheduleRequest.DEFAULT_MIN_NOTIFICATION_SPACING_MINUTES,
+            ),
+            overdueGraceMinutes = longArg(
+                "overdueGraceMinutes",
+                PeriodicCheckScheduleRequest.DEFAULT_OVERDUE_GRACE_MINUTES,
+            ),
+            constraints = PeriodicCheckConstraints(
+                requiresBatteryNotLow = requiresBatteryNotLow,
+                requiresCharging = requiresCharging,
+            ),
+        ).normalized()
+    }
+
+    private fun PeriodicCheckPolicySummary.toPeriodicCheckToolData(toolName: String): Map<String, String> {
+        val normalized = request.normalized()
+        return buildMap {
+            put("toolName", toolName)
+            put("enabled", normalized.enabled.toString())
+            put(
+                "taskStatus",
+                taskStatus?.name ?: if (normalized.enabled) {
+                    "Scheduled"
+                } else {
+                    "Cancelled"
+                },
+            )
+            put("intervalMinutes", normalized.intervalMinutes.toString())
+            put("minNotificationSpacingMinutes", normalized.minNotificationSpacingMinutes.toString())
+            put("overdueGraceMinutes", normalized.overdueGraceMinutes.toString())
+            put("requiresBatteryNotLow", normalized.constraints.requiresBatteryNotLow.toString())
+            put("requiresCharging", normalized.constraints.requiresCharging.toString())
+            nextAllowedRunAtMillis?.let { put("nextAllowedRunAtMillis", it.toString()) }
+            updatedAtMillis?.let { put("updatedAtMillis", it.toString()) }
+            if (normalized.enabled) {
+                put("recoveryToolName", MobileActionFunctions.CONFIGURE_PERIODIC_CHECK)
+                put("recoveryEnabled", false.toString())
+            }
+        }
     }
 
     private fun intentsFor(request: ToolRequest): List<Intent>? =

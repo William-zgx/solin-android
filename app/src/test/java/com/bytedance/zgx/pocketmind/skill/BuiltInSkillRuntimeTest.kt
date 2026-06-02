@@ -151,6 +151,7 @@ class BuiltInSkillRuntimeTest {
                 ),
             ),
             "取消提醒 task-123" to requireNotNull(runtime.plan("取消提醒 task-123")),
+            "开启周期检查" to requireNotNull(runtime.plan("开启周期检查")),
             "读取剪贴板" to requireNotNull(runtime.plan("读取剪贴板")),
             "分享这段文字：明天十点开会" to requireNotNull(
                 runtime.plan(
@@ -349,6 +350,45 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("不要取消提醒 task-123"))
         assertEquals(null, runtime.plan("取消提醒 API task-123"))
         assertEquals(null, runtime.plan("取消日程 task-123"))
+    }
+
+    @Test
+    fun plansPeriodicCheckSkillFirstWithoutActionDraft() {
+        val plan = runtime.plan("开启周期检查，每 2 小时")
+
+        requireNotNull(plan)
+        assertEquals(BuiltInSkillRuntime.PERIODIC_CHECK_SKILL, plan.request.skillId)
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, step.request.toolName)
+        assertEquals("true", step.request.arguments["enabled"])
+        assertEquals("120", step.request.arguments["intervalMinutes"])
+        assertEquals(step.request.arguments, step.draft.parameters)
+
+        val englishPlan = runtime.plan("enable periodic check every 6 hours")
+        requireNotNull(englishPlan)
+        val englishStep = englishPlan.steps.single()
+        require(englishStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, englishStep.request.toolName)
+        assertEquals("true", englishStep.request.arguments["enabled"])
+        assertEquals("360", englishStep.request.arguments["intervalMinutes"])
+    }
+
+    @Test
+    fun plansDisablePeriodicCheckSkillFirstWithoutActionDraft() {
+        val plan = runtime.plan("关闭周期检查")
+
+        requireNotNull(plan)
+        assertEquals(BuiltInSkillRuntime.PERIODIC_CHECK_SKILL, plan.request.skillId)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, step.request.toolName)
+        assertEquals("false", step.request.arguments["enabled"])
+        assertEquals(step.request.arguments, step.draft.parameters)
+
+        assertEquals(null, runtime.plan("周期检查是什么"))
+        assertEquals(null, runtime.plan("周期检查 API"))
     }
 
     @Test
@@ -1221,6 +1261,12 @@ class BuiltInSkillRuntimeTest {
             requiredTools = listOf("schedule_reminder", "cancel_reminder"),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             triggerExamples = listOf("提醒我 10 分钟后喝水", "取消提醒 task-123", "remind me in 1 hour"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "periodic_check_skill",
+            requiredTools = listOf("configure_periodic_check"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("开启周期检查", "关闭周期检查", "enable periodic check"),
         ),
         ExpectedBuiltInSkillManifest(
             id = "clipboard_context_skill",

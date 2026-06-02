@@ -40,7 +40,7 @@ Google AI Edge LiteRT-LM.
   launches, and allowlisted app details settings.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map
   search, information lookup, device settings including Usage Access settings,
-  local reminders, calendar
+  local reminders, local periodic reminder checks, calendar
   availability, clipboard context, contact lookup, current foreground app
   context, current-app notification summaries, current-screen Accessibility
   text context, recent media metadata, HTTPS link navigation, app navigation,
@@ -48,8 +48,9 @@ Google AI Edge LiteRT-LM.
   or execution.
 - Skill-first routing for explicit clipboard context, current-app notification
   summary, current-screen Accessibility text, clipboard-summary-share, and
-  current-screen-text-summary-share requests that do not need action-planner
-  parameter extraction.
+  current-screen-text-summary-share requests, plus explicit local periodic
+  reminder check configuration, that do not need action-planner parameter
+  extraction.
 - Conservative clipboard-summary-share and current-screen-text-summary-share
   composite flows that keep summarization local and ask again before opening
   the Android share sheet.
@@ -147,6 +148,10 @@ confirmed `cancel_reminder` tool calls only when the request explicitly
 mentions a reminder and a `task-*` id. Requests without a task id, API or
 implementation discussions, negated commands, and non-reminder cancellations
 are not routed to the tool.
+Requests such as “开启周期检查，每 2 小时” or “关闭周期检查” become confirmed
+`configure_periodic_check` tool calls. The tool only enables or disables the
+local reminder patrol policy through WorkManager; it does not run background
+chat, read screens, scan files, or execute arbitrary periodic tasks.
 The same entry also exposes recent persisted tool audit events for review. The
 audit list shows only event time, event type, tool name, status, risk,
 permission names, and a parameter-free generated summary; it does not show tool
@@ -259,13 +264,16 @@ Agent and skill module responsibilities are documented in
 `docs/agent_core_modules.md`. The current code includes the Tool Registry,
 single-run Agent planning, confirmation, tool observation, built-in one-step,
 skill-first information lookup/recent-media-metadata/calendar-availability/
-contact-lookup/current-app-notification-summary/foreground-app/HTTPS-link-navigation/device-settings/map/email/calendar/text sharing, and one conservative
-clipboard-summary-share composite flow,
+contact-lookup/current-app-notification-summary/foreground-app/
+HTTPS-link-navigation/device-settings/map/email/calendar/text sharing/local
+periodic reminder checks, and one conservative clipboard-summary-share
+composite flow,
 conservative observe-after-success replanning for explicit next actions plus
 bounded model-backed next-tool drafts behind validation and confirmation, a
 gated skill-run executor, minimal device context
 snapshots, safety policy, persistent tool audit, long-term memory controls,
-local reminder scheduling, running background task review/cancellation,
+local reminder scheduling, confirmed periodic reminder-check configuration,
+running background task review/cancellation,
 confirmed clipboard/device-context reads, outbound text sharing, safe HTTPS
 deep-link navigation, package-level app launches, Android share intent and
 in-app picker text plus bounded `text/*` and JSON/XML/YAML document excerpt

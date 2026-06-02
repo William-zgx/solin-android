@@ -640,6 +640,41 @@ private val reminderSchemaJson = """
     }
 """.trimIndent()
 
+private val periodicCheckSchemaJson = """
+    {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "true to enable the local reminder periodic check, false to disable it."
+        },
+        "intervalMinutes": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 1440
+        },
+        "minNotificationSpacingMinutes": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 1440
+        },
+        "overdueGraceMinutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 10080
+        },
+        "requiresBatteryNotLow": {
+          "type": "boolean"
+        },
+        "requiresCharging": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
 private val recentNotificationSchemaJson = """
     {
       "type": "object",
@@ -865,6 +900,37 @@ private val reminderOutputSchemaJson = """
         "triggerAtMillis": {"type": "integer", "minimum": 0},
         "recoveryToolName": {"type": "string", "enum": ["cancel_reminder"]},
         "recoveryTaskId": {"type": "string", "minLength": 1, "pattern": "^task-[A-Za-z0-9_-]+$"}
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val periodicCheckOutputSchemaJson = """
+    {
+      "type": "object",
+      "required": [
+        "toolName",
+        "enabled",
+        "taskStatus",
+        "intervalMinutes",
+        "minNotificationSpacingMinutes",
+        "overdueGraceMinutes",
+        "requiresBatteryNotLow",
+        "requiresCharging"
+      ],
+      "properties": {
+        "toolName": {"type": "string", "minLength": 1},
+        "enabled": {"type": "boolean"},
+        "taskStatus": {"type": "string", "enum": ["Scheduled", "Cancelled", "Failed"]},
+        "intervalMinutes": {"type": "integer", "minimum": 60, "maximum": 1440},
+        "minNotificationSpacingMinutes": {"type": "integer", "minimum": 60, "maximum": 1440},
+        "overdueGraceMinutes": {"type": "integer", "minimum": 5, "maximum": 10080},
+        "requiresBatteryNotLow": {"type": "boolean"},
+        "requiresCharging": {"type": "boolean"},
+        "nextAllowedRunAtMillis": {"type": "integer", "minimum": 0},
+        "updatedAtMillis": {"type": "integer", "minimum": 0},
+        "recoveryToolName": {"type": "string", "enum": ["configure_periodic_check"]},
+        "recoveryEnabled": {"type": "boolean"}
       },
       "additionalProperties": false
     }
@@ -1210,6 +1276,31 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
                 ToolPermission.SchedulesBackgroundWork,
                 ToolPermission.PostsNotification,
                 ToolPermission.RequiresAndroidRuntimePermission,
+            ),
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+            title = "配置周期检查",
+            description = "开启或关闭本地提醒周期检查；该后台任务只巡检本地提醒，不执行后台聊天、屏幕扫描或文件内容扫描。",
+            inputSchemaJson = periodicCheckSchemaJson,
+            outputSchemaJson = periodicCheckOutputSchemaJson,
+            capability = ToolCapability.BackgroundTask,
+            permissions = setOf(
+                ToolPermission.SchedulesBackgroundWork,
+                ToolPermission.PostsNotification,
+                ToolPermission.RequiresAndroidRuntimePermission,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf(
+                "enabled",
+                "intervalMinutes",
+                "minNotificationSpacingMinutes",
+                "overdueGraceMinutes",
+                "requiresBatteryNotLow",
+                "requiresCharging",
             ),
         ),
     ),

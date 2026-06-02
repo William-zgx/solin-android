@@ -30,6 +30,7 @@ object MobileActionFunctions {
     const val QUERY_CONTACTS = "query_contacts"
     const val OPEN_FLASHLIGHT_SETTINGS = "open_flashlight_settings"
     const val SCHEDULE_REMINDER = "schedule_reminder"
+    const val CONFIGURE_PERIODIC_CHECK = "configure_periodic_check"
     const val READ_CLIPBOARD = "read_clipboard"
     const val SHARE_TEXT = "share_text"
     const val OPEN_DEEP_LINK = "open_deep_link"
@@ -59,6 +60,7 @@ object MobileActionFunctions {
         READ_CURRENT_SCREEN_TEXT,
         OPEN_FLASHLIGHT_SETTINGS,
         SCHEDULE_REMINDER,
+        CONFIGURE_PERIODIC_CHECK,
         READ_CLIPBOARD,
         SHARE_TEXT,
         OPEN_DEEP_LINK,
