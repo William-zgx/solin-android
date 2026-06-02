@@ -539,6 +539,55 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun validateResultSanitizesSensitiveNonSucceededResultData() {
+        val request = ToolRequest(
+            id = "foreground-failed-output-contract",
+            toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
+            reason = "schema contract",
+        )
+
+        val sanitized = registry.validateResult(
+            request = request,
+            result = ToolResult(
+                requestId = "unexpected-request",
+                status = ToolStatus.Failed,
+                summary = "foreground failed with com.example.private",
+                data = mapOf(
+                    "toolName" to request.toolName,
+                    "privacy" to "Remote",
+                    "requiresLocalModel" to "false",
+                    "packageName" to "com.example.private",
+                    "failureKind" to "permission",
+                    "debugPayload" to "raw private detail",
+                    "specialAccess" to "usage_stats",
+                    "settingsAction" to "android.settings.USAGE_ACCESS_SETTINGS",
+                    "recoveryToolName" to MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+                ),
+                error = ToolError(ToolErrorCode.PermissionDenied, "foreground failed with com.example.private"),
+                retryable = true,
+            ),
+        )
+
+        assertNotNull(sanitized)
+        requireNotNull(sanitized)
+        assertEquals(request.id, sanitized.requestId)
+        assertEquals(ToolStatus.Failed, sanitized.status)
+        assertEquals(ToolErrorCode.PermissionDenied, sanitized.error?.code)
+        assertTrue(sanitized.retryable)
+        assertEquals(request.toolName, sanitized.data["toolName"])
+        assertEquals(MessagePrivacy.LocalOnly.name, sanitized.data["privacy"])
+        assertEquals(true.toString(), sanitized.data["requiresLocalModel"])
+        assertEquals("usage_stats", sanitized.data["specialAccess"])
+        assertEquals("android.settings.USAGE_ACCESS_SETTINGS", sanitized.data["settingsAction"])
+        assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, sanitized.data["recoveryToolName"])
+        assertFalse(sanitized.data.containsKey("packageName"))
+        assertFalse(sanitized.data.containsKey("failureKind"))
+        assertFalse(sanitized.data.containsKey("debugPayload"))
+        assertFalse(sanitized.summary.contains("com.example.private"))
+        assertFalse(sanitized.error?.message.orEmpty().contains("com.example.private"))
+    }
+
+    @Test
     fun validateResultRejectsUnsafeReminderRecoveryMetadata() {
         val request = ToolRequest(
             id = "reminder-output-contract",

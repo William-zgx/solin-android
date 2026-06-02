@@ -1,5 +1,37 @@
 # PocketMind 验证报告
 
+## 2026-06-02 LocalOnly private-output non-success contract 增量验证
+
+本轮覆盖项：
+
+- Tool Registry 对声明 `privateOutputKeys` 的工具新增非成功结果清理：`Failed`、
+  `Rejected`、`Cancelled` 不套用 success output schema，但会从 allowlist 重建
+  data，丢弃声明的私密输出 key 和未知 debug/raw 键，并强制补齐 `toolName`、
+  `privacy=LocalOnly`、`requiresLocalModel=true`。
+- `ValidatingToolExecutor` 现在会拦截 delegate 返回的敏感非成功结果，防止
+  clipboard raw text 等私密字段跟随失败/拒绝/取消结果进入 trace、audit 或模型
+  后续路由；执行侧 summary/error message 也会替换为固定安全文案。
+- Tool Registry 自己产生的敏感 invalid-request rejection 也走同一清理路径；
+  因此参数校验失败不会只保留 `toolName` 而丢失 LocalOnly 元数据。
+- 该切片不改变 successful `ToolResult.data` schema 合同，也不声明完成全局 taint
+  propagation；私密 success payload 的跨步骤边界仍由 `privateOutputKeys`、
+  local-model continuation 和 Skill public-output fence 分层保护。
+
+验证命令：
+
+```bash
+./gradlew testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest
+```
+
+结果：targeted Tool Registry / Validating executor 非成功隐私合同回归通过。
+完整 JVM 单测与 AndroidTest Kotlin 编译通过：
+
+```bash
+./gradlew testDebugUnitTest compileDebugAndroidTestKotlin
+```
+
 ## 2026-06-02 Skill ToolStep-to-ToolStep Agent loop 增量验证
 
 本轮覆盖项：

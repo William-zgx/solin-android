@@ -426,6 +426,114 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     @Test
+    fun validatingExecutorSanitizesSensitiveNonSucceededDelegateResults() {
+        val cases = listOf(
+            ToolStatus.Rejected to ToolErrorCode.InvalidRequest,
+            ToolStatus.Failed to ToolErrorCode.ExecutionFailed,
+            ToolStatus.Cancelled to ToolErrorCode.UserCancelled,
+        )
+
+        cases.forEach { (status, errorCode) ->
+            val executor = ValidatingToolExecutor(
+                StaticResultDelegate { request ->
+                    ToolResult(
+                        requestId = "unexpected-${request.id}",
+                        status = status,
+                        summary = "delegate $status with com.example.private",
+                        data = mapOf(
+                            "toolName" to "wrong-tool",
+                            "privacy" to "Remote",
+                            "requiresLocalModel" to "false",
+                            "packageName" to "com.example.private",
+                            "appLabel" to "Private App",
+                            "failureKind" to "permission",
+                            "debugPayload" to "raw private detail",
+                            "specialAccess" to "usage_stats",
+                            "settingsAction" to "android.settings.USAGE_ACCESS_SETTINGS",
+                            "recoveryToolName" to MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+                        ),
+                        error = ToolError(errorCode, "delegate $status with com.example.private"),
+                        retryable = status == ToolStatus.Failed,
+                    )
+                },
+            )
+
+            val result = executor.execute(
+                ToolRequest(
+                    id = "foreground-non-success-$status",
+                    toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
+                    reason = "test",
+                ),
+            )
+
+            assertEquals(status, result.status)
+            assertEquals(errorCode, result.error?.code)
+            assertEquals(MobileActionFunctions.QUERY_FOREGROUND_APP, result.data["toolName"])
+            assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+            assertEquals(true.toString(), result.data["requiresLocalModel"])
+            assertEquals("usage_stats", result.data["specialAccess"])
+            assertEquals("android.settings.USAGE_ACCESS_SETTINGS", result.data["settingsAction"])
+            assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, result.data["recoveryToolName"])
+            assertFalse(result.data.containsKey("packageName"))
+            assertFalse(result.data.containsKey("appLabel"))
+            assertFalse(result.data.containsKey("failureKind"))
+            assertFalse(result.data.containsKey("debugPayload"))
+            assertFalse(result.summary.contains("output"))
+            assertFalse(result.summary.contains("com.example.private"))
+            assertFalse(result.error?.message.orEmpty().contains("com.example.private"))
+        }
+    }
+
+    @Test
+    fun validatingExecutorRejectsSensitiveInvalidRequestsAsLocalOnly() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(delegate)
+        val requests = listOf(
+            ToolRequest(
+                id = "files-invalid-max-count",
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("maxCount" to "51"),
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "screenshot-invalid-max-count",
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                arguments = mapOf("maxCount" to "2"),
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "screen-text-invalid-max-chars",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                arguments = mapOf("maxChars" to "4001"),
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "calendar-missing-end",
+                toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+                arguments = mapOf("start" to "2026-06-01T09:00:00Z"),
+                reason = "test",
+            ),
+        )
+
+        requests.forEach { request ->
+            val result = executor.execute(request)
+            val privateKeys = registry.privateOutputKeysFor(request.toolName)
+
+            assertEquals(ToolStatus.Rejected, result.status)
+            assertEquals(ToolErrorCode.InvalidRequest, result.error?.code)
+            assertFalse(result.retryable)
+            assertEquals(request.toolName, result.data["toolName"])
+            assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+            assertEquals(true.toString(), result.data["requiresLocalModel"])
+            assertTrue("$request should have private output keys", privateKeys.isNotEmpty())
+            privateKeys.forEach { privateKey ->
+                assertFalse("${request.toolName} rejection must not include private key $privateKey", result.data.containsKey(privateKey))
+            }
+        }
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
     fun validatingRoutingExecutorAcceptsPrivateDeviceContextOutputsAndKeepsPrivateKeyBoundary() {
         val delegate = RecordingDelegate()
         val executor = ValidatingToolExecutor(routingExecutor(delegate))

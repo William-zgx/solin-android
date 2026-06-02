@@ -155,6 +155,11 @@ tool-observation messages. Both successful and failed clipboard tool results
 carry `privacy=LocalOnly` and `requiresLocalModel=true` metadata, so remote
 model mode does not automatically receive clipboard content or clipboard read
 observations.
+Tools that declare private outputs use the same LocalOnly metadata for
+failed, rejected, and cancelled results; declared private output fields are
+removed from those non-success tool results, unknown data keys are dropped,
+and only allowlisted permission-recovery metadata is kept before the result
+can enter trace, audit, or follow-up model routing.
 Explicit requests such as “识别最近 1 张截图文字” or “OCR 最近截图” use the
 skill-first path and become confirmed `read_recent_screenshot_ocr` tool calls.
 Requests to OCR multiple screenshots are rejected. After confirmation,

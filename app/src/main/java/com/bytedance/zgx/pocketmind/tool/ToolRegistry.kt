@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.tool
 
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import org.json.JSONObject
@@ -50,13 +51,25 @@ class ToolRegistry private constructor(
 
         definition.argumentValidator.validate(request)?.let { reason ->
             return request.rejected(reason)
+                .sanitizedPrivateNonSucceededResult(
+                    request = request,
+                    spec = definition.spec,
+                    preserveSummary = true,
+                )
         }
 
         return null
     }
 
     fun validateResult(request: ToolRequest, result: ToolResult): ToolResult? {
-        if (result.status != ToolStatus.Succeeded) return null
+        if (result.status != ToolStatus.Succeeded) {
+            val definition = definitionsByName[request.toolName] ?: return null
+            val sanitized = result.sanitizedPrivateNonSucceededResult(
+                request = request,
+                spec = definition.spec,
+            )
+            return sanitized.takeIf { it != result }
+        }
         if (result.requestId != request.id) {
             val summary = "Tool ${request.toolName} returned result for unexpected request id."
             return ToolResult(
@@ -96,6 +109,61 @@ class ToolRegistry private constructor(
         return null
     }
 
+    private fun ToolResult.sanitizedPrivateNonSucceededResult(
+        request: ToolRequest,
+        spec: ToolSpec,
+        preserveSummary: Boolean = false,
+    ): ToolResult {
+        if (status == ToolStatus.Succeeded || spec.privateOutputKeys.isEmpty()) return this
+
+        val sanitizedData = mutableMapOf<String, String>()
+        data["specialAccess"]
+            ?.takeIf { it in privateNonSucceededAllowedSpecialAccessValues }
+            ?.let { sanitizedData["specialAccess"] = it }
+        data["settingsAction"]
+            ?.takeIf { it in privateNonSucceededAllowedSettingsActions }
+            ?.let { sanitizedData["settingsAction"] = it }
+        data["recoveryToolName"]
+            ?.takeIf { it in privateNonSucceededAllowedRecoveryTools }
+            ?.let { sanitizedData["recoveryToolName"] = it }
+        sanitizedData["toolName"] = request.toolName
+        sanitizedData["privacy"] = MessagePrivacy.LocalOnly.name
+        sanitizedData["requiresLocalModel"] = true.toString()
+
+        val sanitizedSummary = if (preserveSummary) {
+            summary
+        } else {
+            privateNonSucceededResultSummary(
+                toolName = request.toolName,
+                status = status,
+                errorCode = error?.code,
+            )
+        }
+
+        return copy(
+            requestId = request.id,
+            summary = sanitizedSummary,
+            data = sanitizedData,
+            error = error?.copy(message = sanitizedSummary),
+        )
+    }
+
+    private fun privateNonSucceededResultSummary(
+        toolName: String,
+        status: ToolStatus,
+        errorCode: ToolErrorCode?,
+    ): String =
+        when (status) {
+            ToolStatus.Succeeded -> "Tool $toolName completed."
+            ToolStatus.Rejected -> "Tool $toolName was rejected before returning private local data."
+            ToolStatus.Cancelled -> "Tool $toolName was cancelled before returning private local data."
+            ToolStatus.Failed -> when (errorCode) {
+                ToolErrorCode.PermissionDenied ->
+                    "Tool $toolName requires local permission or special access."
+                else -> "Tool $toolName failed before returning private local data."
+            }
+        }
+
     companion object {
         fun fromSupportedActions(supportedActions: Set<String> = MobileActionFunctions.supported): ToolRegistry =
             ToolRegistry(definitionsFor(supportedActions))
@@ -108,6 +176,20 @@ private data class ToolDefinition(
     val argumentValidator: ToolArgumentValidator = ToolArgumentValidator.fromSchema(spec)
     val resultValidator: ToolResultDataValidator = ToolResultDataValidator.fromSchema(spec)
 }
+
+private val privateNonSucceededAllowedSpecialAccessValues = setOf(
+    "usage_stats",
+    "accessibility_screen_text",
+)
+
+private val privateNonSucceededAllowedSettingsActions = setOf(
+    "android.settings.USAGE_ACCESS_SETTINGS",
+    "android.settings.ACCESSIBILITY_SETTINGS",
+)
+
+private val privateNonSucceededAllowedRecoveryTools = setOf(
+    MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+)
 
 private data class ToolArgumentValidator(
     private val requiredArguments: Set<String>,

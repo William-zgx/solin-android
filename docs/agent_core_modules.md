@@ -43,6 +43,16 @@ Current status:
   `SkillRunExecutor` also repeat this validation at observe, execute, and
   resume boundaries to protect restored or externally supplied tool results
   that did not come directly from `ValidatingToolExecutor`.
+- For tools that declare `privateOutputKeys`, failed, rejected, and cancelled
+  results are still not required to satisfy the success schema, but the Tool
+  Registry sanitizes their non-success contract: data is rebuilt from a small
+  allowlist of permission-recovery metadata, unknown keys are discarded,
+  `toolName` is normalized, and `privacy=LocalOnly` plus
+  `requiresLocalModel=true` are enforced before the result can continue
+  through validating executors, Agent observation, or Skill execution paths.
+  Execution-provided summaries and error messages for those sensitive
+  non-success results are replaced with fixed safe text; request-validation
+  rejections keep their schema/argument error summary.
 - `ToolSchemaContractTest` now derives minimal successful output data from
   every registered `outputSchemaJson` and verifies result validation accepts the
   minimal shape while rejecting missing required keys, undeclared keys, and
