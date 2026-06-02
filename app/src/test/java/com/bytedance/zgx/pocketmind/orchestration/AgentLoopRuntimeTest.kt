@@ -1645,9 +1645,6 @@ class AgentLoopRuntimeTest {
             "current app notifications API",
             "don't read current app notifications",
             "看看当前屏幕",
-            "识别当前屏幕截图文字",
-            "当前屏幕 OCR",
-            "current screen screenshot text",
             "不要读取当前屏幕文字",
             "总结这页内容",
             "总结页面内容",
@@ -6648,6 +6645,7 @@ class AgentLoopRuntimeTest {
             "screenText" to text,
             "truncated" to "false",
             "screenTextIncluded" to "true",
+            "structureSummaryIncluded" to "false",
             "rawTreeIncluded" to "false",
             "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
         )

@@ -1,5 +1,68 @@
 # PocketMind 验证报告
 
+## 记录模板
+
+每个新增验证条目固定包含：
+
+- `本轮覆盖项：` 描述本次验证覆盖的行为、文档或脚本契约。
+- `验证命令：` 记录实际执行的命令；未执行的设备、模拟器或真机项必须明确说明。
+- `结果：` 记录通过、失败或未执行原因，并引用关键 artifact。
+
+完整模拟器回归以 `scripts/regression_emulator.sh` 产出的
+`regression-emulator.properties` 为准；只有该文件包含 `status=passed` 时，才能把完整模拟器回归记录为通过。`emulator-verification.properties` 和嵌套
+`device-verification.properties` 是配套证据，不替代完整回归结论。
+
+## 2026-06-02 Agent core contract wave implementation
+
+本轮覆盖项：
+
+- Tool Registry 私密输出成功结果新增 `privacy=LocalOnly` /
+  `requiresLocalModel=true` 强制合同，私密工具的 schema-invalid 成功结果也保留
+  LocalOnly 失败元数据。
+- 新增 `DeviceContextToolReadiness`、当前屏幕 Accessibility 结构摘要、
+  `MemoryRecordType.UserFact`、`SkillDefinition` / `SkillCatalog`、
+  `AgentContinuationCursorV2`、`BackgroundSkillSpec`、以及
+  `capture_current_screenshot_ocr` ToolSpec / Skill / LocalOnly 合同。
+- 当前屏幕截图 OCR 已接入 Android ActivityResult MediaProjection 前台同意：
+  parser 只接受明确 OCR/text extraction 意图，bare 当前屏幕截图请求不会触发读屏确认；
+  consent token 只在 Activity -> provider 内存通道中一次性消费，不进入
+  `ToolRequest`、trace、audit 或 pending confirmation；输出 schema 包含
+  `truncated`、`ocrTextIncluded` 和 LocalOnly OCR 摘录。
+- 多 Agent 只读复核发现的文档引用、parser 过宽、consent id 漂移、InvalidResult
+  LocalOnly 元数据缺口均已修复。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest' --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' --tests 'com.bytedance.zgx.pocketmind.device.DeviceContextModelsTest' --tests 'com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContractTest' --tests 'com.bytedance.zgx.pocketmind.background.BackgroundSkillSpecTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentContinuationCursorV2Test'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+bash -n scripts/*.sh
+git diff --check
+scripts/test_validation_scripts.sh
+scripts/doctor.sh
+scripts/verify_local.sh
+AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapshot-save -no-boot-anim' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：targeted Agent core JVM contract、`AgentCoreDocumentationTest`、完整
+  `:app:testDebugUnitTest`、`:app:compileDebugAndroidTestKotlin`、shell 语法、
+  `git diff --check`、validation script tests、doctor、`scripts/verify_local.sh`
+  均通过。
+- 完整模拟器回归通过：
+  `build/verification/regression-emulator-20260602-161148/regression-emulator.properties`
+  记录 `status=passed`、`source_android_test_count=25`、
+  `expected_android_test_count=25`、`actual_android_test_count=25`、
+  `serial=emulator-5554`、`api_level=36`、`abi=arm64-v8a`、
+  `avd=focus_agent_api36_arm64`；嵌套
+  `emulator-verification.properties` 和 `device-verification.properties`
+  也记录 `status=passed`，device report 记录 `instrumentation=passed`；
+  `build/verification/regression-emulator-20260602-161148/instrumentation.txt`
+  非空，记录 25 个 AndroidTest。
+
 ## 2026-06-02 Skill binding contract validation
 
 本轮覆盖项：

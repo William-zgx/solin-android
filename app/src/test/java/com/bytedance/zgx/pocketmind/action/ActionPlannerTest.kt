@@ -131,6 +131,19 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun parsesCurrentScreenshotOcrCallOutput() {
+        val draft = planner.parseModelOutput(
+            """call:capture_current_screenshot_ocr{"captureMode":"current_screen"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR, draft.functionName)
+        assertEquals("current_screen", draft.parameters["captureMode"])
+        assertTrue(draft.summary.contains("MediaProjection"))
+        assertTrue(draft.summary.contains("不会保存图片"))
+    }
+
+    @Test
     fun parsesCurrentScreenTextCallOutput() {
         val draft = planner.parseModelOutput(
             """call:read_current_screen_text{"maxChars":"1200"}""",
@@ -501,8 +514,15 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, englishPlan.draft?.functionName)
         assertEquals("1200", englishPlan.draft?.parameters?.get("maxChars"))
         assertEquals(ActionPlanKind.NoAction, planner.plan("看看当前屏幕").kind)
-        assertEquals(ActionPlanKind.NoAction, planner.plan("识别当前屏幕截图文字").kind)
-        assertEquals(ActionPlanKind.NoAction, planner.plan("当前屏幕 OCR").kind)
+        val screenshotOcrPlan = planner.plan("识别当前屏幕截图文字")
+        assertEquals(ActionPlanKind.Draft, screenshotOcrPlan.kind)
+        assertEquals(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR, screenshotOcrPlan.draft?.functionName)
+        assertEquals("current_screen", screenshotOcrPlan.draft?.parameters?.get("captureMode"))
+        val currentOcrPlan = planner.plan("当前屏幕 OCR")
+        assertEquals(ActionPlanKind.Draft, currentOcrPlan.kind)
+        assertEquals(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR, currentOcrPlan.draft?.functionName)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("当前屏幕截图").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("current screen screenshot").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("不要读取当前屏幕文字").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("总结当前屏幕内容").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("总结这个界面").kind)

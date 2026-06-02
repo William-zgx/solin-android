@@ -1022,6 +1022,95 @@ internal object RecentNotificationsActionParser {
     }
 }
 
+internal object CurrentScreenshotOcrActionParser {
+    private val englishPattern =
+        Regex(
+            """\b(?:capture|read|extract|recognize|scan)\b.*\b(?:current|active|this)\s+(?:screen|window|display)\b.*\b(?:ocr|text)\b|\b(?:current|active|this)\s+(?:screen|window|display)\b.*\b(?:screenshot|screen\s+capture|ocr)\b.*\btext\b|\bocr\b.*\b(?:current|active|this)\s+(?:screen|window|display)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeCurrentScreenshotOcrNonAction()) return false
+        val normalized = input.lowercase()
+        return input.hasCurrentScreenReference(normalized) &&
+            input.hasScreenshotOrOcrCaptureMarker(normalized) &&
+            input.asksForCurrentScreenshotOcrText(normalized)
+    }
+
+    private fun String.hasCurrentScreenReference(normalized: String): Boolean =
+        listOf(
+            "当前屏幕",
+            "当前界面",
+            "现在屏幕",
+        ).any { marker -> marker in this } ||
+            Regex("""\b(?:current|active|this)\s+(?:screen|window|display)\b""")
+                .containsMatchIn(normalized)
+
+    private fun String.hasScreenshotOrOcrCaptureMarker(normalized: String): Boolean =
+        listOf("截图", "截屏", "拍屏").any { marker -> marker in this } ||
+            "ocr" in normalized ||
+            Regex("""\b(?:screenshot|screen\s+capture)\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(normalized)
+
+    private fun String.asksForCurrentScreenshotOcrText(normalized: String): Boolean =
+        listOf(
+            "当前屏幕 OCR",
+            "当前屏幕ocr",
+            "当前界面 OCR",
+            "当前界面ocr",
+            "识别当前屏幕截图文字",
+            "识别当前界面截图文字",
+            "识别",
+            "提取",
+            "摘录",
+            "读取文字",
+            "读文字",
+            "文字",
+            "文本",
+            "ocr",
+        ).any { marker -> marker in normalized } ||
+            englishPattern.containsMatchIn(normalized)
+
+    fun draft(): ActionDraft =
+        ActionDraft(
+            functionName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+            title = "截取当前屏幕 OCR",
+            summary = "将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。",
+            parameters = mapOf("captureMode" to "current_screen"),
+            requiresConfirmation = true,
+        )
+
+    private fun String.looksLikeCurrentScreenshotOcrNonAction(): Boolean {
+        val normalized = lowercase()
+        return startsWithActionNegation() ||
+            listOf(
+                "怎么实现",
+                "如何实现",
+                "怎么设计",
+                "是什么",
+                "什么意思",
+                "解释",
+                "说明",
+                "介绍",
+                "权限怎么",
+                "MediaProjection API",
+                "mediaprojection api",
+                "截图 OCR API",
+                "截图ocr API",
+            ).any { marker -> marker in this } ||
+            normalized.contains(
+                Regex(
+                    """\b(?:how\s+(?:do|can|to)|what\s+is|explain|implement|implementation|api|permissions?|docs?|documentation|code|architecture|design)\b.*\b(?:current|active|this)\s+(?:screen|window|display|screenshot|screen\s+capture|ocr)\b""",
+                ),
+            ) ||
+            normalized.contains(
+                Regex(
+                    """\b(?:current|active|this)\s+(?:screen|window|display)\b.*\b(?:ocr|screenshot|screen\s+capture)\b.*\b(?:api|implementation|permissions?|docs?|documentation|code|architecture|design)\b""",
+                ),
+            )
+    }
+}
+
 internal object CurrentScreenTextActionParser {
     private val chineseScreenTextPattern =
         Regex("""(?:当前屏幕|当前界面|现在屏幕|这个界面|屏幕)(?:\s|的|上|里|中|内)*(?:可访问|无障碍)?(?:文字|文本)|(?:文字|文本)(?:\s|来自|取自|读取自|在)*(?:当前屏幕|当前界面|现在屏幕|这个界面|屏幕)""")

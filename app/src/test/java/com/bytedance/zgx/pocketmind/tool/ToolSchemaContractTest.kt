@@ -149,6 +149,53 @@ class ToolSchemaContractTest {
     }
 
     @Test
+    fun privateOutputToolsRejectNonLocalModelBoundary() {
+        registry.specs()
+            .filter { spec -> spec.privateOutputKeys.isNotEmpty() }
+            .forEach { spec ->
+                val inputSchema = JSONObject(spec.inputSchemaJson)
+                val inputProperties = inputSchema.optJSONObject("properties") ?: JSONObject()
+                val minimalValidArguments = inputSchema.optStringSet("required").associateWith { propertyName ->
+                    validValueFor(inputProperties.getJSONObject(propertyName))
+                }
+                val outputSchema = JSONObject(spec.outputSchemaJson)
+                val outputProperties = outputSchema.optJSONObject("properties") ?: JSONObject()
+                val minimalValidData = minimalValidOutputDataFor(
+                    spec = spec,
+                    requiredOutputs = outputSchema.optStringSet("required"),
+                    outputProperties = outputProperties,
+                )
+                val request = ToolRequest(
+                    id = "private-local-model-${spec.name}",
+                    toolName = spec.name,
+                    arguments = minimalValidArguments,
+                    reason = "schema contract",
+                )
+
+                assertNull(
+                    "${spec.name} should accept the schema-derived local-only private result",
+                    registry.validateResult(
+                        request = request,
+                        result = request.succeeded(
+                            summary = "schema-valid ${spec.name}",
+                            data = minimalValidData,
+                        ),
+                    ),
+                )
+                assertInvalidResult(
+                    "${spec.name} should reject private output without requiresLocalModel=true",
+                    registry.validateResult(
+                        request = request,
+                        result = request.succeeded(
+                            summary = "schema-invalid ${spec.name}",
+                            data = minimalValidData + ("requiresLocalModel" to "false"),
+                        ),
+                    ),
+                )
+            }
+    }
+
+    @Test
     fun numericOutputBoundsCannotBeWiderThanMatchingInputBounds() {
         registry.specs().forEach { spec ->
             val inputProperties = JSONObject(spec.inputSchemaJson).optJSONObject("properties") ?: JSONObject()
@@ -295,6 +342,7 @@ class ToolSchemaContractTest {
     }
 
     private fun validValueFor(property: JSONObject): String {
+        property.optConstStringOrNull()?.let { return it }
         property.optStringSet("enum").firstOrNull()?.let { return it }
 
         validFormatValueFor(property.optStringOrNull("format"))?.let { return it }
@@ -336,6 +384,13 @@ class ToolSchemaContractTest {
     }
 
     private fun invalidValueFor(property: JSONObject): String? {
+        property.optConstStringOrNull()?.let { constValue ->
+            return when (constValue) {
+                "true" -> "false"
+                "false" -> "true"
+                else -> "__invalid_const__"
+            }
+        }
         val enum = property.optStringSet("enum")
         if (enum.isNotEmpty()) return "__invalid_enum__"
 
@@ -405,6 +460,16 @@ class ToolSchemaContractTest {
 
     private fun JSONObject.optStringOrNull(name: String): String? =
         if (!has(name) || isNull(name)) null else optString(name)
+
+    private fun JSONObject.optConstStringOrNull(): String? {
+        if (!has("const") || isNull("const")) return null
+        return when (val value = get("const")) {
+            is String -> value
+            is Boolean -> value.toString()
+            is Number -> value.toString()
+            else -> null
+        }
+    }
 
     private companion object {
         val NUMERIC_SCHEMA_TYPES = setOf("integer", "number")

@@ -194,6 +194,8 @@ data class CurrentScreenTextSnapshot(
     val capturedAtMillis: Long,
     val nodeCount: Int,
     val truncated: Boolean,
+    val structureSummary: String = "",
+    val structureSummaryIncluded: Boolean = structureSummary.isNotBlank(),
 )
 
 sealed class CurrentScreenTextReadResult {

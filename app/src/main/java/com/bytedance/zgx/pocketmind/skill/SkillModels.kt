@@ -19,6 +19,50 @@ data class SkillManifest(
     val riskLevel: RiskLevel,
 )
 
+data class ParsedSkillDraft(
+    val draft: ActionDraft,
+    val request: ToolRequest,
+)
+
+fun interface SkillPlanAdapter {
+    fun parse(input: String): ParsedSkillDraft?
+}
+
+data class SkillDefinition(
+    val manifest: SkillManifest,
+    val planAdapter: SkillPlanAdapter? = null,
+    val planPriority: Int = Int.MAX_VALUE,
+    val directToolNames: List<String> = manifest.requiredTools,
+    val triggerExamples: List<String> = manifest.triggerExamples,
+) {
+    init {
+        val undeclaredDirectTools = directToolNames - manifest.requiredTools.toSet()
+        require(undeclaredDirectTools.isEmpty()) {
+            "Skill ${manifest.id} maps undeclared direct tool(s): ${undeclaredDirectTools.sorted().joinToString()}"
+        }
+    }
+}
+
+class SkillCatalog(
+    definitions: List<SkillDefinition>,
+) {
+    val definitions: List<SkillDefinition> = definitions.toList()
+    val manifestsById: Map<String, SkillManifest> = definitions
+        .map { definition -> definition.manifest }
+        .associateBy { manifest -> manifest.id }
+    val skillIdByToolName: Map<String, String> = definitions
+        .flatMap { definition ->
+            definition.directToolNames.map { toolName -> toolName to definition.manifest.id }
+        }
+        .toMap()
+    val plannableDefinitions: List<SkillDefinition> = definitions
+        .filter { definition -> definition.planAdapter != null }
+        .sortedBy { definition -> definition.planPriority }
+
+    fun manifests(): List<SkillManifest> =
+        definitions.map { definition -> definition.manifest }
+}
+
 fun SkillManifest.authorizationContractHash(): String {
     val identity = buildString {
         appendLengthPrefixed(id)

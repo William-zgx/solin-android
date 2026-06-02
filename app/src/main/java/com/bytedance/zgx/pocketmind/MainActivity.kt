@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -21,6 +22,7 @@ import androidx.activity.viewModels
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.device.PocketMindAccessibilityService
 import com.bytedance.zgx.pocketmind.multimodal.SharedInputReadMode
 import com.bytedance.zgx.pocketmind.multimodal.ShareIntentReader
@@ -42,6 +44,7 @@ class MainActivity : ComponentActivity() {
     }
     private val shareIntentScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var pendingRuntimePermissionConfirmation: PendingAgentConfirmation? = null
+    private var pendingMediaProjectionConfirmation: PendingAgentConfirmation? = null
     private var pendingSpecialAccessRequirement: SpecialAccessRequirement? = null
     private val runtimePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -89,6 +92,18 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
         handlePickedSharedUris(uris)
+    }
+    private val currentScreenshotOcrLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val confirmation = pendingMediaProjectionConfirmation ?: return@registerForActivityResult
+        pendingMediaProjectionConfirmation = null
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            appContainer.currentScreenshotOcrProvider.setOneShotConsent(result.resultCode, result.data)
+            viewModel.confirmAgentConfirmation(confirmation)
+        } else {
+            viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -235,7 +250,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun confirmAgentConfirmationWithPermissions(confirmation: PendingAgentConfirmation) {
-        if (pendingRuntimePermissionConfirmation != null) return
+        if (pendingRuntimePermissionConfirmation != null || pendingMediaProjectionConfirmation != null) return
         val missingPermissions = confirmation.runtimePermissionsFor()
             .filterNot(::hasRuntimePermission)
         if (missingPermissions.isNotEmpty()) {
@@ -252,7 +267,27 @@ class MainActivity : ComponentActivity() {
             )
             return
         }
+        if (confirmation.requiresCurrentScreenshotOcrConsent()) {
+            requestCurrentScreenshotOcrConsent(confirmation)
+            return
+        }
         viewModel.confirmAgentConfirmation(confirmation)
+    }
+
+    private fun requestCurrentScreenshotOcrConsent(confirmation: PendingAgentConfirmation) {
+        val mediaProjectionManager =
+            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
+        if (mediaProjectionManager == null) {
+            viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+            return
+        }
+        pendingMediaProjectionConfirmation = confirmation
+        runCatching {
+            currentScreenshotOcrLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+        }.onFailure {
+            pendingMediaProjectionConfirmation = null
+            viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+        }
     }
 
     private fun hasRuntimePermission(permission: String): Boolean {
@@ -305,6 +340,11 @@ class MainActivity : ComponentActivity() {
                     ?.flattenToString()
                     ?.equals(target, ignoreCase = true) == true
             }
+    }
+
+    private fun PendingAgentConfirmation.requiresCurrentScreenshotOcrConsent(): Boolean {
+        val toolName = toolRequest?.toolName ?: draft.functionName
+        return toolName == MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR
     }
 
     companion object {

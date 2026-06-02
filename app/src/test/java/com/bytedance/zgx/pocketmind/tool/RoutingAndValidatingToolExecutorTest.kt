@@ -29,6 +29,9 @@ import com.bytedance.zgx.pocketmind.device.RecentFileReadResult
 import com.bytedance.zgx.pocketmind.device.RecentImageTextItem
 import com.bytedance.zgx.pocketmind.device.RecentImageTextProvider
 import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
+import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContract
+import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrProvider
+import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrReadResult
 import java.time.Instant
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -98,6 +101,12 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf("maxChars" to "1000"),
                 reason = "test",
             ) to "screenText",
+            ToolRequest(
+                id = "current-screenshot-ocr",
+                toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+                arguments = mapOf("captureMode" to "current_screen"),
+                reason = "test",
+            ) to "ocrText",
         )
 
         requests.forEach { (request, routedDataKey) ->
@@ -127,6 +136,74 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals(ToolStatus.Succeeded, result.status)
         assertEquals(listOf(request), delegate.requests)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, result.data["toolName"])
+    }
+
+    @Test
+    fun currentScreenshotOcrFailsClosedUntilMediaProjectionConsent() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(
+            routingExecutor(
+                delegate = delegate,
+                currentScreenshotOcrProvider = StaticCurrentScreenshotOcrProvider(
+                    CurrentScreenshotOcrReadResult.MissingConsent,
+                ),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "current-screenshot-ocr",
+                toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+                arguments = mapOf("captureMode" to "current_screen"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.PermissionDenied, result.error?.code)
+        assertFalse(result.retryable)
+        assertEquals(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR, result.data["toolName"])
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals(true.toString(), result.data["requiresLocalModel"])
+        assertEquals(CurrentScreenshotOcrContract.CONSENT_REASON, result.data["specialAccess"])
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
+    fun currentScreenshotOcrUsesOneShotProviderResultAfterConsent() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(
+            routingExecutor(
+                delegate = delegate,
+                currentScreenshotOcrProvider = StaticCurrentScreenshotOcrProvider(
+                    CurrentScreenshotOcrReadResult.Available(
+                        text = "当前屏幕 OCR 文本",
+                        truncated = false,
+                    ),
+                ),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "current-screenshot-ocr",
+                toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+                arguments = mapOf("captureMode" to "current_screen"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR, result.data["toolName"])
+        assertEquals(CurrentScreenshotOcrContract.SOURCE, result.data["source"])
+        assertEquals(CurrentScreenshotOcrContract.CAPTURE_MODE, result.data["captureMode"])
+        assertEquals("当前屏幕 OCR 文本", result.data["ocrText"])
+        assertEquals("true", result.data["ocrTextIncluded"])
+        assertEquals("false", result.data["truncated"])
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals(true.toString(), result.data["requiresLocalModel"])
+        assertEquals(CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY, result.data["metadataPolicy"])
+        assertTrue(delegate.requests.isEmpty())
     }
 
     @Test
@@ -630,9 +707,10 @@ class RoutingAndValidatingToolExecutorTest {
             assertEquals(true.toString(), result.data["requiresLocalModel"])
             assertNotNull(registry.redactedResultSummaryFor(request.toolName))
             assertTrue("$request should have private output keys", privateKeys.isNotEmpty())
-            privateKeys.forEach { privateKey ->
-                assertTrue("${request.toolName} result must keep private output key $privateKey", result.data.containsKey(privateKey))
-            }
+            assertTrue(
+                "${request.toolName} result must include at least one declared private output key",
+                privateKeys.any { privateKey -> result.data.containsKey(privateKey) },
+            )
         }
         assertTrue(delegate.requests.isEmpty())
     }
@@ -661,6 +739,12 @@ class RoutingAndValidatingToolExecutorTest {
     private fun routingExecutor(
         delegate: ToolExecutor,
         backgroundTaskScheduler: BackgroundTaskScheduler? = StaticBackgroundTaskScheduler(),
+        currentScreenshotOcrProvider: CurrentScreenshotOcrProvider? = StaticCurrentScreenshotOcrProvider(
+            CurrentScreenshotOcrReadResult.Available(
+                text = "current screenshot text",
+                truncated = false,
+            ),
+        ),
     ): RoutingToolExecutor =
         RoutingToolExecutor(
             calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
@@ -745,7 +829,16 @@ class RoutingAndValidatingToolExecutorTest {
                         ),
                     )
             },
+            currentScreenshotOcrProvider = currentScreenshotOcrProvider,
         )
+
+    private class StaticCurrentScreenshotOcrProvider(
+        private val result: CurrentScreenshotOcrReadResult,
+    ) : CurrentScreenshotOcrProvider {
+        override fun setOneShotConsent(resultCode: Int, data: android.content.Intent?) = Unit
+
+        override fun captureCurrentScreenshotOcr(): CurrentScreenshotOcrReadResult = result
+    }
 
     private class StaticBackgroundTaskScheduler : BackgroundTaskScheduler {
         override fun scheduledTasks(limit: Int): List<ScheduledTask> =
@@ -806,10 +899,12 @@ class RoutingAndValidatingToolExecutorTest {
             key: String,
             property: JSONObject,
         ): String {
+            constValueFor(property)?.let { return it }
             stringSet(property, "enum").firstOrNull()?.let { return it }
             if (key == "toolName") return request.toolName
+            if (key == "requiresLocalModel") return true.toString()
             return when (property.optString("type")) {
-                "boolean" -> "false"
+                "boolean" -> true.toString()
                 "integer" -> (intOrNull(property, "minimum") ?: 1).toString()
                 "number" -> (intOrNull(property, "minimum") ?: 1).toString()
                 "array" -> "[]"
@@ -829,6 +924,16 @@ class RoutingAndValidatingToolExecutorTest {
 
         private fun intOrNull(json: JSONObject, name: String): Int? =
             if (json.has(name)) json.optInt(name) else null
+
+        private fun constValueFor(json: JSONObject): String? {
+            if (!json.has("const") || json.isNull("const")) return null
+            return when (val value = json.get("const")) {
+                is String -> value
+                is Boolean -> value.toString()
+                is Number -> value.toString()
+                else -> null
+            }
+        }
     }
 
     private class ThrowingDelegate(

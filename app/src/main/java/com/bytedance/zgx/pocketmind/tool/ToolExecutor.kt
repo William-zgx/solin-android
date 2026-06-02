@@ -25,6 +25,9 @@ import com.bytedance.zgx.pocketmind.device.RecentFileProvider
 import com.bytedance.zgx.pocketmind.device.RecentFileReadResult
 import com.bytedance.zgx.pocketmind.device.RecentImageTextProvider
 import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
+import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContract
+import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrProvider
+import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrReadResult
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -48,6 +51,7 @@ class RoutingToolExecutor(
     private val backgroundTaskScheduler: BackgroundTaskScheduler? = null,
     private val recentImageTextProvider: RecentImageTextProvider? = null,
     private val currentScreenTextProvider: CurrentScreenTextProvider? = null,
+    private val currentScreenshotOcrProvider: CurrentScreenshotOcrProvider? = null,
 ) : ToolExecutor {
     private val calendarAvailabilityToolExecutor =
         CalendarAvailabilityToolExecutor(calendarAvailabilityProvider)
@@ -62,6 +66,8 @@ class RoutingToolExecutor(
         recentImageTextProvider?.let(::RecentScreenshotOcrToolExecutor)
     private val currentScreenTextToolExecutor =
         currentScreenTextProvider?.let(::CurrentScreenTextToolExecutor)
+    private val currentScreenshotOcrToolExecutor =
+        CurrentScreenshotOcrToolExecutor(currentScreenshotOcrProvider)
 
     override fun execute(request: ToolRequest): ToolResult =
         when (request.toolName) {
@@ -101,6 +107,9 @@ class RoutingToolExecutor(
                         retryable = true,
                         data = request.localOnlyData(),
                     )
+
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR ->
+                currentScreenshotOcrToolExecutor.execute(request)
 
             else -> delegate.execute(request)
         }
@@ -577,7 +586,7 @@ class CurrentScreenTextToolExecutor(
                             "screenTextIncluded" to false.toString(),
                             "rawTreeIncluded" to false.toString(),
                             "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
-                        ) + snapshot.packageNameData(),
+                        ) + snapshot.packageNameData() + snapshot.structureSummaryData(),
                     )
                 } else {
                     request.succeeded(
@@ -592,7 +601,7 @@ class CurrentScreenTextToolExecutor(
                             "screenTextIncluded" to true.toString(),
                             "rawTreeIncluded" to false.toString(),
                             "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
-                        ) + snapshot.packageNameData(),
+                        ) + snapshot.packageNameData() + snapshot.structureSummaryData(),
                     )
                 }
             }
@@ -621,11 +630,83 @@ class CurrentScreenTextToolExecutor(
     private fun com.bytedance.zgx.pocketmind.device.CurrentScreenTextSnapshot.packageNameData(): Map<String, String> =
         packageName?.takeIf { it.isNotBlank() }?.let { mapOf("packageName" to it) }.orEmpty()
 
+    private fun com.bytedance.zgx.pocketmind.device.CurrentScreenTextSnapshot.structureSummaryData(): Map<String, String> {
+        val included = structureSummaryIncluded && structureSummary.isNotBlank()
+        return mapOf("structureSummaryIncluded" to included.toString()) +
+            structureSummary.takeIf { included }?.let { mapOf("structureSummary" to it) }.orEmpty()
+    }
+
     private companion object {
         const val DEFAULT_MAX_SCREEN_TEXT_CHARS = 2_000
         const val MAX_SCREEN_TEXT_CHARS = 4_000
     }
 }
+
+class CurrentScreenshotOcrToolExecutor(
+    private val provider: CurrentScreenshotOcrProvider?,
+) : ToolExecutor {
+    override fun execute(request: ToolRequest): ToolResult {
+        if (request.toolName != MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR) {
+            return request.failed(
+                code = ToolErrorCode.UnknownTool,
+                summary = "Unknown tool: ${request.toolName}",
+                retryable = false,
+            )
+        }
+
+        return when (val result = provider?.captureCurrentScreenshotOcr()) {
+            null ->
+                request.failed(
+                    code = ToolErrorCode.ExecutionFailed,
+                    summary = "当前屏幕截图 OCR 服务不可用",
+                    retryable = true,
+                    data = request.localOnlyData(),
+                )
+
+            CurrentScreenshotOcrReadResult.MissingConsent ->
+                request.failed(
+                    code = ToolErrorCode.PermissionDenied,
+                    summary = "需要完成 Android MediaProjection 前台同意后，才能单次截取当前屏幕并本地提取 OCR 文本。",
+                    retryable = false,
+                    data = request.localOnlyData() + mapOf(
+                        "specialAccess" to CurrentScreenshotOcrContract.CONSENT_REASON,
+                    ),
+                )
+
+            is CurrentScreenshotOcrReadResult.Failed ->
+                request.failed(
+                    code = ToolErrorCode.ExecutionFailed,
+                    summary = result.reason,
+                    retryable = true,
+                    data = request.currentScreenshotOcrBaseData(),
+                )
+
+            is CurrentScreenshotOcrReadResult.Available -> {
+                val ocrText = result.text?.takeIf { it.isNotBlank() }
+                request.succeeded(
+                    summary = if (ocrText == null) {
+                        "已完成当前屏幕单次 OCR，未识别到可用文字。"
+                    } else {
+                        "已从当前屏幕单次截图提取 ${ocrText.length} 个字符的本地 OCR 摘录。"
+                    },
+                    data = request.currentScreenshotOcrBaseData() +
+                        mapOf(
+                            "truncated" to result.truncated.toString(),
+                            "ocrTextIncluded" to (ocrText != null).toString(),
+                        ) +
+                        ocrText?.let { mapOf("ocrText" to it) }.orEmpty(),
+                )
+            }
+        }
+    }
+}
+
+private fun ToolRequest.currentScreenshotOcrBaseData(): Map<String, String> =
+    localOnlyData() + mapOf(
+        "source" to CurrentScreenshotOcrContract.SOURCE,
+        "captureMode" to CurrentScreenshotOcrContract.CAPTURE_MODE,
+        "metadataPolicy" to CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY,
+    )
 
 private fun List<ContactSummaryItem>.toContactsJsonString(): String {
     val contactsArray = JSONArray()

@@ -29,9 +29,9 @@ Google AI Edge LiteRT-LM.
   context outputs.
 - Minimal device context snapshots plus confirmed clipboard, calendar, contact,
   current-app notification summary, foreground-app, recent-file metadata, and
-  recent-screenshot OCR plus recent-image OCR reads, with a documented
-  confirmed current-screen Accessibility text snapshot path for controlled
-  context access.
+  recent-screenshot OCR, recent-image OCR, one-shot current-screen screenshot
+  OCR, and a confirmed current-screen Accessibility text snapshot path for
+  controlled context access.
 - Confirmed Android runtime permission requests for tools that need calendar,
   contact, media, or reminder notification posting access.
 - Runtime permission denial is observed as a structured tool failure without
@@ -91,10 +91,10 @@ model manager responsive while browsing models or switching CPU/GPU; use
 
 Remote chat uses the same conversation and action routing surface as local
 chat, but private local context is stricter: memory recall, device context,
-clipboard, recent-screenshot OCR, and recent-image OCR continuations, Android
-share-intent text, generated shared-input text excerpts, current-screen
-Accessibility text snapshots, and attachment metadata are not automatically
-sent to the configured backend. HTTPS is
+clipboard, recent-screenshot OCR, recent-image OCR, current-screen screenshot
+OCR continuations, Android share-intent text, generated shared-input text
+excerpts, current-screen Accessibility text snapshots, and attachment metadata
+are not automatically sent to the configured backend. HTTPS is
 required except for local debug hosts such as `localhost`, `127.0.0.1`, and
 Android emulator `10.0.2.2`.
 API keys are stored with Android Keystore-backed encryption and are removed
@@ -235,6 +235,15 @@ permission. Ambiguous screen-understanding requests such as “总结当前屏�
 “summarize current screen content”, “summarize this page”, or “describe current
 screen” do not trigger this tool unless the user explicitly asks for current
 screen text / visible text / Accessibility text.
+Explicit requests such as “OCR 当前屏幕截图文字” become confirmed
+`capture_current_screenshot_ocr` tool calls. After the normal tool confirmation,
+PocketMind asks Android for a foreground MediaProjection consent result, consumes
+that token once in memory, captures one current-screen frame, runs local ML Kit
+OCR, and returns only bounded OCR text plus included/truncated flags. It does
+not persist pixels, URI/path data, file names, window titles, coordinates, or
+visual descriptions, and it does not perform semantic screen understanding.
+Cancelling the MediaProjection consent is observed as a structured LocalOnly
+tool failure.
 Requests such as “总结当前屏幕文字并分享” use one constrained composite flow:
 after the user confirms the current-screen Accessibility text read, PocketMind
 summarizes locally, then opens a second confirmation for `share_text` with the
@@ -291,18 +300,18 @@ in-app picker text plus bounded `text/*` and JSON/XML/YAML document excerpt
 ingestion, bounded RTF/PDF text-layer, PDF scanned-page OCR fallback, and
 Office Open XML excerpts,
 system speech-recognition input,
-confirmed recent screenshot/image OCR, and restart restoration for the latest
-pending tool confirmation without auto-execution, value-free completed-step
-frontier recovery for restored Skill confirmations, plus confirmed
-current-screen Accessibility text snapshot reads, current-screen text summary
-sharing, and user-confirmed external Activity outcome recording before
-completion-dependent next-tool planning.
+confirmed recent screenshot/image OCR, confirmed one-shot current-screen
+screenshot OCR, and restart restoration for the latest pending tool confirmation
+without auto-execution, value-free completed-step frontier recovery for restored
+Skill confirmations, plus confirmed current-screen Accessibility text snapshot
+reads, current-screen text summary sharing, and user-confirmed external Activity
+outcome recording before completion-dependent next-tool planning.
 Broad semantic screen understanding, arbitrary argument-bearing typed run recovery, complete
-document parsing, screenshot capture/current-screen semantic understanding,
-PDF layout parsing, legacy Office parsing, full rich-text fidelity, image
-semantic understanding, arbitrary-media OCR beyond user-provided PDF/image
-attachments and confirmed recent-image reads, and media content understanding
-are tracked there as pending core modules.
+document parsing, current-screen semantic understanding, continuous screen
+capture, PDF layout parsing, legacy Office parsing, full rich-text fidelity,
+image semantic understanding, arbitrary-media OCR beyond user-provided PDF/image
+attachments and confirmed recent/current-screen image reads, and media content
+understanding are tracked there as pending core modules.
 
 ## Recommended Models
 
@@ -464,6 +473,9 @@ device report records this as `instrumentation_test_count`.
 `device-verification.properties` report, and `verify_emulator.sh` writes an
 `emulator-verification.properties` report plus the nested device report under
 `build/verification/` by default; release records should link those artifacts.
+For complete emulator regression, the artifact of record is the
+`regression-emulator.properties` file written by `scripts/regression_emulator.sh`;
+record the regression as passed only when that file contains `status=passed`.
 
 Avoid `./gradlew :app:connectedDebugAndroidTest` when you need to keep the app
 installed on the device. The Android Gradle Plugin may clean up test packages

@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.tool
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContract
 import java.time.Instant
 import org.json.JSONObject
 
@@ -73,14 +74,7 @@ class ToolRegistry private constructor(
         }
         if (result.requestId != request.id) {
             val summary = "Tool ${request.toolName} returned result for unexpected request id."
-            return ToolResult(
-                requestId = request.id,
-                status = ToolStatus.Failed,
-                summary = summary,
-                data = mapOf("toolName" to request.toolName),
-                error = ToolError(ToolErrorCode.InvalidResult, summary),
-                retryable = false,
-            )
+            return request.invalidResultFailure(summary, definitionsByName[request.toolName]?.spec)
         }
         val definition = definitionsByName[request.toolName]
             ?: return ToolResult(
@@ -97,14 +91,11 @@ class ToolRegistry private constructor(
 
         definition.resultValidator.validate(request, result)?.let { reason ->
             val summary = "Tool ${request.toolName} returned invalid result: $reason"
-            return ToolResult(
-                requestId = request.id,
-                status = ToolStatus.Failed,
-                summary = summary,
-                data = mapOf("toolName" to request.toolName),
-                error = ToolError(ToolErrorCode.InvalidResult, summary),
-                retryable = false,
-            )
+            return request.invalidResultFailure(summary, definition.spec)
+        }
+        privateOutputResultInvariant(definition.spec, result)?.let { reason ->
+            val summary = "Tool ${request.toolName} returned invalid result: $reason"
+            return request.invalidResultFailure(summary, definition.spec)
         }
         externalActivityResultInvariant(definition.spec, request, result)?.let { reason ->
             val summary = "Tool ${request.toolName} returned invalid result: $reason"
@@ -176,10 +167,44 @@ class ToolRegistry private constructor(
             }
         }
 
+    private fun ToolRequest.invalidResultFailure(summary: String, spec: ToolSpec?): ToolResult {
+        val data = mapOf("toolName" to toolName) +
+            if (spec?.privateOutputKeys?.isNotEmpty() == true) {
+                mapOf(
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to true.toString(),
+                )
+            } else {
+                emptyMap()
+            }
+        return ToolResult(
+            requestId = id,
+            status = ToolStatus.Failed,
+            summary = summary,
+            data = data,
+            error = ToolError(ToolErrorCode.InvalidResult, summary),
+            retryable = false,
+        )
+    }
+
     companion object {
         fun fromSupportedActions(supportedActions: Set<String> = MobileActionFunctions.supported): ToolRegistry =
             ToolRegistry(definitionsFor(supportedActions))
     }
+}
+
+private fun privateOutputResultInvariant(
+    spec: ToolSpec,
+    result: ToolResult,
+): String? {
+    if (spec.privateOutputKeys.isEmpty()) return null
+    if (result.data["privacy"] != MessagePrivacy.LocalOnly.name) {
+        return "private output result requires privacy=LocalOnly"
+    }
+    if (result.data["requiresLocalModel"]?.toBooleanStrictOrNull() != true) {
+        return "private output result requires requiresLocalModel=true"
+    }
+    return null
 }
 
 private fun externalActivityResultInvariant(
@@ -224,6 +249,7 @@ private data class ToolDefinition(
 private val privateNonSucceededAllowedSpecialAccessValues = setOf(
     "usage_stats",
     "accessibility_screen_text",
+    CurrentScreenshotOcrContract.CONSENT_REASON,
 )
 
 private val privateNonSucceededAllowedSettingsActions = setOf(
@@ -282,6 +308,7 @@ private data class ToolArgumentValidator(
                 val propertyJson = propertiesJson.optJSONObject(propertyName) ?: JSONObject()
                 PropertyRule(
                     type = propertyJson.optStringOrNull("type"),
+                    constValue = propertyJson.optConstStringOrNull(),
                     minLength = propertyJson.optIntOrNull("minLength"),
                     maxLength = propertyJson.optIntOrNull("maxLength"),
                     pattern = propertyJson.optStringOrNull("pattern")?.let(::Regex),
@@ -354,6 +381,7 @@ private data class ToolResultDataValidator(
                 val propertyJson = propertiesJson.optJSONObject(propertyName) ?: JSONObject()
                 PropertyRule(
                     type = propertyJson.optStringOrNull("type"),
+                    constValue = propertyJson.optConstStringOrNull(),
                     minLength = propertyJson.optIntOrNull("minLength"),
                     maxLength = propertyJson.optIntOrNull("maxLength"),
                     pattern = propertyJson.optStringOrNull("pattern")?.let(::Regex),
@@ -382,6 +410,7 @@ private data class ToolResultDataValidator(
 
 private data class PropertyRule(
     val type: String?,
+    val constValue: String?,
     val minLength: Int?,
     val maxLength: Int?,
     val pattern: Regex?,
@@ -393,6 +422,9 @@ private data class PropertyRule(
     val exclusiveMaximum: Double?,
 ) {
     fun validate(toolName: String, valueKind: String, valueName: String, value: String): String? {
+        if (constValue != null && value != constValue) {
+            return "Tool ${toolName} $valueKind $valueName has invalid constant value"
+        }
         if (enum != null && !enum.contains(value)) {
             return "Tool ${toolName} $valueKind $valueName has invalid value"
         }
@@ -551,6 +583,16 @@ private fun JSONObject.optStringSetOrNull(name: String): Set<String>? {
     }
 }
 
+private fun JSONObject.optConstStringOrNull(): String? {
+    if (!has("const") || isNull("const")) return null
+    return when (val value = get("const")) {
+        is String -> value
+        is Boolean -> value.toString()
+        is Number -> value.toString()
+        else -> null
+    }
+}
+
 private fun definitionsFor(supportedActions: Set<String>): List<ToolDefinition> {
     val missingDefinitions = supportedActions - toolDefinitionsByName.keys
     require(missingDefinitions.isEmpty()) {
@@ -570,6 +612,7 @@ private val emptyObjectSchemaJson = """
 private const val CURRENT_SCREEN_TEXT_SOURCE = "accessibility_active_window"
 private const val CURRENT_SCREEN_TEXT_METADATA_POLICY =
     "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted"
+private val currentScreenshotOcrSchemaJson = CurrentScreenshotOcrContract.INPUT_SCHEMA_JSON.trimIndent()
 
 private val querySchemaJson = """
     {
@@ -1187,6 +1230,7 @@ private val currentScreenTextOutputSchemaJson = """
         "nodeCount",
         "truncated",
         "screenTextIncluded",
+        "structureSummaryIncluded",
         "rawTreeIncluded",
         "metadataPolicy"
       ],
@@ -1210,6 +1254,12 @@ private val currentScreenTextOutputSchemaJson = """
         "packageName": {"type": "string"},
         "truncated": {"type": "boolean"},
         "screenTextIncluded": {"type": "boolean"},
+        "structureSummary": {
+          "type": "string",
+          "description": "Coarse Accessibility node/text-item metadata only; no node ids, bounds, hierarchy, screenshots, OCR, or inferred visual semantics.",
+          "minLength": 1
+        },
+        "structureSummaryIncluded": {"type": "boolean"},
         "rawTreeIncluded": {"type": "boolean"},
         "metadataPolicy": {
           "type": "string",
@@ -1219,6 +1269,8 @@ private val currentScreenTextOutputSchemaJson = """
       "additionalProperties": false
     }
 """.trimIndent()
+
+private val currentScreenshotOcrOutputSchemaJson = CurrentScreenshotOcrContract.OUTPUT_SCHEMA_JSON.trimIndent()
 
 private val calendarAvailabilityOutputSchemaJson = """
     {
@@ -1604,7 +1656,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
         spec = ToolSpec(
             name = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
             title = "读取当前屏幕 Accessibility 可访问文本快照",
-            description = "在用户确认后读取当前 active window 暴露的 Accessibility 可访问文本快照；不是截图、OCR、视觉/VLM 或语义屏幕理解，不读取像素、坐标、节点 ID 或完整节点树。",
+            description = "在用户确认后读取当前 active window 暴露的 Accessibility 可访问文本快照和粗粒度结构摘要；不是截图、OCR、视觉/VLM 或语义屏幕理解，不读取像素、坐标、节点 ID 或完整节点树。",
             inputSchemaJson = currentScreenTextSchemaJson,
             outputSchemaJson = currentScreenTextOutputSchemaJson,
             capability = ToolCapability.DeviceContext,
@@ -1615,8 +1667,27 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
             pendingArgumentAllowlist = setOf("maxChars"),
-            privateOutputKeys = setOf("capturedAtMillis", "nodeCount", "screenText", "packageName"),
+            privateOutputKeys = setOf("capturedAtMillis", "nodeCount", "screenText", "packageName", "structureSummary"),
             redactedResultSummary = "已读取当前屏幕可访问文本快照",
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+            title = "截取当前屏幕 OCR",
+            description = "在用户确认并完成 Android MediaProjection 前台同意后，单次截取当前可见屏幕并本地提取有界 OCR 文本；不保存图片、像素、URI、路径或窗口标题，不做视觉语义理解。",
+            inputSchemaJson = currentScreenshotOcrSchemaJson,
+            outputSchemaJson = currentScreenshotOcrOutputSchemaJson,
+            capability = ToolCapability.DeviceContext,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.RequiresMediaProjectionConsent,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("captureMode"),
+            privateOutputKeys = setOf("ocrText"),
+            redactedResultSummary = "已读取当前屏幕截图 OCR 摘录",
         ),
     ),
     ToolDefinition(

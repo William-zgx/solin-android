@@ -3790,6 +3790,36 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun rememberCommandPersistsUserFactMemory() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("remember that my rcode is xb83")
+        advanceUntilIdle()
+
+        val record = store.records().single()
+        assertTrue(record.id.startsWith("user-fact-"))
+        assertEquals(MemoryRecordType.UserFact, record.type)
+        assertEquals("用户事实：my rcode is xb83", record.text)
+        assertTrue(memoryRepository.search("rcode xb83").any { it.id == record.id })
+        assertEquals(listOf(record.id), viewModel.uiState.value.longTermMemories.map { it.id })
+        assertTrue(viewModel.uiState.value.messages.last().text.contains("已记住这条本地事实"))
+        assertEquals("长期记忆已更新", viewModel.uiState.value.statusText)
+        assertTrue(remoteRuntime.calls.isEmpty())
+    }
+
+    @Test
     fun forgetRememberCommandMemoryDoesNotReindexFromHistory() = runTest(dispatcher) {
         val store = FakeMemoryRecordStore()
         val memoryRepository = MemoryRepository(recordStore = store)
@@ -3925,7 +3955,52 @@ class PocketMindViewModelTest {
             ),
             sessionStore.messages.map { it.privacy },
         )
-        assertTrue(sessionStore.messages.last().text.contains("已遗忘这条本地偏好"))
+        assertTrue(sessionStore.messages.last().text.contains("已遗忘这条本地记忆"))
+    }
+
+    @Test
+    fun forgetUserFactCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val sessionStore = FakeSessionStore()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val assistantRouter = FakeAssistantRouter(routeFailure = IllegalStateException("planner unavailable"))
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("remember that my rcode is xb83")
+        advanceUntilIdle()
+        assertEquals("用户事实：my rcode is xb83", store.records().single().text)
+
+        viewModel.sendMessage("forget that my rcode is xb83")
+        advanceUntilIdle()
+
+        assertTrue(store.records().isEmpty())
+        assertTrue(memoryRepository.search("rcode xb83").isEmpty())
+        assertTrue(viewModel.uiState.value.longTermMemories.isEmpty())
+        assertEquals("长期记忆已更新", viewModel.uiState.value.statusText)
+        assertEquals(0, assistantRouter.routeCallCount)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(
+            listOf(
+                MessagePrivacy.LocalOnly,
+                MessagePrivacy.LocalOnly,
+                MessagePrivacy.LocalOnly,
+                MessagePrivacy.LocalOnly,
+            ),
+            sessionStore.messages.map { it.privacy },
+        )
+        assertTrue(sessionStore.messages.last().text.contains("已遗忘这条本地记忆"))
     }
 
     @Test
@@ -3997,7 +4072,7 @@ class PocketMindViewModelTest {
         assertFalse(call.history.toString().contains("remember"))
         assertFalse(call.history.toString().contains("forget"))
         assertFalse(call.history.toString().contains("concise answers"))
-        assertFalse(call.history.toString().contains("已遗忘这条本地偏好"))
+        assertFalse(call.history.toString().contains("已遗忘这条本地记忆"))
     }
 
     @Test

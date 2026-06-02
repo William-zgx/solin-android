@@ -166,6 +166,8 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 - 授予 Usage Access 后再次触发前台 App 摘要，只应返回最小 App metadata；不应展示完整使用历史、通知正文、窗口内容或自动上传到远程模型。
 - 通过受确认保护的当前屏幕 Accessibility 文本快照工具读取当前屏幕文字时，应只在用户确认后读取当前 Accessibility 文本节点快照；结果应标记为 `LocalOnly`，raw `screenText` 不应进入 trace、audit、持久消息或远程 runtime。
 - 当前屏幕 Accessibility 文本快照不等于截图、OCR、像素读取或语义屏幕理解；无 Accessibility 服务授权或节点读取失败时，应返回结构化失败，不应自动退化为截图/OCR/屏幕扫描。
+- 通过受确认保护的 `capture_current_screenshot_ocr` 识别当前屏幕截图文字时，确认卡之后应出现 Android MediaProjection 前台同意；取消同意应返回结构化 `LocalOnly` 权限失败，不应执行截图或重试。
+- 授予 MediaProjection 前台同意后，App 只应单次截取当前屏幕并在本地生成有界 OCR 摘录；结果应标记为 `LocalOnly` / `requiresLocalModel=true`，只包含 `ocrTextIncluded`、`truncated` 和 OCR 文本摘录，不应在 trace/audit/持久消息里保存图片像素、URI、路径、文件名、窗口标题、坐标或视觉描述。
 - “打开链接 https://example.com” 应先出现确认；确认后只打开 HTTPS 链接，`http`、`file`、`content`、`javascript` 和自定义 scheme 应被拒绝。
 - “启动微信” 或指定合法包名的 App 启动请求应通过 Skill-first 先出现确认；确认后只打开应用启动页，不接受任意 activity/action/data/extras。
 - “打开微信应用详情设置” 或指定合法包名的 `android_app_details_settings` 请求应通过 Skill-first 先出现确认；确认后只打开白名单固定目标，不接受任意 targetId、URI、activity/action/data/extras。微信小程序、支付码、App 内设置或故障/文档问题不应降级成打开 App。
@@ -252,5 +254,5 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 - 通过受确认保护的 `read_recent_screenshot_ocr` 识别最近截图文字时，App 只应读取最近 1 张截图并在本地生成 OCR 摘录；结果应标记为 `LocalOnly`，不应在 trace/audit/持久消息里保存截图 URI、路径、文件名、大小、修改时间、原始像素或 OCR 原文。
 - 通过受确认保护的 `read_recent_image_ocr` 识别最近图片/照片文字时，App 最多扫描最近 3 张图片并在本地返回第一条有界 OCR 摘录；结果应标记为 `LocalOnly`，不应在 trace/audit/持久消息里保存图片 URI、路径、文件名、大小、修改时间、原始像素或 OCR 原文。
 - OCR 摘录可以保留 ML Kit 识别出的文本块/行顺序；不应输出坐标、框选位置、图片标签、看图描述、像素或语义理解结果。
-- 远程模型模式下，最近截图 OCR、最近图片 OCR 和当前屏幕 Accessibility 文本快照的后续回答不应自动调用远程 runtime；UI 应提示已保护对应本地内容，并要求切换本地模型或由用户手动粘贴愿意上传的内容。
-- 当前只验收分享入口、系统文件选择入口、语音入口、`text/*` 有界摘录、RTF/PDF 文本层有界摘录、用户主动提供 PDF 扫描页 OCR fallback、Office Open XML 文本层有界摘录、用户主动提供 `image/*` 的本地 OCR 有界摘录、最近截图 metadata 查询、最近 1 张截图确认式 OCR、最近 3 张图片确认式 OCR、受确认当前屏幕 Accessibility 文本节点快照与 metadata-only/LocalOnly 边界；截图捕获、语义屏幕理解、PDF 版式解析、旧 Office 解析、完整文档解析、完整富文本保真、图片语义理解、任意媒体 OCR 和媒体内容理解仍是待实现项。
+- 远程模型模式下，最近截图 OCR、最近图片 OCR、当前屏幕截图 OCR 和当前屏幕 Accessibility 文本快照的后续回答不应自动调用远程 runtime；UI 应提示已保护对应本地内容，并要求切换本地模型或由用户手动粘贴愿意上传的内容。
+- 当前只验收分享入口、系统文件选择入口、语音入口、`text/*` 有界摘录、RTF/PDF 文本层有界摘录、用户主动提供 PDF 扫描页 OCR fallback、Office Open XML 文本层有界摘录、用户主动提供 `image/*` 的本地 OCR 有界摘录、最近截图 metadata 查询、最近 1 张截图确认式 OCR、最近 3 张图片确认式 OCR、受确认当前屏幕 Accessibility 文本节点快照、受确认单次当前屏幕截图 OCR 与 metadata-only/LocalOnly 边界；连续屏幕捕获、语义屏幕理解、PDF 版式解析、旧 Office 解析、完整文档解析、完整富文本保真、图片语义理解、任意媒体 OCR 和媒体内容理解仍是待实现项。

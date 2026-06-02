@@ -79,6 +79,7 @@ private fun AccessibilityNodeInfo.toCurrentScreenTextSnapshot(
         capturedAtMillis = capturedAtMillis,
         nodeCount = collector.nodeCount,
         truncated = collector.truncated,
+        structureSummary = collector.structureSummary(),
     )
 }
 
@@ -92,6 +93,7 @@ private class AccessibilityTextCollector(
         private set
     var truncated: Boolean = false
         private set
+    private var visibleTextItemCount: Int = 0
 
     val isFull: Boolean
         get() = usedChars >= maxChars
@@ -109,6 +111,9 @@ private class AccessibilityTextCollector(
     fun markTruncated() {
         truncated = true
     }
+
+    fun structureSummary(): String =
+        "nodeCount=$nodeCount; visibleTextItemCount=$visibleTextItemCount; textSnapshotIncluded=${values.isNotEmpty()}"
 
     private fun collect(raw: CharSequence?) {
         if (raw == null || isFull) return
@@ -129,6 +134,7 @@ private class AccessibilityTextCollector(
             truncated = true
         }
         values += clipped
+        visibleTextItemCount += 1
         usedChars += clipped.length + separatorChars
     }
 }

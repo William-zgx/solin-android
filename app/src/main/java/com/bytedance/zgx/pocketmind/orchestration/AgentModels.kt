@@ -223,6 +223,57 @@ data class AgentContinuationCursor(
     val skillPlan: SkillPlan? = null,
 )
 
+data class AgentContinuationCursorV2(
+    val sourceRequestId: String,
+    val completedSegmentCount: Int,
+    val request: ToolRequest,
+    val draft: ActionDraft,
+    val plannedByModel: Boolean = false,
+    val fallbackReason: String? = null,
+    val skillPlan: SkillPlan? = null,
+    val currentResultRevalidated: Boolean = false,
+    val rawPayloadPersisted: Boolean = false,
+) {
+    fun restoreDecisionFor(sourceRequestId: String): AgentContinuationCursorRestoreDecision =
+        when {
+            this.sourceRequestId != sourceRequestId ->
+                AgentContinuationCursorRestoreDecision.NotRestorable("continuation cursor source request changed")
+            rawPayloadPersisted || request.arguments.isNotEmpty() || draft.parameters.isNotEmpty() ->
+                AgentContinuationCursorRestoreDecision.NotRestorable("continuation cursor contains executable payload")
+            !currentResultRevalidated ->
+                AgentContinuationCursorRestoreDecision.NotRestorable("continuation cursor requires current result revalidation")
+            plannedByModel ->
+                AgentContinuationCursorRestoreDecision.NotRestorable("model-planned continuation cursor is not restorable")
+            skillPlan?.request?.arguments?.isNotEmpty() == true ->
+                AgentContinuationCursorRestoreDecision.NotRestorable("skill continuation cursor contains skill input payload")
+            else -> AgentContinuationCursorRestoreDecision.Restorable
+        }
+}
+
+sealed class AgentContinuationCursorRestoreDecision {
+    data object Restorable : AgentContinuationCursorRestoreDecision()
+
+    data class NotRestorable(
+        val reason: String,
+    ) : AgentContinuationCursorRestoreDecision()
+}
+
+fun AgentContinuationCursor.toV2(
+    currentResultRevalidated: Boolean = false,
+    rawPayloadPersisted: Boolean = request.arguments.isNotEmpty() || draft.parameters.isNotEmpty(),
+): AgentContinuationCursorV2 =
+    AgentContinuationCursorV2(
+        sourceRequestId = sourceRequestId,
+        completedSegmentCount = completedSegmentCount,
+        request = request,
+        draft = draft,
+        plannedByModel = plannedByModel,
+        fallbackReason = fallbackReason,
+        skillPlan = skillPlan,
+        currentResultRevalidated = currentResultRevalidated,
+        rawPayloadPersisted = rawPayloadPersisted,
+    )
+
 data class AgentModelObservationResult(
     val run: AgentRun,
     val decision: AgentObservationDecision,

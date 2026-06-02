@@ -25,6 +25,7 @@ class MobileActionPlanner : ActionPlanner {
             RecentFilesActionParser.matches(input, includeNonMediaKinds = true) ||
             RecentScreenshotOcrActionParser.matches(input) ||
             RecentImageOcrActionParser.matches(input) ||
+            CurrentScreenshotOcrActionParser.matches(input) ||
             CurrentScreenTextActionParser.matches(input) ||
             CalendarAvailabilityActionParser.matches(input) ||
             ContactQueryActionParser.matches(input) ||
@@ -118,6 +119,9 @@ class MobileActionPlanner : ActionPlanner {
             RecentImageOcrActionParser.matches(input) ->
                 RecentImageOcrActionParser.draft(input)
 
+            CurrentScreenshotOcrActionParser.matches(input) ->
+                CurrentScreenshotOcrActionParser.draft()
+
             CurrentScreenTextActionParser.matches(input) ->
                 CurrentScreenTextActionParser.draft(input)
 
@@ -181,6 +185,7 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> "读取最近截图 OCR"
             MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "读取最近图片 OCR"
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT -> "读取当前屏幕文本"
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> "截取当前屏幕 OCR"
             MobileActionFunctions.QUERY_CONTACTS -> "查询联系人"
             else -> "动作草稿"
         }
@@ -247,6 +252,8 @@ class MobileActionPlanner : ActionPlanner {
                 val maxChars = parameters["maxChars"].orEmpty().ifBlank { "2000" }
                 "将读取当前屏幕的可访问文本快照（最多 ${maxChars} 字符）；不会读取截图、像素、坐标或完整节点树。"
             }
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR ->
+                "将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。"
             MobileActionFunctions.QUERY_CONTACTS -> {
                 val maxCount = parameters["maxCount"]
                 val query = parameters["query"].orEmpty().ifBlank { "联系人" }

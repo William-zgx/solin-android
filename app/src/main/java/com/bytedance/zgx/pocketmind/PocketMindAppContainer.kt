@@ -31,6 +31,8 @@ import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.memory.RoomMemoryRecordStore
+import com.bytedance.zgx.pocketmind.multimodal.AndroidCurrentScreenshotOcrProvider
+import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrProvider
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.pocketmind.orchestration.CompositeAgentObservationReplanner
 import com.bytedance.zgx.pocketmind.orchestration.ModelObservationReplanner
@@ -63,6 +65,7 @@ class PocketMindAppContainer(context: Context) {
     private val scheduledTaskRepository: ScheduledTaskRepository
     private val backgroundTaskSchedulerInternal: AndroidBackgroundTaskScheduler
     private val reminderNotificationHelper: ReminderNotificationHelper
+    private val currentScreenshotOcrProviderInternal: AndroidCurrentScreenshotOcrProvider
     private val actionPlanningRuntime: HybridActionPlanningRuntime
     private val actionExecutor: ToolExecutor
     private val assistantOrchestrator: AssistantOrchestrator
@@ -92,6 +95,7 @@ class PocketMindAppContainer(context: Context) {
         scheduledTaskRepository = ScheduledTaskRepository(database.scheduledTaskDao())
         backgroundTaskSchedulerInternal = AndroidBackgroundTaskScheduler(appContext, scheduledTaskRepository)
         reminderNotificationHelper = ReminderNotificationHelper(appContext)
+        currentScreenshotOcrProviderInternal = AndroidCurrentScreenshotOcrProvider(appContext)
         actionPlanningRuntime = HybridActionPlanningRuntime(appContext.cacheDir)
         val toolRegistry = ToolRegistry()
         actionExecutor = ValidatingToolExecutor(
@@ -109,6 +113,7 @@ class PocketMindAppContainer(context: Context) {
                 backgroundTaskScheduler = backgroundTaskSchedulerInternal,
                 recentImageTextProvider = AndroidRecentImageTextProvider(appContext),
                 currentScreenTextProvider = AndroidCurrentScreenTextProvider(),
+                currentScreenshotOcrProvider = currentScreenshotOcrProviderInternal,
             ),
             registry = toolRegistry,
         )
@@ -152,6 +157,9 @@ class PocketMindAppContainer(context: Context) {
 
     val backgroundTaskScheduler: AndroidBackgroundTaskScheduler
         get() = backgroundTaskSchedulerInternal
+
+    val currentScreenshotOcrProvider: CurrentScreenshotOcrProvider
+        get() = currentScreenshotOcrProviderInternal
 }
 
 private class PocketMindViewModelFactory(

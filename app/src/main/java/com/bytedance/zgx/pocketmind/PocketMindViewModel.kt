@@ -25,6 +25,8 @@ import com.bytedance.zgx.pocketmind.data.RemoteModelStore
 import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
 import com.bytedance.zgx.pocketmind.data.SessionStore
 import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
+import com.bytedance.zgx.pocketmind.device.DeviceContextToolReadiness
+import com.bytedance.zgx.pocketmind.device.DeviceContextToolReadinessState
 import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
@@ -33,10 +35,13 @@ import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.memory.TASK_STATE_MEMORY_RECORD_PREFIX
 import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeController
 import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
+import com.bytedance.zgx.pocketmind.memory.explicitUserFactFrom
+import com.bytedance.zgx.pocketmind.memory.explicitUserFactRecordId
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceFrom
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceForgetFrom
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceRecordId
 import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
+import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
 import com.bytedance.zgx.pocketmind.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentExternalOutcome
@@ -849,7 +854,11 @@ class PocketMindViewModel(
             return
         }
         if (explicitUserPreferenceForgetFrom(trimmed) != null) {
-            handleExplicitPreferenceForgetCommand(trimmed)
+            handleExplicitMemoryForgetCommand(trimmed)
+            return
+        }
+        if (explicitUserFactFrom(trimmed) != null) {
+            handleExplicitUserFactCommand(trimmed)
             return
         }
         if (explicitUserPreferenceFrom(trimmed) != null) {
@@ -1791,6 +1800,56 @@ class PocketMindViewModel(
         }
     }
 
+    fun rejectAgentConfirmationForMediaProjectionDenial(
+        confirmation: PendingAgentConfirmation,
+    ) {
+        val pendingConfirmation = _uiState.value.pendingConfirmation
+        if (pendingConfirmation == null || !pendingConfirmation.matchesExecution(confirmation)) {
+            _uiState.update {
+                it.copy(statusText = "工具确认已处理")
+            }
+            return
+        }
+        val request = confirmation.toolRequest ?: ToolRequest(
+            toolName = confirmation.draft.functionName,
+            arguments = confirmation.draft.parameters,
+            reason = confirmation.draft.summary,
+        )
+        val result = request.failed(
+            code = ToolErrorCode.PermissionDenied,
+            summary = "用户取消了当前屏幕截图 OCR 的 Android MediaProjection 前台同意，工具未执行。",
+            retryable = false,
+            data = mapOf(
+                "toolName" to request.toolName,
+                "privacy" to MessagePrivacy.LocalOnly.name,
+                "requiresLocalModel" to true.toString(),
+                "specialAccess" to CurrentScreenshotOcrContract.CONSENT_REASON,
+            ),
+        )
+        val observation = confirmation.runId?.let { runId ->
+            assistantOrchestrator.failPendingToolRequest(runId, request.id, result)
+        }
+        replaceActiveSessionMessages(
+            _uiState.value.messages + ChatMessage(
+                role = MessageRole.Assistant,
+                text = observation?.assistantMessage ?: "工具执行失败：${result.summary}",
+                privacy = MessagePrivacy.LocalOnly,
+            ),
+            persistNow = true,
+        )
+        rebuildMemoryIndex()
+        _uiState.update {
+            it.copy(
+                pendingConfirmation = null,
+                isBusy = false,
+                isGenerating = false,
+                auditEvents = loadAuditEvents(),
+                agentTraceRuns = loadAgentTraceRuns(),
+                statusText = "屏幕截图同意已取消，工具未执行",
+            )
+        }
+    }
+
     private fun continueAfterToolObservation(
         runId: String?,
         promptForModel: String,
@@ -2051,6 +2110,7 @@ class PocketMindViewModel(
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR -> "截图 OCR 内容"
             MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "图片 OCR 内容"
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT -> "当前屏幕文本"
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> "当前屏幕截图 OCR 内容"
             else -> "本地工具结果"
         }
 
@@ -2596,6 +2656,26 @@ class PocketMindViewModel(
         }.isSuccess
     }
 
+    private fun persistExplicitUserFactMemory(message: ChatMessage): Boolean {
+        if (message.role != MessageRole.User) return false
+        val fact = explicitUserFactFrom(message.text) ?: return false
+        return runCatching {
+            longTermMemoryControls.indexUserFact(explicitUserFactRecordId(fact), fact)
+            loadLongTermMemories()
+        }.onSuccess { records ->
+            _uiState.update { state ->
+                state.copy(longTermMemories = records)
+            }
+        }.onFailure {
+            _uiState.update { state ->
+                state.copy(
+                    longTermMemories = emptyList(),
+                    statusText = "本地记忆暂不可用",
+                )
+            }
+        }.isSuccess
+    }
+
     private fun handleExplicitPreferenceCommand(trimmed: String) {
         syncTaskStateMemories()
         val userMessage = ChatMessage(
@@ -2631,7 +2711,7 @@ class PocketMindViewModel(
         }
     }
 
-    private fun handleExplicitPreferenceForgetCommand(trimmed: String) {
+    private fun handleExplicitUserFactCommand(trimmed: String) {
         syncTaskStateMemories()
         val userMessage = ChatMessage(
             role = MessageRole.User,
@@ -2642,15 +2722,54 @@ class PocketMindViewModel(
             _uiState.value.messages + userMessage,
             persistNow = true,
         )
-        val preference = explicitUserPreferenceForgetFrom(trimmed)
-        val removed = preference?.let { target ->
-            runCatching { longTermMemoryControls.forgetPreference(target) }
+        val persisted = persistExplicitUserFactMemory(userMessage)
+        val assistantText = if (persisted) {
+            "已记住这条本地事实。你可以在长期记忆中查看或删除。"
+        } else {
+            "本地记忆暂不可用，未保存这条事实。"
+        }
+        replaceActiveSessionMessages(
+            _uiState.value.messages + ChatMessage(
+                role = MessageRole.Assistant,
+                text = assistantText,
+                privacy = MessagePrivacy.LocalOnly,
+            ),
+            persistNow = true,
+        )
+        rebuildMemoryIndex()
+        _uiState.update { state ->
+            state.copy(
+                memoryHits = emptyList(),
+                longTermMemories = loadLongTermMemories(),
+                statusText = if (persisted) "长期记忆已更新" else "本地记忆暂不可用",
+            )
+        }
+    }
+
+    private fun handleExplicitMemoryForgetCommand(trimmed: String) {
+        syncTaskStateMemories()
+        val userMessage = ChatMessage(
+            role = MessageRole.User,
+            text = trimmed,
+            privacy = MessagePrivacy.LocalOnly,
+        )
+        replaceActiveSessionMessages(
+            _uiState.value.messages + userMessage,
+            persistNow = true,
+        )
+        val target = explicitUserPreferenceForgetFrom(trimmed)
+        val removed = target?.let {
+            runCatching {
+                val removedPreference = longTermMemoryControls.forgetPreference(it)
+                val removedFact = longTermMemoryControls.forgetUserFact(it)
+                removedPreference || removedFact
+            }
                 .getOrDefault(false)
         } == true
         val assistantText = if (removed) {
-            "已遗忘这条本地偏好。"
+            "已遗忘这条本地记忆。"
         } else {
-            "未找到这条本地偏好。"
+            "未找到这条本地记忆。"
         }
         replaceActiveSessionMessages(
             _uiState.value.messages + ChatMessage(
@@ -2927,6 +3046,74 @@ class PocketMindViewModel(
             availableStorageBytes = availableModelStorageBytes,
             activeSessionId = activeSessionId,
             hasPendingConfirmation = pendingConfirmation != null,
+            toolReadiness = deviceContextToolReadiness(),
+        )
+
+    private fun deviceContextToolReadiness(): List<DeviceContextToolReadiness> =
+        listOf(
+            DeviceContextToolReadiness(
+                toolName = MobileActionFunctions.READ_CLIPBOARD,
+                state = DeviceContextToolReadinessState.Available,
+                reason = "requires explicit tool confirmation before reading clipboard text",
+            ),
+            DeviceContextToolReadiness(
+                toolName = MobileActionFunctions.QUERY_CONTACTS,
+                state = DeviceContextToolReadinessState.RequiresRuntimePermission,
+                reason = "contacts are read only after confirmation and Android permission grant",
+                runtimePermissions = listOf("READ_CONTACTS"),
+            ),
+            DeviceContextToolReadiness(
+                toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+                state = DeviceContextToolReadinessState.RequiresRuntimePermission,
+                reason = "calendar availability is read only after confirmation and Android permission grant",
+                runtimePermissions = listOf("READ_CALENDAR"),
+            ),
+            DeviceContextToolReadiness(
+                toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
+                state = DeviceContextToolReadinessState.RequiresSpecialAccess,
+                reason = "foreground app metadata requires Usage Access special access",
+                specialAccessId = SPECIAL_ACCESS_USAGE_STATS,
+            ),
+            DeviceContextToolReadiness(
+                toolName = MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+                state = DeviceContextToolReadinessState.Available,
+                reason = "returns bounded current-app notification summaries after confirmation",
+            ),
+            DeviceContextToolReadiness(
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                state = DeviceContextToolReadinessState.RequiresRuntimePermission,
+                reason = "recent media metadata may require Android media permissions or picker authorization",
+                runtimePermissions = listOf("READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO", "READ_MEDIA_AUDIO"),
+            ),
+            DeviceContextToolReadiness(
+                toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+                state = DeviceContextToolReadinessState.Available,
+                reason = "reads local scheduled task metadata only after confirmation",
+            ),
+            DeviceContextToolReadiness(
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                state = DeviceContextToolReadinessState.RequiresRuntimePermission,
+                reason = "reads one recent screenshot for local OCR only after confirmation and media permission",
+                runtimePermissions = listOf("READ_MEDIA_IMAGES"),
+            ),
+            DeviceContextToolReadiness(
+                toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+                state = DeviceContextToolReadinessState.RequiresRuntimePermission,
+                reason = "scans recent images for local OCR only after confirmation and media permission",
+                runtimePermissions = listOf("READ_MEDIA_IMAGES"),
+            ),
+            DeviceContextToolReadiness(
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                state = DeviceContextToolReadinessState.RequiresSpecialAccess,
+                reason = "current screen text uses Accessibility text nodes, not screenshots or OCR",
+                specialAccessId = SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
+            ),
+            DeviceContextToolReadiness(
+                toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+                state = DeviceContextToolReadinessState.RequiresForegroundConsent,
+                reason = "current screenshot OCR requires one-shot foreground MediaProjection consent after tool confirmation",
+                specialAccessId = CurrentScreenshotOcrContract.CONSENT_REASON,
+            ),
         )
 
     private fun PendingAgentConfirmation.matchesExecution(other: PendingAgentConfirmation): Boolean =

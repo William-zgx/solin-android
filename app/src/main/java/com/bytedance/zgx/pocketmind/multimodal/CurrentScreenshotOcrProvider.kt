@@ -1,0 +1,168 @@
+package com.bytedance.zgx.pocketmind.multimodal
+
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.PixelFormat
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
+import android.media.Image
+import android.media.ImageReader
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
+import android.os.Handler
+import android.os.HandlerThread
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.roundToInt
+
+private const val MAX_CURRENT_SCREEN_OCR_BITMAP_DIMENSION = 1_600
+
+interface CurrentScreenshotOcrProvider {
+    fun setOneShotConsent(resultCode: Int, data: Intent?)
+    fun captureCurrentScreenshotOcr(): CurrentScreenshotOcrReadResult
+}
+
+sealed interface CurrentScreenshotOcrReadResult {
+    data object MissingConsent : CurrentScreenshotOcrReadResult
+    data class Available(
+        val text: String?,
+        val truncated: Boolean,
+    ) : CurrentScreenshotOcrReadResult
+
+    data class Failed(val reason: String) : CurrentScreenshotOcrReadResult
+}
+
+class AndroidCurrentScreenshotOcrProvider(
+    private val context: Context,
+    private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
+) : CurrentScreenshotOcrProvider {
+    private val pendingConsent = AtomicReference<CurrentScreenshotOcrConsent?>()
+
+    override fun setOneShotConsent(resultCode: Int, data: Intent?) {
+        pendingConsent.set(
+            data
+                ?.takeIf { resultCode == Activity.RESULT_OK }
+                ?.let { CurrentScreenshotOcrConsent(resultCode = resultCode, data = Intent(it)) },
+        )
+    }
+
+    override fun captureCurrentScreenshotOcr(): CurrentScreenshotOcrReadResult {
+        val consent = pendingConsent.getAndSet(null)
+            ?: return CurrentScreenshotOcrReadResult.MissingConsent
+        val projection = mediaProjectionManager().getMediaProjection(consent.resultCode, consent.data)
+            ?: return CurrentScreenshotOcrReadResult.MissingConsent
+        val metrics = context.resources.displayMetrics
+        val width = metrics.widthPixels.coerceAtLeast(1)
+        val height = metrics.heightPixels.coerceAtLeast(1)
+        val densityDpi = metrics.densityDpi.coerceAtLeast(1)
+        val handlerThread = HandlerThread("PocketMindCurrentScreenshotOcr")
+        handlerThread.start()
+        val handler = Handler(handlerThread.looper)
+        val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, IMAGE_READER_MAX_IMAGES)
+        var virtualDisplay: VirtualDisplay? = null
+        val projectionCallback = object : MediaProjection.Callback() {}
+        return try {
+            projection.registerCallback(projectionCallback, handler)
+            val capturedImage = AtomicReference<Image?>()
+            val imageLatch = CountDownLatch(1)
+            imageReader.setOnImageAvailableListener(
+                { reader ->
+                    val image = reader.acquireLatestImage()
+                    val previous = if (image != null) capturedImage.getAndSet(image) else null
+                    previous?.close()
+                    imageLatch.countDown()
+                },
+                handler,
+            )
+            virtualDisplay = projection.createVirtualDisplay(
+                VIRTUAL_DISPLAY_NAME,
+                width,
+                height,
+                densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader.surface,
+                null,
+                handler,
+            )
+            if (!imageLatch.await(CAPTURE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                return CurrentScreenshotOcrReadResult.Failed("当前屏幕截图超时")
+            }
+            val image = capturedImage.getAndSet(null)
+                ?: return CurrentScreenshotOcrReadResult.Failed("当前屏幕截图不可用")
+            image.useToBitmap { bitmap ->
+                val ocrBitmap = bitmap.scaledForOcr()
+                try {
+                    val preview = imageTextExtractor.extract(ocrBitmap)
+                    CurrentScreenshotOcrReadResult.Available(
+                        text = preview?.text?.takeIf { it.isNotBlank() },
+                        truncated = preview?.truncated ?: false,
+                    )
+                } finally {
+                    if (ocrBitmap !== bitmap) ocrBitmap.recycle()
+                }
+            }
+        } catch (_: SecurityException) {
+            CurrentScreenshotOcrReadResult.MissingConsent
+        } catch (_: Throwable) {
+            CurrentScreenshotOcrReadResult.Failed("当前屏幕 OCR 服务不可用")
+        } finally {
+            virtualDisplay?.release()
+            imageReader.close()
+            runCatching { projection.unregisterCallback(projectionCallback) }
+            projection.stop()
+            handlerThread.quitSafely()
+        }
+    }
+
+    private fun mediaProjectionManager(): MediaProjectionManager =
+        context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+
+    private data class CurrentScreenshotOcrConsent(
+        val resultCode: Int,
+        val data: Intent,
+    )
+
+    private companion object {
+        const val VIRTUAL_DISPLAY_NAME = "PocketMindCurrentScreenshotOcr"
+        const val IMAGE_READER_MAX_IMAGES = 2
+        const val CAPTURE_TIMEOUT_MILLIS = 2_500L
+    }
+}
+
+private inline fun Image.useToBitmap(block: (Bitmap) -> CurrentScreenshotOcrReadResult): CurrentScreenshotOcrReadResult =
+    use { image ->
+        val bitmap = image.toBitmap()
+        try {
+            block(bitmap)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+private fun Image.toBitmap(): Bitmap {
+    val plane = planes.first()
+    val buffer = plane.buffer
+    buffer.rewind()
+    val pixelStride = plane.pixelStride.coerceAtLeast(1)
+    val rowStride = plane.rowStride.coerceAtLeast(width * pixelStride)
+    val rowPadding = (rowStride - pixelStride * width).coerceAtLeast(0)
+    val bitmapWidth = width + rowPadding / pixelStride
+    val bitmap = Bitmap.createBitmap(bitmapWidth, height, Bitmap.Config.ARGB_8888)
+    bitmap.copyPixelsFromBuffer(buffer)
+    if (bitmapWidth == width) return bitmap
+    return Bitmap.createBitmap(bitmap, 0, 0, width, height).also {
+        bitmap.recycle()
+    }
+}
+
+private fun Bitmap.scaledForOcr(): Bitmap {
+    val maxDimension = maxOf(width, height)
+    if (maxDimension <= MAX_CURRENT_SCREEN_OCR_BITMAP_DIMENSION) return this
+    val scale = MAX_CURRENT_SCREEN_OCR_BITMAP_DIMENSION.toFloat() / maxDimension.toFloat()
+    val scaledWidth = (width * scale).roundToInt().coerceAtLeast(1)
+    val scaledHeight = (height * scale).roundToInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(this, scaledWidth, scaledHeight, true)
+}

@@ -43,6 +43,10 @@ Current status:
   `SkillRunExecutor` also repeat this validation at observe, execute, and
   resume boundaries to protect restored or externally supplied tool results
   that did not come directly from `ValidatingToolExecutor`.
+- Successful results for any tool that declares `privateOutputKeys` must also
+  satisfy `privacy=LocalOnly` and `requiresLocalModel=true`; schema-valid but
+  remote-eligible private output is converted into a non-retryable
+  `InvalidResult`.
 - For tools that declare `privateOutputKeys`, failed, rejected, and cancelled
   results are still not required to satisfy the success schema, but the Tool
   Registry sanitizes their non-success contract: data is rebuilt from a small
@@ -90,8 +94,17 @@ Current status:
   targets.
 - `read_current_screen_text` belongs to this
   tool boundary as a confirmed, `LocalOnly` device-context read. It may expose
-  only a bounded current Accessibility text-node snapshot, not screenshots, OCR
-  output, pixels, or semantic screen understanding.
+  only a bounded current Accessibility text-node snapshot plus coarse structure
+  summary metadata, not screenshots, OCR output, pixels, coordinates, node ids,
+  full hierarchy, or semantic screen understanding.
+- `capture_current_screenshot_ocr` is now a registered ToolSpec backed by a
+  one-shot Android MediaProjection consent flow. Its input/output schema is
+  locked to `current_screen` capture, `LocalOnly`, `requiresLocalModel=true`,
+  `truncated` status, and bounded OCR text only. The ActivityResult token is
+  kept in memory, consumed once by `CurrentScreenshotOcrProvider`, and is never
+  serialized into `ToolRequest`, trace, audit, or pending confirmation rows.
+  Without a fresh foreground MediaProjection consent result, the executor fails
+  closed.
 - Tools that may require runtime permissions declare that requirement in
   `ToolSpec` only when the current runtime permission policy can request a
   concrete Android manifest permission. The Activity boundary maps pending tool
@@ -105,9 +118,12 @@ Tests:
 
 - `ToolRegistryTest`
 - `ToolSchemaContractTest`
+- `ToolSchemaContractTest.privateOutputToolsRejectNonLocalModelBoundary`
 - `CalendarAvailabilityToolExecutorTest`
 - `DeviceContextToolExecutorTest`
 - `RoutingAndValidatingToolExecutorTest`
+- `RoutingAndValidatingToolExecutorTest.currentScreenshotOcrFailsClosedUntilMediaProjectionConsent`
+- `RoutingAndValidatingToolExecutorTest.currentScreenshotOcrUsesOneShotProviderResultAfterConsent`
 - `ActionExecutorTest`
 - `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
 - `MainActivityRuntimePermissionUiTest` runtime permission requirement confirmation UI
@@ -464,6 +480,12 @@ Current status:
   restart can continue only after the user records `Completed`. Payload-bearing,
   model-planned, and composite Skill tails remain fail-closed across restart
   until a richer value-free cursor is added.
+- `AgentContinuationCursorV2` makes that restore contract explicit in the core
+  model types: restore is allowed only for matching source request ids,
+  current-result revalidation, value-free request/draft shapes, no raw
+  persisted payload, no model-planned tail, and no Skill input payload. It is a
+  typed guard for future cursor persistence rather than arbitrary step
+  rehydration.
 - Full-input Skill-first planning still rejects sequential commands so a Skill
   cannot swallow later user intent. Per-segment fallback may start a composite
   Skill for that segment only, while a bare private-read segment such as "read
@@ -526,6 +548,9 @@ Tests:
 - `PocketMindViewModelTest.restoredPendingExternalOutcomeCompletedCanShowNextPendingConfirmation`
 - `AgentTraceStoreTest.roomStoreRestoresContinuationCursorFromTraceAfterPendingConfirmationClears`
 - `AgentTraceStoreTest.roomStoreDoesNotPersistContinuationCursorWithExecutablePayload`
+- `AgentContinuationCursorV2Test.valueFreeCursorWithRevalidatedCurrentResultIsRestorable`
+- `AgentContinuationCursorV2Test.cursorWithPayloadOrMissingRevalidationIsNotRestorable`
+- `AgentContinuationCursorV2Test.cursorSourceMismatchIsNotRestorable`
 - `AgentTraceStoreTest.roomStoreFailsClosedWhenContinuationCursorSkillPlanContainsRawInput`
 - `AgentTraceStoreTest.roomStoreKeepsRestorablePendingExternalOutcomeOnStartupRepair`
 - `AgentTraceStoreTest.roomStoreFailsUnrestorablePendingExternalOutcomeOnStartupRepair`
@@ -586,6 +611,10 @@ Current status:
 
 - Implemented `SkillManifest`, `SkillRequest`, `SkillPlan`, `SkillStep`, and
   `SkillRuntime`.
+- Built-in parser-backed Skills are now represented by `SkillDefinition` values
+  in a `SkillCatalog`, so manifests, trigger examples, direct tool mappings,
+  and planner metadata live behind one catalog contract instead of scattered
+  intent-only mappings.
 - `SkillRuntime` now exposes an optional Skill-first planner for requests that
   can safely build their first tool step from the raw user input.
 - Implemented built-in manifests for email drafts, calendar drafts, map search,
@@ -703,10 +732,17 @@ Current status:
   `ToolRegistry`. Every trigger example must route back to its owning Skill, and
   the representative planning fixture set must cover every built-in manifest, so
   adding or removing a built-in Skill requires an explicit contract update.
+- Added a narrow current-screen screenshot OCR context Skill for explicit
+  current-screen screenshot/OCR text requests. It maps to
+  `capture_current_screenshot_ocr` and remains separate from both recent
+  MediaStore screenshot OCR and Accessibility text-node reads.
 
 Tests:
 
 - `BuiltInSkillRuntimeTest`
+- `BuiltInSkillRuntimeTest.builtInSkillCatalogOwnsManifestsAndDirectToolMappings`
+- `BuiltInSkillRuntimeTest.plansCurrentScreenshotOcrWithoutActionDraftWhenCommandIsExplicit`
+- `ActionPlannerTest.parsesCurrentScreenshotOcrCallOutput`
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareAsOrderedCompositeSkill`
 - `BuiltInSkillRuntimeTest.plansCurrentScreenTextSummaryShareAsOrderedCompositeSkill`
 - `BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills`
@@ -791,6 +827,12 @@ Current status:
   `DeviceContextSnapshot` containing non-secret state such as inference mode,
   installed capability classes, memory toggle, storage estimate, active-session
   presence, and pending confirmation state.
+- `DeviceContextSnapshot.toolReadiness` exposes
+  `DeviceContextToolReadiness` entries for local context tools, including
+  available, runtime-permission blocked, special-access blocked,
+  foreground-consent required, and unavailable states. The prompt includes tool
+  names and state/reason metadata only, never clipboard text, OCR text,
+  contacts, calendar data, files, screen text, or raw session ids.
 - The Agent loop records this context in trace and may include it in the model
   prompt behind an instruction to use it only when relevant.
 - Implemented a confirmed `read_clipboard` tool for current foreground text
@@ -883,6 +925,10 @@ Current status:
   trace, audit, persisted tool-observation messages, or remote model prompts.
   Its Accessibility requirement is special access, not a normal runtime
   permission.
+- The Accessibility screen text snapshot now also returns a coarse structure
+  summary such as node count and visible-text-item count. That summary is
+  `LocalOnly`, private, and excludes node ids, bounds, hierarchy, screenshots,
+  OCR, and visual semantics.
 - JVM executor matrix tests cover foreground app, notification summary, contact
   summary, calendar availability, recent file metadata, recent screenshot OCR,
   and recent image OCR success, permission denied, provider failure, LocalOnly,
@@ -895,10 +941,12 @@ Current status:
 Tests:
 
 - `DeviceContextModelsTest`
+- `DeviceContextModelsTest.promptContextRedactsRawSessionId`
 - `ForegroundAppProviderTest`
 - `CalendarAvailabilityProviderTest`
 - `RecentFileCollectorTest`
 - `DeviceContextToolExecutorTest`
+- `DeviceContextToolExecutorTest.currentScreenTextSuccessReturnsLocalOnlyTextWithoutNodeTree`
 - `ToolSchemaContractTest.recentScreenshotOcrOutputRejectsMultiScreenshotCount`
 - `CalendarAvailabilityToolExecutorTest`
 - `RoutingAndValidatingToolExecutorTest.routingExecutorDispatchesDeviceContextToolsBeforeDelegate`
@@ -1185,6 +1233,12 @@ Current status:
 - Explicit preference records use deterministic ids derived from normalized
   preference text, so repeating the same remember command upserts one record
   instead of creating duplicate long-term memories.
+- Explicit user facts now use `MemoryRecordType.UserFact` instead of being
+  folded into `Preference`. Fact records use deterministic ids derived from the
+  normalized fact key, can be remembered, updated, and forgotten through
+  local-only control commands, are skipped during rebuild from control-message
+  history, and remain outside remote prompts/history unless the user manually
+  provides the content.
 - Explicit response-length and response-language preferences resolve conflicts
   by replacing older records in the same preference family, so `记住` commands
   update the user's current answer-style preference instead of keeping
@@ -1249,14 +1303,19 @@ Tests:
 - `MemoryRepositoryTest.forgetPreferenceCanDeleteResponsePreferenceFamily`
 - `MemoryRepositoryTest.forgetPreferenceStillDeletesExactUnrelatedPreference`
 - `MemoryRepositoryTest.explicitPreferenceForgetExtractorSupportsChineseAndEnglishCommands`
+- `MemoryRepositoryTest.explicitUserFactExtractorSupportsChineseAndEnglishRememberCommands`
+- `MemoryRepositoryTest.explicitUserFactRecordsPersistUpdateAndForgetByFactKey`
 - `MemoryRepositoryTest.rebuildSkipsExplicitPreferenceForgetCommandsWithoutConversationRecord`
+- `MemoryRepositoryTest.rebuildSkipsExplicitUserFactCommandsWithoutConversationRecord`
 - `MemoryRepositoryTest.semanticRuntimeControllerSwitchesBetweenFallbackAndSemanticRuntime`
 - `MemoryRepositoryTest.memoryModelPathDoesNotEnableSemanticRecallWithoutRuntimeSupport`
 - `ModelRepositoryPathTest`
 - `MemoryRepositoryTest.taskStateMemoryRecordIdIsStableForWhitespace`
 - `PocketMindViewModelTest`
 - `PocketMindViewModelTest.rememberCommandReplacesConflictingPreferenceMemory`
+- `PocketMindViewModelTest.rememberCommandPersistsUserFactMemory`
 - `PocketMindViewModelTest.forgetPreferenceCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime`
+- `PocketMindViewModelTest.forgetUserFactCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime`
 - `PocketMindViewModelTest.forgetPreferenceFamilyCommandDeletesMatchingPreferenceAndBypassesRemoteRuntime`
 - `PocketMindViewModelTest.remoteForgetPreferenceCommandDoesNotEnterLaterRemoteHistory`
 - `PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex`
@@ -1286,6 +1345,10 @@ Current status:
 
 - Implemented `schedule_reminder` as a confirmed tool and `reminder_skill` as a
   built-in one-step skill.
+- `BackgroundSkillSpec` defines the approved scheduled-local-skill boundary:
+  background skills must be explicitly user-configured, frequency-bounded,
+  local-only, limited to read-only local state or local notification work, and
+  any outbound or execution follow-up must return to foreground confirmation.
 - Implemented `ScheduledTaskRepository`, `AndroidBackgroundTaskScheduler`, a
   reminder notification channel, `ReminderAlarmReceiver`, and
   `ReminderBootReceiver`.
@@ -1409,6 +1472,9 @@ Current status:
 Tests:
 
 - `ScheduledTaskRepositoryTest`
+- `BackgroundSkillSpecTest.acceptsUserConfiguredBoundedLocalReadOnlyOrNotificationSkill`
+- `BackgroundSkillSpecTest.rejectsImplicitUnboundedRemoteOrOutboundBackgroundSkill`
+- `BackgroundSkillSpecTest.rejectsToolThatCouldRunWithoutExplicitConfirmation`
 - `PeriodicCheckSchedulerTest`
 - `ReminderAlarmReceiverTest`
 - `ActionExecutorTest.schedulesReminderThroughBackgroundScheduler`
@@ -1505,17 +1571,26 @@ Current status:
   recent image OCR are implemented as confirmed Device Context tools, not
   automatic shared-input ingestion. The current-screen Accessibility
   text snapshot tool follows the same Device Context boundary and reads text
-  nodes only; screenshot capture, screen semantic understanding, PDF layout
-  parsing, legacy Office parsing, full rich-text fidelity, image semantic
-  understanding, and media content understanding are pending. RTF, PDF text
-  layer, and Office Open XML extraction are not complete document parsing. OCR
-  is limited to user-provided PDF scanned-page fallback, user-provided `image/*`
-  attachments, the user-confirmed recent screenshot OCR tool, or the
-  user-confirmed recent image OCR tool, and produces text excerpts only.
+  nodes only. `capture_current_screenshot_ocr` uses a user-confirmed, one-shot
+  Android MediaProjection ActivityResult flow, consumes the consent token in
+  memory, captures one current-screen frame, runs local ML Kit OCR, and returns
+  only bounded OCR text plus `truncated` / included flags. It does not persist
+  pixels, URIs, paths, window titles, or visual descriptions. Screen semantic
+  understanding, PDF layout parsing, legacy Office parsing, full rich-text
+  fidelity, image semantic understanding, and media content understanding are
+  pending. RTF, PDF text layer, and Office Open XML extraction are not complete
+  document parsing. OCR is limited to user-provided PDF scanned-page fallback,
+  user-provided `image/*` attachments, user-confirmed recent screenshot/image
+  OCR tools, or user-confirmed current screenshot OCR, and produces text
+  excerpts only.
 
 Tests:
 
 - `SharedInputTest`
+- `CurrentScreenshotOcrContractTest.schemaLocksOneShotLocalOnlyOcrBoundary`
+- `CurrentScreenshotOcrContractTest.boundaryRejectsContinuousRemotePersistentOrSemanticCapture`
+- `RoutingAndValidatingToolExecutorTest.currentScreenshotOcrUsesOneShotProviderResultAfterConsent`
+- `AgentRuntimePermissionPolicyTest.currentScreenshotOcrDeclaresMediaProjectionConsentNotRuntimePermission`
 - `PocketMindViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory`
 - `PocketMindViewModelTest.remoteModeRejectsDirectSharedTextBeforeBuildingPrompt`
 - `PocketMindViewModelTest.remoteModeRejectsSharedAttachmentMetadataBeforeBuildingPrompt`
@@ -1542,7 +1617,15 @@ Local verification:
 ```bash
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:assembleDebug
+scripts/test_validation_scripts.sh
 ```
+
+Script contract gate:
+
+- `scripts/test_validation_scripts.sh` covers the fake-SDK validation contracts
+  for local, device, emulator, and regression-emulator helpers. Run it whenever
+  validation script behavior or documentation contracts change, before treating
+  shell helper output as release evidence.
 
 Documentation coverage:
 

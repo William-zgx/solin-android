@@ -71,6 +71,7 @@ class SafetyPolicy {
             ToolPermission.ReadsFiles,
             ToolPermission.ReadsCalendar,
             ToolPermission.ReadsAccessibilityText,
+            ToolPermission.RequiresMediaProjectionConsent,
             ToolPermission.ReadsDeviceContext,
         )
     }

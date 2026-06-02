@@ -208,6 +208,21 @@ class ToolRegistryTest {
         assertTrue(currentScreenTextSpec.description.contains("Accessibility"))
         assertTrue(currentScreenTextSpec.description.contains("不是截图"))
 
+        val currentScreenshotOcrSpec = registry.specFor(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR)
+        assertNotNull(currentScreenshotOcrSpec)
+        requireNotNull(currentScreenshotOcrSpec)
+        assertEquals(ToolCapability.DeviceContext, currentScreenshotOcrSpec.capability)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, currentScreenshotOcrSpec.riskLevel)
+        assertEquals(ConfirmationPolicy.Required, currentScreenshotOcrSpec.confirmationPolicy)
+        assertTrue(ToolPermission.ReadsDeviceContext in currentScreenshotOcrSpec.permissions)
+        assertTrue(ToolPermission.RequiresMediaProjectionConsent in currentScreenshotOcrSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in currentScreenshotOcrSpec.permissions)
+        assertTrue(currentScreenshotOcrSpec.inputSchemaJson.contains("\"captureMode\""))
+        assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("capture_current_screenshot_ocr"))
+        assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("\"truncated\""))
+        assertTrue(currentScreenshotOcrSpec.description.contains("MediaProjection"))
+        assertTrue(currentScreenshotOcrSpec.description.contains("不保存图片"))
+
         val recentNotificationSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS)
         assertNotNull(recentNotificationSpec)
         requireNotNull(recentNotificationSpec)
@@ -391,6 +406,7 @@ class ToolRegistryTest {
             ToolPermission.ReadsFiles,
             ToolPermission.ReadsCalendar,
             ToolPermission.ReadsAccessibilityText,
+            ToolPermission.RequiresMediaProjectionConsent,
             ToolPermission.ReadsDeviceContext,
         )
         val privateReadSpecs = registry.specs()
@@ -422,7 +438,8 @@ class ToolRegistryTest {
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to
-                setOf("capturedAtMillis", "nodeCount", "screenText", "packageName"),
+                setOf("capturedAtMillis", "nodeCount", "screenText", "packageName", "structureSummary"),
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to setOf("ocrText"),
         )
 
         expectedPrivateOutputs.forEach { (toolName, privateKeys) ->
@@ -454,6 +471,7 @@ class ToolRegistryTest {
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to setOf("maxCount"),
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to setOf("maxCount"),
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("maxChars"),
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to setOf("captureMode"),
             MobileActionFunctions.CANCEL_REMINDER to setOf("taskId"),
             MobileActionFunctions.CONFIGURE_PERIODIC_CHECK to setOf(
                 "enabled",
@@ -511,6 +529,7 @@ class ToolRegistryTest {
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
             MobileActionFunctions.READ_RECENT_IMAGE_OCR,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
         )
 
         localOnlyDeviceTools.forEach { toolName ->
@@ -557,6 +576,8 @@ class ToolRegistryTest {
         assertTrue(sourceEnum.containsString("accessibility_active_window"))
         assertFalse(sourceEnum.containsString("screenshot"))
         assertTrue(outputProperties.getJSONObject("source").getString("description").contains("never screenshot"))
+        assertTrue(outputProperties.getJSONObject("structureSummary").getString("description").contains("Coarse"))
+        assertTrue(outputProperties.getJSONObject("structureSummary").getString("description").contains("no node ids"))
 
         val metadataPolicyEnum = outputProperties.getJSONObject("metadataPolicy").getJSONArray("enum")
         assertEquals(1, metadataPolicyEnum.length())
@@ -583,6 +604,8 @@ class ToolRegistryTest {
             "packageName" to "com.example.app",
             "truncated" to "false",
             "screenTextIncluded" to "true",
+            "structureSummary" to "nodeCount=3; visibleTextItemCount=2; textSnapshotIncluded=true",
+            "structureSummaryIncluded" to "true",
             "rawTreeIncluded" to "false",
             "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
         )
@@ -650,7 +673,8 @@ class ToolRegistryTest {
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to
-                setOf("capturedAtMillis", "nodeCount", "screenText", "packageName"),
+                setOf("capturedAtMillis", "nodeCount", "screenText", "packageName", "structureSummary"),
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to setOf("ocrText"),
         )
 
         expectedPrivateOutputs.forEach { (toolName, privateKeys) ->
@@ -806,6 +830,50 @@ class ToolRegistryTest {
         assertFalse(wrongOutputType.retryable)
         assertTrue(wrongOutputType.summary.contains("truncated"))
         assertTrue(wrongOutputType.summary.contains("true or false"))
+    }
+
+    @Test
+    fun validateResultRejectsPrivateOutputWithRequiresLocalModelFalse() {
+        val request = ToolRequest(
+            id = "clipboard-local-model-boundary",
+            toolName = MobileActionFunctions.READ_CLIPBOARD,
+            reason = "schema contract",
+        )
+        val validData = mapOf(
+            "toolName" to request.toolName,
+            "privacy" to MessagePrivacy.LocalOnly.name,
+            "requiresLocalModel" to "true",
+            "text" to "clipboard text",
+            "truncated" to "false",
+        )
+
+        assertNull(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(summary = "read clipboard", data = validData),
+            ),
+        )
+
+        assertInvalidResult(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "read clipboard without local model boundary",
+                    data = validData + ("requiresLocalModel" to "false"),
+                ),
+            ),
+            "requiresLocalModel=true",
+        )
+        val invalid = registry.validateResult(
+            request = request,
+            result = request.succeeded(
+                summary = "read clipboard without local model boundary",
+                data = validData + ("requiresLocalModel" to "false"),
+            ),
+        )
+        requireNotNull(invalid)
+        assertEquals(MessagePrivacy.LocalOnly.name, invalid.data["privacy"])
+        assertEquals(true.toString(), invalid.data["requiresLocalModel"])
     }
 
     @Test

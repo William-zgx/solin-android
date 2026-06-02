@@ -9,6 +9,7 @@ import com.bytedance.zgx.pocketmind.action.CancelReminderActionParser
 import com.bytedance.zgx.pocketmind.action.ContactDraftActionParser
 import com.bytedance.zgx.pocketmind.action.ContactQueryActionParser
 import com.bytedance.zgx.pocketmind.action.CurrentScreenTextActionParser
+import com.bytedance.zgx.pocketmind.action.CurrentScreenshotOcrActionParser
 import com.bytedance.zgx.pocketmind.action.DeepLinkActionParser
 import com.bytedance.zgx.pocketmind.action.DeviceSettingsActionParser
 import com.bytedance.zgx.pocketmind.action.EmailDraftActionParser
@@ -28,36 +29,11 @@ import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import java.util.UUID
 
 class BuiltInSkillRuntime : SkillRuntime {
-    private val manifestsById = builtInSkillManifests.associateBy { it.id }
-    private val skillByToolName = mapOf(
-        MobileActionFunctions.COMPOSE_EMAIL to EMAIL_DRAFT_SKILL,
-        MobileActionFunctions.CREATE_CALENDAR_EVENT to CALENDAR_DRAFT_SKILL,
-        MobileActionFunctions.CREATE_CONTACT_DRAFT to CONTACT_DRAFT_SKILL,
-        MobileActionFunctions.SEARCH_MAPS to MAP_SEARCH_SKILL,
-        MobileActionFunctions.WEB_SEARCH to INFORMATION_LOOKUP_SKILL,
-        MobileActionFunctions.OPEN_WIFI_SETTINGS to DEVICE_SETTINGS_SKILL,
-        MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS to DEVICE_SETTINGS_SKILL,
-        MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS to DEVICE_SETTINGS_SKILL,
-        MobileActionFunctions.SCHEDULE_REMINDER to REMINDER_SKILL,
-        MobileActionFunctions.CANCEL_REMINDER to REMINDER_SKILL,
-        MobileActionFunctions.CONFIGURE_PERIODIC_CHECK to PERIODIC_CHECK_SKILL,
-        MobileActionFunctions.QUERY_BACKGROUND_TASKS to BACKGROUND_TASKS_CONTEXT_SKILL,
-        MobileActionFunctions.READ_CLIPBOARD to CLIPBOARD_CONTEXT_SKILL,
-        MobileActionFunctions.SHARE_TEXT to SHARE_TEXT_SKILL,
-        MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to RECENT_SCREENSHOT_OCR_CONTEXT_SKILL,
-        MobileActionFunctions.READ_RECENT_IMAGE_OCR to RECENT_IMAGE_OCR_CONTEXT_SKILL,
-        MobileActionFunctions.QUERY_RECENT_FILES to RECENT_FILES_CONTEXT_SKILL,
-        MobileActionFunctions.OPEN_DEEP_LINK to DEEP_LINK_NAVIGATION_SKILL,
-        MobileActionFunctions.QUERY_FOREGROUND_APP to FOREGROUND_APP_CONTEXT_SKILL,
-        MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS to RECENT_NOTIFICATIONS_CONTEXT_SKILL,
-        MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to CURRENT_SCREEN_TEXT_CONTEXT_SKILL,
-        MobileActionFunctions.QUERY_CONTACTS to CONTACT_LOOKUP_SKILL,
-        MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY to CALENDAR_AVAILABILITY_SKILL,
-        MobileActionFunctions.OPEN_APP_INTENT to APP_NAVIGATION_SKILL,
-        MobileActionFunctions.OPEN_APP_DEEP_TARGET to APP_NAVIGATION_SKILL,
-    )
+    internal val catalog: SkillCatalog = builtInSkillCatalog
+    private val manifestsById = catalog.manifestsById
+    private val skillByToolName = catalog.skillIdByToolName
 
-    override fun manifests(): List<SkillManifest> = builtInSkillManifests
+    override fun manifests(): List<SkillManifest> = catalog.manifests()
 
     override fun plan(input: String): SkillPlan? =
         when {
@@ -95,6 +71,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && RecentImageOcrActionParser.matches(input) ->
                 plan(input, RecentImageOcrActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && CurrentScreenshotOcrActionParser.matches(input) ->
+                plan(input, CurrentScreenshotOcrActionParser.draft().toRequestPair())
 
             !input.looksLikeSequentialAction() && RecentFilesActionParser.matches(input) ->
                 plan(input, RecentFilesActionParser.draft(input).toRequestPair())
@@ -338,6 +317,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL = "current_screen_text_summary_share_skill"
         const val RECENT_SCREENSHOT_OCR_CONTEXT_SKILL = "recent_screenshot_ocr_context_skill"
         const val RECENT_IMAGE_OCR_CONTEXT_SKILL = "recent_image_ocr_context_skill"
+        const val CURRENT_SCREENSHOT_OCR_CONTEXT_SKILL = "current_screenshot_ocr_context_skill"
         const val RECENT_FILES_CONTEXT_SKILL = "recent_files_context_skill"
         const val DEEP_LINK_NAVIGATION_SKILL = "deep_link_navigation_skill"
         const val FOREGROUND_APP_CONTEXT_SKILL = "foreground_app_context_skill"
@@ -635,6 +615,16 @@ private val builtInSkillManifests = listOf(
         riskLevel = RiskLevel.MediumDraftOrNavigation,
     ),
     SkillManifest(
+        id = BuiltInSkillRuntime.CURRENT_SCREENSHOT_OCR_CONTEXT_SKILL,
+        version = 1,
+        title = "当前屏幕截图 OCR 上下文",
+        description = "在用户确认并完成 MediaProjection 前台同意后，单次截取当前屏幕并本地提取 OCR 文本；不保存图片、像素、URI、路径或窗口标题。",
+        triggerExamples = listOf("识别当前屏幕截图文字", "current screen screenshot text"),
+        requiredTools = listOf(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
         id = BuiltInSkillRuntime.RECENT_FILES_CONTEXT_SKILL,
         version = 1,
         title = "最近文件上下文",
@@ -721,3 +711,21 @@ private val builtInSkillManifests = listOf(
         riskLevel = RiskLevel.LowReadOnly,
     ),
 )
+
+private val builtInCompositeSkillIds = setOf(
+    BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
+    BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
+)
+
+private val builtInSkillDefinitions = builtInSkillManifests.map { manifest ->
+    SkillDefinition(
+        manifest = manifest,
+        directToolNames = if (manifest.id in builtInCompositeSkillIds) {
+            emptyList()
+        } else {
+            manifest.requiredTools
+        },
+    )
+}
+
+private val builtInSkillCatalog = SkillCatalog(builtInSkillDefinitions)

@@ -1599,14 +1599,20 @@ class AgentLoopRuntime(
             }
 
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-            MobileActionFunctions.READ_RECENT_IMAGE_OCR -> {
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> {
                 val ocrText = result.data["ocrText"]?.takeIf { it.isNotBlank() } ?: return null
                 val truncated = result.data["truncated"]?.toBooleanStrictOrNull() ?: false
                 val contentLabel = request.toolName.recentImageOcrContentLabel()
-                val sourceBoundary = if (request.toolName == MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR) {
-                    "这不是当前屏幕捕获，也不是图片语义理解；只使用已提取的截图文字。"
-                } else {
-                    "这不是当前屏幕捕获，也不是图片语义理解；只使用已提取的图片文字。"
+                val sourceBoundary = when (request.toolName) {
+                    MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR ->
+                        "这不是当前屏幕捕获，也不是图片语义理解；只使用已提取的截图文字。"
+
+                    MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR ->
+                        "这是用户前台同意后的单次当前屏幕截图 OCR；只使用已提取的文字，不推断视觉语义。"
+
+                    else ->
+                        "这不是当前屏幕捕获，也不是图片语义理解；只使用已提取的图片文字。"
                 }
                 ToolObservationContinuation(
                     prompt = """
@@ -1755,6 +1761,7 @@ class AgentLoopRuntime(
     private fun String?.recentImageOcrContentLabel(): String =
         when (this) {
             MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "最近图片"
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> "当前屏幕截图"
             else -> "最近截图"
         }
 

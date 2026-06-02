@@ -74,6 +74,37 @@ class BuiltInSkillRuntimeTest {
     }
 
     @Test
+    fun builtInSkillCatalogOwnsManifestsAndDirectToolMappings() {
+        assertEquals(runtime.manifests(), runtime.catalog.manifests())
+        assertEquals(
+            BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL,
+            runtime.catalog.skillIdByToolName.getValue(MobileActionFunctions.READ_CLIPBOARD),
+        )
+        assertEquals(
+            BuiltInSkillRuntime.SHARE_TEXT_SKILL,
+            runtime.catalog.skillIdByToolName.getValue(MobileActionFunctions.SHARE_TEXT),
+        )
+        assertEquals(
+            BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_CONTEXT_SKILL,
+            runtime.catalog.skillIdByToolName.getValue(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT),
+        )
+        assertEquals(
+            BuiltInSkillRuntime.CURRENT_SCREENSHOT_OCR_CONTEXT_SKILL,
+            runtime.catalog.skillIdByToolName.getValue(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR),
+        )
+        assertFalse(
+            runtime.catalog.skillIdByToolName.values.contains(BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL),
+        )
+        assertFalse(
+            runtime.catalog.skillIdByToolName.values.contains(BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL),
+        )
+        runtime.catalog.definitions.forEach { definition ->
+            assertTrue(definition.manifest.requiredTools.containsAll(definition.directToolNames))
+            assertEquals(definition.manifest.triggerExamples, definition.triggerExamples)
+        }
+    }
+
+    @Test
     fun builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema() {
         val plans = listOf(
             "帮我写封邮件" to requireNotNull(
@@ -177,6 +208,7 @@ class BuiltInSkillRuntimeTest {
             "当前应用是什么" to requireNotNull(runtime.plan("当前应用是什么")),
             "最近通知" to requireNotNull(runtime.plan("最近通知")),
             "总结当前屏幕文字" to requireNotNull(runtime.plan("总结当前屏幕文字")),
+            "识别当前屏幕截图文字" to requireNotNull(runtime.plan("识别当前屏幕截图文字")),
             "查联系人 Alice" to requireNotNull(runtime.plan("查联系人 Alice")),
             "查看后台任务" to requireNotNull(runtime.plan("查看后台任务")),
             "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z" to requireNotNull(
@@ -770,7 +802,35 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("别读最近截图文字"))
         assertEquals(null, runtime.plan("截图 OCR 怎么实现"))
         assertEquals(null, runtime.plan("screenshot OCR API"))
-        assertEquals(null, runtime.plan("当前屏幕 OCR"))
+    }
+
+    @Test
+    fun plansCurrentScreenshotOcrWithoutActionDraftWhenCommandIsExplicit() {
+        val input = "识别当前屏幕截图文字"
+        val plan = requireNotNull(runtime.plan(input))
+
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREENSHOT_OCR_CONTEXT_SKILL, plan.request.skillId)
+        assertEquals(mapOf("input" to input), plan.request.arguments)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR, step.request.toolName)
+        assertEquals("current_screen", step.request.arguments["captureMode"])
+        assertEquals(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR, step.draft.functionName)
+        assertTrue(step.draft.requiresConfirmation)
+        assertTrue(step.draft.summary.contains("MediaProjection"))
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+
+        val currentOcrPlan = requireNotNull(runtime.plan("当前屏幕 OCR"))
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREENSHOT_OCR_CONTEXT_SKILL, currentOcrPlan.request.skillId)
+
+        val englishPlan = requireNotNull(runtime.plan("current screen screenshot text"))
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREENSHOT_OCR_CONTEXT_SKILL, englishPlan.request.skillId)
+
+        assertEquals(null, runtime.plan("截图 OCR 怎么实现"))
+        assertEquals(null, runtime.plan("current screen OCR API"))
+        assertEquals(null, runtime.plan("当前屏幕截图"))
+        assertEquals(null, runtime.plan("current screen screenshot"))
+        assertEquals(null, runtime.plan("不要识别当前屏幕截图文字"))
     }
 
     @Test
@@ -973,9 +1033,6 @@ class BuiltInSkillRuntimeTest {
         assertEquals("1200", englishStep.request.arguments["maxChars"])
 
         assertEquals(null, runtime.plan("看看当前屏幕"))
-        assertEquals(null, runtime.plan("识别当前屏幕截图文字"))
-        assertEquals(null, runtime.plan("当前屏幕 OCR"))
-        assertEquals(null, runtime.plan("current screen screenshot text"))
         assertEquals(null, runtime.plan("不要读取当前屏幕文字"))
         assertEquals(null, runtime.plan("不要查看当前屏幕内容"))
         assertEquals(null, runtime.plan("总结当前屏幕内容"))
@@ -1374,6 +1431,12 @@ class BuiltInSkillRuntimeTest {
             requiredTools = listOf("read_recent_image_ocr"),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             triggerExamples = listOf("识别最近图片文字", "read text from recent photos"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "current_screenshot_ocr_context_skill",
+            requiredTools = listOf("capture_current_screenshot_ocr"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("识别当前屏幕截图文字", "current screen screenshot text"),
         ),
         ExpectedBuiltInSkillManifest(
             id = "recent_files_context_skill",

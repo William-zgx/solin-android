@@ -23,6 +23,7 @@ data class MemoryHit(
 enum class MemoryRecordType {
     Conversation,
     Preference,
+    UserFact,
     TaskState,
     SuppressedTaskState,
 }
@@ -55,12 +56,14 @@ interface MemoryIndex {
 interface LongTermMemoryControls {
     fun savedRecords(): List<PersistedMemoryRecord>
     fun indexPreference(id: String, text: String)
+    fun indexUserFact(id: String, text: String)
     fun indexTaskState(id: String, text: String)
     fun suppressAutoManagedTaskState(id: String)
     fun unsuppressAutoManagedTaskState(id: String)
     fun isAutoManagedTaskStateSuppressed(id: String): Boolean
     fun forget(id: String): Boolean
     fun forgetPreference(target: String): Boolean
+    fun forgetUserFact(target: String): Boolean
     fun clear()
 }
 
@@ -171,6 +174,7 @@ class MemoryRepository(
                 message.role == MessageRole.User &&
                 (
                     explicitUserPreferenceFrom(message.text) != null ||
+                        explicitUserFactFrom(message.text) != null ||
                         explicitUserPreferenceForgetFrom(message.text) != null
                     )
             ) {
@@ -198,6 +202,12 @@ class MemoryRepository(
         if (text.isBlank()) return
         forgetConflictingPreferences(id, text)
         indexRecord(id, "用户偏好：$text", MemoryRecordType.Preference, persist = true)
+    }
+
+    override fun indexUserFact(id: String, text: String) {
+        if (text.isBlank()) return
+        forgetConflictingUserFacts(id, text)
+        indexRecord(id, "用户事实：$text", MemoryRecordType.UserFact, persist = true)
     }
 
     override fun indexTaskState(id: String, text: String) {
@@ -256,6 +266,28 @@ class MemoryRepository(
         return exactRemoved || removedConflict
     }
 
+    override fun forgetUserFact(target: String): Boolean {
+        val normalizedTarget = target.trim()
+        if (normalizedTarget.isBlank()) return false
+        val exactRemoved = forget(explicitUserFactRecordId(normalizedTarget))
+        val targetKey = userFactKeyFrom(normalizedTarget)
+        if (targetKey == null) return exactRemoved
+        val matchingIds = (entries.values.map { entry ->
+            PersistedMemoryRecord(entry.id, entry.type, entry.text)
+        } + recordStore.records())
+            .filter { record ->
+                record.type == MemoryRecordType.UserFact &&
+                    userFactKeyFrom(record.text) == targetKey
+            }
+            .map { record -> record.id }
+            .distinct()
+        var removedMatching = false
+        matchingIds.forEach { matchingId ->
+            removedMatching = forget(matchingId) || removedMatching
+        }
+        return exactRemoved || removedMatching
+    }
+
     override fun clear() {
         entries.clear()
         recordStore.clear()
@@ -264,6 +296,7 @@ class MemoryRepository(
     private fun visibleRecords(): List<PersistedMemoryRecord> =
         recordStore.records().filter { record ->
             record.type == MemoryRecordType.Preference ||
+                record.type == MemoryRecordType.UserFact ||
                 record.type == MemoryRecordType.TaskState
         }
 
@@ -409,6 +442,30 @@ class MemoryRepository(
             }
     }
 
+    private fun forgetConflictingUserFacts(id: String, text: String) {
+        val factKey = userFactKeyFrom(text) ?: return
+        val inMemoryConflictIds = entries.values
+            .filter { entry ->
+                entry.type == MemoryRecordType.UserFact &&
+                    entry.id != id &&
+                    userFactKeyFrom(entry.text) == factKey
+            }
+            .map { entry -> entry.id }
+        val persistedConflictIds = recordStore.records()
+            .filter { record ->
+                record.type == MemoryRecordType.UserFact &&
+                    record.id != id &&
+                    userFactKeyFrom(record.text) == factKey
+            }
+            .map { record -> record.id }
+        (inMemoryConflictIds + persistedConflictIds)
+            .distinct()
+            .forEach { conflictId ->
+                entries.remove(conflictId)
+                recordStore.delete(conflictId)
+            }
+    }
+
     private fun cosine(left: FloatArray, right: FloatArray): Float {
         val size = minOf(left.size, right.size)
         var dot = 0f
@@ -420,21 +477,15 @@ class MemoryRepository(
 }
 
 internal fun explicitUserPreferenceFrom(text: String): String? {
-    val trimmed = text.trim()
-    val chinesePrefix = Regex("""^(请)?记住[:：]?\s*(.+)$""")
-    chinesePrefix.find(trimmed)?.groupValues?.getOrNull(2)?.trim()?.let { preference ->
-        if (preference.isNotBlank()) return preference
-    }
-
-    val englishPrefix = Regex(
-        pattern = """^(please\s+)?remember\s+(that\s+)?(.+)$""",
-        option = RegexOption.IGNORE_CASE,
-    )
-    return englishPrefix.find(trimmed)
-        ?.groupValues
-        ?.getOrNull(3)
-        ?.trim()
+    val remembered = explicitRememberPayloadFrom(text) ?: return null
+    return remembered
+        .takeUnless(::isExplicitUserFactPayload)
         ?.takeIf { it.isNotBlank() }
+}
+
+internal fun explicitUserFactFrom(text: String): String? {
+    val remembered = explicitRememberPayloadFrom(text) ?: return null
+    return remembered.takeIf(::isExplicitUserFactPayload)
 }
 
 internal fun explicitUserPreferenceForgetFrom(text: String): String? {
@@ -456,20 +507,49 @@ internal fun explicitUserPreferenceForgetFrom(text: String): String? {
 }
 
 internal fun explicitUserPreferenceRecordId(preference: String): String {
-    val key = preference.trim().replace(Regex("""\s+"""), " ").lowercase(Locale.ROOT)
+    val key = normalizedMemoryText(preference)
+    return deterministicMemoryRecordId("preference", key)
+}
+
+internal fun explicitUserFactRecordId(fact: String): String {
+    val key = userFactKeyFrom(fact) ?: normalizedMemoryText(fact)
+    return deterministicMemoryRecordId("user-fact", key)
+}
+
+private fun deterministicMemoryRecordId(prefix: String, key: String): String {
     val hash = MessageDigest.getInstance("SHA-256")
         .digest(key.toByteArray(Charsets.UTF_8))
         .joinToString(separator = "") { byte ->
             (byte.toInt() and 0xff).toString(16).padStart(2, '0')
         }
-    return "preference-${hash.take(16)}"
+    return "$prefix-${hash.take(16)}"
 }
 
 private fun String.toPreferenceForgetTarget(): String =
     trim()
         .removePrefix("用户偏好：")
+        .removePrefix("用户事实：")
         .removePrefix("user preference:")
+        .removePrefix("user fact:")
         .trim()
+
+private fun explicitRememberPayloadFrom(text: String): String? {
+    val trimmed = text.trim()
+    val chinesePrefix = Regex("""^(请)?记住[:：]?\s*(.+)$""")
+    chinesePrefix.find(trimmed)?.groupValues?.getOrNull(2)?.trim()?.let { payload ->
+        if (payload.isNotBlank()) return payload
+    }
+
+    val englishPrefix = Regex(
+        pattern = """^(please\s+)?remember\s+(that\s+)?(.+)$""",
+        option = RegexOption.IGNORE_CASE,
+    )
+    return englishPrefix.find(trimmed)
+        ?.groupValues
+        ?.getOrNull(3)
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+}
 
 internal fun explicitPreferenceConflictKey(preference: String): String? {
     return explicitPreferenceConflictKeys(preference).firstOrNull()
@@ -506,6 +586,39 @@ private fun normalizedPreferenceText(text: String): String =
         .removePrefix("用户偏好：")
         .removePrefix("user preference:")
         .trim()
+        .lowercase(Locale.ROOT)
+        .replace(Regex("""\s+"""), " ")
+
+private fun normalizedMemoryText(text: String): String =
+    text.trim().replace(Regex("""\s+"""), " ").lowercase(Locale.ROOT)
+
+private fun userFactKeyFrom(text: String): String? {
+    val normalized = normalizedUserFactText(text)
+    val chineseMatch = Regex("""^(?:我(?:的)?)(.+?)(?:是|为)(.+)$""")
+        .find(normalized)
+    if (chineseMatch != null) {
+        return chineseMatch.groupValues.getOrNull(1)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "zh:$it" }
+    }
+    val englishMatch = Regex("""^my\s+(.+?)\s+(?:is|are)\s+(.+)$""")
+        .find(normalized)
+    return englishMatch
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.let { key -> "en:$key" }
+}
+
+private fun isExplicitUserFactPayload(text: String): Boolean =
+    userFactKeyFrom(text) != null && explicitPreferenceConflictKeys(text).isEmpty()
+
+private fun normalizedUserFactText(text: String): String =
+    text.trim()
+        .removePrefix("用户事实：")
+        .removePrefix("user fact:")
         .lowercase(Locale.ROOT)
         .replace(Regex("""\s+"""), " ")
 
@@ -606,6 +719,7 @@ private fun memorySearchAliases(type: MemoryRecordType, text: String): Set<Strin
         MemoryRecordType.Preference -> preferenceSearchAliases(text)
         MemoryRecordType.TaskState -> taskStateSearchAliases(text)
         MemoryRecordType.Conversation,
+        MemoryRecordType.UserFact,
         MemoryRecordType.SuppressedTaskState -> emptySet()
     }
 

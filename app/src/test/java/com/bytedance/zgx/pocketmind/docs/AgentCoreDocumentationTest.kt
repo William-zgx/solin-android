@@ -42,7 +42,32 @@ class AgentCoreDocumentationTest {
         assertSectionHasPart("Regression Strategy", regressionStrategy, "Emulator regression:")
         assertTrue(regressionStrategy.contains("./gradlew :app:testDebugUnitTest"))
         assertTrue(regressionStrategy.contains("scripts/verify_emulator.sh"))
+        assertTrue(regressionStrategy.contains("scripts/test_validation_scripts.sh"))
         assertTrue(regressionStrategy.contains("AgentCoreDocumentationTest"))
+    }
+
+    @Test
+    fun validationDocsUseRegressionEmulatorPassedArtifactAsFullRegressionContract() {
+        listOf(
+            "README.md" to readRepoFile("README.md"),
+            "docs/phone_acceptance.md" to readRepoFile("docs/phone_acceptance.md"),
+            "docs/validation_report.md" to readRepoFile("docs/validation_report.md"),
+        ).forEach { (path, doc) ->
+            assertTrue("$path must document the full emulator regression helper", doc.contains("scripts/regression_emulator.sh"))
+            assertTrue("$path must document the full emulator regression artifact", doc.contains("regression-emulator.properties"))
+            assertTrue("$path must require the passed artifact status", doc.contains("status=passed"))
+        }
+    }
+
+    @Test
+    fun validationReportDefinesStableRecordTemplate() {
+        val report = readRepoFile("docs/validation_report.md")
+
+        assertTrue(report.contains("## 记录模板"))
+        assertTrue(report.contains("`本轮覆盖项：`"))
+        assertTrue(report.contains("`验证命令：`"))
+        assertTrue(report.contains("`结果：`"))
+        assertTrue(report.contains("未执行的设备、模拟器或真机项必须明确说明"))
     }
 
     @Test
@@ -147,6 +172,11 @@ class AgentCoreDocumentationTest {
         File(repoRoot(), "docs/agent_core_modules.md").also { file ->
             assertTrue("missing ${file.path}", file.isFile)
         }
+
+    private fun readRepoFile(path: String): String =
+        File(repoRoot(), path).also { file ->
+            assertTrue("missing ${file.path}", file.isFile)
+        }.readText()
 
     private fun repoRoot(): File =
         generateSequence(File(System.getProperty("user.dir") ?: ".")) { file -> file.parentFile }

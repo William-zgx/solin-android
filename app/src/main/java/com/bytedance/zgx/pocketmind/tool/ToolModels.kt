@@ -89,6 +89,7 @@ enum class ToolPermission {
     ReadsFiles,
     ReadsAccessibilityText,
     RequiresAndroidRuntimePermission,
+    RequiresMediaProjectionConsent,
     SchedulesBackgroundWork,
     PostsNotification,
 }

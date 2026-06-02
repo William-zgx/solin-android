@@ -682,6 +682,7 @@ class DeviceContextToolExecutorTest {
                     capturedAtMillis = 9_000L,
                     nodeCount = 4,
                     truncated = true,
+                    structureSummary = "nodeCount=4; visibleTextItemCount=2; textSnapshotIncluded=true",
                 ),
             ),
         )
@@ -710,6 +711,8 @@ class DeviceContextToolExecutorTest {
         assertEquals("标题\n按钮", result.data["screenText"])
         assertEquals("true", result.data["truncated"])
         assertEquals("true", result.data["screenTextIncluded"])
+        assertEquals("nodeCount=4; visibleTextItemCount=2; textSnapshotIncluded=true", result.data["structureSummary"])
+        assertEquals("true", result.data["structureSummaryIncluded"])
         assertEquals("false", result.data["rawTreeIncluded"])
         assertEquals(
             "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
@@ -745,6 +748,7 @@ class DeviceContextToolExecutorTest {
         assertEquals(ToolStatus.Succeeded, empty.status)
         assertEquals(MessagePrivacy.LocalOnly.name, empty.data["privacy"])
         assertEquals("false", empty.data["screenTextIncluded"])
+        assertEquals("false", empty.data["structureSummaryIncluded"])
         assertFalse(empty.data.containsKey("screenText"))
 
         val denied = CurrentScreenTextToolExecutor(

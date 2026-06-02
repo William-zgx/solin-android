@@ -167,6 +167,7 @@ class SafetyPolicyTest {
             ToolPermission.ReadsFiles,
             ToolPermission.ReadsCalendar,
             ToolPermission.ReadsAccessibilityText,
+            ToolPermission.RequiresMediaProjectionConsent,
             ToolPermission.ReadsDeviceContext,
         )
     }

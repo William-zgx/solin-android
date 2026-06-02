@@ -375,6 +375,21 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
+    fun currentScreenshotOcrDeclaresMediaProjectionConsentNotRuntimePermission() {
+        val confirmation = confirmationFor(
+            toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+            arguments = mapOf("captureMode" to "current_screen"),
+        )
+
+        assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
+        assertTrue(confirmation.specialAccessRequirementsFor().isEmpty())
+        val spec = requireNotNull(ToolRegistry().specFor(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR))
+        assertTrue(spec.permissions.contains(ToolPermission.RequiresMediaProjectionConsent))
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in spec.permissions)
+        assertTrue(ToolPermission.ReadsAccessibilityText !in spec.permissions)
+    }
+
+    @Test
     fun specialAccessDenialSummaryUsesRequirementTitles() {
         assertEquals(
             "使用情况访问权限, 无障碍屏幕文本权限",

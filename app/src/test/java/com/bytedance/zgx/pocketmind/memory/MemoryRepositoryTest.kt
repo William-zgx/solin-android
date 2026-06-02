@@ -526,7 +526,16 @@ class MemoryRepositoryTest {
     fun explicitPreferenceExtractorSupportsChineseAndEnglishCommands() {
         assertEquals("我喜欢简洁的中文回答", explicitUserPreferenceFrom("请记住：我喜欢简洁的中文回答"))
         assertEquals("I prefer concise answers", explicitUserPreferenceFrom("please remember that I prefer concise answers"))
+        assertNull(explicitUserPreferenceFrom("remember that my rcode is xb83"))
         assertEquals(null, explicitUserPreferenceFrom("我们讨论一下记忆系统"))
+    }
+
+    @Test
+    fun explicitUserFactExtractorSupportsChineseAndEnglishRememberCommands() {
+        assertEquals("我的工号是 xb83", explicitUserFactFrom("记住：我的工号是 xb83"))
+        assertEquals("my rcode is xb83", explicitUserFactFrom("remember that my rcode is xb83"))
+        assertNull(explicitUserFactFrom("remember that I prefer concise answers"))
+        assertNull(explicitUserFactFrom("我们讨论一下记忆系统"))
     }
 
     @Test
@@ -587,6 +596,23 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun rebuildSkipsExplicitUserFactCommandsWithoutConversationRecord() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+        val restored = ChatMessage(
+            role = MessageRole.User,
+            text = "remember that my rcode is xb83",
+            id = 9L,
+        )
+
+        repository.rebuild(listOf(restored))
+
+        assertTrue(repository.search("rcode xb83", topK = 3).isEmpty())
+        assertTrue(store.records().isEmpty())
+        assertTrue(repository.savedRecords().isEmpty())
+    }
+
+    @Test
     fun canIndexTaskStateAndForgetRecords() {
         val repository = MemoryRepository()
         repository.indexTaskState("task-1", "等待用户确认网页搜索结果")
@@ -616,6 +642,31 @@ class MemoryRepositoryTest {
         afterForgetRepository.rebuild(emptyList())
         assertTrue(afterForgetRepository.search("简洁回答").isEmpty())
         assertEquals("task-1", afterForgetRepository.search("分享摘要确认").first().id)
+    }
+
+    @Test
+    fun explicitUserFactRecordsPersistUpdateAndForgetByFactKey() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+        val firstId = explicitUserFactRecordId("my rcode is xb83")
+        val updatedId = explicitUserFactRecordId("my rcode is yz99")
+
+        assertEquals(firstId, updatedId)
+
+        repository.indexUserFact(firstId, "my rcode is xb83")
+        repository.indexUserFact(updatedId, "my rcode is yz99")
+
+        val records = repository.savedRecords()
+        assertEquals(listOf(updatedId), records.map { it.id })
+        assertEquals(listOf(MemoryRecordType.UserFact), records.map { it.type })
+        assertEquals("用户事实：my rcode is yz99", records.single().text)
+        val hits = repository.search("rcode yz99", topK = 3)
+        assertEquals(listOf(updatedId), hits.map { it.id })
+        assertFalse(repository.buildContext(hits).contains("用户偏好"))
+
+        assertTrue(repository.forgetUserFact("my rcode is yz99"))
+        assertTrue(repository.savedRecords().isEmpty())
+        assertTrue(repository.search("rcode yz99", topK = 3).isEmpty())
     }
 
     @Test

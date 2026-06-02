@@ -734,6 +734,7 @@ class SkillRunExecutorTest {
             "screenText" to text,
             "truncated" to "false",
             "screenTextIncluded" to "true",
+            "structureSummaryIncluded" to "false",
             "rawTreeIncluded" to "false",
             "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
         )
