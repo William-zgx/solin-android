@@ -1,5 +1,40 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Screenshot OCR output schema boundary
+
+本轮覆盖项：
+
+- `read_recent_screenshot_ocr` 不再复用最多 3 张图片 OCR 的输出 schema；
+  输入 schema、执行器配置和输出 schema 现在都锁定为最多 1 张截图。
+- 新增横向 `ToolSchemaContractTest`，对所有工具扫描输入/输出中同名数值字段，
+  要求输出合同的 `minimum` / `maximum` 不能比输入合同更宽。
+- 新增截图 OCR 专项 result validation 回归：`maxCount=1` 的成功输出有效，
+  `maxCount=2` 会被 `ToolRegistry.validateResult` 作为 `InvalidResult` 拒绝。
+- 该切片只收紧工具合同，不改变实际 OCR provider、权限、确认、LocalOnly、
+  trace/audit redaction 或 remote-mode 保护边界。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest'
+./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin
+git diff --check
+```
+
+结果：
+
+- 通过：定向 Tool schema / registry 合同回归。
+- 通过：定向 docs/tool/device-context 回归。
+- 通过：完整 JVM 单测与 AndroidTest Kotlin 编译。
+- 通过：diff whitespace 检查。
+
 ## 2026-06-02 Background task query Agent tool
 
 本轮覆盖项：

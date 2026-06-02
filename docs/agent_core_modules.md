@@ -75,6 +75,9 @@ Current status:
   `ReadsDeviceContext` only, does not declare scheduling, notification, or
   runtime-permission capabilities, and successful output is `LocalOnly` with
   private `tasksJson` / `policyJson` fields.
+- Tool schema contract tests now also compare matching numeric input/output
+  fields so result schemas cannot silently advertise a wider bound than the
+  corresponding tool input schema.
 - Current tools cover Wi-Fi settings, flashlight settings, map search, web
   search, email draft, calendar draft, contact draft, local reminders, local
   periodic reminder-check configuration, read-only background task queries,
@@ -770,7 +773,9 @@ Current status:
   File metadata returned with the OCR result (`name`, `mimeType`, `sizeBytes`,
   and `lastModifiedMillis`) is treated as private output alongside `ocrText`.
   Remote mode treats the OCR continuation like other protected local context and
-  stops before sending it to a configured backend.
+  stops before sending it to a configured backend. Its input and output schemas
+  both cap `maxCount` at 1, so the registry rejects any result that tries to
+  report multi-screenshot OCR.
 - `read_recent_image_ocr` is a separate skill-first, confirmed tool for
   explicit "识别最近图片/照片文字" requests. It scans up to 3 recent images, returns
   the first bounded local OCR text excerpt, marks the result `LocalOnly`, and
@@ -807,6 +812,7 @@ Tests:
 - `CalendarAvailabilityProviderTest`
 - `RecentFileCollectorTest`
 - `DeviceContextToolExecutorTest`
+- `ToolSchemaContractTest.recentScreenshotOcrOutputRejectsMultiScreenshotCount`
 - `CalendarAvailabilityToolExecutorTest`
 - `RoutingAndValidatingToolExecutorTest.routingExecutorDispatchesDeviceContextToolsBeforeDelegate`
 - `RoutingAndValidatingToolExecutorTest.validatingRoutingExecutorAcceptsPrivateDeviceContextOutputsAndKeepsPrivateKeyBoundary`

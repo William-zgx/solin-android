@@ -1079,7 +1079,13 @@ private val recentFilesOutputSchemaJson = """
     }
 """.trimIndent()
 
-private val recentImageOcrOutputSchemaJson = """
+private val recentScreenshotOcrOutputSchemaJson =
+    recentOcrOutputSchemaJson(maxCountMaximum = 1)
+
+private val recentImageOcrOutputSchemaJson =
+    recentOcrOutputSchemaJson(maxCountMaximum = 3)
+
+private fun recentOcrOutputSchemaJson(maxCountMaximum: Int): String = """
     {
       "type": "object",
       "required": [
@@ -1098,7 +1104,7 @@ private val recentImageOcrOutputSchemaJson = """
         "privacy": {"type": "string", "enum": ["LocalOnly"]},
         "requiresLocalModel": {"type": "boolean"},
         "source": {"type": "string", "minLength": 1},
-        "maxCount": {"type": "integer", "minimum": 1, "maximum": 3},
+        "maxCount": {"type": "integer", "minimum": 1, "maximum": $maxCountMaximum},
         "scannedCount": {"type": "integer", "minimum": 0},
         "name": {"type": "string"},
         "mimeType": {"type": "string"},
@@ -1515,7 +1521,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             title = "读取最近截图 OCR",
             description = "在用户确认后读取最近 1 张截图像素并在本地提取 OCR 文本；不保存 URI、路径、原图或像素。",
             inputSchemaJson = recentScreenshotOcrSchemaJson,
-            outputSchemaJson = recentImageOcrOutputSchemaJson,
+            outputSchemaJson = recentScreenshotOcrOutputSchemaJson,
             capability = ToolCapability.DeviceContext,
             permissions = setOf(
                 ToolPermission.ReadsDeviceContext,

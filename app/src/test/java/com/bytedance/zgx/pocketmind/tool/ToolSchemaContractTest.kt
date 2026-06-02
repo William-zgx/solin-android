@@ -1,5 +1,7 @@
 package com.bytedance.zgx.pocketmind.tool
 
+import com.bytedance.zgx.pocketmind.MessagePrivacy
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -146,6 +148,97 @@ class ToolSchemaContractTest {
                 }
             }
         }
+    }
+
+    @Test
+    fun numericOutputBoundsCannotBeWiderThanMatchingInputBounds() {
+        registry.specs().forEach { spec ->
+            val inputProperties = JSONObject(spec.inputSchemaJson).optJSONObject("properties") ?: JSONObject()
+            val outputProperties = JSONObject(spec.outputSchemaJson).optJSONObject("properties") ?: JSONObject()
+            val sharedProperties = inputProperties.keysSet().intersect(outputProperties.keysSet())
+
+            sharedProperties.forEach { propertyName ->
+                val inputProperty = inputProperties.getJSONObject(propertyName)
+                val outputProperty = outputProperties.getJSONObject(propertyName)
+                val inputType = inputProperty.optStringOrNull("type")
+                val outputType = outputProperty.optStringOrNull("type")
+                if (inputType !in NUMERIC_SCHEMA_TYPES || outputType !in NUMERIC_SCHEMA_TYPES) return@forEach
+
+                inputProperty.optDoubleOrNull("minimum")?.let { inputMinimum ->
+                    val outputMinimum = outputProperty.optDoubleOrNull("minimum")
+                    assertNotNull(
+                        "${spec.name} output $propertyName must keep the input minimum bound",
+                        outputMinimum,
+                    )
+                    requireNotNull(outputMinimum)
+                    assertTrue(
+                        "${spec.name} output $propertyName minimum must not be wider than input",
+                        outputMinimum >= inputMinimum,
+                    )
+                }
+                inputProperty.optDoubleOrNull("maximum")?.let { inputMaximum ->
+                    val outputMaximum = outputProperty.optDoubleOrNull("maximum")
+                    assertNotNull(
+                        "${spec.name} output $propertyName must keep the input maximum bound",
+                        outputMaximum,
+                    )
+                    requireNotNull(outputMaximum)
+                    assertTrue(
+                        "${spec.name} output $propertyName maximum must not be wider than input",
+                        outputMaximum <= inputMaximum,
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun recentScreenshotOcrOutputRejectsMultiScreenshotCount() {
+        val spec = requireNotNull(registry.specFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR))
+        val inputMaxCount = JSONObject(spec.inputSchemaJson)
+            .getJSONObject("properties")
+            .getJSONObject("maxCount")
+            .getInt("maximum")
+        val outputMaxCount = JSONObject(spec.outputSchemaJson)
+            .getJSONObject("properties")
+            .getJSONObject("maxCount")
+            .getInt("maximum")
+        val request = ToolRequest(
+            id = "recent-screenshot-ocr-output-contract",
+            toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            arguments = mapOf("maxCount" to "1"),
+            reason = "schema contract",
+        )
+        val validData = mapOf(
+            "toolName" to MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            "privacy" to MessagePrivacy.LocalOnly.name,
+            "requiresLocalModel" to "true",
+            "source" to "screenshots",
+            "maxCount" to "1",
+            "scannedCount" to "1",
+            "ocrTextIncluded" to "true",
+            "rawPayloadIncluded" to "false",
+            "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted",
+        )
+
+        assertEquals(1, inputMaxCount)
+        assertEquals(1, outputMaxCount)
+        assertNull(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(summary = "read recent screenshot OCR", data = validData),
+            ),
+        )
+        assertInvalidResult(
+            "read_recent_screenshot_ocr should reject output maxCount wider than one screenshot",
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "invalid multi-screenshot OCR output",
+                    data = validData + ("maxCount" to "2"),
+                ),
+            ),
+        )
     }
 
     @Test
@@ -298,4 +391,8 @@ class ToolSchemaContractTest {
 
     private fun JSONObject.optStringOrNull(name: String): String? =
         if (!has(name) || isNull(name)) null else optString(name)
+
+    private companion object {
+        val NUMERIC_SCHEMA_TYPES = setOf("integer", "number")
+    }
 }
