@@ -539,6 +539,103 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun validateResultRejectsUnsafeReminderRecoveryMetadata() {
+        val request = ToolRequest(
+            id = "reminder-output-contract",
+            toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+            arguments = mapOf(
+                "title" to "喝水",
+                "delayMinutes" to "15",
+            ),
+            reason = "schema contract",
+        )
+        val validData = mapOf(
+            "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
+            "taskId" to "task-1",
+            "taskStatus" to "Scheduled",
+            "triggerAtMillis" to "10000",
+            "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
+            "recoveryTaskId" to "task-1",
+        )
+
+        assertNull(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(summary = "scheduled", data = validData),
+            ),
+        )
+
+        assertInvalidResult(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "wrong recovery tool",
+                    data = validData + ("recoveryToolName" to MobileActionFunctions.SHARE_TEXT),
+                ),
+            ),
+            "recoveryToolName",
+        )
+        assertInvalidResult(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "unsafe recovery task id raw=value",
+                    data = validData + ("recoveryTaskId" to "raw=value"),
+                ),
+            ),
+            "recoveryTaskId",
+        )
+        assertInvalidResult(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "wrong reminder task status",
+                    data = validData + ("taskStatus" to "Delivered"),
+                ),
+            ),
+            "taskStatus",
+        )
+
+        val cancelRequest = ToolRequest(
+            id = "cancel-reminder-output-contract",
+            toolName = MobileActionFunctions.CANCEL_REMINDER,
+            arguments = mapOf("taskId" to "task-1"),
+            reason = "schema contract",
+        )
+        val cancelData = mapOf(
+            "toolName" to MobileActionFunctions.CANCEL_REMINDER,
+            "taskId" to "task-1",
+            "taskStatus" to "Cancelled",
+        )
+        assertNull(
+            registry.validateResult(
+                request = cancelRequest,
+                result = cancelRequest.succeeded(summary = "cancelled", data = cancelData),
+            ),
+        )
+        assertInvalidResult(
+            registry.validateResult(
+                request = cancelRequest,
+                result = cancelRequest.succeeded(
+                    summary = "unsafe cancel task id raw=value",
+                    data = cancelData + ("taskId" to "raw=value"),
+                ),
+            ),
+            "taskId",
+        )
+        assertInvalidResult(
+            registry.validateResult(
+                request = cancelRequest,
+                result = cancelRequest.succeeded(
+                    summary = "wrong cancel status",
+                    data = cancelData + ("taskStatus" to "Scheduled"),
+                ),
+            ),
+            "taskStatus",
+        )
+    }
+
+    @Test
     fun validatesWebSearchQueryArgument() {
         val missingQuery = registry.validate(
             ToolRequest(
@@ -887,6 +984,14 @@ class ToolRegistryTest {
         assertNull(valid)
     }
 
+    private fun assertInvalidResult(result: ToolResult?, expectedField: String) {
+        assertNotNull(result)
+        requireNotNull(result)
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.InvalidResult, result.error?.code)
+        assertFalse(result.retryable)
+        assertTrue(result.summary.contains(expectedField))
+    }
 }
 
 private fun JSONArray?.containsString(value: String): Boolean {

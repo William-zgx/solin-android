@@ -8,10 +8,10 @@ import kotlin.concurrent.thread
 
 class ReminderBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        if (intent.action !in REMINDER_RECOVERY_ACTIONS) return
 
         val pendingResult = goAsync()
-        thread(name = "pocketmind-reminder-boot-reschedule") {
+        thread(name = "pocketmind-reminder-recovery-reschedule") {
             try {
                 reschedulePendingReminders(context.applicationContext)
             } finally {
@@ -27,4 +27,11 @@ class ReminderBootReceiver : BroadcastReceiver() {
                 .rescheduleScheduledReminders()
                 .getOrThrow()
         }
+
+    private companion object {
+        val REMINDER_RECOVERY_ACTIONS = setOf(
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+        )
+    }
 }

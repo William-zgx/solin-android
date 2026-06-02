@@ -48,6 +48,12 @@ Current status:
   minimal shape while rejecting missing required keys, undeclared keys, and
   schema-invalid values. This keeps tool-result contracts test-driven as new
   tools or output fields are added.
+- Reminder scheduling and cancellation success schemas now constrain rollback
+  metadata at the Tool Registry boundary: scheduled reminder results must report
+  `taskStatus=Scheduled`, `recoveryToolName=cancel_reminder`, and safe
+  `task-*` ids, while cancel results must report `taskStatus=Cancelled` with a
+  safe `task-*` id. Unsafe or spoofed recovery metadata becomes a non-retryable
+  `InvalidResult` before Agent observation can surface an undo action.
 - Current tools cover Wi-Fi settings, flashlight settings, map search, web
   search, email draft, calendar draft, contact draft, local reminders,
   confirmed clipboard text reads, outbound system sharing for text, current
@@ -1113,7 +1119,10 @@ Current status:
   concurrently written terminal state.
 - `ReminderBootReceiver` listens for `BOOT_COMPLETED` and asks
   `ReminderRescheduler` to restore every still-`Scheduled` reminder after the
-  system clears alarms on reboot. The rescheduler first recovers stale
+  system clears alarms on reboot. The same receiver also listens for
+  `MY_PACKAGE_REPLACED`, so reminders are restored after the app package is
+  updated even when the user does not open PocketMind immediately. The
+  rescheduler first recovers stale
   `Running` reminder rows whose lease has expired, then pages through scheduled
   reminders by stable `(triggerAtMillis, id)` order instead of stopping at the
   first batch. Past-due reminders are rescheduled with a short catch-up delay
@@ -1191,6 +1200,7 @@ Tests:
 - `ActionExecutorTest.reportsStaleReminderCancellationAsNonRetryableInvalidRequest`
 - `AgentTraceStoreTest.roomStorePersistsReminderRecoveryMetadataWithoutReminderContent`
 - `ScheduledTaskRemovalCoordinatorTest`
+- `AndroidManifestTest.reminderRecoveryReceiverHandlesBootAndPackageReplacement`
 - `PocketMindViewModelTest.restoreStartupStateLoadsScheduledBackgroundTasksAndIndexesRunningTaskStateWithoutRemoteWork`
 - `PocketMindViewModelTest.cancelScheduledBackgroundTaskRefreshesUiAndCancelsScheduler`
 - `PocketMindViewModelTest.cancelScheduledBackgroundTaskFailureKeepsTaskVisible`

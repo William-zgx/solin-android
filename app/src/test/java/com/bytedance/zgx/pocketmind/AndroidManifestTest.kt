@@ -30,6 +30,16 @@ class AndroidManifestTest {
     }
 
     @Test
+    fun reminderRecoveryReceiverHandlesBootAndPackageReplacement() {
+        val manifest = readManifest()
+        val receiver = manifest.receiverBlockFor(".background.ReminderBootReceiver")
+
+        assertTrue(receiver.contains("""android:exported="true""""))
+        assertTrue(receiver.contains("""android.intent.action.BOOT_COMPLETED"""))
+        assertTrue(receiver.contains("""android.intent.action.MY_PACKAGE_REPLACED"""))
+    }
+
+    @Test
     fun shareTargetsAcceptPickerSupportedDocumentMimeTypes() {
         val manifest = readManifest()
         val sendFilter = manifest.intentFilterFor("android.intent.action.SEND")
@@ -81,6 +91,12 @@ class AndroidManifestTest {
             .findAll(this)
             .map { it.value }
             .first { it.contains("android:name=\"$actionName\"") }
+
+    private fun String.receiverBlockFor(receiverName: String): String =
+        Regex("""<receiver[\s\S]*?</receiver>""")
+            .findAll(this)
+            .map { it.value }
+            .first { it.contains("""android:name="$receiverName"""") }
 
     private companion object {
         val SHARED_ATTACHMENT_MIME_TYPES = listOf(

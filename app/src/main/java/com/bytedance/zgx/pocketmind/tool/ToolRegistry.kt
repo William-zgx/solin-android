@@ -752,11 +752,11 @@ private val reminderOutputSchemaJson = """
       "required": ["toolName", "taskId", "taskStatus", "triggerAtMillis", "recoveryToolName", "recoveryTaskId"],
       "properties": {
         "toolName": {"type": "string", "minLength": 1},
-        "taskId": {"type": "string", "minLength": 1},
-        "taskStatus": {"type": "string", "minLength": 1},
-        "triggerAtMillis": {"type": "integer"},
-        "recoveryToolName": {"type": "string", "minLength": 1},
-        "recoveryTaskId": {"type": "string", "minLength": 1}
+        "taskId": {"type": "string", "minLength": 1, "pattern": "^task-[A-Za-z0-9_-]+$"},
+        "taskStatus": {"type": "string", "enum": ["Scheduled"]},
+        "triggerAtMillis": {"type": "integer", "minimum": 0},
+        "recoveryToolName": {"type": "string", "enum": ["cancel_reminder"]},
+        "recoveryTaskId": {"type": "string", "minLength": 1, "pattern": "^task-[A-Za-z0-9_-]+$"}
       },
       "additionalProperties": false
     }
@@ -768,8 +768,8 @@ private val cancelReminderOutputSchemaJson = """
       "required": ["toolName", "taskId", "taskStatus"],
       "properties": {
         "toolName": {"type": "string", "minLength": 1},
-        "taskId": {"type": "string", "minLength": 1},
-        "taskStatus": {"type": "string", "minLength": 1}
+        "taskId": {"type": "string", "minLength": 1, "pattern": "^task-[A-Za-z0-9_-]+$"},
+        "taskStatus": {"type": "string", "enum": ["Cancelled"]}
       },
       "additionalProperties": false
     }

@@ -1,5 +1,38 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Reminder recovery receiver and rollback schema 增量验证
+
+本轮覆盖项：
+
+- `ReminderBootReceiver` 从只处理 `BOOT_COMPLETED` 扩展为处理
+  `BOOT_COMPLETED` 与 `MY_PACKAGE_REPLACED`，应用包更新后即使用户未立即打开
+  PocketMind，也能复用现有 `ReminderRescheduler` 重排仍处于 `Scheduled` 的本地
+  reminder alarm。
+- `AndroidManifestTest` 锁住 reminder recovery receiver 的两个系统恢复 action，
+  防止后续改动退回到只覆盖开机恢复。
+- `schedule_reminder` successful output schema 现在要求
+  `taskStatus=Scheduled`、`recoveryToolName=cancel_reminder` 和安全 `task-*`
+  `taskId/recoveryTaskId`；`cancel_reminder` successful output schema 现在要求
+  `taskStatus=Cancelled` 和安全 `task-*` `taskId`。
+- `ToolRegistryTest` 明确覆盖不安全 rollback metadata：错误 recovery tool、
+  token-like recovery task id、错误 task status 都会在 result validation 阶段变成
+  non-retryable `InvalidResult`，不会进入 Agent observation 的撤销提示。
+- 该切片不改变任意多步 Skill UI 编排、敏感读取非成功结果统一契约、或多模态
+  AndroidTest 覆盖；这些仍是后续独立切片。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest \
+  --tests com.bytedance.zgx.pocketmind.AndroidManifestTest \
+  --no-daemon
+```
+
+结果：targeted Tool Registry / schema contract / manifest contract 通过；
+完整 JVM 单测与 AndroidTest Kotlin 编译通过。
+
 ## 2026-06-02 Tool output schema contract and task-memory suppression 增量验证
 
 本轮覆盖项：
