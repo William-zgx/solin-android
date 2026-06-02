@@ -12,6 +12,45 @@
 `regression-emulator.properties` 为准；只有该文件包含 `status=passed` 时，才能把完整模拟器回归记录为通过。`emulator-verification.properties` 和嵌套
 `device-verification.properties` 是配套证据，不替代完整回归结论。
 
+## 2026-06-02 Live DeepSeek remote emulator check
+
+本轮覆盖项：
+
+- 使用 debug-only ADB receiver 在 `focus_agent_api36_arm64` 模拟器中写入用户提供的
+  DeepSeek OpenAI-compatible 配置：`https://api.deepseek.com`、
+  `deepseek-v4-pro`。
+- 修复 `scripts/live_remote_emulator.sh` 的 ADB 文本输入和发送流程：空格使用
+  `%s` 编码，输入后先收起键盘再点击发送，并将默认等待时间提升到 45 秒。
+- 调整默认 live 提示词，使提示词本身不包含预期 token；通过条件仍要求远程助手
+  回复 `POCKETMIND_LIVE_OK`，避免把用户输入误判为成功。
+- 验证密钥只经由临时环境变量注入，artifact 和仓库不记录密钥值。
+
+验证命令：
+
+```bash
+bash -n scripts/live_remote_emulator.sh
+POCKETMIND_LIVE_REMOTE_API_KEY=<hidden> \
+POCKETMIND_LIVE_REMOTE_BASE_URL=https://api.deepseek.com \
+POCKETMIND_LIVE_REMOTE_MODEL=deepseek-v4-pro \
+POCKETMIND_LIVE_REMOTE_WAIT_SECONDS=60 \
+ARTIFACT_DIR=build/verification/live-remote-deepseek-20260602-193827 \
+ANDROID_SERIAL=emulator-5554 \
+scripts/live_remote_emulator.sh
+rg -l --hidden --glob '!.git/**' --glob '!build/**' 'sk-[A-Za-z0-9]{20,}' . || true
+rg -l --hidden 'sk-[A-Za-z0-9]{20,}' build/verification/live-remote-deepseek-20260602-193827 || true
+```
+
+结果：
+
+- 通过：`build/verification/live-remote-deepseek-20260602-193827/live-remote-emulator.properties`
+  记录 `status=passed`、`base_url=https://api.deepseek.com`、
+  `model=deepseek-v4-pro`、`expected_text=POCKETMIND_LIVE_OK`。
+- UI 证据：`build/verification/live-remote-deepseek-20260602-193827/live-remote-result.png`
+  和同名 XML 显示 `deepseek-v4-pro · 远程 · 已就绪`、`远程可用`，并显示远程助手回复
+  `POCKETMIND_LIVE_OK`。
+- 密钥边界：仓库和本次 artifact 的 OpenAI-style key 模式扫描均无命中；report 仅记录
+  `api_key_source=POCKETMIND_LIVE_REMOTE_API_KEY`。
+
 ## 2026-06-02 Emulator remote model and Agent capability walkthrough
 
 本轮覆盖项：

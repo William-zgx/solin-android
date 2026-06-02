@@ -19,7 +19,7 @@ DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 LIVE_REMOTE_BASE_URL="${POCKETMIND_LIVE_REMOTE_BASE_URL:-https://api.deepseek.com/v1}"
 LIVE_REMOTE_MODEL="${POCKETMIND_LIVE_REMOTE_MODEL:-deepseek-v4-pro}"
 LIVE_REMOTE_API_KEY="${POCKETMIND_LIVE_REMOTE_API_KEY:-${DEEPSEEK_API_KEY:-}}"
-LIVE_REMOTE_PROMPT="${POCKETMIND_LIVE_REMOTE_PROMPT:-return uppercase token formed by joining p o c k e t m i n d live ok with underscores}"
+LIVE_REMOTE_PROMPT="${POCKETMIND_LIVE_REMOTE_PROMPT:-return uppercase token formed by joining word pocketmind with words live and ok using underscores only}"
 LIVE_REMOTE_EXPECTED_TEXT="${POCKETMIND_LIVE_REMOTE_EXPECTED_TEXT:-POCKETMIND_LIVE_OK}"
 SELECTED_SERIAL=""
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -104,9 +104,13 @@ set +x
 "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null
 sleep 2
 "${ADB[@]}" shell input tap 320 2225
-"${ADB[@]}" shell input text "${LIVE_REMOTE_PROMPT// /%20}"
+encoded_prompt="${LIVE_REMOTE_PROMPT// /%s}"
+"${ADB[@]}" shell input text "$encoded_prompt"
+sleep 0.5
+"${ADB[@]}" shell input keyevent 4
+sleep 0.8
 "${ADB[@]}" shell input tap 980 2245
-sleep "${POCKETMIND_LIVE_REMOTE_WAIT_SECONDS:-25}"
+sleep "${POCKETMIND_LIVE_REMOTE_WAIT_SECONDS:-45}"
 
 SCREENSHOT_FILE="${ARTIFACT_DIR}/live-remote-result.png"
 UI_DUMP_FILE="${ARTIFACT_DIR}/live-remote-result.xml"
