@@ -43,6 +43,11 @@ Current status:
   `SkillRunExecutor` also repeat this validation at observe, execute, and
   resume boundaries to protect restored or externally supplied tool results
   that did not come directly from `ValidatingToolExecutor`.
+- `ToolSchemaContractTest` now derives minimal successful output data from
+  every registered `outputSchemaJson` and verifies result validation accepts the
+  minimal shape while rejecting missing required keys, undeclared keys, and
+  schema-invalid values. This keeps tool-result contracts test-driven as new
+  tools or output fields are added.
 - Current tools cover Wi-Fi settings, flashlight settings, map search, web
   search, email draft, calendar draft, contact draft, local reminders,
   confirmed clipboard text reads, outbound system sharing for text, current
@@ -963,7 +968,11 @@ Current status:
   long-term memory. Terminal or missing auto-managed task-state records are
   forgotten on refresh. When the user explicitly forgets one of these active
   auto-managed records or clears long-term memory, a hidden suppression marker
-  keeps later startup, refresh, or chat-triggered sync from recreating it.
+  keeps later startup, refresh, or chat-triggered sync from recreating it. For
+  the singleton periodic-check task, that suppression is released only after
+  the policy has become inactive and a later successful enable creates a fresh
+  scheduled task state, so a deliberate re-enable can become recallable again
+  without making ordinary refreshes undo a user forget/clear action.
 - `sendMessage` treats explicit user preference statements such as
   `记住：...` / `remember ...` as local memory-control commands. They update
   persisted `Preference` records without invoking the chat/action router or

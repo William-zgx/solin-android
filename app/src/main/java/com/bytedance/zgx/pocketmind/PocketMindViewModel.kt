@@ -327,9 +327,15 @@ class PocketMindViewModel(
 
     fun setPeriodicCheckPolicy(request: PeriodicCheckScheduleRequest) {
         if (_uiState.value.isBusy) return
+        val previousPolicy = loadPeriodicCheckPolicy()
         backgroundTaskScheduler.setPeriodicCheckPolicy(request)
             .fold(
                 onSuccess = { policy ->
+                    if (policy.request.enabled && previousPolicy.isNotActivePeriodicCheck()) {
+                        longTermMemoryControls.unsuppressAutoManagedTaskState(
+                            taskStateMemoryRecordId(PeriodicCheckScheduleRequest.TASK_ID),
+                        )
+                    }
                     syncTaskStateMemories()
                     _uiState.update { state ->
                         state.copy(
@@ -2563,6 +2569,10 @@ class PocketMindViewModel(
         runCatching {
             backgroundTaskScheduler.periodicCheckPolicy()
         }.getOrDefault(PeriodicCheckPolicySummary.disabled())
+
+    private fun PeriodicCheckPolicySummary.isNotActivePeriodicCheck(): Boolean =
+        taskStatus != ScheduledTaskStatus.Scheduled &&
+            taskStatus != ScheduledTaskStatus.Running
 
     private fun ScheduledTask.toSummary(): BackgroundTaskSummary =
         BackgroundTaskSummary(

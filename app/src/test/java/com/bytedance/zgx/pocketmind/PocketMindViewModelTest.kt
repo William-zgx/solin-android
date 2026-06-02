@@ -3893,6 +3893,49 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun reenabledPeriodicCheckUnsuppressesNewTaskStateMemory() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask(
+                    id = PeriodicCheckScheduleRequest.TASK_ID,
+                    type = ScheduledTaskType.PeriodicCheck,
+                    status = ScheduledTaskStatus.Scheduled,
+                    title = PeriodicCheckScheduleRequest.TITLE,
+                    body = PeriodicCheckScheduleRequest().storageSummary(),
+                ),
+            ),
+        )
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            backgroundTaskScheduler = scheduler,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        val taskMemoryId = taskStateMemoryRecordId(PeriodicCheckScheduleRequest.TASK_ID)
+        assertTrue(store.hasRecord(taskMemoryId, MemoryRecordType.TaskState))
+
+        viewModel.clearLongTermMemory()
+        advanceUntilIdle()
+        assertTrue(store.hasSuppressedTaskState(taskMemoryId))
+        assertTrue(store.records().none { it.id == taskMemoryId && it.type == MemoryRecordType.TaskState })
+
+        viewModel.disablePeriodicCheckPolicy()
+        advanceUntilIdle()
+        assertTrue(store.hasSuppressedTaskState(taskMemoryId))
+        assertTrue(viewModel.uiState.value.longTermMemories.isEmpty())
+
+        viewModel.setPeriodicCheckPolicy(PeriodicCheckScheduleRequest())
+        advanceUntilIdle()
+
+        assertFalse(store.hasSuppressedTaskState(taskMemoryId))
+        assertTrue(store.hasRecord(taskMemoryId, MemoryRecordType.TaskState))
+        assertEquals(listOf(taskMemoryId), viewModel.uiState.value.longTermMemories.map { it.id })
+        assertTrue(memoryRepository.search("后台任务 PeriodicCheck").any { hit -> hit.id == taskMemoryId })
+    }
+
+    @Test
     fun restoreStartupStateLoadsScheduledBackgroundTasksAndIndexesRunningTaskStateWithoutRemoteWork() = runTest(
         dispatcher,
     ) {

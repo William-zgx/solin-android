@@ -1,5 +1,32 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Tool output schema contract and task-memory suppression 增量验证
+
+本轮覆盖项：
+
+- `ToolSchemaContractTest` 现在从每个注册工具的 `outputSchemaJson` 推导最小
+  successful `ToolResult.data`，并验证 schema validation 会接受最小合法输出、
+  拒绝缺失 required key、拒绝 undeclared key、拒绝 schema-invalid value。
+- 这把“工具执行结果回传给模型前必须满足输出合同”的测试从单个剪贴板样本扩展到
+  所有 registry 工具，覆盖 #1 工具层和 #10 工具测试体系。
+- 修复 singleton `periodic-check-local` 的长期记忆 suppression：用户清空/遗忘
+  活跃 task-state 后，普通 refresh/chat 不会复活；但周期检查先关闭、再成功
+  重新开启时会释放 suppression，让新的 `TaskState` 记忆重新出现。
+- 该切片不改变语义记忆 runtime 接入状态；生产仍只有已注入 runtime 时才会进入
+  semantic recall。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.reenabledPeriodicCheckUnsuppressesNewTaskStateMemory' \
+  --no-daemon
+```
+
+结果：targeted 工具输出 schema 合同和周期检查 task-state suppression 回归通过。
+完整 JVM 单测与 AndroidTest Kotlin 编译通过。
+
 ## 2026-06-02 LocalOnly device private output coverage 增量验证
 
 本轮覆盖项：
