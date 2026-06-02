@@ -173,6 +173,12 @@ Current status:
   Direct `confirmToolRequest(runId, requestId)` on a restored pending Skill
   confirmation also reloads the Room pending snapshot and remembers that
   frontier, so callers do not need to call `latestPendingConfirmation()` first.
+- Attached and restored `SkillPlan`s are reauthorized against the current
+  `SkillRuntime.manifests()` before confirmation or continuation. The runtime
+  compares the Skill authorization contract rather than display copy, so
+  title/description/example-only manifest edits do not invalidate old pending
+  confirmations, while version, risk, required-tool, or input-schema contract
+  drift fails closed and clears the restored pending checkpoint.
 - Unknown tool-result privacy metadata fails closed as `LocalOnly` before any
   remote continuation, matching the stored-message privacy boundary.
 - Retryable local read failures now schedule one bounded retry on the already
@@ -482,6 +488,7 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstClipboardSummaryShareBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstClipboardContextBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstPlanStillUsesRegistryAndRejectsInvalidToolArguments`
+- `AgentLoopRuntimeTest.skillFirstPlanMustMatchCurrentRuntimeManifestContract`
 - `AgentLoopRuntimeTest.skillFirstReminderBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation`
@@ -500,6 +507,9 @@ Tests:
 - `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.toolStepOutputBindsToDependentToolStepInCurrentProcessAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.restoredToolStepOutputBoundPendingContinuesAfterRestart`
+- `AgentLoopRuntimeTest.restoredSkillPendingSurvivesDisplayOnlyManifestDrift`
+- `AgentLoopRuntimeTest.restoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged`
+- `AgentLoopRuntimeTest.directConfirmRestoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged`
 - `AgentLoopRuntimeTest.toolStepToToolStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
 - `AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation`
@@ -588,6 +598,11 @@ Current status:
   invalid enum values, regex mismatches, and numeric range failures reject the
   skill plan. Tool parameters remain owned and validated separately by the Tool
   Registry.
+- `SkillManifest.authorizationContractHash()` defines the current-runtime
+  reauthorization scope for restored or attached plans. It hashes only
+  id/version/risk, normalized required tools, and canonicalized input schema;
+  title, description, trigger examples, and raw JSON formatting stay outside the
+  execution authorization contract.
 - `SkillPlan` reserves `.` as the `stepId.outputKey` source-reference
   delimiter. Step ids and model output keys containing that delimiter are
   rejected during structure validation so bindings and value-free checkpoints
@@ -745,6 +760,10 @@ Tests:
 - `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
 - `AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
+- `AgentLoopRuntimeTest.skillFirstPlanMustMatchCurrentRuntimeManifestContract`
+- `AgentLoopRuntimeTest.restoredSkillPendingSurvivesDisplayOnlyManifestDrift`
+- `AgentLoopRuntimeTest.restoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged`
+- `AgentLoopRuntimeTest.directConfirmRestoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged`
 - `AgentLoopRuntimeTest.malformedSucceededToolResultFailsBeforeContinuationAndDoesNotLeakPayload`
 - `AgentTraceStoreTest.roomStoreSkipsPendingSkillPlanThatDoesNotContainPendingToolRequest`
 - `AgentTraceStoreTest.roomStorePersistsSkillRunCheckpointWithoutRawOutputs`

@@ -5636,3 +5636,39 @@ git diff --check
 - 通过：`AgentCoreDocumentationTest` 文档契约。
 - 通过：`git diff --check` whitespace 检查。
 - 通过：全量 `./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin`。
+
+## 2026-06-02 Skill manifest runtime reauthorization
+
+本轮覆盖项：
+
+- 新增 `SkillManifest.authorizationContractHash()`，把当前 runtime 重新授权范围收窄到
+  id/version/risk、规范化后的 required tools 与 canonical input schema；title、
+  description、trigger examples 和 schema JSON 空白/字段顺序不影响旧 pending 恢复。
+- `AgentLoopRuntime` 在初始 Skill-first plan、replanner/continuation 附带的
+  `SkillPlan`、恢复 pending confirmation、direct `confirmToolRequest(runId, requestId)`
+  以及 observation 后的 Skill continuation 入口统一执行当前
+  `SkillRuntime.manifests()` 重新授权。
+- 持久化 checkpoint 仍使用 `checkpointHash()` 校验 checkpoint 与 persisted
+  `SkillPlan.manifest` 的完整性；runtime 授权使用独立 contract hash，避免把展示文案漂移
+  误判成执行合约漂移。
+- 恢复出的 Skill pending 如果当前 runtime 已删除该 manifest，或 version/risk/
+  required tools/input schema contract 变化，会清理 pending/checkpoint、记录 rejection
+  和 failed step，并把 run fail closed；direct confirm 不会 fallback 到旧
+  `ToolRequested` trace 继续执行。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstPlanMustMatchCurrentRuntimeManifestContract \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredSkillPendingSurvivesDisplayOnlyManifestDrift \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.directConfirmRestoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged
+```
+
+结果：
+
+- 通过：定向 Agent loop manifest reauthorization 回归。
+- 通过：`AgentCoreDocumentationTest` 文档契约。
+- 通过：`git diff --check` whitespace 检查。
+- 通过：全量 `./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin`。

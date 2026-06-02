@@ -4,7 +4,9 @@ import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
+import org.json.JSONArray
 import org.json.JSONObject
+import java.security.MessageDigest
 
 data class SkillManifest(
     val id: String,
@@ -16,6 +18,19 @@ data class SkillManifest(
     val inputSchemaJson: String,
     val riskLevel: RiskLevel,
 )
+
+fun SkillManifest.authorizationContractHash(): String {
+    val identity = buildString {
+        appendLengthPrefixed(id)
+        appendLengthPrefixed(version.toString())
+        appendLengthPrefixed(riskLevel.name)
+        requiredTools.sorted().forEach(::appendLengthPrefixed)
+        appendLengthPrefixed(inputSchemaJson.normalizedJsonForContract())
+    }
+    return MessageDigest.getInstance("SHA-256")
+        .digest(identity.toByteArray(Charsets.UTF_8))
+        .joinToString(separator = "") { byte -> "%02x".format(byte) }
+}
 
 data class SkillRequest(
     val id: String,
@@ -478,3 +493,32 @@ private fun JSONObject.optStringSetOrNull(name: String): Set<String>? {
 
 private fun Throwable.cleanMessage(): String =
     message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
+
+private fun StringBuilder.appendLengthPrefixed(value: String) {
+    append(value.length)
+    append(':')
+    append(value)
+    append(';')
+}
+
+private fun String.normalizedJsonForContract(): String =
+    runCatching { JSONObject(this).canonicalJsonString() }
+        .getOrDefault(trim())
+
+private fun Any?.canonicalJsonString(): String =
+    when {
+        this == null || this == JSONObject.NULL -> "null"
+        this is JSONObject -> keysSet()
+            .sorted()
+            .joinToString(prefix = "{", postfix = "}") { key ->
+                "${JSONObject.quote(key)}:${opt(key).canonicalJsonString()}"
+            }
+
+        this is JSONArray -> (0 until length())
+            .joinToString(prefix = "[", postfix = "]") { index ->
+                opt(index).canonicalJsonString()
+            }
+
+        this is Number || this is Boolean -> toString()
+        else -> JSONObject.quote(toString())
+    }

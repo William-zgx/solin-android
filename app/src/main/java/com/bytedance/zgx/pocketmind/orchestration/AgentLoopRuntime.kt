@@ -25,6 +25,7 @@ import com.bytedance.zgx.pocketmind.skill.SkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillRunProgressor
 import com.bytedance.zgx.pocketmind.skill.SkillStep
 import com.bytedance.zgx.pocketmind.skill.SkillToolResultProgression
+import com.bytedance.zgx.pocketmind.skill.authorizationContractHash
 import com.bytedance.zgx.pocketmind.skill.validateStructure
 import com.bytedance.zgx.pocketmind.skill.valueFreeCheckpointForPendingTool
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
@@ -270,7 +271,7 @@ class AgentLoopRuntime(
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.AwaitingUserConfirmation) return run
         val request = pendingToolRequest(runId, requestId)
-            ?: return run
+            ?: return traceStore.run(runId) ?: run
         val spec = toolRegistry.specFor(request.toolName)
         if (spec == null) {
             val rejection = request.rejected("Unknown tool: ${request.toolName}")
@@ -722,6 +723,17 @@ class AgentLoopRuntime(
         request: ToolRequest,
         result: ToolResult,
     ): NextObservationPlan {
+        latestSkillPlan(run.id)?.let { skillPlan ->
+            invalidSkillPlanReason(skillPlan)?.let { reason ->
+                val requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { toolRequest ->
+                    toolRequest.id
+                }
+                return rejectNextToolPlan(
+                    run.id,
+                    requestForSkillProgressionRejection(skillPlan, requestedRequestIds, reason),
+                )
+            }
+        }
         planNextToolStepFromCurrentSkill(run, result)?.let { nextPlan ->
             return nextPlan
         }
@@ -845,6 +857,12 @@ class AgentLoopRuntime(
         val skillPlan = latestSkillPlan(run.id)
             ?: return planExplicitToolCallAfterModelResult(run, text)
         val requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id }
+        invalidSkillPlanReason(skillPlan)?.let { reason ->
+            return rejectNextToolPlan(
+                run.id,
+                requestForSkillProgressionRejection(skillPlan, requestedRequestIds, reason),
+            )
+        }
         return when (val progression = skillProgressor.nextToolAfterModelOutput(
             skillPlan = skillPlan,
             requestedRequestIds = requestedRequestIds,
@@ -1024,6 +1042,7 @@ class AgentLoopRuntime(
 
     fun latestPendingConfirmation(sessionId: String? = null): PendingToolConfirmationSnapshot? =
         traceStore.latestPendingConfirmation(sessionId)
+            ?.takeIf { snapshot -> restoredPendingConfirmationIsAuthorized(snapshot) }
             ?.also { snapshot -> rememberValueFreeFrontier(snapshot) }
 
     fun latestPendingExternalOutcome(sessionId: String? = null): PendingExternalOutcomeSnapshot? =
@@ -1080,6 +1099,20 @@ class AgentLoopRuntime(
         } else {
             valueFreeCompletedStepFrontiersByRunId[snapshot.run.id] = completedStepIds
         }
+    }
+
+    private fun restoredPendingConfirmationIsAuthorized(snapshot: PendingToolConfirmationSnapshot): Boolean {
+        val reason = invalidSkillPlanReason(snapshot.skillPlan)
+            ?: invalidSkillPlanReason(snapshot.continuationCursor?.skillPlan)
+            ?: return true
+        val rejection = snapshot.request.rejected(reason)
+        traceStore.appendStep(snapshot.run.id, AgentStep.ToolRejected(rejection))
+        auditRejectedTool(snapshot.run.id, rejection)
+        traceStore.clearPendingConfirmation(snapshot.run.id, snapshot.request.id)
+        traceStore.appendStep(snapshot.run.id, AgentStep.Failed(rejection.summary))
+        traceStore.updateState(snapshot.run.id, AgentRunState.Failed)
+        valueFreeCompletedStepFrontiersByRunId.remove(snapshot.run.id)
+        return false
     }
 
     private fun AgentPlan.UseTool.toPendingSnapshot(run: AgentRun): PendingToolConfirmationSnapshot =
@@ -1308,12 +1341,32 @@ class AgentLoopRuntime(
         request: ToolRequest,
         skillPlan: SkillPlan?,
     ): ToolResult? {
-        val validation = skillPlan?.validateStructure(toolRegistry) ?: return null
+        val reason = invalidSkillPlanReason(skillPlan) ?: return null
+        return request.rejected(reason)
+    }
+
+    private fun invalidSkillPlanReason(skillPlan: SkillPlan?): String? {
+        skillPlan ?: return null
+        unauthorizedSkillManifestReason(skillPlan)?.let { reason -> return reason }
+        val validation = skillPlan.validateStructure(toolRegistry)
         return if (validation.isValid) {
             null
         } else {
-            request.rejected("Invalid skill plan: ${validation.errors.joinToString()}")
+            "Invalid skill plan: ${validation.errors.joinToString()}"
         }
+    }
+
+    private fun unauthorizedSkillManifestReason(skillPlan: SkillPlan): String? {
+        val currentManifest = skillRuntime.manifests()
+            .firstOrNull { manifest -> manifest.id == skillPlan.manifest.id }
+            ?: return "Skill manifest is not authorized by current runtime: ${skillPlan.manifest.id}"
+        if (currentManifest.version != skillPlan.manifest.version) {
+            return "Skill manifest version changed: ${skillPlan.manifest.id}"
+        }
+        if (currentManifest.authorizationContractHash() != skillPlan.manifest.authorizationContractHash()) {
+            return "Skill manifest changed: ${skillPlan.manifest.id}"
+        }
+        return null
     }
 
     private fun promptWithContextIfUseful(
@@ -1599,6 +1652,7 @@ class AgentLoopRuntime(
     ): ToolObservationContinuation? {
         request ?: return null
         val skillPlan = latestSkillPlan(run.id) ?: return null
+        if (invalidSkillPlanReason(skillPlan) != null) return null
         val currentStepIndex = skillPlan.steps.indexOfFirst { step ->
             step is SkillStep.ToolStep && step.request.id == request.id
         }
@@ -1866,7 +1920,10 @@ class AgentLoopRuntime(
     private fun pendingToolRequest(runId: String, requestId: String): ToolRequest? {
         val restoredSnapshot = traceStore.latestPendingConfirmation()
             ?.takeIf { snapshot -> snapshot.run.id == runId && snapshot.request.id == requestId }
-            ?.also { snapshot -> rememberValueFreeFrontier(snapshot) }
+        if (restoredSnapshot != null) {
+            if (!restoredPendingConfirmationIsAuthorized(restoredSnapshot)) return null
+            rememberValueFreeFrontier(restoredSnapshot)
+        }
         val liveRequest = latestPendingToolRequest(runId)
             ?.takeIf { request -> request.id == requestId }
         return liveRequest ?: restoredSnapshot?.request

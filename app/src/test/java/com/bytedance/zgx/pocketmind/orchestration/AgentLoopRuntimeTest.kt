@@ -1774,6 +1774,33 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun skillFirstPlanMustMatchCurrentRuntimeManifestContract() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = ManifestTransformingSkillRuntime(ToolToToolSkillRuntime()) { manifest ->
+                if (manifest.id == ToolToToolSkillRuntime.REMINDER_SKILL_ID) {
+                    manifest.copy(riskLevel = RiskLevel.HighExternalSend)
+                } else {
+                    manifest
+                }
+            },
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = ToolToToolSkillRuntime.REMINDER_INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.Failed, result.run.state)
+        require(result.plan is AgentPlan.RejectedTool)
+        assertTrue(result.plan.result.summary.contains("Skill manifest changed"))
+        assertEquals(null, runtime.latestPendingConfirmation())
+    }
+
+    @Test
     fun clipboardObservationBuildsContinuationPromptAndRedactsTrace() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = RecordingActionRuntime(
@@ -3561,6 +3588,120 @@ class AgentLoopRuntimeTest {
             restoredRuntime.confirmToolRequest(planned.run.id, restoredPending.request.id)?.state ==
                 AgentRunState.ExecutingTool,
         )
+    }
+
+    @Test
+    fun restoredSkillPendingSurvivesDisplayOnlyManifestDrift() {
+        val dao = FakeAgentTraceDao()
+        val pending = persistToolToToolCancelPending(dao, runId = "run-display-only-manifest-drift")
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = ManifestTransformingSkillRuntime(ToolToToolSkillRuntime()) { manifest ->
+                if (manifest.id == ToolToToolSkillRuntime.REMINDER_SKILL_ID) {
+                    manifest.copy(
+                        title = "Updated reminder copy",
+                        description = "Updated display copy only",
+                        triggerExamples = listOf("updated example"),
+                        inputSchemaJson = """
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "input": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["input"],
+                              "type": "object"
+                            }
+                        """.trimIndent(),
+                    )
+                } else {
+                    manifest
+                }
+            },
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 2_000L },
+            ),
+        )
+
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+
+        requireNotNull(restoredPending)
+        assertEquals(pending.runId, restoredPending.run.id)
+        assertEquals(pending.cancelRequestId, restoredPending.request.id)
+        assertEquals(
+            AgentRunState.ExecutingTool,
+            restoredRuntime.confirmToolRequest(pending.runId, pending.cancelRequestId)?.state,
+        )
+    }
+
+    @Test
+    fun restoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged() {
+        val dao = FakeAgentTraceDao()
+        val pending = persistToolToToolCancelPending(dao, runId = "run-manifest-contract-drift")
+        val restoredTraceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 2_000L },
+        )
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = ManifestTransformingSkillRuntime(ToolToToolSkillRuntime()) { manifest ->
+                if (manifest.id == ToolToToolSkillRuntime.REMINDER_SKILL_ID) {
+                    manifest.copy(riskLevel = RiskLevel.HighExternalSend)
+                } else {
+                    manifest
+                }
+            },
+            traceStore = restoredTraceStore,
+        )
+
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+
+        assertNull(restoredPending)
+        assertEquals(AgentRunState.Failed, restoredTraceStore.run(pending.runId)?.state)
+        assertTrue(dao.pendingConfirmations().isEmpty())
+        assertTrue(dao.skillRunCheckpointsForRun(pending.runId).isEmpty())
+        assertTrue(restoredTraceStore.steps(pending.runId).any { step ->
+            step is AgentStep.Failed && step.reason.contains("Skill manifest changed")
+        })
+    }
+
+    @Test
+    fun directConfirmRestoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged() {
+        val dao = FakeAgentTraceDao()
+        val pending = persistToolToToolCancelPending(dao, runId = "run-direct-confirm-manifest-drift")
+        val restoredTraceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 2_000L },
+        )
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = ManifestTransformingSkillRuntime(ToolToToolSkillRuntime()) { manifest ->
+                if (manifest.id == ToolToToolSkillRuntime.REMINDER_SKILL_ID) {
+                    manifest.copy(requiredTools = listOf(MobileActionFunctions.SCHEDULE_REMINDER))
+                } else {
+                    manifest
+                }
+            },
+            traceStore = restoredTraceStore,
+        )
+
+        val confirmed = restoredRuntime.confirmToolRequest(
+            runId = pending.runId,
+            requestId = pending.cancelRequestId,
+        )
+
+        assertEquals(AgentRunState.Failed, confirmed?.state)
+        assertTrue(dao.pendingConfirmations().isEmpty())
+        assertTrue(dao.skillRunCheckpointsForRun(pending.runId).isEmpty())
+        assertTrue(restoredTraceStore.steps(pending.runId).any { step ->
+            step is AgentStep.Failed && step.reason.contains("Skill manifest changed")
+        })
     }
 
     @Test
@@ -6857,6 +6998,64 @@ class AgentLoopRuntimeTest {
             usedModel = false,
             fallbackReason = "test fallback",
         )
+
+    private data class PersistedToolToToolCancelPending(
+        val runId: String,
+        val cancelRequestId: String,
+    )
+
+    private fun persistToolToToolCancelPending(
+        dao: FakeAgentTraceDao,
+        runId: String,
+    ): PersistedToolToToolCancelPending {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = ToolToToolSkillRuntime(),
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { runId },
+            ),
+        )
+        val planned = initialRuntime.runOnce(
+            input = ToolToToolSkillRuntime.REMINDER_INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已安排 10000 触发的后台提醒",
+                data = scheduleReminderResultData(taskId = "task-restored", triggerAtMillis = "10000"),
+            ),
+        )
+        requireNotNull(observed)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        return PersistedToolToToolCancelPending(
+            runId = planned.run.id,
+            cancelRequestId = observed.decision.plan.request.id,
+        )
+    }
+
+    private class ManifestTransformingSkillRuntime(
+        private val delegate: SkillRuntime,
+        private val transform: (SkillManifest) -> SkillManifest,
+    ) : SkillRuntime {
+        override fun manifests(): List<SkillManifest> =
+            delegate.manifests().map(transform)
+
+        override fun plan(input: String): SkillPlan? =
+            delegate.plan(input)
+
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? =
+            delegate.plan(input, draft, request)
+    }
 
     private class ToolToToolSkillRuntime : SkillRuntime {
         private val reminderManifest = manifest(
