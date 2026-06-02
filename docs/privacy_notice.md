@@ -42,6 +42,18 @@ configured, the runtime sends it as an authorization credential to the
 configured endpoint. The endpoint operator's own logging and retention policies
 apply.
 
+Remote model tool requests are not executed by the remote endpoint. The app
+parses OpenAI-compatible `tool_calls` locally and revalidates every request
+through the Tool Registry, safety policy, Agent trace, and audit path before
+execution. A single public read-only evidence tool such as `web_search` may run
+without confirmation. Multiple tool calls in one remote model turn may run
+concurrently only when every requested tool is `PublicEvidence`,
+`LowReadOnly`, `NotRequired`, has no private output keys, and declares no
+device-context, Android permission, MediaProjection, external-navigation,
+sharing, scheduling, notification, or other side-effect permission. Mixed
+batches are rejected as a whole before any tool runs, so a safe public lookup
+is not executed beside a private local read or action tool.
+
 ## Device Context Tools
 
 Device context tools are gated behind Agent planning, schema validation, safety

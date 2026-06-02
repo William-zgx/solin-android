@@ -171,6 +171,11 @@ sealed class AgentObservationDecision {
         val reason: String,
     ) : AgentObservationDecision()
 
+    data class PlanToolBatch(
+        val plans: List<AgentPlan.UseTool>,
+        val reason: String,
+    ) : AgentObservationDecision()
+
     data class Fail(
         val reason: String,
     ) : AgentObservationDecision()

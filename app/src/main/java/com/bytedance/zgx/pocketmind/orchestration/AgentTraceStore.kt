@@ -1291,6 +1291,8 @@ private fun AgentObservationDecision.traceSummary(): String =
             "Retry ${request.toolName} attempt $attempt: ${reason.shortTraceText()}"
         is AgentObservationDecision.PlanNextTool ->
             "Plan next tool ${plan.request.toolName}: ${reason.shortTraceText()}"
+        is AgentObservationDecision.PlanToolBatch ->
+            "Plan tool batch ${plans.joinToString { plan -> plan.request.toolName }}: ${reason.shortTraceText()}"
         is AgentObservationDecision.Fail -> "Observation failed: ${reason.shortTraceText()}"
         AgentObservationDecision.Cancel -> "Observation cancelled."
     }
@@ -1434,6 +1436,22 @@ private fun AgentObservationDecision.traceJson(): JSONObject {
             .put("type", "PlanNextTool")
             .put("requestId", plan.request.id)
             .put("toolName", plan.request.toolName)
+            .put("reason", reason.shortTraceText())
+
+        is AgentObservationDecision.PlanToolBatch -> json
+            .put("type", "PlanToolBatch")
+            .put(
+                "requests",
+                JSONArray().also { array ->
+                    plans.forEach { plan ->
+                        array.put(
+                            JSONObject()
+                                .put("requestId", plan.request.id)
+                                .put("toolName", plan.request.toolName),
+                        )
+                    }
+                },
+            )
             .put("reason", reason.shortTraceText())
 
         is AgentObservationDecision.Fail -> json

@@ -50,10 +50,23 @@ class OkHttpWebSearchProvider(
     }
 
     private fun searchWeather(query: String): WebSearchReadResult {
-        val locationQuery = query.weatherLocationQuery()
-        if (locationQuery.isBlank()) {
+        val locationQueries = query.weatherLocationQueries()
+        if (locationQueries.isEmpty()) {
             return WebSearchReadResult.Failed("天气查询需要明确地点")
         }
+        val snapshots = locationQueries.map { locationQuery ->
+            readWeatherSnapshot(locationQuery).getOrElse { throwable ->
+                return WebSearchReadResult.Failed(throwable.cleanReason())
+            }
+        }
+        return if (snapshots.size > 1) {
+            weatherEvidenceResult(query, snapshots.take(2))
+        } else {
+            singleWeatherResult(query, snapshots.single())
+        }
+    }
+
+    private fun readWeatherSnapshot(locationQuery: String): Result<WeatherSnapshot> = runCatching {
         val geocodingJson = runCatching {
             JSONObject(
                 get(
@@ -67,14 +80,14 @@ class OkHttpWebSearchProvider(
                 ),
             )
         }.getOrElse { throwable ->
-            return WebSearchReadResult.Failed("地点解析失败：${throwable.cleanReason()}")
+            throw IOException("地点解析失败：${throwable.cleanReason()}")
         }
         val location = geocodingJson.optJSONArray("results")?.optJSONObject(0)
-            ?: return WebSearchReadResult.Failed("没有找到地点：$locationQuery")
+            ?: throw IOException("没有找到地点：$locationQuery")
         val latitude = location.optDouble("latitude", Double.NaN)
         val longitude = location.optDouble("longitude", Double.NaN)
         if (latitude.isNaN() || longitude.isNaN()) {
-            return WebSearchReadResult.Failed("地点缺少经纬度：$locationQuery")
+            throw IOException("地点缺少经纬度：$locationQuery")
         }
 
         val forecastJson = runCatching {
@@ -93,16 +106,31 @@ class OkHttpWebSearchProvider(
                 ),
             )
         }.getOrElse { throwable ->
-            return WebSearchReadResult.Failed("天气查询失败：${throwable.cleanReason()}")
+            throw IOException("天气查询失败：${throwable.cleanReason()}")
         }
         val current = forecastJson.optJSONObject("current")
-            ?: return WebSearchReadResult.Failed("天气接口没有返回当前天气")
+            ?: throw IOException("天气接口没有返回当前天气")
         val units = forecastJson.optJSONObject("current_units") ?: JSONObject()
         val locationName = listOfNotNull(
             location.optString("name").takeIf { it.isNotBlank() },
             location.optString("admin1").takeIf { it.isNotBlank() },
             location.optString("country").takeIf { it.isNotBlank() },
         ).distinct().joinToString(" · ")
+        WeatherSnapshot(
+            requestedLocation = locationQuery,
+            displayName = locationName.ifBlank { locationQuery },
+            latitude = latitude,
+            longitude = longitude,
+            timezone = forecastJson.optString("timezone"),
+            current = current,
+            units = units,
+        )
+    }
+
+    private fun singleWeatherResult(query: String, snapshot: WeatherSnapshot): WebSearchReadResult {
+        val current = snapshot.current
+        val units = snapshot.units
+        val locationName = snapshot.displayName
         val weatherCode = current.optInt("weather_code", -1)
         val temperature = current.optString("temperature_2m")
         val apparentTemperature = current.optString("apparent_temperature")
@@ -111,7 +139,7 @@ class OkHttpWebSearchProvider(
         val tempUnit = units.optString("temperature_2m", "℃")
         val windUnit = units.optString("wind_speed_10m", "km/h")
         val summary = buildString {
-            append(locationName.ifBlank { locationQuery })
+            append(locationName.ifBlank { snapshot.requestedLocation })
             append(" 当前天气：")
             append(weatherCode.weatherDescription())
             append("，气温 ")
@@ -132,9 +160,9 @@ class OkHttpWebSearchProvider(
             .put("provider", "Open-Meteo")
             .put("query", query)
             .put("location", locationName)
-            .put("latitude", latitude)
-            .put("longitude", longitude)
-            .put("timezone", forecastJson.optString("timezone"))
+            .put("latitude", snapshot.latitude)
+            .put("longitude", snapshot.longitude)
+            .put("timezone", snapshot.timezone)
             .put("current", current)
             .toString()
             .boundedText(MAX_WEB_SEARCH_RESULTS_JSON_CHARS)
@@ -143,6 +171,26 @@ class OkHttpWebSearchProvider(
             source = "open_meteo",
             summaryText = summary,
             resultsJson = results,
+        )
+    }
+
+    private fun weatherEvidenceResult(query: String, snapshots: List<WeatherSnapshot>): WebSearchReadResult {
+        val locationArray = JSONArray()
+        snapshots.forEach { snapshot ->
+            locationArray.put(snapshot.toJsonObject())
+        }
+        val summary = "已读取${snapshots.joinToString("、") { snapshot -> snapshot.shortName }}当前天气。"
+            .boundedText(MAX_WEB_SEARCH_SUMMARY_CHARS)
+        val results = JSONObject()
+            .put("kind", "weather_current")
+            .put("provider", "Open-Meteo")
+            .put("query", query)
+            .put("locations", locationArray)
+        return WebSearchReadResult.Available(
+            query = query,
+            source = "open_meteo",
+            summaryText = summary,
+            resultsJson = results.toString().boundedText(MAX_WEB_SEARCH_RESULTS_JSON_CHARS),
         )
     }
 
@@ -224,18 +272,77 @@ private data class WebSearchItem(
     val url: String,
 )
 
-private fun String.looksLikeWeatherQuery(): Boolean {
-    val normalized = lowercase(Locale.US)
-    return listOf("天气", "气温", "降雨", "下雨", "温度").any { it in this } ||
-        Regex("""\bweather\b|\btemperature\b|\brain\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+private data class WeatherSnapshot(
+    val requestedLocation: String,
+    val displayName: String,
+    val latitude: Double,
+    val longitude: Double,
+    val timezone: String,
+    val current: JSONObject,
+    val units: JSONObject,
+) {
+    val shortName: String = displayName.substringBefore(" · ").ifBlank { requestedLocation }
+
+    fun toJsonObject(): JSONObject =
+        JSONObject()
+            .put("requestedLocation", requestedLocation)
+            .put("location", displayName)
+            .put("latitude", latitude)
+            .put("longitude", longitude)
+            .put("timezone", timezone)
+            .put("currentUnits", units)
+            .put("current", current)
 }
 
-private fun String.weatherLocationQuery(): String =
-    trim()
+private fun String.looksLikeWeatherQuery(): Boolean {
+    val normalized = lowercase(Locale.US)
+    return listOf("天气", "气温", "降雨", "下雨", "温度", "温差", "相差", "更高", "更低", "更热", "更冷")
+        .any { it in this } ||
+        Regex("""(比.+[冷热]|[冷热]多少|哪个.*[冷热]|哪一个.*[冷热]|谁.*[冷热])""").containsMatchIn(this) ||
+        Regex(
+            """\bweather\b|\btemperature\b|\brain\b|\bforecast\b|\bhotter\b|\bcolder\b|\bwarmer\b|\bcooler\b|\bdifference\b|\bcompare\b""",
+            RegexOption.IGNORE_CASE,
+        ).containsMatchIn(normalized)
+}
+
+private fun String.weatherLocationQueries(): List<String> {
+    val normalized = trim()
         .replace(Regex("""(?i)\b(?:what(?:'s| is)?|how(?:'s| is)?|tell me|check|look up)\b"""), " ")
         .replace(Regex("""(?i)\b(?:weather|temperature|rain|forecast)\b"""), " ")
         .replace(Regex("""(?i)\b(?:in|for|today|now|currently)\b"""), " ")
-        .replace(Regex("""(天气|气温|温度|降雨|下雨|预报|怎么样|如何|多少|现在|今天|查询|查一下|搜一下|帮我|请|一下)"""), " ")
+        .replace(Regex("""(?i)\b(?:and|vs|versus|between|compare|difference)\b"""), "|")
+        .replace(
+            Regex(
+                """(比较|对比|相差|气温差|温度差|温差|差多少|差了多少|哪个更热|哪个更冷|哪一个更热|哪一个更冷|谁更热|谁更冷)""",
+            ),
+            "|",
+        )
+        .replace(Regex("""(?<=.)比(?=.)"""), "|")
+        .replace(Regex("""[、,，/;；]"""), "|")
+        .replace(Regex("""(?<=.)[和与跟及](?=.)"""), "|")
+        .replace(Regex("""[，。！？、:：?]+"""), " ")
+        .replace(Regex("""\s*\|\s*"""), "|")
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+    return normalized.split('|')
+        .map { location -> location.cleanWeatherLocationCandidate() }
+        .filter { location -> location.isNotBlank() }
+        .distinct()
+        .take(2)
+}
+
+private fun String.cleanWeatherLocationCandidate(): String =
+    trim()
+        .replace(Regex("""(?i)\b(?:weather|temperature|rain|forecast|today|now|currently)\b"""), " ")
+        .replace(
+            Regex(
+                """(天气|气温|温度|温差|降雨|下雨|预报|怎么样|如何|多少|现在|今天|今晚|明天|查询|查一下|搜一下|帮我|请|一下|有没有|会不会|没有|没|吗|嘛|么|了|呢|呀|啊|？|\?)""",
+            ),
+            " ",
+        )
+        .replace(Regex("""^\s*(?:有|会|是|的)\s*"""), " ")
+        .replace(Regex("""\s*(?:有|会|是|的)$"""), " ")
+        .replace(Regex("""\s*(?:更高|更低|更热|更冷|高|低|冷|热)\s*$"""), " ")
         .replace(Regex("""[，。！？、:：?]+"""), " ")
         .replace(Regex("""\s+"""), " ")
         .trim()

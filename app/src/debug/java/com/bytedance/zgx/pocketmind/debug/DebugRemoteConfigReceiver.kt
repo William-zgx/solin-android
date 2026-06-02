@@ -14,6 +14,15 @@ import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
 class DebugRemoteConfigReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val appContext = context.applicationContext
+        val repository = RemoteModelRepository(appContext)
+        if (intent.getBooleanExtra(EXTRA_CLEAR_REMOTE_CONFIG, false)) {
+            repository.saveConfig(RemoteModelConfig()).getOrThrow()
+            repository.saveMode(InferenceMode.Local)
+            resultCode = Activity.RESULT_OK
+            resultData = "remote config cleared"
+            return
+        }
+
         val config = RemoteModelConfig(
             baseUrl = intent.getStringExtra(EXTRA_BASE_URL).orEmpty(),
             modelName = intent.getStringExtra(EXTRA_MODEL_NAME).orEmpty(),
@@ -31,7 +40,6 @@ class DebugRemoteConfigReceiver : BroadcastReceiver() {
             PocketMindDatabase.get(appContext).clearAllTables()
         }
         FirstRunSetupRepository(settingsStore).markSetupDismissed()
-        val repository = RemoteModelRepository(appContext)
         repository.saveConfig(config).getOrThrow()
         repository.saveMode(InferenceMode.Remote)
 
@@ -44,5 +52,6 @@ class DebugRemoteConfigReceiver : BroadcastReceiver() {
         const val EXTRA_MODEL_NAME = "modelName"
         const val EXTRA_API_KEY = "apiKey"
         const val EXTRA_CLEAR_STATE = "clearState"
+        const val EXTRA_CLEAR_REMOTE_CONFIG = "clearRemoteConfig"
     }
 }

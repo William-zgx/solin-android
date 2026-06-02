@@ -73,6 +73,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -1222,6 +1225,13 @@ class PocketMindViewModel(
                                                 ?: error("远程工具调用无法进入确认流程")
                                     }
 
+                                    is RemoteChatEvent.ToolCalls -> {
+                                        val runId = route.runId ?: error("远程工具调用缺少 Agent run")
+                                        remoteToolObservation =
+                                            assistantOrchestrator.observeModelToolRequests(runId, event.requests)
+                                                ?: error("远程批量工具调用无法进入执行流程")
+                                    }
+
                                     is RemoteChatEvent.ParseError -> error(event.summary)
                                 }
                             }
@@ -1232,6 +1242,25 @@ class PocketMindViewModel(
                             }
                         }
                         if (remoteToolObservation != null) {
+                            val toolBatch =
+                                (remoteToolObservation?.decision as? AgentObservationDecision.PlanToolBatch)?.plans
+                            if (toolBatch != null) {
+                                val observedForBatch = remoteToolObservation ?: error("远程批量工具调用缺少 Agent observation")
+                                val assistantText = buildString {
+                                    if (partial.isNotBlank()) {
+                                        append(partial)
+                                        append("\n\n")
+                                    }
+                                    append("正在并行使用工具：${toolBatch.batchToolTitle()}")
+                                }
+                                _uiState.updateLastAssistantLocalOnly(assistantText)
+                                persistActiveSessionFromUi()
+                                executePublicEvidenceToolBatchAfterRunIsExecuting(
+                                    runId = observedForBatch.run.id,
+                                    plans = toolBatch,
+                                )
+                                return@launch
+                            }
                             val nextToolPlan =
                                 (remoteToolObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
                             if (nextToolPlan != null) {
@@ -1781,6 +1810,162 @@ class PocketMindViewModel(
         }
     }
 
+    private suspend fun executePublicEvidenceToolBatchAfterRunIsExecuting(
+        runId: String,
+        plans: List<AgentPlan.UseTool>,
+    ) {
+        if (plans.isEmpty()) {
+            assistantOrchestrator.failModelGeneration(runId, "远程模型返回了空工具批次")
+            _uiState.updateLastAssistantLocalOnly("远程模型返回了空工具批次，已停止执行。")
+            persistActiveSessionFromUi()
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    isGenerating = false,
+                    auditEvents = loadAuditEvents(),
+                    agentTraceRuns = loadAgentTraceRuns(),
+                    statusText = "批量工具不可执行",
+                )
+            }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                pendingConfirmation = null,
+                latestRecoveryAction = null,
+                isBusy = true,
+                isGenerating = false,
+                auditEvents = loadAuditEvents(),
+                agentTraceRuns = loadAgentTraceRuns(),
+                statusText = "工具并发执行中",
+            )
+        }
+        val results = coroutineScope {
+            plans.map { plan ->
+                async {
+                    runCatching {
+                        actionExecutor.execute(plan.request)
+                    }.getOrElse { throwable ->
+                        if (throwable is CancellationException) throw throwable
+                        plan.request.failed(
+                            code = ToolErrorCode.ExecutionFailed,
+                            summary = "Tool execution failed before completion: ${throwable.cleanMessage()}",
+                            retryable = true,
+                            data = mapOf("toolName" to plan.request.toolName),
+                        )
+                    }
+                }
+            }.awaitAll()
+        }
+        val observation = assistantOrchestrator.observeToolResults(runId, results)
+        if (observation == null) {
+            assistantOrchestrator.cancelRun(runId, "批量工具结果无法进入观察流程")
+            _uiState.updateLastAssistantLocalOnly("批量工具结果无法进入观察流程，已停止执行。")
+            persistActiveSessionFromUi()
+            _uiState.update {
+                it.copy(
+                    pendingConfirmation = null,
+                    isBusy = false,
+                    isGenerating = false,
+                    auditEvents = loadAuditEvents(),
+                    agentTraceRuns = loadAgentTraceRuns(),
+                    statusText = "批量工具不可执行",
+                )
+            }
+            return
+        }
+        val observationPrivacy = observation.privacyForObservation()
+        val messagesWithObservation = _uiState.value.messages + ChatMessage(
+            role = MessageRole.Assistant,
+            text = observation.assistantMessage,
+            privacy = observationPrivacy,
+        )
+        replaceActiveSessionMessages(
+            messagesWithObservation,
+            persistNow = true,
+        )
+        val nextToolPlan = (observation.decision as? AgentObservationDecision.PlanNextTool)?.plan
+        if (nextToolPlan != null) {
+            handleNextToolPlan(
+                runId = observation.run.id,
+                plan = nextToolPlan,
+                pendingStatusText = "下一步动作待确认",
+            )
+            return
+        }
+        observation.continuationPromptForModel?.let { continuationPrompt ->
+            if (observation.continuationRequiresLocalModel &&
+                _uiState.value.inferenceMode == InferenceMode.Remote
+            ) {
+                assistantOrchestrator.failModelGeneration(
+                    observation.run.id,
+                    "批量工具结果需要本地模型续写，未发送到远程模型",
+                )
+                replaceActiveSessionMessages(
+                    messagesWithObservation + ChatMessage(
+                        role = MessageRole.Assistant,
+                        text = "批量工具结果包含仅本地内容。当前为远程模型模式，我不会把它发送到远程模型。",
+                        privacy = MessagePrivacy.LocalOnly,
+                    ),
+                    persistNow = true,
+                )
+                rebuildMemoryIndex()
+                _uiState.update {
+                    it.copy(
+                        pendingConfirmation = null,
+                        isBusy = false,
+                        isGenerating = false,
+                        auditEvents = loadAuditEvents(),
+                        agentTraceRuns = loadAgentTraceRuns(),
+                        statusText = "已保护批量工具结果",
+                    )
+                }
+                return
+            }
+            replaceActiveSessionMessages(
+                messagesWithObservation + ChatMessage(
+                    role = MessageRole.Assistant,
+                    text = "",
+                    privacy = observationPrivacy,
+                ),
+                persistNow = true,
+            )
+            _uiState.update {
+                it.copy(
+                    pendingConfirmation = null,
+                    isBusy = true,
+                    isGenerating = true,
+                    auditEvents = loadAuditEvents(),
+                    agentTraceRuns = loadAgentTraceRuns(),
+                    statusText = "生成中",
+                )
+            }
+            continueAfterToolObservation(
+                runId = observation.run.id,
+                promptForModel = continuationPrompt,
+                responsePrivacy = observationPrivacy,
+            )
+            return
+        }
+        syncTaskStateMemories()
+        rebuildMemoryIndex()
+        _uiState.update {
+            it.copy(
+                pendingConfirmation = null,
+                backgroundTasks = loadBackgroundTasks(),
+                backgroundTaskHistory = loadBackgroundTaskHistory(),
+                periodicCheckPolicy = loadPeriodicCheckPolicy(),
+                longTermMemories = loadLongTermMemories(),
+                auditEvents = loadAuditEvents(),
+                agentTraceRuns = loadAgentTraceRuns(),
+                latestRecoveryAction = observation.recoveryAction,
+                isBusy = false,
+                isGenerating = false,
+                statusText = observation.assistantMessage,
+            )
+        }
+    }
+
     private fun handleNextToolPlan(
         runId: String,
         plan: AgentPlan.UseTool,
@@ -2155,6 +2340,13 @@ class PocketMindViewModel(
                                         ?: error("远程工具调用无法进入确认流程")
                             }
 
+                            is RemoteChatEvent.ToolCalls -> {
+                                val id = runId ?: error("远程工具调用缺少 Agent run")
+                                modelObservation =
+                                    assistantOrchestrator.observeModelToolRequests(id, event.requests)
+                                        ?: error("远程批量工具调用无法进入执行流程")
+                            }
+
                             is RemoteChatEvent.ParseError -> error(event.summary)
                         }
                     }
@@ -2177,7 +2369,9 @@ class PocketMindViewModel(
                     }
                 } else {
                     val remotePlan = (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
-                    if (remotePlan == null) {
+                    val remoteToolBatch =
+                        (modelObservation?.decision as? AgentObservationDecision.PlanToolBatch)?.plans
+                    if (remotePlan == null && remoteToolBatch == null) {
                         _uiState.updateLastAssistantLocalOnly(
                             "无法准备这个动作：${(modelObservation?.decision as? AgentObservationDecision.Fail)?.reason.orEmpty()}",
                         )
@@ -2185,6 +2379,24 @@ class PocketMindViewModel(
                 }
                 persistActiveSessionFromUi()
                 rebuildMemoryIndex()
+                val toolBatch = (modelObservation?.decision as? AgentObservationDecision.PlanToolBatch)?.plans
+                if (toolBatch != null) {
+                    val observedForBatch = modelObservation ?: error("远程批量工具调用缺少 Agent observation")
+                    val assistantText = buildString {
+                        if (partial.isNotBlank()) {
+                            append(partial)
+                            append("\n\n")
+                        }
+                        append("正在并行使用工具：${toolBatch.batchToolTitle()}")
+                    }
+                    _uiState.updateLastAssistantLocalOnly(assistantText)
+                    persistActiveSessionFromUi()
+                    executePublicEvidenceToolBatchAfterRunIsExecuting(
+                        runId = observedForBatch.run.id,
+                        plans = toolBatch,
+                    )
+                    return@launch
+                }
                 val nextToolPlan = (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
                 if (nextToolPlan != null) {
                     val observedForPending = modelObservation ?: error("远程工具调用缺少 Agent observation")
@@ -3379,3 +3591,11 @@ private fun Int.floorMod(divisor: Int): Int =
 
 private fun AgentPlan.UseTool.requiresUserConfirmation(): Boolean =
     safetyDecision.outcome == SafetyOutcome.RequireConfirmation
+
+private fun List<AgentPlan.UseTool>.batchToolTitle(): String =
+    groupingBy { plan -> plan.draft.title.ifBlank { plan.request.toolName } }
+        .eachCount()
+        .entries
+        .joinToString(separator = "、") { (title, count) ->
+            if (count > 1) "$title x$count" else title
+        }

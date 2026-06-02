@@ -18,6 +18,7 @@ data class ToolSpec(
     val pendingArgumentAllowlist: Set<String> = emptySet(),
     val privateOutputKeys: Set<String> = emptySet(),
     val redactedResultSummary: String? = null,
+    val resultContinuationPolicy: ToolResultContinuationPolicy = ToolResultContinuationPolicy.None,
 )
 
 data class ToolRequest(
@@ -100,6 +101,12 @@ enum class ConfirmationPolicy {
     NotRequired,
 }
 
+enum class ToolResultContinuationPolicy {
+    None,
+    PublicEvidence,
+    LocalEvidence,
+}
+
 enum class ToolCapability {
     DeviceSettings,
     ExternalNavigation,
@@ -109,6 +116,28 @@ enum class ToolCapability {
     DeviceContext,
     ExternalShare,
 }
+
+private val publicEvidenceBatchDisallowedPermissions = setOf(
+    ToolPermission.StartsExternalActivity,
+    ToolPermission.SendsTextToExternalApp,
+    ToolPermission.ReadsDeviceContext,
+    ToolPermission.ReadsClipboard,
+    ToolPermission.ReadsCalendar,
+    ToolPermission.ReadsContacts,
+    ToolPermission.ReadsFiles,
+    ToolPermission.ReadsAccessibilityText,
+    ToolPermission.RequiresAndroidRuntimePermission,
+    ToolPermission.RequiresMediaProjectionConsent,
+    ToolPermission.SchedulesBackgroundWork,
+    ToolPermission.PostsNotification,
+)
+
+fun ToolSpec.isPublicEvidenceBatchEligible(): Boolean =
+    resultContinuationPolicy == ToolResultContinuationPolicy.PublicEvidence &&
+        confirmationPolicy == ConfirmationPolicy.NotRequired &&
+        riskLevel == RiskLevel.LowReadOnly &&
+        privateOutputKeys.isEmpty() &&
+        permissions.none { permission -> permission in publicEvidenceBatchDisallowedPermissions }
 
 fun ToolRequest.succeeded(
     summary: String,

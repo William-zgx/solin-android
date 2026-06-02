@@ -16,14 +16,16 @@ MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 DEBUG_CONFIG_RECEIVER="${PACKAGE_NAME}/.debug.DebugRemoteConfigReceiver"
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 
-LIVE_REMOTE_BASE_URL="${POCKETMIND_LIVE_REMOTE_BASE_URL:-https://api.deepseek.com/v1}"
-LIVE_REMOTE_MODEL="${POCKETMIND_LIVE_REMOTE_MODEL:-deepseek-v4-pro}"
-LIVE_REMOTE_API_KEY="${POCKETMIND_LIVE_REMOTE_API_KEY:-${DEEPSEEK_API_KEY:-}}"
+LIVE_REMOTE_BASE_URL="${POCKETMIND_LIVE_REMOTE_BASE_URL:-}"
+LIVE_REMOTE_MODEL="${POCKETMIND_LIVE_REMOTE_MODEL:-}"
+LIVE_REMOTE_API_KEY="${POCKETMIND_LIVE_REMOTE_API_KEY:-}"
 LIVE_REMOTE_PROMPT="${POCKETMIND_LIVE_REMOTE_PROMPT:-return uppercase token formed by joining word pocketmind with words live and ok using underscores only}"
 LIVE_REMOTE_EXPECTED_TEXT="${POCKETMIND_LIVE_REMOTE_EXPECTED_TEXT:-POCKETMIND_LIVE_OK}"
 SELECTED_SERIAL=""
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 API_KEY_SOURCE=""
+BASE_URL_SOURCE=""
+MODEL_SOURCE=""
 SCREENSHOT_FILE=""
 UI_DUMP_FILE=""
 
@@ -39,8 +41,10 @@ write_report() {
     echo "started_at_utc=$STARTED_AT_UTC"
     echo "finished_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "serial=${SELECTED_SERIAL:-}"
-    echo "base_url=$LIVE_REMOTE_BASE_URL"
-    echo "model=$LIVE_REMOTE_MODEL"
+    echo "base_url=<redacted>"
+    echo "base_url_source=${BASE_URL_SOURCE:-}"
+    echo "model=<redacted>"
+    echo "model_source=${MODEL_SOURCE:-}"
     echo "api_key_source=${API_KEY_SOURCE:-}"
     echo "expected_text=$LIVE_REMOTE_EXPECTED_TEXT"
     echo "debug_apk=$DEBUG_APK"
@@ -53,6 +57,15 @@ write_report() {
 fail() {
   echo "live_remote_emulator: $*" >&2
   exit 1
+}
+
+clear_remote_config() {
+  if [[ -z "${SELECTED_SERIAL:-}" || ! -x "$ADB_BIN" ]]; then
+    return
+  fi
+  "$ADB_BIN" -s "$SELECTED_SERIAL" shell am broadcast \
+    -n "$DEBUG_CONFIG_RECEIVER" \
+    --ez clearRemoteConfig true >/dev/null 2>&1 || true
 }
 
 select_emulator() {
@@ -73,16 +86,18 @@ select_emulator() {
   SELECTED_SERIAL="${serials[0]}"
 }
 
-trap 'status=$?; write_report "$status"; exit "$status"' EXIT
+trap 'status=$?; clear_remote_config; write_report "$status"; exit "$status"' EXIT
 
 [[ -x "$ADB_BIN" ]] || fail "adb not found at $ADB_BIN."
+[[ -n "$LIVE_REMOTE_BASE_URL" ]] ||
+  fail "Set POCKETMIND_LIVE_REMOTE_BASE_URL before running live remote validation."
+[[ -n "$LIVE_REMOTE_MODEL" ]] ||
+  fail "Set POCKETMIND_LIVE_REMOTE_MODEL before running live remote validation."
 [[ -n "$LIVE_REMOTE_API_KEY" ]] ||
-  fail "Set POCKETMIND_LIVE_REMOTE_API_KEY, or DEEPSEEK_API_KEY, before running live remote validation."
-if [[ -n "${POCKETMIND_LIVE_REMOTE_API_KEY:-}" ]]; then
-  API_KEY_SOURCE="POCKETMIND_LIVE_REMOTE_API_KEY"
-else
-  API_KEY_SOURCE="DEEPSEEK_API_KEY"
-fi
+  fail "Set POCKETMIND_LIVE_REMOTE_API_KEY before running live remote validation."
+BASE_URL_SOURCE="POCKETMIND_LIVE_REMOTE_BASE_URL"
+MODEL_SOURCE="POCKETMIND_LIVE_REMOTE_MODEL"
+API_KEY_SOURCE="POCKETMIND_LIVE_REMOTE_API_KEY"
 
 scripts/doctor.sh --device
 select_emulator

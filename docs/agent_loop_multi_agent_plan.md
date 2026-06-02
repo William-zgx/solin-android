@@ -7,6 +7,11 @@
 已完成能力、仍未完成能力和验证清单以 `docs/agent_core_modules.md`、
 `docs/validation_report.md` 和 `docs/release_readiness.md` 为准。
 
+截至 2026-06-03，现行实现已经超过本文早期“第一阶段只做串行循环”的约束：
+Agent Loop 仍禁止任意并行或后台自主执行，但允许远程模型在单轮中返回多个
+公开只读 evidence tool call。只有全批工具都满足 public evidence eligibility
+时才会并发执行；混入本地私密读取、外部动作或副作用工具时整批拒绝。
+
 ## 结论
 
 PocketMind 在迁移初期已经有本地/远程聊天、轻量记忆检索、动作草稿和确认后 Intent 执行能力，但还不是完整端侧 Agent。第一阶段最重要的不是继续堆更多手机动作，而是把 **Agent 循环** 做成稳定的运行时边界：

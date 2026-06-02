@@ -12,13 +12,180 @@
 `regression-emulator.properties` 为准；只有该文件包含 `status=passed` 时，才能把完整模拟器回归记录为通过。`emulator-verification.properties` 和嵌套
 `device-verification.properties` 是配套证据，不替代完整回归结论。
 
-## 2026-06-02 Live DeepSeek remote emulator check
+## 2026-06-03 Final code and documentation audit
+
+本轮覆盖项：
+
+- 审计当前 `codex/agent-core-progress` 工作树中的远程 `tool_calls` 批量解析、
+  public evidence eligibility、Agent run batch observe、ViewModel 并发执行、
+  `web_search` 公开证据回模型综合、文档和 live remote 配置边界。
+- 根据并行审计结果修复提交前问题：天气地点解析不再全局删除可能属于地名的
+  `和/同/高/低/冷/热` 等字符；本地证据 continuation 优先于 observation replanner；
+  batch 工具执行异常转成失败结果进入 Agent observation；batch `Cancelled` 结果映射为
+  Agent `Cancel`；streaming 混合 `tool_calls` / legacy `function_call` fail closed。
+- 确认远程模型 endpoint/model/key 不作为源码、脚本默认值或文档推荐配置存在；
+  live remote 验证只能通过 `POCKETMIND_LIVE_REMOTE_*` 显式临时注入，报告只写来源变量，
+  并在脚本退出时清空 debug App 中保存的远程配置。
+- 整理提交前证据：旧 stash 属于早期 `feat/agent-loop-second-cycle-query-recent-files`
+  分支的 device/action/tool 改动，未纳入本轮已验证提交。
+
+验证命令：
+
+```bash
+git status --short
+git fetch origin --prune
+git stash list --date=local
+git stash show --stat stash@{0}
+scripts/verify_local.sh
+bash -n scripts/*.sh
+scripts/test_validation_scripts.sh
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.tool.WebSearchProviderTest' --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.publicEvidenceToolBatchCancelledResultCancelsRun' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localEvidenceContinuationTakesPriorityOverObservationReplanner' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutorFailureIsObservedAsToolFailure'
+rg -n "\\bsk-[A-Za-z0-9_-]{20,}\\b" . -g '!**/build/**' -g '!**/.gradle/**' -g '!**/.git/**'
+git diff --check
+```
+
+结果：
+
+- 通过：`scripts/verify_local.sh` 返回 `Local verification passed`，覆盖
+  validation script tests、`:app:testDebugUnitTest`、`:app:lintDebug`、
+  `:app:assembleDebug`、`:app:assembleDebugAndroidTest` 和 `:app:assembleRelease`。
+- 通过：脚本语法、validation scripts、Agent core documentation JVM test 和
+  `git diff --check`。
+- 通过：定向回归覆盖 Web search 地名解析、RemoteChatRuntime streaming mixed format
+  rejection、AgentLoopRuntime batch cancellation / local evidence priority、ViewModel
+  batch executor failure observation。
+- 通过：严格扫描未发现用户 API key、provider-specific endpoint/model 或
+  provider-specific key 环境变量别名残留在源码、脚本、README、docs 或非 build 产物中。
+- 通过：已删除本地 ignored `build/verification` 历史 live remote artifact，避免工作区残留
+  provider-specific UI dump 或 properties。
+- 远程分支状态：`origin` 当前没有 `codex/agent-core-progress` 分支，提交后需要
+  `git push --set-upstream origin codex/agent-core-progress`。
+- 未执行完整模拟器回归或真机 instrumentation；不能据此更新
+  `regression-emulator.properties status=passed` 结论。
+
+## 2026-06-03 Documentation sync and physical release install
+
+本轮覆盖项：
+
+- 全面同步 README、隐私说明、发布清单、发布就绪、真机验收和历史多 Agent
+  技术方案，明确远程 `tool_calls` 的当前行为：单个公开只读 evidence 工具可执行，
+  多个公开只读 evidence 工具可并发执行，混入私密读取、外部动作或副作用工具时整批拒绝。
+- 移除 live remote emulator 脚本中的 provider-specific 默认 endpoint/model/key；
+  真实远程模型验证必须通过 `POCKETMIND_LIVE_REMOTE_BASE_URL`、
+  `POCKETMIND_LIVE_REMOTE_MODEL` 和 `POCKETMIND_LIVE_REMOTE_API_KEY` 显式临时注入。
+- 记录最新 release 包的 ad hoc 本地签名、覆盖安装和启动 smoke。该安装只用于内部真机
+  检查，不代表正式分发签名，也不替代完整真机 instrumentation 或模拟器回归。
+
+验证命令：
+
+```bash
+./gradlew :app:assembleRelease
+BUILD_TOOLS=/Users/bytedance/Library/Android/sdk/build-tools/36.0.0
+"$BUILD_TOOLS/zipalign" -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk app/build/outputs/apk/release/app-release-local-aligned-20260603-0025.apk
+"$BUILD_TOOLS/apksigner" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out app/build/outputs/apk/release/app-release-local-signed-20260603-0025.apk app/build/outputs/apk/release/app-release-local-aligned-20260603-0025.apk
+"$BUILD_TOOLS/apksigner" verify --verbose app/build/outputs/apk/release/app-release-local-signed-20260603-0025.apk
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c install -r app/build/outputs/apk/release/app-release-local-signed-20260603-0025.apk
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell dumpsys package com.bytedance.zgx.pocketmind | rg 'versionCode|versionName|lastUpdateTime|firstInstallTime|Package \['
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell cmd package resolve-activity --brief com.bytedance.zgx.pocketmind
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell am start -n com.bytedance.zgx.pocketmind/.MainActivity
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s fb6272c shell pidof -s com.bytedance.zgx.pocketmind
+shasum -a 256 app/build/outputs/apk/release/app-release-local-signed-20260603-0025.apk
+bash -n scripts/*.sh
+rg -n "POCKETMIND_LIVE_REMOTE|\\bsk-[A-Za-z0-9_-]{16,}\\b" app/src/main scripts docs README.md || true
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+git diff --check
+```
+
+结果：
+
+- 通过：release assemble 成功；`apksigner verify --verbose` 显示 `Verifies`，
+  v3 签名通过，1 个 signer。
+- 通过：真机 `fb6272c` 覆盖安装返回 `Success`，未卸载 App、未清理 App 数据。
+- 通过：设备包信息确认 `versionCode=1`、`versionName=0.1.0`、
+  `lastUpdateTime=2026-06-03 00:25:28`；activity 解析为
+  `com.bytedance.zgx.pocketmind/.MainActivity`；启动后进程 PID 为 `14570`。
+- APK：`app/build/outputs/apk/release/app-release-local-signed-20260603-0025.apk`，
+  SHA-256 `cefffdfe4c9bd424e3fd8075262b2ac71af3f69183d33b78129c6231f221c951`。
+- 通过：脚本语法检查无输出；远程配置扫描显示 App 源码没有真实 API key，
+  live 脚本只保留空默认的 `POCKETMIND_LIVE_REMOTE_*` 读取入口；历史 live
+  验证记录不展开具体 provider endpoint/model，只记录为用户临时环境变量事实。
+- 通过：文档合同测试 `AgentCoreDocumentationTest` 和 `git diff --check`。
+- 未执行完整真机 instrumentation 或完整模拟器回归；不能据此更新
+  `regression-emulator.properties status=passed` 结论。安装后复查时设备已从
+  `adb devices -l` 消失，因此后续设备属性未追加记录。
+
+## 2026-06-02 Public evidence tool-call batch execution
+
+本轮覆盖项：
+
+- 为远程模型一次返回多个 OpenAI-style `tool_calls` 补合同：Remote runtime 应产出
+  `RemoteChatEvent.ToolCalls`，而不是把多个工具调用当成 `ParseError`。
+- 为批量工具执行边界补 Tool Registry 合同：只有
+  `PublicEvidence` / `LowReadOnly` / `NotRequired` / 无 `privateOutputKeys` /
+  无设备或副作用 permission 的工具可进入 public evidence 并发批次。
+- 为 Agent loop 补合同：全批 public evidence 工具调用应生成
+  `PlanToolBatch`，混入任意非 eligible 工具应全批拒绝，成功结果应聚合后回模型综合。
+- 为 ViewModel 补端到端 JVM 回归：远程模型返回两个 `web_search` tool call
+  时，UI 并发执行两个公开只读工具、批量观察结果，然后再次调用模型生成综合答案。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugKotlin
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest' --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+scripts/doctor.sh
+bash -n scripts/*.sh
+scripts/verify_local.sh
+git diff --check
+```
+
+结果：
+
+- 通过：`:app:compileDebugKotlin`、批量工具定向 JVM 回归、完整
+  `:app:testDebugUnitTest`、`:app:compileDebugAndroidTestKotlin`、文档合同测试和
+  `git diff --check`。
+- 通过：`scripts/doctor.sh`、`bash -n scripts/*.sh`、`scripts/verify_local.sh`；
+  `verify_local.sh` 完成 debug/release 构建、lint、JVM 测试和 AndroidTest 编译，
+  输出 `Local verification passed.`。
+- 未执行模拟器或真机回归；不能据此更新 `regression-emulator.properties status=passed` 结论。
+
+## 2026-06-02 Tool evidence continuation and weather facts
+
+本轮覆盖项：
+
+- 新增 `ToolResultContinuationPolicy`：公开证据工具结果可回到模型综合或继续公开只读工具调用；本地证据工具结果只允许本地模型综合；动作/跳转/草稿工具默认不续写。
+- `web_search` 仍只返回公开事实证据，不打开浏览器；天气多地点 query 返回有界 `weather_current` facts，比较、计算和多步补查由 Agent runtime/model 负责。
+- 本地证据结果仍保持 `LocalOnly` / `requiresLocalModel=true` 边界，trace/audit 中继续使用 redacted result。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.tool.WebSearchProviderTest' --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' --tests 'com.bytedance.zgx.pocketmind.tool.WebSearchProviderTest' --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+```
+
+结果：
+
+- 通过：定向 provider / registry / Agent loop / docs JVM 回归、完整
+  `:app:testDebugUnitTest`、`:app:compileDebugAndroidTestKotlin` 和
+  `git diff --check`。
+- 未执行完整模拟器或真机回归；不能据此更新 `regression-emulator.properties status=passed` 结论。
+
+## 2026-06-02 Live remote emulator check
 
 本轮覆盖项：
 
 - 使用 debug-only ADB receiver 在 `focus_agent_api36_arm64` 模拟器中写入用户提供的
-  DeepSeek OpenAI-compatible 配置：`https://api.deepseek.com`、
-  `deepseek-v4-pro`。
+  OpenAI-compatible endpoint/model。该 endpoint/model 由临时环境变量注入，只是一次 live
+  验证输入；不是源码默认值、文档推荐配置或发布配置。
 - 修复 `scripts/live_remote_emulator.sh` 的 ADB 文本输入和发送流程：空格使用
   `%s` 编码，输入后先收起键盘再点击发送，并将默认等待时间提升到 45 秒。
 - 调整默认 live 提示词，使提示词本身不包含预期 token；通过条件仍要求远程助手
@@ -30,26 +197,28 @@
 ```bash
 bash -n scripts/live_remote_emulator.sh
 POCKETMIND_LIVE_REMOTE_API_KEY=<hidden> \
-POCKETMIND_LIVE_REMOTE_BASE_URL=https://api.deepseek.com \
-POCKETMIND_LIVE_REMOTE_MODEL=deepseek-v4-pro \
+POCKETMIND_LIVE_REMOTE_BASE_URL=<user-provided-openai-compatible-base-url> \
+POCKETMIND_LIVE_REMOTE_MODEL=<user-provided-model> \
 POCKETMIND_LIVE_REMOTE_WAIT_SECONDS=60 \
-ARTIFACT_DIR=build/verification/live-remote-deepseek-20260602-193827 \
+ARTIFACT_DIR=build/verification/live-remote-20260602-193827 \
 ANDROID_SERIAL=emulator-5554 \
 scripts/live_remote_emulator.sh
 rg -l --hidden --glob '!.git/**' --glob '!build/**' 'sk-[A-Za-z0-9]{20,}' . || true
-rg -l --hidden 'sk-[A-Za-z0-9]{20,}' build/verification/live-remote-deepseek-20260602-193827 || true
+rg -l --hidden 'sk-[A-Za-z0-9]{20,}' build/verification/live-remote-20260602-193827 || true
 ```
 
 结果：
 
-- 通过：`build/verification/live-remote-deepseek-20260602-193827/live-remote-emulator.properties`
-  记录 `status=passed`、`base_url=https://api.deepseek.com`、
-  `model=deepseek-v4-pro`、`expected_text=POCKETMIND_LIVE_OK`。
-- UI 证据：`build/verification/live-remote-deepseek-20260602-193827/live-remote-result.png`
-  和同名 XML 显示 `deepseek-v4-pro · 远程 · 已就绪`、`远程可用`，并显示远程助手回复
+- 通过：`build/verification/live-remote-20260602-193827/live-remote-emulator.properties`
+  记录 `status=passed`、用户临时注入的 base URL / model 来源变量、
+  `expected_text=POCKETMIND_LIVE_OK`。后续脚本版本已改为 redacted actual
+  endpoint/model，只保留 `base_url_source` / `model_source`。
+- UI 证据：`build/verification/live-remote-20260602-193827/live-remote-result.png`
+  和同名 XML 显示用户临时注入的远程模型处于已就绪状态、`远程可用`，并显示远程助手回复
   `POCKETMIND_LIVE_OK`。
 - 密钥边界：仓库和本次 artifact 的 OpenAI-style key 模式扫描均无命中；report 仅记录
-  `api_key_source=POCKETMIND_LIVE_REMOTE_API_KEY`。
+  `api_key_source=POCKETMIND_LIVE_REMOTE_API_KEY`。后续脚本版本退出时会清空 debug App
+  保存的远程配置。
 
 ## 2026-06-02 Emulator remote model and Agent capability walkthrough
 
@@ -61,11 +230,13 @@ rg -l --hidden 'sk-[A-Za-z0-9]{20,}' build/verification/live-remote-deepseek-202
   远程普通回答、远程请求体、远程工具调用、工具确认卡、本地记忆隔离、会话切换、
   模型管理控件和动作草稿。
 - 补跑 Skill/多模态入口、长期记忆、运行时权限和特殊访问确认卡 UI 测试。
-- 未执行真实 DeepSeek live 调用：本轮没有可用的安全环境变量或一次性密钥输入入口；
+- 未执行真实远程 live 调用：本轮没有可用的安全环境变量或一次性密钥输入入口；
   按本计划约束，不使用也不落盘聊天中出现过的 API key。
 - 补充 `scripts/live_remote_emulator.sh` 作为真实远程模型模拟器验收入口：debug-only
-  receiver 只存在于 debug APK，脚本从 `POCKETMIND_LIVE_REMOTE_API_KEY` 或
-  `DEEPSEEK_API_KEY` 读取密钥，artifact 只记录密钥来源变量名。
+  receiver 只存在于 debug APK，脚本不内置 provider endpoint/model/key；必须从
+  `POCKETMIND_LIVE_REMOTE_BASE_URL`、`POCKETMIND_LIVE_REMOTE_MODEL` 和
+  `POCKETMIND_LIVE_REMOTE_API_KEY` 显式读取配置，artifact 只记录来源变量名并 redacts
+  actual endpoint/model/key。
 
 验证命令：
 
@@ -97,8 +268,10 @@ adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmin
 - UI 证据：`build/verification/manual-live-20260602-remote/07-relaunch-after-comprehensive-tests.png`
   和同名 XML 显示 `mock-model · 远程 · 已就绪`、`远程可用`，并保留远程工具调用后的
   `Web 搜索` 动作草稿。
-- 真实 DeepSeek live 仍未执行：当前环境没有 `POCKETMIND_LIVE_REMOTE_API_KEY` 或
-  `DEEPSEEK_API_KEY`，因此未生成 `live-remote-emulator.properties status=passed`。
+- 真实远程 live 仍未执行：当前环境没有完整的
+  `POCKETMIND_LIVE_REMOTE_BASE_URL`、`POCKETMIND_LIVE_REMOTE_MODEL` 和
+  `POCKETMIND_LIVE_REMOTE_API_KEY` 配置，因此未生成
+  `live-remote-emulator.properties status=passed`。
 - 无 key 预检通过失败路径验证：
   `build/verification/live-remote-no-key-20260602/live-remote-emulator.properties`
   记录 `status=failed`、`api_key_source=`，没有记录密钥值。
@@ -1304,7 +1477,8 @@ scripts/verify_local.sh
 本轮覆盖项：
 
 - 可重试的只读工具失败后只调度一次 bounded retry；retry 成功后仍回到正常
-  observation path，并继续为显式顺序输入规划下一段确认。
+  observation path。后续 2026-06-03 边界收紧后，LocalEvidence 成功结果先进入
+  本地模型 continuation，再由模型结果决定是否进入下一段动作。
 - `SkillPlan` 明确把 `.` 作为 `stepId.outputKey` 引用分隔符；含 `.` 的 step id
   或 model output key 在结构校验阶段 fail closed，避免 value-free checkpoint
   误拆 private-output ref。
@@ -1315,7 +1489,7 @@ scripts/verify_local.sh
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.retryableToolFailurePlansNextSequentialActionAfterSuccessfulRetry' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.retryableLocalEvidenceToolContinuesToLocalModelAfterSuccessfulRetry' \
   --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.valueFreeCheckpointRejectsPrivateRefsWhenCompletedStepIdContainsDot'
 ./gradlew :app:testDebugUnitTest \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
@@ -4502,7 +4676,7 @@ git diff --check
 
 补充检查：
 
-- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+- 严格敏感信息扫描未发现 OpenAI-style API Key、provider-specific URL/model 或真实
   Authorization Bearer token 被写入文件。
 - 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器语音入口回归。
 
@@ -4534,7 +4708,7 @@ git diff --check
 
 补充检查：
 
-- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+- 严格敏感信息扫描未发现 OpenAI-style API Key、provider-specific URL/model 或真实
   Authorization Bearer token 被写入文件。
 - 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
 
@@ -4577,7 +4751,7 @@ git diff --check
 
 补充检查：
 
-- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+- 严格敏感信息扫描未发现 OpenAI-style API Key、provider-specific URL/model 或真实
   Authorization Bearer token 被写入文件。
 - 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
 
@@ -4611,7 +4785,7 @@ git diff --check
 
 补充检查：
 
-- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+- 严格敏感信息扫描未发现 OpenAI-style API Key、provider-specific URL/model 或真实
   Authorization Bearer token 被写入文件。
 - 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
 
@@ -4646,7 +4820,7 @@ git diff --check
 
 补充检查：
 
-- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+- 严格敏感信息扫描未发现 OpenAI-style API Key、provider-specific URL/model 或真实
   Authorization Bearer token 被写入文件。
 - 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
 
@@ -4718,7 +4892,7 @@ git diff --check
 
 补充检查：
 
-- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+- 严格敏感信息扫描未发现 OpenAI-style API Key、provider-specific URL/model 或真实
   Authorization Bearer token 被写入文件。
 - 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
 
@@ -4754,7 +4928,7 @@ git diff --check
 
 补充检查：
 
-- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+- 严格敏感信息扫描未发现 OpenAI-style API Key、provider-specific URL/model 或真实
   Authorization Bearer token 被写入文件。
 - 当前 shell 中 `adb` 不在 PATH，因此本轮未执行连接设备/模拟器回归。
 
@@ -4813,7 +4987,7 @@ git diff --check
 
 补充检查：
 
-- 严格敏感信息扫描未发现 OpenAI-style API Key、DeepSeek URL/model 或真实
+- 严格敏感信息扫描未发现 OpenAI-style API Key、provider-specific URL/model 或真实
   Authorization Bearer token 被写入文件。
 - 当前 `adb devices -l` 无已连接设备，因此本轮未执行
   `connectedDebugAndroidTest` 或真机分享面板验证。
@@ -4856,7 +5030,7 @@ git diff --check
 
 补充检查：
 
-- 仓库扫描未发现 DeepSeek/OpenAI-style API Key 或 DeepSeek 远程配置被写入文件。
+- 仓库扫描未发现 provider-specific/OpenAI-style API Key 或 provider-specific 远程配置被写入文件。
 - 当前 `adb devices -l` 无已连接设备，因此本轮未执行 `connectedDebugAndroidTest`。
 
 ## 2026-05-30 隐私边界 / Skill 执行器 / DB 迁移增量验证
@@ -4961,7 +5135,9 @@ ANDROID_SERIAL=emulator-5554 \
 
 说明：
 
-- 用户提供的 DeepSeek 远程配置仅作为可选手工验证输入，未写入仓库、测试代码或文档。
+- 用户提供的远程模型配置仅作为可选手工验证输入，未写入源码或测试代码；
+  后续文档如需记录 live 验证事实，只能作为临时环境变量/用户配置的验证记录，
+  不能作为源码默认、推荐配置或发布配置。
 - 当前仍未完成的核心能力包括语义屏幕理解、LiteRT embedding adapter 参与记忆检索、special-access permission flows beyond Usage Access、当前屏幕像素/截图捕获、任意媒体 OCR 和实际图片/文档语义理解；状态见 `docs/agent_core_modules.md`。
 
 ## 历史验证记录

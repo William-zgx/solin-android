@@ -64,6 +64,7 @@ class ToolRegistryTest {
         assertFalse(ToolPermission.StartsExternalActivity in webSearchSpec.permissions)
         assertEquals(RiskLevel.LowReadOnly, webSearchSpec.riskLevel)
         assertEquals(ConfirmationPolicy.NotRequired, webSearchSpec.confirmationPolicy)
+        assertEquals(ToolResultContinuationPolicy.PublicEvidence, webSearchSpec.resultContinuationPolicy)
         assertTrue(webSearchSpec.inputSchemaJson.contains("query"))
         assertTrue(webSearchSpec.outputSchemaJson.contains("summaryText"))
         assertTrue(webSearchSpec.outputSchemaJson.contains("resultsJson"))
@@ -95,6 +96,7 @@ class ToolRegistryTest {
         assertEquals(ToolCapability.BackgroundTask, backgroundTasksSpec.capability)
         assertEquals(RiskLevel.LowReadOnly, backgroundTasksSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, backgroundTasksSpec.confirmationPolicy)
+        assertEquals(ToolResultContinuationPolicy.LocalEvidence, backgroundTasksSpec.resultContinuationPolicy)
         assertTrue(ToolPermission.ReadsDeviceContext in backgroundTasksSpec.permissions)
         assertTrue(ToolPermission.SchedulesBackgroundWork !in backgroundTasksSpec.permissions)
         assertTrue(ToolPermission.PostsNotification !in backgroundTasksSpec.permissions)
@@ -131,6 +133,7 @@ class ToolRegistryTest {
         requireNotNull(calendarAvailabilitySpec)
         assertEquals(ToolCapability.DeviceContext, calendarAvailabilitySpec.capability)
         assertEquals(RiskLevel.LowReadOnly, calendarAvailabilitySpec.riskLevel)
+        assertEquals(ToolResultContinuationPolicy.LocalEvidence, calendarAvailabilitySpec.resultContinuationPolicy)
         assertTrue(ToolPermission.ReadsDeviceContext in calendarAvailabilitySpec.permissions)
         assertTrue(ToolPermission.ReadsCalendar in calendarAvailabilitySpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission in calendarAvailabilitySpec.permissions)
@@ -143,6 +146,7 @@ class ToolRegistryTest {
         requireNotNull(contactsSpec)
         assertEquals(ToolCapability.DeviceContext, contactsSpec.capability)
         assertEquals(RiskLevel.LowReadOnly, contactsSpec.riskLevel)
+        assertEquals(ToolResultContinuationPolicy.LocalEvidence, contactsSpec.resultContinuationPolicy)
         assertTrue(ToolPermission.ReadsDeviceContext in contactsSpec.permissions)
         assertTrue(ToolPermission.ReadsContacts in contactsSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission in contactsSpec.permissions)
@@ -163,6 +167,7 @@ class ToolRegistryTest {
         requireNotNull(recentFilesSpec)
         assertEquals(ToolCapability.DeviceContext, recentFilesSpec.capability)
         assertEquals(RiskLevel.LowReadOnly, recentFilesSpec.riskLevel)
+        assertEquals(ToolResultContinuationPolicy.LocalEvidence, recentFilesSpec.resultContinuationPolicy)
         assertTrue(ToolPermission.ReadsDeviceContext in recentFilesSpec.permissions)
         assertTrue(ToolPermission.ReadsFiles in recentFilesSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission in recentFilesSpec.permissions)
@@ -231,6 +236,7 @@ class ToolRegistryTest {
         assertNotNull(recentNotificationSpec)
         requireNotNull(recentNotificationSpec)
         assertEquals(ToolCapability.DeviceContext, recentNotificationSpec.capability)
+        assertEquals(ToolResultContinuationPolicy.LocalEvidence, recentNotificationSpec.resultContinuationPolicy)
         assertTrue(ToolPermission.ReadsDeviceContext in recentNotificationSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in recentNotificationSpec.permissions)
         assertTrue(recentNotificationSpec.description.contains("当前应用"))
@@ -240,6 +246,7 @@ class ToolRegistryTest {
         assertNotNull(foregroundAppSpec)
         requireNotNull(foregroundAppSpec)
         assertEquals(ToolCapability.DeviceContext, foregroundAppSpec.capability)
+        assertEquals(ToolResultContinuationPolicy.LocalEvidence, foregroundAppSpec.resultContinuationPolicy)
         assertTrue(ToolPermission.ReadsDeviceContext in foregroundAppSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in foregroundAppSpec.permissions)
 
@@ -274,6 +281,39 @@ class ToolRegistryTest {
         assertTrue(appDeepTargetSpec.inputSchemaJson.contains("\"packageName\""))
         assertTrue(appDeepTargetSpec.inputSchemaJson.contains(AppDeepTargets.APP_DETAILS_SETTINGS_ID))
         assertTrue(!appDeepTargetSpec.inputSchemaJson.contains("\"activityClass\""))
+    }
+
+    @Test
+    fun publicEvidenceBatchEligibilityOnlyAllowsSafePublicReadOnlyTools() {
+        val eligibleWebSearch = registry.specFor(MobileActionFunctions.WEB_SEARCH)
+        assertNotNull(eligibleWebSearch)
+        requireNotNull(eligibleWebSearch)
+
+        assertTrue(eligibleWebSearch.isPublicEvidenceBatchEligible())
+
+        val blockedTools = listOf(
+            MobileActionFunctions.READ_CLIPBOARD,
+            MobileActionFunctions.QUERY_CONTACTS,
+            MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+            MobileActionFunctions.QUERY_FOREGROUND_APP,
+            MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+            MobileActionFunctions.QUERY_RECENT_FILES,
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+            MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            MobileActionFunctions.SEARCH_MAPS,
+            MobileActionFunctions.SHARE_TEXT,
+            MobileActionFunctions.COMPOSE_EMAIL,
+            MobileActionFunctions.SCHEDULE_REMINDER,
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+        )
+
+        blockedTools.forEach { toolName ->
+            val spec = registry.specFor(toolName)
+            assertNotNull(spec)
+            requireNotNull(spec)
+            assertFalse("$toolName must not be eligible for public evidence batch", spec.isPublicEvidenceBatchEligible())
+        }
     }
 
     @Test

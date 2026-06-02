@@ -15,6 +15,7 @@ import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
 import com.bytedance.zgx.pocketmind.safety.SafetyContext
+import com.bytedance.zgx.pocketmind.safety.SafetyDecision
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.safety.SafetyPolicy
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
@@ -34,8 +35,11 @@ import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
+import com.bytedance.zgx.pocketmind.tool.ToolResultContinuationPolicy
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import com.bytedance.zgx.pocketmind.tool.cancelled
+import com.bytedance.zgx.pocketmind.tool.failed
+import com.bytedance.zgx.pocketmind.tool.isPublicEvidenceBatchEligible
 import com.bytedance.zgx.pocketmind.tool.EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
 import com.bytedance.zgx.pocketmind.tool.isUserConfirmedCompletedExternalOutcome
 import com.bytedance.zgx.pocketmind.tool.isUnverifiedExternalLaunch
@@ -414,6 +418,7 @@ class AgentLoopRuntime(
         val finalState = when (decision) {
             AgentObservationDecision.Complete -> AgentRunState.Completed
             is AgentObservationDecision.PlanNextTool -> decision.plan.nextExecutionState()
+            is AgentObservationDecision.PlanToolBatch -> AgentRunState.ExecutingTool
             is AgentObservationDecision.Fail -> AgentRunState.Failed
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
             is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
@@ -467,6 +472,7 @@ class AgentLoopRuntime(
         val finalState = when (decision) {
             AgentObservationDecision.Complete -> AgentRunState.Completed
             is AgentObservationDecision.PlanNextTool -> decision.plan.nextExecutionState()
+            is AgentObservationDecision.PlanToolBatch -> AgentRunState.ExecutingTool
             is AgentObservationDecision.Fail -> AgentRunState.Failed
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
             is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
@@ -554,6 +560,223 @@ class AgentLoopRuntime(
         }
     }
 
+    fun observeModelToolRequests(runId: String, requests: List<ToolRequest>): AgentModelObservationResult? {
+        if (requests.size == 1) return observeModelToolRequest(runId, requests.single())
+        val run = traceStore.run(runId) ?: return null
+        if (run.state != AgentRunState.GeneratingAnswer) return null
+        if (observationDecisionBudgetExceeded(runId)) {
+            return failRunBudget(runId, OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON)
+        }
+        if (requests.isEmpty()) {
+            return rejectModelToolBatch(
+                runId = runId,
+                result = ToolRequest(
+                    id = "remote-tool-batch",
+                    toolName = "tool_batch",
+                    reason = "remote tool batch",
+                ).rejected("Remote model returned an empty tool batch."),
+            )
+        }
+        if (toolRequestsFor(runId).size + requests.size > maxRunToolSteps) {
+            return failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
+        }
+        requests.groupingBy { request -> request.id }
+            .eachCount()
+            .entries
+            .firstOrNull { (_, count) -> count > 1 }
+            ?.key
+            ?.let { duplicatedRequestId ->
+                return rejectModelToolBatch(
+                    runId = runId,
+                    result = requests.first().rejected(
+                        "Model tool request id appears multiple times in one batch: $duplicatedRequestId",
+                    ),
+                )
+            }
+        requests.firstOrNull { request -> toolRequestFor(runId, request.id) != null }
+            ?.let { existingRequest ->
+                return rejectModelToolBatch(
+                    runId = runId,
+                    result = existingRequest.rejected("Model tool request id already exists: ${existingRequest.id}"),
+                )
+            }
+
+        val plans = mutableListOf<AgentPlan.UseTool>()
+        requests.forEach { request ->
+            toolRegistry.validate(request)?.let { rejection ->
+                return rejectModelToolBatch(runId = runId, result = rejection)
+            }
+            val spec = toolRegistry.specFor(request.toolName) ?: return rejectModelToolBatch(
+                runId = runId,
+                result = request.rejected("Unknown tool: ${request.toolName}"),
+            )
+            if (!spec.isPublicEvidenceBatchEligible()) {
+                return rejectModelToolBatch(
+                    runId = runId,
+                    result = request.rejected(
+                        "Tool ${request.toolName} is not eligible for parallel public evidence execution.",
+                    ),
+                )
+            }
+            val safetyDecision = safetyPolicy.evaluate(spec, request, SafetyContext(userConfirmed = false))
+            if (safetyDecision.outcome != SafetyOutcome.Allow) {
+                return rejectModelToolBatch(
+                    runId = runId,
+                    result = request.rejected(safetyDecision.reason),
+                    safetyDecision = safetyDecision,
+                )
+            }
+            plans += AgentPlan.UseTool(
+                request = request,
+                draft = draftForRemoteToolRequest(request),
+                plannedByModel = true,
+                fallbackReason = "remote tool batch",
+                skillRequest = null,
+                skillPlan = null,
+                safetyDecision = safetyDecision,
+            )
+        }
+
+        plans.forEach { plan -> appendToolPlanSteps(runId, plan) }
+        val decision = AgentObservationDecision.PlanToolBatch(
+            plans = plans,
+            reason = "Remote model requested ${plans.size} parallel public evidence tool calls.",
+        )
+        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        val updatedRun = traceStore.updateState(runId, AgentRunState.ExecutingTool)
+        return AgentModelObservationResult(
+            run = updatedRun,
+            decision = decision,
+            steps = traceStore.steps(runId),
+        )
+    }
+
+    fun observeToolResults(runId: String, results: List<ToolResult>): AgentObservationResult? {
+        val run = traceStore.run(runId) ?: return null
+        if (run.state != AgentRunState.ExecutingTool) return null
+        val batchDecision = latestPlanToolBatch(runId) ?: return null
+        val plans = batchDecision.plans
+        val plannedIds = plans.mapTo(linkedSetOf()) { plan -> plan.request.id }
+        val resultIds = results.mapTo(linkedSetOf()) { result -> result.requestId }
+        if (results.size != resultIds.size || plannedIds != resultIds) return null
+        if (plans.any { plan ->
+                toolRegistry.specFor(plan.request.toolName)?.isPublicEvidenceBatchEligible() != true
+            }
+        ) {
+            return null
+        }
+
+        traceStore.updateState(runId, AgentRunState.Observing)
+        val resultsByRequestId = results.associateBy { result -> result.requestId }
+        val observedPairs = plans.map { plan ->
+            val rawResult = resultsByRequestId.getValue(plan.request.id)
+            val validatedResult = toolRegistry.validateResult(plan.request, rawResult) ?: rawResult
+            val publicResult = validatedResult.publicEvidenceBatchResultOrFailure(plan.request)
+            val traceResult = publicResult.redactedForTrace(plan.request)
+            traceStore.appendStep(runId, AgentStep.ToolObserved(traceResult))
+            auditSink.record(
+                ToolAuditEvent(
+                    runId = runId,
+                    requestId = traceResult.requestId,
+                    toolName = plan.request.toolName,
+                    skillId = null,
+                    eventType = ToolAuditEventType.ToolObserved,
+                    status = traceResult.status,
+                    riskLevel = toolRegistry.specFor(plan.request.toolName)?.riskLevel,
+                    permissions = toolRegistry.specFor(plan.request.toolName)?.permissions.orEmpty(),
+                    summary = traceResult.auditSummaryForObservation(plan.request),
+                ),
+            )
+            plan to traceResult
+        }
+        val cancelledPair = observedPairs.firstOrNull { (_, result) -> result.status == ToolStatus.Cancelled }
+        val failedPair = observedPairs.firstOrNull { (_, result) -> result.status != ToolStatus.Succeeded }
+        val assistantMessage = cancelledPair?.let { (_, result) ->
+            "工具批量执行已取消：${result.summary}"
+        } ?: failedPair?.let { (_, result) ->
+            "工具批量执行失败：${result.summary}"
+        } ?: "工具执行结果：已完成 ${observedPairs.size} 个公开只读工具调用。"
+        val aggregateResult = ToolResult(
+            requestId = "public-evidence-batch:${plannedIds.joinToString(",")}",
+            status = failedPair?.second?.status ?: ToolStatus.Succeeded,
+            summary = assistantMessage,
+            data = mapOf(
+                "toolName" to "public_evidence_batch",
+                "toolCount" to observedPairs.size.toString(),
+            ),
+            error = failedPair?.second?.error,
+            retryable = false,
+        )
+        traceStore.appendStep(runId, AgentStep.AssistantResponded(assistantMessage))
+        if (observationDecisionBudgetExceeded(runId)) {
+            return failObservationBudget(
+                runId = runId,
+                result = aggregateResult,
+                assistantMessage = assistantMessage,
+                reason = OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON,
+            )
+        }
+        val continuationPrompt = if (failedPair == null) {
+            publicEvidenceBatchContinuationPrompt(run, observedPairs)
+        } else {
+            null
+        }
+        val decision = when {
+            cancelledPair != null -> AgentObservationDecision.Cancel
+            failedPair != null -> AgentObservationDecision.Fail(failedPair.second.summary)
+            else -> AgentObservationDecision.ContinueWithModel(
+                requiresLocalModel = false,
+                reason = "Parallel public evidence tools completed.",
+            )
+        }
+        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        val updatedRun = traceStore.updateState(
+            runId,
+            when (decision) {
+                is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
+                AgentObservationDecision.Cancel -> AgentRunState.Cancelled
+                else -> AgentRunState.Failed
+            },
+        )
+        if (updatedRun.state in terminalRunStates) {
+            valueFreeCompletedStepFrontiersByRunId.remove(runId)
+        }
+        return AgentObservationResult(
+            run = updatedRun,
+            result = aggregateResult,
+            assistantMessage = assistantMessage,
+            decision = decision,
+            recoveryAction = null,
+            continuationPromptForModel = continuationPrompt,
+            continuationRequiresLocalModel = false,
+            retryRequest = null,
+            retryAttempt = 0,
+            steps = traceStore.steps(runId),
+        )
+    }
+
+    private fun rejectModelToolBatch(
+        runId: String,
+        result: ToolResult,
+        safetyDecision: SafetyDecision? = null,
+    ): AgentModelObservationResult {
+        safetyDecision?.let { decision ->
+            traceStore.appendStep(runId, AgentStep.SafetyChecked(decision))
+        }
+        traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(result)))
+        traceStore.appendStep(runId, AgentStep.ToolRejected(result))
+        auditRejectedTool(runId, result)
+        val decision = AgentObservationDecision.Fail(result.summary)
+        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        val updatedRun = traceStore.updateState(runId, AgentRunState.Failed)
+        valueFreeCompletedStepFrontiersByRunId.remove(runId)
+        return AgentModelObservationResult(
+            run = updatedRun,
+            decision = decision,
+            steps = traceStore.steps(runId),
+        )
+    }
+
     private fun observeToolResultInternal(
         runId: String,
         result: ToolResult,
@@ -561,6 +784,9 @@ class AgentLoopRuntime(
     ): AgentObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state !in allowedStates) return null
+        if (run.state == AgentRunState.ExecutingTool && latestPlanToolBatch(runId) != null) {
+            return null
+        }
         if (
             run.state in setOf(AgentRunState.ExecutingTool, AgentRunState.RetryingTool) &&
             latestExecutableRequestId(runId) != result.requestId
@@ -573,6 +799,7 @@ class AgentLoopRuntime(
         val continuation = continuationForToolObservation(run, request, safeResult)
         val continuationPrompt = continuation?.prompt
         val continuationRequiresLocalModel = continuation?.requiresLocalModel ?: false
+        val canPlanNextToolBeforeContinuation = continuation?.canPlanNextToolBeforeModel ?: false
         val observedResult = safeResult.redactedForTrace(request)
         val budgetExceeded = observationDecisionBudgetExceeded(runId)
         val retryAttempt = if (budgetExceeded) 0 else nextRetryAttempt(runId, observedResult)
@@ -607,7 +834,7 @@ class AgentLoopRuntime(
             observedResult.status == ToolStatus.Succeeded &&
             canPlanNextToolAfterObservation(request, observedResult) &&
             retryRequest == null &&
-            continuationPrompt == null
+            (continuationPrompt == null || canPlanNextToolBeforeContinuation)
         ) {
             planNextToolAfterObservation(run, request, observedResult)
         } else {
@@ -660,6 +887,7 @@ class AgentLoopRuntime(
             is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
             is AgentObservationDecision.RetryTool -> AgentRunState.RetryingTool
             is AgentObservationDecision.PlanNextTool -> decision.plan.nextExecutionState()
+            is AgentObservationDecision.PlanToolBatch -> AgentRunState.ExecutingTool
             is AgentObservationDecision.Fail -> AgentRunState.Failed
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
         }
@@ -700,12 +928,6 @@ class AgentLoopRuntime(
                 reason = result.summary,
             )
 
-            result.status == ToolStatus.Succeeded && continuationPrompt != null ->
-                AgentObservationDecision.ContinueWithModel(
-                    requiresLocalModel = continuationRequiresLocalModel,
-                    reason = result.summary,
-                )
-
             result.status == ToolStatus.Succeeded && nextToolPlan is NextObservationPlan.Planned ->
                 AgentObservationDecision.PlanNextTool(
                     plan = nextToolPlan.plan,
@@ -714,6 +936,12 @@ class AgentLoopRuntime(
 
             result.status == ToolStatus.Succeeded && nextToolPlan is NextObservationPlan.Rejected ->
                 AgentObservationDecision.Fail(nextToolPlan.reason)
+
+            result.status == ToolStatus.Succeeded && continuationPrompt != null ->
+                AgentObservationDecision.ContinueWithModel(
+                    requiresLocalModel = continuationRequiresLocalModel,
+                    reason = result.summary,
+                )
 
             result.status == ToolStatus.Succeeded -> AgentObservationDecision.Complete
             result.status == ToolStatus.Cancelled -> AgentObservationDecision.Cancel
@@ -1658,9 +1886,131 @@ class AgentLoopRuntime(
                 )
             }
 
-            else -> skillModelContinuationAfterToolObservation(run, request, result)
+            else -> policyContinuationAfterToolObservation(run, request, result)
         }
     }
+
+    private fun policyContinuationAfterToolObservation(
+        run: AgentRun,
+        request: ToolRequest?,
+        result: ToolResult,
+    ): ToolObservationContinuation? {
+        request ?: return null
+        val spec = toolRegistry.specFor(request.toolName) ?: return null
+        return when (spec.resultContinuationPolicy) {
+            ToolResultContinuationPolicy.None -> null
+            ToolResultContinuationPolicy.PublicEvidence ->
+                publicEvidenceContinuationAfterToolObservation(run, request, result)
+
+            ToolResultContinuationPolicy.LocalEvidence ->
+                localEvidenceContinuationAfterToolObservation(run, request, result)
+        }
+    }
+
+    private fun publicEvidenceContinuationAfterToolObservation(
+        run: AgentRun,
+        request: ToolRequest,
+        result: ToolResult,
+    ): ToolObservationContinuation? {
+        if (result.data["privacy"] == MessagePrivacy.LocalOnly.name) return null
+        if (result.data["requiresLocalModel"]?.toBooleanStrictOrNull() == true) return null
+        val publicData = result.promptDataBlock()
+        return ToolObservationContinuation(
+            prompt = """
+                请根据工具返回的公开只读结果回答用户原始问题。不要只复述工具状态；如果用户要求比较、计算、总结或判断，请基于工具结果完成对应推理。
+                如果工具结果不足以完成用户请求，可以继续调用公开只读工具补充证据；仍不足时请明确说明缺少什么信息，不要编造。
+
+                用户原始请求：${run.input}
+                工具名称：${request.toolName}
+                工具观察：${result.summary}
+                工具公开数据：
+                $publicData
+            """.trimIndent(),
+            requiresLocalModel = false,
+            canPlanNextToolBeforeModel = true,
+        )
+    }
+
+    private fun publicEvidenceBatchContinuationPrompt(
+        run: AgentRun,
+        observedPairs: List<Pair<AgentPlan.UseTool, ToolResult>>,
+    ): String {
+        val evidenceBlocks = observedPairs
+            .mapIndexed { index, (plan, result) ->
+                val argumentBlock = plan.request.arguments.entries
+                    .sortedBy { (key, _) -> key }
+                    .joinToString(separator = "\n") { (key, value) ->
+                        "$key: ${value.boundedPromptValue()}"
+                    }
+                    .ifBlank { "无" }
+                """
+                    工具 ${index + 1}
+                    工具名称：${plan.request.toolName}
+                    工具参数：
+                    $argumentBlock
+                    工具观察：${result.summary}
+                    工具公开数据：
+                    ${result.promptDataBlock()}
+                """.trimIndent()
+            }
+            .joinToString(separator = "\n\n")
+        return """
+            请根据以下多个公开只读工具结果回答用户原始问题。不要只回答其中一个工具结果；如果用户要求比较、计算、总结或判断，请综合所有可用证据完成对应推理。
+            如果工具结果仍不足以完成用户请求，可以继续调用公开只读工具补充证据；仍不足时请明确说明缺少什么信息，不要编造。
+
+            用户原始请求：${run.input}
+
+            工具结果：
+            $evidenceBlocks
+        """.trimIndent()
+    }
+
+    private fun ToolResult.publicEvidenceBatchResultOrFailure(request: ToolRequest): ToolResult {
+        if (status != ToolStatus.Succeeded) return this
+        if (data["privacy"] == MessagePrivacy.LocalOnly.name ||
+            data["requiresLocalModel"]?.toBooleanStrictOrNull() == true
+        ) {
+            val summary = "Tool ${request.toolName} returned local-only evidence in a public evidence batch."
+            return request.failed(
+                code = ToolErrorCode.InvalidResult,
+                summary = summary,
+                retryable = false,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+        return this
+    }
+
+    private fun localEvidenceContinuationAfterToolObservation(
+        run: AgentRun,
+        request: ToolRequest,
+        result: ToolResult,
+    ): ToolObservationContinuation? {
+        if (result.data["privacy"] != MessagePrivacy.LocalOnly.name) return null
+        if (result.data["requiresLocalModel"]?.toBooleanStrictOrNull() != true) return null
+        val localData = result.promptDataBlock()
+        return ToolObservationContinuation(
+            prompt = """
+                用户已经确认读取本地只读工具结果。请只根据用户原始请求处理这份本地证据，不要使用与当前请求无关的隐私内容。
+                如果用户没有明确要求逐字复述，不要完整抄回本地原始数据；优先总结、比较、提取信息或回答问题。
+
+                用户原始请求：${run.input}
+                工具名称：${request.toolName}
+                工具观察：${result.summary}
+                本地工具数据：
+                $localData
+            """.trimIndent(),
+            requiresLocalModel = true,
+        )
+    }
+
+    private fun ToolResult.promptDataBlock(): String =
+        data.entries
+            .sortedBy { (key, _) -> key }
+            .joinToString(separator = "\n") { (key, value) ->
+                "$key: ${value.boundedPromptValue()}"
+            }
+            .ifBlank { "无" }
 
     private fun skillModelContinuationAfterToolObservation(
         run: AgentRun,
@@ -1734,6 +2084,7 @@ class AgentLoopRuntime(
     private data class ToolObservationContinuation(
         val prompt: String,
         val requiresLocalModel: Boolean,
+        val canPlanNextToolBeforeModel: Boolean = false,
     )
 
     private val terminalRunStates = setOf(
@@ -1961,6 +2312,16 @@ class AgentLoopRuntime(
             }
             .firstOrNull()
 
+    private fun latestObservationDecision(runId: String): AgentObservationDecision? =
+        traceStore.steps(runId)
+            .asReversed()
+            .asSequence()
+            .mapNotNull { step -> (step as? AgentStep.ObservationDecided)?.decision }
+            .firstOrNull()
+
+    private fun latestPlanToolBatch(runId: String): AgentObservationDecision.PlanToolBatch? =
+        latestObservationDecision(runId) as? AgentObservationDecision.PlanToolBatch
+
     private fun skillIdForRequest(runId: String, requestId: String): String? {
         val steps = traceStore.steps(runId)
         val requestIndex = steps.indexOfFirst { step ->
@@ -2105,3 +2466,6 @@ private fun AgentPlan.UseTool.nextExecutionState(): AgentRunState =
     } else {
         AgentRunState.ExecutingTool
     }
+
+private fun String.boundedPromptValue(maxLength: Int = 2_000): String =
+    if (length <= maxLength) this else take(maxLength).trimEnd() + "..."

@@ -1369,6 +1369,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             capability = ToolCapability.WebSearch,
             riskLevel = RiskLevel.LowReadOnly,
             confirmationPolicy = ConfirmationPolicy.NotRequired,
+            resultContinuationPolicy = ToolResultContinuationPolicy.PublicEvidence,
         ),
     ),
     ToolDefinition(
@@ -1430,6 +1431,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             confirmationPolicy = ConfirmationPolicy.Required,
             privateOutputKeys = setOf("query", "contactCount", "contactsJson"),
             redactedResultSummary = "已读取联系人摘要",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
         ),
     ),
     ToolDefinition(
@@ -1497,6 +1499,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("scope", "maxCount"),
             privateOutputKeys = setOf("activeTaskCount", "historyTaskCount", "tasksJson", "policyJson"),
             redactedResultSummary = "已读取后台任务摘要",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
         ),
     ),
     ToolDefinition(
@@ -1582,6 +1585,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("start", "end"),
             privateOutputKeys = setOf("start", "end", "busyBlockCount", "freeBlockCount", "blocksJson"),
             redactedResultSummary = "已读取日历忙闲摘要",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
         ),
     ),
     ToolDefinition(
@@ -1599,6 +1603,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             confirmationPolicy = ConfirmationPolicy.Required,
             privateOutputKeys = setOf("packageName", "appLabel", "lastTimeUsedMillis"),
             redactedResultSummary = "已读取当前前台应用",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
         ),
     ),
     ToolDefinition(
@@ -1617,6 +1622,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("maxCount"),
             privateOutputKeys = setOf("notificationCount", "notificationsJson"),
             redactedResultSummary = "已读取近期通知摘要",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
         ),
     ),
     ToolDefinition(
@@ -1637,6 +1643,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("kind", "maxCount"),
             privateOutputKeys = setOf("fileCount", "filesJson"),
             redactedResultSummary = "已读取最近文件摘要",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
         ),
     ),
     ToolDefinition(

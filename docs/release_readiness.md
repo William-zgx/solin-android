@@ -26,6 +26,18 @@ items below.
   scheduled with `VERIFY_MODEL_URLS=1`.
 - Memory is documented as a lightweight local index. Action planning is
   documented as experimental model planning with rule fallback.
+- Remote OpenAI-compatible tool calls now go through the local Agent runtime:
+  single public read-only evidence calls and all-public evidence batches can
+  execute without confirmation, while mixed private/action/side-effect batches
+  fail closed before any tool runs.
+- Latest local gate for the current working tree passed
+  `scripts/verify_local.sh`, including JVM tests, lint, debug/androidTest APK
+  assembly, release assembly, and APK content checks; see
+  `docs/validation_report.md` for the dated command log.
+- Latest internal ad hoc release APK was locally signed and coverage-installed
+  on physical device `fb6272c` for smoke launch validation on
+  2026-06-03. This is not a replacement for the final release-candidate
+  device/instrumentation gate.
 - Historical prepared-emulator regression has passed on
   `focus_agent_api36_arm64` / `emulator-5554` (API 36, `arm64-v8a`) with
   `scripts/verify_emulator.sh`. Current release-candidate validation should

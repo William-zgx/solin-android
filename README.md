@@ -18,6 +18,14 @@ Google AI Edge LiteRT-LM.
 - Lightweight local memory recall over previous conversation context.
 - Experimental local mobile action planning with deterministic rule fallback and explicit confirmation.
 - Schema-driven tool validation plus Agent run tracing for plan-confirm-observe execution, safety checks, read-only bounded retry, and persistent audit events.
+- Public read-only search results are treated as Agent evidence: `web_search`
+  does not open a browser, and the runtime returns public facts to the model for
+  comparison, summarization, or another public read-only lookup when needed.
+- Remote OpenAI-compatible `tool_calls` support both single calls and guarded
+  public-evidence batches. Multiple calls in one model turn are executed in
+  parallel only when every tool is public, read-only, no-confirmation,
+  non-private, and side-effect free; mixed batches fail closed before any tool
+  is run.
 - Value-free Skill checkpoint persistence records only run/request/step ids,
   manifest identity, output keys, and private-output refs for pending Skill
   confirmations; raw continuation outputs and executable payload values stay
@@ -99,6 +107,13 @@ required except for local debug hosts such as `localhost`, `127.0.0.1`, and
 Android emulator `10.0.2.2`.
 API keys are stored with Android Keystore-backed encryption and are removed
 when the user clears the key field.
+When the remote model requests tools, PocketMind still routes the request
+through the local Agent runtime. A single low-risk public evidence tool such as
+`web_search` can execute without confirmation, and a batch of such public
+evidence tools can run concurrently. Any batch containing private local reads,
+runtime-permission tools, external navigation, sharing, drafts, scheduling, or
+other side-effect tools is rejected as a whole rather than executing a safe
+subset.
 
 Memory recall is currently a lightweight on-device token/hash index over saved
 sessions, with a conservative in-memory alias index for explicit
@@ -279,7 +294,8 @@ any remote model request is made.
 
 Agent and skill module responsibilities are documented in
 `docs/agent_core_modules.md`. The current code includes the Tool Registry,
-single-run Agent planning, confirmation, tool observation, built-in one-step,
+single-run Agent planning, confirmation, tool observation, remote public
+evidence tool-call batching, built-in one-step,
 skill-first information lookup/recent-media-metadata/calendar-availability/
 contact-lookup/current-app-notification-summary/foreground-app/
 HTTPS-link-navigation/device-settings/map/email/calendar/text sharing/local
@@ -480,6 +496,12 @@ record the regression as passed only when that file contains `status=passed`.
 Avoid `./gradlew :app:connectedDebugAndroidTest` when you need to keep the app
 installed on the device. The Android Gradle Plugin may clean up test packages
 after instrumentation runs.
+
+For an internal ad hoc release install that preserves app data, build release,
+sign the generated unsigned APK outside source control, then install the signed
+APK with `adb install -r`. The release Gradle build in this repository does not
+commit signing credentials; local debug-keystore signing is only for internal
+device checks and is not a distribution signing process.
 
 ## Project Structure
 

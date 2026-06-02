@@ -47,6 +47,21 @@ Current status:
   satisfy `privacy=LocalOnly` and `requiresLocalModel=true`; schema-valid but
   remote-eligible private output is converted into a non-retryable
   `InvalidResult`.
+- `ToolSpec.resultContinuationPolicy` separates the tool safety contract from
+  answer synthesis. `PublicEvidence` tools such as `web_search` may return
+  public evidence to the model; `LocalEvidence` tools such as contacts,
+  calendar, notifications, recent files, foreground app, and background task
+  queries can only be synthesized by a local model; action, navigation, draft,
+  and scheduling tools keep the default `None` policy. The policy does not own
+  domain semantics such as city comparison or multi-hop decomposition; those
+  remain model/runtime responsibilities.
+- `ToolSpec.isPublicEvidenceBatchEligible()` is the explicit allowlist contract
+  for concurrent remote tool requests. A tool is eligible only when it is
+  `PublicEvidence`, `LowReadOnly`, `NotRequired`, has no `privateOutputKeys`,
+  and declares no device-context, runtime-permission, MediaProjection,
+  scheduling, notification, external-navigation, external-share, or other
+  side-effect permission. Today this keeps `web_search` batchable and keeps
+  local/private or action tools out of remote batch execution.
 - For tools that declare `privateOutputKeys`, failed, rejected, and cancelled
   results are still not required to satisfy the success schema, but the Tool
   Registry sanitizes their non-success contract: data is rebuilt from a small
@@ -117,8 +132,10 @@ Current status:
 Tests:
 
 - `ToolRegistryTest`
+- `ToolRegistryTest.publicEvidenceBatchEligibilityOnlyAllowsSafePublicReadOnlyTools`
 - `ToolSchemaContractTest`
 - `ToolSchemaContractTest.privateOutputToolsRejectNonLocalModelBoundary`
+- `WebSearchProviderTest`
 - `CalendarAvailabilityToolExecutorTest`
 - `DeviceContextToolExecutorTest`
 - `RoutingAndValidatingToolExecutorTest`
@@ -166,6 +183,15 @@ Current status:
 - Confirmed clipboard observations can now create a follow-up model prompt so
   the assistant can answer from the just-read tool result instead of stopping at
   a generic "tool succeeded" message.
+- Confirmed tool observations use `resultContinuationPolicy` to decide whether
+  a successful result is a final tool outcome or evidence for model synthesis.
+  Public evidence can continue through the configured model, and the model may
+  issue another public read-only tool call when the evidence is insufficient;
+  local evidence requires local-model synthesis and is blocked from remote
+  continuations by the ViewModel privacy boundary. Local evidence continuation
+  takes precedence over observation replanning so a private read result is
+  synthesized by the local model before any dependent action is planned.
+  Skill-defined model steps still take precedence over this generic policy.
 - Model-step Skills now have an app-level continuation path: after a confirmed
   tool step, the loop can build the next model-step prompt from that tool
   result, then bind the model output into the next `ToolStep` and return to
@@ -246,6 +272,17 @@ Current status:
   registry validation, safety evaluation, trace/audit recording, and explicit
   user confirmation before any Android tool execution. The legacy remote
   `send()` text stream remains available for pure chat compatibility.
+- Remote OpenAI-compatible chat may also return multiple `tool_calls` in one
+  model turn. The runtime treats this as a batch only when every request is a
+  public evidence eligible tool such as `web_search`; it validates the whole
+  batch before execution, rejects mixed unsafe batches without running the safe
+  subset, records `PlanToolBatch`, and aggregates successful public results
+  into one continuation prompt for model synthesis. This solves comparison and
+  multi-evidence questions generically rather than hard-coding weather or city
+  logic in the tool layer. Batch tool execution fail-closes through ordinary
+  tool observation: thrown executor errors become failed `ToolResult`s, invalid
+  or local-only batch results fail the run, and cancelled results cancel the
+  Agent run instead of being reported as generic failures.
 - Local model answers can also hand back an explicit, whole-output
   `call:function{...}` request. That protocol is parsed strictly: ordinary
   answers are left alone, malformed calls and unknown tools fail closed, and
@@ -508,6 +545,12 @@ Tests:
 - `AgentLoopRuntimeTest.cancelRunAwaitingConfirmationClearsPendingWithoutExecutingTool`
 - `AgentLoopRuntimeTest.runBudgetExceededFailsBeforeNextToolConfirmation`
 - `AgentLoopRuntimeTest.replannedToolCannotReuseExistingRequestId`
+- `AgentLoopRuntimeTest.remoteModelMultiplePublicEvidenceToolCallsPlanBatchWithoutConfirmation`
+- `AgentLoopRuntimeTest.remoteModelMixedToolBatchIsRejectedAsWholeBeforeAnyToolRequest`
+- `AgentLoopRuntimeTest.publicEvidenceToolBatchResultsAggregateAndContinueToModel`
+- `AgentLoopRuntimeTest.publicEvidenceToolBatchCancelledResultCancelsRun`
+- `PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutesAndContinuesWithModel`
+- `PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutorFailureIsObservedAsToolFailure`
 - `AgentLoopRuntimeTest.skillFirstClipboardSummaryShareBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstClipboardContextBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstPlanStillUsesRegistryAndRejectsInvalidToolArguments`
@@ -516,6 +559,7 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation`
 - `AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndExecutesWithoutConfirmation`
+- `AgentLoopRuntimeTest.publicEvidenceToolResultContinuesToModelForSynthesis`
 - `AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstHttpsDeepLinkBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstForegroundAppBypassesActionPlannerAndRequestsConfirmation`
@@ -559,7 +603,7 @@ Tests:
 - `AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolObservedMetadataIsCorruptOnStartupRepair`
 - `AgentLoopRuntimeTest.failStaleInFlightRunsClosesUnrestorableExternalOutcomeBeforeRestore`
 - `AgentLoopRuntimeTest.modelObservationReplannerPlansNextToolAfterVerifiedObservation`
-- `AgentLoopRuntimeTest.modelObservationReplannerDoesNotExposePrivateObservationValuesInPrompt`
+- `AgentLoopRuntimeTest.localEvidenceContinuationTakesPriorityOverObservationReplanner`
 - `AgentLoopRuntimeTest.modelObservationReplannerIgnoresRuleFallbackDraft`
 - `AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues`
 - `AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill`

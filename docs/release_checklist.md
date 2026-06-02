@@ -18,6 +18,9 @@ release ticket or PR.
 - [ ] Known unsupported capabilities are called out, especially screenshot
   capture, semantic screen understanding, full PDF parsing, legacy Office
   parsing, image semantic understanding, and arbitrary media OCR.
+- [ ] Agent/tool behavior changes are summarized, including remote
+  OpenAI-style `tool_calls`, public evidence batch execution, all-or-nothing
+  mixed-batch rejection, and the privacy boundary for LocalOnly tool results.
 
 ## Store Metadata
 
@@ -66,6 +69,8 @@ release ticket or PR.
 - [ ] `scripts/verify_local.sh` passes on a clean checkout.
 - [ ] Release APK size is within the documented budget.
 - [ ] APK inspection confirms no `.litertlm` model binaries are bundled.
+- [ ] Release signing evidence distinguishes distribution signing from any
+  debug-keystore or ad hoc local signing used only for internal device checks.
 
 ## Device And Emulator Validation
 
@@ -81,6 +86,9 @@ release ticket or PR.
 - [ ] Manual acceptance in `docs/phone_acceptance.md` is sampled for model
   setup, remote-mode privacy, tool confirmation, permissions, background
   reminders, sharing, and multimodal entry points.
+- [ ] Remote model manual acceptance samples both a single public evidence
+  tool request and a multi-evidence question such as two-location comparison;
+  mixed private/action tool batches must fail closed before execution.
 
 ## Rollback
 

@@ -117,6 +117,264 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun publicEvidenceToolResultContinuesToModelForSynthesis() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = false,
+            modelOutputResult = modelToolOutputPlanningResult(
+                """call:web_search{"query":"北京和上海的天气"}""",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "北京和上海的温差是多少？",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        val planned = runtime.observeModelResult(
+            result.run.id,
+            """call:web_search{"query":"北京和上海的天气"}""",
+        )
+        requireNotNull(planned)
+        require(planned.decision is AgentObservationDecision.PlanNextTool)
+
+        val observed = runtime.observeToolResult(
+            runId = result.run.id,
+            result = ToolResult(
+                requestId = planned.decision.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取北京、上海当前天气。",
+                data = webSearchResultData(
+                    query = "北京和上海的天气",
+                    summaryText = "已读取北京、上海当前天气。",
+                    resultsJson = """
+                        {"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}},{"requestedLocation":"上海","current":{"temperature_2m":18.0}}]}
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertFalse(observed.decision.requiresLocalModel)
+        assertFalse(observed.continuationRequiresLocalModel)
+        val prompt = observed.continuationPromptForModel.orEmpty()
+        assertTrue(prompt.contains("北京和上海的温差是多少"))
+        assertTrue(prompt.contains("已读取北京、上海当前天气"))
+        assertTrue(prompt.contains("temperature_2m"))
+        assertTrue(prompt.contains("可以继续调用公开只读工具补充证据"))
+    }
+
+    @Test
+    fun remoteModelMultiplePublicEvidenceToolCallsPlanBatchWithoutConfirmation() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "北京和上海今天温差多少？",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        val requests = listOf(
+            ToolRequest(
+                id = "call-beijing",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "北京天气"),
+                reason = "remote tool call",
+            ),
+            ToolRequest(
+                id = "call-shanghai",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "上海天气"),
+                reason = "remote tool call",
+            ),
+        )
+
+        val observed = runtime.observeModelToolRequests(result.run.id, requests)
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.ExecutingTool, observed.run.state)
+        val decision = observed.decision as AgentObservationDecision.PlanToolBatch
+        assertEquals(2, decision.plans.size)
+        assertEquals(requests.map { request -> request.id }, decision.plans.map { plan -> plan.request.id })
+        assertEquals(
+            listOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.WEB_SEARCH),
+            decision.plans.map { plan -> plan.request.toolName },
+        )
+        assertTrue(decision.plans.all { plan -> plan.plannedByModel })
+        assertEquals(null, runtime.latestPendingConfirmation())
+        assertEquals(2, observed.steps.filterIsInstance<AgentStep.ToolRequested>().size)
+        assertTrue(observed.steps.none { step -> step is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
+    fun remoteModelMixedToolBatchIsRejectedAsWholeBeforeAnyToolRequest() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "查天气然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        val requests = listOf(
+            ToolRequest(
+                id = "call-weather",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "北京天气"),
+                reason = "remote tool call",
+            ),
+            ToolRequest(
+                id = "call-wifi",
+                toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                reason = "remote tool call",
+            ),
+        )
+
+        val observed = runtime.observeModelToolRequests(result.run.id, requests)
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        assertTrue(observed.decision is AgentObservationDecision.Fail)
+        assertEquals(null, runtime.latestPendingConfirmation())
+        assertTrue(observed.steps.none { step -> step is AgentStep.ToolRequested })
+        assertTrue(observed.steps.any { step -> step is AgentStep.ToolRejected })
+    }
+
+    @Test
+    fun publicEvidenceToolBatchResultsAggregateAndContinueToModel() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "北京和上海今天温差多少？",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        val requests = listOf(
+            ToolRequest(
+                id = "call-beijing",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "北京天气"),
+                reason = "remote tool call",
+            ),
+            ToolRequest(
+                id = "call-shanghai",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "上海天气"),
+                reason = "remote tool call",
+            ),
+        )
+        val planned = runtime.observeModelToolRequests(result.run.id, requests)
+        requireNotNull(planned)
+        require(planned.decision is AgentObservationDecision.PlanToolBatch)
+
+        val observed = runtime.observeToolResults(
+            runId = result.run.id,
+            results = listOf(
+                ToolResult(
+                    requestId = "call-beijing",
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取北京当前天气。",
+                    data = webSearchResultData(
+                        query = "北京天气",
+                        summaryText = "北京 12 摄氏度。",
+                        resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"北京","current":{"temperature_2m":12.0}}]}""",
+                    ),
+                ),
+                ToolResult(
+                    requestId = "call-shanghai",
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取上海当前天气。",
+                    data = webSearchResultData(
+                        query = "上海天气",
+                        summaryText = "上海 18 摄氏度。",
+                        resultsJson = """{"kind":"weather_current","locations":[{"requestedLocation":"上海","current":{"temperature_2m":18.0}}]}""",
+                    ),
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertFalse(observed.decision.requiresLocalModel)
+        assertFalse(observed.continuationRequiresLocalModel)
+        assertEquals(2, observed.steps.filterIsInstance<AgentStep.ToolObserved>().size)
+        val prompt = observed.continuationPromptForModel.orEmpty()
+        assertTrue(prompt.contains("北京和上海今天温差多少"))
+        assertTrue(prompt.contains("已读取北京当前天气"))
+        assertTrue(prompt.contains("已读取上海当前天气"))
+        assertTrue(prompt.contains("temperature_2m"))
+        assertTrue(prompt.contains("公开只读"))
+    }
+
+    @Test
+    fun publicEvidenceToolBatchCancelledResultCancelsRun() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "北京和上海今天温差多少？",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        val requests = listOf(
+            ToolRequest(
+                id = "call-beijing",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "北京天气"),
+                reason = "remote tool call",
+            ),
+            ToolRequest(
+                id = "call-shanghai",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "上海天气"),
+                reason = "remote tool call",
+            ),
+        )
+        val planned = runtime.observeModelToolRequests(result.run.id, requests)
+        requireNotNull(planned)
+        require(planned.decision is AgentObservationDecision.PlanToolBatch)
+
+        val observed = runtime.observeToolResults(
+            runId = result.run.id,
+            results = listOf(
+                ToolResult(
+                    requestId = "call-beijing",
+                    status = ToolStatus.Cancelled,
+                    summary = "用户停止了工具执行",
+                    data = mapOf("toolName" to MobileActionFunctions.WEB_SEARCH),
+                ),
+                ToolResult(
+                    requestId = "call-shanghai",
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取上海当前天气。",
+                    data = webSearchResultData(query = "上海天气", summaryText = "上海 18 摄氏度。"),
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Cancelled, observed.run.state)
+        assertEquals(AgentObservationDecision.Cancel, observed.decision)
+        assertEquals(null, observed.continuationPromptForModel)
+        assertTrue(observed.assistantMessage.contains("已取消"))
+    }
+
+    @Test
     fun localModelToolCallAuditSummariesDoNotPersistArguments() {
         val secretPayload = "SECRET_SHARE_TEXT"
         val auditSink = InMemoryToolAuditSink()
@@ -1428,9 +1686,12 @@ class AgentLoopRuntimeTest {
         )
 
         requireNotNull(observed)
-        assertEquals(AgentRunState.Completed, observed.run.state)
-        assertTrue(observed.decision is AgentObservationDecision.Complete)
-        assertEquals(null, observed.continuationPromptForModel)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        assertTrue(observed.continuationRequiresLocalModel)
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains(rawContactsJson))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("查联系人 Alice"))
         assertEquals("[redacted]", observed.result.data["query"])
         assertEquals("[redacted]", observed.result.data["contactsJson"])
         assertEquals("已读取联系人摘要", observed.result.summary)
@@ -1479,8 +1740,12 @@ class AgentLoopRuntimeTest {
         )
 
         requireNotNull(observed)
-        assertEquals(AgentRunState.Completed, observed.run.state)
-        assertTrue(observed.decision is AgentObservationDecision.Complete)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        assertTrue(observed.continuationRequiresLocalModel)
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains(rawTasksJson))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains(rawPolicyJson))
         assertEquals("[redacted]", observed.result.data["activeTaskCount"])
         assertEquals("[redacted]", observed.result.data["tasksJson"])
         assertEquals("[redacted]", observed.result.data["policyJson"])
@@ -4921,8 +5186,9 @@ class AgentLoopRuntimeTest {
         )
 
         requireNotNull(observed)
-        assertEquals(AgentRunState.Completed, observed.run.state)
-        assertEquals(AgentObservationDecision.Complete, observed.decision)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertFalse(observed.decision.requiresLocalModel)
         assertTrue(observed.steps.none { step ->
             step is AgentStep.UserConfirmationRequested &&
                 step.request.toolName == MobileActionFunctions.READ_CLIPBOARD
@@ -5742,7 +6008,7 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
-    fun retryableToolFailurePlansNextSequentialActionAfterSuccessfulRetry() {
+    fun retryableLocalEvidenceToolContinuesToLocalModelAfterSuccessfulRetry() {
         val auditSink = InMemoryToolAuditSink()
         val actionRuntime = ForegroundThenWifiActionRuntime()
         val runtime = AgentLoopRuntime(
@@ -5796,18 +6062,18 @@ class AgentLoopRuntimeTest {
         )
 
         requireNotNull(replanned)
-        assertEquals(AgentRunState.AwaitingUserConfirmation, replanned.run.state)
-        require(replanned.decision is AgentObservationDecision.PlanNextTool)
-        assertEquals(
-            MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            replanned.decision.plan.request.toolName,
-        )
-        assertEquals(listOf(input, "打开 Wi-Fi 设置"), actionRuntime.plannedInputs)
+        assertEquals(AgentRunState.GeneratingAnswer, replanned.run.state)
+        require(replanned.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(replanned.decision.requiresLocalModel)
+        assertTrue(replanned.continuationRequiresLocalModel)
+        assertTrue(replanned.continuationPromptForModel.orEmpty().contains("Mail"))
+        assertTrue(replanned.continuationPromptForModel.orEmpty().contains("com.example.mail"))
+        assertNull(runtime.latestPendingConfirmation())
+        assertEquals(listOf(input), actionRuntime.plannedInputs)
         assertEquals(1, replanned.steps.filterIsInstance<AgentStep.ToolRetryScheduled>().size)
         assertEquals(
             listOf(
                 MobileActionFunctions.QUERY_FOREGROUND_APP,
-                MobileActionFunctions.OPEN_WIFI_SETTINGS,
             ),
             replanned.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
         )
@@ -6466,7 +6732,7 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
-    fun modelObservationReplannerDoesNotExposePrivateObservationValuesInPrompt() {
+    fun localEvidenceContinuationTakesPriorityOverObservationReplanner() {
         val actionRuntime = ObservationModelActionRuntime(
             initialDraft = ActionDraft(
                 functionName = MobileActionFunctions.QUERY_FOREGROUND_APP,
@@ -6512,20 +6778,20 @@ class AgentLoopRuntimeTest {
         )
 
         requireNotNull(observed)
-        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        assertTrue(observed.continuationRequiresLocalModel)
+        val continuationPrompt = observed.continuationPromptForModel.orEmpty()
+        assertTrue(continuationPrompt.contains("Sensitive Mail"))
+        assertTrue(continuationPrompt.contains("com.private.mail"))
+        assertTrue(continuationPrompt.contains("1234"))
         assertEquals("已读取当前前台应用", observed.result.summary)
         assertEquals("[redacted]", observed.result.data["packageName"])
         assertEquals("[redacted]", observed.result.data["appLabel"])
         assertEquals("[redacted]", observed.result.data["lastTimeUsedMillis"])
-        val modelPrompt = actionRuntime.plannedInputs[1]
-        assertTrue(modelPrompt.contains("User intent preview: 当前应用是什么 token=[redacted]"))
-        assertTrue(modelPrompt.contains("Observation summary: 已读取当前前台应用"))
-        assertTrue(modelPrompt.contains("Observation private data keys omitted: appLabel, lastTimeUsedMillis, packageName"))
-        assertTrue(modelPrompt.contains("Observation public data keys: privacy, requiresLocalModel, toolName"))
-        assertFalse(modelPrompt.contains("opaque-private-value"))
-        assertFalse(modelPrompt.contains("Sensitive Mail"))
-        assertFalse(modelPrompt.contains("com.private.mail"))
-        assertFalse(modelPrompt.contains("1234"))
+        assertEquals(1, actionRuntime.plannedInputs.size)
+        assertNull(runtime.latestPendingConfirmation())
     }
 
     @Test
@@ -6569,8 +6835,9 @@ class AgentLoopRuntimeTest {
         )
 
         requireNotNull(observed)
-        assertEquals(AgentRunState.Completed, observed.run.state)
-        assertEquals(AgentObservationDecision.Complete, observed.decision)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertFalse(observed.decision.requiresLocalModel)
         assertEquals(2, actionRuntime.plannedInputs.size)
         assertNull(runtime.latestPendingConfirmation())
     }
@@ -6578,13 +6845,14 @@ class AgentLoopRuntimeTest {
     private fun webSearchResultData(
         query: String = "Kotlin",
         summaryText: String = "Kotlin search summary",
+        resultsJson: String = """{"kind":"instant_answer","provider":"DuckDuckGo","results":[]}""",
     ): Map<String, String> =
         mapOf(
             "toolName" to MobileActionFunctions.WEB_SEARCH,
             "query" to query,
             "source" to "duckduckgo",
             "summaryText" to summaryText,
-            "resultsJson" to """{"kind":"instant_answer","provider":"DuckDuckGo","results":[]}""",
+            "resultsJson" to resultsJson,
         )
 
     private fun clipboardResultData(text: String): Map<String, String> =

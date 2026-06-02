@@ -29,6 +29,7 @@ import org.json.JSONObject
 sealed class RemoteChatEvent {
     data class TextDelta(val text: String) : RemoteChatEvent()
     data class ToolCall(val request: ToolRequest) : RemoteChatEvent()
+    data class ToolCalls(val requests: List<ToolRequest>) : RemoteChatEvent()
     data class ParseError(val summary: String) : RemoteChatEvent()
 }
 
@@ -320,6 +321,9 @@ internal fun parseChatCompletionEvents(raw: String): List<RemoteChatEvent> {
 internal class RemoteToolCallAccumulator {
     private val builders = linkedMapOf<Int, ToolCallBuilder>()
     private var nextSyntheticIndex = 0
+    private var sawToolCalls = false
+    private var sawLegacyFunctionCall = false
+    private var mixedToolCallFormats = false
 
     fun absorb(raw: String): List<RemoteChatEvent> {
         val json = runCatching { JSONObject(raw) }.getOrElse {
@@ -331,13 +335,25 @@ internal class RemoteToolCallAccumulator {
         val delta = choice.optJSONObject("delta")
             ?: choice.optJSONObject("message")
             ?: return emptyList()
+        val toolCalls = delta.optJSONArray("tool_calls")
+        val legacyFunctionCall = delta.optJSONObject("function_call")
+        if (toolCalls != null && toolCalls.length() > 0) {
+            sawToolCalls = true
+        }
+        if (legacyFunctionCall != null) {
+            sawLegacyFunctionCall = true
+        }
+        if (sawToolCalls && sawLegacyFunctionCall) {
+            mixedToolCallFormats = true
+            return listOf(RemoteChatEvent.ParseError("远程模型同时返回多种工具调用格式，已拒绝执行"))
+        }
         val events = mutableListOf<RemoteChatEvent>()
         val text = delta.optNonNullString("content")
         if (text.isNotEmpty()) {
             events += RemoteChatEvent.TextDelta(text)
         }
-        delta.optJSONArray("tool_calls")?.let(::absorbToolCalls)
-        delta.optJSONObject("function_call")?.let(::absorbLegacyFunctionCall)
+        toolCalls?.let(::absorbToolCalls)
+        legacyFunctionCall?.let(::absorbLegacyFunctionCall)
         return events
     }
 
@@ -381,27 +397,32 @@ internal class RemoteToolCallAccumulator {
     }
 
     fun finish(): List<RemoteChatEvent> {
+        if (mixedToolCallFormats) {
+            return listOf(RemoteChatEvent.ParseError("远程模型同时返回多种工具调用格式，已拒绝执行"))
+        }
         if (builders.isEmpty()) return emptyList()
-        if (builders.size > 1) {
-            return listOf(RemoteChatEvent.ParseError("远程模型一次返回了多个工具调用，已拒绝执行"))
+        val requests = mutableListOf<ToolRequest>()
+        builders.entries.sortedBy { (index, _) -> index }.forEach { (_, builder) ->
+            val name = builder.name.trim()
+            if (name.isBlank()) {
+                return listOf(RemoteChatEvent.ParseError("远程模型工具调用缺少工具名称"))
+            }
+            val argumentsJson = builder.arguments.toString().ifBlank { "{}" }
+            val arguments = argumentsJson.toToolArgumentMapOrNull()
+                ?: return listOf(RemoteChatEvent.ParseError("远程模型工具参数不是有效 JSON 对象"))
+            requests += ToolRequest(
+                id = builder.id.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
+                toolName = name,
+                arguments = arguments,
+                reason = "remote tool call",
+            )
         }
-        val builder = builders.values.single()
-        val name = builder.name.trim()
-        if (name.isBlank()) {
-            return listOf(RemoteChatEvent.ParseError("远程模型工具调用缺少工具名称"))
-        }
-        val argumentsJson = builder.arguments.toString().ifBlank { "{}" }
-        val arguments = argumentsJson.toToolArgumentMapOrNull()
-            ?: return listOf(RemoteChatEvent.ParseError("远程模型工具参数不是有效 JSON 对象"))
         return listOf(
-            RemoteChatEvent.ToolCall(
-                ToolRequest(
-                    id = builder.id.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
-                    toolName = name,
-                    arguments = arguments,
-                    reason = "remote tool call",
-                ),
-            ),
+            if (requests.size == 1) {
+                RemoteChatEvent.ToolCall(requests.single())
+            } else {
+                RemoteChatEvent.ToolCalls(requests)
+            },
         )
     }
 }

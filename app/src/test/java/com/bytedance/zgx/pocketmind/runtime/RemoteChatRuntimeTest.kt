@@ -148,6 +148,52 @@ class RemoteChatRuntimeTest {
     }
 
     @Test
+    fun parseChatCompletionEventsReadsNonStreamingMultipleToolCallsAsBatch() {
+        val events = parseChatCompletionEvents(
+            """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "tool_calls": [
+                      {
+                        "id": "call-beijing",
+                        "type": "function",
+                        "function": {
+                          "name": "web_search",
+                          "arguments": "{\"query\":\"北京天气\"}"
+                        }
+                      },
+                      {
+                        "id": "call-shanghai",
+                        "type": "function",
+                        "function": {
+                          "name": "web_search",
+                          "arguments": "{\"query\":\"上海天气\"}"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val toolCalls = events.single() as RemoteChatEvent.ToolCalls
+        assertEquals(2, toolCalls.requests.size)
+        assertEquals(listOf("call-beijing", "call-shanghai"), toolCalls.requests.map { request -> request.id })
+        assertEquals(
+            listOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.WEB_SEARCH),
+            toolCalls.requests.map { request -> request.toolName },
+        )
+        assertEquals(
+            listOf(mapOf("query" to "北京天气"), mapOf("query" to "上海天气")),
+            toolCalls.requests.map { request -> request.arguments },
+        )
+    }
+
+    @Test
     fun parseChatCompletionEventsRejectsMixedToolCallFormats() {
         val events = parseChatCompletionEvents(
             """
@@ -209,7 +255,7 @@ class RemoteChatRuntimeTest {
     }
 
     @Test
-    fun remoteToolCallAccumulatorRejectsMultipleToolCalls() {
+    fun remoteToolCallAccumulatorEmitsMultipleIndexedToolCallsAsBatch() {
         val accumulator = RemoteToolCallAccumulator()
 
         accumulator.absorb(
@@ -221,19 +267,47 @@ class RemoteChatRuntimeTest {
             """.trimIndent(),
         )
 
-        val error = accumulator.finish().single() as RemoteChatEvent.ParseError
-        assertTrue(error.summary.contains("多个工具调用"))
+        val toolCalls = accumulator.finish().single() as RemoteChatEvent.ToolCalls
+        assertEquals(2, toolCalls.requests.size)
+        assertEquals(listOf("call-1", "call-2"), toolCalls.requests.map { request -> request.id })
+        assertEquals(
+            listOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            toolCalls.requests.map { request -> request.toolName },
+        )
     }
 
     @Test
-    fun remoteToolCallAccumulatorRejectsUnindexedDistinctToolCalls() {
+    fun remoteToolCallAccumulatorEmitsUnindexedDistinctToolCallsAsBatch() {
         val accumulator = RemoteToolCallAccumulator()
 
         accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"id":"call-1","type":"function","function":{"name":"web_search","arguments":"{}"}}]}}]}""")
         accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"id":"call-2","type":"function","function":{"name":"open_wifi_settings","arguments":"{}"}}]}}]}""")
 
-        val error = accumulator.finish().single() as RemoteChatEvent.ParseError
-        assertTrue(error.summary.contains("多个工具调用"))
+        val toolCalls = accumulator.finish().single() as RemoteChatEvent.ToolCalls
+        assertEquals(2, toolCalls.requests.size)
+        assertEquals(listOf("call-1", "call-2"), toolCalls.requests.map { request -> request.id })
+        assertEquals(
+            listOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            toolCalls.requests.map { request -> request.toolName },
+        )
+    }
+
+    @Test
+    fun remoteToolCallAccumulatorRejectsStreamingMixedToolCallFormats() {
+        val accumulator = RemoteToolCallAccumulator()
+
+        assertTrue(
+            accumulator.absorb(
+                """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"web_search","arguments":"{}"}}]}}]}""",
+            ).isEmpty(),
+        )
+        val error = accumulator.absorb(
+            """{"choices":[{"delta":{"function_call":{"name":"web_search","arguments":"{}"}}}]}""",
+        ).single() as RemoteChatEvent.ParseError
+        assertTrue(error.summary.contains("多种工具调用格式"))
+
+        val finishError = accumulator.finish().single() as RemoteChatEvent.ParseError
+        assertTrue(finishError.summary.contains("多种工具调用格式"))
     }
 
     @Test
@@ -344,6 +418,45 @@ class RemoteChatRuntimeTest {
             val requestBody = server.takeRequest().body!!.utf8()
             assertTrue(requestBody.contains(""""tools""""))
             assertTrue(requestBody.contains(MobileActionFunctions.WEB_SEARCH))
+        }
+    }
+
+    @Test
+    fun sendWithToolsStreamsMultipleToolCallsAsBatchFromSse() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(200)
+                    .addHeader("Content-Type", "text/event-stream")
+                    .body(
+                        """
+                        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-beijing","type":"function","function":{"name":"web_search","arguments":""}},{"index":1,"id":"call-shanghai","type":"function","function":{"name":"web_search","arguments":""}}]}}]}
+
+                        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"query\":\"北京天气\"}"}},{"index":1,"function":{"arguments":"{\"query\":\"上海天气\"}"}}]}}]}
+
+                        data: [DONE]
+
+                        """.trimIndent(),
+                    )
+                    .build(),
+            )
+            server.start()
+            val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
+
+            val events = runtime.sendWithTools(
+                prompt = "北京和上海今天温差多少？",
+                history = emptyList(),
+                parameters = GenerationParameters(),
+                config = RemoteModelConfig(server.url("/v1").toString().trimEnd('/'), "model-a"),
+                tools = ToolRegistry.fromSupportedActions(setOf(MobileActionFunctions.WEB_SEARCH)).specs(),
+            ).toList()
+
+            val toolCalls = events.single() as RemoteChatEvent.ToolCalls
+            assertEquals(2, toolCalls.requests.size)
+            assertEquals(
+                listOf(mapOf("query" to "北京天气"), mapOf("query" to "上海天气")),
+                toolCalls.requests.map { request -> request.arguments },
+            )
         }
     }
 
