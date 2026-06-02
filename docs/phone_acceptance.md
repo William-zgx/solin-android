@@ -173,6 +173,7 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 - 上述 launch-only Agent run 应处于“等待外部结果确认”的状态，而不是已完成；只有用户补录外部结果后才进入完成、失败或下一步确认。
 - 对上述 launch-only 结果，UI 应要求用户显式记录“已完成 / 未完成 / 只是打开了”。只有用户选择“已完成”后，trace/audit 才能记录 `externalOutcomeSource=UserConfirmed`、`completionVerified=true`，并允许 Agent 继续规划依赖该外部动作完成的下一步；“未完成”和“只是打开了”只记录结果，不应继续规划下一步工具。
 - 如果 App 在外部界面打开后重启，当前会话应从 Agent trace 恢复外部结果确认 sheet；恢复过程不应重新执行工具、不应恢复原始参数/外发 payload，用户确认后应只追加 `ExternalOutcomeConfirmed`。
+- 如果 App 在多步请求的工具确认卡处重启，恢复后的确认仍不应恢复 raw 后续自然语言；只有无参数、已验证的单工具 tail 可以通过结构化 cursor 在用户重新确认当前工具且观察成功后进入下一张确认卡。
 - 未知工具、缺少参数或没有可处理 Intent 的设备，应显示明确失败原因，不应崩溃。
 - 工具参数错误、权限拒绝或 provider 失败应返回结构化失败；校验拒绝时不应执行 delegate。
 - 支持的动作应能在 Agent trace 中形成 `ToolRequested -> UserConfirmed -> ToolObserved -> AssistantResponded` 顺序。

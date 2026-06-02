@@ -128,6 +128,7 @@ data class PendingAgentConfirmationEntity(
     val plannedByModel: Boolean,
     val fallbackReason: String?,
     val nextActionInput: String?,
+    val continuationCursorJson: String? = null,
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
 )
@@ -511,7 +512,7 @@ interface AgentTraceDao {
         PendingAgentConfirmationEntity::class,
         AgentSkillRunCheckpointEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class PocketMindDatabase : RoomDatabase() {
@@ -698,6 +699,15 @@ abstract class PocketMindDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `pending_agent_confirmations` ADD COLUMN `continuationCursorJson` TEXT",
+                )
+                db.execSQL("UPDATE `pending_agent_confirmations` SET `nextActionInput` = NULL")
+            }
+        }
+
         fun get(context: Context): PocketMindDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -715,6 +725,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
                         MIGRATION_7_8,
                         MIGRATION_8_9,
                         MIGRATION_9_10,
+                        MIGRATION_10_11,
                     )
                     .allowMainThreadQueries()
                     .build()

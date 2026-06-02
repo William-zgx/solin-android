@@ -1,5 +1,34 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Structured sequence continuation cursor
+
+本轮覆盖项：
+
+- `pending_agent_confirmations` 新增 nullable `continuationCursorJson`，数据库版本升到
+  11；`MIGRATION_10_11` 不从旧 `nextActionInput` 回填，并清空旧 raw tail。
+- `PendingToolConfirmationSnapshot` 新增 `AgentContinuationCursor`。Room 仍把
+  `nextActionInput` 写为 `null`，只持久化无参数、非 model-planned、单工具 tail 的
+  redacted cursor。
+- 恢复 pending confirmation 后，用户重新确认当前工具并观察成功时，Agent loop 可以用
+  cursor 规划下一张确认卡；规划仍重跑预算、Tool Registry、SafetyPolicy、trace/audit。
+- payload-bearing tail 不生成 cursor；composite Skill tail、model-planned tail、外部
+  outcome 已打开后的跨重启 continuation 仍保持未恢复，等待更完整 value-free cursor。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredSequentialPendingUsesContinuationCursorForNoPayloadTailAfterObservation \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.payloadSequentialTailDoesNotPersistContinuationCursor
+
+./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin && git diff --check
+```
+
+结果：
+
+- 通过：结构化 cursor 单测、全量 debug JVM 单测、AndroidTest Kotlin 编译和
+  `git diff --check`。
+
 ## 2026-06-02 Awaiting external outcome state
 
 本轮覆盖项：

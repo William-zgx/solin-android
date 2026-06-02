@@ -209,6 +209,16 @@ data class PendingExternalOutcomeSnapshot(
     val summary: String,
 )
 
+data class AgentContinuationCursor(
+    val sourceRequestId: String,
+    val completedSegmentCount: Int,
+    val request: ToolRequest,
+    val draft: ActionDraft,
+    val plannedByModel: Boolean = false,
+    val fallbackReason: String? = null,
+    val skillPlan: SkillPlan? = null,
+)
+
 data class AgentModelObservationResult(
     val run: AgentRun,
     val decision: AgentObservationDecision,
@@ -231,5 +241,6 @@ data class PendingToolConfirmationSnapshot(
     val plannedByModel: Boolean,
     val fallbackReason: String?,
     val nextActionInput: String? = null,
+    val continuationCursor: AgentContinuationCursor? = null,
     val skillRunCheckpoint: SkillRunCheckpoint? = null,
 )

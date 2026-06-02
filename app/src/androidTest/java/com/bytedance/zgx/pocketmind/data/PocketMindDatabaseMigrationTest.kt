@@ -45,6 +45,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_7_8,
                 PocketMindDatabase.MIGRATION_8_9,
                 PocketMindDatabase.MIGRATION_9_10,
+                PocketMindDatabase.MIGRATION_10_11,
             )
             .allowMainThreadQueries()
             .build()
@@ -130,6 +131,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_7_8,
                 PocketMindDatabase.MIGRATION_8_9,
                 PocketMindDatabase.MIGRATION_9_10,
+                PocketMindDatabase.MIGRATION_10_11,
             )
             .allowMainThreadQueries()
             .build()
@@ -173,6 +175,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_7_8,
                 PocketMindDatabase.MIGRATION_8_9,
                 PocketMindDatabase.MIGRATION_9_10,
+                PocketMindDatabase.MIGRATION_10_11,
             )
             .allowMainThreadQueries()
             .build()
@@ -228,6 +231,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_7_8,
                 PocketMindDatabase.MIGRATION_8_9,
                 PocketMindDatabase.MIGRATION_9_10,
+                PocketMindDatabase.MIGRATION_10_11,
             )
             .allowMainThreadQueries()
             .build()
@@ -337,6 +341,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_7_8,
                 PocketMindDatabase.MIGRATION_8_9,
                 PocketMindDatabase.MIGRATION_9_10,
+                PocketMindDatabase.MIGRATION_10_11,
             )
             .allowMainThreadQueries()
             .build()
@@ -368,7 +373,11 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_8_9, PocketMindDatabase.MIGRATION_9_10)
+            .addMigrations(
+                PocketMindDatabase.MIGRATION_8_9,
+                PocketMindDatabase.MIGRATION_9_10,
+                PocketMindDatabase.MIGRATION_10_11,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -425,7 +434,7 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_9_10)
+            .addMigrations(PocketMindDatabase.MIGRATION_9_10, PocketMindDatabase.MIGRATION_10_11)
             .allowMainThreadQueries()
             .build()
 
@@ -433,6 +442,83 @@ class PocketMindDatabaseMigrationTest {
             val restored = database.agentTraceDao().run("legacy-run")
             assertEquals(null, restored?.sessionId)
             assertTrue(database.agentRunSessionIdColumnIsNullable())
+        } finally {
+            database.close()
+            context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
+    @Test
+    fun migration10To11AddsContinuationCursorColumnAndClearsRawNextActionInput() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB_NAME)
+        val dbFile = context.getDatabasePath(TEST_DB_NAME)
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createVersion10Schema(db)
+            db.execSQL(
+                """
+                INSERT INTO agent_runs(id, input, state, createdAtMillis, updatedAtMillis, sessionId)
+                VALUES('run-legacy-cursor', '[redacted]', 'AwaitingUserConfirmation', 1, 1, NULL)
+                """.trimIndent(),
+            )
+            db.execSQL(
+                """
+                INSERT INTO pending_agent_confirmations(
+                    runId,
+                    requestId,
+                    toolName,
+                    argumentsJson,
+                    reason,
+                    draftFunctionName,
+                    draftTitle,
+                    draftSummary,
+                    draftParametersJson,
+                    skillId,
+                    skillPlanJson,
+                    plannedByModel,
+                    fallbackReason,
+                    nextActionInput,
+                    createdAtMillis,
+                    updatedAtMillis
+                )
+                VALUES(
+                    'run-legacy-cursor',
+                    'request-wifi',
+                    'open_wifi_settings',
+                    '{}',
+                    '[redacted]',
+                    'open_wifi_settings',
+                    '[redacted]',
+                    '[redacted]',
+                    '{}',
+                    NULL,
+                    NULL,
+                    0,
+                    NULL,
+                    'legacy raw sequence tail',
+                    1,
+                    1
+                )
+                """.trimIndent(),
+            )
+            db.version = 10
+        }
+
+        val database = Room.databaseBuilder(
+            context,
+            PocketMindDatabase::class.java,
+            TEST_DB_NAME,
+        )
+            .addMigrations(PocketMindDatabase.MIGRATION_10_11)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val pending = database.agentTraceDao().latestPendingConfirmation()
+            assertEquals(null, pending?.nextActionInput)
+            assertEquals(null, pending?.continuationCursorJson)
+            assertTrue(database.pendingContinuationCursorColumnIsNullable())
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
@@ -651,6 +737,11 @@ class PocketMindDatabaseMigrationTest {
         )
     }
 
+    private fun createVersion10Schema(db: SQLiteDatabase) {
+        createVersion9Schema(db)
+        db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `sessionId` TEXT")
+    }
+
     private fun PocketMindDatabase.agentTraceTablesExist(): Boolean {
         val tables = mutableSetOf<String>()
         openHelper.writableDatabase.query(
@@ -676,6 +767,18 @@ class PocketMindDatabaseMigrationTest {
             while (cursor.moveToNext()) {
                 val name = cursor.getString(cursor.getColumnIndexOrThrow("name"))
                 if (name != "nextActionInput") continue
+                val notNull = cursor.getInt(cursor.getColumnIndexOrThrow("notnull"))
+                return notNull == 0
+            }
+        }
+        return false
+    }
+
+    private fun PocketMindDatabase.pendingContinuationCursorColumnIsNullable(): Boolean {
+        openHelper.writableDatabase.query("PRAGMA table_info(`pending_agent_confirmations`)").use { cursor ->
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(cursor.getColumnIndexOrThrow("name"))
+                if (name != "continuationCursorJson") continue
                 val notNull = cursor.getInt(cursor.getColumnIndexOrThrow("notnull"))
                 return notNull == 0
             }

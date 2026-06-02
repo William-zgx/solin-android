@@ -13,6 +13,7 @@ import com.bytedance.zgx.pocketmind.skill.SkillRequest
 import com.bytedance.zgx.pocketmind.skill.SkillRunCheckpoint
 import com.bytedance.zgx.pocketmind.skill.SkillRunCheckpointPhase
 import com.bytedance.zgx.pocketmind.skill.SkillStep
+import com.bytedance.zgx.pocketmind.skill.validateStructure
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
@@ -82,6 +83,7 @@ interface AgentTraceStore {
     fun clearPendingConfirmation(runId: String, requestId: String): Boolean
     fun clearPendingConfirmationsForRun(runId: String): Int
     fun nextActionInput(runId: String): String?
+    fun continuationCursor(runId: String): AgentContinuationCursor?
     fun failStaleInFlightRuns(reason: String): Int
     fun deleteRunsForSession(sessionId: String): Int
 }
@@ -94,6 +96,7 @@ class InMemoryAgentTraceStore(
     private val runSteps = linkedMapOf<String, MutableList<AgentStep>>()
     private val runStepSummaries = linkedMapOf<String, MutableList<AgentTraceStepSummary>>()
     private val pendingConfirmations = linkedMapOf<String, PendingToolConfirmationSnapshot>()
+    private val continuationCursors = linkedMapOf<String, AgentContinuationCursor>()
 
     override fun createRun(input: String, sessionId: String?): AgentRun {
         val now = clockMillis()
@@ -123,6 +126,7 @@ class InMemoryAgentTraceStore(
         runs[runId] = updated
         if (state.isTerminal()) {
             pendingConfirmations.remove(runId)
+            continuationCursors.remove(runId)
         }
         return updated
     }
@@ -160,6 +164,9 @@ class InMemoryAgentTraceStore(
 
     override fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot) {
         pendingConfirmations[snapshot.run.id] = snapshot
+        snapshot.continuationCursor
+            ?.let { continuationCursor -> continuationCursors[snapshot.run.id] = continuationCursor }
+            ?: continuationCursors.remove(snapshot.run.id)
     }
 
     override fun latestPendingConfirmation(sessionId: String?): PendingToolConfirmationSnapshot? =
@@ -173,6 +180,7 @@ class InMemoryAgentTraceStore(
                     null -> null
                     else -> {
                         pendingConfirmations.remove(snapshot.run.id)
+                        continuationCursors.remove(snapshot.run.id)
                         null
                     }
                 }
@@ -186,11 +194,17 @@ class InMemoryAgentTraceStore(
                 true
             } ?: false
 
-    override fun clearPendingConfirmationsForRun(runId: String): Int =
-        if (pendingConfirmations.remove(runId) != null) 1 else 0
+    override fun clearPendingConfirmationsForRun(runId: String): Int {
+        val removed = if (pendingConfirmations.remove(runId) != null) 1 else 0
+        continuationCursors.remove(runId)
+        return removed
+    }
 
     override fun nextActionInput(runId: String): String? =
         pendingConfirmations[runId]?.nextActionInput
+
+    override fun continuationCursor(runId: String): AgentContinuationCursor? =
+        continuationCursors[runId]
 
     override fun failStaleInFlightRuns(reason: String): Int {
         val staleRuns = runs.values
@@ -212,6 +226,7 @@ class InMemoryAgentTraceStore(
             runSteps.remove(runId)
             runStepSummaries.remove(runId)
             pendingConfirmations.remove(runId)
+            continuationCursors.remove(runId)
         }
         return runIds.size
     }
@@ -227,6 +242,7 @@ class RoomAgentTraceStore(
     private val liveSteps = linkedMapOf<String, MutableList<AgentStep>>()
     private val livePendingConfirmations = linkedMapOf<String, PendingToolConfirmationSnapshot>()
     private val liveNextActionInputs = linkedMapOf<String, String>()
+    private val liveContinuationCursors = linkedMapOf<String, AgentContinuationCursor>()
 
     override fun createRun(input: String, sessionId: String?): AgentRun {
         val now = clockMillis()
@@ -261,6 +277,7 @@ class RoomAgentTraceStore(
             if (state.isTerminal()) {
                 livePendingConfirmations.remove(runId)
                 liveNextActionInputs.remove(runId)
+                liveContinuationCursors.remove(runId)
                 traceDao.deleteSkillRunCheckpointsForRun(runId)
             }
             return updated
@@ -268,6 +285,7 @@ class RoomAgentTraceStore(
         if (state.isTerminal()) {
             livePendingConfirmations.remove(runId)
             liveNextActionInputs.remove(runId)
+            liveContinuationCursors.remove(runId)
             traceDao.deleteSkillRunCheckpointsForRun(runId)
         }
         return traceDao.run(runId)?.toDomain()
@@ -311,6 +329,9 @@ class RoomAgentTraceStore(
         snapshot.nextActionInput
             ?.let { nextActionInput -> liveNextActionInputs[snapshot.run.id] = nextActionInput }
             ?: liveNextActionInputs.remove(snapshot.run.id)
+        snapshot.continuationCursor
+            ?.let { continuationCursor -> liveContinuationCursors[snapshot.run.id] = continuationCursor }
+            ?: liveContinuationCursors.remove(snapshot.run.id)
         traceDao.upsertPendingConfirmationWithCheckpoint(
             pending = snapshot.toEntity(now, toolRegistry),
             checkpoint = snapshot.skillRunCheckpoint?.toEntity(now),
@@ -333,6 +354,9 @@ class RoomAgentTraceStore(
             snapshot.nextActionInput
                 ?.let { nextActionInput -> liveNextActionInputs[snapshot.run.id] = nextActionInput }
                 ?: liveNextActionInputs.remove(snapshot.run.id)
+            snapshot.continuationCursor
+                ?.let { continuationCursor -> liveContinuationCursors[snapshot.run.id] = continuationCursor }
+                ?: liveContinuationCursors.remove(snapshot.run.id)
             hydrateLivePendingSteps(snapshot)
             return snapshot
         }
@@ -353,6 +377,7 @@ class RoomAgentTraceStore(
     override fun clearPendingConfirmationsForRun(runId: String): Int {
         val liveRemoved = if (livePendingConfirmations.remove(runId) != null) 1 else 0
         liveNextActionInputs.remove(runId)
+        liveContinuationCursors.remove(runId)
         val persistedRemoved = traceDao.pendingConfirmations()
             .filter { entity -> entity.runId == runId }
             .sumOf { entity ->
@@ -363,6 +388,9 @@ class RoomAgentTraceStore(
 
     override fun nextActionInput(runId: String): String? =
         liveNextActionInputs[runId]
+
+    override fun continuationCursor(runId: String): AgentContinuationCursor? =
+        liveContinuationCursors[runId]
 
     override fun failStaleInFlightRuns(reason: String): Int {
         val pendingRepair = repairPendingConfirmations()
@@ -430,6 +458,7 @@ class RoomAgentTraceStore(
                     null -> null
                     else -> {
                         livePendingConfirmations.remove(snapshot.run.id)
+                        liveContinuationCursors.remove(snapshot.run.id)
                         null
                     }
                 }
@@ -452,7 +481,8 @@ class RoomAgentTraceStore(
             snapshot.hasRedactedExecutablePayload() ||
             toolRegistry.validate(snapshot.request) != null ||
             !snapshot.hasRestorableSkillPlanRequest() ||
-            !snapshot.hasRestorableSkillRunCheckpoint(toolRegistry)
+            !snapshot.hasRestorableSkillRunCheckpoint(toolRegistry) ||
+            !snapshot.hasRestorableContinuationCursor(toolRegistry)
         ) {
             traceDao.deletePendingConfirmationWithCheckpoint(entity.runId, entity.requestId)
             failRun(run, UNRESTORABLE_PENDING_CONFIRMATION_REASON)
@@ -674,6 +704,10 @@ private fun PendingToolConfirmationSnapshot.toEntity(
         plannedByModel = plannedByModel,
         fallbackReason = fallbackReason,
         nextActionInput = null,
+        continuationCursorJson = continuationCursor
+            ?.redactedForPendingPersistence()
+            ?.toJsonObject()
+            ?.toString(),
         createdAtMillis = now,
         updatedAtMillis = now,
     )
@@ -701,6 +735,9 @@ private fun PendingAgentConfirmationEntity.toSnapshot(
         plannedByModel = plannedByModel,
         fallbackReason = fallbackReason,
         nextActionInput = null,
+        continuationCursor = continuationCursorJson?.let { json ->
+            JSONObject(json).toAgentContinuationCursor()
+        },
         skillRunCheckpoint = skillRunCheckpoint,
     )
 
@@ -725,6 +762,34 @@ private fun PendingToolConfirmationSnapshot.hasRestorableSkillRunCheckpoint(
     if (checkpoint.pendingToolName != request.toolName) return false
     return checkpoint.validationErrorFor(plan, toolRegistry) == null
 }
+
+private fun PendingToolConfirmationSnapshot.hasRestorableContinuationCursor(
+    toolRegistry: ToolRegistry,
+): Boolean {
+    val cursor = continuationCursor ?: return true
+    if (cursor.sourceRequestId != request.id) return false
+    if (cursor.completedSegmentCount < 0) return false
+    if (cursor.plannedByModel) return false
+    if (cursor.request.toolName != cursor.draft.functionName) return false
+    if (cursor.request.arguments.isNotEmpty()) return false
+    if (cursor.draft.parameters.isNotEmpty()) return false
+    if (cursor.request.arguments.hasRedactedValue()) return false
+    if (cursor.draft.parameters.hasRedactedValue()) return false
+    if (toolRegistry.validate(cursor.request) != null) return false
+    val skillPlan = cursor.skillPlan ?: return true
+    if (!skillPlan.isSingleToolStepPlanFor(cursor.request)) return false
+    return skillPlan.validateStructure().isValid
+}
+
+private fun AgentContinuationCursor.redactedForPendingPersistence(): AgentContinuationCursor =
+    copy(
+        request = request.copy(reason = request.reason.redactedIfNotBlank()),
+        draft = draft.copy(
+            title = draft.title.redactedIfNotBlank(),
+            summary = draft.summary.redactedIfNotBlank(),
+        ),
+        skillPlan = skillPlan?.redactedForPendingPersistence(),
+    )
 
 private fun PendingToolConfirmationSnapshot.hasRedactedExecutablePayload(): Boolean =
     request.arguments.hasRedactedValue() ||
@@ -772,6 +837,11 @@ private fun SkillPlan.redactedForPendingPersistence(): SkillPlan =
             }
         },
     )
+
+private fun SkillPlan.isSingleToolStepPlanFor(request: ToolRequest): Boolean {
+    val step = steps.singleOrNull() as? SkillStep.ToolStep ?: return false
+    return step.request.id == request.id && step.request.toolName == request.toolName
+}
 
 private fun Map<String, String>.redactedValuesForPendingPersistence(): Map<String, String> =
     mapValues { (_, value) -> value.redactedIfNotBlank() }
@@ -965,6 +1035,27 @@ private fun JSONObject.toActionDraft(): ActionDraft =
         summary = getString("summary"),
         parameters = getJSONObject("parameters").toStringMap(),
         requiresConfirmation = optBoolean("requiresConfirmation", true),
+    )
+
+private fun AgentContinuationCursor.toJsonObject(): JSONObject =
+    JSONObject()
+        .put("sourceRequestId", sourceRequestId)
+        .put("completedSegmentCount", completedSegmentCount)
+        .put("request", request.toJsonObject())
+        .put("draft", draft.toJsonObject())
+        .put("plannedByModel", plannedByModel)
+        .put("fallbackReason", fallbackReason)
+        .put("skillPlan", skillPlan?.toJsonObject())
+
+private fun JSONObject.toAgentContinuationCursor(): AgentContinuationCursor =
+    AgentContinuationCursor(
+        sourceRequestId = getString("sourceRequestId"),
+        completedSegmentCount = getInt("completedSegmentCount"),
+        request = getJSONObject("request").toToolRequest(),
+        draft = getJSONObject("draft").toActionDraft(),
+        plannedByModel = optBoolean("plannedByModel", false),
+        fallbackReason = optString("fallbackReason").takeIf { it.isNotBlank() },
+        skillPlan = optJSONObject("skillPlan")?.toSkillPlan(),
     )
 
 private fun List<String>.toJsonArray(): JSONArray =

@@ -726,6 +726,9 @@ class AgentLoopRuntime(
         }
         val priorRequests = toolRequestsFor(run.id)
         val completedSegmentCount = plannedSequentialSegmentCount(run.id)
+        planNextToolFromContinuationCursor(run, request)?.let { nextPlan ->
+            return nextPlan
+        }
         planNextCompositeSkillSegment(
             runId = run.id,
             input = nextSequentialSegmentInput(run, completedSegmentCount),
@@ -750,6 +753,29 @@ class AgentLoopRuntime(
             plannedByModel = replan.plannedByModel,
             fallbackReason = replan.fallbackReason,
             skillPlan = skillPlan,
+        )
+    }
+
+    private fun planNextToolFromContinuationCursor(
+        run: AgentRun,
+        request: ToolRequest,
+    ): NextObservationPlan? {
+        val cursor = traceStore.continuationCursor(run.id) ?: return null
+        if (cursor.sourceRequestId != request.id) return null
+        val completedSegmentCount = plannedSequentialSegmentCount(run.id)
+        if (cursor.completedSegmentCount != completedSegmentCount) {
+            return rejectNextToolPlan(
+                run.id,
+                cursor.request.rejected("Restored continuation cursor does not match the Agent trace."),
+            )
+        }
+        return buildNextToolPlan(
+            runId = run.id,
+            request = cursor.request,
+            draft = cursor.draft,
+            plannedByModel = cursor.plannedByModel,
+            fallbackReason = cursor.fallbackReason,
+            skillPlan = cursor.skillPlan,
         )
     }
 
@@ -1039,21 +1065,53 @@ class AgentLoopRuntime(
     }
 
     private fun AgentPlan.UseTool.toPendingSnapshot(run: AgentRun): PendingToolConfirmationSnapshot =
-        PendingToolConfirmationSnapshot(
-            run = run,
-            request = request,
-            draft = draft,
-            skillId = skillRequest?.skillId,
-            skillPlan = skillPlan,
-            plannedByModel = plannedByModel,
-            fallbackReason = fallbackReason,
-            nextActionInput = run.input.explicitSequentialActionTextAt(plannedSequentialSegmentCount(run.id)),
-            skillRunCheckpoint = skillPlan?.valueFreeCheckpointForPendingTool(
-                runId = run.id,
-                pendingRequest = request,
-                toolRegistry = toolRegistry,
-            ),
+        plannedSequentialSegmentCount(run.id).let { completedSegmentCount ->
+            val nextActionInput = run.input.explicitSequentialActionTextAt(completedSegmentCount)
+            PendingToolConfirmationSnapshot(
+                run = run,
+                request = request,
+                draft = draft,
+                skillId = skillRequest?.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = plannedByModel,
+                fallbackReason = fallbackReason,
+                nextActionInput = nextActionInput,
+                continuationCursor = nextActionInput?.takeIf { traceStore is RoomAgentTraceStore }?.let { input ->
+                    persistableContinuationCursor(
+                        sourceRequestId = request.id,
+                        completedSegmentCount = completedSegmentCount,
+                        input = input,
+                    )
+                },
+                skillRunCheckpoint = skillPlan?.valueFreeCheckpointForPendingTool(
+                    runId = run.id,
+                    pendingRequest = request,
+                    toolRegistry = toolRegistry,
+                ),
+            )
+        }
+
+    private fun persistableContinuationCursor(
+        sourceRequestId: String,
+        completedSegmentCount: Int,
+        input: String,
+    ): AgentContinuationCursor? {
+        val plan = planInitialSequentialSegment(input, actionModelPath = null) as? AgentPlan.UseTool
+            ?: return null
+        if (plan.plannedByModel) return null
+        if (plan.skillPlan != null && !plan.skillPlan.isSingleToolStepPlan()) return null
+        if (plan.request.arguments.isNotEmpty() || plan.draft.parameters.isNotEmpty()) return null
+        if (plan.request.toolName != plan.draft.functionName) return null
+        return AgentContinuationCursor(
+            sourceRequestId = sourceRequestId,
+            completedSegmentCount = completedSegmentCount,
+            request = plan.request,
+            draft = plan.draft,
+            plannedByModel = false,
+            fallbackReason = plan.fallbackReason,
+            skillPlan = plan.skillPlan,
         )
+    }
 
     private sealed class NextObservationPlan {
         data object None : NextObservationPlan()

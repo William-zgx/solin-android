@@ -439,6 +439,15 @@ Current status:
 - Pending confirmations keep only the immediate next segment in process memory.
   Room persistence still writes `nextActionInput = null`, so a restart can
   restore the current pending tool but cannot resume raw remaining sequence text.
+- For a restored pending confirmation, Room may persist a structured
+  continuation cursor for the next already-validated, no-payload single-tool
+  sequence segment. The cursor stores tool/request shape and redacted draft
+  metadata, never raw `nextActionInput` or full run input. After the user
+  reconfirms the restored pending tool and its observation succeeds, the Agent
+  loop revalidates that cursor through the normal budget, Tool Registry,
+  SafetyPolicy, trace, audit, and user-confirmation boundary before planning
+  the next tool. Payload-bearing, model-planned, and composite Skill tails
+  remain fail-closed across restart until a richer value-free cursor is added.
 - Full-input Skill-first planning still rejects sequential commands so a Skill
   cannot swallow later user intent. Per-segment fallback may start a composite
   Skill for that segment only, while a bare private-read segment such as "read
@@ -487,6 +496,8 @@ Tests:
 - `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingFailsClosedAfterRestart`
 - `AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions`
 - `AgentLoopRuntimeTest.roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears`
+- `AgentLoopRuntimeTest.restoredSequentialPendingUsesContinuationCursorForNoPayloadTailAfterObservation`
+- `AgentLoopRuntimeTest.payloadSequentialTailDoesNotPersistContinuationCursor`
 - `AgentLoopRuntimeTest.modelObservationReplannerPlansNextToolAfterVerifiedObservation`
 - `AgentLoopRuntimeTest.modelObservationReplannerDoesNotExposePrivateObservationValuesInPrompt`
 - `AgentLoopRuntimeTest.modelObservationReplannerIgnoresRuleFallbackDraft`

@@ -4319,6 +4319,101 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun restoredSequentialPendingUsesContinuationCursorForNoPayloadTailAfterObservation() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = WifiFlashlightActionRuntime()
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-restored-sequence-cursor" },
+            ),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val rawInput = "打开 Wi-Fi 设置，然后打开手电筒设置"
+        val planned = initialRuntime.runOnce(
+            input = rawInput,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, planned.plan.request.toolName)
+        val persistedPending = dao.latestPendingConfirmation()
+        requireNotNull(persistedPending)
+        assertNull(persistedPending.nextActionInput)
+        val cursorJson = persistedPending.continuationCursorJson
+        requireNotNull(cursorJson)
+        assertFalse(cursorJson.contains(rawInput))
+        assertFalse(cursorJson.contains("然后"))
+        assertEquals(
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            JSONObject(cursorJson)
+                .getJSONObject("request")
+                .getString("toolName"),
+        )
+
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = RoomAgentTraceStore(traceDao = dao),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(restoredPending)
+        assertNull(restoredPending.nextActionInput)
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, restoredPending.continuationCursor?.request?.toolName)
+
+        restoredRuntime.confirmToolRequest(restoredPending.run.id, restoredPending.request.id)
+        val flashlightPlanned = restoredRuntime.observeToolResult(
+            runId = restoredPending.run.id,
+            result = ToolResult(
+                requestId = restoredPending.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+
+        requireNotNull(flashlightPlanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, flashlightPlanned.run.state)
+        require(flashlightPlanned.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            flashlightPlanned.decision.plan.request.toolName,
+        )
+    }
+
+    @Test
+    fun payloadSequentialTailDoesNotPersistContinuationCursor() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = RuleActionRuntime()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-payload-sequence-cursor" },
+            ),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+
+        val planned = runtime.runOnce(
+            input = "打开 Wi-Fi 设置，然后搜索 Kotlin",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        require(planned.plan is AgentPlan.UseTool)
+        val persistedPending = dao.latestPendingConfirmation()
+        requireNotNull(persistedPending)
+        assertNull(persistedPending.nextActionInput)
+        assertNull(persistedPending.continuationCursorJson)
+    }
+
+    @Test
     fun initialSequentialInputPlansFirstSingleToolSegmentThenContinues() {
         val actionRuntime = RuleActionRuntime()
         val runtime = AgentLoopRuntime(
