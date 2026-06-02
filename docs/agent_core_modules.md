@@ -205,7 +205,10 @@ Current status:
   `AwaitingExternalOutcome` instead of `Completed`. This state records the
   real boundary: the external UI opened, but the target app outcome is still
   waiting for explicit user confirmation. Older launch-only completed traces
-  remain restorable for compatibility.
+  remain restorable for compatibility. On process restart, an
+  `AwaitingExternalOutcome` run is kept only when allowlisted trace metadata
+  still proves that a launch-only observation can restore the pending outcome
+  sheet; otherwise startup repair fails the run closed.
 - The loop has run-level hard budgets in addition to per-tool retry attempts:
   it fails closed before saving another pending confirmation when the run tool
   step budget is exhausted, and fails closed before retry/replan/model
@@ -508,6 +511,11 @@ Tests:
 - `AgentTraceStoreTest.roomStoreRestoresContinuationCursorFromTraceAfterPendingConfirmationClears`
 - `AgentTraceStoreTest.roomStoreDoesNotPersistContinuationCursorWithExecutablePayload`
 - `AgentTraceStoreTest.roomStoreFailsClosedWhenContinuationCursorSkillPlanContainsRawInput`
+- `AgentTraceStoreTest.roomStoreKeepsRestorablePendingExternalOutcomeOnStartupRepair`
+- `AgentTraceStoreTest.roomStoreFailsUnrestorablePendingExternalOutcomeOnStartupRepair`
+- `AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolRequestedJsonMissingToolNameOnStartupRepair`
+- `AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolObservedMetadataIsCorruptOnStartupRepair`
+- `AgentLoopRuntimeTest.failStaleInFlightRunsClosesUnrestorableExternalOutcomeBeforeRestore`
 - `AgentLoopRuntimeTest.modelObservationReplannerPlansNextToolAfterVerifiedObservation`
 - `AgentLoopRuntimeTest.modelObservationReplannerDoesNotExposePrivateObservationValuesInPrompt`
 - `AgentLoopRuntimeTest.modelObservationReplannerIgnoresRuleFallbackDraft`
@@ -948,6 +956,10 @@ Current status:
   only a user-recorded `Completed` outcome can revalidate that cursor and move
   to the next pending confirmation; `NotCompleted` and `OpenedOnly` complete
   without planning another tool.
+- Startup repair treats `AwaitingExternalOutcome` as recoverable only when the
+  trace still has both a matching `ToolRequested` summary and an unconfirmed
+  launch-only `ToolObserved` summary. Missing or corrupted trace metadata fails
+  the run instead of leaving an invisible pending external outcome.
 - Special-app-access flow is modeled for both Usage Access
   (`query_foreground_app`) and Accessibility screen text
   (`read_current_screen_text`): the confirmation UI warns with a

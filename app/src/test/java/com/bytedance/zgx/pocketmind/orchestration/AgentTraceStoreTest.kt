@@ -1861,6 +1861,187 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreKeepsRestorablePendingExternalOutcomeOnStartupRepair() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-restorable-external-outcome" },
+        )
+        val request = ToolRequest(
+            id = "request-share",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "private share payload"),
+            reason = "Share text",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.SHARE_TEXT,
+            title = "系统分享",
+            summary = "打开系统分享面板。",
+            parameters = request.arguments,
+        )
+        val run = store.createRun("分享这段文字")
+        store.appendStep(run.id, AgentStep.ToolRequested(request, draft))
+        store.appendStep(
+            run.id,
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开系统分享面板",
+                    data = unverifiedExternalLaunchData(MobileActionFunctions.SHARE_TEXT),
+                ),
+            ),
+        )
+        val awaitingRun = store.updateState(run.id, AgentRunState.AwaitingExternalOutcome)
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        val failedCount = restartedStore.failStaleInFlightRuns("process restarted")
+
+        assertEquals(0, failedCount)
+        assertEquals(AgentRunState.AwaitingExternalOutcome, restartedStore.run(awaitingRun.id)?.state)
+        assertTrue(restartedStore.steps(awaitingRun.id).none { step -> step is AgentStep.Failed })
+    }
+
+    @Test
+    fun roomStoreFailsUnrestorablePendingExternalOutcomeOnStartupRepair() {
+        val dao = FakeAgentTraceDao()
+        var nextRun = 0
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-unrestorable-external-${++nextRun}" },
+        )
+        val request = ToolRequest(
+            id = "request-share",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "private share payload"),
+            reason = "Share text",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.SHARE_TEXT,
+            title = "系统分享",
+            summary = "打开系统分享面板。",
+            parameters = request.arguments,
+        )
+        val missingObservationRun = store.createRun("missing observation")
+        store.appendStep(missingObservationRun.id, AgentStep.ToolRequested(request, draft))
+        val missingObservationAwaiting = store.updateState(missingObservationRun.id, AgentRunState.AwaitingExternalOutcome)
+        val missingRequestRun = store.createRun("missing request")
+        store.appendStep(
+            missingRequestRun.id,
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = "request-without-tool-step",
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开系统分享面板",
+                    data = unverifiedExternalLaunchData(MobileActionFunctions.SHARE_TEXT),
+                ),
+            ),
+        )
+        val missingRequestAwaiting = store.updateState(missingRequestRun.id, AgentRunState.AwaitingExternalOutcome)
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        val failedCount = restartedStore.failStaleInFlightRuns("process restarted")
+
+        assertEquals(2, failedCount)
+        listOf(missingObservationAwaiting, missingRequestAwaiting).forEach { run ->
+            assertEquals(AgentRunState.Failed, restartedStore.run(run.id)?.state)
+            assertTrue(restartedStore.steps(run.id).any { step ->
+                step is AgentStep.Failed &&
+                    step.reason.contains("Pending external outcome could not be restored")
+            })
+        }
+    }
+
+    @Test
+    fun roomStoreFailsAwaitingExternalOutcomeWhenToolRequestedJsonMissingToolNameOnStartupRepair() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-corrupt-external-request" },
+        )
+        val requestId = "request-share"
+        val run = store.createRun("share text")
+        dao.insertStep(
+            AgentStepEntity(
+                runId = run.id,
+                position = 0,
+                type = "ToolRequested",
+                summary = "Requested tool share_text.",
+                json = """{"type":"ToolRequested","requestId":"$requestId"}""",
+                createdAtMillis = 1L,
+            ),
+        )
+        store.appendStep(
+            run.id,
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = requestId,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开系统分享面板",
+                    data = unverifiedExternalLaunchData(MobileActionFunctions.SHARE_TEXT),
+                ),
+            ),
+        )
+        val awaitingRun = store.updateState(run.id, AgentRunState.AwaitingExternalOutcome)
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        val failedCount = restartedStore.failStaleInFlightRuns("process restarted")
+
+        assertEquals(1, failedCount)
+        assertEquals(AgentRunState.Failed, restartedStore.run(awaitingRun.id)?.state)
+        assertTrue(restartedStore.steps(awaitingRun.id).any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending external outcome could not be restored")
+        })
+    }
+
+    @Test
+    fun roomStoreFailsAwaitingExternalOutcomeWhenToolObservedMetadataIsCorruptOnStartupRepair() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-corrupt-external-observation" },
+        )
+        val request = ToolRequest(
+            id = "request-share",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "private share payload"),
+            reason = "Share text",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.SHARE_TEXT,
+            title = "系统分享",
+            summary = "打开系统分享面板。",
+            parameters = request.arguments,
+        )
+        val run = store.createRun("share text")
+        store.appendStep(run.id, AgentStep.ToolRequested(request, draft))
+        store.appendStep(
+            run.id,
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开系统分享面板",
+                    data = unverifiedExternalLaunchData(MobileActionFunctions.SHARE_TEXT) -
+                        "externalOutcomeSource",
+                ),
+            ),
+        )
+        val awaitingRun = store.updateState(run.id, AgentRunState.AwaitingExternalOutcome)
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        val failedCount = restartedStore.failStaleInFlightRuns("process restarted")
+
+        assertEquals(1, failedCount)
+        assertEquals(AgentRunState.Failed, restartedStore.run(awaitingRun.id)?.state)
+        assertTrue(restartedStore.steps(awaitingRun.id).any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending external outcome could not be restored")
+        })
+    }
+
+    @Test
     fun roomStoreFailsSkillPendingWithoutCheckpointOnStartupRepair() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(
@@ -2218,6 +2399,17 @@ class AgentTraceStoreTest {
 
     private fun JSONObject.toStringMapForTest(): Map<String, String> =
         keys().asSequence().associateWith { key -> getString(key) }
+
+    private fun unverifiedExternalLaunchData(toolName: String): Map<String, String> =
+        mapOf(
+            "toolName" to toolName,
+            "completionState" to "ExternalActivityOpened",
+            "completionVerified" to "false",
+            "externalOutcome" to "Unknown",
+            "externalOutcomeSource" to "Unknown",
+            "metadataPolicy" to "AllowlistedCompletionMetadata",
+            "rawPayloadIncluded" to "false",
+        )
 
     private fun agentSkillRunCheckpointEntity(
         runId: String,

@@ -1,5 +1,35 @@
 # PocketMind 验证报告
 
+## 2026-06-02 External outcome startup repair
+
+本轮覆盖项：
+
+- `RoomAgentTraceStore.failStaleInFlightRuns()` 新增
+  `AwaitingExternalOutcome` 启动修复：只有 trace 同时包含匹配的
+  `ToolRequested` summary 和未确认 launch-only `ToolObserved` summary 时，才保留
+  等待外部结果确认状态。
+- 如果外部结果 trace 缺少对应 tool request、缺少 launch-only observation、或 metadata
+  已损坏到无法恢复 pending outcome sheet，启动修复会追加 `Failed` step 并把 run 标记为
+  `Failed`，避免不可见悬挂。
+- 修复只依赖 allowlisted completion metadata，不恢复原始参数、外发 payload 或完整 prompt。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreKeepsRestorablePendingExternalOutcomeOnStartupRepair \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsUnrestorablePendingExternalOutcomeOnStartupRepair \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolRequestedJsonMissingToolNameOnStartupRepair \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolObservedMetadataIsCorruptOnStartupRepair \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.failStaleInFlightRunsClosesUnrestorableExternalOutcomeBeforeRestore
+```
+
+结果：
+
+- 通过：可恢复 external outcome run 在启动修复中保留；缺失/损坏 trace、半损坏
+  `ToolRequested`、损坏 completion metadata 的 `AwaitingExternalOutcome` run fail closed；
+  runtime 启动修复后不再恢复不可恢复 external outcome sheet。
+
 ## 2026-06-02 External outcome continuation cursor
 
 本轮覆盖项：

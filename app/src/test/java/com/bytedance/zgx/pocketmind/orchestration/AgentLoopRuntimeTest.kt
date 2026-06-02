@@ -5137,6 +5137,56 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun failStaleInFlightRunsClosesUnrestorableExternalOutcomeBeforeRestore() {
+        val dao = FakeAgentTraceDao()
+        val traceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 1_000L },
+            runIdFactory = { "run-unrestorable-external-runtime" },
+        )
+        val run = traceStore.createRun("share text", sessionId = "session-unrestorable")
+        val requestId = "request-share"
+        dao.insertStep(
+            AgentStepEntity(
+                runId = run.id,
+                position = 0,
+                type = "ToolRequested",
+                summary = "Requested tool share_text.",
+                json = """{"type":"ToolRequested","requestId":"$requestId"}""",
+                createdAtMillis = 1_000L,
+            ),
+        )
+        traceStore.appendStep(
+            run.id,
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = requestId,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开系统分享面板",
+                    data = externalActivityResultData(
+                        toolName = MobileActionFunctions.SHARE_TEXT,
+                        completionVerified = false,
+                        externalOutcome = "Unknown",
+                        externalOutcomeSource = "Unknown",
+                    ),
+                ),
+            ),
+        )
+        traceStore.updateState(run.id, AgentRunState.AwaitingExternalOutcome)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = RoomAgentTraceStore(traceDao = dao),
+        )
+
+        val failedCount = runtime.failStaleInFlightRuns("process restarted")
+
+        assertEquals(1, failedCount)
+        assertEquals(AgentRunState.Failed.name, dao.run(run.id)?.state)
+        assertNull(runtime.latestPendingExternalOutcome("session-unrestorable"))
+    }
+
+    @Test
     fun restoredExternalOutcomeUsesContinuationCursorForNoPayloadTailAfterCompletion() {
         val dao = FakeAgentTraceDao()
         val actionRuntime = WifiFlashlightActionRuntime()

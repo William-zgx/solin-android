@@ -17,6 +17,9 @@ import com.bytedance.zgx.pocketmind.skill.validateStructure
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
+import com.bytedance.zgx.pocketmind.tool.ToolResult
+import com.bytedance.zgx.pocketmind.tool.ToolStatus
+import com.bytedance.zgx.pocketmind.tool.isUnverifiedExternalLaunch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicLong
@@ -64,6 +67,8 @@ private val toolObservedCompletionMetadataAllowlist = listOf(
 private const val REDACTED_AGENT_RUN_INPUT = "[redacted]"
 private const val UNRESTORABLE_PENDING_CONFIRMATION_REASON =
     "Pending tool confirmation could not be restored after process restart."
+private const val UNRESTORABLE_PENDING_EXTERNAL_OUTCOME_REASON =
+    "Pending external outcome could not be restored after process restart."
 
 private data class PendingConfirmationRepairResult(
     val validPendingRunIds: Set<String>,
@@ -414,6 +419,15 @@ class RoomAgentTraceStore(
         staleRuns.forEach { run ->
             failRun(run, reason)
         }
+        val unrestorableExternalOutcomeRuns = traceDao.recentRuns(Int.MAX_VALUE)
+            .map { entity -> entity.toDomain() }
+            .filter { run ->
+                run.state == AgentRunState.AwaitingExternalOutcome &&
+                    !hasRestorablePendingExternalOutcome(run.id)
+            }
+        unrestorableExternalOutcomeRuns.forEach { run ->
+            failRun(run, UNRESTORABLE_PENDING_EXTERNAL_OUTCOME_REASON)
+        }
         val awaitingWithoutPendingRuns = traceDao.recentRuns(Int.MAX_VALUE)
             .map { entity -> entity.toDomain() }
             .filter { run ->
@@ -423,7 +437,10 @@ class RoomAgentTraceStore(
         awaitingWithoutPendingRuns.forEach { run ->
             failRun(run, UNRESTORABLE_PENDING_CONFIRMATION_REASON)
         }
-        return pendingRepair.failedRunIds.size + staleRuns.size + awaitingWithoutPendingRuns.size
+        return pendingRepair.failedRunIds.size +
+            staleRuns.size +
+            unrestorableExternalOutcomeRuns.size +
+            awaitingWithoutPendingRuns.size
     }
 
     override fun deleteRunsForSession(sessionId: String): Int {
@@ -495,6 +512,30 @@ class RoomAgentTraceStore(
             .firstOrNull { cursor ->
                 cursor.sourceRequestId in requestedIds &&
                     cursor.isRestorableForSourceRequest(cursor.sourceRequestId, toolRegistry)
+            }
+    }
+
+    private fun hasRestorablePendingExternalOutcome(runId: String): Boolean {
+        val steps = stepSummaries(runId)
+        val requestIds = steps
+            .asSequence()
+            .filter { step -> step.type == "ToolRequested" }
+            .mapNotNull { step -> step.restorableToolRequestIdFromJson() }
+            .toSet()
+        if (requestIds.isEmpty()) return false
+        val confirmedRequestIds = steps
+            .asSequence()
+            .filter { step -> step.type == "ExternalOutcomeConfirmed" }
+            .mapNotNull { step -> step.requestIdFromJson() }
+            .toSet()
+        return steps
+            .asReversed()
+            .asSequence()
+            .filter { step -> step.type == "ToolObserved" }
+            .mapNotNull { step -> step.restoredUnverifiedExternalResultOrNull() }
+            .any { result ->
+                result.requestId in requestIds &&
+                    result.requestId !in confirmedRequestIds
             }
     }
 
@@ -1148,6 +1189,32 @@ private fun AgentTraceStepSummary.requestIdFromJson(): String? =
         .getOrNull()
         ?.optString("requestId")
         ?.takeIf { it.isNotBlank() }
+
+private fun AgentTraceStepSummary.restorableToolRequestIdFromJson(): String? {
+    val json = runCatching { JSONObject(json) }.getOrNull() ?: return null
+    json.optString("toolName").takeIf { it.isNotBlank() } ?: return null
+    return json.optString("requestId").takeIf { it.isNotBlank() }
+}
+
+private fun AgentTraceStepSummary.restoredUnverifiedExternalResultOrNull(): ToolResult? {
+    val json = runCatching { JSONObject(json) }.getOrNull() ?: return null
+    if (json.optString("status") != ToolStatus.Succeeded.name) return null
+    val requestId = json.optString("requestId").takeIf { it.isNotBlank() } ?: return null
+    val metadata = json.optJSONObject("completionMetadata") ?: return null
+    val data = buildMap {
+        metadata.keys().forEach { key ->
+            val value = metadata.optString(key)
+            if (value.isNotBlank()) put(key, value)
+        }
+    }
+    val summary = json.optString("summary").takeIf { it.isNotBlank() } ?: this.summary
+    return ToolResult(
+        requestId = requestId,
+        status = ToolStatus.Succeeded,
+        summary = summary,
+        data = data,
+    ).takeIf { result -> result.isUnverifiedExternalLaunch() }
+}
 
 private fun List<String>.toJsonArray(): JSONArray =
     JSONArray().also { array -> forEach { value -> array.put(value) } }
