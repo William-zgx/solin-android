@@ -269,6 +269,73 @@ class SkillRunExecutorTest {
     }
 
     @Test
+    fun duplicateToolRequestIdsFailBeforeExecutingSkillTools() {
+        val toolExecutor = RecordingToolExecutor(emptyList())
+        val executor = SkillRunExecutor(
+            toolExecutor = toolExecutor,
+            modelExecutor = SkillModelStepExecutor { _, _ -> Result.success("unused") },
+            toolGate = SkillToolGate.allowAllForTests(),
+        )
+        val sharedRequestId = "duplicate-tool-request"
+        val wifiStep = SkillStep.ToolStep(
+            id = "wifi_settings",
+            request = ToolRequest(
+                id = sharedRequestId,
+                toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                title = "打开 Wi-Fi 设置",
+                summary = "打开 Wi-Fi 设置。",
+                parameters = emptyMap(),
+            ),
+        )
+        val flashlightStep = SkillStep.ToolStep(
+            id = "flashlight_settings",
+            request = ToolRequest(
+                id = sharedRequestId,
+                toolName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+                title = "打开手电筒设置",
+                summary = "打开手电筒设置。",
+                parameters = emptyMap(),
+            ),
+        )
+        val plan = SkillPlan(
+            request = SkillRequest(
+                id = "duplicate-request-skill",
+                skillId = "duplicate_request_skill",
+                arguments = emptyMap(),
+                reason = "test",
+            ),
+            manifest = SkillManifest(
+                id = "duplicate_request_skill",
+                version = 1,
+                title = "Duplicate request skill",
+                description = "test",
+                triggerExamples = emptyList(),
+                requiredTools = listOf(
+                    MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+                ),
+                inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
+                riskLevel = RiskLevel.MediumDraftOrNavigation,
+            ),
+            steps = listOf(wifiStep, flashlightStep),
+        )
+
+        val result = executor.execute(plan)
+
+        assertEquals(SkillRunState.Failed, result.state)
+        assertTrue(result.error.orEmpty().contains("duplicate tool request id: $sharedRequestId"))
+        assertTrue(toolExecutor.requests.isEmpty())
+        assertNull(result.pendingToolRequest)
+        assertNull(result.continuation)
+    }
+
+    @Test
     fun resumesAgainAfterSecondConfirmationAndCompletesSkill() {
         val toolExecutor = RecordingToolExecutor(emptyList())
         val executor = SkillRunExecutor(
@@ -431,24 +498,12 @@ class SkillRunExecutorTest {
                 shareStep.copy(argumentBindings = mapOf("text" to "read_clipboard.text")),
             ),
         )
-        val awaitingRead = executor.execute(maliciousPlan)
-
-        val rejected = executor.resume(
-            plan = maliciousPlan,
-            continuation = requireNotNull(awaitingRead.continuation),
-            result = ToolResult(
-                requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
-                status = ToolStatus.Succeeded,
-                summary = "已读取剪贴板文本",
-                data = clipboardSuccess(rawClipboardText),
-            ),
-        )
+        val rejected = executor.execute(maliciousPlan)
 
         assertEquals(SkillRunState.Failed, rejected.state)
         assertTrue(rejected.error.orEmpty().contains("private tool output cannot be bound directly"))
         assertEquals(null, rejected.pendingToolRequest)
         assertEquals(null, rejected.continuation)
-        assertEquals(modelSummary, rejected.outputs["summarize_clipboard"]?.get("shareText"))
         assertTrue(toolExecutor.requests.isEmpty())
         assertFalse(rejected.trace.any { trace ->
             trace is SkillRunTrace.AwaitingConfirmation &&
@@ -456,7 +511,6 @@ class SkillRunExecutorTest {
         })
         assertFalse(rejected.outputs.toString().contains(rawClipboardText))
         assertFalse(rejected.trace.toString().contains(rawClipboardText))
-        assertFalse(requireNotNull(awaitingRead.continuation).toString().contains(rawClipboardText))
     }
 
     @Test
@@ -479,25 +533,13 @@ class SkillRunExecutorTest {
                 shareStep.copy(argumentBindings = mapOf("text" to "read_current_screen_text.screenText")),
             ),
         )
-        val awaitingRead = executor.execute(maliciousPlan)
-
-        val rejected = executor.resume(
-            plan = maliciousPlan,
-            continuation = requireNotNull(awaitingRead.continuation),
-            result = ToolResult(
-                requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
-                status = ToolStatus.Succeeded,
-                summary = "已读取当前屏幕可访问文本快照",
-                data = currentScreenTextSuccess(rawScreenText),
-            ),
-        )
+        val rejected = executor.execute(maliciousPlan)
 
         assertEquals(SkillRunState.Failed, rejected.state)
         assertTrue(rejected.error.orEmpty().contains("private tool output cannot be bound directly"))
         assertTrue(rejected.error.orEmpty().contains("read_current_screen_text.screenText"))
         assertEquals(null, rejected.pendingToolRequest)
         assertEquals(null, rejected.continuation)
-        assertEquals(modelSummary, rejected.outputs["summarize_current_screen_text"]?.get("shareText"))
         assertTrue(toolExecutor.requests.isEmpty())
         assertFalse(rejected.trace.any { trace ->
             trace is SkillRunTrace.AwaitingConfirmation &&
@@ -505,7 +547,6 @@ class SkillRunExecutorTest {
         })
         assertFalse(rejected.outputs.toString().contains(rawScreenText))
         assertFalse(rejected.trace.toString().contains(rawScreenText))
-        assertFalse(requireNotNull(awaitingRead.continuation).toString().contains(rawScreenText))
     }
 
     @Test
@@ -567,18 +608,7 @@ class SkillRunExecutorTest {
             ),
             steps = listOf(readStep, shareStep),
         )
-        val awaitingRead = executor.execute(plan)
-
-        val rejected = executor.resume(
-            plan = plan,
-            continuation = requireNotNull(awaitingRead.continuation),
-            result = ToolResult(
-                requestId = requireNotNull(awaitingRead.pendingToolRequest).id,
-                status = ToolStatus.Succeeded,
-                summary = "已读取最近截图 OCR 摘录",
-                data = recentScreenshotOcrSuccess(rawOcrText),
-            ),
-        )
+        val rejected = executor.execute(plan)
 
         assertEquals(SkillRunState.Failed, rejected.state)
         assertTrue(rejected.error.orEmpty().contains("private tool output cannot be bound directly"))
@@ -587,7 +617,6 @@ class SkillRunExecutorTest {
         assertTrue(toolExecutor.requests.isEmpty())
         assertFalse(rejected.outputs.toString().contains(rawOcrText))
         assertFalse(rejected.trace.toString().contains(rawOcrText))
-        assertFalse(requireNotNull(awaitingRead.continuation).toString().contains(rawOcrText))
     }
 
     @Test

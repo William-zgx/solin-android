@@ -798,7 +798,7 @@ class SkillRunProgressorTest {
     }
 
     @Test
-    fun missingModelOutputBindingFailsClosed() {
+    fun missingModelOutputBindingFailsClosedDuringPlanValidation() {
         val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
         val readStep = plan.steps[0] as SkillStep.ToolStep
         val shareStep = plan.steps[2] as SkillStep.ToolStep
@@ -817,7 +817,58 @@ class SkillRunProgressorTest {
         )
 
         require(progression is SkillModelOutputProgression.Rejected)
-        assertEquals("Missing model output binding for skill step.", progression.reason)
+        assertTrue(progression.reason.contains("Invalid skill plan"))
+        assertTrue(progression.reason.contains("reads from missing output key"))
+        assertTrue(progression.reason.contains("summarize_clipboard.missing"))
+    }
+
+    @Test
+    fun validateForExecutionRejectsBindingsOutsideDeclaredToolContracts() {
+        val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
+        val readStep = plan.steps[0] as SkillStep.ToolStep
+        val modelStep = plan.steps[1] as SkillStep.ModelStep
+        val shareStep = plan.steps[2] as SkillStep.ToolStep
+
+        val missingToolOutput = plan.copy(
+            steps = listOf(
+                readStep,
+                modelStep.copy(inputBindings = mapOf("clipboardText" to "${readStep.id}.missing")),
+                shareStep,
+            ),
+        )
+        val unknownTargetArgument = plan.copy(
+            steps = listOf(
+                readStep,
+                modelStep,
+                shareStep.copy(argumentBindings = mapOf("body" to "${modelStep.id}.shareText")),
+            ),
+        )
+        val literalArgumentCollision = plan.copy(
+            steps = listOf(
+                readStep,
+                modelStep,
+                shareStep.copy(
+                    request = shareStep.request.copy(arguments = mapOf("text" to "literal")),
+                    argumentBindings = mapOf("text" to "${modelStep.id}.shareText"),
+                ),
+            ),
+        )
+
+        assertTrue(
+            progressor.validateForExecution(missingToolOutput)
+                .orEmpty()
+                .contains("reads from missing output key: ${readStep.id}.missing"),
+        )
+        assertTrue(
+            progressor.validateForExecution(unknownTargetArgument)
+                .orEmpty()
+                .contains("binds undeclared tool argument(s): body"),
+        )
+        assertTrue(
+            progressor.validateForExecution(literalArgumentCollision)
+                .orEmpty()
+                .contains("binds already-declared tool argument(s): text"),
+        )
     }
 
     @Test

@@ -186,7 +186,13 @@ class BuiltInSkillRuntime : SkillRuntime {
                 reason = draft.summary.ifBlank { input },
             ),
             manifest = manifest,
-            steps = listOf(SkillStep.ToolStep(request, draft)),
+            steps = listOf(
+                SkillStep.ToolStep(
+                    id = request.toolName,
+                    request = request,
+                    draft = draft,
+                ),
+            ),
         )
     }
 

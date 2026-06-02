@@ -1238,6 +1238,44 @@ class BuiltInSkillRuntimeTest {
         assertTrue(validation.errors.any { it.contains("summarize_clipboard depends on missing or later step") })
     }
 
+    @Test
+    fun builtInSkillPlanStepContractsUseStableDeclarativeIds() {
+        val uuidShape = Regex(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        )
+
+        expectedBuiltInSkillManifests.flatMap { manifest -> manifest.triggerExamples }
+            .forEach { example ->
+                val firstPlan = requireNotNull(runtime.plan(example)) {
+                    "Trigger example `$example` did not route to any built-in skill"
+                }
+                val secondPlan = requireNotNull(runtime.plan(example)) {
+                    "Trigger example `$example` did not route to any built-in skill on repeat"
+                }
+                val stepIds = firstPlan.steps.map { step -> step.id }
+
+                assertEquals(
+                    "Step contract for `$example` must not depend on request UUIDs",
+                    firstPlan.stepContractSnapshot(),
+                    secondPlan.stepContractSnapshot(),
+                )
+                assertEquals("Step ids for `$example` must be unique", stepIds.size, stepIds.toSet().size)
+                firstPlan.steps.forEach { step ->
+                    assertTrue("Step id for `$example` must be present", step.id.isNotBlank())
+                    assertFalse("Step id for `$example` must not contain source-ref delimiter", step.id.contains("."))
+                    assertFalse("Step id for `$example` must not be a UUID", uuidShape.matches(step.id))
+                    if (step is SkillStep.ToolStep) {
+                        assertTrue(
+                            "Tool step ${step.id} for `$example` must use a declared tool",
+                            step.request.toolName in firstPlan.manifest.requiredTools,
+                        )
+                        assertEquals(step.request.toolName, step.draft.functionName)
+                        assertFalse("Step id for `$example` must not mirror request id", step.id == step.request.id)
+                    }
+                }
+            }
+    }
+
     private data class ExpectedBuiltInSkillManifest(
         val id: String,
         val requiredTools: List<String>,
@@ -1405,6 +1443,33 @@ class BuiltInSkillRuntimeTest {
           "additionalProperties": false
         }
     """.trimIndent()
+
+    private fun SkillPlan.stepContractSnapshot(): List<String> =
+        steps.map { step ->
+            when (step) {
+                is SkillStep.ToolStep -> listOf(
+                    "tool",
+                    step.id,
+                    step.dependsOn.joinToString("|"),
+                    step.request.toolName,
+                    step.draft.functionName,
+                    step.argumentBindings.entries
+                        .sortedBy { it.key }
+                        .joinToString("|") { (key, value) -> "$key=$value" },
+                ).joinToString(":")
+
+                is SkillStep.ModelStep -> listOf(
+                    "model",
+                    step.id,
+                    step.dependsOn.joinToString("|"),
+                    step.outputKey,
+                    step.keepsSensitiveInputLocal.toString(),
+                    step.inputBindings.entries
+                        .sortedBy { it.key }
+                        .joinToString("|") { (key, value) -> "$key=$value" },
+                ).joinToString(":")
+            }
+        }
 
     private fun draft(
         toolName: String,

@@ -33,7 +33,7 @@ data class SkillRunCheckpoint(
     ): String? {
         if (schemaVersion != SCHEMA_VERSION) return "unsupported skill checkpoint version"
         if (runId.isNotSafeCheckpointToken()) return "unsafe skill checkpoint run id"
-        if (!plan.validateStructure().isValid) return "skill checkpoint plan is invalid"
+        if (!plan.validateStructure(toolRegistry).isValid) return "skill checkpoint plan is invalid"
         if (skillId != plan.request.skillId || manifestId != plan.manifest.id) {
             return "skill checkpoint does not match skill id"
         }

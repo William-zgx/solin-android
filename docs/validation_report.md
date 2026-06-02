@@ -1,5 +1,34 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Skill binding contract validation
+
+本轮覆盖项：
+
+- `SkillPlan.validateStructure()` 改为复用当前 `ToolRegistry` 的 input/output schema：
+  binding source 必须是严格 `stepId.outputKey`，且 output key 必须来自前序 Tool/Model
+  contract；binding target 必须是目标工具 schema 声明的参数。
+- Skill 声明阶段新增 fail-closed 校验：duplicate tool request id、unknown required tool、
+  skill risk 低于 required tool risk、literal/bound 参数冲突、request/draft 参数漂移都会在
+  用户确认前失败。
+- Built-in 单工具 Skill 的 step id 改为稳定工具名，不再使用随机 request id；request id 仍只作为
+  本次运行的确认/恢复句柄。
+- 私密 tool output 直绑后续 tool 参数现在在 plan validation 阶段拒绝，不再等用户确认读取后才失败。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest \
+  --tests com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest \
+  --tests com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest
+```
+
+结果：
+
+- 通过：内置 Skill step contract 稳定；source/target binding schema 错误、duplicate request id、
+  私密输出直绑均在执行前 fail closed；SkillRunProgressor、SkillRunExecutor 和 built-in
+  manifest/plan contract 测试通过。
+
 ## 2026-06-02 External outcome startup repair
 
 本轮覆盖项：

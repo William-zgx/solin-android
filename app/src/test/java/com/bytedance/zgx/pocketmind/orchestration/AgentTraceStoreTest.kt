@@ -1524,7 +1524,13 @@ class AgentTraceStoreTest {
                 "delayMinutes" to "15",
             ),
         )
-        val cancelDraft = ActionDraft(
+        val cancelPlanDraft = ActionDraft(
+            functionName = MobileActionFunctions.CANCEL_REMINDER,
+            title = "撤销提醒",
+            summary = "撤销刚安排的提醒。",
+            parameters = emptyMap(),
+        )
+        val pendingCancelDraft = ActionDraft(
             functionName = MobileActionFunctions.CANCEL_REMINDER,
             title = "撤销提醒",
             summary = "撤销刚安排的提醒。",
@@ -1556,23 +1562,24 @@ class AgentTraceStoreTest {
                     request = ToolRequest(
                         id = "request-cancel",
                         toolName = MobileActionFunctions.CANCEL_REMINDER,
-                        arguments = mapOf("taskId" to "task-restored"),
-                        reason = cancelDraft.summary,
+                        reason = cancelPlanDraft.summary,
                     ),
-                    draft = cancelDraft,
+                    draft = cancelPlanDraft,
                     argumentBindings = mapOf("taskId" to "schedule.taskId"),
                 ),
             ),
         )
         val run = store.createRun(rawInput)
         val waitingRun = store.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
-        val pendingRequest = (skillPlan.steps[1] as SkillStep.ToolStep).request
+        val pendingRequest = (skillPlan.steps[1] as SkillStep.ToolStep).request.copy(
+            arguments = mapOf("taskId" to "task-restored"),
+        )
 
         store.savePendingConfirmation(
             PendingToolConfirmationSnapshot(
                 run = waitingRun,
                 request = pendingRequest,
-                draft = cancelDraft,
+                draft = pendingCancelDraft,
                 skillId = skillPlan.request.skillId,
                 skillPlan = skillPlan,
                 plannedByModel = false,

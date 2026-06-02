@@ -1768,7 +1768,8 @@ class AgentLoopRuntimeTest {
         assertEquals(AgentRunState.Failed, result.run.state)
         require(result.plan is AgentPlan.RejectedTool)
         assertEquals(ToolStatus.Rejected, result.plan.result.status)
-        assertTrue(result.plan.result.summary.contains("requires argument"))
+        assertTrue(result.plan.result.summary.contains("Invalid skill plan"))
+        assertTrue(result.plan.result.summary.contains("required tool argument(s): body"))
         assertEquals(null, runtime.latestPendingConfirmation())
     }
 
@@ -2388,34 +2389,18 @@ class AgentLoopRuntimeTest {
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
-        require(planned.plan is AgentPlan.UseTool)
-        assertEquals(ToolToToolSkillRuntime.UNSAFE_CONTACTS_SKILL_ID, planned.plan.skillRequest?.skillId)
-        assertEquals(MobileActionFunctions.QUERY_CONTACTS, planned.plan.request.toolName)
-
-        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
-        val observed = runtime.observeToolResult(
-            runId = planned.run.id,
-            result = ToolResult(
-                requestId = planned.plan.request.id,
-                status = ToolStatus.Succeeded,
-                summary = "已读取联系人摘要",
-                data = contactsResultData(),
-            ),
-        )
-
-        requireNotNull(observed)
-        assertEquals(AgentRunState.Failed, observed.run.state)
-        require(observed.decision is AgentObservationDecision.Fail)
-        assertTrue(observed.decision.reason.contains("private tool output cannot be bound directly"))
-        assertTrue(observed.decision.reason.contains("contacts.contactsJson"))
-        assertTrue(observed.steps.any { it is AgentStep.ToolRejected })
-        assertTrue(observed.steps.none { step ->
+        assertEquals(AgentRunState.Failed, planned.run.state)
+        require(planned.plan is AgentPlan.RejectedTool)
+        assertTrue(planned.plan.result.summary.contains("private tool output cannot be bound directly"))
+        assertTrue(planned.plan.result.summary.contains("contacts.contactsJson"))
+        assertTrue(planned.steps.any { it is AgentStep.ToolRejected })
+        assertTrue(planned.steps.none { step ->
             step is AgentStep.UserConfirmationRequested &&
                 step.request.toolName == MobileActionFunctions.SHARE_TEXT
         })
         assertNull(runtime.latestPendingConfirmation())
         assertEquals(0, replanCallCount)
-        assertTrue(!observed.steps.toString().contains("+1 555 0100"))
+        assertTrue(!planned.steps.toString().contains("+1 555 0100"))
         assertTrue(!auditSink.events.toString().contains("+1 555 0100"))
     }
 
@@ -2513,27 +2498,12 @@ class AgentLoopRuntimeTest {
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
-        require(planned.plan is AgentPlan.UseTool)
-        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
-        val observed = runtime.observeToolResult(
-            runId = planned.run.id,
-            result = ToolResult(
-                requestId = planned.plan.request.id,
-                status = ToolStatus.Succeeded,
-                summary = "已读取剪贴板文本",
-                data = clipboardResultData("不应持久化的剪贴板原文"),
-            ),
-        )
-        requireNotNull(observed)
-
-        val modelObserved = runtime.observeModelResult(planned.run.id, "模型输出")
-
-        requireNotNull(modelObserved)
-        assertEquals(AgentRunState.Failed, modelObserved.run.state)
-        require(modelObserved.decision is AgentObservationDecision.Fail)
-        assertTrue(modelObserved.decision.reason.contains("Missing model output binding"))
-        assertTrue(modelObserved.steps.any { it is AgentStep.ToolRejected })
-        assertTrue(modelObserved.steps.none { step ->
+        assertEquals(AgentRunState.Failed, planned.run.state)
+        require(planned.plan is AgentPlan.RejectedTool)
+        assertTrue(planned.plan.result.summary.contains("Invalid skill plan"))
+        assertTrue(planned.plan.result.summary.contains("custom_model.missingOutput"))
+        assertTrue(planned.steps.any { it is AgentStep.ToolRejected })
+        assertTrue(planned.steps.none { step ->
             step is AgentStep.UserConfirmationRequested &&
                 step.request.toolName == MobileActionFunctions.SHARE_TEXT
         })
@@ -2596,31 +2566,15 @@ class AgentLoopRuntimeTest {
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
-        require(planned.plan is AgentPlan.UseTool)
-        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
-        val observed = runtime.observeToolResult(
-            runId = planned.run.id,
-            result = ToolResult(
-                requestId = planned.plan.request.id,
-                status = ToolStatus.Succeeded,
-                summary = "已读取剪贴板文本",
-                data = clipboardResultData(secretClipboardText),
-            ),
-        )
-        requireNotNull(observed)
-
-        val modelObserved = runtime.observeModelResult(planned.run.id, "模型安全摘要")
-
-        requireNotNull(modelObserved)
-        assertEquals(AgentRunState.Failed, modelObserved.run.state)
-        require(modelObserved.decision is AgentObservationDecision.Fail)
-        assertTrue(modelObserved.decision.reason.contains("private tool output cannot be bound directly"))
-        assertTrue(modelObserved.steps.none { step ->
+        assertEquals(AgentRunState.Failed, planned.run.state)
+        require(planned.plan is AgentPlan.RejectedTool)
+        assertTrue(planned.plan.result.summary.contains("private tool output cannot be bound directly"))
+        assertTrue(planned.steps.none { step ->
             step is AgentStep.UserConfirmationRequested &&
                 step.request.toolName == MobileActionFunctions.SHARE_TEXT
         })
         assertNull(runtime.latestPendingConfirmation())
-        assertTrue(!modelObserved.steps.toString().contains(secretClipboardText))
+        assertTrue(!planned.steps.toString().contains(secretClipboardText))
         assertTrue(!auditSink.events.toString().contains(secretClipboardText))
     }
 

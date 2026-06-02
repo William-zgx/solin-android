@@ -586,9 +586,18 @@ Current status:
   delimiter. Step ids and model output keys containing that delimiter are
   rejected during structure validation so bindings and value-free checkpoints
   cannot misparse private-output refs.
+- `SkillPlan.validateStructure()` is now registry-aware: source references must
+  use strict `stepId.outputKey` syntax, read only declared prior output keys, and
+  bind only declared destination tool arguments. Duplicate tool request ids,
+  unknown required tools, under-declared skill risk, literal/bound argument
+  collisions, and request/draft argument drift reject the plan before user
+  confirmation.
 - Implemented a minimal declarative composition model for ordered skill steps:
   tool steps can declare stable ids, dependencies, and argument bindings; model
   transform steps can consume prior tool outputs and expose named outputs.
+- Built-in single-tool Skills now use stable declarative step ids based on the
+  tool contract instead of request UUIDs. Request ids remain per-run confirmation
+  handles; step ids remain versioned Skill structure.
 - Added `clipboard_summary_share_skill` as the first composite skill contract:
   it reads clipboard text after confirmation, keeps the transform local, then
   binds the generated summary into the system share tool.
@@ -619,10 +628,11 @@ Current status:
   declared dependency of the next `ToolStep` is already satisfied before
   returning another confirmation. A model output cannot skip an unrequested
   prerequisite tool and jump directly to a later external action.
-- `SkillRunExecutor` now rejects direct `ToolStep.argumentBindings` from private
-  tool outputs such as `read_clipboard.text` into later tool arguments. Private
-  values can feed local model steps, but external tool payloads must come from
-  explicit model-step outputs and still pass confirmation.
+- Skill validation now rejects direct `ToolStep.argumentBindings` from private
+  tool outputs such as `read_clipboard.text` into later tool arguments before
+  any tool confirmation or execution. Private values can feed local model steps,
+  but external tool payloads must come from explicit model-step outputs and still
+  pass confirmation.
 - `SkillRunExecutor` now gates every tool step through registry validation and
   safety policy before execution. Steps that require user confirmation return
   `AwaitingConfirmation` instead of calling the injected `ToolExecutor`
@@ -679,6 +689,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.plansClipboardSummaryShareAsOrderedCompositeSkill`
 - `BuiltInSkillRuntimeTest.plansCurrentScreenTextSummaryShareAsOrderedCompositeSkill`
 - `BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills`
+- `BuiltInSkillRuntimeTest.builtInSkillPlanStepContractsUseStableDeclarativeIds`
 - `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`
 - `BuiltInSkillRuntimeTest.builtInManifestTriggerExamplesRouteToDeclaredSkills`
 - `BuiltInSkillRuntimeTest.currentScreenTextSummaryShareRejectsFalsePositiveQuestionsAndNegations`
@@ -711,11 +722,14 @@ Tests:
 - `SkillRunExecutorTest.continuationCheckpointContainsOnlyValueFreeSkillState`
 - `SkillRunExecutorTest.resumesAgainAfterSecondConfirmationAndCompletesSkill`
 - `SkillRunExecutorTest.resumeRejectsToolResultThatDoesNotMatchPendingRequest`
+- `SkillRunExecutorTest.duplicateToolRequestIdsFailBeforeExecutingSkillTools`
 - `SkillRunExecutorTest.executeRejectsMalformedSucceededToolResultBeforeSkillOutput`
 - `SkillRunExecutorTest.resumeRejectsMalformedSucceededToolResultBeforeModelStep`
 - `SkillRunExecutorTest.privateToolOutputCannotBindDirectlyToLaterToolArgument`
 - `SkillRunExecutorTest.cancelStopsPendingSkillWithoutExecutingOrLeakingPrivateOutputs`
 - `SkillRunProgressorTest.bindsPublicToolOutputToDependentToolRequestAndDraft`
+- `SkillRunProgressorTest.missingModelOutputBindingFailsClosedDuringPlanValidation`
+- `SkillRunProgressorTest.validateForExecutionRejectsBindingsOutsideDeclaredToolContracts`
 - `SkillRunProgressorTest.rejectsPrivateToolOutputBindingBetweenToolSteps`
 - `AgentTraceStoreTest.roomStoreKeepsRedactedSkillPlanKeyShapeForPublicToolStepRecovery`
 - `AgentTraceStoreTest.roomStoreFailsScheduleReminderPendingWithoutPersistingReminderPayload`

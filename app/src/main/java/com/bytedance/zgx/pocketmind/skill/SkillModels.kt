@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import org.json.JSONObject
 
@@ -58,14 +59,20 @@ data class SkillPlanValidation(
     val isValid: Boolean get() = errors.isEmpty()
 }
 
-fun SkillPlan.validateStructure(): SkillPlanValidation {
+fun SkillPlan.validateStructure(
+    toolRegistry: ToolRegistry = ToolRegistry(),
+): SkillPlanValidation {
     val errors = mutableListOf<String>()
     val seenStepIds = mutableSetOf<String>()
+    val seenToolRequestIds = mutableSetOf<String>()
+    val outputKeysByStepId = linkedMapOf<String, Set<String>>()
+    val privateOutputRefs = mutableSetOf<String>()
 
     if (request.skillId != manifest.id) {
         errors += "skill request ${request.skillId} does not match manifest ${manifest.id}"
     }
     manifest.validateRequestArguments(request.arguments, errors)
+    manifest.validateRequiredToolContract(toolRegistry, errors)
 
     if (steps.isEmpty()) {
         errors += "skill plan must contain at least one step"
@@ -90,18 +97,65 @@ fun SkillPlan.validateStructure(): SkillPlanValidation {
 
         when (step) {
             is SkillStep.ToolStep -> {
+                if (step.request.id.isBlank()) {
+                    errors += "tool step ${step.id} request id must not be blank"
+                }
+                if (!seenToolRequestIds.add(step.request.id)) {
+                    errors += "duplicate tool request id: ${step.request.id}"
+                }
                 if (step.request.toolName !in manifest.requiredTools) {
                     errors += "tool ${step.request.toolName} is not declared by skill ${manifest.id}"
                 }
+                val toolSpec = toolRegistry.specFor(step.request.toolName)
+                if (toolSpec == null) {
+                    errors += "tool ${step.request.toolName} is not registered"
+                }
                 if (step.draft.functionName != step.request.toolName) {
                     errors += "step ${step.id} draft function does not match tool request"
+                }
+                toolSpec?.inputSchemaJson?.schemaContract()?.let { schema ->
+                    val unknownRequestArguments = step.request.arguments.keys - schema.propertyNames
+                    if (unknownRequestArguments.isNotEmpty()) {
+                        errors += "step ${step.id} request uses undeclared tool argument(s): " +
+                            unknownRequestArguments.sorted().joinToString()
+                    }
+                    val unknownBindingTargets = step.argumentBindings.keys - schema.propertyNames
+                    if (unknownBindingTargets.isNotEmpty()) {
+                        errors += "step ${step.id} binds undeclared tool argument(s): " +
+                            unknownBindingTargets.sorted().joinToString()
+                    }
+                    val missingRequiredArguments = schema.requiredNames -
+                        (step.request.arguments.keys + step.argumentBindings.keys)
+                    if (missingRequiredArguments.isNotEmpty()) {
+                        errors += "step ${step.id} does not provide required tool argument(s): " +
+                            missingRequiredArguments.sorted().joinToString()
+                    }
+                }
+                val literalBindingCollisions = step.argumentBindings.keys
+                    .intersect(step.request.arguments.keys + step.draft.parameters.keys)
+                if (literalBindingCollisions.isNotEmpty()) {
+                    errors += "step ${step.id} binds already-declared tool argument(s): " +
+                        literalBindingCollisions.sorted().joinToString()
+                }
+                val mismatchedLiteralArguments = step.request.arguments.keys
+                    .intersect(step.draft.parameters.keys)
+                    .filter { key -> step.request.arguments[key] != step.draft.parameters[key] }
+                if (mismatchedLiteralArguments.isNotEmpty()) {
+                    errors += "step ${step.id} request and draft disagree on argument(s): " +
+                        mismatchedLiteralArguments.sorted().joinToString()
                 }
                 step.argumentBindings.values.validateSourceRefs(
                     currentStepId = step.id,
                     priorStepIds = priorStepIds,
                     inputKeys = request.arguments.keys,
+                    outputKeysByStepId = outputKeysByStepId,
+                    privateOutputRefs = privateOutputRefs,
+                    rejectPrivateOutputRefs = true,
                     errors = errors,
                 )
+                outputKeysByStepId[step.id] = step.availableOutputKeys(toolRegistry)
+                privateOutputRefs += toolRegistry.privateOutputKeysFor(step.request.toolName)
+                    .map { key -> "${step.id}.$key" }
             }
 
             is SkillStep.ModelStep -> {
@@ -115,13 +169,43 @@ fun SkillPlan.validateStructure(): SkillPlanValidation {
                     currentStepId = step.id,
                     priorStepIds = priorStepIds,
                     inputKeys = request.arguments.keys,
+                    outputKeysByStepId = outputKeysByStepId,
+                    privateOutputRefs = privateOutputRefs,
+                    rejectPrivateOutputRefs = false,
                     errors = errors,
                 )
+                outputKeysByStepId[step.id] = setOf(step.outputKey)
             }
         }
     }
 
     return SkillPlanValidation(errors)
+}
+
+private fun SkillManifest.validateRequiredToolContract(
+    toolRegistry: ToolRegistry,
+    errors: MutableList<String>,
+) {
+    val duplicateTools = requiredTools
+        .groupingBy { toolName -> toolName }
+        .eachCount()
+        .filterValues { count -> count > 1 }
+        .keys
+    if (duplicateTools.isNotEmpty()) {
+        errors += "skill $id declares duplicate required tool(s): ${duplicateTools.sorted().joinToString()}"
+    }
+
+    val requiredSpecs = requiredTools.mapNotNull { toolName ->
+        toolRegistry.specFor(toolName)
+            ?: run {
+                errors += "skill $id requires unknown tool: $toolName"
+                null
+            }
+    }
+    val highestRisk = requiredSpecs.maxByOrNull { spec -> spec.riskLevel.ordinal }?.riskLevel
+    if (highestRisk != null && riskLevel.ordinal < highestRisk.ordinal) {
+        errors += "skill $id risk level $riskLevel is below required tool risk $highestRisk"
+    }
 }
 
 private fun SkillManifest.validateRequestArguments(
@@ -282,20 +366,74 @@ private fun Collection<String>.validateSourceRefs(
     currentStepId: String,
     priorStepIds: Set<String>,
     inputKeys: Set<String>,
+    outputKeysByStepId: Map<String, Set<String>>,
+    privateOutputRefs: Set<String>,
+    rejectPrivateOutputRefs: Boolean,
     errors: MutableList<String>,
 ) {
     forEach { sourceRef ->
-        val sourceStepId = sourceRef.substringBefore('.', missingDelimiterValue = "")
-        val sourceKey = sourceRef.substringAfter('.', missingDelimiterValue = "")
+        val parsed = sourceRef.parseSourceRef()
+        if (parsed == null) {
+            errors += "step $currentStepId source reference must be <stepId>.<outputKey>: $sourceRef"
+            return@forEach
+        }
+        val sourceStepId = parsed.stepId
+        val sourceKey = parsed.outputKey
         when {
             sourceStepId == "input" && sourceKey !in inputKeys ->
                 errors += "step $currentStepId reads from missing skill input: $sourceRef"
 
             sourceStepId.isNotBlank() && sourceStepId !in priorStepIds && sourceStepId != "input" ->
                 errors += "step $currentStepId reads from missing or later step: $sourceRef"
+
+            sourceStepId != "input" && sourceKey !in outputKeysByStepId.getValue(sourceStepId) ->
+                errors += "step $currentStepId reads from missing output key: $sourceRef"
+
+            rejectPrivateOutputRefs && sourceRef in privateOutputRefs ->
+                errors += "step $currentStepId private tool output cannot be bound directly to tool argument: $sourceRef"
         }
     }
 }
+
+private fun SkillStep.ToolStep.availableOutputKeys(toolRegistry: ToolRegistry): Set<String> =
+    buildSet {
+        toolRegistry.specFor(request.toolName)
+            ?.outputSchemaJson
+            ?.schemaContract()
+            ?.propertyNames
+            ?.let { keys -> addAll(keys) }
+        add("summary")
+        addAll(draft.parameters.keys)
+    }
+
+private data class SourceRef(
+    val stepId: String,
+    val outputKey: String,
+)
+
+private fun String.parseSourceRef(): SourceRef? {
+    val firstDelimiter = indexOf('.')
+    if (firstDelimiter <= 0 || firstDelimiter == lastIndex) return null
+    if (indexOf('.', startIndex = firstDelimiter + 1) >= 0) return null
+    return SourceRef(
+        stepId = substring(0, firstDelimiter),
+        outputKey = substring(firstDelimiter + 1),
+    )
+}
+
+private data class SchemaContract(
+    val propertyNames: Set<String>,
+    val requiredNames: Set<String>,
+)
+
+private fun String.schemaContract(): SchemaContract =
+    runCatching {
+        val json = JSONObject(this)
+        SchemaContract(
+            propertyNames = json.optJSONObject("properties")?.keysSet().orEmpty(),
+            requiredNames = json.optStringSet("required"),
+        )
+    }.getOrDefault(SchemaContract(emptySet(), emptySet()))
 
 private fun String.isInvalidSourceRefComponent(): Boolean =
     contains('.')

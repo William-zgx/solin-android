@@ -11,7 +11,7 @@ class SkillRunProgressor(
     private val toolRegistry: ToolRegistry = ToolRegistry(),
 ) {
     fun validateForExecution(plan: SkillPlan): String? {
-        val validation = plan.validateStructure()
+        val validation = plan.validateStructure(toolRegistry)
         if (!validation.isValid) return validation.errors.joinToString()
         if (plan.steps.size > maxSteps) return "skill step limit exceeded"
         return null

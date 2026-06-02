@@ -1186,7 +1186,7 @@ class AgentLoopRuntime(
         val toolStep = skillPlan.steps.firstOrNull() as? SkillStep.ToolStep
             ?: return null
         if (toolStep.dependsOn.isNotEmpty()) return null
-        val validation = skillPlan.validateStructure()
+        val validation = skillPlan.validateStructure(toolRegistry)
         if (!validation.isValid) {
             return rejectNextToolPlan(
                 runId,
@@ -1258,7 +1258,7 @@ class AgentLoopRuntime(
         val toolStep = skillPlan.steps.firstOrNull() as? SkillStep.ToolStep
             ?: return null
         if (toolStep.dependsOn.isNotEmpty()) return null
-        val validation = skillPlan.validateStructure()
+        val validation = skillPlan.validateStructure(toolRegistry)
         if (!validation.isValid) {
             return AgentPlan.RejectedTool(
                 toolStep.request.rejected("Invalid skill plan: ${validation.errors.joinToString()}"),
@@ -1308,7 +1308,7 @@ class AgentLoopRuntime(
         request: ToolRequest,
         skillPlan: SkillPlan?,
     ): ToolResult? {
-        val validation = skillPlan?.validateStructure() ?: return null
+        val validation = skillPlan?.validateStructure(toolRegistry) ?: return null
         return if (validation.isValid) {
             null
         } else {

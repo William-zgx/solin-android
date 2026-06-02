@@ -853,7 +853,7 @@ private fun AgentContinuationCursor.isRestorableForSourceRequest(
     if (toolRegistry.validate(request) != null) return false
     val skillPlan = skillPlan ?: return true
     if (!skillPlan.isSingleToolStepPlanFor(request)) return false
-    return skillPlan.validateStructure().isValid
+    return skillPlan.validateStructure(toolRegistry).isValid
 }
 
 private fun AgentContinuationCursor.persistableForPendingPersistence(
