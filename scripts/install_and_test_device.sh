@@ -19,6 +19,7 @@ API_LEVEL=""
 ABI_LIST=""
 DATA_FREE_KB=""
 INSTRUMENTATION_STATUS="not-run"
+INSTRUMENTATION_TEST_COUNT=""
 
 PACKAGE_NAME="com.bytedance.zgx.pocketmind"
 TEST_PACKAGE_NAME="${PACKAGE_NAME}.test"
@@ -46,6 +47,7 @@ write_verification_report() {
     echo "clean_device=$CLEAN_DEVICE"
     echo "data_free_kb=${DATA_FREE_KB:-}"
     echo "instrumentation=$INSTRUMENTATION_STATUS"
+    echo "instrumentation_test_count=${INSTRUMENTATION_TEST_COUNT:-}"
     echo "debug_apk=$DEBUG_APK"
     echo "android_test_apk=$ANDROID_TEST_APK"
   } > "$VERIFICATION_REPORT_FILE"
@@ -106,11 +108,34 @@ instrumentation_output_failed() {
   grep -qE '^(FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2|INSTRUMENTATION_RESULT: shortMsg=|INSTRUMENTATION_STATUS: stack=|Error in )' <<<"$1"
 }
 
+instrumentation_test_count_for() {
+  local output="$1"
+  local count
+
+  count="$(awk -F= '/^INSTRUMENTATION_STATUS: numtests=/ {value = $2} END {print value}' <<<"$output" | tr -d '\r')"
+  if [[ "$count" =~ ^[0-9]+$ ]]; then
+    echo "$count"
+    return
+  fi
+
+  count="$(sed -nE 's/.*OK \(([0-9]+) tests?\).*/\1/p' <<<"$output" | tail -n 1 | tr -d '\r')"
+  if [[ "$count" =~ ^[0-9]+$ ]]; then
+    echo "$count"
+    return
+  fi
+
+  count="$(sed -nE 's/.*Tests run:[[:space:]]*([0-9]+).*/\1/p' <<<"$output" | tail -n 1 | tr -d '\r')"
+  if [[ "$count" =~ ^[0-9]+$ ]]; then
+    echo "$count"
+  fi
+}
+
 set +e
 TEST_OUTPUT="$(run_device_tests 2>&1)"
 TEST_STATUS=$?
 set -e
 printf '%s\n' "$TEST_OUTPUT"
+INSTRUMENTATION_TEST_COUNT="$(instrumentation_test_count_for "$TEST_OUTPUT")"
 if [[ "$TEST_STATUS" -eq 0 ]] && instrumentation_output_failed "$TEST_OUTPUT"; then
   TEST_STATUS=1
 fi

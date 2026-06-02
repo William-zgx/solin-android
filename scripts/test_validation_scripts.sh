@@ -86,7 +86,8 @@ case "${1:-}" in
         if [[ -n "${FAKE_INSTRUMENTATION_OUTPUT:-}" ]]; then
           printf '%s\n' "$FAKE_INSTRUMENTATION_OUTPUT"
         else
-          echo "OK (instrumentation tests)"
+          echo "INSTRUMENTATION_STATUS: numtests=20"
+          echo "OK (20 tests)"
         fi
         ;;
       am\ start\ -W\ -n*)
@@ -293,6 +294,7 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "serial=de
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "api_level=36"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "abi=arm64-v8a,armeabi-v7a"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=passed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=20"
 grep -q -- "-s device-a shell getprop ro.product.cpu.abilist64" "$FAKE_ADB_LOG" ||
   fail "Expected adb device commands to target the only authorized device"
 
@@ -313,12 +315,13 @@ expect_failure \
   "install helper fails failed instrumentation output even when adb exits zero" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_ADB_DEVICES=$'device-a\tdevice' \
-  FAKE_INSTRUMENTATION_OUTPUT=$'FAILURES!!!\nINSTRUMENTATION_CODE: -1' \
+  FAKE_INSTRUMENTATION_OUTPUT=$'FAILURES!!!\nTests run: 3,  Failures: 1\nINSTRUMENTATION_CODE: -1' \
   GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
 assert_gradle_called
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "serial=device-a"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=failed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=3"
 
 reset_logs
 expect_failure \
@@ -373,6 +376,7 @@ assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "device_
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "serial=emulator-5554"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=passed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=20"
 grep -q -- "-s emulator-5554 shell getprop sys.boot_completed" "$FAKE_ADB_LOG" ||
   fail "Expected emulator helper to wait for emulator boot completion"
 grep -q -- "-s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk" "$FAKE_ADB_LOG" ||

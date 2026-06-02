@@ -98,6 +98,48 @@ class MainActivitySkillUiTest {
         }
     }
 
+    @Test
+    fun currentScreenTextSummaryShareSkillStartsAtScreenTextConfirmation() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        resetMainActivityPersistentState(
+            context = context,
+            inferenceMode = InferenceMode.Remote,
+            remoteModelConfig = ReadyRemoteModelConfig,
+        )
+        val launchIntent = Intent(context, MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, true)
+        }
+
+        ActivityScenario.launch<MainActivity>(launchIntent).use {
+            composeRule.waitForTag("app_title")
+
+            composeRule.sendPrompt("总结当前屏幕文字并分享")
+
+            composeRule.waitForTag("action_confirm_button")
+            composeRule.onNodeWithText("读取当前屏幕文本").assertIsDisplayed()
+            composeRule.onNodeWithText(
+                "将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。",
+            ).assertIsDisplayed()
+            composeRule.onNodeWithTag("special_access_requirements").assertIsDisplayed()
+            composeRule.assertTagAbsent("runtime_permission_requirements")
+            composeRule.assertTextAbsent("分享屏幕摘要")
+
+            composeRule.onNodeWithTag("action_dismiss_button").performClick()
+            composeRule.waitForTagGone("action_confirm_button")
+
+            composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+            composeRule.waitForTag("background_task_manager_title")
+            composeRule.onNodeWithText("UserCancelled").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("read_current_screen_text", substring = true).performScrollTo()
+                .assertIsDisplayed()
+            composeRule.onNodeWithText("工具执行已取消。").performScrollTo().assertIsDisplayed()
+
+            composeRule.waitForText("最近 Agent 轨迹", substring = true)
+            composeRule.onNodeWithText("已取消").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("UserRejected", substring = true).performScrollTo().assertIsDisplayed()
+        }
+    }
+
     private fun ComposeTestRule.sendPrompt(prompt: String) {
         onNodeWithTag("composer_input").performTextClearance()
         onNodeWithTag("composer_input").performTextInput(prompt)
@@ -111,6 +153,12 @@ class MainActivitySkillUiTest {
     }
 
     private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
+        waitUntil(timeoutMillis = timeoutMillis) {
+            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
+        }
+    }
+
+    private fun ComposeTestRule.assertTagAbsent(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
         }

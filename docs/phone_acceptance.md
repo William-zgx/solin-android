@@ -85,7 +85,8 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 `build/verification/` 下尽量保存截图、UI dump、短 logcat 和 emulator 日志路径。
 
 完整回归记录至少包含设备序列号或 AVD 名称、API、ABI、是否设置
-`CLEAN_DEVICE=1`、执行命令和 instrumentation 测试总数。脚本会在
+`CLEAN_DEVICE=1`、执行命令和 instrumentation 测试总数。device report 会用
+`instrumentation_test_count` 记录该数量。脚本会在
 `build/verification/` 下写入机器可读证据：真机 helper 产出
 `device-verification.properties`；模拟器 helper 产出
 `emulator-verification.properties`，并把复用的 device helper 摘要写入同目录的
@@ -186,6 +187,9 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
   设备/模拟器 smoke 至少应包含 `MainActivitySkillUiTest` 中远程模式下直接展示第一步
   `读取剪贴板` 确认卡、尚未展示 `分享摘要`，并可取消后留下审计/轨迹记录的路径。
 - “总结当前屏幕文字并分享” 应进入当前屏幕文本摘要分享 Skill：先确认 `read_current_screen_text`，只用本地模型摘要后再确认 `share_text`；raw `screenText` 不应直接绑定到 `share_text.text`，也不应进入远程 runtime、持久 trace、audit、长期消息或 checkpoint。
+  设备/模拟器 smoke 至少应包含 `MainActivitySkillUiTest` 中远程模式下直接展示第一步
+  `读取当前屏幕文本` 确认卡、展示特殊授权说明、不展示 runtime permission 或
+  `分享屏幕摘要`，并可取消后留下审计/轨迹记录的路径。
 - 声明式多步 Skill 的模型输出只能通过 `argumentBindings` 进入后续工具确认卡；缺失 binding 或直接绑定私密工具原文到外发工具时应失败，不应生成确认卡、执行外发工具或泄漏原文。
 - “总结剪贴板并分享” 到第二个 `share_text` 确认卡后杀进程并重启 App，如果该确认卡包含模型生成的外发 payload，应 fail closed，不应恢复摘要参数、自动打开分享面板、重跑旧 `read_clipboard`，或让旧 request id 继续推进。
 - “总结当前屏幕文字并分享” 到第二个 `share_text` 确认卡后杀进程并重启 App，也应 fail closed，不应恢复摘要参数、自动打开分享面板、重跑旧 `read_current_screen_text`，或让旧 request id 继续推进。

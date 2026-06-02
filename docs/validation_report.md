@@ -1,5 +1,48 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Device report test count and screen-summary Skill smoke 增量验证
+
+本轮覆盖项：
+
+- `scripts/install_and_test_device.sh` 从 instrumentation 输出中解析测试总数，并在
+  `device-verification.properties` 写入 `instrumentation_test_count`；支持
+  `INSTRUMENTATION_STATUS: numtests=N`、`OK (N tests)` 和
+  `Tests run: N` 三类常见 runner 输出。
+- fake SDK 回归同步锁定成功设备、失败 instrumentation 和 nested emulator device
+  report 的 `instrumentation_test_count`，避免 release/验收记录只写
+  `instrumentation=passed` 却没有实际测试数量证据。
+- `MainActivitySkillUiTest` 新增
+  `currentScreenTextSummaryShareSkillStartsAtScreenTextConfirmation`：远程模式下发送
+  “总结当前屏幕文字并分享”时，UI 必须先展示 `读取当前屏幕文本` 确认卡和
+  `special_access_requirements`，不得展示 `runtime_permission_requirements` 或第二步
+  `分享屏幕摘要`。
+- 取消第一步后，测试继续从“后台任务”入口断言最近审计日志包含
+  `UserCancelled` / `read_current_screen_text` / “工具执行已取消。”，并断言最近
+  Agent 轨迹进入 `已取消` 且包含 `UserRejected`。
+- README、真机验收清单、Agent core 文档和 release checklist 同步要求验收记录引用
+  verification report 中的 `instrumentation_test_count`。
+
+验证命令：
+
+```bash
+bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+./gradlew :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest --no-daemon
+./gradlew :app:testDebugUnitTest --no-daemon
+git diff --check
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：fake SDK device/emulator validation script 回归，覆盖成功、preflight 失败和
+  instrumentation 失败 report 断言。
+- 通过：AndroidTest Kotlin 编译，包含新增 `MainActivitySkillUiTest` smoke。
+- 通过：`AgentCoreDocumentationTest` 文档覆盖单测。
+- 通过：完整 JVM 单测。
+- 通过：diff whitespace 检查。
+- 未执行真机/模拟器 instrumentation：`adb devices -l` 当前没有列出已授权设备或模拟器。
+
 ## 2026-06-02 LocalOnly private-output non-success contract 增量验证
 
 本轮覆盖项：

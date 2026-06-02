@@ -74,7 +74,8 @@ release ticket or PR.
 - [ ] `scripts/install_and_test_device.sh` passes on at least one physical
   arm64 device before a broad release candidate.
 - [ ] Validation record includes device serial or AVD name, API level, ABI,
-  `CLEAN_DEVICE` value, executed command, and instrumentation result.
+  `CLEAN_DEVICE` value, executed command, instrumentation result, and
+  `instrumentation_test_count` from the verification report.
 - [ ] Manual acceptance in `docs/phone_acceptance.md` is sampled for model
   setup, remote-mode privacy, tool confirmation, permissions, background
   reminders, sharing, and multimodal entry points.

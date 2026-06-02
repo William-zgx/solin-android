@@ -418,7 +418,8 @@ want a clean first-launch validation.
 If there is no authorized device, or if multiple authorized devices are
 connected without `ANDROID_SERIAL`, the script exits before Gradle build, APK
 install, or instrumentation. Record the instrumentation runner's reported test
-count together with the device serial/API/ABI in full regression reports.
+count together with the device serial/API/ABI in full regression reports; the
+device report records this as `instrumentation_test_count`.
 `install_and_test_device.sh` writes a machine-readable
 `device-verification.properties` report, and `verify_emulator.sh` writes an
 `emulator-verification.properties` report plus the nested device report under
