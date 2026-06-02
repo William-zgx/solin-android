@@ -12,6 +12,82 @@
 `regression-emulator.properties` 为准；只有该文件包含 `status=passed` 时，才能把完整模拟器回归记录为通过。`emulator-verification.properties` 和嵌套
 `device-verification.properties` 是配套证据，不替代完整回归结论。
 
+## 2026-06-02 Emulator remote model and Agent capability walkthrough
+
+本轮覆盖项：
+
+- 在已启动的 `focus_agent_api36_arm64` 模拟器上安装并打开 debug APK，手工确认首屏、
+  模型管理、远程模型配置入口和远程就绪状态。
+- 用模拟器 instrumentation 复跑远程 OpenAI-compatible mock 链路：
+  远程普通回答、远程请求体、远程工具调用、工具确认卡、本地记忆隔离、会话切换、
+  模型管理控件和动作草稿。
+- 补跑 Skill/多模态入口、长期记忆、运行时权限和特殊访问确认卡 UI 测试。
+- 未执行真实 DeepSeek live 调用：本轮没有可用的安全环境变量或一次性密钥输入入口；
+  按本计划约束，不使用也不落盘聊天中出现过的 API key。
+
+验证命令：
+
+```bash
+./gradlew :app:assembleDebug
+adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivityComprehensiveTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
+adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivitySkillUiTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
+adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivityLongTermMemoryUiTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
+adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
+adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivitySpecialAccessUiTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+结果：
+
+- 通过：`build/verification/manual-live-20260602-remote/05-mainactivity-comprehensive-instrumentation.txt`
+  记录 `OK (2 tests)`。
+- 通过：`build/verification/manual-live-20260602-remote/08-mainactivity-skill-ui-instrumentation.txt`
+  记录 `OK (4 tests)`。
+- 通过：`build/verification/manual-live-20260602-remote/09-mainactivity-memory-ui-instrumentation.txt`
+  记录 `OK (1 test)`。
+- 通过：`build/verification/manual-live-20260602-remote/10-mainactivity-runtime-permission-ui-instrumentation.txt`
+  记录 `OK (1 test)`。
+- 通过：`build/verification/manual-live-20260602-remote/11-mainactivity-special-access-ui-instrumentation.txt`
+  记录 `OK (1 test)`。
+- UI 证据：`build/verification/manual-live-20260602-remote/07-relaunch-after-comprehensive-tests.png`
+  和同名 XML 显示 `mock-model · 远程 · 已就绪`、`远程可用`，并保留远程工具调用后的
+  `Web 搜索` 动作草稿。
+
+## 2026-06-02 Emulator full functional walkthrough
+
+本轮覆盖项：
+
+- 在现有复杂模拟器 UI 回归基础上，补充当前屏幕截图 OCR 的确认卡级
+  AndroidTest：明确当前屏幕 OCR 请求必须进入 `capture_current_screenshot_ocr`
+  确认卡，显示一次性 MediaProjection 摘要，取消后进入审计/Agent trace
+  取消链路。
+- 完整模拟器回归覆盖远程对话、会话切换、本地记忆写入/读取保护、工具确认、
+  Skill-first 多步确认入口、当前屏幕 Accessibility 文本确认、当前屏幕截图 OCR
+  确认、分享入口、权限/特殊访问提示、外部结果确认、后台任务入口和数据库迁移。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapshot-save -no-boot-anim' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：AndroidTest Kotlin 编译和 `AgentCoreDocumentationTest`。
+- 完整模拟器回归通过：
+  `build/verification/regression-emulator-20260602-182339/regression-emulator.properties`
+  记录 `status=passed`、`source_android_test_count=26`、
+  `expected_android_test_count=26`、`actual_android_test_count=26`、
+  `serial=emulator-5554`、`api_level=36`、`abi=arm64-v8a`、
+  `avd=focus_agent_api36_arm64`；嵌套
+  `emulator-verification.properties` 和 `device-verification.properties`
+  均记录 `status=passed`，device report 记录 `instrumentation=passed`。
+- `build/verification/regression-emulator-20260602-182339/instrumentation.txt`
+  非空，包含 `currentScreenshotOcrSkillShowsOneShotMediaProjectionConfirmation`
+  和 `OK (26 tests)`。
+
 ## 2026-06-02 Agent core contract wave implementation
 
 本轮覆盖项：

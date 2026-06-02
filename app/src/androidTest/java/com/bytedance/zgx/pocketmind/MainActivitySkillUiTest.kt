@@ -125,6 +125,42 @@ class MainActivitySkillUiTest {
         }
     }
 
+    @Test
+    fun currentScreenshotOcrSkillShowsOneShotMediaProjectionConfirmation() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        resetMainActivityPersistentState(
+            context = context,
+            inferenceMode = InferenceMode.Remote,
+            remoteModelConfig = ReadyRemoteModelConfig,
+        )
+        val launchIntent = Intent(context, MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, true)
+        }
+
+        ActivityScenario.launch<MainActivity>(launchIntent).use {
+            composeRule.waitForTag("app_title")
+
+            composeRule.sendPrompt("OCR 当前屏幕截图文字")
+
+            composeRule.waitForTag("action_confirm_button")
+            composeRule.onNodeWithText("截取当前屏幕 OCR").assertIsDisplayed()
+            composeRule.onNodeWithText(
+                "将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。",
+            ).assertIsDisplayed()
+            composeRule.onNodeWithText("captureMode: current_screen").assertIsDisplayed()
+            composeRule.assertTagAbsent("runtime_permission_requirements")
+            composeRule.assertTagAbsent("special_access_requirements")
+            composeRule.assertTextAbsent("已从当前屏幕单次截图提取")
+
+            composeRule.onNodeWithTag("action_dismiss_button").performClick()
+            composeRule.waitForTagGone("action_confirm_button")
+
+            composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+            composeRule.waitForTag("background_task_manager_title")
+            composeRule.assertToolCancellationEvidence("capture_current_screenshot_ocr")
+        }
+    }
+
     private fun ComposeTestRule.sendPrompt(prompt: String) {
         onNodeWithTag("composer_input").performTextClearance()
         onNodeWithTag("composer_input").performTextInput(prompt)
