@@ -3330,6 +3330,105 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun restoredToolStepOutputBoundPendingContinuesAfterRestart() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = ToolToToolSkillRuntime(),
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-restored-tool-to-tool" },
+            ),
+        )
+        val planned = initialRuntime.runOnce(
+            input = ToolToToolSkillRuntime.REMINDER_INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(ToolToToolSkillRuntime.REMINDER_SKILL_ID, planned.plan.skillRequest?.skillId)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, planned.plan.request.toolName)
+
+        initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已安排 10000 触发的后台提醒",
+                data = scheduleReminderResultData(taskId = "task-restored", triggerAtMillis = "10000"),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        val cancelPlan = observed.decision.plan
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, cancelPlan.request.toolName)
+        assertEquals(mapOf("taskId" to "task-restored"), cancelPlan.request.arguments)
+        val persistedPending = dao.latestPendingConfirmation()
+        requireNotNull(persistedPending)
+        assertEquals(cancelPlan.request.id, persistedPending.requestId)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, persistedPending.toolName)
+        assertEquals("task-restored", JSONObject(persistedPending.argumentsJson).getString("taskId"))
+        assertEquals("task-restored", JSONObject(persistedPending.draftParametersJson).getString("taskId"))
+        assertFalse(persistedPending.argumentsJson.contains(ToolToToolSkillRuntime.REMINDER_INPUT))
+        assertNull(persistedPending.nextActionInput)
+
+        val restoredTraceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 2_000L },
+        )
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = ToolToToolSkillRuntime(),
+            traceStore = restoredTraceStore,
+        )
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(restoredPending)
+        assertEquals(planned.run.id, restoredPending.run.id)
+        assertEquals(cancelPlan.request.id, restoredPending.request.id)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, restoredPending.request.toolName)
+        assertEquals(mapOf("taskId" to "task-restored"), restoredPending.request.arguments)
+        assertEquals(mapOf("taskId" to "task-restored"), restoredPending.draft.parameters)
+        assertEquals(ToolToToolSkillRuntime.REMINDER_SKILL_ID, restoredPending.skillPlan?.request?.skillId)
+        assertEquals(2, restoredPending.skillPlan?.steps?.size)
+        assertTrue(restoredTraceStore.steps(planned.run.id).any { step ->
+            step is AgentStep.ToolRequested &&
+                step.request.id == planned.plan.request.id &&
+                step.request.toolName == MobileActionFunctions.SCHEDULE_REMINDER
+        })
+
+        val executing = restoredRuntime.confirmToolRequest(
+            runId = restoredPending.run.id,
+            requestId = restoredPending.request.id,
+        )
+        assertEquals(AgentRunState.ExecutingTool, executing?.state)
+        val completed = restoredRuntime.observeToolResult(
+            runId = restoredPending.run.id,
+            result = ToolResult(
+                requestId = restoredPending.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已取消后台任务：task-restored",
+                data = cancelReminderResultData(taskId = "task-restored"),
+            ),
+        )
+
+        requireNotNull(completed)
+        assertEquals(AgentRunState.Completed, completed.run.state)
+        assertEquals(AgentObservationDecision.Complete, completed.decision)
+        assertTrue(dao.pendingConfirmations().isEmpty())
+        assertFalse(
+            restoredRuntime.confirmToolRequest(planned.run.id, restoredPending.request.id)?.state ==
+                AgentRunState.ExecutingTool,
+        )
+    }
+
+    @Test
     fun restoredClipboardSummarySharePendingFailsClosedAfterRestart() {
         val dao = FakeAgentTraceDao()
         val auditSink = InMemoryToolAuditSink()

@@ -150,7 +150,7 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 - 安装并校验动作模型后，支持的动作请求可以显示“动作模型实验”的待确认草稿；执行前仍必须经过用户确认。
 - 确认动作后，聊天中应追加一条结构化执行结果，例如“工具执行结果：已打开网页搜索”。
 - 取消动作后，不应打开外部 App 或系统页面，Agent run 应进入 `Cancelled` 并写入审计事件。
-- 出现待确认动作后杀进程并重启 App，应恢复同一个确认 UI；恢复瞬间不应执行工具、不应弹 Android runtime permission，只有再次确认后才继续执行链路。
+- 出现可恢复的待确认动作后杀进程并重启 App，应恢复同一个确认 UI；恢复瞬间不应执行工具、不应弹 Android runtime permission，只有再次确认后才继续执行链路。含外发文本、搜索 query、提醒标题/正文、深链 URI、模型输出或私密读取结果的 payload-bearing 待确认动作应 fail closed，而不是恢复可执行参数。
 - 需要 Android runtime permission 的工具应在确认卡提前展示友好权限名和用途；如果用户在系统权限弹窗中拒绝权限，不应执行工具、不应自动重试，应显示结构化权限失败并清除待确认状态，同时保留 raw manifest permission 供审计。
 - 需要 Usage Access 的前台 App 摘要不应触发 Android runtime permission 弹窗；确认卡应说明系统“使用情况访问权限 / Usage Access”设置入口，未授权时不应读取数据、不应自动重试，应返回结构化权限失败。
 - 授予 Usage Access 后再次触发前台 App 摘要，只应返回最小 App metadata；不应展示完整使用历史、通知正文、窗口内容或自动上传到远程模型。
@@ -191,9 +191,10 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
   `读取当前屏幕文本` 确认卡、展示特殊授权说明、不展示 runtime permission 或
   `分享屏幕摘要`，并可取消后留下审计/轨迹记录的路径。
 - 声明式多步 Skill 的模型输出只能通过 `argumentBindings` 进入后续工具确认卡；缺失 binding 或直接绑定私密工具原文到外发工具时应失败，不应生成确认卡、执行外发工具或泄漏原文。
+- 声明式 `ToolStep -> ToolStep` 只可跨重启恢复低语义结构化参数形成的待确认 UI，例如 `schedule_reminder.taskId -> cancel_reminder.taskId`；恢复后仍必须再次确认才执行，且 `schedule_reminder` 的 title/body/delayMinutes 不应作为待确认 payload 跨重启恢复。
 - “总结剪贴板并分享” 到第二个 `share_text` 确认卡后杀进程并重启 App，如果该确认卡包含模型生成的外发 payload，应 fail closed，不应恢复摘要参数、自动打开分享面板、重跑旧 `read_clipboard`，或让旧 request id 继续推进。
 - “总结当前屏幕文字并分享” 到第二个 `share_text` 确认卡后杀进程并重启 App，也应 fail closed，不应恢复摘要参数、自动打开分享面板、重跑旧 `read_current_screen_text`，或让旧 request id 继续推进。
-- 多步 Skill 的 pending checkpoint 只能持久化 run/request/step id、manifest identity、输出 key 名和 private-output refs；不得写入 `SkillRunContinuation.outputs` 值、模型输出、剪贴板/OCR/屏幕文本、工具参数明文或原始用户输入。checkpoint 与 redacted `SkillPlan` 或当前工具 registry 不匹配时应 fail closed。
+- 多步 Skill 的 pending checkpoint 只能持久化 run/request/step id、manifest identity、输出 key 名和 private-output refs；pending row 只可保存当前工具 `ToolSpec` allowlist 允许的结构化参数。不得写入 `SkillRunContinuation.outputs` 值、模型输出、剪贴板/OCR/屏幕文本、内容型工具参数明文或原始用户输入。checkpoint 与 redacted `SkillPlan` 或当前工具 registry 不匹配时应 fail closed。
 - 多步 Skill 在任一待确认工具处取消后，不应继续执行后续工具；已读取的私密工具输出不应出现在公开 trace、audit 或 UI 摘要里。
 - Skill manifest 输入 schema 契约由 JVM 覆盖：有效自然语言输入会以 `input` 字段进入对应 Skill；缺失、空白或额外 Skill 输入字段不应生成确认卡，也不应调用工具。模拟器/真机仍用于验证确认卡和多步 UI 链路。
 

@@ -234,13 +234,15 @@ Current status:
   restored on startup as UI confirmation state only. Restoration does not
   execute tools; explicit user confirmation is still required before Android
   execution can continue. Pending rows only persist `ToolSpec`-declared
-  allowlisted request arguments; payload-bearing tools such as search, share,
-  email, calendar/contact drafts, reminders, contacts, and deep links fail
-  closed after process restart instead of restoring private text. Cross-restart
-  `nextActionInput` persistence is disabled. Persisted `SkillPlan` recovery
-  stores only redacted plan structure and allowlisted tool arguments, not the
-  original skill input or tool/draft payload text, and terminal runs clear the
-  in-memory recovery copy.
+  allowlisted request arguments. Content-bearing tools such as search, share,
+  email, calendar/contact drafts, schedule-reminder title/body, contacts, and
+  deep-link URI payloads fail closed after process restart instead of restoring
+  executable text. Low-semantic structural ids such as `cancel_reminder.taskId`
+  can be restored only when they remain schema-valid and allowlisted.
+  Cross-restart `nextActionInput` persistence is disabled. Persisted
+  `SkillPlan` recovery stores only redacted plan structure and parameter key
+  shape, not the original skill input or tool/draft payload text, and terminal
+  runs clear the in-memory recovery copy.
 - `AwaitingUserConfirmation` is treated as recoverable only when its pending
   confirmation row can be parsed and still matches the pending tool boundary.
   Startup repair fails awaiting runs without a valid pending row, and malformed
@@ -374,10 +376,14 @@ Current status:
   `ToolStep` observation, `SkillRunProgressor` may bind public tool result data
   into the next dependent `ToolStep`, then the Agent loop reruns Tool Registry
   validation, `SafetyPolicy`, trace/audit, and user confirmation before any
-  execution. The path fails closed when the result does not belong to a
-  requested skill step, when the next tool has unmet dependencies, when a
-  binding is missing, or when a private tool output would be bound directly into
-  another tool argument.
+  execution. When that follow-up confirmation only carries allowlisted,
+  low-semantic structural arguments, such as `schedule_reminder.taskId` bound
+  into `cancel_reminder.taskId`, Room restore can recover the same confirmation
+  after process restart. Content payloads and private outputs still fail closed.
+  The path fails closed when the result does not belong to a requested skill
+  step, when the next tool has unmet dependencies, when a binding is missing,
+  or when a private tool output would be bound directly into another tool
+  argument.
 - Default sequential replanning now splits explicit connectors such as
   "then", "然后", and "再" into a live-only bounded sequence. A verified
   successful segment can plan only the next segment, returns to
@@ -425,6 +431,7 @@ Tests:
 - `AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation`
 - `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.toolStepOutputBindsToDependentToolStepInCurrentProcessAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.restoredToolStepOutputBoundPendingContinuesAfterRestart`
 - `AgentLoopRuntimeTest.toolStepToToolStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
 - `AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation`
@@ -564,10 +571,13 @@ Current status:
   stores schema version, run/request/step ids, manifest id/version/hash, phase,
   completed step ids, exact value-free output key names for each completed
   step, and private-output refs only. Restore validates the checkpoint against
-  the redacted `SkillPlan` and current `ToolRegistry`; missing checkpoints for
-  redacted skill pending rows, malformed JSON, changed pending step/tool,
-  manifest mismatch, noncanonical or changed output keys, or private-ref drift
-  fails the owning awaiting run closed and clears the pending/checkpoint rows.
+  the redacted key-shape `SkillPlan` and current `ToolRegistry`; missing
+  checkpoints for redacted skill pending rows, malformed JSON, changed pending
+  step/tool, manifest mismatch, noncanonical or changed output keys, or
+  private-ref drift fails the owning awaiting run closed and clears the
+  pending/checkpoint rows. The separate pending row may persist only the current
+  tool's `ToolSpec` allowlisted structural arguments; the checkpoint itself
+  remains value-free and does not restore prior output values.
   The checkpoint is not enough to replay private prior outputs, so broad
   arbitrary skill-runner state persistence is still pending.
 - Room restore validates that a persisted pending confirmation with an attached
@@ -627,6 +637,8 @@ Tests:
 - `SkillRunExecutorTest.cancelStopsPendingSkillWithoutExecutingOrLeakingPrivateOutputs`
 - `SkillRunProgressorTest.bindsPublicToolOutputToDependentToolRequestAndDraft`
 - `SkillRunProgressorTest.rejectsPrivateToolOutputBindingBetweenToolSteps`
+- `AgentTraceStoreTest.roomStoreKeepsRedactedSkillPlanKeyShapeForPublicToolStepRecovery`
+- `AgentTraceStoreTest.roomStoreFailsScheduleReminderPendingWithoutPersistingReminderPayload`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation`
 - `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`

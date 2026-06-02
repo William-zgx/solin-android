@@ -11,6 +11,8 @@ import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
+import com.bytedance.zgx.pocketmind.skill.SkillPlan
+import com.bytedance.zgx.pocketmind.skill.SkillRequest
 import com.bytedance.zgx.pocketmind.skill.SkillStep
 import com.bytedance.zgx.pocketmind.skill.valueFreeCheckpointForPendingTool
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
@@ -492,6 +494,72 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreFailsScheduleReminderPendingWithoutPersistingReminderPayload() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-schedule-reminder-payload" },
+        )
+        val rawTitle = "私密提醒标题-13579"
+        val rawBody = "提醒正文不应跨重启恢复"
+        val run = store.updateState(
+            store.createRun("提醒我 15 分钟后喝水").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+        val request = ToolRequest(
+            id = "request-schedule",
+            toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+            arguments = mapOf(
+                "title" to rawTitle,
+                "body" to rawBody,
+                "delayMinutes" to "15",
+            ),
+            reason = "Schedule reminder $rawTitle",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.SCHEDULE_REMINDER,
+            title = "安排提醒",
+            summary = "安排提醒 $rawTitle",
+            parameters = request.arguments,
+        )
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = run,
+                request = request,
+                draft = draft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+                nextActionInput = "然后取消提醒",
+            ),
+        )
+
+        val persisted = dao.latestPendingConfirmation()
+        requireNotNull(persisted)
+        assertEquals("{}", persisted.argumentsJson)
+        assertEquals("{}", persisted.draftParametersJson)
+        assertNull(persisted.nextActionInput)
+        assertFalse(persisted.reason.contains(rawTitle))
+        assertFalse(persisted.draftTitle.contains(rawTitle))
+        assertFalse(persisted.draftSummary.contains(rawTitle))
+        assertFalse(persisted.argumentsJson.contains(rawTitle))
+        assertFalse(persisted.argumentsJson.contains(rawBody))
+        assertFalse(persisted.draftParametersJson.contains(rawTitle))
+        assertFalse(persisted.draftParametersJson.contains(rawBody))
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        assertNull(restartedStore.latestPendingConfirmation())
+        assertEquals(AgentRunState.Failed, restartedStore.run(run.id)?.state)
+        assertTrue(dao.pendingConfirmations().isEmpty())
+        assertTrue(restartedStore.steps(run.id).any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending tool confirmation could not be restored")
+        })
+    }
+
+    @Test
     fun roomStoreFailsUnsafeCancelReminderPendingWithoutPersistingTaskPayload() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(
@@ -950,6 +1018,112 @@ class AgentTraceStoreTest {
         assertEquals("[redacted]", restoredReadStep.draft.summary)
         assertFalse(restored.run.input.contains(rawInput))
         assertFalse(restored.request.reason.contains(rawInput))
+    }
+
+    @Test
+    fun roomStoreKeepsRedactedSkillPlanKeyShapeForPublicToolStepRecovery() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-public-tool-output-recovery" },
+        )
+        val rawInput = "安排喝水提醒后立刻撤销"
+        val reminderTitle = "私密提醒标题-24680"
+        val reminderBody = "提醒正文不应持久化"
+        val scheduleDraft = ActionDraft(
+            functionName = MobileActionFunctions.SCHEDULE_REMINDER,
+            title = "安排提醒",
+            summary = "安排一个测试提醒。",
+            parameters = mapOf(
+                "title" to reminderTitle,
+                "body" to reminderBody,
+                "delayMinutes" to "15",
+            ),
+        )
+        val cancelDraft = ActionDraft(
+            functionName = MobileActionFunctions.CANCEL_REMINDER,
+            title = "撤销提醒",
+            summary = "撤销刚安排的提醒。",
+            parameters = mapOf("taskId" to "task-restored"),
+        )
+        val skillPlan = SkillPlan(
+            request = SkillRequest(
+                id = "public-tool-output-skill-request",
+                skillId = BuiltInSkillRuntime.REMINDER_SKILL,
+                arguments = mapOf("input" to rawInput),
+                reason = rawInput,
+            ),
+            manifest = BuiltInSkillRuntime().manifests()
+                .first { manifest -> manifest.id == BuiltInSkillRuntime.REMINDER_SKILL },
+            steps = listOf(
+                SkillStep.ToolStep(
+                    id = "schedule",
+                    request = ToolRequest(
+                        id = "request-schedule",
+                        toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                        arguments = scheduleDraft.parameters,
+                        reason = scheduleDraft.summary,
+                    ),
+                    draft = scheduleDraft,
+                ),
+                SkillStep.ToolStep(
+                    id = "cancel",
+                    dependsOn = listOf("schedule"),
+                    request = ToolRequest(
+                        id = "request-cancel",
+                        toolName = MobileActionFunctions.CANCEL_REMINDER,
+                        arguments = mapOf("taskId" to "task-restored"),
+                        reason = cancelDraft.summary,
+                    ),
+                    draft = cancelDraft,
+                    argumentBindings = mapOf("taskId" to "schedule.taskId"),
+                ),
+            ),
+        )
+        val run = store.createRun(rawInput)
+        val waitingRun = store.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
+        val pendingRequest = (skillPlan.steps[1] as SkillStep.ToolStep).request
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = pendingRequest,
+                draft = cancelDraft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "skill tool step",
+                skillRunCheckpoint = skillPlan.valueFreeCheckpointForPendingTool(
+                    runId = waitingRun.id,
+                    pendingRequest = pendingRequest,
+                ),
+            ),
+        )
+
+        val persisted = dao.latestPendingConfirmation()
+        requireNotNull(persisted)
+        assertEquals("task-restored", JSONObject(persisted.argumentsJson).getString("taskId"))
+        assertEquals("task-restored", JSONObject(persisted.draftParametersJson).getString("taskId"))
+        val persistedSkillPlanJson = persisted.skillPlanJson.orEmpty()
+        assertTrue(persistedSkillPlanJson.contains("delayMinutes"))
+        assertFalse(persistedSkillPlanJson.contains(rawInput))
+        assertFalse(persistedSkillPlanJson.contains(reminderTitle))
+        assertFalse(persistedSkillPlanJson.contains(reminderBody))
+        assertFalse(persistedSkillPlanJson.contains("task-restored"))
+
+        val restored = RoomAgentTraceStore(traceDao = dao).latestPendingConfirmation()
+        requireNotNull(restored)
+        assertEquals(mapOf("taskId" to "task-restored"), restored.request.arguments)
+        assertEquals(mapOf("taskId" to "task-restored"), restored.draft.parameters)
+        val restoredScheduleStep = restored.skillPlan?.steps?.firstOrNull() as? SkillStep.ToolStep
+        requireNotNull(restoredScheduleStep)
+        assertEquals(
+            setOf("title", "body", "delayMinutes"),
+            restoredScheduleStep.request.arguments.keys,
+        )
+        assertEquals("[redacted]", restoredScheduleStep.request.arguments["title"])
+        assertEquals("[redacted]", restoredScheduleStep.request.arguments["body"])
+        assertEquals("[redacted]", restoredScheduleStep.request.arguments["delayMinutes"])
     }
 
     @Test

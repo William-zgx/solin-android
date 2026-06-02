@@ -1,5 +1,53 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Public ToolStep recovery projection 增量验证
+
+本轮覆盖项：
+
+- `RoomAgentTraceStore` 的 pending `SkillPlan` 持久化从“按工具 allowlist 保留
+  step 参数”改为“保留参数 key 形状、全部 value redacted”。这样 value-free
+  `SkillRunCheckpoint` 可以继续校验已完成步骤的 output frontier，但不会把
+  `schedule_reminder` title/body/delayMinutes、原始 Skill input 或其他内容型
+  payload 写入 Room。
+- 当前待确认工具的 pending row 仍只保存 `ToolSpec.pendingArgumentAllowlist`
+  允许的可执行参数；`cancel_reminder.taskId` 这类低语义结构化 id 可恢复，
+  `share_text.text`、搜索 query、提醒 title/body、深链 URI、模型输出和私密读取结果
+  仍 fail closed。
+- `AgentLoopRuntimeTest.restoredToolStepOutputBoundPendingContinuesAfterRestart`
+  覆盖 `schedule_reminder -> cancel_reminder` 的公开结构化输出恢复：第二张
+  `cancel_reminder(taskId)` 确认卡跨重启后仍可恢复，重新确认后才能执行并完成 run。
+- `AgentTraceStoreTest.roomStoreKeepsRedactedSkillPlanKeyShapeForPublicToolStepRecovery`
+  覆盖 redacted `SkillPlan` 保留已完成步骤参数 key shape 但不保存私密值；
+  `roomStoreFailsScheduleReminderPendingWithoutPersistingReminderPayload` 覆盖
+  初始 `schedule_reminder` payload 待确认跨重启 fail closed。
+- 该切片不实现完整 `SkillRunContinuation` 持久化、任意 Skill continuation、
+  model-output 外发 payload 恢复或完整 argument-bearing typed step rehydration。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredToolStepOutputBoundPendingContinuesAfterRestart' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreKeepsRedactedSkillPlanKeyShapeForPublicToolStepRecovery' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsScheduleReminderPendingWithoutPersistingReminderPayload' \
+  --no-daemon
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest \
+  --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest \
+  --no-daemon
+./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin --no-daemon
+git diff --check
+```
+
+结果：
+
+- 通过：targeted public ToolStep recovery projection / payload fail-closed 回归。
+- 通过：`AgentTraceStoreTest`、`AgentLoopRuntimeTest` 和
+  `AgentCoreDocumentationTest`。
+- 通过：完整 JVM 单测与 AndroidTest Kotlin 编译。
+- 通过：diff whitespace 检查。
+
 ## 2026-06-02 Device report test count and screen-summary Skill smoke 增量验证
 
 本轮覆盖项：

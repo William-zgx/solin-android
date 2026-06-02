@@ -654,7 +654,7 @@ private fun PendingToolConfirmationSnapshot.toEntity(
             .toJsonObject()
             .toString(),
         skillId = skillId,
-        skillPlanJson = skillPlan?.redactedForPendingPersistence(toolRegistry)?.toJsonObject()?.toString(),
+        skillPlanJson = skillPlan?.redactedForPendingPersistence()?.toJsonObject()?.toString(),
         plannedByModel = plannedByModel,
         fallbackReason = fallbackReason,
         nextActionInput = null,
@@ -732,7 +732,7 @@ private fun Map<String, String>.persistablePendingArgumentsFor(
         }
 }
 
-private fun SkillPlan.redactedForPendingPersistence(toolRegistry: ToolRegistry): SkillPlan =
+private fun SkillPlan.redactedForPendingPersistence(): SkillPlan =
     copy(
         request = request.copy(
             arguments = request.arguments.redactedValuesForPendingPersistence(),
@@ -742,19 +742,13 @@ private fun SkillPlan.redactedForPendingPersistence(toolRegistry: ToolRegistry):
             when (step) {
                 is SkillStep.ToolStep -> step.copy(
                     request = step.request.copy(
-                        arguments = step.request.arguments.persistablePendingArgumentsFor(
-                            step.request.toolName,
-                            toolRegistry,
-                        ),
+                        arguments = step.request.arguments.redactedValuesForPendingPersistence(),
                         reason = step.request.reason.redactedIfNotBlank(),
                     ),
                     draft = step.draft.copy(
                         title = step.draft.title.redactedIfNotBlank(),
                         summary = step.draft.summary.redactedIfNotBlank(),
-                        parameters = step.draft.parameters.persistablePendingArgumentsFor(
-                            step.request.toolName,
-                            toolRegistry,
-                        ),
+                        parameters = step.draft.parameters.redactedValuesForPendingPersistence(),
                     ),
                 )
 
