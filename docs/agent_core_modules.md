@@ -170,6 +170,9 @@ Current status:
   it still does not restore prior tool/model output values. Follow-up tools that
   only need the current tool result or no payload can continue; tools whose
   arguments depend on old model/private output fail closed.
+  Direct `confirmToolRequest(runId, requestId)` on a restored pending Skill
+  confirmation also reloads the Room pending snapshot and remembers that
+  frontier, so callers do not need to call `latestPendingConfirmation()` first.
 - Unknown tool-result privacy metadata fails closed as `LocalOnly` before any
   remote continuation, matching the stored-message privacy boundary.
 - Retryable local read failures now schedule one bounded retry on the already
@@ -507,6 +510,9 @@ Tests:
 - `AgentLoopRuntimeTest.payloadSequentialTailDoesNotPersistContinuationCursor`
 - `AgentLoopRuntimeTest.restoredExternalOutcomeUsesContinuationCursorForNoPayloadTailAfterCompletion`
 - `AgentLoopRuntimeTest.restoredExternalOutcomeDoesNotContinuePayloadTailWithoutContinuationCursor`
+- `AgentLoopRuntimeTest.restoredValueFreeModelFrontierLetsMiddleToolContinueToNextNoPayloadTool`
+- `AgentLoopRuntimeTest.restoredValueFreeModelFrontierSurvivesDirectConfirmWithoutPendingLookup`
+- `AgentLoopRuntimeTest.restoredValueFreeFrontierDoesNotRecoverModelOutputForPayloadBinding`
 - `PocketMindViewModelTest.restoredPendingExternalOutcomeCompletedCanShowNextPendingConfirmation`
 - `AgentTraceStoreTest.roomStoreRestoresContinuationCursorFromTraceAfterPendingConfirmationClears`
 - `AgentTraceStoreTest.roomStoreDoesNotPersistContinuationCursorWithExecutablePayload`
@@ -731,6 +737,7 @@ Tests:
 - `SkillRunProgressorTest.missingModelOutputBindingFailsClosedDuringPlanValidation`
 - `SkillRunProgressorTest.validateForExecutionRejectsBindingsOutsideDeclaredToolContracts`
 - `SkillRunProgressorTest.rejectsPrivateToolOutputBindingBetweenToolSteps`
+- `SkillRunProgressorTest.nextToolAfterToolResultUsesValueFreeSatisfiedStepsWithoutRecoveringOutputValues`
 - `AgentTraceStoreTest.roomStoreKeepsRedactedSkillPlanKeyShapeForPublicToolStepRecovery`
 - `AgentTraceStoreTest.roomStoreFailsScheduleReminderPendingWithoutPersistingReminderPayload`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`

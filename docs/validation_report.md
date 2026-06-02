@@ -5562,6 +5562,9 @@ git diff --check
 - `AgentLoopRuntime.latestPendingConfirmation()` 在恢复 pending Skill 确认时缓存
   checkpoint 的 `completedStepIds` frontier；用户重新确认并观察当前工具成功后，
   后续 no-payload 工具可继续规划。
+- `AgentLoopRuntime.confirmToolRequest(runId, requestId)` 即使未先调用
+  `latestPendingConfirmation()`，也会从匹配的 Room pending snapshot 取回并缓存
+  value-free frontier；直接确认恢复卡后的 no-payload 后续工具仍可继续规划。
 - 如果后续工具参数依赖旧模型输出或私密工具输出，恢复后的 frontier 只会满足依赖，
   但 binding 因缺少真实输出值而 fail closed，不生成外发 payload 确认卡。
 - `ToolRegistry` 轻量 schema 校验器开始执行 `format: date-time`，避免
@@ -5582,6 +5585,7 @@ git diff --check
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
   --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredValueFreeModelFrontierLetsMiddleToolContinueToNextNoPayloadTool' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredValueFreeModelFrontierSurvivesDirectConfirmWithoutPendingLookup' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredValueFreeFrontierDoesNotRecoverModelOutputForPayloadBinding'
 ```
 

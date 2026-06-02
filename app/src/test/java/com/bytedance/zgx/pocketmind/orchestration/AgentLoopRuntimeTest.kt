@@ -3655,6 +3655,86 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun restoredValueFreeModelFrontierSurvivesDirectConfirmWithoutPendingLookup() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = ValueFreeFrontierSkillRuntime(),
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-direct-confirm-frontier" },
+            ),
+        )
+        val planned = initialRuntime.runOnce(
+            input = ValueFreeFrontierSkillRuntime.INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val readObserved = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = clipboardResultData("frontier clipboard text"),
+            ),
+        )
+        requireNotNull(readObserved)
+        val modelObserved = initialRuntime.observeModelResult(
+            runId = planned.run.id,
+            text = "SECRET_FRONTIER_MODEL_OUTPUT",
+        )
+        requireNotNull(modelObserved)
+        require(modelObserved.decision is AgentObservationDecision.PlanNextTool)
+        val wifiPlan = modelObserved.decision.plan
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wifiPlan.request.toolName)
+        assertEquals(
+            listOf("frontier_read", "frontier_model"),
+            dao.skillRunCheckpoint(planned.run.id, wifiPlan.request.id)?.completedStepIdsJson
+                ?.let { org.json.JSONArray(it).toStringListForTest() },
+        )
+
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = ValueFreeFrontierSkillRuntime(),
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 2_000L },
+            ),
+        )
+
+        val executing = restoredRuntime.confirmToolRequest(
+            runId = planned.run.id,
+            requestId = wifiPlan.request.id,
+        )
+        assertEquals(AgentRunState.ExecutingTool, executing?.state)
+        val flashlightObserved = restoredRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = wifiPlan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+
+        requireNotNull(flashlightObserved)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, flashlightObserved.run.state)
+        require(flashlightObserved.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, flashlightObserved.decision.plan.request.toolName)
+        assertFalse(
+            dao.steps(planned.run.id).joinToString("\n") { step -> step.json }
+                .contains("SECRET_FRONTIER_MODEL_OUTPUT"),
+        )
+    }
+
+    @Test
     fun restoredValueFreeFrontierDoesNotRecoverModelOutputForPayloadBinding() {
         val dao = FakeAgentTraceDao()
         val actionRuntime = RecordingActionRuntime(likelyAction = false)

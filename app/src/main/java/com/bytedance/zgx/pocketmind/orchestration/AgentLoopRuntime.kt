@@ -1864,12 +1864,12 @@ class AgentLoopRuntime(
             .firstOrNull()
 
     private fun pendingToolRequest(runId: String, requestId: String): ToolRequest? {
+        val restoredSnapshot = traceStore.latestPendingConfirmation()
+            ?.takeIf { snapshot -> snapshot.run.id == runId && snapshot.request.id == requestId }
+            ?.also { snapshot -> rememberValueFreeFrontier(snapshot) }
         val liveRequest = latestPendingToolRequest(runId)
             ?.takeIf { request -> request.id == requestId }
-        if (liveRequest != null) return liveRequest
-        return traceStore.latestPendingConfirmation()
-            ?.takeIf { snapshot -> snapshot.run.id == runId && snapshot.request.id == requestId }
-            ?.request
+        return liveRequest ?: restoredSnapshot?.request
     }
 
     private fun latestConfirmedRequestId(runId: String): String? =
