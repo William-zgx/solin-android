@@ -652,6 +652,7 @@ class ActionExecutor(
             put("completionState", completionState)
             put("completionVerified", "false")
             put("externalOutcome", "Unknown")
+            put("externalOutcomeSource", "Unknown")
             put("targetKind", metadata.targetKind)
             put("intentAction", metadata.intentAction)
             put("metadataPolicy", "AllowlistedCompletionMetadata")

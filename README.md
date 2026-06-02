@@ -37,7 +37,8 @@ Google AI Edge LiteRT-LM.
 - Runtime permission denial is observed as a structured tool failure without
   executing or automatically retrying the tool.
 - Confirmed external navigation for safe HTTPS deep links, package-level app
-  launches, and allowlisted app details settings.
+  launches, and allowlisted app details settings, with user-recorded external
+  outcome confirmation after launch-only Activity/share/draft openings.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map
   search, information lookup, device settings including Usage Access settings,
   local reminders, local periodic reminder checks, calendar
@@ -291,8 +292,9 @@ system speech-recognition input,
 confirmed recent screenshot/image OCR, and restart restoration for the latest
 pending tool confirmation without auto-execution, value-free completed-step
 frontier recovery for restored Skill confirmations, plus confirmed
-current-screen Accessibility text snapshot reads and current-screen text summary
-sharing.
+current-screen Accessibility text snapshot reads, current-screen text summary
+sharing, and user-confirmed external Activity outcome recording before
+completion-dependent next-tool planning.
 Broad semantic screen understanding, arbitrary argument-bearing typed run recovery, complete
 document parsing, screenshot capture/current-screen semantic understanding,
 PDF layout parsing, legacy Office parsing, full rich-text fidelity, image

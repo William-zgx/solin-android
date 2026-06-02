@@ -89,9 +89,7 @@ class ToolSchemaContractTest {
             val outputProperties = outputSchema.optJSONObject("properties") ?: JSONObject()
             val outputPropertyNames = outputProperties.keysSet()
             val requiredOutputs = outputSchema.optStringSet("required")
-            val minimalValidData = requiredOutputs.associateWith { propertyName ->
-                if (propertyName == "toolName") spec.name else validValueFor(outputProperties.getJSONObject(propertyName))
-            }
+            val minimalValidData = minimalValidOutputDataFor(spec, requiredOutputs, outputProperties)
             val request = ToolRequest(
                 id = "output-${spec.name}",
                 toolName = spec.name,
@@ -319,6 +317,22 @@ class ToolSchemaContractTest {
                 "x".repeat(minLength.coerceAtLeast(1))
             }
         }
+    }
+
+    private fun minimalValidOutputDataFor(
+        spec: ToolSpec,
+        requiredOutputs: Set<String>,
+        outputProperties: JSONObject,
+    ): Map<String, String> {
+        val data = requiredOutputs.associateWith { propertyName ->
+            if (propertyName == "toolName") spec.name else validValueFor(outputProperties.getJSONObject(propertyName))
+        }
+        if (ToolPermission.StartsExternalActivity !in spec.permissions) return data
+        return data + mapOf(
+            "completionVerified" to "false",
+            "externalOutcome" to "Unknown",
+            "externalOutcomeSource" to "Unknown",
+        )
     }
 
     private fun invalidValueFor(property: JSONObject): String? {

@@ -78,6 +78,7 @@ enum class ToolAuditEventType {
     UserConfirmed,
     UserCancelled,
     ToolObserved,
+    ExternalOutcomeConfirmed,
     ToolRetryScheduled,
 }
 

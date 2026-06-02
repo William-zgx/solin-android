@@ -783,7 +783,8 @@ class RoutingAndValidatingToolExecutorTest {
         }
 
         private fun validOutputDataFor(request: ToolRequest): Map<String, String> {
-            val schema = JSONObject(registry.specFor(request.toolName)?.outputSchemaJson.orEmpty())
+            val spec = registry.specFor(request.toolName)
+            val schema = JSONObject(spec?.outputSchemaJson.orEmpty())
             val properties = schema.optJSONObject("properties") ?: JSONObject()
             val requiredKeys = stringSet(schema, "required")
             return buildMap {
@@ -792,6 +793,11 @@ class RoutingAndValidatingToolExecutorTest {
                     put(key, validOutputValueFor(request, key, property))
                 }
                 putIfAbsent("toolName", request.toolName)
+                if (spec?.permissions?.contains(ToolPermission.StartsExternalActivity) == true) {
+                    put("completionVerified", "false")
+                    put("externalOutcome", "Unknown")
+                    put("externalOutcomeSource", "Unknown")
+                }
             }
         }
 

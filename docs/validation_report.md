@@ -1,5 +1,35 @@
 # PocketMind 验证报告
 
+## 2026-06-02 External Activity outcome confirmation
+
+本轮覆盖项：
+
+- 外部 Activity/share sheet/draft 工具成功打开后继续输出 launch-only metadata：
+  `completionVerified=false`、`externalOutcome=Unknown`、
+  `externalOutcomeSource=Unknown`，不声称目标 App 内操作已完成。
+- UI 新增外部结果确认 sheet，要求用户选择“已完成 / 未完成 / 只是打开了”。
+  ViewModel 通过 `AssistantRouter.recordExternalOutcome()` 写回确认结果。
+- Agent loop 新增 `AgentStep.ExternalOutcomeConfirmed` 和
+  `ToolAuditEventType.ExternalOutcomeConfirmed`；确认结果只持久化 allowlisted
+  completion metadata，不写 raw URI/text/query。
+- Tool schema 将 `externalOutcome` 与 `externalOutcomeSource` 改为枚举，并在
+  `ToolRegistry.validateResult()` 中校验跨字段 invariant。只有
+  `Completed + UserConfirmed` 会设置 `completionVerified=true` 并允许继续规划下一步；
+  `NotCompleted` / `OpenedOnly` 只记录结果。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:compileDebugAndroidTestKotlin
+```
+
+结果：
+
+- 通过：全量 Debug JVM unit tests。
+- 通过：Debug AndroidTest Kotlin 编译，覆盖新增 external outcome Compose test。
+- 通过：`git diff --check` whitespace 检查。
+
 ## 2026-06-02 Agent loop hard budget and run cancellation
 
 本轮覆盖项：

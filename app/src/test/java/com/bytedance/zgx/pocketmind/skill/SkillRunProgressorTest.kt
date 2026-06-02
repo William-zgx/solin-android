@@ -363,6 +363,9 @@ class SkillRunProgressorTest {
                 data = mapOf(
                     "toolName" to MobileActionFunctions.OPEN_WIFI_SETTINGS,
                     "completionState" to "ExternalActivityOpened",
+                    "completionVerified" to "false",
+                    "externalOutcome" to "Unknown",
+                    "externalOutcomeSource" to "Unknown",
                 ),
             ),
             satisfiedStepIds = setOf(modelStep.id),

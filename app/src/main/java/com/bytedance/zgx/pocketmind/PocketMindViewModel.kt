@@ -39,6 +39,7 @@ import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceRecordId
 import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
 import com.bytedance.zgx.pocketmind.orchestration.AgentModelObservationResult
+import com.bytedance.zgx.pocketmind.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
@@ -876,6 +877,7 @@ class PocketMindViewModel(
                 isBusy = true,
                 isGenerating = false,
                 latestRecoveryAction = null,
+                pendingExternalOutcome = null,
                 statusText = "处理中",
             )
         }
@@ -1566,19 +1568,105 @@ class PocketMindViewModel(
         }
         syncTaskStateMemories()
         rebuildMemoryIndex()
+        val pendingExternalOutcome = observation?.pendingExternalOutcomeFor(confirmation, request)
         _uiState.update {
             it.copy(
                 pendingConfirmation = null,
+                pendingExternalOutcome = pendingExternalOutcome,
                 backgroundTasks = loadBackgroundTasks(),
                 backgroundTaskHistory = loadBackgroundTaskHistory(),
                 periodicCheckPolicy = loadPeriodicCheckPolicy(),
                 longTermMemories = loadLongTermMemories(),
                 auditEvents = loadAuditEvents(),
                 agentTraceRuns = loadAgentTraceRuns(),
-                latestRecoveryAction = observation?.recoveryAction,
+                latestRecoveryAction = if (pendingExternalOutcome == null) observation?.recoveryAction else null,
                 isBusy = false,
                 isGenerating = false,
                 statusText = observation?.assistantMessage ?: result.statusSummaryForUi(),
+            )
+        }
+    }
+
+    private fun AgentObservationResult.pendingExternalOutcomeFor(
+        confirmation: PendingAgentConfirmation,
+        request: ToolRequest,
+    ): PendingExternalOutcomeConfirmation? {
+        if (!result.isUnverifiedExternalLaunch()) return null
+        val runId = confirmation.runId ?: return null
+        return PendingExternalOutcomeConfirmation(
+            runId = runId,
+            requestId = result.requestId,
+            toolName = request.toolName,
+            title = confirmation.draft.title,
+            summary = assistantMessage,
+        )
+    }
+
+    fun recordExternalOutcome(
+        pending: PendingExternalOutcomeConfirmation,
+        outcome: AgentExternalOutcome,
+    ) {
+        val current = _uiState.value.pendingExternalOutcome
+        if (current == null || current != pending) {
+            _uiState.update {
+                it.copy(statusText = "外部结果确认已处理")
+            }
+            return
+        }
+        val recorded = runCatching {
+            assistantOrchestrator.recordExternalOutcome(
+                runId = pending.runId,
+                requestId = pending.requestId,
+                outcome = outcome,
+            )
+        }.getOrNull()
+        if (recorded == null) {
+            _uiState.update {
+                it.copy(
+                    pendingExternalOutcome = null,
+                    auditEvents = loadAuditEvents(),
+                    agentTraceRuns = loadAgentTraceRuns(),
+                    statusText = "外部结果确认已过期",
+                )
+            }
+            return
+        }
+        replaceActiveSessionMessages(
+            _uiState.value.messages + ChatMessage(
+                role = MessageRole.Assistant,
+                text = recorded.assistantMessage,
+                privacy = MessagePrivacy.LocalOnly,
+            ),
+            persistNow = true,
+        )
+        rebuildMemoryIndex()
+        val nextToolPlan = (recorded.decision as? AgentObservationDecision.PlanNextTool)?.plan
+        if (nextToolPlan != null) {
+            _uiState.update {
+                it.copy(
+                    pendingExternalOutcome = null,
+                    pendingConfirmation = PendingAgentConfirmation(
+                        runId = recorded.run.id,
+                        draft = nextToolPlan.draft,
+                        toolRequest = nextToolPlan.request,
+                        skillId = nextToolPlan.skillRequest?.skillId,
+                        plannedByModel = nextToolPlan.plannedByModel,
+                        fallbackReason = nextToolPlan.fallbackReason,
+                    ),
+                    latestRecoveryAction = null,
+                    auditEvents = loadAuditEvents(),
+                    agentTraceRuns = loadAgentTraceRuns(),
+                    statusText = "下一步动作待确认",
+                )
+            }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                pendingExternalOutcome = null,
+                auditEvents = loadAuditEvents(),
+                agentTraceRuns = loadAgentTraceRuns(),
+                statusText = recorded.assistantMessage,
             )
         }
     }

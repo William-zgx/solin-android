@@ -146,6 +146,7 @@ class MainActivity : ComponentActivity() {
                     onOpenSpecialAccessSettings = ::openSpecialAccessSettings,
                     onConfirmAgentConfirmation = ::confirmAgentConfirmationWithPermissions,
                     onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
+                    onRecordExternalOutcome = viewModel::recordExternalOutcome,
                     onOpenRecoveryAction = viewModel::requestRecoveryActionConfirmation,
                     onSendMessage = viewModel::sendMessage,
                     onStartVoiceInput = ::startVoiceInput,

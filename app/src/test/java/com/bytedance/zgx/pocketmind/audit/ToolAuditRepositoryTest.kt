@@ -143,6 +143,25 @@ class ToolAuditRepositoryTest {
     }
 
     @Test
+    fun externalOutcomeConfirmedAuditDoesNotClaimGenericToolSuccess() {
+        val dao = FakeToolAuditDao()
+        val repository = ToolAuditRepository(dao)
+        dao.insert(
+            entity(
+                id = "external-outcome",
+                permissionsCsv = "StartsExternalActivity",
+                eventType = ToolAuditEventType.ExternalOutcomeConfirmed.name,
+                summary = "外部动作结果已由用户确认：目标应用中的操作未完成",
+                createdAtMillis = 1_000L,
+            ),
+        )
+
+        val record = repository.recentAuditEvents(limit = 1).single()
+
+        assertEquals("用户已确认外部动作结果。", record.summary)
+    }
+
+    @Test
     fun recentReminderAuditShowsTaskMetadataWithoutReminderContent() {
         val dao = FakeToolAuditDao()
         val repository = ToolAuditRepository(dao)

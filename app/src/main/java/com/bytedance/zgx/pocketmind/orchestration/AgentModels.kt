@@ -106,6 +106,12 @@ sealed class AgentStep {
         val result: ToolResult,
     ) : AgentStep()
 
+    data class ExternalOutcomeConfirmed(
+        val requestId: String,
+        val outcome: AgentExternalOutcome,
+        val result: ToolResult,
+    ) : AgentStep()
+
     data class ToolRetryScheduled(
         val request: ToolRequest,
         val attempt: Int,
@@ -177,6 +183,20 @@ data class AgentObservationResult(
     val continuationRequiresLocalModel: Boolean = false,
     val retryRequest: ToolRequest? = null,
     val retryAttempt: Int = 0,
+    val steps: List<AgentStep>,
+)
+
+enum class AgentExternalOutcome {
+    Completed,
+    NotCompleted,
+    OpenedOnly,
+}
+
+data class AgentExternalOutcomeResult(
+    val run: AgentRun,
+    val result: ToolResult,
+    val assistantMessage: String,
+    val decision: AgentObservationDecision,
     val steps: List<AgentStep>,
 )
 

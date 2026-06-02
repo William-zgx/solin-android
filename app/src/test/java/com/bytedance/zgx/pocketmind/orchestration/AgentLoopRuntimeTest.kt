@@ -4683,20 +4683,39 @@ class AgentLoopRuntimeTest {
         assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
 
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
-        val observed = runtime.observeToolResult(
+        val opened = runtime.observeToolResult(
             runId = planned.run.id,
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
             ),
+        )
+
+        requireNotNull(opened)
+        assertEquals(AgentRunState.Completed, opened.run.state)
+        assertEquals(AgentObservationDecision.Complete, opened.decision)
+        val observed = runtime.recordExternalOutcome(
+            runId = planned.run.id,
+            requestId = planned.plan.request.id,
+            outcome = AgentExternalOutcome.Completed,
         )
 
         requireNotNull(observed)
         assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
         require(observed.decision is AgentObservationDecision.PlanNextTool)
         assertEquals(MobileActionFunctions.READ_CLIPBOARD, observed.decision.plan.request.toolName)
+        assertTrue(observed.steps.any { step ->
+            step is AgentStep.ExternalOutcomeConfirmed &&
+                step.requestId == planned.plan.request.id &&
+                step.outcome == AgentExternalOutcome.Completed
+        })
     }
 
     @Test
@@ -4782,6 +4801,7 @@ class AgentLoopRuntimeTest {
                     toolName = MobileActionFunctions.WEB_SEARCH,
                     completionVerified = false,
                     externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
                 ),
             ),
         )
@@ -4800,6 +4820,143 @@ class AgentLoopRuntimeTest {
             event.eventType == ToolAuditEventType.ToolObserved
         }
         assertTrue(observedAudit.summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
+    }
+
+    @Test
+    fun completedExternalOutcomeConfirmationCanPlanNextTool() {
+        val auditSink = InMemoryToolAuditSink()
+        val nextDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "用户已确认搜索完成，可以继续。",
+            parameters = emptyMap(),
+            requiresConfirmation = true,
+        )
+        var replanCallCount = 0
+        val runtime = externalOutcomeRuntime(
+            auditSink = auditSink,
+            onReplan = {
+                replanCallCount += 1
+                AgentObservationReplan(
+                    request = ToolRequest(
+                        toolName = nextDraft.functionName,
+                        reason = nextDraft.summary,
+                    ),
+                    draft = nextDraft,
+                    fallbackReason = "after external completion",
+                )
+            },
+        )
+        val planned = runtime.runOnce(
+            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val opened = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
+            ),
+        )
+        requireNotNull(opened)
+        assertEquals(0, replanCallCount)
+
+        val confirmed = runtime.recordExternalOutcome(
+            runId = planned.run.id,
+            requestId = planned.plan.request.id,
+            outcome = AgentExternalOutcome.Completed,
+        )
+
+        requireNotNull(confirmed)
+        assertEquals(1, replanCallCount)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, confirmed.run.state)
+        require(confirmed.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, confirmed.decision.plan.request.toolName)
+        assertEquals("true", confirmed.result.data["completionVerified"])
+        assertEquals("Completed", confirmed.result.data["externalOutcome"])
+        assertEquals("UserConfirmed", confirmed.result.data["externalOutcomeSource"])
+        assertTrue(confirmed.steps.any { step ->
+            step is AgentStep.ExternalOutcomeConfirmed &&
+                step.outcome == AgentExternalOutcome.Completed
+        })
+        assertTrue(auditSink.events.any { event ->
+            event.eventType == ToolAuditEventType.ExternalOutcomeConfirmed
+        })
+    }
+
+    @Test
+    fun notCompletedExternalOutcomeConfirmationDoesNotPlanNextTool() {
+        val auditSink = InMemoryToolAuditSink()
+        var replanCallCount = 0
+        val runtime = externalOutcomeRuntime(
+            auditSink = auditSink,
+            onReplan = {
+                replanCallCount += 1
+                AgentObservationReplan(
+                    request = ToolRequest(
+                        toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        reason = "should not run",
+                    ),
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "不应自动规划。",
+                        parameters = emptyMap(),
+                        requiresConfirmation = true,
+                    ),
+                    fallbackReason = "should not run",
+                )
+            },
+        )
+        val planned = runtime.runOnce(
+            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
+            ),
+        )
+
+        val confirmed = runtime.recordExternalOutcome(
+            runId = planned.run.id,
+            requestId = planned.plan.request.id,
+            outcome = AgentExternalOutcome.NotCompleted,
+        )
+
+        requireNotNull(confirmed)
+        assertEquals(0, replanCallCount)
+        assertEquals(AgentRunState.Completed, confirmed.run.state)
+        assertEquals(AgentObservationDecision.Complete, confirmed.decision)
+        assertEquals("false", confirmed.result.data["completionVerified"])
+        assertEquals("NotCompleted", confirmed.result.data["externalOutcome"])
+        assertEquals("UserConfirmed", confirmed.result.data["externalOutcomeSource"])
+        assertTrue(confirmed.steps.none { step ->
+            step is AgentStep.UserConfirmationRequested &&
+                step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
+        })
     }
 
     @Test
@@ -5979,10 +6136,39 @@ class AgentLoopRuntimeTest {
             "taskStatus" to "Cancelled",
         )
 
+    private fun externalOutcomeRuntime(
+        auditSink: InMemoryToolAuditSink,
+        onReplan: () -> AgentObservationReplan,
+    ): AgentLoopRuntime =
+        AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(
+                likelyAction = true,
+                planningResult = ActionPlanningResult(
+                    plan = ActionPlan(
+                        kind = ActionPlanKind.Draft,
+                        draft = ActionDraft(
+                            functionName = MobileActionFunctions.WEB_SEARCH,
+                            title = "Web 搜索",
+                            summary = "将在浏览器中搜索：Kotlin",
+                            parameters = mapOf("query" to "Kotlin"),
+                            requiresConfirmation = true,
+                        ),
+                    ),
+                    usedModel = false,
+                    fallbackReason = "test fallback",
+                ),
+            ),
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner { onReplan() },
+        )
+
     private fun externalActivityResultData(
         toolName: String,
         completionVerified: Boolean = true,
-        externalOutcome: String = "Opened",
+        externalOutcome: String = "Completed",
+        externalOutcomeSource: String = "UserConfirmed",
     ): Map<String, String> {
         val (targetKind, intentAction) = when (toolName) {
             MobileActionFunctions.SHARE_TEXT -> "android_chooser" to "android.intent.action.SEND"
@@ -5995,6 +6181,7 @@ class AgentLoopRuntimeTest {
             "completionState" to "ExternalActivityOpened",
             "completionVerified" to completionVerified.toString(),
             "externalOutcome" to externalOutcome,
+            "externalOutcomeSource" to externalOutcomeSource,
             "targetKind" to targetKind,
             "intentAction" to intentAction,
             "metadataPolicy" to "no_raw_payload_persisted",

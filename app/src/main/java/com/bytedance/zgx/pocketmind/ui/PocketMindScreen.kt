@@ -114,6 +114,7 @@ import com.bytedance.zgx.pocketmind.LongTermMemorySummary
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.PendingAgentConfirmation
+import com.bytedance.zgx.pocketmind.PendingExternalOutcomeConfirmation
 import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.SetupTier
@@ -130,6 +131,7 @@ import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.pocketmind.isUsable
 import com.bytedance.zgx.pocketmind.label
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
+import com.bytedance.zgx.pocketmind.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.ui.theme.LocalPocketMindColors
@@ -172,6 +174,7 @@ fun PocketMindScreen(
     onOpenSpecialAccessSettings: (SpecialAccessRequirement) -> Unit,
     onConfirmAgentConfirmation: (PendingAgentConfirmation) -> Unit,
     onDismissAgentConfirmation: (PendingAgentConfirmation?) -> Unit,
+    onRecordExternalOutcome: (PendingExternalOutcomeConfirmation, AgentExternalOutcome) -> Unit,
     onOpenRecoveryAction: (AgentRecoveryAction) -> Unit,
     onSendMessage: (String) -> Unit,
     onStartVoiceInput: () -> Unit,
@@ -274,7 +277,9 @@ fun PocketMindScreen(
                     )
                 }
 
-                state.latestRecoveryAction?.takeIf { state.pendingConfirmation == null }?.let { recoveryAction ->
+                state.latestRecoveryAction
+                    ?.takeIf { state.pendingConfirmation == null && state.pendingExternalOutcome == null }
+                    ?.let { recoveryAction ->
                     RecoveryActionEntry(
                         modifier = Modifier
                             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -393,6 +398,18 @@ fun PocketMindScreen(
                         onOpenSpecialAccessSettings = onOpenSpecialAccessSettings,
                         onConfirm = { onConfirmAgentConfirmation(confirmation) },
                         onDismiss = { onDismissAgentConfirmation(confirmation) },
+                    )
+                }
+            }
+
+            state.pendingExternalOutcome?.let { pendingOutcome ->
+                ModalBottomSheet(
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                    onDismissRequest = {},
+                ) {
+                    ExternalOutcomeSheet(
+                        pending = pendingOutcome,
+                        onRecord = { outcome -> onRecordExternalOutcome(pendingOutcome, outcome) },
                     )
                 }
             }
@@ -977,6 +994,67 @@ private fun ActionDraftSheet(
             onClick = onDismiss,
         ) {
             Text("取消")
+        }
+    }
+}
+
+@Composable
+private fun ExternalOutcomeSheet(
+    pending: PendingExternalOutcomeConfirmation,
+    onRecord: (AgentExternalOutcome) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .testTag("external_outcome_sheet")
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        SectionTitle(
+            text = "外部操作完成了吗？",
+            subtitle = pending.title,
+        )
+        Text(
+            text = pending.summary,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Button(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("external_outcome_completed_button"),
+            onClick = { onRecord(AgentExternalOutcome.Completed) },
+        ) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("已完成")
+        }
+        OutlinedButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("external_outcome_not_completed_button"),
+            onClick = { onRecord(AgentExternalOutcome.NotCompleted) },
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("未完成")
+        }
+        TextButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("external_outcome_opened_only_button"),
+            onClick = { onRecord(AgentExternalOutcome.OpenedOnly) },
+        ) {
+            Text("只是打开了")
         }
     }
 }

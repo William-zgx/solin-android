@@ -220,6 +220,7 @@ class AgentTraceStoreTest {
                         "completionState" to "ExternalActivityOpened",
                         "completionVerified" to "false",
                         "externalOutcome" to "Unknown",
+                        "externalOutcomeSource" to "Unknown",
                         "targetKind" to "AppDeepTarget",
                         "intentAction" to "android.settings.APPLICATION_DETAILS_SETTINGS",
                         "targetId" to "android_app_details_settings",
@@ -242,6 +243,7 @@ class AgentTraceStoreTest {
         assertEquals("ExternalActivityOpened", metadata.getString("completionState"))
         assertEquals("false", metadata.getString("completionVerified"))
         assertEquals("Unknown", metadata.getString("externalOutcome"))
+        assertEquals("Unknown", metadata.getString("externalOutcomeSource"))
         assertEquals("AppDeepTarget", metadata.getString("targetKind"))
         assertEquals("android.settings.APPLICATION_DETAILS_SETTINGS", metadata.getString("intentAction"))
         assertEquals("android_app_details_settings", metadata.getString("targetId"))
@@ -250,6 +252,57 @@ class AgentTraceStoreTest {
         assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, metadata.getString("recoveryToolName"))
         assertEquals("AllowlistedCompletionMetadata", metadata.getString("metadataPolicy"))
         assertEquals("false", metadata.getString("rawPayloadIncluded"))
+        assertFalse(persistedStep.json.contains("secret payload"))
+        assertFalse(persistedStep.json.contains("private?q=secret"))
+        assertFalse(metadata.has("rawText"))
+        assertFalse(metadata.has("rawUri"))
+    }
+
+    @Test
+    fun roomStorePersistsExternalOutcomeConfirmationWithAllowlistedMetadataOnly() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-external-outcome" },
+        )
+        val run = store.createRun("open app")
+
+        store.appendStep(
+            run.id,
+            AgentStep.ExternalOutcomeConfirmed(
+                requestId = "request-open",
+                outcome = AgentExternalOutcome.Completed,
+                result = ToolResult(
+                    requestId = "request-open",
+                    status = ToolStatus.Succeeded,
+                    summary = "外部动作结果已由用户确认：目标应用中的操作已完成",
+                    data = mapOf(
+                        "toolName" to MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                        "completionState" to "ExternalActivityOpened",
+                        "completionVerified" to "true",
+                        "externalOutcome" to "Completed",
+                        "externalOutcomeSource" to "UserConfirmed",
+                        "targetKind" to "AppDeepTarget",
+                        "intentAction" to "android.intent.action.VIEW",
+                        "metadataPolicy" to "AllowlistedCompletionMetadata",
+                        "rawPayloadIncluded" to "false",
+                        "rawUri" to "https://example.com/private?q=secret",
+                        "rawText" to "secret payload",
+                    ),
+                ),
+            ),
+        )
+
+        val persistedStep = store.stepSummaries(run.id).single()
+        val json = JSONObject(persistedStep.json)
+        val metadata = json.getJSONObject("completionMetadata")
+
+        assertEquals("ExternalOutcomeConfirmed", persistedStep.type)
+        assertEquals("request-open", json.getString("requestId"))
+        assertEquals("Completed", json.getString("outcome"))
+        assertEquals("true", metadata.getString("completionVerified"))
+        assertEquals("Completed", metadata.getString("externalOutcome"))
+        assertEquals("UserConfirmed", metadata.getString("externalOutcomeSource"))
         assertFalse(persistedStep.json.contains("secret payload"))
         assertFalse(persistedStep.json.contains("private?q=secret"))
         assertFalse(metadata.has("rawText"))

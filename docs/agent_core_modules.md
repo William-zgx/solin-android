@@ -899,14 +899,19 @@ Current status:
   pages instead of downgrading them to a generic app launch.
 - External Activity tool results now make this launch-only completion explicit
   with allowlisted metadata: `completionState`, `completionVerified=false`,
-  `externalOutcome=Unknown`, `targetKind`, and safe target identifiers such as
-  URI scheme/host, package name, or app target id. Agent trace persists only
-  that allowlisted metadata, not raw payload text or original URI paths/query
-  strings.
+  `externalOutcome=Unknown`, `externalOutcomeSource=Unknown`, `targetKind`,
+  and safe target identifiers such as URI scheme/host, package name, or app
+  target id. Agent trace persists only that allowlisted metadata, not raw
+  payload text or original URI paths/query strings.
 - Agent observation, UI status, and audit summaries now consume launch-only
   metadata directly. When an external activity is opened but completion is not
   verified, PocketMind reports that boundary explicitly and does not auto-plan
   a next tool from that unverified result.
+- After an external Activity/share sheet/draft page opens, the UI asks the user
+  to record whether the target-side operation completed, did not complete, or
+  merely opened. This appends an audited `ExternalOutcomeConfirmed` trace step
+  with `externalOutcomeSource=UserConfirmed`; only `Completed` sets
+  `completionVerified=true` and can unlock the next Agent tool plan.
 - Special-app-access flow is modeled for both Usage Access
   (`query_foreground_app`) and Accessibility screen text
   (`read_current_screen_text`): the confirmation UI warns with a

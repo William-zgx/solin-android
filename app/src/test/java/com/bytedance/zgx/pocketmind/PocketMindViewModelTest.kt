@@ -45,6 +45,8 @@ import com.bytedance.zgx.pocketmind.multimodal.SharedAttachmentKind
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
 import com.bytedance.zgx.pocketmind.multimodal.SharedTextPreview
 import com.bytedance.zgx.pocketmind.multimodal.SharedTextPreviewSource
+import com.bytedance.zgx.pocketmind.orchestration.AgentExternalOutcome
+import com.bytedance.zgx.pocketmind.orchestration.AgentExternalOutcomeResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
@@ -72,6 +74,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolSpec
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
+import com.bytedance.zgx.pocketmind.tool.EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
 import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import java.io.File
 import kotlinx.coroutines.awaitCancellation
@@ -2447,9 +2450,19 @@ class PocketMindViewModelTest {
                 "completionState" to "ExternalActivityOpened",
                 "completionVerified" to "false",
                 "externalOutcome" to "Unknown",
+                "externalOutcomeSource" to "Unknown",
             ),
         )
         val assistantMessage = "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：${result.summary}"
+        val confirmedMessage = "$EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX：目标应用中的操作已完成"
+        val confirmedResult = result.copy(
+            summary = confirmedMessage,
+            data = result.data + mapOf(
+                "completionVerified" to "true",
+                "externalOutcome" to "Completed",
+                "externalOutcomeSource" to "UserConfirmed",
+            ),
+        )
         val assistantRouter = FakeAssistantRouter(
             routeResult = AssistantRoute.Action(
                 runId = "run-share",
@@ -2469,6 +2482,13 @@ class PocketMindViewModelTest {
                 run = AgentRun("run-share", "分享这段文字", AgentRunState.Completed, 1L, 3L),
                 result = result,
                 assistantMessage = assistantMessage,
+                decision = AgentObservationDecision.Complete,
+                steps = emptyList(),
+            ),
+            externalOutcomeResult = AgentExternalOutcomeResult(
+                run = AgentRun("run-share", "分享这段文字", AgentRunState.Completed, 1L, 4L),
+                result = confirmedResult,
+                assistantMessage = confirmedMessage,
                 decision = AgentObservationDecision.Complete,
                 steps = emptyList(),
             ),
@@ -2494,8 +2514,22 @@ class PocketMindViewModelTest {
         advanceUntilIdle()
 
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        val pendingOutcome = viewModel.uiState.value.pendingExternalOutcome
+        requireNotNull(pendingOutcome)
+        assertEquals("run-share", pendingOutcome.runId)
+        assertEquals(request.id, pendingOutcome.requestId)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, pendingOutcome.toolName)
         assertTrue(sessionStore.messages.last().text.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
         assertTrue(viewModel.uiState.value.statusText.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
+
+        viewModel.recordExternalOutcome(pendingOutcome, AgentExternalOutcome.Completed)
+        advanceUntilIdle()
+
+        assertEquals(1, assistantRouter.recordExternalOutcomeCallCount)
+        assertEquals(AgentExternalOutcome.Completed, assistantRouter.lastExternalOutcome)
+        assertEquals(null, viewModel.uiState.value.pendingExternalOutcome)
+        assertTrue(sessionStore.messages.last().text.startsWith(EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX))
+        assertTrue(viewModel.uiState.value.statusText.startsWith(EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX))
     }
 
     @Test
@@ -4491,6 +4525,7 @@ class PocketMindViewModelTest {
         private val toolObservationsByRunId: Map<String, AgentObservationResult> = emptyMap(),
         private val modelObservation: AgentModelObservationResult? = null,
         private val modelToolObservation: AgentModelObservationResult? = null,
+        private val externalOutcomeResult: AgentExternalOutcomeResult? = null,
         private val restoredPendingRoute: AssistantRoute.Action? = null,
         private val recoveryRoute: AssistantRoute? = null,
         private val recentTraceRuns: List<AgentTraceRunSummary> = emptyList(),
@@ -4513,7 +4548,11 @@ class PocketMindViewModelTest {
             private set
         var failPendingCallCount: Int = 0
             private set
+        var recordExternalOutcomeCallCount: Int = 0
+            private set
         var lastObservedResult: ToolResult? = null
+            private set
+        var lastExternalOutcome: AgentExternalOutcome? = null
             private set
         var lastObservedModelToolRequest: ToolRequest? = null
             private set
@@ -4672,6 +4711,18 @@ class PocketMindViewModelTest {
             lastObservedResult = result
             return (toolObservationsByRunId[runId] ?: toolObservation).also { observation ->
                 recordRun(observation?.run)
+            }
+        }
+
+        override fun recordExternalOutcome(
+            runId: String,
+            requestId: String,
+            outcome: AgentExternalOutcome,
+        ): AgentExternalOutcomeResult? {
+            recordExternalOutcomeCallCount += 1
+            lastExternalOutcome = outcome
+            return externalOutcomeResult.also { result ->
+                recordRun(result?.run)
             }
         }
 

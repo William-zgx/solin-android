@@ -65,6 +65,12 @@ interface AssistantRouter : AutoCloseable {
 
     fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult?
 
+    fun recordExternalOutcome(
+        runId: String,
+        requestId: String,
+        outcome: AgentExternalOutcome,
+    ): AgentExternalOutcomeResult?
+
     fun observeModelResult(runId: String, text: String): AgentModelObservationResult?
 
     fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult?
@@ -148,6 +154,13 @@ class AssistantOrchestrator(
 
     override fun observeToolResult(runId: String, result: ToolResult): AgentObservationResult? =
         agentLoopRuntime.observeToolResult(runId, result)
+
+    override fun recordExternalOutcome(
+        runId: String,
+        requestId: String,
+        outcome: AgentExternalOutcome,
+    ): AgentExternalOutcomeResult? =
+        agentLoopRuntime.recordExternalOutcome(runId, requestId, outcome)
 
     override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? =
         agentLoopRuntime.observeModelResult(runId, text)

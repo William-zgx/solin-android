@@ -40,6 +40,7 @@ private val toolObservedCompletionMetadataAllowlist = listOf(
     "completionVerified",
     "exceptionType",
     "externalOutcome",
+    "externalOutcomeSource",
     "intentAction",
     "metadataPolicy",
     "ocrTextIncluded",
@@ -987,6 +988,7 @@ private fun AgentStep.traceType(): String =
         is AgentStep.UserConfirmed -> "UserConfirmed"
         is AgentStep.UserRejected -> "UserRejected"
         is AgentStep.ToolObserved -> "ToolObserved"
+        is AgentStep.ExternalOutcomeConfirmed -> "ExternalOutcomeConfirmed"
         is AgentStep.ToolRetryScheduled -> "ToolRetryScheduled"
         is AgentStep.ObservationDecided -> "ObservationDecided"
         is AgentStep.AssistantResponded -> "AssistantResponded"
@@ -1010,6 +1012,8 @@ private fun AgentStep.traceSummary(): String =
         is AgentStep.UserConfirmed -> "User confirmed request $requestId."
         is AgentStep.UserRejected -> "User rejected request $requestId."
         is AgentStep.ToolObserved -> "Observed ${result.status} for ${result.requestId}: ${result.summary.shortTraceText()}"
+        is AgentStep.ExternalOutcomeConfirmed ->
+            "External outcome ${outcome.name} confirmed for $requestId."
         is AgentStep.ToolRetryScheduled -> "Retry $attempt scheduled for ${request.toolName}: ${reason.shortTraceText()}"
         is AgentStep.ObservationDecided -> decision.traceSummary()
         is AgentStep.AssistantResponded -> "Assistant responded: ${text.shortTraceText()}"
@@ -1074,6 +1078,18 @@ private fun AgentStep.traceJson(type: String): JSONObject {
             .put("status", result.status.name)
             .put("summary", result.summary.shortTraceText())
             .put("retryable", result.retryable)
+            .also {
+                val metadata = result.data.allowlistedCompletionMetadataJson()
+                if (metadata.length() > 0) {
+                    it.put("completionMetadata", metadata)
+                }
+            }
+
+        is AgentStep.ExternalOutcomeConfirmed -> json
+            .put("requestId", requestId)
+            .put("outcome", outcome.name)
+            .put("status", result.status.name)
+            .put("summary", result.summary.shortTraceText())
             .also {
                 val metadata = result.data.allowlistedCompletionMetadataJson()
                 if (metadata.length() > 0) {

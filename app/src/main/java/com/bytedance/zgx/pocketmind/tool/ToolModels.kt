@@ -39,11 +39,22 @@ data class ToolResult(
 
 const val UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX =
     "已打开外部界面，但无法确认目标应用中的后续操作是否完成"
+const val EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX =
+    "外部动作结果已由用户确认"
 
 fun ToolResult.isUnverifiedExternalLaunch(): Boolean =
     status == ToolStatus.Succeeded &&
         data["completionState"] == "ExternalActivityOpened" &&
-        data["completionVerified"] == "false"
+        data["completionVerified"] == "false" &&
+        data["externalOutcome"] == "Unknown" &&
+        data["externalOutcomeSource"] == "Unknown"
+
+fun ToolResult.isUserConfirmedCompletedExternalOutcome(): Boolean =
+    status == ToolStatus.Succeeded &&
+        data["completionState"] == "ExternalActivityOpened" &&
+        data["completionVerified"] == "true" &&
+        data["externalOutcome"] == "Completed" &&
+        data["externalOutcomeSource"] == "UserConfirmed"
 
 fun ToolResult.unverifiedExternalLaunchSummary(): String =
     "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：$summary"

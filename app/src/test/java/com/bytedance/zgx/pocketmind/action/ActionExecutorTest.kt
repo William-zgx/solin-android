@@ -652,6 +652,7 @@ class ActionExecutorTest {
         assertEquals("ExternalActivityOpened", data["completionState"])
         assertEquals("false", data["completionVerified"])
         assertEquals("Unknown", data["externalOutcome"])
+        assertEquals("Unknown", data["externalOutcomeSource"])
         assertEquals(targetKind, data["targetKind"])
         assertEquals(intentAction, data["intentAction"])
         assertEquals("AllowlistedCompletionMetadata", data["metadataPolicy"])
@@ -665,6 +666,8 @@ class ActionExecutorTest {
     ) {
         assertEquals("NotStarted", data["completionState"])
         assertEquals("false", data["completionVerified"])
+        assertEquals("Unknown", data["externalOutcome"])
+        assertEquals("Unknown", data["externalOutcomeSource"])
         assertEquals(targetKind, data["targetKind"])
         assertEquals(intentAction, data["intentAction"])
         assertEquals("AllowlistedCompletionMetadata", data["metadataPolicy"])

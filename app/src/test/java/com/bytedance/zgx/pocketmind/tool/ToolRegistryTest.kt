@@ -668,6 +668,81 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun externalActivityOutputRequiresClosedOutcomeMetadata() {
+        val spec = registry.specFor(MobileActionFunctions.WEB_SEARCH)
+        assertNotNull(spec)
+        requireNotNull(spec)
+        val properties = JSONObject(spec.outputSchemaJson).getJSONObject("properties")
+        assertTrue(properties.getJSONObject("externalOutcome").getJSONArray("enum").containsString("Unknown"))
+        assertTrue(properties.getJSONObject("externalOutcome").getJSONArray("enum").containsString("Completed"))
+        assertTrue(properties.getJSONObject("externalOutcome").getJSONArray("enum").containsString("NotCompleted"))
+        assertTrue(properties.getJSONObject("externalOutcome").getJSONArray("enum").containsString("OpenedOnly"))
+        assertTrue(properties.getJSONObject("externalOutcomeSource").getJSONArray("enum").containsString("Unknown"))
+        assertTrue(properties.getJSONObject("externalOutcomeSource").getJSONArray("enum").containsString("UserConfirmed"))
+
+        val request = ToolRequest(
+            id = "external-output-contract",
+            toolName = MobileActionFunctions.WEB_SEARCH,
+            arguments = mapOf("query" to "Kotlin"),
+            reason = "schema contract",
+        )
+        val launchOnlyData = externalActivityOutputData(request.toolName)
+        assertNull(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(summary = "opened search", data = launchOnlyData),
+            ),
+        )
+        assertNull(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "completed search",
+                    data = launchOnlyData + mapOf(
+                        "completionVerified" to "true",
+                        "externalOutcome" to "Completed",
+                        "externalOutcomeSource" to "UserConfirmed",
+                    ),
+                ),
+            ),
+        )
+        assertInvalidResult(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "invalid unknown verified",
+                    data = launchOnlyData + ("completionVerified" to "true"),
+                ),
+            ),
+            "externalOutcome",
+        )
+        assertInvalidResult(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "invalid completed source",
+                    data = launchOnlyData + mapOf(
+                        "completionVerified" to "true",
+                        "externalOutcome" to "Completed",
+                        "externalOutcomeSource" to "Unknown",
+                    ),
+                ),
+            ),
+            "externalOutcome",
+        )
+        assertInvalidResult(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "invalid outcome enum",
+                    data = launchOnlyData + ("externalOutcome" to "Opened"),
+                ),
+            ),
+            "externalOutcome",
+        )
+    }
+
+    @Test
     fun validateResultRejectsMissingOrWrongSuccessOutputData() {
         val request = ToolRequest(
             id = "clipboard-output-contract",
@@ -1244,6 +1319,19 @@ class ToolRegistryTest {
 
         assertNull(valid)
     }
+
+    private fun externalActivityOutputData(toolName: String): Map<String, String> =
+        mapOf(
+            "toolName" to toolName,
+            "completionState" to "ExternalActivityOpened",
+            "completionVerified" to "false",
+            "externalOutcome" to "Unknown",
+            "externalOutcomeSource" to "Unknown",
+            "targetKind" to "browser_search",
+            "intentAction" to "android.intent.action.WEB_SEARCH",
+            "metadataPolicy" to "AllowlistedCompletionMetadata",
+            "rawPayloadIncluded" to "false",
+        )
 
     private fun assertInvalidResult(result: ToolResult?, expectedField: String) {
         assertNotNull(result)

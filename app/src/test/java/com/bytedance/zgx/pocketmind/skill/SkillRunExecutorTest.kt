@@ -729,10 +729,11 @@ class SkillRunExecutorTest {
             "toolName" to toolName,
             "completionState" to "ExternalActivityOpened",
             "completionVerified" to "false",
-            "externalOutcome" to "user_continues_in_external_activity",
+            "externalOutcome" to "Unknown",
+            "externalOutcomeSource" to "Unknown",
             "targetKind" to "android_chooser",
             "intentAction" to "android.intent.action.SEND",
-            "metadataPolicy" to "no_raw_payload_persisted",
+            "metadataPolicy" to "AllowlistedCompletionMetadata",
             "rawPayloadIncluded" to "false",
         )
 

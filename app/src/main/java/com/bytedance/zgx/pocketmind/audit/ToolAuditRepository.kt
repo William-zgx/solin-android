@@ -5,6 +5,7 @@ import com.bytedance.zgx.pocketmind.data.ToolAuditDao
 import com.bytedance.zgx.pocketmind.data.ToolAuditEventEntity
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
+import com.bytedance.zgx.pocketmind.tool.EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
 import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 
 class ToolAuditRepository(
@@ -89,6 +90,9 @@ class ToolAuditRepository(
             ToolAuditEventType.ToolObserved.name ->
                 toolObservedDisplaySummary()
 
+            ToolAuditEventType.ExternalOutcomeConfirmed.name ->
+                "用户已确认外部动作结果。"
+
             ToolAuditEventType.ToolRetryScheduled.name ->
                 "工具失败后已安排有界重试。"
 
@@ -100,6 +104,8 @@ class ToolAuditRepository(
         when (status) {
             ToolStatus.Succeeded.name -> if (summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX)) {
                 "外部界面已打开，最终结果未验证。"
+            } else if (summary.startsWith(EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX)) {
+                "外部动作结果已由用户确认。"
             } else if (toolName == MobileActionFunctions.SCHEDULE_REMINDER ||
                 toolName == MobileActionFunctions.CANCEL_REMINDER
             ) {

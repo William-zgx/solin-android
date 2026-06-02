@@ -35,6 +35,8 @@ import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import com.bytedance.zgx.pocketmind.tool.cancelled
+import com.bytedance.zgx.pocketmind.tool.EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
+import com.bytedance.zgx.pocketmind.tool.isUserConfirmedCompletedExternalOutcome
 import com.bytedance.zgx.pocketmind.tool.isUnverifiedExternalLaunch
 import com.bytedance.zgx.pocketmind.tool.rejected
 import com.bytedance.zgx.pocketmind.tool.unverifiedExternalLaunchSummary
@@ -354,6 +356,80 @@ class AgentLoopRuntime(
             allowedStates = setOf(AgentRunState.ExecutingTool, AgentRunState.RetryingTool),
         )
 
+    fun recordExternalOutcome(
+        runId: String,
+        requestId: String,
+        outcome: AgentExternalOutcome,
+    ): AgentExternalOutcomeResult? {
+        val run = traceStore.run(runId) ?: return null
+        val request = toolRequestFor(runId, requestId) ?: return null
+        if (latestExternalOutcomeConfirmation(runId, requestId) != null) return null
+        val priorResult = latestUnverifiedExternalResult(runId, requestId) ?: return null
+        val summary = "$EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX：${outcome.userFacingLabel}"
+        val result = priorResult.copy(
+            summary = summary,
+            data = priorResult.data + mapOf(
+                "completionVerified" to outcome.completionVerified.toString(),
+                "externalOutcome" to outcome.metadataValue,
+                "externalOutcomeSource" to "UserConfirmed",
+            ),
+        )
+        val safeResult = toolRegistry.validateResult(request, result) ?: result
+        if (safeResult.status != ToolStatus.Succeeded) return null
+        val traceResult = safeResult.redactedForTrace(request)
+        traceStore.appendStep(runId, AgentStep.ExternalOutcomeConfirmed(requestId, outcome, traceResult))
+        auditToolRequest(
+            runId = runId,
+            request = request,
+            eventType = ToolAuditEventType.ExternalOutcomeConfirmed,
+            status = traceResult.status,
+            summary = traceResult.summary,
+        )
+        val nextToolPlan = if (traceResult.isUserConfirmedCompletedExternalOutcome()) {
+            planNextToolAfterObservation(run, request, traceResult)
+        } else {
+            NextObservationPlan.None
+        }
+        val decision = when (nextToolPlan) {
+            NextObservationPlan.None -> AgentObservationDecision.Complete
+            is NextObservationPlan.Planned -> AgentObservationDecision.PlanNextTool(
+                plan = nextToolPlan.plan,
+                reason = traceResult.summary,
+            )
+
+            is NextObservationPlan.Rejected -> AgentObservationDecision.Fail(nextToolPlan.reason)
+        }
+        if (decision is AgentObservationDecision.PlanNextTool) {
+            appendToolPlanSteps(
+                runId = runId,
+                plan = decision.plan,
+            )
+        }
+        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        val finalState = when (decision) {
+            AgentObservationDecision.Complete -> AgentRunState.Completed
+            is AgentObservationDecision.PlanNextTool -> AgentRunState.AwaitingUserConfirmation
+            is AgentObservationDecision.Fail -> AgentRunState.Failed
+            AgentObservationDecision.Cancel -> AgentRunState.Cancelled
+            is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
+            is AgentObservationDecision.RetryTool -> AgentRunState.RetryingTool
+        }
+        val updatedRun = traceStore.updateState(runId, finalState)
+        if (finalState in terminalRunStates) {
+            valueFreeCompletedStepFrontiersByRunId.remove(runId)
+        }
+        if (decision is AgentObservationDecision.PlanNextTool) {
+            traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
+        }
+        return AgentExternalOutcomeResult(
+            run = updatedRun,
+            result = traceResult,
+            assistantMessage = traceResult.summary,
+            decision = decision,
+            steps = traceStore.steps(runId),
+        )
+    }
+
     fun observeModelResult(runId: String, text: String): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.GeneratingAnswer) return null
@@ -521,7 +597,7 @@ class AgentLoopRuntime(
         }
         val nextToolPlan = if (
             observedResult.status == ToolStatus.Succeeded &&
-            !observedResult.isUnverifiedExternalLaunch() &&
+            canPlanNextToolAfterObservation(request, observedResult) &&
             retryRequest == null &&
             continuationPrompt == null
         ) {
@@ -574,7 +650,7 @@ class AgentLoopRuntime(
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
         }
         val updatedRun = traceStore.updateState(runId, finalState)
-        if (finalState in terminalRunStates) {
+        if (finalState in terminalRunStates && !observedResult.isUnverifiedExternalLaunch()) {
             valueFreeCompletedStepFrontiersByRunId.remove(runId)
         }
         if (decision is AgentObservationDecision.PlanNextTool) {
@@ -666,6 +742,17 @@ class AgentLoopRuntime(
             skillPlan = skillPlan,
         )
     }
+
+    private fun canPlanNextToolAfterObservation(
+        request: ToolRequest,
+        result: ToolResult,
+    ): Boolean {
+        if (!request.startsExternalActivity()) return true
+        return result.isUserConfirmedCompletedExternalOutcome()
+    }
+
+    private fun ToolRequest.startsExternalActivity(): Boolean =
+        toolRegistry.specFor(toolName)?.permissions?.contains(ToolPermission.StartsExternalActivity) == true
 
     private fun planNextToolStepFromCurrentSkill(
         run: AgentRun,
@@ -1544,6 +1631,22 @@ class AgentLoopRuntime(
         toolRequestsFor(runId)
             .firstOrNull { request -> request.id == requestId }
 
+    private fun latestUnverifiedExternalResult(runId: String, requestId: String): ToolResult? =
+        traceStore.steps(runId)
+            .asReversed()
+            .asSequence()
+            .mapNotNull { step -> (step as? AgentStep.ToolObserved)?.result }
+            .firstOrNull { result ->
+                result.requestId == requestId && result.isUnverifiedExternalLaunch()
+            }
+
+    private fun latestExternalOutcomeConfirmation(runId: String, requestId: String): AgentStep.ExternalOutcomeConfirmed? =
+        traceStore.steps(runId)
+            .asReversed()
+            .asSequence()
+            .mapNotNull { step -> step as? AgentStep.ExternalOutcomeConfirmed }
+            .firstOrNull { step -> step.requestId == requestId }
+
     private fun toolRequestsFor(runId: String): List<ToolRequest> =
         traceStore.steps(runId)
             .asSequence()
@@ -1614,6 +1717,23 @@ class AgentLoopRuntime(
             .asSequence()
             .mapNotNull { step -> (step as? AgentStep.SkillPlanned)?.plan }
             .lastOrNull()
+
+    private val AgentExternalOutcome.metadataValue: String
+        get() = when (this) {
+            AgentExternalOutcome.Completed -> "Completed"
+            AgentExternalOutcome.NotCompleted -> "NotCompleted"
+            AgentExternalOutcome.OpenedOnly -> "OpenedOnly"
+        }
+
+    private val AgentExternalOutcome.completionVerified: Boolean
+        get() = this == AgentExternalOutcome.Completed
+
+    private val AgentExternalOutcome.userFacingLabel: String
+        get() = when (this) {
+            AgentExternalOutcome.Completed -> "目标应用中的操作已完成"
+            AgentExternalOutcome.NotCompleted -> "目标应用中的操作未完成"
+            AgentExternalOutcome.OpenedOnly -> "只确认外部界面已打开"
+        }
 }
 
 fun AgentLoopResult.toAssistantRoute(): AssistantRoute =

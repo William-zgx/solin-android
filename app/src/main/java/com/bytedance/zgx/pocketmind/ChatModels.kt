@@ -132,6 +132,14 @@ data class PendingAgentConfirmation(
     val fallbackReason: String?,
 )
 
+data class PendingExternalOutcomeConfirmation(
+    val runId: String,
+    val requestId: String,
+    val toolName: String,
+    val title: String,
+    val summary: String,
+)
+
 data class InstalledModelSummary(
     val id: String,
     val displayName: String,
@@ -174,6 +182,7 @@ data class ChatUiState(
     val auditEvents: List<AuditEventSummary> = emptyList(),
     val agentTraceRuns: List<AgentTraceRunUiSummary> = emptyList(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
+    val pendingExternalOutcome: PendingExternalOutcomeConfirmation? = null,
     val latestRecoveryAction: AgentRecoveryAction? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,
     val remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),

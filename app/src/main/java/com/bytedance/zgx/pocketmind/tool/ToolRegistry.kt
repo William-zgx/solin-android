@@ -106,6 +106,17 @@ class ToolRegistry private constructor(
                 retryable = false,
             )
         }
+        externalActivityResultInvariant(definition.spec, request, result)?.let { reason ->
+            val summary = "Tool ${request.toolName} returned invalid result: $reason"
+            return ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Failed,
+                summary = summary,
+                data = mapOf("toolName" to request.toolName),
+                error = ToolError(ToolErrorCode.InvalidResult, summary),
+                retryable = false,
+            )
+        }
 
         return null
     }
@@ -168,6 +179,38 @@ class ToolRegistry private constructor(
     companion object {
         fun fromSupportedActions(supportedActions: Set<String> = MobileActionFunctions.supported): ToolRegistry =
             ToolRegistry(definitionsFor(supportedActions))
+    }
+}
+
+private fun externalActivityResultInvariant(
+    spec: ToolSpec,
+    request: ToolRequest,
+    result: ToolResult,
+): String? {
+    if (ToolPermission.StartsExternalActivity !in spec.permissions) return null
+    val completionState = result.data["completionState"] ?: return null
+    if (completionState != "ExternalActivityOpened") return null
+    val completionVerified = result.data["completionVerified"]?.toBooleanStrictOrNull()
+        ?: return "Tool ${request.toolName} result completionVerified must be true or false"
+    val externalOutcome = result.data["externalOutcome"]
+    val externalOutcomeSource = result.data["externalOutcomeSource"]
+    return when {
+        externalOutcomeSource == "Unknown" && externalOutcome != "Unknown" ->
+            "external outcome source Unknown requires externalOutcome=Unknown"
+
+        externalOutcomeSource == "UserConfirmed" && externalOutcome == "Unknown" ->
+            "user-confirmed external outcome cannot be Unknown"
+
+        completionVerified && externalOutcome != "Completed" ->
+            "completionVerified=true requires externalOutcome=Completed"
+
+        !completionVerified && externalOutcome == "Completed" ->
+            "externalOutcome=Completed requires completionVerified=true"
+
+        completionVerified && externalOutcomeSource != "UserConfirmed" ->
+            "completionVerified=true requires externalOutcomeSource=UserConfirmed"
+
+        else -> null
     }
 }
 
@@ -882,6 +925,7 @@ private val externalActivityOutputSchemaJson = """
         "completionState",
         "completionVerified",
         "externalOutcome",
+        "externalOutcomeSource",
         "targetKind",
         "intentAction",
         "metadataPolicy",
@@ -891,7 +935,8 @@ private val externalActivityOutputSchemaJson = """
         "toolName": {"type": "string", "minLength": 1},
         "completionState": {"type": "string", "enum": ["ExternalActivityOpened"]},
         "completionVerified": {"type": "boolean"},
-        "externalOutcome": {"type": "string"},
+        "externalOutcome": {"type": "string", "enum": ["Unknown", "Completed", "NotCompleted", "OpenedOnly"]},
+        "externalOutcomeSource": {"type": "string", "enum": ["Unknown", "UserConfirmed"]},
         "targetKind": {"type": "string", "minLength": 1},
         "intentAction": {"type": "string", "minLength": 1},
         "metadataPolicy": {"type": "string", "minLength": 1},

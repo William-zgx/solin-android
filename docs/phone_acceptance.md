@@ -170,6 +170,7 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 - “启动微信” 或指定合法包名的 App 启动请求应通过 Skill-first 先出现确认；确认后只打开应用启动页，不接受任意 activity/action/data/extras。
 - “打开微信应用详情设置” 或指定合法包名的 `android_app_details_settings` 请求应通过 Skill-first 先出现确认；确认后只打开白名单固定目标，不接受任意 targetId、URI、activity/action/data/extras。微信小程序、支付码、App 内设置或故障/文档问题不应降级成打开 App。
 - 外部 Activity、分享面板、草稿页或 App 启动页打开后，UI、Agent trace 和 audit 只能说明“外部界面已打开，最终结果未验证”；不应声称分享、发送、保存或目标 App 内操作已经完成，也不应基于该未验证结果自动规划下一步工具。
+- 对上述 launch-only 结果，UI 应要求用户显式记录“已完成 / 未完成 / 只是打开了”。只有用户选择“已完成”后，trace/audit 才能记录 `externalOutcomeSource=UserConfirmed`、`completionVerified=true`，并允许 Agent 继续规划依赖该外部动作完成的下一步；“未完成”和“只是打开了”只记录结果，不应继续规划下一步工具。
 - 未知工具、缺少参数或没有可处理 Intent 的设备，应显示明确失败原因，不应崩溃。
 - 工具参数错误、权限拒绝或 provider 失败应返回结构化失败；校验拒绝时不应执行 delegate。
 - 支持的动作应能在 Agent trace 中形成 `ToolRequested -> UserConfirmed -> ToolObserved -> AssistantResponded` 顺序。
