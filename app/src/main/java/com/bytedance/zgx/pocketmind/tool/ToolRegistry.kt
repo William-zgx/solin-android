@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.tool
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import java.time.Instant
 import org.json.JSONObject
 
 class ToolRegistry private constructor(
@@ -242,6 +243,7 @@ private data class ToolArgumentValidator(
                     maxLength = propertyJson.optIntOrNull("maxLength"),
                     pattern = propertyJson.optStringOrNull("pattern")?.let(::Regex),
                     enum = propertyJson.optStringSetOrNull("enum")?.toSet(),
+                    format = propertyJson.optStringOrNull("format"),
                     minimum = propertyJson.optDoubleOrNull("minimum"),
                     maximum = propertyJson.optDoubleOrNull("maximum"),
                     exclusiveMinimum = propertyJson.optDoubleOrNull("exclusiveMinimum"),
@@ -313,6 +315,7 @@ private data class ToolResultDataValidator(
                     maxLength = propertyJson.optIntOrNull("maxLength"),
                     pattern = propertyJson.optStringOrNull("pattern")?.let(::Regex),
                     enum = propertyJson.optStringSetOrNull("enum")?.toSet(),
+                    format = propertyJson.optStringOrNull("format"),
                     minimum = propertyJson.optDoubleOrNull("minimum"),
                     maximum = propertyJson.optDoubleOrNull("maximum"),
                     exclusiveMinimum = propertyJson.optDoubleOrNull("exclusiveMinimum"),
@@ -340,6 +343,7 @@ private data class PropertyRule(
     val maxLength: Int?,
     val pattern: Regex?,
     val enum: Set<String>?,
+    val format: String?,
     val minimum: Double?,
     val maximum: Double?,
     val exclusiveMinimum: Double?,
@@ -364,7 +368,7 @@ private data class PropertyRule(
                         if (pattern != null && !pattern.matches(value)) {
                             "Tool $toolName $valueKind $valueName does not match required pattern"
                         } else {
-                            null
+                            validateStringFormat(toolName, valueKind, valueName, value)
                         }
                     }
                 }
@@ -447,6 +451,23 @@ private data class PropertyRule(
         }
         return null
     }
+
+    private fun validateStringFormat(
+        toolName: String,
+        valueKind: String,
+        valueName: String,
+        value: String,
+    ): String? =
+        when (format) {
+            null -> null
+            "date-time" -> runCatching { Instant.parse(value) }
+                .fold(
+                    onSuccess = { null },
+                    onFailure = { "Tool $toolName $valueKind $valueName must be an ISO-8601 date-time" },
+                )
+
+            else -> null
+        }
 }
 
 private fun JSONObject.keysSet(): Set<String> {

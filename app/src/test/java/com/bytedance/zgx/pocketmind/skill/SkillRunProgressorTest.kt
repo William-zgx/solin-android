@@ -292,6 +292,87 @@ class SkillRunProgressorTest {
     }
 
     @Test
+    fun nextToolAfterToolResultUsesValueFreeSatisfiedStepsWithoutRecoveringOutputValues() {
+        val readStep = SkillStep.ToolStep(
+            id = "read",
+            request = ToolRequest(
+                id = "read-request",
+                toolName = MobileActionFunctions.READ_CLIPBOARD,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.READ_CLIPBOARD,
+                title = "读取剪贴板",
+                summary = "读取剪贴板。",
+                parameters = emptyMap(),
+            ),
+        )
+        val modelStep = SkillStep.ModelStep(
+            id = "model",
+            dependsOn = listOf(readStep.id),
+            title = "摘要剪贴板",
+            instruction = "摘要剪贴板。",
+            inputBindings = mapOf("text" to "read.text"),
+            outputKey = "shareText",
+        )
+        val wifiStep = SkillStep.ToolStep(
+            id = "wifi",
+            dependsOn = listOf(modelStep.id),
+            request = ToolRequest(
+                id = "wifi-request",
+                toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                title = "打开 Wi-Fi 设置",
+                summary = "打开 Wi-Fi 设置。",
+                parameters = emptyMap(),
+            ),
+        )
+        val shareStep = SkillStep.ToolStep(
+            id = "share",
+            dependsOn = listOf(modelStep.id, wifiStep.id),
+            request = ToolRequest(
+                id = "share-request",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.SHARE_TEXT,
+                title = "分享摘要",
+                summary = "分享摘要。",
+                parameters = emptyMap(),
+            ),
+            argumentBindings = mapOf("text" to "model.shareText"),
+        )
+        val plan = twoToolPlan(
+            skillId = "value_free_frontier_skill",
+            requiredTools = listOf(
+                MobileActionFunctions.READ_CLIPBOARD,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                MobileActionFunctions.SHARE_TEXT,
+            ),
+            steps = listOf(readStep, modelStep, wifiStep, shareStep),
+        )
+
+        val progression = progressor.nextToolAfterToolResult(
+            skillPlan = plan,
+            requestedRequestIds = setOf(readStep.request.id, wifiStep.request.id),
+            result = ToolResult(
+                requestId = wifiStep.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    "completionState" to "ExternalActivityOpened",
+                ),
+            ),
+            satisfiedStepIds = setOf(modelStep.id),
+        )
+
+        require(progression is SkillToolResultProgression.Rejected)
+        assertEquals("Missing tool result binding for skill step.", progression.reason)
+    }
+
+    @Test
     fun bindsModelOutputToDependentToolRequestAndDraft() {
         val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
         val readStep = plan.steps[0] as SkillStep.ToolStep

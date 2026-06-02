@@ -97,6 +97,7 @@ class SkillRunProgressor(
         skillPlan: SkillPlan,
         requestedRequestIds: Set<String>,
         result: ToolResult,
+        satisfiedStepIds: Set<String> = emptySet(),
     ): SkillToolResultProgression {
         if (result.status != ToolStatus.Succeeded) return SkillToolResultProgression.None
         if (result.requestId !in requestedRequestIds) {
@@ -114,12 +115,15 @@ class SkillRunProgressor(
             .filterIsInstance<SkillStep.ToolStep>()
             .filter { step -> step.request.id in requestedRequestIds }
             .mapTo(mutableSetOf()) { step -> step.id }
+        val satisfiedDependencyStepIds = requestedToolStepIds + satisfiedStepIds
         val nextToolStep = skillPlan.steps
             .drop(currentStepIndex + 1)
             .filterIsInstance<SkillStep.ToolStep>()
             .firstOrNull { step -> step.request.id !in requestedRequestIds }
             ?: return SkillToolResultProgression.None
-        val unmetDependencies = nextToolStep.dependsOn.filter { dependency -> dependency !in requestedToolStepIds }
+        val unmetDependencies = nextToolStep.dependsOn.filter { dependency ->
+            dependency !in satisfiedDependencyStepIds
+        }
         if (unmetDependencies.isNotEmpty()) {
             return SkillToolResultProgression.Rejected(
                 "Unmet skill dependency for ${nextToolStep.id}: ${unmetDependencies.joinToString()}",

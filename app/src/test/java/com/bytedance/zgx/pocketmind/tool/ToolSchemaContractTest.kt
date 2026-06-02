@@ -176,8 +176,37 @@ class ToolSchemaContractTest {
         }
     }
 
+    @Test
+    fun stringFormatsDeclaredInSchemasAreEnforcedByRegistry() {
+        registry.specs().forEach { spec ->
+            val schema = JSONObject(spec.inputSchemaJson)
+            val properties = schema.optJSONObject("properties") ?: JSONObject()
+            val requiredProperties = schema.optStringSet("required")
+            val minimalValidArguments = requiredProperties.associateWith { propertyName ->
+                validValueFor(properties.getJSONObject(propertyName))
+            }
+
+            properties.keysSet().forEach { propertyName ->
+                val property = properties.optJSONObject(propertyName) ?: return@forEach
+                val invalidValue = invalidFormatValueFor(property.optStringOrNull("format")) ?: return@forEach
+                val rejection = registry.validate(
+                    ToolRequest(
+                        id = "format-${spec.name}-$propertyName",
+                        toolName = spec.name,
+                        arguments = minimalValidArguments + (propertyName to invalidValue),
+                        reason = "schema contract",
+                    ),
+                )
+
+                assertNotNull("${spec.name} should enforce format for $propertyName", rejection)
+            }
+        }
+    }
+
     private fun validValueFor(property: JSONObject): String {
         property.optStringSet("enum").firstOrNull()?.let { return it }
+
+        validFormatValueFor(property.optStringOrNull("format"))?.let { return it }
 
         val pattern = property.optStringOrNull("pattern")
         if (pattern != null) {
@@ -202,6 +231,8 @@ class ToolSchemaContractTest {
     private fun invalidValueFor(property: JSONObject): String? {
         val enum = property.optStringSet("enum")
         if (enum.isNotEmpty()) return "__invalid_enum__"
+
+        invalidFormatValueFor(property.optStringOrNull("format"))?.let { return it }
 
         property.optStringOrNull("pattern")?.let(::firstInvalidValueFor)?.let { return it }
 
@@ -228,6 +259,18 @@ class ToolSchemaContractTest {
         listOf("", " ", "0", "-1", "1.5", "abc")
             .firstOrNull { !Regex(pattern).matches(it) }
             ?: error("No invalid fixture value for pattern $pattern")
+
+    private fun validFormatValueFor(format: String?): String? =
+        when (format) {
+            "date-time" -> "2026-06-02T00:00:00Z"
+            else -> null
+        }
+
+    private fun invalidFormatValueFor(format: String?): String? =
+        when (format) {
+            "date-time" -> "tomorrow morning"
+            else -> null
+        }
 
     private fun JSONObject.keysSet(): Set<String> {
         val result = linkedSetOf<String>()

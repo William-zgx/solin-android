@@ -5158,3 +5158,43 @@ git diff --check
 - 通过：定向 memory/action/skill/tool/agent-loop JVM 回归。
 - 通过：diff whitespace 检查。
 - 通过：全量 JVM 单测和 AndroidTest Kotlin 编译。
+
+## 2026-06-02 Value-free Skill frontier recovery
+
+本轮覆盖项：
+
+- `SkillRunProgressor.nextToolAfterToolResult` 新增 value-free `satisfiedStepIds`
+  输入，只用于依赖满足，不注入任何旧工具或模型输出值。
+- `AgentLoopRuntime.latestPendingConfirmation()` 在恢复 pending Skill 确认时缓存
+  checkpoint 的 `completedStepIds` frontier；用户重新确认并观察当前工具成功后，
+  后续 no-payload 工具可继续规划。
+- 如果后续工具参数依赖旧模型输出或私密工具输出，恢复后的 frontier 只会满足依赖，
+  但 binding 因缺少真实输出值而 fail closed，不生成外发 payload 确认卡。
+- `ToolRegistry` 轻量 schema 校验器开始执行 `format: date-time`，避免
+  `query_calendar_availability.start/end` 这类 allowlisted pending 参数以畸形值
+  跨重启恢复到确认态。
+- `ToolSchemaContractTest` 同步覆盖 schema `format` fixture 与注册表 enforcement，
+  防止后续声明格式但注册表未执行。
+- Room pending 恢复新增矩阵覆盖全部非空 `ToolSpec.pendingArgumentAllowlist`：
+  app launch/app details、calendar availability、recent notifications/files/OCR、
+  current-screen text 和 cancel reminder。测试同时断言 reason/title/summary 与
+  `nextActionInput` 不持久化。
+
+验证命令：
+
+```bash
+./gradlew testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredValueFreeModelFrontierLetsMiddleToolContinueToNextNoPayloadTool' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredValueFreeFrontierDoesNotRecoverModelOutputForPayloadBinding'
+```
+
+结果：
+
+- 通过：定向 ToolRegistry / TraceStore / SkillRunProgressor / Agent loop frontier
+  恢复回归。
+- 通过：`AgentCoreDocumentationTest` 文档契约。
+- 通过：`git diff --check` whitespace 检查。
+- 通过：全量 `./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin`。

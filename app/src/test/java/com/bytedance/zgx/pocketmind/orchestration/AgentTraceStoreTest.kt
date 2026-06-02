@@ -494,6 +494,157 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreRestoresEveryToolSpecAllowlistedPendingArgumentShape() {
+        val cases = listOf(
+            PendingAllowlistCase(
+                toolName = MobileActionFunctions.OPEN_APP_INTENT,
+                arguments = mapOf("packageName" to "com.example.app"),
+            ),
+            PendingAllowlistCase(
+                toolName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                arguments = mapOf(
+                    "targetId" to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
+                    "packageName" to "com.example.app",
+                ),
+            ),
+            PendingAllowlistCase(
+                toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+                arguments = mapOf(
+                    "start" to "2026-06-02T09:00:00Z",
+                    "end" to "2026-06-02T10:00:00Z",
+                ),
+            ),
+            PendingAllowlistCase(
+                toolName = MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+                arguments = mapOf("maxCount" to "5"),
+            ),
+            PendingAllowlistCase(
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to "screenshots", "maxCount" to "3"),
+            ),
+            PendingAllowlistCase(
+                toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+                arguments = mapOf("maxCount" to "1"),
+            ),
+            PendingAllowlistCase(
+                toolName = MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+                arguments = mapOf("maxCount" to "3"),
+            ),
+            PendingAllowlistCase(
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                arguments = mapOf("maxChars" to "1200"),
+            ),
+            PendingAllowlistCase(
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+                arguments = mapOf("taskId" to "task-allowlisted"),
+            ),
+        )
+
+        cases.forEachIndexed { index, case ->
+            val dao = FakeAgentTraceDao()
+            val store = RoomAgentTraceStore(
+                traceDao = dao,
+                runIdFactory = { "run-allowlisted-$index" },
+            )
+            val run = store.updateState(
+                store.createRun("restore ${case.toolName}").id,
+                AgentRunState.AwaitingUserConfirmation,
+            )
+            val request = ToolRequest(
+                id = "request-allowlisted-$index",
+                toolName = case.toolName,
+                arguments = case.arguments,
+                reason = "Sensitive reason for ${case.toolName}",
+            )
+            val draft = ActionDraft(
+                functionName = case.toolName,
+                title = "Sensitive title for ${case.toolName}",
+                summary = "Sensitive summary for ${case.toolName}",
+                parameters = case.arguments,
+            )
+
+            store.savePendingConfirmation(
+                PendingToolConfirmationSnapshot(
+                    run = run,
+                    request = request,
+                    draft = draft,
+                    skillId = null,
+                    plannedByModel = false,
+                    fallbackReason = null,
+                    nextActionInput = "private next action should not persist",
+                ),
+            )
+
+            val persisted = dao.latestPendingConfirmation()
+            requireNotNull(persisted)
+            assertEquals(case.arguments, JSONObject(persisted.argumentsJson).toStringMapForTest())
+            assertEquals(case.arguments, JSONObject(persisted.draftParametersJson).toStringMapForTest())
+            assertFalse(persisted.reason.contains("Sensitive reason"))
+            assertFalse(persisted.draftTitle.contains("Sensitive title"))
+            assertFalse(persisted.draftSummary.contains("Sensitive summary"))
+            assertNull(persisted.nextActionInput)
+
+            val restored = RoomAgentTraceStore(traceDao = dao).latestPendingConfirmation()
+            requireNotNull(restored)
+            assertEquals(run.id, restored.run.id)
+            assertEquals(request.id, restored.request.id)
+            assertEquals(case.toolName, restored.request.toolName)
+            assertEquals(case.arguments, restored.request.arguments)
+            assertEquals(case.arguments, restored.draft.parameters)
+            assertNull(restored.nextActionInput)
+        }
+    }
+
+    @Test
+    fun roomStoreFailsAllowlistedPendingWhenPersistedValuesDoNotPassSchema() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-invalid-allowlisted" },
+        )
+        val run = store.updateState(
+            store.createRun("查询最近秘密文件").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+        val request = ToolRequest(
+            id = "request-invalid-recent-files",
+            toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+            arguments = mapOf("kind" to "secrets", "maxCount" to "3"),
+            reason = "Query invalid recent file kind",
+        )
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = run,
+                request = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.QUERY_RECENT_FILES,
+                    title = "查询最近文件",
+                    summary = "查询 secrets",
+                    parameters = request.arguments,
+                ),
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+            ),
+        )
+
+        val persisted = dao.latestPendingConfirmation()
+        requireNotNull(persisted)
+        assertFalse(persisted.argumentsJson.contains("secrets"))
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        assertNull(restartedStore.latestPendingConfirmation())
+        assertEquals(AgentRunState.Failed, restartedStore.run(run.id)?.state)
+        assertTrue(restartedStore.steps(run.id).any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("Pending tool confirmation could not be restored")
+        })
+        assertTrue(dao.pendingConfirmations().isEmpty())
+    }
+
+    @Test
     fun roomStoreFailsScheduleReminderPendingWithoutPersistingReminderPayload() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(
@@ -1726,6 +1877,14 @@ class AgentTraceStoreTest {
         assertEquals(keptRequest.id, store.latestPendingConfirmation("session-keep")?.request?.id)
         assertEquals(1, dao.skillRunCheckpointsForRun(keptRun.id).size)
     }
+
+    private data class PendingAllowlistCase(
+        val toolName: String,
+        val arguments: Map<String, String>,
+    )
+
+    private fun JSONObject.toStringMapForTest(): Map<String, String> =
+        keys().asSequence().associateWith { key -> getString(key) }
 
     private fun agentSkillRunCheckpointEntity(
         runId: String,

@@ -3430,6 +3430,174 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun restoredValueFreeModelFrontierLetsMiddleToolContinueToNextNoPayloadTool() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = ValueFreeFrontierSkillRuntime(),
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-value-free-frontier" },
+            ),
+        )
+        val planned = initialRuntime.runOnce(
+            input = ValueFreeFrontierSkillRuntime.INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.READ_CLIPBOARD, planned.plan.request.toolName)
+
+        initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val readObserved = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = clipboardResultData("frontier clipboard text"),
+            ),
+        )
+        requireNotNull(readObserved)
+        assertEquals(AgentRunState.GeneratingAnswer, readObserved.run.state)
+
+        val modelObserved = initialRuntime.observeModelResult(
+            runId = planned.run.id,
+            text = "SECRET_FRONTIER_MODEL_OUTPUT",
+        )
+        requireNotNull(modelObserved)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, modelObserved.run.state)
+        require(modelObserved.decision is AgentObservationDecision.PlanNextTool)
+        val wifiPlan = modelObserved.decision.plan
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wifiPlan.request.toolName)
+        assertEquals(
+            listOf("frontier_read", "frontier_model"),
+            dao.skillRunCheckpoint(planned.run.id, wifiPlan.request.id)?.completedStepIdsJson
+                ?.let { org.json.JSONArray(it).toStringListForTest() },
+        )
+        val persistedBeforeRestart = dao.steps(planned.run.id).joinToString("\n") { step -> step.json }
+        assertFalse(persistedBeforeRestart.contains("SECRET_FRONTIER_MODEL_OUTPUT"))
+
+        val restoredTraceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 2_000L },
+        )
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = ValueFreeFrontierSkillRuntime(),
+            traceStore = restoredTraceStore,
+        )
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(restoredPending)
+        assertEquals(wifiPlan.request.id, restoredPending.request.id)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, restoredPending.request.toolName)
+        assertEquals(listOf("frontier_read", "frontier_model"), restoredPending.skillRunCheckpoint?.completedStepIds)
+
+        restoredRuntime.confirmToolRequest(restoredPending.run.id, restoredPending.request.id)
+        val flashlightObserved = restoredRuntime.observeToolResult(
+            runId = restoredPending.run.id,
+            result = ToolResult(
+                requestId = restoredPending.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+
+        requireNotNull(flashlightObserved)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, flashlightObserved.run.state)
+        require(flashlightObserved.decision is AgentObservationDecision.PlanNextTool)
+        val flashlightPlan = flashlightObserved.decision.plan
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, flashlightPlan.request.toolName)
+        assertTrue(flashlightPlan.request.arguments.isEmpty())
+        assertFalse(
+            restoredTraceStore.steps(planned.run.id).joinToString("\n") { step -> step.toString() }
+                .contains("SECRET_FRONTIER_MODEL_OUTPUT"),
+        )
+    }
+
+    @Test
+    fun restoredValueFreeFrontierDoesNotRecoverModelOutputForPayloadBinding() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = ValueFreeFrontierSkillRuntime(nextStepBindsModelPayload = true),
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-value-free-payload-frontier" },
+            ),
+        )
+        val planned = initialRuntime.runOnce(
+            input = ValueFreeFrontierSkillRuntime.INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val readObserved = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取剪贴板文本",
+                data = clipboardResultData("frontier clipboard text"),
+            ),
+        )
+        requireNotNull(readObserved)
+        initialRuntime.observeModelResult(
+            runId = planned.run.id,
+            text = "SECRET_FRONTIER_SHARE_TEXT",
+        )
+        val persistedPending = dao.latestPendingConfirmation()
+        requireNotNull(persistedPending)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, persistedPending.toolName)
+
+        val restoredTraceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 2_000L },
+        )
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = ValueFreeFrontierSkillRuntime(nextStepBindsModelPayload = true),
+            traceStore = restoredTraceStore,
+        )
+        val restoredPending = restoredRuntime.latestPendingConfirmation()
+        requireNotNull(restoredPending)
+        restoredRuntime.confirmToolRequest(restoredPending.run.id, restoredPending.request.id)
+        val failed = restoredRuntime.observeToolResult(
+            runId = restoredPending.run.id,
+            result = ToolResult(
+                requestId = restoredPending.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+
+        requireNotNull(failed)
+        assertEquals(AgentRunState.Failed, failed.run.state)
+        require(failed.decision is AgentObservationDecision.Fail)
+        assertTrue(failed.decision.reason.contains("Missing tool result binding"))
+        assertNull(restoredRuntime.latestPendingConfirmation())
+        assertTrue(restoredTraceStore.steps(planned.run.id).none { step ->
+            step is AgentStep.ToolRequested && step.request.toolName == MobileActionFunctions.SHARE_TEXT
+        })
+        assertFalse(
+            restoredTraceStore.steps(planned.run.id).joinToString("\n") { step -> step.toString() }
+                .contains("SECRET_FRONTIER_SHARE_TEXT"),
+        )
+        assertTrue(dao.pendingConfirmations().isEmpty())
+    }
+
+    @Test
     fun restoredClipboardSummarySharePendingFailsClosedAfterRestart() {
         val dao = FakeAgentTraceDao()
         val auditSink = InMemoryToolAuditSink()
@@ -5495,6 +5663,9 @@ class AgentLoopRuntimeTest {
         )
     }
 
+    private fun org.json.JSONArray.toStringListForTest(): List<String> =
+        (0 until length()).map { index -> getString(index) }
+
     private data class SkillFirstDraftCase(
         val input: String,
         val toolName: String,
@@ -6041,6 +6212,146 @@ class AgentLoopRuntimeTest {
 
         companion object {
             const val SKILL_ID = "custom_clipboard_transform_skill"
+        }
+    }
+
+    private class ValueFreeFrontierSkillRuntime(
+        private val nextStepBindsModelPayload: Boolean = false,
+    ) : SkillRuntime {
+        private val finalToolName = if (nextStepBindsModelPayload) {
+            MobileActionFunctions.SHARE_TEXT
+        } else {
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS
+        }
+        private val manifest = SkillManifest(
+            id = SKILL_ID,
+            version = 1,
+            title = "Value-free frontier skill",
+            description = "Test-only skill for checkpoint frontier recovery",
+            triggerExamples = listOf(INPUT),
+            requiredTools = listOf(
+                MobileActionFunctions.READ_CLIPBOARD,
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                finalToolName,
+            ),
+            inputSchemaJson = """
+                {
+                  "type": "object",
+                  "required": ["input"],
+                  "properties": {
+                    "input": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
+            """.trimIndent(),
+            riskLevel = if (nextStepBindsModelPayload) {
+                RiskLevel.HighExternalSend
+            } else {
+                RiskLevel.MediumDraftOrNavigation
+            },
+        )
+
+        override fun manifests(): List<SkillManifest> = listOf(manifest)
+
+        override fun plan(input: String): SkillPlan? {
+            if (input != INPUT) return null
+            val readDraft = ActionDraft(
+                functionName = MobileActionFunctions.READ_CLIPBOARD,
+                title = "读取剪贴板",
+                summary = "将读取当前剪贴板文本。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            val readStep = SkillStep.ToolStep(
+                id = "frontier_read",
+                request = ToolRequest(
+                    id = "frontier-read-request",
+                    toolName = MobileActionFunctions.READ_CLIPBOARD,
+                    reason = readDraft.summary,
+                ),
+                draft = readDraft,
+            )
+            val wifiDraft = ActionDraft(
+                functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                title = "打开 Wi-Fi 设置",
+                summary = "将打开系统 Wi-Fi 设置页。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            val wifiStep = SkillStep.ToolStep(
+                id = "frontier_wifi",
+                dependsOn = listOf("frontier_model"),
+                request = ToolRequest(
+                    id = "frontier-wifi-request",
+                    toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    reason = wifiDraft.summary,
+                ),
+                draft = wifiDraft,
+            )
+            val finalDraft = if (nextStepBindsModelPayload) {
+                ActionDraft(
+                    functionName = MobileActionFunctions.SHARE_TEXT,
+                    title = "分享恢复摘要",
+                    summary = "将分享模型生成的摘要。",
+                    parameters = emptyMap(),
+                    requiresConfirmation = true,
+                )
+            } else {
+                ActionDraft(
+                    functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+                    title = "打开手电筒设置",
+                    summary = "将打开系统设置，由你手动确认手电筒相关操作。",
+                    parameters = emptyMap(),
+                    requiresConfirmation = true,
+                )
+            }
+            val finalStep = SkillStep.ToolStep(
+                id = "frontier_final",
+                dependsOn = listOf("frontier_model", "frontier_wifi"),
+                request = ToolRequest(
+                    id = "frontier-final-request",
+                    toolName = finalToolName,
+                    reason = finalDraft.summary,
+                ),
+                draft = finalDraft,
+                argumentBindings = if (nextStepBindsModelPayload) {
+                    mapOf("text" to "frontier_model.shareText")
+                } else {
+                    emptyMap()
+                },
+            )
+            return SkillPlan(
+                request = SkillRequest(
+                    id = "frontier-skill-request",
+                    skillId = SKILL_ID,
+                    arguments = mapOf("input" to input),
+                    reason = input,
+                ),
+                manifest = manifest,
+                steps = listOf(
+                    readStep,
+                    SkillStep.ModelStep(
+                        id = "frontier_model",
+                        dependsOn = listOf("frontier_read"),
+                        title = "摘要剪贴板",
+                        instruction = "生成一个后续步骤可使用的摘要。",
+                        inputBindings = mapOf("clipboardText" to "frontier_read.text"),
+                        outputKey = "shareText",
+                    ),
+                    wifiStep,
+                    finalStep,
+                ),
+            )
+        }
+
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+
+        companion object {
+            const val INPUT = "value-free frontier skill"
+            const val SKILL_ID = "value_free_frontier_skill"
         }
     }
 

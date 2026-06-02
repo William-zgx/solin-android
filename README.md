@@ -21,7 +21,9 @@ Google AI Edge LiteRT-LM.
 - Value-free Skill checkpoint persistence records only run/request/step ids,
   manifest identity, output keys, and private-output refs for pending Skill
   confirmations; raw continuation outputs and executable payload values stay
-  out of Room and fail closed on mismatch.
+  out of Room and fail closed on mismatch. Restored Skill confirmations can use
+  the checkpoint's completed-step frontier to satisfy later step dependencies
+  without restoring any prior output values.
 - JVM tool executor matrix tests cover registry validation, routing, permission
   failures, provider failures, structured error codes, and LocalOnly device
   context outputs.
@@ -271,9 +273,11 @@ ingestion, bounded RTF/PDF text-layer, PDF scanned-page OCR fallback, and
 Office Open XML excerpts,
 system speech-recognition input,
 confirmed recent screenshot/image OCR, and restart restoration for the latest
-pending tool confirmation without auto-execution, plus confirmed current-screen
-Accessibility text snapshot reads and current-screen text summary sharing.
-Broad semantic screen understanding, generalized typed run recovery, complete
+pending tool confirmation without auto-execution, value-free completed-step
+frontier recovery for restored Skill confirmations, plus confirmed
+current-screen Accessibility text snapshot reads and current-screen text summary
+sharing.
+Broad semantic screen understanding, arbitrary argument-bearing typed run recovery, complete
 document parsing, screenshot capture/current-screen semantic understanding,
 PDF layout parsing, legacy Office parsing, full rich-text fidelity, image
 semantic understanding, arbitrary-media OCR beyond user-provided PDF/image

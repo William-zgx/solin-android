@@ -1101,6 +1101,23 @@ class ToolRegistryTest {
         assertEquals(ToolStatus.Rejected, missingEnd.status)
         assertTrue(missingEnd.summary.contains("end"))
 
+        val invalidStart = registry.validate(
+            ToolRequest(
+                id = "request-calendar-invalid-start",
+                toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+                arguments = mapOf(
+                    "start" to "tomorrow morning",
+                    "end" to "2026-06-01T10:00:00Z",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidStart)
+        requireNotNull(invalidStart)
+        assertEquals(ToolStatus.Rejected, invalidStart.status)
+        assertTrue(invalidStart.summary.contains("start"))
+        assertTrue(invalidStart.summary.contains("date-time"))
+
         val valid = registry.validate(
             ToolRequest(
                 id = "request-calendar-valid",

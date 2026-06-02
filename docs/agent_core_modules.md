@@ -148,6 +148,12 @@ Current status:
 - Generic Skill model continuations also honor tool-result privacy metadata:
   `privacy=LocalOnly` or `requiresLocalModel=true` forces the continuation to
   stay local even when the `ModelStep` is otherwise marked remote-eligible.
+- Restored Skill pending confirmations now carry a value-free completed-step
+  frontier from their checkpoint. The Agent loop can use those completed step
+  ids to satisfy dependencies after the user reconfirms the restored tool, but
+  it still does not restore prior tool/model output values. Follow-up tools that
+  only need the current tool result or no payload can continue; tools whose
+  arguments depend on old model/private output fail closed.
 - Unknown tool-result privacy metadata fails closed as `LocalOnly` before any
   remote continuation, matching the stored-message privacy boundary.
 - Retryable local read failures now schedule one bounded retry on the already
@@ -401,9 +407,9 @@ Current status:
 - Planned-tool audit persistence stores parameter-free planned/confirmation
   summaries; tool arguments remain out of persisted audit text.
 - Open-ended autonomous model-driven replanning beyond the bounded
-  observation-draft path, cross-restart arbitrary multi-confirmation skill
-  continuation, and full argument-bearing typed step rehydration are still
-  pending.
+  observation-draft path, cross-restart arbitrary payload-bearing
+  multi-confirmation skill continuation, and full argument-bearing typed step
+  rehydration are still pending.
 
 Tests:
 

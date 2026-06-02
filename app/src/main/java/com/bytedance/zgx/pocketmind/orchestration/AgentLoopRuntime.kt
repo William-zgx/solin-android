@@ -53,6 +53,7 @@ class AgentLoopRuntime(
     private val maxToolRetryAttempts: Int = 1,
 ) {
     private val skillProgressor = SkillRunProgressor(toolRegistry = toolRegistry)
+    private val valueFreeCompletedStepFrontiersByRunId = mutableMapOf<String, Set<String>>()
 
     @Suppress("UNUSED_PARAMETER")
     fun runOnce(
@@ -276,6 +277,9 @@ class AgentLoopRuntime(
             is AgentObservationDecision.RetryTool -> AgentRunState.RetryingTool
         }
         val updatedRun = traceStore.updateState(runId, finalState)
+        if (finalState in terminalRunStates) {
+            valueFreeCompletedStepFrontiersByRunId.remove(runId)
+        }
         if (decision is AgentObservationDecision.PlanNextTool) {
             traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
         }
@@ -440,6 +444,9 @@ class AgentLoopRuntime(
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
         }
         val updatedRun = traceStore.updateState(runId, finalState)
+        if (finalState in terminalRunStates) {
+            valueFreeCompletedStepFrontiersByRunId.remove(runId)
+        }
         if (decision is AgentObservationDecision.PlanNextTool) {
             traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
         }
@@ -540,6 +547,7 @@ class AgentLoopRuntime(
             skillPlan = skillPlan,
             requestedRequestIds = requestedRequestIds,
             result = result,
+            satisfiedStepIds = valueFreeCompletedStepFrontiersByRunId[run.id].orEmpty(),
         )) {
             SkillToolResultProgression.None -> null
             is SkillToolResultProgression.Rejected ->
@@ -739,6 +747,16 @@ class AgentLoopRuntime(
 
     fun latestPendingConfirmation(sessionId: String? = null): PendingToolConfirmationSnapshot? =
         traceStore.latestPendingConfirmation(sessionId)
+            ?.also { snapshot -> rememberValueFreeFrontier(snapshot) }
+
+    private fun rememberValueFreeFrontier(snapshot: PendingToolConfirmationSnapshot) {
+        val completedStepIds = snapshot.skillRunCheckpoint?.completedStepIds.orEmpty().toSet()
+        if (completedStepIds.isEmpty()) {
+            valueFreeCompletedStepFrontiersByRunId.remove(snapshot.run.id)
+        } else {
+            valueFreeCompletedStepFrontiersByRunId[snapshot.run.id] = completedStepIds
+        }
+    }
 
     private fun AgentPlan.UseTool.toPendingSnapshot(run: AgentRun): PendingToolConfirmationSnapshot =
         PendingToolConfirmationSnapshot(
@@ -1289,6 +1307,12 @@ class AgentLoopRuntime(
     private data class ToolObservationContinuation(
         val prompt: String,
         val requiresLocalModel: Boolean,
+    )
+
+    private val terminalRunStates = setOf(
+        AgentRunState.Completed,
+        AgentRunState.Cancelled,
+        AgentRunState.Failed,
     )
 
     private fun ToolResult.requiresLocalModelContinuation(): Boolean =
