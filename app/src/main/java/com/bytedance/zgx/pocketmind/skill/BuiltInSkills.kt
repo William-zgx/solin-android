@@ -343,18 +343,12 @@ private fun String.requestsCurrentScreenTextSummaryShare(): Boolean {
 }
 
 private fun String.currentScreenTextReferences(normalized: String): Boolean =
-    listOf(
-        "当前屏幕",
-        "当前界面",
-        "现在屏幕",
-        "屏幕内容",
-        "屏幕文字",
-        "屏幕文本",
-        "这个界面",
-    ).any { marker -> marker in this } ||
-        Regex("""\b(current|active|this)\s+(screen|page|window|view)\b""", RegexOption.IGNORE_CASE)
+    Regex("""(?:当前屏幕|当前界面|现在屏幕|这个界面|屏幕)(?:\s|的|上|里|中|内)*(?:可访问|无障碍)?(?:文字|文本)|(?:文字|文本)(?:\s|来自|取自|读取自|在)*(?:当前屏幕|当前界面|现在屏幕|这个界面|屏幕)""")
+        .containsMatchIn(this) ||
+        Regex("""(?:可访问|无障碍)(?:文字|文本)""").containsMatchIn(this) ||
+        Regex("""\b(?:current\s+)?screen\s+text\b|\b(?:current|active|this)\s+(?:screen|page|window|view)\s+(?:visible\s+|accessibility\s+|accessible\s+)?text\b|\btext\s+(?:from|on|in|of)\s+(?:the\s+)?(?:current|active|this)\s+(?:screen|page|window|view)\b""", RegexOption.IGNORE_CASE)
             .containsMatchIn(normalized) ||
-        Regex("""\bcurrent\s+(?:visible|accessibility|accessible)\s+text\b""", RegexOption.IGNORE_CASE)
+        Regex("""\b(?:current\s+)?(?:visible|accessibility|accessible)\s+text\b""", RegexOption.IGNORE_CASE)
             .containsMatchIn(normalized)
 
 private fun String.looksLikeCurrentScreenTextSummaryShareNonAction(normalized: String): Boolean =

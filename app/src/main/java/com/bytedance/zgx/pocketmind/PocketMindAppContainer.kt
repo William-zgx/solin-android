@@ -36,6 +36,7 @@ import com.bytedance.zgx.pocketmind.orchestration.CompositeAgentObservationRepla
 import com.bytedance.zgx.pocketmind.orchestration.ModelObservationReplanner
 import com.bytedance.zgx.pocketmind.orchestration.RoomAgentTraceStore
 import com.bytedance.zgx.pocketmind.orchestration.SequentialActionObservationReplanner
+import com.bytedance.zgx.pocketmind.runtime.LiteRtEmbeddingRuntimeFactory
 import com.bytedance.zgx.pocketmind.runtime.OkHttpRemoteChatRuntime
 import com.bytedance.zgx.pocketmind.runtime.RealLiteRtRuntime
 import com.bytedance.zgx.pocketmind.tool.ValidatingToolExecutor
@@ -84,6 +85,7 @@ class PocketMindAppContainer(context: Context) {
         localRuntime = RealLiteRtRuntime(appContext.cacheDir)
         remoteRuntime = OkHttpRemoteChatRuntime()
         memoryRepository = MemoryRepository(
+            semanticRuntimeFactory = LiteRtEmbeddingRuntimeFactory::create,
             recordStore = RoomMemoryRecordStore(database.memoryRecordDao()),
         )
         toolAuditRepository = ToolAuditRepository(database.toolAuditDao())

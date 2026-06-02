@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.memory
 
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.MessageRole
+import com.bytedance.zgx.pocketmind.runtime.LiteRtEmbeddingRuntimeFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -380,6 +381,64 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun productionLiteRtEmbeddingFactoryFailsClosedToLexicalRecall() {
+        val repository = MemoryRepository(
+            semanticRuntimeFactory = LiteRtEmbeddingRuntimeFactory::create,
+        )
+        repository.indexPreference("pref", "I prefer concise answers")
+
+        repository.useMemoryModel("/verified/memory.litertlm")
+
+        assertTrue(repository.canLoadSemanticMemoryRuntime)
+        assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
+        assertNull(repository.activeMemoryModelPath)
+        assertTrue(repository.search("laconic replies").isEmpty())
+        val aliasHits = repository.search("brief replies")
+        assertEquals(listOf("pref"), aliasHits.map { it.id })
+        assertEquals(MemoryRecallMode.Lexical, aliasHits.single().recallMode)
+    }
+
+    @Test
+    fun activeSemanticRuntimeQueryFailureFallsBackToLexicalRecall() {
+        val repository = MemoryRepository(
+            semanticRuntimeFactory = { FailingOnBriefQueryEmbeddingRuntime() },
+        )
+        repository.indexPreference("pref", "I prefer concise answers")
+        repository.useMemoryModel("/verified/memory.litertlm")
+        assertTrue(repository.semanticMemoryEnabled)
+
+        val hits = repository.search("brief replies")
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
+        assertNull(repository.activeMemoryModelPath)
+        assertEquals(listOf("pref"), hits.map { it.id })
+        assertEquals(MemoryRecallMode.Lexical, hits.single().recallMode)
+    }
+
+    @Test
+    fun activeSemanticRuntimeIndexFailurePersistsAndFallsBackToLexicalRecall() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(
+            recordStore = store,
+            semanticRuntimeFactory = { FailingOnConciseEmbeddingRuntime() },
+        )
+        repository.useMemoryModel("/verified/memory.litertlm")
+        assertTrue(repository.semanticMemoryEnabled)
+
+        repository.indexPreference("pref", "I prefer concise answers")
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
+        assertNull(repository.activeMemoryModelPath)
+        assertEquals(listOf("pref"), repository.savedRecords().map { it.id })
+        val hits = repository.search("brief replies")
+        assertEquals(listOf("pref"), hits.map { it.id })
+        assertEquals(MemoryRecallMode.Lexical, hits.single().recallMode)
+    }
+
+    @Test
     fun verifiedMemoryModelPathWithoutSemanticRuntimeDoesNotEnableSemanticRecallAfterRebuild() {
         val store = FakeMemoryRecordStore()
         val writer = MemoryRepository(recordStore = store)
@@ -715,6 +774,20 @@ class MemoryRepositoryTest {
         override fun embed(text: String): FloatArray {
             check("concise" !in text.lowercase()) { "semantic runtime failed" }
             return floatArrayOf(0f, 1f)
+        }
+    }
+
+    private class FailingOnBriefQueryEmbeddingRuntime : EmbeddingRuntime {
+        override val supportsSemanticRecall: Boolean = true
+        override val semanticScoreThreshold: Float = 0.9f
+
+        override fun embed(text: String): FloatArray {
+            val lower = text.lowercase()
+            check("brief" !in lower) { "semantic runtime failed" }
+            return when {
+                "concise" in lower -> floatArrayOf(1f, 0f)
+                else -> floatArrayOf(0f, 1f)
+            }
         }
     }
 }

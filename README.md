@@ -114,10 +114,12 @@ older conflicting preferences instead of accumulating contradictory records.
 `忘记：...` / `forget ...` can delete the matching explicit preference through
 the same local-only command path without invoking the chat/action router or a
 remote model.
-The semantic-memory boundary can verify a downloaded MemoryEmbedding asset, but
-production does not yet wire a LiteRT embedding runtime. Installing the memory
-asset only changes asset/status reporting; recall falls back to the lightweight
-index until a runtime reports active. Mobile actions can use the
+The semantic-memory boundary can verify a downloaded MemoryEmbedding asset and
+production wires a fail-closed LiteRT embedding runtime factory. The current
+LiteRT-LM artifact exposes chat/generation APIs but no public embedding vector
+API, so installing the memory asset reports a runtime load failure and recall
+falls back to the lightweight index until a real embedding runtime reports
+active. Mobile actions can use the
 verified action model as an experimental planner; if it is missing or does not
 produce a supported
 `call:function {...}` draft, PocketMind falls back to deterministic local rules
@@ -214,7 +216,10 @@ immediate local continuation. It is not screenshot capture, OCR, pixel
 analysis, or semantic screen understanding; raw `screenText` must not enter
 trace, audit, persisted tool-observation messages, or remote model requests.
 Accessibility access is modeled as special access, not an Android runtime
-permission.
+permission. Ambiguous screen-understanding requests such as “总结当前屏幕内容”,
+“summarize current screen content”, “summarize this page”, or “describe current
+screen” do not trigger this tool unless the user explicitly asks for current
+screen text / visible text / Accessibility text.
 Requests such as “总结当前屏幕文字并分享” use one constrained composite flow:
 after the user confirms the current-screen Accessibility text read, PocketMind
 summarizes locally, then opens a second confirmation for `share_text` with the
@@ -296,7 +301,9 @@ The downloaded files are large:
 | 高质量对话 E4B | upstream `.litertlm` chat model | about 3.66 GB |
 
 The memory embedding model is currently a downloadable/verifiable asset for
-future semantic recall; it is not loaded by production memory retrieval yet.
+future semantic recall; production probes it through a fail-closed factory, but
+the current LiteRT-LM SDK surface cannot return embedding vectors, so retrieval
+continues to use the lightweight index.
 Use Wi-Fi and keep enough free device storage for the model and runtime cache.
 Model files are intentionally not committed to this repository and should not
 be bundled into the APK.

@@ -356,7 +356,8 @@ Current status:
 - Explicit current-screen text requests now also have a conservative
   Skill-first path. The shared parser accepts only current-screen Accessibility
   text snapshot wording, rejects screenshot/OCR/pixel/visual/semantic
-  screen-understanding phrasing, and routes to confirmed
+  screen-understanding phrasing and ambiguous current-screen/page/content
+  requests that do not explicitly ask for text, and routes to confirmed
   `read_current_screen_text` with `LocalOnly` private `screenText` output and
   Accessibility special-access handling rather than Android runtime permission.
 - Explicit current-screen-text summary share requests now have a constrained
@@ -1058,18 +1059,22 @@ Current status:
   switching happens at model verification boundaries.
 - `MemoryRepository` implements the semantic runtime controller and can switch
   between the default hash runtime and an injected semantic runtime, re-embedding
-  current entries on switch. Production still falls back to hash unless a real
-  semantic runtime declares support for semantic recall.
+  current entries on switch. It also fails closed if an active semantic runtime
+  later throws during indexing or query embedding: the controller clears the
+  active model path, marks `RuntimeLoadFailed`, re-embeds entries with the
+  default hash runtime, and only returns lexical fallback hits.
 - The controller reports explicit runtime status:
   `NoVerifiedModel`, `RuntimeUnavailable`, `RuntimeLoadFailed`, or `Active`.
   ViewModel/UI state uses this status so a verified memory asset without an
   embedding runtime is not presented as enabled semantic recall.
-- The production app container currently passes no LiteRT embedding runtime
-  factory, so a verified `MemoryEmbedding` asset results in hash fallback and
-  `RuntimeUnavailable` rather than semantic retrieval.
-- The LiteRT embedding adapter is still not wired into runtime retrieval; a
-  downloaded memory model asset alone does not mean embedding semantics are
-  participating.
+- The production app container now passes `LiteRtEmbeddingRuntimeFactory` into
+  `MemoryRepository`. The factory is intentionally fail-closed because the
+  current LiteRT-LM SDK exposes chat/generation APIs but no public embedding
+  vector API, so a verified `MemoryEmbedding` asset results in hash fallback and
+  `RuntimeLoadFailed` rather than semantic retrieval.
+- The LiteRT embedding adapter is still waiting on a real vector-producing SDK
+  surface; a downloaded memory model asset alone does not mean embedding
+  semantics are participating.
 - UI state separates an installed memory asset from an active semantic runtime,
   and local turns produced with memory context are kept local-only so later
   remote chats do not inherit that private context through history.

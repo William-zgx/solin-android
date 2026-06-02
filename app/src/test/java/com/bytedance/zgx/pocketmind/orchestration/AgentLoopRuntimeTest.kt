@@ -1957,6 +1957,7 @@ class AgentLoopRuntimeTest {
         assertTrue(observed.continuationPromptForModel.orEmpty().contains(rawScreenText))
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("Accessibility"))
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("不是截图捕获"))
+        assertTrue(observed.continuationPromptForModel.orEmpty().contains("不是视觉/VLM 或语义屏幕理解"))
         assertEquals("[redacted]", observed.result.data["screenText"])
         val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
         assertEquals("[redacted]", toolObserved.result.data["screenText"])
@@ -5429,7 +5430,7 @@ class AgentLoopRuntimeTest {
             "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
             "privacy" to MessagePrivacy.LocalOnly.name,
             "requiresLocalModel" to "true",
-            "source" to "accessibility",
+            "source" to "accessibility_active_window",
             "maxChars" to "1200",
             "capturedAtMillis" to "1000",
             "nodeCount" to "1",

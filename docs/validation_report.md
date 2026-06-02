@@ -759,8 +759,9 @@ scripts/verify_local.sh
   `RuntimeLoadFailed` 和 `Active`；`semanticMemoryEnabled` 只在 `Active` 时为真。
 - `PocketMindViewModel`/`ChatUiState` 同步暴露 runtime status，避免把已校验
   memory asset 误显示为已启用语义召回。
-- 生产默认没有 LiteRT embedding runtime factory；已安装 memory asset 时报告
-  runtime unavailable 并回退轻量索引，测试注入 semantic runtime 才产生
+- 生产现在注入 fail-closed `LiteRtEmbeddingRuntimeFactory`；当前 LiteRT-LM
+  SDK 未暴露公开 embedding vector API，所以已安装 memory asset 时报告
+  runtime load failed 并回退轻量索引，测试注入 semantic runtime 才产生
   `MemoryRecallMode.Semantic` 命中。
 - 状态机覆盖了无 factory、load failed 后清空模型、同一路径失败后重试成功、
   Active 状态传播，以及无 runtime 时 lexical fallback 仍可用。
@@ -1075,7 +1076,8 @@ diff whitespace 检查、敏感串扫描和本地完整验证脚本通过。
   Scheduled/Running 任务状态。
 - 测试注入的 semantic runtime 启用时，embedding 输入仍使用原展示文本；检索同时保存
   原文 token 与 alias 后 token，避免 alias-only 命中被误标成普通 lexical recall。
-  生产默认仍没有 LiteRT embedding runtime factory，memory asset 不会让该路径启用。
+  生产默认使用 fail-closed LiteRT embedding runtime factory；当前 SDK 未暴露公开
+  embedding vector API，memory asset 不会让该路径启用。
 
 验证命令：
 
@@ -3025,8 +3027,8 @@ adb devices -l
 - 生产默认仍不声明语义召回已启用。安装 memory model asset 不等于 runtime 已接入；
   生产 model-path 路径上，只有 controller 成功切到 `supportsSemanticRecall=true`
   的 runtime 才产生 `MemoryRecallMode.Semantic` 命中。
-- Production `AppContainer` 仍未注入 LiteRT embedding runtime factory；verified
-  memory asset 在生产路径上会报告 runtime 不可用并回退轻量索引。
+- Production `AppContainer` 已注入 fail-closed LiteRT embedding runtime factory；
+  verified memory asset 在当前 SDK 路径上会报告 runtime load failed 并回退轻量索引。
 - `PocketMindViewModel` 在 memory rebuild 前同步 verified memory model path，确保
   启动/模型校验后的索引使用当前 runtime 边界，同时不要求聊天模型加载。
 
@@ -3441,8 +3443,9 @@ adb devices -l
 - `MemoryRepository` 将默认轻量 token/hash 召回与真正 semantic runtime
   边界拆开：hash runtime 仍要求词项重叠，声明支持 semantic recall 的 runtime
   才能用高分阈值召回无词项重叠命中。
-- Production `AppContainer` 当前未注入 LiteRT embedding runtime factory；安装并校验
-  memory model asset 不会让语义召回路径启用。
+- Production `AppContainer` 当前注入 fail-closed LiteRT embedding runtime factory；
+  安装并校验 memory model asset 不会让语义召回路径启用，除非 SDK 提供真实
+  embedding vector API 且 runtime probe 通过。
 - `MemoryHit` 标记命中来源为 `Lexical` 或 `Semantic`，便于后续接入 LiteRT
   embedding adapter 后验证真实语义召回路径。
 - 模型管理高级页的本地记忆开关不再绑定 memory model asset 安装状态；文案明确
@@ -5091,3 +5094,67 @@ scripts/test_validation_scripts.sh
 - 通过：AndroidTest 编译包含新增多步 Skill smoke。
 - 通过：`AgentCoreDocumentationTest` 文档覆盖单测。
 - 未执行真机/模拟器 instrumentation：当前 `adb devices -l` 没有列出已授权设备或模拟器。
+
+## 2026-06-02 LiteRT memory embedding fail-closed wiring
+
+本轮覆盖项：
+
+- 生产 `PocketMindAppContainer` 现在向 `MemoryRepository` 注入
+  `LiteRtEmbeddingRuntimeFactory`，让已校验 memory asset 走统一 runtime probe
+  边界。
+- `LiteRtEmbeddingRuntimeFactory` 明确 fail closed：当前 `litertlm-android`
+  公开 API 只有 chat/generation surface，未暴露 embedding vector API，因此不会伪造
+  `EmbeddingRuntime.supportsSemanticRecall`。
+- `MemoryRepository` 在 active semantic runtime 后续 query/index embedding 失败时，
+  会清除 active memory model path，标记 `RuntimeLoadFailed`，用默认 hash runtime
+  重算已有 entry，并继续返回 lexical fallback 命中。
+- 新增 JVM 单测锁定生产 factory 的 load-failed fallback、query-time runtime 失败
+  fallback，以及 index-time runtime 失败后长期记忆仍可持久化并用轻量索引召回。
+
+验证命令：
+
+```bash
+./gradlew testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest'
+```
+
+结果：
+
+- 通过：`MemoryRepositoryTest` 全类。
+
+## 2026-06-02 Current-screen Accessibility text routing hardening
+
+本轮覆盖项：
+
+- `CurrentScreenTextActionParser` 和 `current_screen_text_summary_share_skill`
+  现在只接受明确的屏幕文字/文本/可访问文本/visible text/Accessibility text 表达。
+- 模糊屏幕理解请求，如“总结当前屏幕内容”“总结这个界面”“summarize current screen
+  content”“summarize this page”“describe current screen”“what is on my
+  screen”，不再规划 `read_current_screen_text` 或当前屏幕摘要分享 Skill。
+- `read_current_screen_text` 工具标题、描述、输入/输出 schema 和 continuation prompt
+  统一为 Accessibility 可访问文本快照边界，并明确不是截图、OCR、视觉/VLM 或语义屏幕理解。
+- Tool Registry 输出合同将 `source` 固定为 `accessibility_active_window`，将
+  `metadataPolicy` 固定为
+  `accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted`；
+  `source=screenshot` 或 OCR metadata policy 会被 schema validation 拒绝。
+- Skill executor 测试 fixture 同步到新 source 合同，避免多步 Skill 把旧
+  `source=accessibility` 结果当成有效工具输出。
+
+验证命令：
+
+```bash
+./gradlew testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest'
+git diff --check
+./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin
+```
+
+结果：
+
+- 通过：定向 memory/action/skill/tool/agent-loop JVM 回归。
+- 通过：diff whitespace 检查。
+- 通过：全量 JVM 单测和 AndroidTest Kotlin 编译。

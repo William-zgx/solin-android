@@ -178,7 +178,7 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in currentScreenTextSpec.permissions)
         assertTrue(currentScreenTextSpec.inputSchemaJson.contains("\"maximum\": 4000"))
         assertTrue(currentScreenTextSpec.description.contains("Accessibility"))
-        assertTrue(currentScreenTextSpec.description.contains("不读取截图"))
+        assertTrue(currentScreenTextSpec.description.contains("不是截图"))
 
         val recentNotificationSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS)
         assertNotNull(recentNotificationSpec)
@@ -421,6 +421,89 @@ class ToolRegistryTest {
                 properties.getJSONObject("privacy").getJSONArray("enum").containsString(MessagePrivacy.LocalOnly.name),
             )
         }
+    }
+
+    @Test
+    fun currentScreenTextSchemaLocksAccessibilitySourceAndMetadataPolicy() {
+        val spec = registry.specFor(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT)
+        assertNotNull(spec)
+        requireNotNull(spec)
+
+        assertEquals("读取当前屏幕 Accessibility 可访问文本快照", spec.title)
+        assertTrue(spec.description.contains("Accessibility 可访问文本快照"))
+        assertTrue(spec.description.contains("不是截图"))
+        assertTrue(spec.description.contains("OCR"))
+        assertTrue(spec.description.contains("视觉/VLM"))
+        assertTrue(spec.description.contains("语义屏幕理解"))
+
+        val inputMaxChars = JSONObject(spec.inputSchemaJson)
+            .getJSONObject("properties")
+            .getJSONObject("maxChars")
+        assertTrue(inputMaxChars.getString("description").contains("Accessibility 可访问文本快照"))
+        assertTrue(inputMaxChars.getString("description").contains("不是截图"))
+
+        val outputProperties = JSONObject(spec.outputSchemaJson).getJSONObject("properties")
+        val sourceEnum = outputProperties.getJSONObject("source").getJSONArray("enum")
+        assertEquals(1, sourceEnum.length())
+        assertTrue(sourceEnum.containsString("accessibility_active_window"))
+        assertFalse(sourceEnum.containsString("screenshot"))
+        assertTrue(outputProperties.getJSONObject("source").getString("description").contains("never screenshot"))
+
+        val metadataPolicyEnum = outputProperties.getJSONObject("metadataPolicy").getJSONArray("enum")
+        assertEquals(1, metadataPolicyEnum.length())
+        assertTrue(
+            metadataPolicyEnum.containsString(
+                "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
+            ),
+        )
+
+        val request = ToolRequest(
+            id = "current-screen-output-contract",
+            toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            reason = "schema contract",
+        )
+        val validData = mapOf(
+            "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            "privacy" to MessagePrivacy.LocalOnly.name,
+            "requiresLocalModel" to "true",
+            "source" to "accessibility_active_window",
+            "maxChars" to "1200",
+            "capturedAtMillis" to "1000",
+            "nodeCount" to "3",
+            "screenText" to "当前屏幕可访问文本",
+            "packageName" to "com.example.app",
+            "truncated" to "false",
+            "screenTextIncluded" to "true",
+            "rawTreeIncluded" to "false",
+            "metadataPolicy" to "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted",
+        )
+
+        assertNull(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(summary = "read current Accessibility text", data = validData),
+            ),
+        )
+        assertInvalidResult(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "wrong current screen source",
+                    data = validData + ("source" to "screenshot"),
+                ),
+            ),
+            "source",
+        )
+        assertInvalidResult(
+            registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "wrong current screen metadata policy",
+                    data = validData + ("metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted"),
+                ),
+            ),
+            "metadataPolicy",
+        )
     }
 
     @Test

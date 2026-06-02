@@ -1201,8 +1201,8 @@ class AgentLoopRuntime(
                 val truncated = result.data["truncated"]?.toBooleanStrictOrNull() ?: false
                 ToolObservationContinuation(
                     prompt = """
-                    用户已经确认读取当前屏幕的 Accessibility 可访问文本快照。请根据用户原始请求处理这段屏幕文本。
-                    这不是截图捕获、不是 OCR、不是图片语义理解；只使用当前屏幕暴露的可访问文本。
+                    用户已经确认读取当前 active window 的 Accessibility 可访问文本快照。请根据用户原始请求处理这段屏幕文本。
+                    这不是截图捕获、不是 OCR、不是视觉/VLM 或语义屏幕理解；只使用当前屏幕暴露的可访问文本。
                     如果用户没有明确要求逐字复述，不要完整抄回屏幕文本；优先总结、提取信息或回答问题。
 
                     用户原始请求：${run.input}

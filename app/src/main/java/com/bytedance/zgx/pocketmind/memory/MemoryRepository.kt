@@ -263,7 +263,7 @@ class MemoryRepository(
             originalTokens = originalTokens,
             tokens = tokens,
             searchText = searchText,
-            embedding = activeEmbeddingRuntime.embed(embeddingTextFor(normalized, searchText)),
+            embedding = embedEntry(normalized, searchText),
         )
         if (persist && type != MemoryRecordType.Conversation) {
             recordStore.upsert(
@@ -282,7 +282,7 @@ class MemoryRepository(
         if (queryTokens.isEmpty()) return emptyList()
         val normalizedQuery = query.lowercase(Locale.ROOT)
         val requiredOverlapTokens = queryTokens.filter { it.length > 1 }.ifEmpty { queryTokens }
-        val queryEmbedding = activeEmbeddingRuntime.embed(query)
+        val queryEmbedding = embedQuery(query) ?: return emptyList()
         val supportsSemanticRecall = activeEmbeddingRuntime.supportsSemanticRecall
         val semanticScoreThreshold = activeEmbeddingRuntime.semanticScoreThreshold
         return entries.values
@@ -318,16 +318,48 @@ class MemoryRepository(
     private fun reembedEntries() {
         entries.keys.toList().forEach { id ->
             entries[id]?.let { entry ->
-                entries[id] = entry.copy(embedding = activeEmbeddingRuntime.embed(embeddingTextFor(entry)))
+                entries[id] = entry.copy(
+                    embedding = activeEmbeddingRuntime.embed(embeddingTextFor(entry)),
+                )
             }
         }
     }
 
-    private fun embeddingTextFor(entry: MemoryEntry): String =
-        embeddingTextFor(entry.text, entry.searchText)
+    private fun embedEntry(text: String, searchText: String): FloatArray {
+        val runtime = activeEmbeddingRuntime
+        val embeddingText = embeddingTextFor(text, searchText, runtime)
+        return runCatching { runtime.embed(embeddingText) }.getOrElse { throwable ->
+            if (runtime === defaultEmbeddingRuntime) throw throwable
+            failActiveSemanticRuntime()
+            defaultEmbeddingRuntime.embed(embeddingTextFor(text, searchText, defaultEmbeddingRuntime))
+        }
+    }
 
-    private fun embeddingTextFor(text: String, searchText: String): String =
-        if (activeEmbeddingRuntime.supportsSemanticRecall) text else searchText
+    private fun embedQuery(query: String): FloatArray? {
+        val runtime = activeEmbeddingRuntime
+        return runCatching { runtime.embed(query) }.getOrElse {
+            if (runtime === defaultEmbeddingRuntime) return null
+            failActiveSemanticRuntime()
+            runCatching { defaultEmbeddingRuntime.embed(query) }.getOrNull()
+        }
+    }
+
+    private fun failActiveSemanticRuntime() {
+        activeMemoryModelPath = null
+        activeEmbeddingRuntime = defaultEmbeddingRuntime
+        semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.RuntimeLoadFailed
+        reembedEntries()
+    }
+
+    private fun embeddingTextFor(entry: MemoryEntry): String =
+        embeddingTextFor(entry.text, entry.searchText, activeEmbeddingRuntime)
+
+    private fun embeddingTextFor(
+        text: String,
+        searchText: String,
+        runtime: EmbeddingRuntime,
+    ): String =
+        if (runtime.supportsSemanticRecall) text else searchText
 
     private fun forgetConflictingPreferences(id: String, text: String) {
         val conflictKeys = explicitPreferenceConflictKeys(text)

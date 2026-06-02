@@ -1023,44 +1023,28 @@ internal object RecentNotificationsActionParser {
 }
 
 internal object CurrentScreenTextActionParser {
-    private val currentScreenPattern =
-        Regex("""\b(current|active|this)\s+(screen|page|window|view)\b""", RegexOption.IGNORE_CASE)
-    private val currentVisibleTextPattern =
-        Regex("""\bcurrent\s+(?:visible|accessibility|accessible)\s+text\b""", RegexOption.IGNORE_CASE)
+    private val chineseScreenTextPattern =
+        Regex("""(?:当前屏幕|当前界面|现在屏幕|这个界面|屏幕)(?:\s|的|上|里|中|内)*(?:可访问|无障碍)?(?:文字|文本)|(?:文字|文本)(?:\s|来自|取自|读取自|在)*(?:当前屏幕|当前界面|现在屏幕|这个界面|屏幕)""")
+    private val chineseAccessibleTextPattern =
+        Regex("""(?:可访问|无障碍)(?:文字|文本)""")
+    private val currentScreenTextPattern =
+        Regex("""\b(?:current\s+)?screen\s+text\b|\b(?:current|active|this)\s+(?:screen|page|window|view)\s+(?:visible\s+|accessibility\s+|accessible\s+)?text\b|\btext\s+(?:from|on|in|of)\s+(?:the\s+)?(?:current|active|this)\s+(?:screen|page|window|view)\b""", RegexOption.IGNORE_CASE)
+    private val visibleOrAccessibleTextPattern =
+        Regex("""\b(?:current\s+)?(?:visible|accessibility|accessible)\s+text\b""", RegexOption.IGNORE_CASE)
     private val maxCharsPattern =
         Regex("""(?:max|limit)\s*(\d{1,5})\s*(?:chars?|characters?)""", RegexOption.IGNORE_CASE)
 
     fun matches(input: String): Boolean {
         if (input.looksLikeCurrentScreenTextNonAction()) return false
         val normalized = input.lowercase()
-        val mentionsCurrentScreen = listOf(
-            "当前屏幕",
-            "当前界面",
-            "现在屏幕",
-            "屏幕内容",
-            "屏幕文字",
-            "屏幕文本",
-            "这个界面",
-        ).any { marker -> marker in input } ||
-            currentScreenPattern.containsMatchIn(normalized) ||
-            currentVisibleTextPattern.containsMatchIn(normalized)
-        val asksForAccessibleText = listOf(
-            "文字",
-            "文本",
-            "内容",
-            "读取",
-            "读一下",
-            "总结",
-            "摘要",
-            "提取",
-            "text",
-            "summarize",
-            "summary",
-            "read",
-            "extract",
-        ).any { marker -> marker in normalized }
-        return mentionsCurrentScreen && asksForAccessibleText
+        return input.hasExplicitCurrentScreenTextReference(normalized)
     }
+
+    private fun String.hasExplicitCurrentScreenTextReference(normalized: String): Boolean =
+        chineseScreenTextPattern.containsMatchIn(this) ||
+            chineseAccessibleTextPattern.containsMatchIn(this) ||
+            currentScreenTextPattern.containsMatchIn(normalized) ||
+            visibleOrAccessibleTextPattern.containsMatchIn(normalized)
 
     fun draft(input: String): ActionDraft {
         val parameters = parameters(input)
@@ -1121,6 +1105,11 @@ internal object CurrentScreenTextActionParser {
             "怎么实现",
             "如何实现",
             "怎么设计",
+            "是什么",
+            "什么意思",
+            "解释",
+            "说明",
+            "介绍",
             "无障碍权限",
             "无障碍文本权限",
         ).any { it in this } ||
@@ -1129,6 +1118,7 @@ internal object CurrentScreenTextActionParser {
             normalized.contains(Regex("""\b(?:current|active|this)\s+(?:screen|page|window|view)\s+text\s+(?:api|implementation|architecture|design|schema|tests?|parser|docs?|permissions?|state)\b""")) ||
             normalized.contains(Regex("""\b(?:screenshots?|screen\s+captures?|images?|photos?|pixels?|ocr)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view)\b""")) ||
             normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view|screen\s+text)\b""")) ||
+            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning)\b.*\b(?:screen|visible|accessibility|accessible)\s+text\b""")) ||
             normalized.contains(Regex("""\b(?:how\s+do\s+i|how\s+to|implement|design)\b.*\b(?:current|active|this)\s+(?:screen|page|window|view|screen\s+text)\b"""))
     }
 }

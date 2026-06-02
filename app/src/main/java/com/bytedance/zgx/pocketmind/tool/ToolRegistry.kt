@@ -503,6 +503,10 @@ private val emptyObjectSchemaJson = """
     }
 """.trimIndent()
 
+private const val CURRENT_SCREEN_TEXT_SOURCE = "accessibility_active_window"
+private const val CURRENT_SCREEN_TEXT_METADATA_POLICY =
+    "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted"
+
 private val querySchemaJson = """
     {
       "type": "object",
@@ -682,6 +686,7 @@ private val currentScreenTextSchemaJson = """
       "properties": {
         "maxChars": {
           "type": "integer",
+          "description": "Maximum characters returned from the active-window Accessibility 可访问文本快照；不是截图、OCR、视觉/VLM 或语义屏幕理解。",
           "minimum": 1,
           "maximum": 4000
         }
@@ -1002,16 +1007,27 @@ private val currentScreenTextOutputSchemaJson = """
         "toolName": {"type": "string", "minLength": 1},
         "privacy": {"type": "string", "enum": ["LocalOnly"]},
         "requiresLocalModel": {"type": "boolean"},
-        "source": {"type": "string", "minLength": 1},
+        "source": {
+          "type": "string",
+          "description": "Fixed source for current active-window Accessibility 可访问文本快照；never screenshot, OCR, visual/VLM, or semantic screen understanding.",
+          "enum": ["$CURRENT_SCREEN_TEXT_SOURCE"]
+        },
         "maxChars": {"type": "integer", "minimum": 1, "maximum": 4000},
         "capturedAtMillis": {"type": "integer"},
         "nodeCount": {"type": "integer", "minimum": 0},
-        "screenText": {"type": "string", "minLength": 1},
+        "screenText": {
+          "type": "string",
+          "description": "Text exposed by Accessibility from the active window; not screenshot pixels, OCR output, visual/VLM output, or inferred screen semantics.",
+          "minLength": 1
+        },
         "packageName": {"type": "string"},
         "truncated": {"type": "boolean"},
         "screenTextIncluded": {"type": "boolean"},
         "rawTreeIncluded": {"type": "boolean"},
-        "metadataPolicy": {"type": "string", "minLength": 1}
+        "metadataPolicy": {
+          "type": "string",
+          "enum": ["$CURRENT_SCREEN_TEXT_METADATA_POLICY"]
+        }
       },
       "additionalProperties": false
     }
@@ -1359,8 +1375,8 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
     ToolDefinition(
         spec = ToolSpec(
             name = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-            title = "读取当前屏幕文本",
-            description = "在用户确认后读取当前屏幕的 Accessibility 可访问文本快照；不读取截图、像素、坐标、节点 ID 或完整节点树。",
+            title = "读取当前屏幕 Accessibility 可访问文本快照",
+            description = "在用户确认后读取当前 active window 暴露的 Accessibility 可访问文本快照；不是截图、OCR、视觉/VLM 或语义屏幕理解，不读取像素、坐标、节点 ID 或完整节点树。",
             inputSchemaJson = currentScreenTextSchemaJson,
             outputSchemaJson = currentScreenTextOutputSchemaJson,
             capability = ToolCapability.DeviceContext,

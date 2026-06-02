@@ -144,7 +144,7 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 - 长期记忆应支持单条遗忘和清空；删除后不应再从对应显式持久化记录召回，清空不代表删除普通会话历史。
 - 本地记忆不可用时，普通聊天仍应继续；此时不显示记忆命中，长期记忆列表可降级为空。
 - 当前默认记忆召回是本地轻量 token/hash 索引；`MemoryRepository` 支持真正语义 runtime 命中时跳过词项重叠过滤，
-  但 LiteRT embedding adapter 仍未接入。只有已校验的 memory model path 被 runtime controller 成功切到支持语义召回的 runtime 后，才可认为语义记忆启用。
+  但当前 LiteRT-LM SDK 未暴露公开 embedding vector API，生产 `LiteRtEmbeddingRuntimeFactory` 会 fail closed。只有已校验的 memory model path 被 runtime controller 成功切到支持语义召回的 runtime 后，才可认为语义记忆启用。
 - 安装或补装 memory model asset 本身不等于 embedding runtime 参与，也不作为当前真机验收通过条件；UI 不应把“资产已安装”误写成“语义检索已启用”。
 - 未安装或未校验动作模型时，动作请求应显示“规则回退”的待确认草稿。
 - 安装并校验动作模型后，支持的动作请求可以显示“动作模型实验”的待确认草稿；执行前仍必须经过用户确认。
@@ -190,6 +190,7 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
   设备/模拟器 smoke 至少应包含 `MainActivitySkillUiTest` 中远程模式下直接展示第一步
   `读取当前屏幕文本` 确认卡、展示特殊授权说明、不展示 runtime permission 或
   `分享屏幕摘要`，并可取消后留下审计/轨迹记录的路径。
+- “总结当前屏幕内容”、“总结这个界面”、“summarize current screen content”、“summarize this page”、“describe current screen” 或 “what is on my screen” 等未明确要求屏幕文字/可访问文本的请求，不应规划 `read_current_screen_text` 或当前屏幕摘要分享 Skill。
 - 声明式多步 Skill 的模型输出只能通过 `argumentBindings` 进入后续工具确认卡；缺失 binding 或直接绑定私密工具原文到外发工具时应失败，不应生成确认卡、执行外发工具或泄漏原文。
 - 声明式 `ToolStep -> ToolStep` 只可跨重启恢复低语义结构化参数形成的待确认 UI，例如 `schedule_reminder.taskId -> cancel_reminder.taskId`；恢复后仍必须再次确认才执行，且 `schedule_reminder` 的 title/body/delayMinutes 不应作为待确认 payload 跨重启恢复。
 - “总结剪贴板并分享” 到第二个 `share_text` 确认卡后杀进程并重启 App，如果该确认卡包含模型生成的外发 payload，应 fail closed，不应恢复摘要参数、自动打开分享面板、重跑旧 `read_clipboard`，或让旧 request id 继续推进。

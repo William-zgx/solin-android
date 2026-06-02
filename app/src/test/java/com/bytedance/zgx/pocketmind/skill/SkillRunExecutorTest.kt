@@ -698,7 +698,7 @@ class SkillRunExecutorTest {
             "toolName" to MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
             "privacy" to "LocalOnly",
             "requiresLocalModel" to "true",
-            "source" to "accessibility",
+            "source" to "accessibility_active_window",
             "maxChars" to "1200",
             "capturedAtMillis" to "1000",
             "nodeCount" to "1",
