@@ -126,6 +126,8 @@ data class VoiceInputDraft(
 data class VoiceCaptureUiState(
     val isListening: Boolean = false,
     val level: Float = 0f,
+    val waveformLevels: List<Float> = emptyList(),
+    val waveformFrame: Int = 0,
     val partialText: String = "",
 )
 

@@ -3318,6 +3318,7 @@ private fun Composer(
 ) {
     val inputEnabled = state.isReady && !state.isBusy
     val attachmentEnabled = !state.isBusy
+    val voiceEnabled = !state.isBusy && !state.voiceCapture.isListening
     val actionIsStop = state.isGenerating
     val semanticColors = LocalPocketMindColors.current
     val hasPendingSharedInput = state.pendingSharedInputDraft != null
@@ -3328,7 +3329,7 @@ private fun Composer(
         hasPendingSharedInput -> "补充说明"
         else -> "输入问题"
     }
-    val showCompactStatus = !state.isReady || state.isBusy
+    val showCompactStatus = !state.isReady || state.isBusy || state.statusText.isVoiceStatusText()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -3348,6 +3349,7 @@ private fun Composer(
         if (state.voiceCapture.isListening) {
             VoiceCaptureBar(
                 level = state.voiceCapture.level,
+                waveformLevels = state.voiceCapture.waveformLevels,
                 partialText = state.voiceCapture.partialText,
                 onCancel = onCancelVoiceInput,
                 onFinish = onFinishVoiceInput,
@@ -3409,7 +3411,7 @@ private fun Composer(
                         contentDescription = "语音输入"
                     },
                 onClick = onStartVoiceInput,
-                enabled = inputEnabled,
+                enabled = voiceEnabled,
             ) {
                 Icon(
                     imageVector = Icons.Filled.Mic,
@@ -3549,6 +3551,7 @@ private fun PendingSharedInputStrip(
 @Composable
 private fun VoiceCaptureBar(
     level: Float,
+    waveformLevels: List<Float>,
     partialText: String,
     onCancel: () -> Unit,
     onFinish: () -> Unit,
@@ -3578,6 +3581,7 @@ private fun VoiceCaptureBar(
         ) {
             VoiceWaveform(
                 level = level,
+                waveformLevels = waveformLevels,
                 pulse = pulse,
             )
             Text(
@@ -3617,25 +3621,35 @@ private fun VoiceCaptureBar(
 @Composable
 private fun VoiceWaveform(
     level: Float,
+    waveformLevels: List<Float>,
     pulse: Float,
 ) {
     val normalized = level.coerceIn(0.08f, 1f)
-    val bars = listOf(0.46f, 0.78f, 1f, 0.62f, 0.88f)
+    val bars = waveformLevels.takeIf { it.isNotEmpty() } ?: VOICE_WAVEFORM_FALLBACK_BARS
+    val activity = ((normalized - 0.08f) / 0.92f).coerceIn(0f, 1f)
+    val pulseGain = 0.86f + pulse * (0.12f + activity * 0.18f)
     Row(
-        modifier = Modifier.width(42.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = Modifier.width(56.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        bars.forEachIndexed { index, multiplier ->
-            val animated = (normalized * multiplier * (0.72f + pulse * 0.28f + index * 0.02f))
-                .coerceIn(0.16f, 1f)
+        bars.forEachIndexed { index, sample ->
+            val sampleLevel = sample.coerceIn(0.08f, 1f)
+            val animated = (sampleLevel * pulseGain * (0.94f + index * 0.015f)).coerceIn(0.12f, 1f)
             Box(
                 modifier = Modifier
-                    .width(4.dp)
-                    .height((8f + animated * 24f).dp)
+                    .width(3.dp)
+                    .height((7f + animated * 30f).dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(MaterialTheme.colorScheme.primary),
             )
         }
     }
 }
+
+private fun String.isVoiceStatusText(): Boolean =
+    listOf("语音", "麦克风", "收音", "转写", "识别", "声音")
+        .any { marker -> marker in this }
+
+private val VOICE_WAVEFORM_FALLBACK_BARS =
+    listOf(0.08f, 0.14f, 0.18f, 0.11f, 0.16f, 0.12f, 0.17f, 0.1f, 0.15f)

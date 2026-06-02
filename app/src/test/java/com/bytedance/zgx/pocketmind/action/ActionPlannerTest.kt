@@ -75,7 +75,8 @@ class ActionPlannerTest {
         requireNotNull(draft)
         assertEquals(MobileActionFunctions.WEB_SEARCH, draft.functionName)
         assertEquals("Kotlin coroutines Android", draft.parameters["query"])
-        assertTrue(draft.summary.contains("浏览器"))
+        assertTrue(draft.summary.contains("Web 搜索工具"))
+        assertFalse(draft.requiresConfirmation)
     }
 
     @Test
@@ -405,8 +406,16 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.Draft, onlineLookupPlan.kind)
         assertEquals(MobileActionFunctions.WEB_SEARCH, onlineLookupPlan.draft?.functionName)
         assertEquals("Kotlin Flow debounce", onlineLookupPlan.draft?.parameters?.get("query"))
+        assertEquals(false, onlineLookupPlan.draft?.requiresConfirmation)
+
+        val weatherPlan = planner.plan("北京天气怎么样")
+        assertEquals(ActionPlanKind.Draft, weatherPlan.kind)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, weatherPlan.draft?.functionName)
+        assertEquals("北京天气怎么样", weatherPlan.draft?.parameters?.get("query"))
+        assertEquals(false, weatherPlan.draft?.requiresConfirmation)
 
         assertEquals(ActionPlanKind.NoAction, planner.plan("网页搜索是什么").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("天气是什么").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("不要搜索 Kotlin，只解释一下").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("what is web search").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("查一下这个错误原因了吗？").kind)

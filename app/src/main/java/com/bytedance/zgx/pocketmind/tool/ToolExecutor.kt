@@ -47,6 +47,7 @@ class RoutingToolExecutor(
     private val contactSummaryProvider: ContactSummaryProvider,
     private val notificationSummaryProvider: NotificationSummaryProvider,
     private val recentFileProvider: RecentFileProvider,
+    private val webSearchProvider: WebSearchProvider,
     private val delegate: ToolExecutor,
     private val backgroundTaskScheduler: BackgroundTaskScheduler? = null,
     private val recentImageTextProvider: RecentImageTextProvider? = null,
@@ -60,6 +61,7 @@ class RoutingToolExecutor(
     private val notificationSummaryToolExecutor =
         NotificationSummaryToolExecutor(notificationSummaryProvider)
     private val recentFilesToolExecutor = RecentFilesToolExecutor(recentFileProvider)
+    private val webSearchToolExecutor = WebSearchToolExecutor(webSearchProvider)
     private val backgroundTasksToolExecutor =
         backgroundTaskScheduler?.let(::BackgroundTasksToolExecutor)
     private val recentScreenshotOcrToolExecutor =
@@ -81,6 +83,8 @@ class RoutingToolExecutor(
                 notificationSummaryToolExecutor.execute(request)
             MobileActionFunctions.QUERY_RECENT_FILES ->
                 recentFilesToolExecutor.execute(request)
+            MobileActionFunctions.WEB_SEARCH ->
+                webSearchToolExecutor.execute(request)
             MobileActionFunctions.QUERY_BACKGROUND_TASKS ->
                 backgroundTasksToolExecutor?.execute(request)
                     ?: request.failed(
@@ -113,6 +117,50 @@ class RoutingToolExecutor(
 
             else -> delegate.execute(request)
         }
+}
+
+class WebSearchToolExecutor(
+    private val provider: WebSearchProvider,
+) : ToolExecutor {
+    override fun execute(request: ToolRequest): ToolResult {
+        if (request.toolName != MobileActionFunctions.WEB_SEARCH) {
+            return request.failed(
+                code = ToolErrorCode.UnknownTool,
+                summary = "Unknown tool: ${request.toolName}",
+                retryable = false,
+            )
+        }
+        val query = request.arguments["query"].orEmpty().trim()
+        if (query.isBlank()) {
+            return request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = "搜索词不能为空",
+                retryable = false,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+        return when (val result = provider.search(query, request.arguments["searchMode"])) {
+            is WebSearchReadResult.Available ->
+                request.succeeded(
+                    summary = "已完成 Web 搜索：${result.summaryText}",
+                    data = mapOf(
+                        "toolName" to request.toolName,
+                        "query" to result.query,
+                        "source" to result.source,
+                        "summaryText" to result.summaryText,
+                        "resultsJson" to result.resultsJson,
+                    ),
+                )
+
+            is WebSearchReadResult.Failed ->
+                request.failed(
+                    code = ToolErrorCode.ExecutionFailed,
+                    summary = result.reason,
+                    retryable = true,
+                    data = mapOf("toolName" to request.toolName),
+                )
+        }
+    }
 }
 
 class ValidatingToolExecutor(

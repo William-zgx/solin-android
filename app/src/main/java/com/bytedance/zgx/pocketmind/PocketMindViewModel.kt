@@ -42,11 +42,14 @@ import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceForgetFrom
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceRecordId
 import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContract
+import com.bytedance.zgx.pocketmind.multimodal.SharedAttachment
+import com.bytedance.zgx.pocketmind.multimodal.SharedAttachmentKind
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
 import com.bytedance.zgx.pocketmind.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
+import com.bytedance.zgx.pocketmind.orchestration.AgentPlan
 import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.orchestration.AgentTraceRunSummary
@@ -57,6 +60,7 @@ import com.bytedance.zgx.pocketmind.orchestration.PendingExternalOutcomeSnapshot
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
+import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
@@ -81,10 +85,13 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 private const val MAX_VOICE_TRANSCRIPT_CHARS = 2_000
+private const val VOICE_WAVEFORM_SAMPLE_COUNT = 9
 private const val STALE_AGENT_RUN_STARTUP_REASON =
     "App restarted before this Agent step completed."
 private const val USER_STOPPED_AGENT_RUN_REASON =
     "User stopped this Agent run."
+private val VOICE_WAVEFORM_MULTIPLIERS =
+    listOf(0.42f, 0.74f, 1f, 0.56f, 0.88f, 0.63f, 0.95f, 0.5f, 0.8f)
 
 class PocketMindViewModel(
     private val modelRepository: ModelRepositoryFacade,
@@ -458,19 +465,33 @@ class PocketMindViewModel(
     fun startVoiceInputCapture() {
         _uiState.update {
             it.copy(
-                voiceCapture = VoiceCaptureUiState(isListening = true, level = 0.18f),
+                voiceCapture = VoiceCaptureUiState(
+                    isListening = true,
+                    level = 0.18f,
+                    waveformLevels = seedVoiceWaveformLevels(level = 0.18f),
+                ),
                 statusText = "正在收音",
             )
         }
     }
 
     fun updateVoiceInputLevel(rmsDb: Float) {
-        val normalizedLevel = ((rmsDb + 2f) / 12f).coerceIn(0.08f, 1f)
+        val normalizedLevel = rmsDb.normalizedVoiceInputLevel()
         _uiState.update {
             if (!it.voiceCapture.isListening) {
                 it
             } else {
-                it.copy(voiceCapture = it.voiceCapture.copy(level = normalizedLevel))
+                val nextFrame = it.voiceCapture.waveformFrame + 1
+                it.copy(
+                    voiceCapture = it.voiceCapture.copy(
+                        level = normalizedLevel,
+                        waveformFrame = nextFrame,
+                        waveformLevels = it.voiceCapture.waveformLevels.nextVoiceWaveformLevels(
+                            level = normalizedLevel,
+                            frame = nextFrame,
+                        ),
+                    ),
+                )
             }
         }
     }
@@ -985,6 +1006,45 @@ class PocketMindViewModel(
                         } else {
                             "规则回退"
                         }
+                        if (!route.requiresUserConfirmation) {
+                            val request = route.toolRequest ?: ToolRequest(
+                                toolName = route.draft.functionName,
+                                arguments = route.draft.parameters,
+                                reason = route.draft.summary,
+                            )
+                            val assistantMessage = ChatMessage(
+                                role = MessageRole.Assistant,
+                                text = "正在使用工具：${route.draft.title}",
+                                privacy = MessagePrivacy.LocalOnly,
+                            )
+                            replaceActiveSessionMessages(
+                                stateBeforeSend.messages + localUserMessage + assistantMessage,
+                                persistNow = true,
+                            )
+                            persistExplicitPreferenceMemory(localUserMessage)
+                            _uiState.update {
+                                it.copy(
+                                    isBusy = true,
+                                    isGenerating = false,
+                                    pendingConfirmation = null,
+                                    memoryHits = emptyList(),
+                                    statusText = "工具执行中",
+                                )
+                            }
+                            executeToolRequestAfterRunIsExecuting(
+                                confirmation = PendingAgentConfirmation(
+                                    runId = route.runId,
+                                    draft = route.draft,
+                                    toolRequest = route.toolRequest,
+                                    skillId = route.skillId,
+                                    plannedByModel = route.plannedByModel,
+                                    fallbackReason = route.fallbackReason,
+                                ),
+                                request = request,
+                            )
+                            rebuildMemoryIndex()
+                            return@launch
+                        }
                         val assistantMessage = ChatMessage(
                             role = MessageRole.Assistant,
                             text = "已准备本地动作草稿（$planningLabel）：${route.draft.summary}\n请确认后再执行。",
@@ -1175,35 +1235,25 @@ class PocketMindViewModel(
                             val nextToolPlan =
                                 (remoteToolObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
                             if (nextToolPlan != null) {
+                                val observedForPlan = remoteToolObservation ?: error("远程工具调用缺少 Agent observation")
                                 val assistantText = buildString {
                                     if (partial.isNotBlank()) {
                                         append(partial)
                                         append("\n\n")
                                     }
-                                    append("已准备远程动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。")
+                                    if (nextToolPlan.requiresUserConfirmation()) {
+                                        append("已准备远程动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。")
+                                    } else {
+                                        append("正在使用工具：${nextToolPlan.draft.title}")
+                                    }
                                 }
                                 _uiState.updateLastAssistantLocalOnly(assistantText)
                                 persistActiveSessionFromUi()
-                                rebuildMemoryIndex()
-                                _uiState.update {
-                                    it.copy(
-                                        pendingConfirmation = PendingAgentConfirmation(
-                                            runId = remoteToolObservation?.run?.id
-                                                ?: error("远程工具调用缺少 Agent run"),
-                                            draft = nextToolPlan.draft,
-                                            toolRequest = nextToolPlan.request,
-                                            skillId = nextToolPlan.skillRequest?.skillId,
-                                            plannedByModel = nextToolPlan.plannedByModel,
-                                            fallbackReason = nextToolPlan.fallbackReason,
-                                        ),
-                                        isBusy = false,
-                                        isGenerating = false,
-                                        isReady = true,
-                                        auditEvents = loadAuditEvents(),
-                                        agentTraceRuns = loadAgentTraceRuns(),
-                                        statusText = "动作草稿待确认 · 远程模型",
-                                    )
-                                }
+                                handleNextToolPlan(
+                                    runId = observedForPlan.run.id,
+                                    plan = nextToolPlan,
+                                    pendingStatusText = "动作草稿待确认 · 远程模型",
+                                )
                                 return@launch
                             }
                             _uiState.updateLastAssistantLocalOnly(
@@ -1235,29 +1285,18 @@ class PocketMindViewModel(
                                 val nextToolPlan =
                                     (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
                                 if (nextToolPlan != null) {
-                                    _uiState.updateLastAssistantLocalOnly(
-                                        "已准备模型动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。",
-                                    )
-                                    persistActiveSessionFromUi()
-                                    rebuildMemoryIndex()
-                                    _uiState.update {
-                                        it.copy(
-                                            pendingConfirmation = PendingAgentConfirmation(
-                                                runId = modelObservation.run.id,
-                                                draft = nextToolPlan.draft,
-                                                toolRequest = nextToolPlan.request,
-                                                skillId = nextToolPlan.skillRequest?.skillId,
-                                                plannedByModel = nextToolPlan.plannedByModel,
-                                                fallbackReason = nextToolPlan.fallbackReason,
-                                            ),
-                                            isBusy = false,
-                                            isGenerating = false,
-                                            isReady = true,
-                                            auditEvents = loadAuditEvents(),
-                                            agentTraceRuns = loadAgentTraceRuns(),
-                                            statusText = "动作草稿待确认 · 本地模型",
-                                        )
+                                    val assistantText = if (nextToolPlan.requiresUserConfirmation()) {
+                                        "已准备模型动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。"
+                                    } else {
+                                        "正在使用工具：${nextToolPlan.draft.title}"
                                     }
+                                    _uiState.updateLastAssistantLocalOnly(assistantText)
+                                    persistActiveSessionFromUi()
+                                    handleNextToolPlan(
+                                        runId = modelObservation.run.id,
+                                        plan = nextToolPlan,
+                                        pendingStatusText = "动作草稿待确认 · 本地模型",
+                                    )
                                     return@launch
                                 }
                                 if (modelObservation?.decision is AgentObservationDecision.Fail) {
@@ -1610,6 +1649,16 @@ class PocketMindViewModel(
                 statusText = "工具执行中",
             )
         }
+        executeToolRequestAfterRunIsExecuting(
+            confirmation = confirmation,
+            request = request,
+        )
+    }
+
+    private fun executeToolRequestAfterRunIsExecuting(
+        confirmation: PendingAgentConfirmation,
+        request: ToolRequest,
+    ) {
         var result = actionExecutor.execute(request)
         var observation = confirmation.runId?.let { runId ->
             assistantOrchestrator.observeToolResult(runId, result)
@@ -1649,23 +1698,11 @@ class PocketMindViewModel(
         }
         val nextToolPlan = (observation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
         if (nextToolPlan != null) {
-            rebuildMemoryIndex()
-            _uiState.update {
-                it.copy(
-                    pendingConfirmation = PendingAgentConfirmation(
-                        runId = observation.run.id,
-                        draft = nextToolPlan.draft,
-                        toolRequest = nextToolPlan.request,
-                        skillId = nextToolPlan.skillRequest?.skillId,
-                        plannedByModel = nextToolPlan.plannedByModel,
-                        fallbackReason = nextToolPlan.fallbackReason,
-                    ),
-                    latestRecoveryAction = null,
-                    isBusy = false,
-                    isGenerating = false,
-                    statusText = "下一步动作待确认",
-                )
-            }
+            handleNextToolPlan(
+                runId = observation.run.id,
+                plan = nextToolPlan,
+                pendingStatusText = "下一步动作待确认",
+            )
             return
         }
         observation?.continuationPromptForModel?.let { continuationPrompt ->
@@ -1744,6 +1781,52 @@ class PocketMindViewModel(
         }
     }
 
+    private fun handleNextToolPlan(
+        runId: String,
+        plan: AgentPlan.UseTool,
+        pendingStatusText: String,
+    ) {
+        rebuildMemoryIndex()
+        val confirmation = PendingAgentConfirmation(
+            runId = runId,
+            draft = plan.draft,
+            toolRequest = plan.request,
+            skillId = plan.skillRequest?.skillId,
+            plannedByModel = plan.plannedByModel,
+            fallbackReason = plan.fallbackReason,
+        )
+        if (!plan.requiresUserConfirmation()) {
+            _uiState.update {
+                it.copy(
+                    pendingConfirmation = null,
+                    latestRecoveryAction = null,
+                    isBusy = true,
+                    isGenerating = false,
+                    auditEvents = loadAuditEvents(),
+                    agentTraceRuns = loadAgentTraceRuns(),
+                    statusText = "工具执行中",
+                )
+            }
+            executeToolRequestAfterRunIsExecuting(
+                confirmation = confirmation,
+                request = plan.request,
+            )
+            return
+        }
+        _uiState.update {
+            it.copy(
+                pendingConfirmation = confirmation,
+                latestRecoveryAction = null,
+                isBusy = false,
+                isGenerating = false,
+                isReady = true,
+                auditEvents = loadAuditEvents(),
+                agentTraceRuns = loadAgentTraceRuns(),
+                statusText = pendingStatusText,
+            )
+        }
+    }
+
     private fun AgentObservationResult.pendingExternalOutcomeFor(
         confirmation: PendingAgentConfirmation,
         request: ToolRequest,
@@ -1802,20 +1885,16 @@ class PocketMindViewModel(
             _uiState.update {
                 it.copy(
                     pendingExternalOutcome = null,
-                    pendingConfirmation = PendingAgentConfirmation(
-                        runId = recorded.run.id,
-                        draft = nextToolPlan.draft,
-                        toolRequest = nextToolPlan.request,
-                        skillId = nextToolPlan.skillRequest?.skillId,
-                        plannedByModel = nextToolPlan.plannedByModel,
-                        fallbackReason = nextToolPlan.fallbackReason,
-                    ),
                     latestRecoveryAction = null,
                     auditEvents = loadAuditEvents(),
                     agentTraceRuns = loadAgentTraceRuns(),
-                    statusText = "下一步动作待确认",
                 )
             }
+            handleNextToolPlan(
+                runId = recorded.run.id,
+                plan = nextToolPlan,
+                pendingStatusText = "下一步动作待确认",
+            )
             return
         }
         _uiState.update {
@@ -2098,18 +2177,7 @@ class PocketMindViewModel(
                     }
                 } else {
                     val remotePlan = (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
-                    if (remotePlan != null) {
-                        val assistantText = buildString {
-                            if (partial.isNotBlank()) {
-                                append(partial)
-                                append("\n\n")
-                            }
-                            append("已准备远程动作草稿：${remotePlan.draft.title}\n请确认后再执行。")
-                        }
-                        _uiState.updateLastAssistantLocalOnly(assistantText)
-                        persistActiveSessionFromUi()
-                        rebuildMemoryIndex()
-                    } else {
+                    if (remotePlan == null) {
                         _uiState.updateLastAssistantLocalOnly(
                             "无法准备这个动作：${(modelObservation?.decision as? AgentObservationDecision.Fail)?.reason.orEmpty()}",
                         )
@@ -2120,24 +2188,25 @@ class PocketMindViewModel(
                 val nextToolPlan = (modelObservation?.decision as? AgentObservationDecision.PlanNextTool)?.plan
                 if (nextToolPlan != null) {
                     val observedForPending = modelObservation ?: error("远程工具调用缺少 Agent observation")
-                    _uiState.update {
-                        it.copy(
-                            pendingConfirmation = PendingAgentConfirmation(
-                                runId = observedForPending.run.id,
-                                draft = nextToolPlan.draft,
-                                toolRequest = nextToolPlan.request,
-                                skillId = nextToolPlan.skillRequest?.skillId,
-                                plannedByModel = nextToolPlan.plannedByModel,
-                                fallbackReason = nextToolPlan.fallbackReason,
-                            ),
-                            isBusy = false,
-                            isGenerating = false,
-                            isReady = true,
-                            auditEvents = loadAuditEvents(),
-                            agentTraceRuns = loadAgentTraceRuns(),
-                            statusText = "下一步动作待确认",
-                        )
+                    val assistantText = buildString {
+                        if (partial.isNotBlank()) {
+                            append(partial)
+                            append("\n\n")
+                        }
+                        if (nextToolPlan.requiresUserConfirmation()) {
+                            val modelLabel = if (useRemoteModel) "远程" else "模型"
+                            append("已准备${modelLabel}动作草稿：${nextToolPlan.draft.title}\n请确认后再执行。")
+                        } else {
+                            append("正在使用工具：${nextToolPlan.draft.title}")
+                        }
                     }
+                    _uiState.updateLastAssistantLocalOnly(assistantText)
+                    persistActiveSessionFromUi()
+                    handleNextToolPlan(
+                        runId = observedForPending.run.id,
+                        plan = nextToolPlan,
+                        pendingStatusText = "下一步动作待确认",
+                    )
                     return@launch
                 }
                 _uiState.update {
@@ -3263,7 +3332,7 @@ private fun SharedInput.composerSummary(): String {
     val labels = buildList {
         if (text.isNotBlank()) add("文本")
         attachments.take(3).forEach { attachment ->
-            add(attachment.safeDisplayNameForPrompt() ?: attachment.kind.label)
+            add(attachment.composerSummaryLabel())
         }
     }
     val extraCount = attachments.size - 3
@@ -3272,3 +3341,41 @@ private fun SharedInput.composerSummary(): String {
         if (extraCount > 0) append(" 等 ${extraCount + 3} 项")
     }
 }
+
+private fun SharedAttachment.composerSummaryLabel(): String {
+    val base = safeDisplayNameForPrompt() ?: kind.label
+    return when {
+        kind == SharedAttachmentKind.Image && textPreview == null -> "$base · 无 OCR"
+        kind == SharedAttachmentKind.Image -> "$base · OCR"
+        else -> base
+    }
+}
+
+private fun Float.normalizedVoiceInputLevel(): Float =
+    ((this + 2f) / 12f).coerceIn(0.08f, 1f)
+
+private fun seedVoiceWaveformLevels(level: Float): List<Float> =
+    List(VOICE_WAVEFORM_SAMPLE_COUNT) { frame ->
+        voiceWaveformSample(level = level, frame = frame)
+    }
+
+private fun List<Float>.nextVoiceWaveformLevels(level: Float, frame: Int): List<Float> {
+    val nextSample = voiceWaveformSample(level = level, frame = frame)
+    val samples = (this + nextSample).takeLast(VOICE_WAVEFORM_SAMPLE_COUNT)
+    return if (samples.size == VOICE_WAVEFORM_SAMPLE_COUNT) {
+        samples
+    } else {
+        seedVoiceWaveformLevels(level).take(VOICE_WAVEFORM_SAMPLE_COUNT - samples.size) + samples
+    }
+}
+
+private fun voiceWaveformSample(level: Float, frame: Int): Float {
+    val index = frame.floorMod(VOICE_WAVEFORM_MULTIPLIERS.size)
+    return (level * VOICE_WAVEFORM_MULTIPLIERS[index]).coerceIn(0.08f, 1f)
+}
+
+private fun Int.floorMod(divisor: Int): Int =
+    ((this % divisor) + divisor) % divisor
+
+private fun AgentPlan.UseTool.requiresUserConfirmation(): Boolean =
+    safetyDecision.outcome == SafetyOutcome.RequireConfirmation

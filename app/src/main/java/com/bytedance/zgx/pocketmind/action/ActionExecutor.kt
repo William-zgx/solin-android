@@ -1,6 +1,5 @@
 package com.bytedance.zgx.pocketmind.action
 
-import android.app.SearchManager
 import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.Context
@@ -316,9 +315,6 @@ class ActionExecutor(
                     ),
                 )
 
-            MobileActionFunctions.WEB_SEARCH ->
-                webSearchIntents(request.arguments["query"].orEmpty())
-
             MobileActionFunctions.COMPOSE_EMAIL ->
                 listOf(
                     Intent(Intent.ACTION_SENDTO).apply {
@@ -374,28 +370,11 @@ class ActionExecutor(
             else -> null
         }
 
-    private fun webSearchIntents(query: String): List<Intent> =
-        listOf(
-            Intent(Intent.ACTION_WEB_SEARCH).apply {
-                putExtra(SearchManager.QUERY, query)
-            },
-            Intent(
-                Intent.ACTION_VIEW,
-                Uri.Builder()
-                    .scheme("https")
-                    .authority("www.google.com")
-                    .path("search")
-                    .appendQueryParameter("q", query)
-                    .build(),
-            ),
-        )
-
     private fun successSummaryFor(toolName: String): String =
         when (toolName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "已打开 Wi-Fi 设置页"
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "已打开使用情况访问权限设置页"
             MobileActionFunctions.SEARCH_MAPS -> "已打开地图搜索"
-            MobileActionFunctions.WEB_SEARCH -> "已打开网页搜索"
             MobileActionFunctions.COMPOSE_EMAIL -> "已打开邮件草稿页"
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> "已打开日历新建事件页"
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "已打开联系人草稿页"
@@ -689,12 +668,6 @@ class ActionExecutor(
                 safeData = intent.safeUriMetadata(),
             )
 
-            MobileActionFunctions.WEB_SEARCH -> ExternalActivityMetadata(
-                targetKind = "WebSearch",
-                intentAction = action,
-                safeData = intent.safeUriMetadata(),
-            )
-
             MobileActionFunctions.COMPOSE_EMAIL -> ExternalActivityMetadata(
                 targetKind = "EmailDraft",
                 intentAction = action,
@@ -829,7 +802,6 @@ class ActionExecutor(
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> Settings.ACTION_WIFI_SETTINGS
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> Settings.ACTION_USAGE_ACCESS_SETTINGS
             MobileActionFunctions.SEARCH_MAPS -> Intent.ACTION_VIEW
-            MobileActionFunctions.WEB_SEARCH -> Intent.ACTION_WEB_SEARCH
             MobileActionFunctions.COMPOSE_EMAIL -> Intent.ACTION_SENDTO
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> Intent.ACTION_INSERT
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> ContactsContract.Intents.Insert.ACTION

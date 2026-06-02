@@ -156,7 +156,7 @@ class MobileActionPlanner : ActionPlanner {
             title = titleFor(this),
             summary = summaryFor(this, parameters),
             parameters = parameters,
-            requiresConfirmation = true,
+            requiresConfirmation = this != MobileActionFunctions.WEB_SEARCH,
         )
 
     private fun titleFor(functionName: String): String =
@@ -195,7 +195,7 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "将打开系统 Wi-Fi 设置页。"
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "将打开系统使用情况访问权限设置页，由你手动为 PocketMind 授权。"
             MobileActionFunctions.SEARCH_MAPS -> "将在地图中搜索：${parameters["query"].orEmpty()}"
-            MobileActionFunctions.WEB_SEARCH -> "将在浏览器中搜索：${parameters["query"].orEmpty()}"
+            MobileActionFunctions.WEB_SEARCH -> "将使用 Web 搜索工具查询并整理结果：${parameters["query"].orEmpty()}"
             MobileActionFunctions.COMPOSE_EMAIL -> "将打开邮件 App 并填入草稿内容。"
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> "将打开日历新建事件页面。"
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "将打开联系人新建页面。"

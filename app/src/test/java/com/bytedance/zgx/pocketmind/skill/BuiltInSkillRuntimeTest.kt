@@ -721,9 +721,19 @@ class BuiltInSkillRuntimeTest {
         require(onlineLookupStep is SkillStep.ToolStep)
         assertEquals(MobileActionFunctions.WEB_SEARCH, onlineLookupStep.request.toolName)
         assertEquals("Kotlin Flow debounce", onlineLookupStep.request.arguments["query"])
+        assertEquals(false, onlineLookupStep.draft.requiresConfirmation)
+
+        val weatherPlan = requireNotNull(runtime.plan("北京天气怎么样"))
+        assertEquals(BuiltInSkillRuntime.INFORMATION_LOOKUP_SKILL, weatherPlan.request.skillId)
+        val weatherStep = weatherPlan.steps.single()
+        require(weatherStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, weatherStep.request.toolName)
+        assertEquals("北京天气怎么样", weatherStep.request.arguments["query"])
+        assertEquals(false, weatherStep.draft.requiresConfirmation)
 
         assertEquals(null, runtime.plan("查一下 Kotlin 协程"))
         assertEquals(null, runtime.plan("网页搜索是什么"))
+        assertEquals(null, runtime.plan("天气是什么"))
         assertEquals(null, runtime.plan("不要搜索 Kotlin，只解释一下"))
         assertEquals(null, runtime.plan("不要百度一下 Kotlin"))
         assertEquals(null, runtime.plan("what is web search"))
@@ -1369,8 +1379,8 @@ class BuiltInSkillRuntimeTest {
         ExpectedBuiltInSkillManifest(
             id = "information_lookup_skill",
             requiredTools = listOf("web_search"),
-            riskLevel = RiskLevel.MediumDraftOrNavigation,
-            triggerExamples = listOf("搜一下 Kotlin", "look up Kotlin"),
+            riskLevel = RiskLevel.LowReadOnly,
+            triggerExamples = listOf("搜一下 Kotlin", "北京天气怎么样", "look up Kotlin"),
         ),
         ExpectedBuiltInSkillManifest(
             id = "device_settings_skill",

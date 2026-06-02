@@ -379,11 +379,12 @@ Current status:
   only settings navigation requests, rejects explanation/implementation/negative
   phrasing, and still routes through registry validation, safety checks, audit,
   and user confirmation before any system settings page opens.
-- Explicit web search commands now also have a conservative Skill-first path.
-  The shared parser accepts search/web-search/online-search phrasing with a
-  non-empty query, rejects bare ambiguous “查一下” and discussion/negative
-  phrasing, and does not broaden the external-search surface beyond confirmed
-  `web_search` requests.
+- Explicit web search and weather information commands now also have a
+  conservative Skill-first path. The shared parser accepts
+  search/web-search/online-search phrasing or location-qualified weather
+  questions with a non-empty query, rejects bare ambiguous “查一下” and
+  discussion/negative phrasing, and routes them to the low-risk read-only
+  `web_search` tool without opening a browser.
 - Explicit recent media metadata requests now also have a conservative
   Skill-first path. The shared parser accepts recent images/screenshots/videos
   or audio metadata requests, keeps documents/downloads/all-files on the action
@@ -514,7 +515,7 @@ Tests:
 - `AgentLoopRuntimeTest.skillFirstReminderBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation`
-- `AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndExecutesWithoutConfirmation`
 - `AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstHttpsDeepLinkBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstForegroundAppBypassesActionPlannerAndRequestsConfirmation`
@@ -576,7 +577,7 @@ Tests:
 - `AgentTraceStoreTest.roomStoreReturnsRecentRunSummariesWithStepLimit`
 - `ToolAuditRepositoryTest.recordDoesNotPersistToolParametersFromPlannedSummary`
 - `PocketMindViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution`
-- `MainActivityComprehensiveTest.remoteToolCallShowsConfirmationBeforeAndroidToolExecution`
+- `MainActivityComprehensiveTest.remoteWebSearchToolCallExecutesReadOnlyToolWithoutConfirmation`
 - `PocketMindViewModelTest.restoreStartupStateRestoresPendingAgentConfirmationWithoutExecutingTool`
 - `PocketMindViewModelTest.restoredSharePendingPreviewDoesNotExecuteUntilCurrentConfirmation`
 - `PocketMindViewModelTest.refreshAuditEventsAlsoLoadsAgentTraceSummaries`
@@ -772,7 +773,7 @@ Tests:
 - `BuiltInSkillRuntimeTest.validateStructureRejectsSkillRequestArgumentsOutsideManifestSchema`
 - `SkillRunExecutorTest`
 - `SkillRunProgressorTest`
-- `MainActivitySkillUiTest.webSearchSkillFirstShowsConfirmationWithoutRemoteRuntime`
+- `MainActivitySkillUiTest.webSearchSkillFirstExecutesReadOnlyToolWithoutRemoteRuntime`
 - `MainActivitySkillUiTest.clipboardSummaryShareSkillStartsAtLocalReadConfirmation`
 - `SkillRunExecutorTest.failsBeforeExecutingWhenSkillArgumentsDoNotMatchManifestSchema`
 - `SkillRunExecutorTest.resumesAfterConfirmedToolResultAndStopsAtNextConfirmation`
@@ -1170,7 +1171,7 @@ Tests:
 - `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
 - `AgentTraceStoreTest.roomStoreClearPendingConfirmationsForRunDeletesPersistedPendingAndCheckpoint`
 - `PocketMindViewModelTest.stopGenerationCancelsActiveAgentRunForLocalChat`
-- `MainActivitySkillUiTest.webSearchSkillFirstShowsConfirmationWithoutRemoteRuntime`
+- `MainActivitySkillUiTest.webSearchSkillFirstExecutesReadOnlyToolWithoutRemoteRuntime`
 - `MainActivitySkillUiTest.clipboardSummaryShareSkillStartsAtLocalReadConfirmation`
 - `AgentTraceStoreTest.roomStoreFailsStaleInFlightRunsButKeepsPendingConfirmationsOnStartup`
 

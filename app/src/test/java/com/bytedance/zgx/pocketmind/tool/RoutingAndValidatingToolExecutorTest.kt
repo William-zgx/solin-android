@@ -716,6 +716,41 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     @Test
+    fun routingExecutorHandlesWebSearchWithoutDelegatingToExternalActivity() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(
+            routingExecutor(
+                delegate = delegate,
+                webSearchProvider = StaticWebSearchProvider { query, _ ->
+                    WebSearchReadResult.Available(
+                        query = query,
+                        source = "open_meteo",
+                        summaryText = "北京 当前天气：晴，气温 24℃。",
+                        resultsJson = """{"kind":"weather","provider":"Open-Meteo"}""",
+                    )
+                },
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "web-search-routed",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "北京天气怎么样"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, result.data["toolName"])
+        assertEquals("北京天气怎么样", result.data["query"])
+        assertEquals("open_meteo", result.data["source"])
+        assertTrue(result.data["summaryText"].orEmpty().contains("北京 当前天气"))
+        assertFalse(result.data.containsKey("completionState"))
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
     fun validatingExecutorDoesNotLetUnknownToolReachRoutingDelegate() {
         val delegate = RecordingDelegate()
         val executor = ValidatingToolExecutor(
@@ -745,6 +780,7 @@ class RoutingAndValidatingToolExecutorTest {
                 truncated = false,
             ),
         ),
+        webSearchProvider: WebSearchProvider = StaticWebSearchProvider(),
     ): RoutingToolExecutor =
         RoutingToolExecutor(
             calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
@@ -800,6 +836,7 @@ class RoutingAndValidatingToolExecutorTest {
                         ),
                     )
             },
+            webSearchProvider = webSearchProvider,
             delegate = delegate,
             backgroundTaskScheduler = backgroundTaskScheduler,
             recentImageTextProvider = object : RecentImageTextProvider {
@@ -838,6 +875,20 @@ class RoutingAndValidatingToolExecutorTest {
         override fun setOneShotConsent(resultCode: Int, data: android.content.Intent?) = Unit
 
         override fun captureCurrentScreenshotOcr(): CurrentScreenshotOcrReadResult = result
+    }
+
+    private class StaticWebSearchProvider(
+        private val resultForQuery: (String, String?) -> WebSearchReadResult = { query, _ ->
+            WebSearchReadResult.Available(
+                query = query,
+                source = "duckduckgo",
+                summaryText = "Kotlin search summary",
+                resultsJson = """{"kind":"instant_answer","results":[]}""",
+            )
+        },
+    ) : WebSearchProvider {
+        override fun search(query: String, searchMode: String?): WebSearchReadResult =
+            resultForQuery(query, searchMode)
     }
 
     private class StaticBackgroundTaskScheduler : BackgroundTaskScheduler {

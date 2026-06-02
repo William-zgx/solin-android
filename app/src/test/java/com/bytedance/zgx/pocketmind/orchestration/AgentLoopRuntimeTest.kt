@@ -79,7 +79,7 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
-    fun localModelToolCallOutputRequestsConfirmationAfterAnswerGeneration() {
+    fun localModelWebSearchToolCallExecutesAfterAnswerGenerationWithoutConfirmation() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
             modelOutputResult = modelToolOutputPlanningResult(
@@ -105,17 +105,14 @@ class AgentLoopRuntimeTest {
         )
 
         requireNotNull(observed)
-        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        assertEquals(AgentRunState.ExecutingTool, observed.run.state)
         val decision = observed.decision as AgentObservationDecision.PlanNextTool
         assertEquals(MobileActionFunctions.WEB_SEARCH, decision.plan.request.toolName)
         assertEquals(mapOf("query" to "Kotlin coroutines"), decision.plan.request.arguments)
         assertEquals(true, decision.plan.plannedByModel)
         assertEquals("local model tool call", decision.plan.fallbackReason)
-        assertEquals(decision.plan.request.id, runtime.latestPendingConfirmation()?.request?.id)
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.UserConfirmationRequested &&
-                step.request.id == decision.plan.request.id
-        })
+        assertEquals(null, runtime.latestPendingConfirmation())
+        assertTrue(observed.steps.none { it is AgentStep.UserConfirmationRequested })
         assertEquals(1, actionRuntime.parseModelToolOutputCallCount)
     }
 
@@ -173,7 +170,7 @@ class AgentLoopRuntimeTest {
 
         val observed = runtime.observeModelResult(
             result.run.id,
-            "web_search 工具需要用户确认后才会打开浏览器。",
+            "web_search 工具会直接返回只读搜索结果，不打开浏览器。",
         )
 
         requireNotNull(observed)
@@ -960,9 +957,10 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
-    fun skillFirstWebSearchBypassesActionPlannerAndRequestsConfirmation() {
+    fun skillFirstWebSearchBypassesActionPlannerAndExecutesWithoutConfirmation() {
         val cases = listOf(
             "搜一下 Kotlin 协程" to "Kotlin 协程",
+            "北京天气怎么样" to "北京天气怎么样",
             "look up Kotlin coroutines" to "Kotlin coroutines",
         )
 
@@ -980,7 +978,7 @@ class AgentLoopRuntimeTest {
                 memoryEnabled = false,
             )
 
-            assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+            assertEquals(AgentRunState.ExecutingTool, result.run.state)
             require(result.plan is AgentPlan.UseTool)
             assertEquals(MobileActionFunctions.WEB_SEARCH, result.plan.request.toolName)
             assertEquals(query, result.plan.request.arguments["query"])
@@ -988,7 +986,8 @@ class AgentLoopRuntimeTest {
             assertEquals("skill-first", result.plan.fallbackReason)
             assertEquals(0, actionRuntime.isLikelyActionCallCount)
             assertEquals(0, actionRuntime.planCallCount)
-            assertEquals(BuiltInSkillRuntime.INFORMATION_LOOKUP_SKILL, runtime.latestPendingConfirmation()?.skillId)
+            assertEquals(null, runtime.latestPendingConfirmation())
+            assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
         }
     }
 
@@ -2941,10 +2940,10 @@ class AgentLoopRuntimeTest {
                 plan = ActionPlan(
                     kind = ActionPlanKind.Draft,
                     draft = ActionDraft(
-                        functionName = MobileActionFunctions.WEB_SEARCH,
-                        title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
-                        parameters = mapOf("query" to "Kotlin"),
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "将打开系统 Wi-Fi 设置页。",
+                        parameters = emptyMap(),
                         requiresConfirmation = true,
                     ),
                 ),
@@ -2959,7 +2958,7 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val planned = runtime.runOnce(
-            input = "搜一下 Kotlin",
+            input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -2973,15 +2972,15 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS),
             ),
         )
 
         requireNotNull(observed)
         assertEquals(AgentRunState.Completed, observed.run.state)
         assertEquals(AgentObservationDecision.Complete, observed.decision)
-        assertTrue(observed.assistantMessage.contains("已打开网页搜索"))
+        assertTrue(observed.assistantMessage.contains("已打开 Wi-Fi 设置页"))
         assertTrue(observed.steps.any { it is AgentStep.UserConfirmed })
         assertTrue(observed.steps.any { it is AgentStep.ToolObserved })
         assertTrue(observed.steps.any { step ->
@@ -2999,7 +2998,7 @@ class AgentLoopRuntimeTest {
             auditSink.events.map { it.eventType },
         )
         assertTrue(auditSink.events.all { event ->
-            event.toolName == null || event.toolName == MobileActionFunctions.WEB_SEARCH
+            event.toolName == null || event.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
         })
     }
 
@@ -3012,10 +3011,10 @@ class AgentLoopRuntimeTest {
                 plan = ActionPlan(
                     kind = ActionPlanKind.Draft,
                     draft = ActionDraft(
-                        functionName = MobileActionFunctions.WEB_SEARCH,
-                        title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
-                        parameters = mapOf("query" to "Kotlin"),
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "将打开系统 Wi-Fi 设置页。",
+                        parameters = emptyMap(),
                         requiresConfirmation = true,
                     ),
                 ),
@@ -3030,7 +3029,7 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val planned = runtime.runOnce(
-            input = "搜一下 Kotlin",
+            input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -3042,8 +3041,8 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = mapOf(
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(MobileActionFunctions.OPEN_WIFI_SETTINGS) + mapOf(
                     "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
                     "taskId" to "task-spoofed",
                     "recoveryTaskId" to "task-spoofed",
@@ -3302,10 +3301,10 @@ class AgentLoopRuntimeTest {
                 plan = ActionPlan(
                     kind = ActionPlanKind.Draft,
                     draft = ActionDraft(
-                        functionName = MobileActionFunctions.WEB_SEARCH,
-                        title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
-                        parameters = mapOf("query" to "Kotlin"),
+                        functionName = MobileActionFunctions.SHARE_TEXT,
+                        title = "系统分享",
+                        summary = "将打开系统分享面板。",
+                        parameters = mapOf("text" to "Kotlin private payload"),
                         requiresConfirmation = true,
                     ),
                 ),
@@ -3323,7 +3322,7 @@ class AgentLoopRuntimeTest {
             ),
         )
         val planned = initialRuntime.runOnce(
-            input = "搜一下 Kotlin",
+            input = "分享这段文字：Kotlin private payload",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -3360,10 +3359,10 @@ class AgentLoopRuntimeTest {
                 plan = ActionPlan(
                     kind = ActionPlanKind.Draft,
                     draft = ActionDraft(
-                        functionName = MobileActionFunctions.WEB_SEARCH,
-                        title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
-                        parameters = mapOf("query" to "Kotlin"),
+                        functionName = MobileActionFunctions.SHARE_TEXT,
+                        title = "系统分享",
+                        summary = "将打开系统分享面板。",
+                        parameters = mapOf("text" to "Kotlin private payload"),
                         requiresConfirmation = true,
                     ),
                 ),
@@ -3381,12 +3380,12 @@ class AgentLoopRuntimeTest {
             ),
         )
         val planned = initialRuntime.runOnce(
-            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            input = "先分享 Kotlin private payload，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
         require(planned.plan is AgentPlan.UseTool)
-        assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, planned.plan.request.toolName)
 
         val restoredTraceStore = RoomAgentTraceStore(
             traceDao = dao,
@@ -3408,7 +3407,7 @@ class AgentLoopRuntimeTest {
         val persistedTrace = dao.steps(planned.run.id).joinToString("\n") { step ->
             "${step.summary}\n${step.json}"
         }
-        assertFalse(persistedTrace.contains("先搜 Kotlin，然后"))
+        assertFalse(persistedTrace.contains("先分享 Kotlin private payload，然后"))
     }
 
     @Test
@@ -4162,7 +4161,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "搜索结果摘要",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                data = webSearchResultData(summaryText = "搜索结果摘要"),
             ),
         )
         requireNotNull(searchObserved)
@@ -4234,7 +4233,7 @@ class AgentLoopRuntimeTest {
                     draft = ActionDraft(
                         functionName = MobileActionFunctions.WEB_SEARCH,
                         title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
+                        summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
                         requiresConfirmation = true,
                     ),
@@ -4288,8 +4287,8 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
         )
 
@@ -4306,7 +4305,7 @@ class AgentLoopRuntimeTest {
             ),
             replanned.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
         )
-        assertEquals(2, replanned.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
+        assertEquals(1, replanned.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
         assertTrue(replanned.steps.any { step ->
             step is AgentStep.ObservationDecided &&
                 step.decision is AgentObservationDecision.PlanNextTool
@@ -4314,8 +4313,6 @@ class AgentLoopRuntimeTest {
         assertEquals(
             listOf(
                 ToolAuditEventType.ToolPlanned,
-                ToolAuditEventType.ConfirmationRequested,
-                ToolAuditEventType.UserConfirmed,
                 ToolAuditEventType.ToolObserved,
                 ToolAuditEventType.ToolPlanned,
                 ToolAuditEventType.ConfirmationRequested,
@@ -4364,8 +4361,8 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
         )
 
@@ -4375,7 +4372,7 @@ class AgentLoopRuntimeTest {
         val wifiRequest = wifiPlanned.decision.plan.request
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wifiRequest.toolName)
         assertEquals("打开 Wi-Fi 设置", actionRuntime.plannedInputs[1])
-        assertEquals(2, wifiPlanned.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
+        assertEquals(1, wifiPlanned.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
 
         runtime.confirmToolRequest(planned.run.id, wifiRequest.id)
         val flashlightPlanned = runtime.observeToolResult(
@@ -4394,7 +4391,7 @@ class AgentLoopRuntimeTest {
         val flashlightRequest = flashlightPlanned.decision.plan.request
         assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, flashlightRequest.toolName)
         assertEquals("打开手电筒设置", actionRuntime.plannedInputs[2])
-        assertEquals(3, flashlightPlanned.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
+        assertEquals(2, flashlightPlanned.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
 
         runtime.confirmToolRequest(planned.run.id, flashlightRequest.id)
         val completed = runtime.observeToolResult(
@@ -4448,8 +4445,8 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
         )
         requireNotNull(wifiPlanned)
@@ -4610,8 +4607,8 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
         )
 
@@ -4918,8 +4915,8 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
         )
 
@@ -4950,39 +4947,21 @@ class AgentLoopRuntimeTest {
         assertEquals(MobileActionFunctions.WEB_SEARCH, planned.plan.request.toolName)
 
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
-        val opened = runtime.observeToolResult(
+        val observed = runtime.observeToolResult(
             runId = planned.run.id,
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(
-                    toolName = MobileActionFunctions.WEB_SEARCH,
-                    completionVerified = false,
-                    externalOutcome = "Unknown",
-                    externalOutcomeSource = "Unknown",
-                ),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
-        )
-
-        requireNotNull(opened)
-        assertEquals(AgentRunState.AwaitingExternalOutcome, opened.run.state)
-        assertEquals(AgentObservationDecision.Complete, opened.decision)
-        val observed = runtime.recordExternalOutcome(
-            runId = planned.run.id,
-            requestId = planned.plan.request.id,
-            outcome = AgentExternalOutcome.Completed,
         )
 
         requireNotNull(observed)
         assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
         require(observed.decision is AgentObservationDecision.PlanNextTool)
         assertEquals(MobileActionFunctions.READ_CLIPBOARD, observed.decision.plan.request.toolName)
-        assertTrue(observed.steps.any { step ->
-            step is AgentStep.ExternalOutcomeConfirmed &&
-                step.requestId == planned.plan.request.id &&
-                step.outcome == AgentExternalOutcome.Completed
-        })
+        assertTrue(observed.steps.none { it is AgentStep.ExternalOutcomeConfirmed })
     }
 
     @Test
@@ -5014,10 +4993,10 @@ class AgentLoopRuntimeTest {
                 plan = ActionPlan(
                     kind = ActionPlanKind.Draft,
                     draft = ActionDraft(
-                        functionName = MobileActionFunctions.WEB_SEARCH,
-                        title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
-                        parameters = mapOf("query" to "Kotlin"),
+                        functionName = MobileActionFunctions.OPEN_DEEP_LINK,
+                        title = "打开深链",
+                        summary = "将打开示例网页。",
+                        parameters = mapOf("uri" to "https://example.com/search?q=Kotlin"),
                         requiresConfirmation = true,
                     ),
                 ),
@@ -5051,7 +5030,7 @@ class AgentLoopRuntimeTest {
             },
         )
         val planned = runtime.runOnce(
-            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            input = "先打开网页，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -5063,9 +5042,9 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
+                summary = "已打开深链",
                 data = externalActivityResultData(
-                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                     completionVerified = false,
                     externalOutcome = "Unknown",
                     externalOutcomeSource = "Unknown",
@@ -5115,7 +5094,7 @@ class AgentLoopRuntimeTest {
             },
         )
         val planned = runtime.runOnce(
-            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            input = "先打开网页，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -5126,9 +5105,9 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
+                summary = "已打开深链",
                 data = externalActivityResultData(
-                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                     completionVerified = false,
                     externalOutcome = "Unknown",
                     externalOutcomeSource = "Unknown",
@@ -5186,7 +5165,7 @@ class AgentLoopRuntimeTest {
             },
         )
         val planned = runtime.runOnce(
-            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            input = "先打开网页，然后打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -5197,9 +5176,9 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
+                summary = "已打开深链",
                 data = externalActivityResultData(
-                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                     completionVerified = false,
                     externalOutcome = "Unknown",
                     externalOutcomeSource = "Unknown",
@@ -5242,10 +5221,10 @@ class AgentLoopRuntimeTest {
                     plan = ActionPlan(
                         kind = ActionPlanKind.Draft,
                         draft = ActionDraft(
-                            functionName = MobileActionFunctions.WEB_SEARCH,
-                            title = "Web 搜索",
-                            summary = "将在浏览器中搜索：Kotlin",
-                            parameters = mapOf("query" to "Kotlin"),
+                            functionName = MobileActionFunctions.OPEN_DEEP_LINK,
+                            title = "打开深链",
+                            summary = "将打开示例网页。",
+                            parameters = mapOf("uri" to "https://example.com/search?q=Kotlin"),
                             requiresConfirmation = true,
                         ),
                     ),
@@ -5256,7 +5235,7 @@ class AgentLoopRuntimeTest {
             traceStore = traceStore,
         )
         val planned = initialRuntime.runOnce(
-            input = "搜一下 Kotlin",
+            input = "打开示例网页",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
             sessionId = "session-restored",
@@ -5268,9 +5247,9 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
+                summary = "已打开深链",
                 data = externalActivityResultData(
-                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    toolName = MobileActionFunctions.OPEN_DEEP_LINK,
                     completionVerified = false,
                     externalOutcome = "Unknown",
                     externalOutcomeSource = "Unknown",
@@ -5291,8 +5270,8 @@ class AgentLoopRuntimeTest {
         assertEquals(AgentRunState.AwaitingExternalOutcome.name, dao.run(planned.run.id)?.state)
         assertEquals(planned.run.id, pending.runId)
         assertEquals(planned.plan.request.id, pending.requestId)
-        assertEquals(MobileActionFunctions.WEB_SEARCH, pending.toolName)
-        assertEquals("Web 搜索", pending.title)
+        assertEquals(MobileActionFunctions.OPEN_DEEP_LINK, pending.toolName)
+        assertEquals("打开深链", pending.title)
         assertTrue(pending.summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
 
         val confirmed = restoredRuntime.recordExternalOutcome(
@@ -5513,7 +5492,7 @@ class AgentLoopRuntimeTest {
                     draft = ActionDraft(
                         functionName = MobileActionFunctions.WEB_SEARCH,
                         title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
+                        summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
                         requiresConfirmation = true,
                     ),
@@ -5552,8 +5531,8 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
         )
 
@@ -5578,7 +5557,7 @@ class AgentLoopRuntimeTest {
                     draft = ActionDraft(
                         functionName = MobileActionFunctions.WEB_SEARCH,
                         title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
+                        summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
                         requiresConfirmation = true,
                     ),
@@ -5633,8 +5612,8 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = oldRequest.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
         )
         requireNotNull(currentPlanned)
@@ -5876,7 +5855,6 @@ class AgentLoopRuntimeTest {
     @Test
     fun retryableSideEffectToolFailuresDoNotScheduleAutomaticRetry() {
         val cases = listOf(
-            "搜一下 Kotlin" to MobileActionFunctions.WEB_SEARCH,
             "分享这段文字：hello" to MobileActionFunctions.SHARE_TEXT,
             "提醒我 15 分钟后喝水" to MobileActionFunctions.SCHEDULE_REMINDER,
             "开启周期检查，每 2 小时" to MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
@@ -5926,10 +5904,10 @@ class AgentLoopRuntimeTest {
                 plan = ActionPlan(
                     kind = ActionPlanKind.Draft,
                     draft = ActionDraft(
-                        functionName = MobileActionFunctions.WEB_SEARCH,
-                        title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
-                        parameters = mapOf("query" to "Kotlin"),
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "将打开系统 Wi-Fi 设置页。",
+                        parameters = emptyMap(),
                         requiresConfirmation = true,
                     ),
                 ),
@@ -5944,7 +5922,7 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val planned = runtime.runOnce(
-            input = "搜一下 Kotlin",
+            input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -5986,10 +5964,10 @@ class AgentLoopRuntimeTest {
                 plan = ActionPlan(
                     kind = ActionPlanKind.Draft,
                     draft = ActionDraft(
-                        functionName = MobileActionFunctions.WEB_SEARCH,
-                        title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
-                        parameters = mapOf("query" to "Kotlin"),
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "将打开系统 Wi-Fi 设置页。",
+                        parameters = emptyMap(),
                         requiresConfirmation = true,
                     ),
                 ),
@@ -6003,7 +5981,7 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val planned = runtime.runOnce(
-            input = "搜一下 Kotlin",
+            input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -6015,7 +5993,7 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Failed,
-                summary = "找不到可处理的浏览器",
+                summary = "找不到可处理的设置页",
                 retryable = false,
             ),
         )
@@ -6036,10 +6014,10 @@ class AgentLoopRuntimeTest {
                 plan = ActionPlan(
                     kind = ActionPlanKind.Draft,
                     draft = ActionDraft(
-                        functionName = MobileActionFunctions.WEB_SEARCH,
-                        title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
-                        parameters = mapOf("query" to "Kotlin"),
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "将打开系统 Wi-Fi 设置页。",
+                        parameters = emptyMap(),
                         requiresConfirmation = true,
                     ),
                 ),
@@ -6054,7 +6032,7 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val planned = runtime.runOnce(
-            input = "搜一下 Kotlin",
+            input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -6118,10 +6096,10 @@ class AgentLoopRuntimeTest {
                 plan = ActionPlan(
                     kind = ActionPlanKind.Draft,
                     draft = ActionDraft(
-                        functionName = MobileActionFunctions.WEB_SEARCH,
-                        title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
-                        parameters = mapOf("query" to "Kotlin"),
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "将打开系统 Wi-Fi 设置页。",
+                        parameters = emptyMap(),
                         requiresConfirmation = true,
                     ),
                 ),
@@ -6136,7 +6114,7 @@ class AgentLoopRuntimeTest {
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
         )
         val planned = runtime.runOnce(
-            input = "搜一下 Kotlin",
+            input = "打开 Wi-Fi 设置",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
         )
@@ -6174,7 +6152,7 @@ class AgentLoopRuntimeTest {
                     draft = ActionDraft(
                         functionName = MobileActionFunctions.WEB_SEARCH,
                         title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
+                        summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
                         requiresConfirmation = true,
                     ),
@@ -6221,7 +6199,7 @@ class AgentLoopRuntimeTest {
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
                 summary = "已完成搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                data = webSearchResultData(summaryText = "已完成搜索"),
             ),
         )
 
@@ -6237,7 +6215,7 @@ class AgentLoopRuntimeTest {
             step is AgentStep.Failed &&
                 step.reason.contains("budget exceeded")
         })
-        assertEquals(1, observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
+        assertEquals(0, observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
     }
 
     @Test
@@ -6292,7 +6270,7 @@ class AgentLoopRuntimeTest {
                     draft = ActionDraft(
                         functionName = MobileActionFunctions.WEB_SEARCH,
                         title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
+                        summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
                         requiresConfirmation = true,
                     ),
@@ -6336,7 +6314,7 @@ class AgentLoopRuntimeTest {
                     draft = ActionDraft(
                         functionName = MobileActionFunctions.WEB_SEARCH,
                         title = "Web 搜索",
-                        summary = "将在浏览器中搜索：Kotlin",
+                        summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                         parameters = mapOf("query" to "Kotlin"),
                         requiresConfirmation = true,
                     ),
@@ -6385,8 +6363,8 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
         )
 
@@ -6395,7 +6373,7 @@ class AgentLoopRuntimeTest {
         require(observed.decision is AgentObservationDecision.Fail)
         assertTrue(observed.decision.reason.contains("Invalid skill plan"))
         assertTrue(observed.steps.any { it is AgentStep.ToolRejected })
-        assertTrue(observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size == 1)
+        assertTrue(observed.steps.none { it is AgentStep.UserConfirmationRequested })
         assertNull(runtime.latestPendingConfirmation())
     }
 
@@ -6405,7 +6383,7 @@ class AgentLoopRuntimeTest {
             initialDraft = ActionDraft(
                 functionName = MobileActionFunctions.WEB_SEARCH,
                 title = "Web 搜索",
-                summary = "将在浏览器中搜索：Kotlin",
+                summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                 parameters = mapOf("query" to "Kotlin"),
                 requiresConfirmation = true,
             ),
@@ -6435,8 +6413,8 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
         )
 
@@ -6456,15 +6434,13 @@ class AgentLoopRuntimeTest {
             ),
             observed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
         )
-        assertEquals(2, observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
+        assertEquals(1, observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
         assertEquals(listOf(null, "/verified/mobile-action.litertlm"), actionRuntime.actionModelPaths)
-        assertTrue(actionRuntime.plannedInputs[1].contains("Observation summary: 已打开网页搜索"))
+        assertTrue(actionRuntime.plannedInputs[1].contains("Observation summary: 已完成 Web 搜索：Kotlin search summary"))
         assertTrue(actionRuntime.plannedInputs[1].contains("Previous tool: ${MobileActionFunctions.WEB_SEARCH}"))
         assertEquals(
             listOf(
                 ToolAuditEventType.ToolPlanned,
-                ToolAuditEventType.ConfirmationRequested,
-                ToolAuditEventType.UserConfirmed,
                 ToolAuditEventType.ToolObserved,
                 ToolAuditEventType.ToolPlanned,
                 ToolAuditEventType.ConfirmationRequested,
@@ -6558,7 +6534,7 @@ class AgentLoopRuntimeTest {
             initialDraft = ActionDraft(
                 functionName = MobileActionFunctions.WEB_SEARCH,
                 title = "Web 搜索",
-                summary = "将在浏览器中搜索：Kotlin",
+                summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                 parameters = mapOf("query" to "Kotlin"),
                 requiresConfirmation = true,
             ),
@@ -6587,8 +6563,8 @@ class AgentLoopRuntimeTest {
             result = ToolResult(
                 requestId = planned.plan.request.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
         )
 
@@ -6598,6 +6574,18 @@ class AgentLoopRuntimeTest {
         assertEquals(2, actionRuntime.plannedInputs.size)
         assertNull(runtime.latestPendingConfirmation())
     }
+
+    private fun webSearchResultData(
+        query: String = "Kotlin",
+        summaryText: String = "Kotlin search summary",
+    ): Map<String, String> =
+        mapOf(
+            "toolName" to MobileActionFunctions.WEB_SEARCH,
+            "query" to query,
+            "source" to "duckduckgo",
+            "summaryText" to summaryText,
+            "resultsJson" to """{"kind":"instant_answer","provider":"DuckDuckGo","results":[]}""",
+        )
 
     private fun clipboardResultData(text: String): Map<String, String> =
         mapOf(
@@ -6693,10 +6681,10 @@ class AgentLoopRuntimeTest {
                     plan = ActionPlan(
                         kind = ActionPlanKind.Draft,
                         draft = ActionDraft(
-                            functionName = MobileActionFunctions.WEB_SEARCH,
-                            title = "Web 搜索",
-                            summary = "将在浏览器中搜索：Kotlin",
-                            parameters = mapOf("query" to "Kotlin"),
+                            functionName = MobileActionFunctions.OPEN_DEEP_LINK,
+                            title = "打开深链",
+                            summary = "将打开示例网页。",
+                            parameters = mapOf("uri" to "https://example.com/search?q=Kotlin"),
                             requiresConfirmation = true,
                         ),
                     ),
@@ -6718,7 +6706,6 @@ class AgentLoopRuntimeTest {
         val (targetKind, intentAction) = when (toolName) {
             MobileActionFunctions.SHARE_TEXT -> "android_chooser" to "android.intent.action.SEND"
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "android_settings" to "android.settings.WIFI_SETTINGS"
-            MobileActionFunctions.WEB_SEARCH -> "browser_search" to "android.intent.action.WEB_SEARCH"
             else -> "external_activity" to "android.intent.action.VIEW"
         }
         return mapOf(
@@ -6759,7 +6746,7 @@ class AgentLoopRuntimeTest {
                 mutablePlannedInputs.size == 1 -> ActionDraft(
                     functionName = MobileActionFunctions.WEB_SEARCH,
                     title = "Web 搜索",
-                    summary = "将在浏览器中搜索：Kotlin",
+                    summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                     parameters = mapOf("query" to "Kotlin"),
                     requiresConfirmation = true,
                 )
@@ -7667,7 +7654,7 @@ class AgentLoopRuntimeTest {
             val searchDraft = ActionDraft(
                 functionName = MobileActionFunctions.WEB_SEARCH,
                 title = "Web 搜索",
-                summary = "将在浏览器中搜索：Kotlin",
+                summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                 parameters = mapOf("query" to "Kotlin"),
                 requiresConfirmation = true,
             )

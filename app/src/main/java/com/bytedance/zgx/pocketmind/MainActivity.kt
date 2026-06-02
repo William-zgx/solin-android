@@ -236,6 +236,7 @@ class MainActivity : ComponentActivity() {
 
     private fun startVoiceInput() {
         if (!hasRuntimePermission(Manifest.permission.RECORD_AUDIO)) {
+            viewModel.reportVoiceInputUnavailable("需要授权麦克风权限")
             voiceAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             return
         }

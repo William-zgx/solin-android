@@ -94,7 +94,7 @@ class MainActivityComprehensiveTest {
     }
 
     @Test
-    fun remoteToolCallShowsConfirmationBeforeAndroidToolExecution() {
+    fun remoteWebSearchToolCallExecutesReadOnlyToolWithoutConfirmation() {
         LocalOpenAiServer().use { server ->
             dismissFirstRunSetupIfPresent()
             configureRemoteModel(server.baseUrl)
@@ -104,13 +104,8 @@ class MainActivityComprehensiveTest {
             assertTrue(request.path.endsWith("/v1/chat/completions"))
             assertRemoteToolRequestBody(request)
 
-            composeRule.waitForTag("action_confirm_button", timeoutMillis = 15_000)
-            composeRule.waitForText("Web 搜索")
-            composeRule.waitForText("Web 搜索 · 远程模型请求")
-            composeRule.waitForText("query: $REMOTE_TOOL_CALL_QUERY")
-            composeRule.onNodeWithTag("action_confirm_button").assertIsDisplayed()
-            composeRule.onNodeWithTag("action_dismiss_button").performClick()
-            server.assertNoPost(timeoutMillis = 500)
+            composeRule.waitForText("正在使用工具：Web 搜索", timeoutMillis = 15_000)
+            composeRule.waitForTagGone("action_confirm_button")
         }
     }
 
@@ -251,6 +246,12 @@ class MainActivityComprehensiveTest {
     private fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
+        waitUntil(timeoutMillis = timeoutMillis) {
+            onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
         }
     }
 

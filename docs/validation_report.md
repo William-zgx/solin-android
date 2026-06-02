@@ -1080,7 +1080,7 @@ git diff --unified=0 | rg -n '(sk-[A-Za-z0-9_-]{20,}|B[e]arer [A-Za-z0-9._-]{20,
 
 结果：通过；敏感串扫描无命中。
 
-## 2026-06-02 远程 tool_calls 确认卡 UI 增量验证
+## 2026-06-02 远程 tool_calls 只读工具 UI 增量验证
 
 本轮覆盖项：
 
@@ -1089,8 +1089,8 @@ git diff --unified=0 | rg -n '(sk-[A-Za-z0-9_-]{20,}|B[e]arer [A-Za-z0-9._-]{20,
   返回 `web_search` function tool call。
 - 测试断言远程请求体携带 `tools`、`tool_choice=auto`、`web_search` schema 和
   `stream=true`，覆盖 `sendWithTools` 请求边界。
-- UI 侧断言远程工具调用只进入确认卡，显示 `Web 搜索 · 远程模型请求` 与
-  `query` 参数；测试只点击取消，不确认执行，因此不会调起外部浏览器或系统搜索。
+- UI 侧断言远程 `web_search` 工具调用进入只读工具执行态，显示
+  `正在使用工具：Web 搜索`，不展示确认卡，也不会调起外部浏览器或系统搜索。
 
 验证命令：
 
@@ -2692,11 +2692,12 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 本轮覆盖项：
 
-- `web_search` 的显式搜索请求可由 built-in Skill runtime 直接规划为待确认工具，
-  不再依赖 action planner。
+- `web_search` 的显式搜索请求可由 built-in Skill runtime 直接规划为低风险只读工具，
+  无需确认且不再依赖 action planner。
 - Action planner 与 Skill runtime 复用同一组搜索 parser。Parser 只接受明确
-  搜索/网页搜索/网络搜索/百度/Google/Bing/look up 等表达并要求非空 query；
-  裸“查一下”不再被推断为网页搜索，避免绕过窄口径 Skill-first 边界。
+  搜索/网页搜索/网络搜索/百度/Google/Bing/look up 等表达，或带明确地点的天气查询，
+  并要求非空 query；裸“查一下”不再被推断为网页搜索，避免绕过窄口径 Skill-first
+  边界。
 - 反例覆盖空搜索、解释类、否定类和代码/错误排查语境输入，避免“网页搜索是什么”
   或“查一下这个错误原因”误触工具确认。
 - 顺序任务（如“先搜 Kotlin，然后打开 Wi-Fi 设置”）不会被一跳 Skill-first
@@ -2708,7 +2709,7 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 ./gradlew :app:testDebugUnitTest \
   --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersDraftForNaturalLanguageWebSearch' \
   --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansWebSearchWithoutActionDraftWhenCommandIsExplicit' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndExecutesWithoutConfirmation' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.successfulObservationCanPlanNextToolAndRequestConfirmationAgain' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.invalidActionDraftIsRejectedBeforeConfirmation' \
@@ -5624,16 +5625,11 @@ scripts/test_validation_scripts.sh
 
 本轮覆盖项：
 
-- 新增 `MainActivitySkillUiTest.webSearchSkillFirstShowsConfirmationWithoutRemoteRuntime`，
+- 新增 `MainActivitySkillUiTest.webSearchSkillFirstExecutesReadOnlyToolWithoutRemoteRuntime`，
   以真实 `MainActivity` 和 Compose UI 重置到远程模式，跳过启动期模型运行时工作后发送
   “搜一下 Kotlin 协程”。
-- 测试断言该请求不依赖远程 runtime 先返回，而是直接展示 `Web 搜索` 确认卡、
-  `将在浏览器中搜索：Kotlin 协程` 摘要、`query: Kotlin 协程` 参数和确认按钮。
-- 测试只取消确认卡，不打开外部浏览器，避免把外部 Intent 是否成功作为 Skill-first
-  路由回归的一部分。
-- 取消后打开“后台任务”入口，断言最近审计日志可见 `UserCancelled`、
-  `ToolObserved`、`web_search` 和“工具执行已取消。”，并断言最近 Agent 轨迹展示
-  `已取消` 状态与 `UserRejected` step 摘要。
+- 测试断言该请求不依赖远程 runtime 先返回，而是直接展示
+  `正在使用工具：Web 搜索`，不出现确认卡，也不打开外部浏览器。
 - Agent core 文档和真机验收清单同步登记该设备/模拟器 smoke；完整 Skill 设备回归仍需后续继续扩展到多步恢复、确认后 trace/audit 和权限真实路径。
 
 验证命令：

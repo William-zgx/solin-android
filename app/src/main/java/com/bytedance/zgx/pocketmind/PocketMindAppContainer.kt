@@ -45,6 +45,7 @@ import com.bytedance.zgx.pocketmind.tool.ValidatingToolExecutor
 import com.bytedance.zgx.pocketmind.tool.RoutingToolExecutor
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
+import com.bytedance.zgx.pocketmind.tool.OkHttpWebSearchProvider
 
 class PocketMindAppContainer(context: Context) {
     private val appContext = context.applicationContext
@@ -105,6 +106,7 @@ class PocketMindAppContainer(context: Context) {
                 contactSummaryProvider = AndroidContactSummaryProvider(appContext),
                 notificationSummaryProvider = AndroidNotificationSummaryProvider(appContext),
                 recentFileProvider = AndroidRecentFileProvider(appContext),
+                webSearchProvider = OkHttpWebSearchProvider(),
                 delegate = ActionExecutor(
                     context = appContext,
                     backgroundTaskScheduler = backgroundTaskSchedulerInternal,

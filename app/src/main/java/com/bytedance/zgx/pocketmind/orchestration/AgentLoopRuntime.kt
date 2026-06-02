@@ -413,7 +413,7 @@ class AgentLoopRuntime(
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
         val finalState = when (decision) {
             AgentObservationDecision.Complete -> AgentRunState.Completed
-            is AgentObservationDecision.PlanNextTool -> AgentRunState.AwaitingUserConfirmation
+            is AgentObservationDecision.PlanNextTool -> decision.plan.nextExecutionState()
             is AgentObservationDecision.Fail -> AgentRunState.Failed
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
             is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
@@ -423,7 +423,7 @@ class AgentLoopRuntime(
         if (finalState in terminalRunStates) {
             valueFreeCompletedStepFrontiersByRunId.remove(runId)
         }
-        if (decision is AgentObservationDecision.PlanNextTool) {
+        if (decision is AgentObservationDecision.PlanNextTool && decision.plan.requiresUserConfirmation()) {
             traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
         }
         return AgentExternalOutcomeResult(
@@ -466,7 +466,7 @@ class AgentLoopRuntime(
         traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
         val finalState = when (decision) {
             AgentObservationDecision.Complete -> AgentRunState.Completed
-            is AgentObservationDecision.PlanNextTool -> AgentRunState.AwaitingUserConfirmation
+            is AgentObservationDecision.PlanNextTool -> decision.plan.nextExecutionState()
             is AgentObservationDecision.Fail -> AgentRunState.Failed
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
             is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
@@ -476,7 +476,7 @@ class AgentLoopRuntime(
         if (finalState in terminalRunStates) {
             valueFreeCompletedStepFrontiersByRunId.remove(runId)
         }
-        if (decision is AgentObservationDecision.PlanNextTool) {
+        if (decision is AgentObservationDecision.PlanNextTool && decision.plan.requiresUserConfirmation()) {
             traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
         }
         return AgentModelObservationResult(
@@ -525,8 +525,10 @@ class AgentLoopRuntime(
                     reason = "Remote model requested a tool call.",
                 )
                 traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-                val updatedRun = traceStore.updateState(runId, AgentRunState.AwaitingUserConfirmation)
-                traceStore.savePendingConfirmation(plan.toPendingSnapshot(updatedRun))
+                val updatedRun = traceStore.updateState(runId, plan.nextExecutionState())
+                if (plan.requiresUserConfirmation()) {
+                    traceStore.savePendingConfirmation(plan.toPendingSnapshot(updatedRun))
+                }
                 AgentModelObservationResult(
                     run = updatedRun,
                     decision = decision,
@@ -561,7 +563,7 @@ class AgentLoopRuntime(
         if (run.state !in allowedStates) return null
         if (
             run.state in setOf(AgentRunState.ExecutingTool, AgentRunState.RetryingTool) &&
-            latestConfirmedRequestId(runId) != result.requestId
+            latestExecutableRequestId(runId) != result.requestId
         ) {
             return null
         }
@@ -657,7 +659,7 @@ class AgentLoopRuntime(
 
             is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
             is AgentObservationDecision.RetryTool -> AgentRunState.RetryingTool
-            is AgentObservationDecision.PlanNextTool -> AgentRunState.AwaitingUserConfirmation
+            is AgentObservationDecision.PlanNextTool -> decision.plan.nextExecutionState()
             is AgentObservationDecision.Fail -> AgentRunState.Failed
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
         }
@@ -665,7 +667,7 @@ class AgentLoopRuntime(
         if (finalState in terminalRunStates && !observedResult.isUnverifiedExternalLaunch()) {
             valueFreeCompletedStepFrontiersByRunId.remove(runId)
         }
-        if (decision is AgentObservationDecision.PlanNextTool) {
+        if (decision is AgentObservationDecision.PlanNextTool && decision.plan.requiresUserConfirmation()) {
             traceStore.savePendingConfirmation(decision.plan.toPendingSnapshot(updatedRun))
         }
         return AgentObservationResult(
@@ -998,14 +1000,16 @@ class AgentLoopRuntime(
         traceStore.appendStep(runId, AgentStep.SafetyChecked(plan.safetyDecision))
         traceStore.appendStep(runId, AgentStep.ToolRequested(plan.request, plan.draft))
         auditToolEvent(runId, plan, ToolAuditEventType.ToolPlanned, null, plan.request.reason)
-        traceStore.appendStep(runId, AgentStep.UserConfirmationRequested(plan.request, plan.draft))
-        auditToolEvent(
-            runId = runId,
-            plan = plan,
-            eventType = ToolAuditEventType.ConfirmationRequested,
-            status = null,
-            summary = plan.safetyDecision.reason,
-        )
+        if (plan.requiresUserConfirmation()) {
+            traceStore.appendStep(runId, AgentStep.UserConfirmationRequested(plan.request, plan.draft))
+            auditToolEvent(
+                runId = runId,
+                plan = plan,
+                eventType = ToolAuditEventType.ConfirmationRequested,
+                status = null,
+                summary = plan.safetyDecision.reason,
+            )
+        }
     }
 
     private fun requestToolConfirmation(
@@ -1016,8 +1020,15 @@ class AgentLoopRuntime(
             return failInitialPlanBudget(run, plan.request)
         }
         appendToolPlanSteps(run.id, plan)
-        val waitingRun = traceStore.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
-        traceStore.savePendingConfirmation(plan.toPendingSnapshot(waitingRun))
+        val nextState = if (plan.requiresUserConfirmation()) {
+            AgentRunState.AwaitingUserConfirmation
+        } else {
+            AgentRunState.ExecutingTool
+        }
+        val waitingRun = traceStore.updateState(run.id, nextState)
+        if (plan.requiresUserConfirmation()) {
+            traceStore.savePendingConfirmation(plan.toPendingSnapshot(waitingRun))
+        }
         return AgentLoopResult(
             run = waitingRun,
             plan = plan,
@@ -1283,7 +1294,7 @@ class AgentLoopRuntime(
             title = spec?.title ?: request.toolName,
             summary = spec?.title?.let { title -> "$title · 远程模型请求" } ?: "远程模型请求执行 ${request.toolName}",
             parameters = request.arguments,
-            requiresConfirmation = true,
+            requiresConfirmation = spec?.confirmationPolicy == com.bytedance.zgx.pocketmind.tool.ConfirmationPolicy.Required,
         )
     }
 
@@ -1936,11 +1947,18 @@ class AgentLoopRuntime(
         return liveRequest ?: restoredSnapshot?.request
     }
 
-    private fun latestConfirmedRequestId(runId: String): String? =
+    private fun latestExecutableRequestId(runId: String): String? =
         traceStore.steps(runId)
             .asReversed()
             .asSequence()
-            .mapNotNull { step -> (step as? AgentStep.UserConfirmed)?.requestId }
+            .mapNotNull { step ->
+                when (step) {
+                    is AgentStep.UserConfirmed -> step.requestId
+                    is AgentStep.ToolRetryScheduled -> step.request.id
+                    is AgentStep.ToolRequested -> step.request.id
+                    else -> null
+                }
+            }
             .firstOrNull()
 
     private fun skillIdForRequest(runId: String, requestId: String): String? {
@@ -2070,9 +2088,20 @@ fun AgentLoopResult.toAssistantRoute(): AssistantRoute =
             plannedByModel = planned.plannedByModel,
             fallbackReason = planned.fallbackReason,
             skillId = planned.skillRequest?.skillId,
+            requiresUserConfirmation = planned.requiresUserConfirmation(),
         )
 
         is AgentPlan.RejectedTool -> AssistantRoute.ToolRejected(planned.result.summary)
 
         is AgentPlan.MissingModel -> AssistantRoute.MissingModel(planned.capability)
+    }
+
+private fun AgentPlan.UseTool.requiresUserConfirmation(): Boolean =
+    safetyDecision.outcome == SafetyOutcome.RequireConfirmation
+
+private fun AgentPlan.UseTool.nextExecutionState(): AgentRunState =
+    if (requiresUserConfirmation()) {
+        AgentRunState.AwaitingUserConfirmation
+    } else {
+        AgentRunState.ExecutingTool
     }

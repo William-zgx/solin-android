@@ -32,6 +32,8 @@ data class SharedInput(
                         if (preview.truncated) append("（已截断）")
                         append("：\n")
                         append(preview.text.lines().joinToString(separator = "\n") { line -> "   $line" })
+                    } ?: attachment.unavailablePreviewNotice()?.let { notice ->
+                        append("\n   $notice")
                     }
                 }
             }
@@ -50,12 +52,12 @@ data class SharedInput(
                 append(sharedText.text)
             } else if (attachments.isNotEmpty()) {
                 if (isNotEmpty()) append("\n\n")
-                append("请根据我分享的附件信息进行处理。")
+                append("请根据我分享的附件信息和可用文字摘录进行处理；如果图片没有 OCR 摘录，请明确说明当前无法看到图片视觉内容。")
             }
             if (attachmentBlock.isNotBlank()) {
                 append("\n\n")
                 append(
-                    "已分享附件（默认只读取元数据；text/*/JSON/XML/YAML 文档、RTF/PDF 文本层、PDF 扫描页 OCR、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录）：\n",
+                    "已分享附件（默认只读取元数据；text/*/JSON/XML/YAML 文档、RTF/PDF 文本层、PDF 扫描页 OCR、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录；当前不读取图片视觉内容或像素语义）：\n",
                 )
                 append(attachmentBlock)
             }
@@ -66,6 +68,22 @@ data class SharedInput(
         const val MAX_ATTACHMENTS_IN_PROMPT = 5
     }
 }
+
+private fun SharedAttachment.unavailablePreviewNotice(): String? =
+    when (kind) {
+        SharedAttachmentKind.Image ->
+            "图片视觉内容未读取；当前只支持图片 OCR 文字摘录，无法看到照片/画面内容。"
+
+        SharedAttachmentKind.Video ->
+            "视频画面和音频内容未读取；当前仅有元数据。"
+
+        SharedAttachmentKind.Audio ->
+            "音频内容未转写；当前仅有元数据。"
+
+        SharedAttachmentKind.Document,
+        SharedAttachmentKind.Other,
+        -> null
+    }
 
 private data class BoundedSharedText(
     val text: String,

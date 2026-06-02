@@ -113,15 +113,12 @@ class AssistantOrchestratorTest {
         )
 
         requireNotNull(observed)
-        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        assertEquals(AgentRunState.ExecutingTool, observed.run.state)
         require(observed.decision is AgentObservationDecision.PlanNextTool)
         assertEquals(MobileActionFunctions.WEB_SEARCH, observed.decision.plan.request.toolName)
         assertEquals(true, observed.decision.plan.plannedByModel)
         assertEquals("remote tool call", observed.decision.plan.fallbackReason)
-        val restored = orchestrator.restorePendingAction()
-        requireNotNull(restored)
-        assertEquals(route.runId, restored.runId)
-        assertEquals(MobileActionFunctions.WEB_SEARCH, restored.toolRequest?.toolName)
+        assertEquals(null, orchestrator.restorePendingAction())
     }
 
     @Test
@@ -206,8 +203,8 @@ class AssistantOrchestratorTest {
             result = ToolResult(
                 requestId = route.toolRequest.id,
                 status = ToolStatus.Succeeded,
-                summary = "已打开网页搜索",
-                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
             ),
         )
 
@@ -336,7 +333,7 @@ class AssistantOrchestratorTest {
                 ActionDraft(
                     functionName = MobileActionFunctions.WEB_SEARCH,
                     title = "Web 搜索",
-                    summary = "将在浏览器中搜索：Kotlin",
+                    summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
                     parameters = mapOf("query" to "Kotlin"),
                     requiresConfirmation = true,
                 )
@@ -368,6 +365,15 @@ class AssistantOrchestratorTest {
             )
     }
 
+    private fun webSearchResultData(): Map<String, String> =
+        mapOf(
+            "toolName" to MobileActionFunctions.WEB_SEARCH,
+            "query" to "Kotlin",
+            "source" to "duckduckgo",
+            "summaryText" to "Kotlin search summary",
+            "resultsJson" to """{"kind":"instant_answer","provider":"DuckDuckGo","results":[]}""",
+        )
+
     private fun externalActivityResultData(toolName: String): Map<String, String> =
         mapOf(
             "toolName" to toolName,
@@ -375,8 +381,8 @@ class AssistantOrchestratorTest {
             "completionVerified" to "true",
             "externalOutcome" to "Completed",
             "externalOutcomeSource" to "UserConfirmed",
-            "targetKind" to "browser_search",
-            "intentAction" to "android.intent.action.WEB_SEARCH",
+            "targetKind" to "external_activity",
+            "intentAction" to "android.intent.action.VIEW",
             "metadataPolicy" to "no_raw_payload_persisted",
             "rawPayloadIncluded" to "false",
         )

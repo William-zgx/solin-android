@@ -28,7 +28,7 @@ class MainActivitySkillUiTest {
     val composeRule = createEmptyComposeRule()
 
     @Test
-    fun webSearchSkillFirstShowsConfirmationWithoutRemoteRuntime() {
+    fun webSearchSkillFirstExecutesReadOnlyToolWithoutRemoteRuntime() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         resetMainActivityPersistentState(
             context = context,
@@ -44,18 +44,8 @@ class MainActivitySkillUiTest {
 
             composeRule.sendPrompt("搜一下 Kotlin 协程")
 
-            composeRule.waitForTag("action_confirm_button")
-            composeRule.onNodeWithText("Web 搜索").assertIsDisplayed()
-            composeRule.onNodeWithText("将在浏览器中搜索：Kotlin 协程").assertIsDisplayed()
-            composeRule.onNodeWithText("query: Kotlin 协程").assertIsDisplayed()
-            composeRule.onNodeWithTag("action_confirm_button").assertIsDisplayed()
-
-            composeRule.onNodeWithTag("action_dismiss_button").performClick()
+            composeRule.waitForText("正在使用工具：Web 搜索")
             composeRule.waitForTagGone("action_confirm_button")
-
-            composeRule.onNodeWithTag("top_background_tasks_button").performClick()
-            composeRule.waitForTag("background_task_manager_title")
-            composeRule.assertToolCancellationEvidence("web_search")
         }
     }
 

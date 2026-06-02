@@ -61,8 +61,12 @@ class ToolRegistryTest {
         assertNotNull(webSearchSpec)
         requireNotNull(webSearchSpec)
         assertEquals(ToolCapability.WebSearch, webSearchSpec.capability)
-        assertTrue(ToolPermission.StartsExternalActivity in webSearchSpec.permissions)
+        assertFalse(ToolPermission.StartsExternalActivity in webSearchSpec.permissions)
+        assertEquals(RiskLevel.LowReadOnly, webSearchSpec.riskLevel)
+        assertEquals(ConfirmationPolicy.NotRequired, webSearchSpec.confirmationPolicy)
         assertTrue(webSearchSpec.inputSchemaJson.contains("query"))
+        assertTrue(webSearchSpec.outputSchemaJson.contains("summaryText"))
+        assertTrue(webSearchSpec.outputSchemaJson.contains("resultsJson"))
 
         val reminderSpec = registry.specFor(MobileActionFunctions.SCHEDULE_REMINDER)
         assertNotNull(reminderSpec)
@@ -693,7 +697,7 @@ class ToolRegistryTest {
 
     @Test
     fun externalActivityOutputRequiresClosedOutcomeMetadata() {
-        val spec = registry.specFor(MobileActionFunctions.WEB_SEARCH)
+        val spec = registry.specFor(MobileActionFunctions.OPEN_DEEP_LINK)
         assertNotNull(spec)
         requireNotNull(spec)
         val properties = JSONObject(spec.outputSchemaJson).getJSONObject("properties")
@@ -706,8 +710,8 @@ class ToolRegistryTest {
 
         val request = ToolRequest(
             id = "external-output-contract",
-            toolName = MobileActionFunctions.WEB_SEARCH,
-            arguments = mapOf("query" to "Kotlin"),
+            toolName = MobileActionFunctions.OPEN_DEEP_LINK,
+            arguments = mapOf("uri" to "https://example.com/search?q=Kotlin"),
             reason = "schema contract",
         )
         val launchOnlyData = externalActivityOutputData(request.toolName)
@@ -1395,8 +1399,8 @@ class ToolRegistryTest {
             "completionVerified" to "false",
             "externalOutcome" to "Unknown",
             "externalOutcomeSource" to "Unknown",
-            "targetKind" to "browser_search",
-            "intentAction" to "android.intent.action.WEB_SEARCH",
+            "targetKind" to "HttpsUri",
+            "intentAction" to "android.intent.action.VIEW",
             "metadataPolicy" to "AllowlistedCompletionMetadata",
             "rawPayloadIncluded" to "false",
         )

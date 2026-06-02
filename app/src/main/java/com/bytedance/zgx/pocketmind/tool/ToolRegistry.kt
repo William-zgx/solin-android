@@ -632,6 +632,32 @@ private val querySchemaJson = """
     }
 """.trimIndent()
 
+private val webSearchOutputSchemaJson = """
+    {
+      "type": "object",
+      "required": ["toolName", "query", "source", "summaryText", "resultsJson"],
+      "properties": {
+        "toolName": {"type": "string", "minLength": 1},
+        "query": {"type": "string", "minLength": 1},
+        "source": {
+          "type": "string",
+          "enum": ["open_meteo", "duckduckgo"]
+        },
+        "summaryText": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1203
+        },
+        "resultsJson": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4003
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
 private val emailDraftSchemaJson = """
     {
       "type": "object",
@@ -1337,11 +1363,12 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
         spec = ToolSpec(
             name = MobileActionFunctions.WEB_SEARCH,
             title = "Web 搜索",
-            description = "使用浏览器或系统搜索能力搜索网页内容。",
+            description = "执行只读网络信息查询并返回摘要和结构化结果，不打开浏览器。",
             inputSchemaJson = querySchemaJson,
-            outputSchemaJson = externalActivityOutputSchemaJson,
+            outputSchemaJson = webSearchOutputSchemaJson,
             capability = ToolCapability.WebSearch,
-            permissions = setOf(ToolPermission.StartsExternalActivity),
+            riskLevel = RiskLevel.LowReadOnly,
+            confirmationPolicy = ConfirmationPolicy.NotRequired,
         ),
     ),
     ToolDefinition(

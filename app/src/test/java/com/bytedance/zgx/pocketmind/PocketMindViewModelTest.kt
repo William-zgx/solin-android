@@ -626,7 +626,7 @@ class PocketMindViewModelTest {
         advanceUntilIdle()
 
         assertEquals("已选择附件", viewModel.uiState.value.statusText)
-        assertEquals("receipt.png", viewModel.uiState.value.pendingSharedInputDraft?.summary)
+        assertEquals("receipt.png · OCR", viewModel.uiState.value.pendingSharedInputDraft?.summary)
         assertTrue(sessionStore.messages.isEmpty())
         assertTrue(runtime.prompts.isEmpty())
 
@@ -642,6 +642,44 @@ class PocketMindViewModelTest {
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
             sessionStore.messages.map { it.privacy },
         )
+    }
+
+    @Test
+    fun stagedSharedImageWithoutOcrWarnsLocalModelThatVisualContentIsUnavailable() = runTest(dispatcher) {
+        val runtime = FakeLiteRtRuntime(localResponse = "本地回复：我无法看到图片视觉内容")
+        val viewModel = createViewModel(
+            runtime = runtime,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.stageSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Image,
+                        mimeType = "image/jpeg",
+                        displayName = "photo.jpg",
+                        sizeBytes = 256L,
+                        textPreview = null,
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals("photo.jpg · 无 OCR", viewModel.uiState.value.pendingSharedInputDraft?.summary)
+
+        viewModel.sendPendingSharedInput("这张图里有什么")
+        advanceUntilIdle()
+
+        val prompt = runtime.prompts.single()
+        assertTrue(prompt.contains("这张图里有什么"))
+        assertTrue(prompt.contains("photo.jpg"))
+        assertTrue(prompt.contains("图片视觉内容未读取"))
+        assertTrue(prompt.contains("无法看到照片/画面内容"))
     }
 
     @Test
@@ -690,6 +728,8 @@ class PocketMindViewModelTest {
         val capture = viewModel.uiState.value.voiceCapture
         assertTrue(capture.isListening)
         assertTrue(capture.level > 0.5f)
+        assertEquals(9, capture.waveformLevels.size)
+        assertTrue(capture.waveformLevels.any { it > 0.5f })
         assertEquals("第一段 语音", capture.partialText)
         assertTrue(sessionStore.messages.isEmpty())
         assertTrue(remoteRuntime.calls.isEmpty())
@@ -701,6 +741,29 @@ class PocketMindViewModelTest {
         assertEquals("第一段语音", viewModel.uiState.value.voiceInputDraft?.text)
         assertTrue(sessionStore.messages.isEmpty())
         assertTrue(remoteRuntime.calls.isEmpty())
+    }
+
+    @Test
+    fun voiceInputLevelUpdatesAdvanceWaveformSamples() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+
+        viewModel.startVoiceInputCapture()
+        advanceUntilIdle()
+        val initialSamples = viewModel.uiState.value.voiceCapture.waveformLevels
+
+        viewModel.updateVoiceInputLevel(-2f)
+        advanceUntilIdle()
+        val quietSamples = viewModel.uiState.value.voiceCapture.waveformLevels
+
+        viewModel.updateVoiceInputLevel(8f)
+        advanceUntilIdle()
+        val loudSamples = viewModel.uiState.value.voiceCapture.waveformLevels
+
+        assertEquals(9, initialSamples.size)
+        assertEquals(9, quietSamples.size)
+        assertEquals(9, loudSamples.size)
+        assertTrue(quietSamples != initialSamples)
+        assertTrue((loudSamples.maxOrNull() ?: 0f) > (quietSamples.maxOrNull() ?: 0f))
     }
 
     @Test
@@ -2098,7 +2161,7 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun remoteToolCallBecomesPendingConfirmationWithoutExecutingTool() = runTest(dispatcher) {
+    fun remoteWebSearchToolCallExecutesWithoutPendingConfirmation() = runTest(dispatcher) {
         val request = ToolRequest(
             id = "call-1",
             toolName = MobileActionFunctions.WEB_SEARCH,
@@ -2108,7 +2171,7 @@ class PocketMindViewModelTest {
         val draft = ActionDraft(
             functionName = MobileActionFunctions.WEB_SEARCH,
             title = "Web 搜索",
-            summary = "将在浏览器中搜索：Kotlin",
+            summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
             parameters = request.arguments,
         )
         val plan = AgentPlan.UseTool(
@@ -2117,8 +2180,8 @@ class PocketMindViewModelTest {
             plannedByModel = true,
             fallbackReason = "remote tool call",
             safetyDecision = SafetyDecision(
-                outcome = SafetyOutcome.RequireConfirmation,
-                reason = "Remote tool call requires confirmation.",
+                outcome = SafetyOutcome.Allow,
+                reason = "Read-only web search can execute without confirmation.",
             ),
         )
         val assistantRouter = FakeAssistantRouter(
@@ -2128,7 +2191,7 @@ class PocketMindViewModelTest {
                 memoryHits = emptyList(),
             ),
             modelToolObservation = AgentModelObservationResult(
-                run = AgentRun("run-remote-tool", "搜索 Kotlin", AgentRunState.AwaitingUserConfirmation, 1L, 2L),
+                run = AgentRun("run-remote-tool", "搜索 Kotlin", AgentRunState.ExecutingTool, 1L, 2L),
                 decision = AgentObservationDecision.PlanNextTool(plan, "Remote model requested a tool call."),
                 steps = emptyList(),
             ),
@@ -2155,22 +2218,20 @@ class PocketMindViewModelTest {
         viewModel.sendMessage("搜索 Kotlin")
         advanceUntilIdle()
 
-        val pending = viewModel.uiState.value.pendingConfirmation
-        requireNotNull(pending)
-        assertEquals("run-remote-tool", pending.runId)
-        assertEquals(MobileActionFunctions.WEB_SEARCH, pending.toolRequest?.toolName)
-        assertEquals(mapOf("query" to "Kotlin"), pending.toolRequest?.arguments)
-        assertEquals(true, pending.plannedByModel)
-        assertEquals("remote tool call", pending.fallbackReason)
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
         assertEquals(1, assistantRouter.observeModelToolCallCount)
         assertEquals(request, assistantRouter.lastObservedModelToolRequest)
-        assertTrue(executor.executedRequests.isEmpty())
+        assertEquals(1, executor.executedRequests.size)
+        assertEquals(request, executor.executedRequests.single())
+        assertEquals(1, assistantRouter.observeToolCallCount)
         assertTrue(remoteRuntime.calls.single().tools.any { tool -> tool.name == MobileActionFunctions.WEB_SEARCH })
         assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.first().privacy)
-        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
-        assertTrue(sessionStore.messages.last().text.contains("请确认后再执行"))
-        assertFalse(sessionStore.messages.last().text.contains("Kotlin"))
-        assertEquals("动作草稿待确认 · 远程模型", viewModel.uiState.value.statusText)
+        val toolStatusMessage = sessionStore.messages.single { message ->
+            message.text.contains("正在使用工具：Web 搜索")
+        }
+        assertEquals(MessagePrivacy.LocalOnly, toolStatusMessage.privacy)
+        assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.last().privacy)
+        assertEquals("executed", viewModel.uiState.value.statusText)
     }
 
     @Test

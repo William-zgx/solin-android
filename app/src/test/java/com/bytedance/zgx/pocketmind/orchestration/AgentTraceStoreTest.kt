@@ -106,7 +106,7 @@ class AgentTraceStoreTest {
             id = "request-search",
             toolName = MobileActionFunctions.WEB_SEARCH,
             arguments = mapOf("query" to privateQuery),
-            reason = "将在浏览器中搜索：$privateQuery",
+            reason = "将使用 Web 搜索工具查询并整理结果：$privateQuery",
         )
         val draft = ActionDraft(
             functionName = MobileActionFunctions.WEB_SEARCH,

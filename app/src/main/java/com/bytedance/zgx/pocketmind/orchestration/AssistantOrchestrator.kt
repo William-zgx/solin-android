@@ -28,6 +28,7 @@ sealed class AssistantRoute {
         val runId: String? = null,
         val toolRequest: ToolRequest? = null,
         val skillId: String? = null,
+        val requiresUserConfirmation: Boolean = true,
     ) : AssistantRoute()
 
     data class ToolRejected(
@@ -198,4 +199,5 @@ private fun PendingToolConfirmationSnapshot.toAssistantRoute(): AssistantRoute.A
         fallbackReason = fallbackReason,
         toolRequest = request,
         skillId = skillId,
+        requiresUserConfirmation = true,
     )

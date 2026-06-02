@@ -226,8 +226,13 @@ internal object WebSearchActionParser {
             "百度一下",
         ).any { it in input }
         val hasEnglishTrigger = englishPattern.containsMatchIn(normalized)
-        if (!hasExplicitChineseTrigger && !hasEnglishTrigger) return false
-        return strippedWebSearchQuery(input).isMeaningfulSearchQuery()
+        val hasWeatherTrigger = input.looksLikeWeatherInfoQuery()
+        if (!hasExplicitChineseTrigger && !hasEnglishTrigger && !hasWeatherTrigger) return false
+        return if (hasWeatherTrigger && !hasExplicitChineseTrigger && !hasEnglishTrigger) {
+            strippedWeatherQuery(input).isMeaningfulSearchQuery()
+        } else {
+            strippedWebSearchQuery(input).isMeaningfulSearchQuery()
+        }
     }
 
     fun draft(input: String): ActionDraft {
@@ -235,9 +240,9 @@ internal object WebSearchActionParser {
         return ActionDraft(
             functionName = MobileActionFunctions.WEB_SEARCH,
             title = "Web 搜索",
-            summary = "将在浏览器中搜索：$query",
+            summary = "将使用 Web 搜索工具查询并整理结果：$query",
             parameters = mapOf("query" to query),
-            requiresConfirmation = true,
+            requiresConfirmation = false,
         )
     }
 
@@ -263,6 +268,23 @@ internal object WebSearchActionParser {
 
     private fun String.isMeaningfulSearchQuery(): Boolean =
         isNotBlank() && this !in setOf("是什么", "什么意思", "怎么实现", "如何实现", "怎么用")
+
+    private fun String.looksLikeWeatherInfoQuery(): Boolean {
+        val normalized = lowercase()
+        return listOf("天气", "气温", "温度", "降雨", "下雨", "预报").any { it in this } ||
+            Regex("""\b(?:weather|temperature|rain|forecast)\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(normalized)
+    }
+
+    private fun strippedWeatherQuery(input: String): String =
+        cleanedObject(input)
+            .replace(Regex("""(?i)\b(?:what(?:'s| is)?|how(?:'s| is)?|tell me|check|look up)\b"""), " ")
+            .replace(Regex("""(?i)\b(?:weather|temperature|rain|forecast)\b"""), " ")
+            .replace(Regex("""(?i)\b(?:in|for|today|now|currently)\b"""), " ")
+            .replace(Regex("""(天气|气温|温度|降雨|下雨|预报|怎么样|如何|多少|现在|今天|查询|查一下|搜一下|帮我|请|一下)"""), " ")
+            .replace(Regex("""[，。！？、:：?]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
 
     private fun String.looksLikeWebSearchNonAction(): Boolean {
         val normalized = lowercase()

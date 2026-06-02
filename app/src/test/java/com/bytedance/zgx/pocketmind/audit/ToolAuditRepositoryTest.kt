@@ -88,8 +88,8 @@ class ToolAuditRepositoryTest {
             entity(
                 id = "planned",
                 eventType = ToolAuditEventType.ToolPlanned.name,
-                permissionsCsv = "StartsExternalActivity",
-                summary = "将在浏览器中搜索：private query should stay hidden",
+                permissionsCsv = "",
+                summary = "将使用 Web 搜索工具查询并整理结果：private query should stay hidden",
                 createdAtMillis = 1_000L,
             ),
         )
@@ -113,8 +113,8 @@ class ToolAuditRepositoryTest {
                 toolName = MobileActionFunctions.WEB_SEARCH,
                 skillId = null,
                 eventType = ToolAuditEventType.ToolPlanned,
-                permissions = setOf(ToolPermission.StartsExternalActivity),
-                summary = "将在浏览器中搜索：private query should stay hidden",
+                permissions = emptySet(),
+                summary = "将使用 Web 搜索工具查询并整理结果：private query should stay hidden",
                 createdAtMillis = 1_000L,
             ),
         )
