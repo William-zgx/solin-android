@@ -1,5 +1,31 @@
 # PocketMind 验证报告
 
+## 2026-06-02 External Activity outcome restore
+
+本轮覆盖项：
+
+- `AgentLoopRuntime.latestPendingExternalOutcome()` 可从 active session 的 allowlisted
+  Agent trace metadata 恢复 launch-only 外部结果待确认状态。
+- `recordExternalOutcome()` 在重启后的 Room trace summary 场景中可恢复最小
+  `ToolRequest` 与 unverified `ToolResult`，记录 `ExternalOutcomeConfirmed`；
+  恢复路径不读取原始工具参数、外发文本、URL query 或 raw payload。
+- `PocketMindViewModel.restoreStartupState()` 会在普通 pending action 之后恢复
+  `pendingExternalOutcome`；有待确认外部结果时，新消息会被阻塞，直到用户明确记录
+  outcome。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin \
+  :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredUnverifiedExternalLaunchRestoresPendingOutcomeAndRecordsConfirmation \
+  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateRestoresPendingExternalOutcomeWithoutExecutingTool
+```
+
+结果：
+
+- 通过：定向 runtime/ViewModel restored external outcome 回归。
+
 ## 2026-06-02 External Activity outcome confirmation
 
 本轮覆盖项：

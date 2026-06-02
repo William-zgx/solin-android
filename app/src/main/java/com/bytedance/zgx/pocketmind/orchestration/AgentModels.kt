@@ -200,6 +200,14 @@ data class AgentExternalOutcomeResult(
     val steps: List<AgentStep>,
 )
 
+data class PendingExternalOutcomeSnapshot(
+    val runId: String,
+    val requestId: String,
+    val toolName: String,
+    val title: String,
+    val summary: String,
+)
+
 data class AgentModelObservationResult(
     val run: AgentRun,
     val decision: AgentObservationDecision,

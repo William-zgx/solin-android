@@ -912,6 +912,11 @@ Current status:
   merely opened. This appends an audited `ExternalOutcomeConfirmed` trace step
   with `externalOutcomeSource=UserConfirmed`; only `Completed` sets
   `completionVerified=true` and can unlock the next Agent tool plan.
+- If the app restarts after a launch-only external result, the pending outcome
+  sheet is restored from allowlisted Agent trace metadata for the active
+  session. The restore path does not replay the tool, does not restore raw
+  arguments or payloads, and refuses to restore once an
+  `ExternalOutcomeConfirmed` step exists.
 - Special-app-access flow is modeled for both Usage Access
   (`query_foreground_app`) and Accessibility screen text
   (`read_current_screen_text`): the confirmation UI warns with a

@@ -4960,6 +4960,87 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun restoredUnverifiedExternalLaunchRestoresPendingOutcomeAndRecordsConfirmation() {
+        val dao = FakeAgentTraceDao()
+        val traceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 1_000L },
+            runIdFactory = { "run-restored-external-outcome" },
+        )
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(
+                likelyAction = true,
+                planningResult = ActionPlanningResult(
+                    plan = ActionPlan(
+                        kind = ActionPlanKind.Draft,
+                        draft = ActionDraft(
+                            functionName = MobileActionFunctions.WEB_SEARCH,
+                            title = "Web 搜索",
+                            summary = "将在浏览器中搜索：Kotlin",
+                            parameters = mapOf("query" to "Kotlin"),
+                            requiresConfirmation = true,
+                        ),
+                    ),
+                    usedModel = false,
+                    fallbackReason = "test fallback",
+                ),
+            ),
+            traceStore = traceStore,
+        )
+        val planned = initialRuntime.runOnce(
+            input = "搜一下 Kotlin",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            sessionId = "session-restored",
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val opened = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开网页搜索",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
+            ),
+        )
+        requireNotNull(opened)
+        assertEquals(AgentRunState.Completed, opened.run.state)
+
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = RoomAgentTraceStore(traceDao = dao),
+        )
+        val pending = restoredRuntime.latestPendingExternalOutcome("session-restored")
+
+        requireNotNull(pending)
+        assertEquals(planned.run.id, pending.runId)
+        assertEquals(planned.plan.request.id, pending.requestId)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, pending.toolName)
+        assertEquals("Web 搜索", pending.title)
+        assertTrue(pending.summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
+
+        val confirmed = restoredRuntime.recordExternalOutcome(
+            runId = pending.runId,
+            requestId = pending.requestId,
+            outcome = AgentExternalOutcome.Completed,
+        )
+
+        requireNotNull(confirmed)
+        assertEquals("true", confirmed.result.data["completionVerified"])
+        assertEquals("Completed", confirmed.result.data["externalOutcome"])
+        assertEquals("UserConfirmed", confirmed.result.data["externalOutcomeSource"])
+        assertEquals(null, restoredRuntime.latestPendingExternalOutcome("session-restored"))
+    }
+
+    @Test
     fun replannedToolCannotReuseExistingRequestId() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,

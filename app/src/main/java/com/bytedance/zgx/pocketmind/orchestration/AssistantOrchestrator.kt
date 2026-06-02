@@ -77,6 +77,8 @@ interface AssistantRouter : AutoCloseable {
 
     fun restorePendingAction(sessionId: String? = null): AssistantRoute.Action?
 
+    fun restorePendingExternalOutcome(sessionId: String? = null): PendingExternalOutcomeSnapshot? = null
+
     fun recentTraceRuns(limit: Int = 5, stepLimit: Int = 20): List<AgentTraceRunSummary> = emptyList()
 
     fun deleteRunsForSession(sessionId: String): Int = 0
@@ -170,6 +172,9 @@ class AssistantOrchestrator(
 
     override fun restorePendingAction(sessionId: String?): AssistantRoute.Action? =
         agentLoopRuntime.latestPendingConfirmation(sessionId)?.toAssistantRoute()
+
+    override fun restorePendingExternalOutcome(sessionId: String?): PendingExternalOutcomeSnapshot? =
+        agentLoopRuntime.latestPendingExternalOutcome(sessionId)
 
     override fun recentTraceRuns(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> =
         traceStore.recentRunSummaries(limit = limit, stepLimit = stepLimit)

@@ -48,6 +48,7 @@ import com.bytedance.zgx.pocketmind.orchestration.AgentTraceRunSummary
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRouter
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRoute
+import com.bytedance.zgx.pocketmind.orchestration.PendingExternalOutcomeSnapshot
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
@@ -134,6 +135,7 @@ class PocketMindViewModel(
                 }
             }
             restorePendingAgentConfirmationIfAny()
+            restorePendingExternalOutcomeIfAny()
             return
         }
 
@@ -169,6 +171,7 @@ class PocketMindViewModel(
             }
         }
         restorePendingAgentConfirmationIfAny()
+        restorePendingExternalOutcomeIfAny()
     }
 
     private fun recoverBackgroundTasksOnStartup() {
@@ -767,12 +770,14 @@ class PocketMindViewModel(
                 activeSessionId = sessionRepository.activeSessionId,
                 messages = emptyList(),
                 pendingConfirmation = null,
+                pendingExternalOutcome = null,
                 latestRecoveryAction = null,
                 agentTraceRuns = loadAgentTraceRuns(),
                 statusText = if (!runtime.isLoaded) "新会话" else "正在开启新会话",
             )
         }
         restorePendingAgentConfirmationIfAny(clearMissing = true)
+        restorePendingExternalOutcomeIfAny(clearMissing = true)
         if (runtime.isLoaded) {
             recreateConversationForActiveSession("新会话")
         }
@@ -786,12 +791,14 @@ class PocketMindViewModel(
                 activeSessionId = sessionRepository.activeSessionId,
                 messages = messages,
                 pendingConfirmation = null,
+                pendingExternalOutcome = null,
                 latestRecoveryAction = null,
                 agentTraceRuns = loadAgentTraceRuns(),
                 statusText = if (!runtime.isLoaded) "已切换会话" else "正在恢复会话",
             )
         }
         restorePendingAgentConfirmationIfAny(clearMissing = true)
+        restorePendingExternalOutcomeIfAny(clearMissing = true)
         if (runtime.isLoaded) {
             recreateConversationForActiveSession("已恢复会话")
         }
@@ -808,12 +815,14 @@ class PocketMindViewModel(
                 activeSessionId = sessionRepository.activeSessionId,
                 messages = messages,
                 pendingConfirmation = null,
+                pendingExternalOutcome = null,
                 latestRecoveryAction = null,
                 agentTraceRuns = loadAgentTraceRuns(),
                 statusText = if (!runtime.isLoaded) "已删除会话" else "正在恢复会话",
             )
         }
         restorePendingAgentConfirmationIfAny(clearMissing = true)
+        restorePendingExternalOutcomeIfAny(clearMissing = true)
         if (runtime.isLoaded) {
             recreateConversationForActiveSession("已删除会话")
         }
@@ -827,6 +836,12 @@ class PocketMindViewModel(
         if (trimmed.isNotEmpty() && _uiState.value.pendingConfirmation != null) {
             _uiState.update {
                 it.copy(statusText = "请先确认或取消待执行动作")
+            }
+            return
+        }
+        if (trimmed.isNotEmpty() && _uiState.value.pendingExternalOutcome != null) {
+            _uiState.update {
+                it.copy(statusText = "请先确认外部动作结果")
             }
             return
         }
@@ -2757,6 +2772,40 @@ class PocketMindViewModel(
             )
         }
     }
+
+    private fun restorePendingExternalOutcomeIfAny(clearMissing: Boolean = false) {
+        if (_uiState.value.pendingConfirmation != null) {
+            if (clearMissing) {
+                _uiState.update { it.copy(pendingExternalOutcome = null) }
+            }
+            return
+        }
+        val pending = assistantOrchestrator.restorePendingExternalOutcome(sessionRepository.activeSessionId)
+        if (pending == null) {
+            if (clearMissing) {
+                _uiState.update { it.copy(pendingExternalOutcome = null) }
+            }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                pendingExternalOutcome = pending.toUiPendingExternalOutcome(),
+                latestRecoveryAction = null,
+                isBusy = false,
+                isGenerating = false,
+                statusText = "外部动作结果待确认 · 已恢复",
+            )
+        }
+    }
+
+    private fun PendingExternalOutcomeSnapshot.toUiPendingExternalOutcome(): PendingExternalOutcomeConfirmation =
+        PendingExternalOutcomeConfirmation(
+            runId = runId,
+            requestId = requestId,
+            toolName = toolName,
+            title = title,
+            summary = summary,
+        )
 
     private fun failStaleAgentRunsOnStartup() {
         val failedCount = assistantOrchestrator.failStaleInFlightRuns(STALE_AGENT_RUN_STARTUP_REASON)

@@ -60,6 +60,7 @@ import com.bytedance.zgx.pocketmind.orchestration.AssistantRoute
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRouter
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.pocketmind.orchestration.InMemoryAgentTraceStore
+import com.bytedance.zgx.pocketmind.orchestration.PendingExternalOutcomeSnapshot
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
@@ -2846,6 +2847,71 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun restoreStartupStateRestoresPendingExternalOutcomeWithoutExecutingTool() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore()
+        val executor = RecordingToolExecutor()
+        val pending = PendingExternalOutcomeSnapshot(
+            runId = "run-external",
+            requestId = "request-external",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            title = "系统分享",
+            summary = "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：已打开系统分享面板",
+        )
+        val assistantRouter = FakeAssistantRouter(
+            restoredPendingExternalOutcome = pending,
+            externalOutcomeResult = AgentExternalOutcomeResult(
+                run = AgentRun("run-external", "分享", AgentRunState.Completed, 1L, 2L),
+                result = ToolResult(
+                    requestId = pending.requestId,
+                    status = ToolStatus.Succeeded,
+                    summary = "$EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX：只确认外部界面已打开",
+                    data = mapOf(
+                        "completionState" to "ExternalActivityOpened",
+                        "completionVerified" to "false",
+                        "externalOutcome" to "OpenedOnly",
+                        "externalOutcomeSource" to "UserConfirmed",
+                    ),
+                ),
+                assistantMessage = "$EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX：只确认外部界面已打开",
+                decision = AgentObservationDecision.Complete,
+                steps = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        val restored = viewModel.uiState.value.pendingExternalOutcome
+        requireNotNull(restored)
+        assertEquals("run-external", restored.runId)
+        assertEquals("request-external", restored.requestId)
+        assertEquals(MobileActionFunctions.SHARE_TEXT, restored.toolName)
+        assertEquals("session-1", assistantRouter.lastRestorePendingExternalOutcomeSessionId)
+        assertTrue(executor.executedRequests.isEmpty())
+
+        viewModel.sendMessage("不应越过外部结果确认")
+        advanceUntilIdle()
+
+        assertEquals("请先确认外部动作结果", viewModel.uiState.value.statusText)
+        assertEquals(0, assistantRouter.routeCallCount)
+        assertTrue(executor.executedRequests.isEmpty())
+
+        viewModel.recordExternalOutcome(restored, AgentExternalOutcome.OpenedOnly)
+        advanceUntilIdle()
+
+        assertEquals(1, assistantRouter.recordExternalOutcomeCallCount)
+        assertEquals(AgentExternalOutcome.OpenedOnly, assistantRouter.lastExternalOutcome)
+        assertEquals(null, viewModel.uiState.value.pendingExternalOutcome)
+        assertTrue(sessionStore.messages.last().text.startsWith(EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX))
+    }
+
+    @Test
     fun restoredPendingConfirmationExecutesAndObservesOnlyOnce() = runTest(dispatcher) {
         val request = ToolRequest(
             id = "request-restored-once",
@@ -4527,6 +4593,7 @@ class PocketMindViewModelTest {
         private val modelToolObservation: AgentModelObservationResult? = null,
         private val externalOutcomeResult: AgentExternalOutcomeResult? = null,
         private val restoredPendingRoute: AssistantRoute.Action? = null,
+        private val restoredPendingExternalOutcome: PendingExternalOutcomeSnapshot? = null,
         private val recoveryRoute: AssistantRoute? = null,
         private val recentTraceRuns: List<AgentTraceRunSummary> = emptyList(),
     ) : AssistantRouter {
@@ -4575,6 +4642,8 @@ class PocketMindViewModelTest {
         var lastRecoverySessionId: String? = null
             private set
         var lastRestorePendingSessionId: String? = null
+            private set
+        var lastRestorePendingExternalOutcomeSessionId: String? = null
             private set
         private val knownRunStates = linkedMapOf<String, AgentRunState>()
         private var failedModelTraceRun: AgentTraceRunSummary? = null
@@ -4738,6 +4807,11 @@ class PocketMindViewModelTest {
         override fun restorePendingAction(sessionId: String?): AssistantRoute.Action? {
             lastRestorePendingSessionId = sessionId
             return restoredPendingRoute
+        }
+
+        override fun restorePendingExternalOutcome(sessionId: String?): PendingExternalOutcomeSnapshot? {
+            lastRestorePendingExternalOutcomeSessionId = sessionId
+            return restoredPendingExternalOutcome
         }
 
         override fun recentTraceRuns(limit: Int, stepLimit: Int): List<AgentTraceRunSummary> {
