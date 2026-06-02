@@ -2644,7 +2644,7 @@ class PocketMindViewModel(
         )
         val preference = explicitUserPreferenceForgetFrom(trimmed)
         val removed = preference?.let { target ->
-            runCatching { longTermMemoryControls.forget(explicitUserPreferenceRecordId(target)) }
+            runCatching { longTermMemoryControls.forgetPreference(target) }
                 .getOrDefault(false)
         } == true
         val assistantText = if (removed) {

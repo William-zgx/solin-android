@@ -117,7 +117,9 @@ ordinary chat. Explicit response-length and response-language preferences replac
 older conflicting preferences instead of accumulating contradictory records.
 `忘记：...` / `forget ...` can delete the matching explicit preference through
 the same local-only command path without invoking the chat/action router or a
-remote model.
+remote model. For answer-style preferences, family targets such as "回答语言偏好"
+or "answer length preference" remove the matching response-language or
+response-length preference without deleting unrelated memories.
 The semantic-memory boundary can verify a downloaded MemoryEmbedding asset and
 production wires a fail-closed LiteRT embedding runtime factory. The current
 LiteRT-LM artifact exposes chat/generation APIs but no public embedding vector

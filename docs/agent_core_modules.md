@@ -1176,10 +1176,12 @@ Current status:
   the in-memory index.
 - `sendMessage` also treats explicit preference deletion statements such as
   `忘记：...` / `forget ...` as local memory-control commands. They delete the
-  deterministic `Preference` record for the normalized target, store only
-  `LocalOnly` control/status messages, bypass the chat/action router and remote
-  runtime, and are skipped during memory rebuild so a forgotten preference is
-  not reindexed from command history.
+  deterministic `Preference` record for the normalized target, or delete the
+  matching response-length / response-language preference family for targets
+  such as "回答语言偏好" or "answer length preference". They store only `LocalOnly`
+  control/status messages, bypass the chat/action router and remote runtime,
+  and are skipped during memory rebuild so a forgotten preference is not
+  reindexed from command history.
 - Explicit preference records use deterministic ids derived from normalized
   preference text, so repeating the same remember command upserts one record
   instead of creating duplicate long-term memories.
@@ -1243,6 +1245,9 @@ Tests:
 - `MemoryRepositoryTest.conflictingResponseLengthPreferenceReplacesOlderRecord`
 - `MemoryRepositoryTest.unrelatedResponsePreferenceFamiliesCanCoexist`
 - `MemoryRepositoryTest.combinedResponsePreferenceReplacesBothFamilies`
+- `MemoryRepositoryTest.explicitPreferenceForgetConflictKeysRecognizeFamilyTargets`
+- `MemoryRepositoryTest.forgetPreferenceCanDeleteResponsePreferenceFamily`
+- `MemoryRepositoryTest.forgetPreferenceStillDeletesExactUnrelatedPreference`
 - `MemoryRepositoryTest.explicitPreferenceForgetExtractorSupportsChineseAndEnglishCommands`
 - `MemoryRepositoryTest.rebuildSkipsExplicitPreferenceForgetCommandsWithoutConversationRecord`
 - `MemoryRepositoryTest.semanticRuntimeControllerSwitchesBetweenFallbackAndSemanticRuntime`
@@ -1252,6 +1257,7 @@ Tests:
 - `PocketMindViewModelTest`
 - `PocketMindViewModelTest.rememberCommandReplacesConflictingPreferenceMemory`
 - `PocketMindViewModelTest.forgetPreferenceCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime`
+- `PocketMindViewModelTest.forgetPreferenceFamilyCommandDeletesMatchingPreferenceAndBypassesRemoteRuntime`
 - `PocketMindViewModelTest.remoteForgetPreferenceCommandDoesNotEnterLaterRemoteHistory`
 - `PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex`
 - `PocketMindViewModelTest.restoreStartupStateIndexesScheduledTasksAsForgettableTaskState`

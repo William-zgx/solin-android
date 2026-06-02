@@ -553,6 +553,14 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun explicitPreferenceForgetConflictKeysRecognizeFamilyTargets() {
+        assertEquals(setOf("response-language"), explicitPreferenceForgetConflictKeys("回答语言偏好"))
+        assertEquals(setOf("response-length"), explicitPreferenceForgetConflictKeys("answer length preference"))
+        assertEquals(setOf("response-length", "response-language"), explicitPreferenceForgetConflictKeys("回答偏好"))
+        assertTrue(explicitPreferenceForgetConflictKeys("green tea preference").isEmpty())
+    }
+
+    @Test
     fun taskStateMemoryRecordIdIsStableForWhitespace() {
         assertEquals("task-state-background:task-1", taskStateMemoryRecordId(" task-1 "))
         assertEquals("task-state-background:periodic-check-local", taskStateMemoryRecordId("periodic check local"))
@@ -717,6 +725,33 @@ class MemoryRepositoryTest {
 
         assertEquals(listOf("pref-combined"), repository.savedRecords().map { it.id })
         assertEquals("pref-combined", repository.search("详细英文回答").first().id)
+    }
+
+    @Test
+    fun forgetPreferenceCanDeleteResponsePreferenceFamily() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+        repository.indexPreference("pref-short", "回答尽量简洁")
+        repository.indexPreference("pref-language", "请用中文回答")
+        repository.indexPreference("pref-tea", "我喜欢绿茶")
+
+        assertTrue(repository.forgetPreference("回答语言偏好"))
+
+        assertEquals(listOf("pref-short", "pref-tea"), repository.savedRecords().map { it.id })
+        assertTrue(repository.search("Mandarin replies").isEmpty())
+        assertEquals(listOf("pref-short"), repository.search("简洁回答").map { it.id })
+    }
+
+    @Test
+    fun forgetPreferenceStillDeletesExactUnrelatedPreference() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+        repository.indexPreference(explicitUserPreferenceRecordId("I like green tea"), "I like green tea")
+
+        assertTrue(repository.forgetPreference("I like green tea"))
+
+        assertTrue(repository.savedRecords().isEmpty())
+        assertTrue(repository.search("green tea").isEmpty())
     }
 
     private class FakeMemoryRecordStore : MemoryRecordStore {

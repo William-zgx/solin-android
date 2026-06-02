@@ -3929,6 +3929,42 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun forgetPreferenceFamilyCommandDeletesMatchingPreferenceAndBypassesRemoteRuntime() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val assistantRouter = FakeAssistantRouter(routeFailure = IllegalStateException("planner unavailable"))
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("记住：回答尽量简洁")
+        advanceUntilIdle()
+        viewModel.sendMessage("记住：请用中文回答")
+        advanceUntilIdle()
+        assertEquals(2, store.records().size)
+
+        viewModel.sendMessage("忘记：回答语言偏好")
+        advanceUntilIdle()
+
+        assertEquals(listOf("用户偏好：回答尽量简洁"), store.records().map { it.text })
+        assertEquals(listOf("用户偏好：回答尽量简洁"), viewModel.uiState.value.longTermMemories.map { it.text })
+        assertTrue(memoryRepository.search("Mandarin replies").isEmpty())
+        assertEquals(listOf("用户偏好：回答尽量简洁"), memoryRepository.search("简洁回答").map { it.text })
+        assertEquals(0, assistantRouter.routeCallCount)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals("长期记忆已更新", viewModel.uiState.value.statusText)
+    }
+
+    @Test
     fun remoteForgetPreferenceCommandDoesNotEnterLaterRemoteHistory() = runTest(dispatcher) {
         val store = FakeMemoryRecordStore()
         val memoryRepository = MemoryRepository(recordStore = store)

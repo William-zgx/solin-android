@@ -5672,3 +5672,34 @@ git diff --check
 - 通过：`AgentCoreDocumentationTest` 文档契约。
 - 通过：`git diff --check` whitespace 检查。
 - 通过：全量 `./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin`。
+
+## 2026-06-02 Preference-family forget commands
+
+本轮覆盖项：
+
+- `LongTermMemoryControls` 新增 `forgetPreference(target)`，在精确 deterministic
+  preference id 删除之外，支持按 answer-style preference family 删除。用户可以用
+  “忘记：回答语言偏好” 或 “forget answer length preference” 删除对应 response-language
+  / response-length 偏好，而不删除无关长期记忆。
+- `MemoryRepository` 的 answer-style family 判断改为 token-aware Latin term 匹配，
+  避免 `english` 误命中 `length` 这类子串；中文关键词仍保持子串匹配。
+- `PocketMindViewModel` 的显式 forget 命令继续作为 `LocalOnly` 控制命令处理，
+  不进入 chat/action router 或 remote runtime；忘记偏好族后 memory hits 和长期记忆
+  UI 同步刷新。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.explicitPreferenceForgetConflictKeysRecognizeFamilyTargets \
+  --tests com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.forgetPreferenceCanDeleteResponsePreferenceFamily \
+  --tests com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.forgetPreferenceStillDeletesExactUnrelatedPreference \
+  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetPreferenceFamilyCommandDeletesMatchingPreferenceAndBypassesRemoteRuntime
+```
+
+结果：
+
+- 通过：定向 MemoryRepository / ViewModel preference-family forget 回归。
+- 通过：`AgentCoreDocumentationTest` 文档契约。
+- 通过：`git diff --check` whitespace 检查。
+- 通过：全量 `./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin`。

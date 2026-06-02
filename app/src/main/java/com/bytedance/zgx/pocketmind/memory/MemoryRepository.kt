@@ -60,6 +60,7 @@ interface LongTermMemoryControls {
     fun unsuppressAutoManagedTaskState(id: String)
     fun isAutoManagedTaskStateSuppressed(id: String): Boolean
     fun forget(id: String): Boolean
+    fun forgetPreference(target: String): Boolean
     fun clear()
 }
 
@@ -231,6 +232,28 @@ class MemoryRepository(
         val removedInMemory = entries.remove(id) != null
         val removedPersisted = recordStore.delete(id)
         return removedInMemory || removedPersisted
+    }
+
+    override fun forgetPreference(target: String): Boolean {
+        val normalizedTarget = target.trim()
+        if (normalizedTarget.isBlank()) return false
+        val exactRemoved = forget(explicitUserPreferenceRecordId(normalizedTarget))
+        val conflictKeys = explicitPreferenceForgetConflictKeys(normalizedTarget)
+        if (conflictKeys.isEmpty()) return exactRemoved
+        val conflictIds = (entries.values.map { entry ->
+            PersistedMemoryRecord(entry.id, entry.type, entry.text)
+        } + recordStore.records())
+            .filter { record ->
+                record.type == MemoryRecordType.Preference &&
+                    explicitPreferenceConflictKeys(record.text).any { key -> key in conflictKeys }
+            }
+            .map { record -> record.id }
+            .distinct()
+        var removedConflict = false
+        conflictIds.forEach { conflictId ->
+            removedConflict = forget(conflictId) || removedConflict
+        }
+        return exactRemoved || removedConflict
     }
 
     override fun clear() {
@@ -452,13 +475,22 @@ internal fun explicitPreferenceConflictKey(preference: String): String? {
     return explicitPreferenceConflictKeys(preference).firstOrNull()
 }
 
+internal fun explicitPreferenceForgetConflictKeys(target: String): Set<String> {
+    val conflictKeys = explicitPreferenceConflictKeys(target)
+    if (conflictKeys.isNotEmpty()) return conflictKeys
+    val normalized = normalizedPreferenceText(target)
+    return if (
+        normalized.containsAny(RESPONSE_PREFERENCE_TERMS) &&
+        normalized.containsAny(PREFERENCE_CONTROL_TERMS)
+    ) {
+        setOf("response-length", "response-language")
+    } else {
+        emptySet()
+    }
+}
+
 private fun explicitPreferenceConflictKeys(preference: String): Set<String> {
-    val normalized = preference
-        .trim()
-        .removePrefix("用户偏好：")
-        .trim()
-        .lowercase(Locale.ROOT)
-        .replace(Regex("""\s+"""), " ")
+    val normalized = normalizedPreferenceText(preference)
     if (normalized.isBlank() || !normalized.containsAny(RESPONSE_PREFERENCE_TERMS)) {
         return emptySet()
     }
@@ -467,6 +499,15 @@ private fun explicitPreferenceConflictKeys(preference: String): Set<String> {
         if (normalized.containsAny(RESPONSE_LANGUAGE_TERMS)) add("response-language")
     }
 }
+
+private fun normalizedPreferenceText(text: String): String =
+    text
+        .trim()
+        .removePrefix("用户偏好：")
+        .removePrefix("user preference:")
+        .trim()
+        .lowercase(Locale.ROOT)
+        .replace(Regex("""\s+"""), " ")
 
 internal const val TASK_STATE_MEMORY_RECORD_PREFIX = "task-state-background:"
 
@@ -659,7 +700,18 @@ private val LATIN_STOP_WORDS = setOf(
 )
 
 private fun String.containsAny(terms: Set<String>): Boolean =
-    terms.any { term -> contains(term) }
+    terms.any { term -> containsTerm(term) }
+
+private fun String.containsTerm(term: String): Boolean =
+    if (term.all { char -> char.isAsciiLetterOrDigit() }) {
+        Regex("""(?<![a-z0-9])${Regex.escape(term)}(?![a-z0-9])""")
+            .containsMatchIn(this)
+    } else {
+        contains(term)
+    }
+
+private fun Char.isAsciiLetterOrDigit(): Boolean =
+    this in 'a'..'z' || this in '0'..'9'
 
 private const val SEMANTIC_RUNTIME_PROBE_TEXT = "semantic memory runtime probe"
 
@@ -680,12 +732,15 @@ private val RESPONSE_LENGTH_TERMS = setOf(
     "brief",
     "concise",
     "detailed",
+    "length",
     "long",
     "short",
     "succinct",
     "terse",
     "verbose",
     "展开",
+    "长度",
+    "长短",
     "简洁",
     "简短",
     "精炼",
@@ -720,11 +775,23 @@ private val RESPONSE_DETAILED_TERMS = setOf(
 private val RESPONSE_LANGUAGE_TERMS = setOf(
     "chinese",
     "english",
+    "language",
     "mandarin",
     "中文",
     "汉语",
     "英文",
     "英语",
+    "语言",
+    "语种",
+)
+
+private val PREFERENCE_CONTROL_TERMS = setOf(
+    "preference",
+    "preferences",
+    "setting",
+    "settings",
+    "偏好",
+    "设置",
 )
 
 private val RESPONSE_CHINESE_TERMS = setOf(
