@@ -31,6 +31,7 @@ class MobileActionPlanner : ActionPlanner {
             isReminderRequest(input) ||
             isCancelReminderRequest(input) ||
             PeriodicCheckActionParser.matches(input) ||
+            BackgroundTasksQueryActionParser.matches(input) ||
             WebSearchActionParser.matches(input) ||
             (("剪贴板" in input || "clipboard" in normalized) && !input.looksLikeClipboardContextNonAction())
     }
@@ -95,6 +96,9 @@ class MobileActionPlanner : ActionPlanner {
 
             PeriodicCheckActionParser.matches(input) ->
                 PeriodicCheckActionParser.draft(input)
+
+            BackgroundTasksQueryActionParser.matches(input) ->
+                BackgroundTasksQueryActionParser.draft(input)
 
             ("剪贴板" in input || "clipboard" in normalized) && !input.looksLikeClipboardContextNonAction() ->
                 MobileActionFunctions.READ_CLIPBOARD.toDraft(emptyMap())
@@ -163,6 +167,7 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> "打开手电筒设置"
             MobileActionFunctions.SCHEDULE_REMINDER -> "后台提醒"
             MobileActionFunctions.CONFIGURE_PERIODIC_CHECK -> "周期检查"
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS -> "查询后台任务"
             MobileActionFunctions.READ_CLIPBOARD -> "读取剪贴板"
             MobileActionFunctions.SHARE_TEXT -> "系统分享"
             MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY -> "查询日历忙闲"
@@ -199,6 +204,11 @@ class MobileActionPlanner : ActionPlanner {
                     val intervalMinutes = parameters["intervalMinutes"].orEmpty().ifBlank { "360" }
                     "将开启本地提醒周期检查，间隔 $intervalMinutes 分钟。"
                 }
+            }
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS -> {
+                val scope = parameters["scope"].orEmpty().ifBlank { "active" }
+                val maxCount = parameters["maxCount"]
+                backgroundTasksSummary(scope, maxCount)
             }
             MobileActionFunctions.READ_CLIPBOARD -> "将读取当前剪贴板文本。"
             MobileActionFunctions.SHARE_TEXT -> "将打开系统分享面板并填入文本。"
@@ -270,6 +280,16 @@ class MobileActionPlanner : ActionPlanner {
             else -> "仅返回文件名、类型、大小和修改时间"
         }
         return "$base（$boundary）。"
+    }
+
+    private fun backgroundTasksSummary(scope: String, maxCount: String?): String {
+        val countText = maxCount?.takeIf { it.isNotBlank() }?.let { "最多 $it 条" }.orEmpty()
+        return when (scope) {
+            "history" -> "将只读查询本地后台任务历史$countText，不返回提醒正文。"
+            "policy" -> "将只读查询本地提醒周期检查策略，不返回提醒正文。"
+            "all" -> "将只读查询本地后台任务与周期检查策略$countText，不返回提醒正文。"
+            else -> "将只读查询本地活动后台任务$countText，不返回提醒正文。"
+        }
     }
 
     private fun recentFileKindLabel(kind: String): String =

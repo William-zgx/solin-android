@@ -140,6 +140,7 @@ internal fun actionPrompt(input: String): String =
     - create_contact_draft {"name":"..."}
     - open_flashlight_settings {}
     - schedule_reminder {"title":"...","body":"...","delayMinutes":"15"} 仅用于明确的分钟/小时后提醒
+    - query_background_tasks {"scope":"active|history|policy|all","maxCount":"..."} 仅用于只读查询本地后台任务/提醒任务/周期检查状态，不返回提醒正文
     - read_clipboard {} 仅用于用户明确要求读取剪贴板
     - share_text {"text":"...","title":"..."} 仅打开系统分享面板，不直接发送
     - open_deep_link {"uri":"https://..."} 仅用于打开 https 外部链接

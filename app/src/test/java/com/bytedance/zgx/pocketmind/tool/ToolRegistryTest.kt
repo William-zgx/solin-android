@@ -85,6 +85,21 @@ class ToolRegistryTest {
         assertTrue(periodicCheckSpec.inputSchemaJson.contains("\"intervalMinutes\""))
         assertTrue(periodicCheckSpec.description.contains("不执行后台聊天"))
 
+        val backgroundTasksSpec = registry.specFor(MobileActionFunctions.QUERY_BACKGROUND_TASKS)
+        assertNotNull(backgroundTasksSpec)
+        requireNotNull(backgroundTasksSpec)
+        assertEquals(ToolCapability.BackgroundTask, backgroundTasksSpec.capability)
+        assertEquals(RiskLevel.LowReadOnly, backgroundTasksSpec.riskLevel)
+        assertEquals(ConfirmationPolicy.Required, backgroundTasksSpec.confirmationPolicy)
+        assertTrue(ToolPermission.ReadsDeviceContext in backgroundTasksSpec.permissions)
+        assertTrue(ToolPermission.SchedulesBackgroundWork !in backgroundTasksSpec.permissions)
+        assertTrue(ToolPermission.PostsNotification !in backgroundTasksSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in backgroundTasksSpec.permissions)
+        assertTrue(backgroundTasksSpec.inputSchemaJson.contains("\"scope\""))
+        assertTrue(backgroundTasksSpec.inputSchemaJson.contains("\"maxCount\""))
+        assertTrue(backgroundTasksSpec.outputSchemaJson.contains("background_tasks_local_only_no_reminder_body"))
+        assertTrue(backgroundTasksSpec.description.contains("不会返回提醒正文"))
+
         val cancelReminderSpec = registry.specFor(MobileActionFunctions.CANCEL_REMINDER)
         assertNotNull(cancelReminderSpec)
         requireNotNull(cancelReminderSpec)
@@ -260,6 +275,35 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun backgroundTasksQuerySchemaRejectsUnsupportedScopeAndCount() {
+        val invalidScope = registry.validate(
+            ToolRequest(
+                id = "background-tasks-scope",
+                toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+                arguments = mapOf("scope" to "secret"),
+                reason = "schema contract",
+            ),
+        )
+        val invalidCount = registry.validate(
+            ToolRequest(
+                id = "background-tasks-count",
+                toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+                arguments = mapOf("maxCount" to "51"),
+                reason = "schema contract",
+            ),
+        )
+
+        assertNotNull(invalidScope)
+        requireNotNull(invalidScope)
+        assertEquals(ToolStatus.Rejected, invalidScope.status)
+        assertTrue(invalidScope.summary.contains("invalid value"))
+        assertNotNull(invalidCount)
+        requireNotNull(invalidCount)
+        assertEquals(ToolStatus.Rejected, invalidCount.status)
+        assertTrue(invalidCount.summary.contains("at most 50"))
+    }
+
+    @Test
     fun periodicCheckSchemaRejectsInvalidValues() {
         val invalidEnabled = registry.validate(
             ToolRequest(
@@ -373,6 +417,8 @@ class ToolRegistryTest {
             MobileActionFunctions.QUERY_FOREGROUND_APP to setOf("packageName", "appLabel", "lastTimeUsedMillis"),
             MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS to setOf("notificationCount", "notificationsJson"),
             MobileActionFunctions.QUERY_RECENT_FILES to setOf("fileCount", "filesJson"),
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS to
+                setOf("activeTaskCount", "historyTaskCount", "tasksJson", "policyJson"),
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to
@@ -404,6 +450,7 @@ class ToolRegistryTest {
             MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY to setOf("start", "end"),
             MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS to setOf("maxCount"),
             MobileActionFunctions.QUERY_RECENT_FILES to setOf("kind", "maxCount"),
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS to setOf("scope", "maxCount"),
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to setOf("maxCount"),
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to setOf("maxCount"),
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("maxChars"),
@@ -460,6 +507,7 @@ class ToolRegistryTest {
             MobileActionFunctions.QUERY_FOREGROUND_APP,
             MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
             MobileActionFunctions.QUERY_RECENT_FILES,
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS,
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
             MobileActionFunctions.READ_RECENT_IMAGE_OCR,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
@@ -572,6 +620,7 @@ class ToolRegistryTest {
         val forbiddenKeys = listOf("title", "body", "prompt", "summary", "text")
         listOf(
             MobileActionFunctions.SCHEDULE_REMINDER,
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS,
             MobileActionFunctions.CANCEL_REMINDER,
         ).forEach { toolName ->
             val spec = registry.specFor(toolName)
@@ -596,6 +645,8 @@ class ToolRegistryTest {
             MobileActionFunctions.QUERY_FOREGROUND_APP to setOf("packageName", "appLabel", "lastTimeUsedMillis"),
             MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS to setOf("notificationCount", "notificationsJson"),
             MobileActionFunctions.QUERY_RECENT_FILES to setOf("fileCount", "filesJson"),
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS to
+                setOf("activeTaskCount", "historyTaskCount", "tasksJson", "policyJson"),
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to

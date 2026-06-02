@@ -349,6 +349,19 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
+    fun backgroundTasksQueryDeclaresNoRuntimePermissionOrSpecialAccess() {
+        val confirmation = confirmationFor(
+            toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+            arguments = mapOf("scope" to "all"),
+            skillId = BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL,
+        )
+
+        assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
+        assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.S).isEmpty())
+        assertTrue(confirmation.specialAccessRequirementsFor().isEmpty())
+    }
+
+    @Test
     fun currentScreenTextDeclaresAccessibilityAsSpecialAccessNotRuntimePermission() {
         val confirmation = confirmationFor(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT)
         val requirements = confirmation.specialAccessRequirementsFor()

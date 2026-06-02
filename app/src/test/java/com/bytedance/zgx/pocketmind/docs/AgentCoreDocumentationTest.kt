@@ -68,6 +68,31 @@ class AgentCoreDocumentationTest {
         )
     }
 
+    @Test
+    fun backgroundTaskQueryToolBoundaryIsDocumented() {
+        val backgroundTasks = agentCoreSections().getValue("Background Tasks")
+
+        assertTrue(backgroundTasks.contains("query_background_tasks"))
+        assertTrue(backgroundTasks.contains("read-only"))
+        assertTrue(backgroundTasks.contains("LocalOnly"))
+        assertTrue(backgroundTasks.contains("requiresLocalModel=true"))
+        assertTrue(backgroundTasks.contains("never calls schedule/cancel/set/disable"))
+        assertTrue(backgroundTasks.contains("`body`"))
+        assertTrue(backgroundTasks.contains("omitted"))
+        assertTrue(backgroundTasks.contains("tasksJson"))
+        assertTrue(backgroundTasks.contains("policyJson"))
+        assertTrue(
+            backgroundTasks.contains(
+                "DeviceContextToolExecutorTest.backgroundTasksQueryReturnsLocalOnlyTaskAndPolicyMetadataWithoutBodies",
+            ),
+        )
+        assertTrue(
+            backgroundTasks.contains(
+                "AgentLoopRuntimeTest.backgroundTasksObservationRedactsTaskAndPolicyJson",
+            ),
+        )
+    }
+
     private fun agentCoreSections(): Map<String, String> {
         val doc = agentCoreDoc().readText()
         val headings = Regex("(?m)^## (.+)$").findAll(doc).toList()

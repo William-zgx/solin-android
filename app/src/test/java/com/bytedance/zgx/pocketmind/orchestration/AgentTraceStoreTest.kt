@@ -523,6 +523,10 @@ class AgentTraceStoreTest {
                 arguments = mapOf("kind" to "screenshots", "maxCount" to "3"),
             ),
             PendingAllowlistCase(
+                toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+                arguments = mapOf("scope" to "all", "maxCount" to "5"),
+            ),
+            PendingAllowlistCase(
                 toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
                 arguments = mapOf("maxCount" to "1"),
             ),

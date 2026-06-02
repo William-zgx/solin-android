@@ -1,5 +1,49 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Background task query Agent tool
+
+本轮覆盖项：
+
+- 新增 confirmed `query_background_tasks` 工具，输入为闭合 schema：
+  `scope=active|history|policy|all` 与 bounded `maxCount`。该工具只读本地后台任务
+  store 和周期检查策略，不调度、不取消、不启停周期检查，也不请求通知或 Android
+  runtime permission。
+- `RoutingToolExecutor` 在 side-effecting `ActionExecutor` 前分发该工具，并只调用
+  `BackgroundTaskScheduler.scheduledTasks/recentTasks/periodicCheckPolicy`。生产 wiring
+  传入同一个 `AndroidBackgroundTaskScheduler`，scheduler 缺失时返回 `LocalOnly`
+  retryable failure。
+- 成功结果带 `privacy=LocalOnly`、`requiresLocalModel=true`、
+  `metadataPolicy=background_tasks_local_only_no_reminder_body` 和
+  `rawPayloadIncluded=false`；`tasksJson` 只含 task id/type/status/title/timestamps，
+  不返回 reminder body、prompt、text 或 periodic `lastRunSummary` 原文。
+- 新增 `background_tasks_context_skill` 与 conservative parser，接受明确查看后台任务、
+  提醒列表、任务历史、周期检查状态/策略请求；拒绝开启/关闭/取消、API、实现、文档、
+  测试和解释类输入。
+- Trace / Skill private-output policy 将 `activeTaskCount/historyTaskCount/tasksJson/policyJson`
+  标记为私密输出，Agent observation 和 trace 中只保留红acted summary。
+
+验证命令：
+
+```bash
+./gradlew testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest \
+  --tests com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest \
+  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.pocketmind.action.ActionPlannerTest \
+  --tests com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest \
+  --tests com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest
+./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin
+git diff --check
+```
+
+结果：
+
+- 通过：定向 docs/tool/registry/planner/skill/agent-loop/permission/trace 回归。
+- 通过：完整 JVM 单测与 AndroidTest Kotlin 编译。
+- 通过：diff whitespace 检查。
+
 ## 2026-06-02 Public ToolStep recovery projection 增量验证
 
 本轮覆盖项：

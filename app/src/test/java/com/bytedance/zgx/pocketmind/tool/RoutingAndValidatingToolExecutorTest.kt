@@ -2,6 +2,11 @@ package com.bytedance.zgx.pocketmind.tool
 
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
+import com.bytedance.zgx.pocketmind.background.ScheduledTask
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityProvider
 import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityQuery
 import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityReadResult
@@ -72,6 +77,11 @@ class RoutingAndValidatingToolExecutorTest {
                 reason = "test",
             ) to "filesJson",
             ToolRequest(
+                id = "background-tasks",
+                toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+                reason = "test",
+            ) to "tasksJson",
+            ToolRequest(
                 id = "screenshot-ocr",
                 toolName = MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
                 reason = "test",
@@ -117,6 +127,29 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals(ToolStatus.Succeeded, result.status)
         assertEquals(listOf(request), delegate.requests)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, result.data["toolName"])
+    }
+
+    @Test
+    fun routingExecutorFailsBackgroundTaskQueryWhenSchedulerIsMissing() {
+        val delegate = RecordingDelegate()
+        val executor = routingExecutor(
+            delegate = delegate,
+            backgroundTaskScheduler = null,
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "background-tasks",
+                toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
+        assertTrue(result.retryable)
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertTrue(delegate.requests.isEmpty())
     }
 
     @Test
@@ -625,7 +658,10 @@ class RoutingAndValidatingToolExecutorTest {
         assertTrue(delegate.requests.isEmpty())
     }
 
-    private fun routingExecutor(delegate: ToolExecutor): RoutingToolExecutor =
+    private fun routingExecutor(
+        delegate: ToolExecutor,
+        backgroundTaskScheduler: BackgroundTaskScheduler? = StaticBackgroundTaskScheduler(),
+    ): RoutingToolExecutor =
         RoutingToolExecutor(
             calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
                 override fun queryAvailability(window: CalendarAvailabilityWindow): CalendarAvailabilityReadResult =
@@ -681,6 +717,7 @@ class RoutingAndValidatingToolExecutorTest {
                     )
             },
             delegate = delegate,
+            backgroundTaskScheduler = backgroundTaskScheduler,
             recentImageTextProvider = object : RecentImageTextProvider {
                 override fun extractRecentImageText(kind: String, maxCount: Int): RecentImageTextReadResult =
                     RecentImageTextReadResult.Available(
@@ -709,6 +746,28 @@ class RoutingAndValidatingToolExecutorTest {
                     )
             },
         )
+
+    private class StaticBackgroundTaskScheduler : BackgroundTaskScheduler {
+        override fun scheduledTasks(limit: Int): List<ScheduledTask> =
+            listOf(
+                ScheduledTask(
+                    id = "task-route",
+                    type = ScheduledTaskType.Reminder,
+                    title = "Routed task",
+                    body = "private body",
+                    triggerAtMillis = 1_000L,
+                    status = ScheduledTaskStatus.Scheduled,
+                    createdAtMillis = 100L,
+                    updatedAtMillis = 200L,
+                ),
+            )
+
+        override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> =
+            Result.failure(UnsupportedOperationException("not used"))
+
+        override fun cancel(taskId: String): Result<Unit> =
+            Result.failure(UnsupportedOperationException("not used"))
+    }
 
     private class RecordingDelegate(
         private val registry: ToolRegistry = ToolRegistry(),

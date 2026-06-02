@@ -31,6 +31,7 @@ object MobileActionFunctions {
     const val OPEN_FLASHLIGHT_SETTINGS = "open_flashlight_settings"
     const val SCHEDULE_REMINDER = "schedule_reminder"
     const val CONFIGURE_PERIODIC_CHECK = "configure_periodic_check"
+    const val QUERY_BACKGROUND_TASKS = "query_background_tasks"
     const val READ_CLIPBOARD = "read_clipboard"
     const val SHARE_TEXT = "share_text"
     const val OPEN_DEEP_LINK = "open_deep_link"
@@ -61,6 +62,7 @@ object MobileActionFunctions {
         OPEN_FLASHLIGHT_SETTINGS,
         SCHEDULE_REMINDER,
         CONFIGURE_PERIODIC_CHECK,
+        QUERY_BACKGROUND_TASKS,
         READ_CLIPBOARD,
         SHARE_TEXT,
         OPEN_DEEP_LINK,

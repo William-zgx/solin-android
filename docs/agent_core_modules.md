@@ -69,9 +69,16 @@ Current status:
   only structural booleans and bounded minute values, and successful output is
   closed to typed policy/status metadata plus optional recovery metadata for
   disabling the policy.
+- `query_background_tasks` exposes the same local background task store as a
+  confirmed, read-only BackgroundTask tool. Its schema accepts only
+  `scope=active|history|policy|all` and bounded `maxCount`; the tool has
+  `ReadsDeviceContext` only, does not declare scheduling, notification, or
+  runtime-permission capabilities, and successful output is `LocalOnly` with
+  private `tasksJson` / `policyJson` fields.
 - Current tools cover Wi-Fi settings, flashlight settings, map search, web
   search, email draft, calendar draft, contact draft, local reminders, local
-  periodic reminder-check configuration, confirmed clipboard text reads,
+  periodic reminder-check configuration, read-only background task queries,
+  confirmed clipboard text reads,
   outbound system sharing for text, current foreground app summaries, contact
   lookup, recent notification summaries, calendar availability, recent file
   metadata summaries, confirmed recent screenshot OCR, confirmed recent image
@@ -1260,6 +1267,17 @@ Current status:
   limited to WorkManager policy updates for local reminders and does not create
   background chat tasks, screen scans, file scans, or arbitrary repeated
   execution.
+- `query_background_tasks` now lets the Agent answer explicit read-only
+  questions about local background reminders, recent task history, and periodic
+  check policy through the Skill-first `background_tasks_context_skill`. It is
+  routed through `RoutingToolExecutor` before the side-effecting
+  `ActionExecutor`, calls only `scheduledTasks`, `recentTasks`, and
+  `periodicCheckPolicy`, and never calls schedule/cancel/set/disable methods.
+  Results are `LocalOnly` and `requiresLocalModel=true`; `tasksJson` may include
+  task id, type, status, title, and timestamps for local reasoning, but reminder
+  `body`, prompts, raw periodic `lastRunSummary`, remote responses, and secrets
+  are omitted. `tasksJson`, `policyJson`, and task counts are private outputs
+  and are redacted from trace/audit summaries.
 - Periodic check run summaries preserve the saved policy fields instead of
   replacing them, so the UI reads typed policy state from the background layer
   rather than parsing task history rows.
@@ -1273,6 +1291,12 @@ Tests:
 - `ActionExecutorTest.configuresPeriodicCheckThroughBackgroundScheduler`
 - `ActionExecutorTest.disablesPeriodicCheckThroughBackgroundScheduler`
 - `ActionExecutorTest.reportsStaleReminderCancellationAsNonRetryableInvalidRequest`
+- `DeviceContextToolExecutorTest.backgroundTasksQueryReturnsLocalOnlyTaskAndPolicyMetadataWithoutBodies`
+- `DeviceContextToolExecutorTest.backgroundTasksPolicyScopeDoesNotReadTaskLists`
+- `RoutingAndValidatingToolExecutorTest.routingExecutorDispatchesDeviceContextToolsBeforeDelegate`
+- `AgentLoopRuntimeTest.skillFirstBackgroundTasksQueryBypassesActionPlannerAndRequestsReadOnlyConfirmation`
+- `AgentLoopRuntimeTest.backgroundTasksObservationRedactsTaskAndPolicyJson`
+- `AgentRuntimePermissionPolicyTest.backgroundTasksQueryDeclaresNoRuntimePermissionOrSpecialAccess`
 - `AgentTraceStoreTest.roomStorePersistsReminderRecoveryMetadataWithoutReminderContent`
 - `ScheduledTaskRemovalCoordinatorTest`
 - `AndroidManifestTest.reminderRecoveryReceiverHandlesBootAndPackageReplacement`

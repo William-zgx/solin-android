@@ -675,6 +675,25 @@ private val periodicCheckSchemaJson = """
     }
 """.trimIndent()
 
+private val backgroundTasksQuerySchemaJson = """
+    {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string",
+          "description": "查询范围：active=已安排/运行中的后台任务，history=最近完成/取消/失败历史，policy=周期检查策略，all=同时返回任务摘要与周期检查策略。默认 active。",
+          "enum": ["active", "history", "policy", "all"]
+        },
+        "maxCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
 private val recentNotificationSchemaJson = """
     {
       "type": "object",
@@ -931,6 +950,36 @@ private val periodicCheckOutputSchemaJson = """
         "updatedAtMillis": {"type": "integer", "minimum": 0},
         "recoveryToolName": {"type": "string", "enum": ["configure_periodic_check"]},
         "recoveryEnabled": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val backgroundTasksOutputSchemaJson = """
+    {
+      "type": "object",
+      "required": [
+        "toolName",
+        "privacy",
+        "requiresLocalModel",
+        "scope",
+        "source",
+        "metadataPolicy",
+        "rawPayloadIncluded"
+      ],
+      "properties": {
+        "toolName": {"type": "string", "minLength": 1},
+        "privacy": {"type": "string", "enum": ["LocalOnly"]},
+        "requiresLocalModel": {"type": "boolean"},
+        "scope": {"type": "string", "enum": ["active", "history", "policy", "all"]},
+        "source": {"type": "string", "enum": ["local_store"]},
+        "maxCount": {"type": "integer", "minimum": 1, "maximum": 50},
+        "activeTaskCount": {"type": "integer", "minimum": 0},
+        "historyTaskCount": {"type": "integer", "minimum": 0},
+        "tasksJson": {"type": "array"},
+        "policyJson": {"type": "object"},
+        "metadataPolicy": {"type": "string", "enum": ["background_tasks_local_only_no_reminder_body"]},
+        "rawPayloadIncluded": {"type": "boolean"}
       },
       "additionalProperties": false
     }
@@ -1302,6 +1351,22 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
                 "requiresBatteryNotLow",
                 "requiresCharging",
             ),
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+            title = "查询后台任务",
+            description = "只读查询本地后台提醒、周期检查任务状态与周期检查策略；不会返回提醒正文，任务标题仅作为本地私有输出。",
+            inputSchemaJson = backgroundTasksQuerySchemaJson,
+            outputSchemaJson = backgroundTasksOutputSchemaJson,
+            capability = ToolCapability.BackgroundTask,
+            permissions = setOf(ToolPermission.ReadsDeviceContext),
+            riskLevel = RiskLevel.LowReadOnly,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("scope", "maxCount"),
+            privateOutputKeys = setOf("activeTaskCount", "historyTaskCount", "tasksJson", "policyJson"),
+            redactedResultSummary = "已读取后台任务摘要",
         ),
     ),
     ToolDefinition(

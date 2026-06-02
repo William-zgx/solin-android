@@ -178,6 +178,7 @@ class BuiltInSkillRuntimeTest {
             "最近通知" to requireNotNull(runtime.plan("最近通知")),
             "总结当前屏幕文字" to requireNotNull(runtime.plan("总结当前屏幕文字")),
             "查联系人 Alice" to requireNotNull(runtime.plan("查联系人 Alice")),
+            "查看后台任务" to requireNotNull(runtime.plan("查看后台任务")),
             "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z" to requireNotNull(
                 runtime.plan("查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z"),
             ),
@@ -389,6 +390,32 @@ class BuiltInSkillRuntimeTest {
 
         assertEquals(null, runtime.plan("周期检查是什么"))
         assertEquals(null, runtime.plan("周期检查 API"))
+    }
+
+    @Test
+    fun plansBackgroundTasksQuerySkillFirstWithoutActionDraft() {
+        val plan = runtime.plan("查看后台任务")
+
+        requireNotNull(plan)
+        assertEquals(BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL, plan.request.skillId)
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.QUERY_BACKGROUND_TASKS, step.request.toolName)
+        assertEquals("active", step.request.arguments["scope"])
+        assertEquals(step.request.arguments, step.draft.parameters)
+
+        val policyPlan = requireNotNull(runtime.plan("周期检查状态"))
+        assertEquals(BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL, policyPlan.request.skillId)
+        val policyStep = policyPlan.steps.single()
+        require(policyStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.QUERY_BACKGROUND_TASKS, policyStep.request.toolName)
+        assertEquals("policy", policyStep.request.arguments["scope"])
+
+        assertEquals(BuiltInSkillRuntime.PERIODIC_CHECK_SKILL, runtime.plan("开启周期检查")?.request?.skillId)
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, runtime.plan("取消提醒 task-123")?.request?.skillId)
+        assertEquals(null, runtime.plan("后台任务怎么实现"))
+        assertEquals(null, runtime.plan("background tasks API"))
     }
 
     @Test
@@ -1267,6 +1294,12 @@ class BuiltInSkillRuntimeTest {
             requiredTools = listOf("configure_periodic_check"),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             triggerExamples = listOf("开启周期检查", "关闭周期检查", "enable periodic check"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "background_tasks_context_skill",
+            requiredTools = listOf("query_background_tasks"),
+            riskLevel = RiskLevel.LowReadOnly,
+            triggerExamples = listOf("查看后台任务", "周期检查状态", "list background tasks"),
         ),
         ExpectedBuiltInSkillManifest(
             id = "clipboard_context_skill",

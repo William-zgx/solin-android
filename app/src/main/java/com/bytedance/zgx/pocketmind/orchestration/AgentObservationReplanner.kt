@@ -21,6 +21,7 @@ private val SEQUENTIAL_LOCAL_CONTINUATION_TOOL_NAMES = setOf(
     MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
     MobileActionFunctions.READ_RECENT_IMAGE_OCR,
     MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+    MobileActionFunctions.QUERY_BACKGROUND_TASKS,
 )
 
 fun interface AgentObservationReplanner {

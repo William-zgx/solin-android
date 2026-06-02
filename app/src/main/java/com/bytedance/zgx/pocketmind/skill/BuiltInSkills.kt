@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.AppNavigationActionParser
+import com.bytedance.zgx.pocketmind.action.BackgroundTasksQueryActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarAvailabilityActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
 import com.bytedance.zgx.pocketmind.action.CancelReminderActionParser
@@ -40,6 +41,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         MobileActionFunctions.SCHEDULE_REMINDER to REMINDER_SKILL,
         MobileActionFunctions.CANCEL_REMINDER to REMINDER_SKILL,
         MobileActionFunctions.CONFIGURE_PERIODIC_CHECK to PERIODIC_CHECK_SKILL,
+        MobileActionFunctions.QUERY_BACKGROUND_TASKS to BACKGROUND_TASKS_CONTEXT_SKILL,
         MobileActionFunctions.READ_CLIPBOARD to CLIPBOARD_CONTEXT_SKILL,
         MobileActionFunctions.SHARE_TEXT to SHARE_TEXT_SKILL,
         MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to RECENT_SCREENSHOT_OCR_CONTEXT_SKILL,
@@ -117,6 +119,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && PeriodicCheckActionParser.matches(input) ->
                 plan(input, PeriodicCheckActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && BackgroundTasksQueryActionParser.matches(input) ->
+                plan(input, BackgroundTasksQueryActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
@@ -320,6 +325,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val DEVICE_SETTINGS_SKILL = "device_settings_skill"
         const val REMINDER_SKILL = "reminder_skill"
         const val PERIODIC_CHECK_SKILL = "periodic_check_skill"
+        const val BACKGROUND_TASKS_CONTEXT_SKILL = "background_tasks_context_skill"
         const val CLIPBOARD_CONTEXT_SKILL = "clipboard_context_skill"
         const val SHARE_TEXT_SKILL = "share_text_skill"
         const val CLIPBOARD_SUMMARY_SHARE_SKILL = "clipboard_summary_share_skill"
@@ -545,6 +551,16 @@ private val builtInSkillManifests = listOf(
         requiredTools = listOf(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL,
+        version = 1,
+        title = "后台任务上下文",
+        description = "只读查询本地后台提醒、任务历史与周期检查策略；不创建、取消或配置后台任务。",
+        triggerExamples = listOf("查看后台任务", "周期检查状态", "list background tasks"),
+        requiredTools = listOf(MobileActionFunctions.QUERY_BACKGROUND_TASKS),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.LowReadOnly,
     ),
     SkillManifest(
         id = BuiltInSkillRuntime.CLIPBOARD_CONTEXT_SKILL,

@@ -623,6 +623,43 @@ class AgentLoopRuntimeTest {
                 ToolPermission.SchedulesBackgroundWork in event.permissions &&
                 ToolPermission.PostsNotification in event.permissions &&
                 ToolPermission.RequiresAndroidRuntimePermission in event.permissions
+            })
+    }
+
+    @Test
+    fun skillFirstBackgroundTasksQueryBypassesActionPlannerAndRequestsReadOnlyConfirmation() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "周期检查状态",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.QUERY_BACKGROUND_TASKS, result.plan.request.toolName)
+        assertEquals("policy", result.plan.request.arguments["scope"])
+        assertEquals(BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        assertEquals(
+            listOf(ToolAuditEventType.ToolPlanned, ToolAuditEventType.ConfirmationRequested),
+            auditSink.events.map { it.eventType },
+        )
+        assertTrue(auditSink.events.all { event ->
+            event.toolName == MobileActionFunctions.QUERY_BACKGROUND_TASKS &&
+                event.skillId == BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL &&
+                event.permissions == setOf(ToolPermission.ReadsDeviceContext)
         })
     }
 
@@ -1401,6 +1438,58 @@ class AgentLoopRuntimeTest {
         val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
         assertEquals("[redacted]", toolObserved.result.data["contactsJson"])
         assertFalse(observed.steps.toString().contains("+1 555 0100"))
+    }
+
+    @Test
+    fun backgroundTasksObservationRedactsTaskAndPolicyJson() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "查看后台任务",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val rawTasksJson = """[{"id":"task-1","title":"Doctor appointment","status":"Scheduled"}]"""
+        val rawPolicyJson = """{"enabled":true,"intervalMinutes":120}"""
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取 1 个活动后台任务。",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
+                    "scope" to "active",
+                    "source" to "local_store",
+                    "maxCount" to "20",
+                    "activeTaskCount" to "1",
+                    "tasksJson" to rawTasksJson,
+                    "policyJson" to rawPolicyJson,
+                    "metadataPolicy" to "background_tasks_local_only_no_reminder_body",
+                    "rawPayloadIncluded" to "false",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertTrue(observed.decision is AgentObservationDecision.Complete)
+        assertEquals("[redacted]", observed.result.data["activeTaskCount"])
+        assertEquals("[redacted]", observed.result.data["tasksJson"])
+        assertEquals("[redacted]", observed.result.data["policyJson"])
+        assertEquals("已读取后台任务摘要", observed.result.summary)
+        val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
+        assertEquals("[redacted]", toolObserved.result.data["tasksJson"])
+        assertFalse(observed.steps.toString().contains("Doctor appointment"))
+        assertFalse(observed.steps.toString().contains("intervalMinutes"))
     }
 
     @Test

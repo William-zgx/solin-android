@@ -181,6 +181,21 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun parsesBackgroundTasksQueryCallOutput() {
+        val draft = planner.parseModelOutput(
+            """call:query_background_tasks{"scope":"all","maxCount":"5"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.QUERY_BACKGROUND_TASKS, draft.functionName)
+        assertEquals("all", draft.parameters["scope"])
+        assertEquals("5", draft.parameters["maxCount"])
+        assertTrue(draft.summary.contains("只读查询"))
+        assertTrue(draft.summary.contains("不返回提醒正文"))
+        assertTrue(draft.requiresConfirmation)
+    }
+
+    @Test
     fun strictModelToolOutputParsesPeriodicCheckBooleans() {
         val parsed = planner.parseModelToolOutput(
             """call:configure_periodic_check{"enabled":true,"intervalMinutes":120,"requiresCharging":false}""",
@@ -222,6 +237,38 @@ class ActionPlannerTest {
 
         assertEquals(ActionPlanKind.NoAction, planner.plan("周期检查是什么").kind)
         assertFalse(planner.isLikelyAction("how to implement periodic check"))
+    }
+
+    @Test
+    fun infersBackgroundTasksQueryDraftsAndRejectsMutationsOrDiscussion() {
+        val activePlan = planner.plan("查看后台任务")
+        assertEquals(ActionPlanKind.Draft, activePlan.kind)
+        assertEquals(MobileActionFunctions.QUERY_BACKGROUND_TASKS, activePlan.draft?.functionName)
+        assertEquals("active", activePlan.draft?.parameters?.get("scope"))
+
+        val historyPlan = planner.plan("查看最近 3 条后台任务历史")
+        assertEquals(ActionPlanKind.Draft, historyPlan.kind)
+        assertEquals(MobileActionFunctions.QUERY_BACKGROUND_TASKS, historyPlan.draft?.functionName)
+        assertEquals("history", historyPlan.draft?.parameters?.get("scope"))
+        assertEquals("3", historyPlan.draft?.parameters?.get("maxCount"))
+
+        val policyPlan = planner.plan("周期检查状态")
+        assertEquals(ActionPlanKind.Draft, policyPlan.kind)
+        assertEquals(MobileActionFunctions.QUERY_BACKGROUND_TASKS, policyPlan.draft?.functionName)
+        assertEquals("policy", policyPlan.draft?.parameters?.get("scope"))
+
+        val englishPlan = planner.plan("list background tasks")
+        assertEquals(ActionPlanKind.Draft, englishPlan.kind)
+        assertEquals(MobileActionFunctions.QUERY_BACKGROUND_TASKS, englishPlan.draft?.functionName)
+
+        assertEquals(ActionPlanKind.Draft, planner.plan("开启周期检查").kind)
+        assertEquals(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK, planner.plan("开启周期检查").draft?.functionName)
+        assertEquals(ActionPlanKind.Draft, planner.plan("取消提醒 task-123").kind)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, planner.plan("取消提醒 task-123").draft?.functionName)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("后台任务怎么实现").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("background tasks API").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("取消后台任务").kind)
+        assertFalse(planner.isLikelyAction("how to implement background tasks"))
     }
 
     @Test

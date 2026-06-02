@@ -174,6 +174,138 @@ internal object CancelReminderActionParser {
     }
 }
 
+internal object BackgroundTasksQueryActionParser {
+    private val englishPattern =
+        Regex(
+            """\b(?:show|list|query|view|check)\b.*\b(?:background\s+tasks?|scheduled\s+(?:tasks?|reminders?)|reminder\s+(?:tasks?|list)|periodic\s+check\s+(?:status|policy))\b|\b(?:what|which)\b.*\b(?:background\s+tasks?|scheduled\s+reminders?)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+    private val maxCountPattern = Regex("""(?:最近|最多|前)\s*(\d{1,2})\s*(?:个|条|项)?""")
+    private val englishMaxCountPattern = Regex("""\b(?:last|recent|top|limit)\s+(\d{1,2})\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeBackgroundTasksQueryNonAction()) return false
+        val normalized = input.lowercase()
+        return input.hasChineseBackgroundTasksQueryTrigger() || englishPattern.containsMatchIn(normalized)
+    }
+
+    fun draft(input: String): ActionDraft {
+        val parameters = parameters(input)
+        return ActionDraft(
+            functionName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+            title = "查询后台任务",
+            summary = summary(parameters["scope"].orEmpty().ifBlank { "active" }, parameters["maxCount"]),
+            parameters = parameters,
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun parameters(input: String): Map<String, String> =
+        buildMap {
+            put("scope", scope(input))
+            maxCount(input)?.let { put("maxCount", it.toString()) }
+        }
+
+    private fun scope(input: String): String {
+        val normalized = input.lowercase()
+        val wantsPolicy = listOf("周期检查状态", "周期检查策略", "周期检查设置", "后台检查状态", "后台检查策略")
+            .any { it in input } ||
+            Regex("""\bperiodic\s+check\s+(?:status|policy|settings?)\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(normalized)
+        val wantsHistory = listOf("历史", "最近完成", "已完成", "已取消", "失败记录", "执行记录")
+            .any { it in input } ||
+            Regex("""\b(?:history|recent|completed|cancelled|canceled|failed)\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(normalized)
+        val wantsActive = listOf("活动", "当前", "正在", "已安排", "待执行", "提醒列表", "有哪些提醒")
+            .any { it in input } ||
+            Regex("""\b(?:active|scheduled|running|pending)\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(normalized)
+        val wantsAll = listOf("全部", "所有", "完整", "都列出来").any { it in input } ||
+            Regex("""\b(?:all|everything)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ||
+            (wantsPolicy && (wantsActive || wantsHistory || "后台任务" in input))
+        return when {
+            wantsAll -> "all"
+            wantsPolicy -> "policy"
+            wantsHistory -> "history"
+            wantsActive -> "active"
+            else -> "active"
+        }
+    }
+
+    private fun maxCount(input: String): Int? {
+        val normalized = input.lowercase()
+        val cleaned = input.replace(Regex("\\s+"), "")
+        return maxCountPattern.find(cleaned)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?.takeIf { it > 0 }
+            ?: englishMaxCountPattern.find(normalized)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.toIntOrNull()
+                ?.takeIf { it > 0 }
+    }
+
+    private fun summary(scope: String, maxCount: String?): String {
+        val countText = maxCount?.takeIf { it.isNotBlank() }?.let { "最多 $it 条" }.orEmpty()
+        return when (scope) {
+            "history" -> "将只读查询本地后台任务历史$countText，不返回提醒正文。"
+            "policy" -> "将只读查询本地提醒周期检查策略，不返回提醒正文。"
+            "all" -> "将只读查询本地后台任务与周期检查策略$countText，不返回提醒正文。"
+            else -> "将只读查询本地活动后台任务$countText，不返回提醒正文。"
+        }
+    }
+
+    private fun String.hasChineseBackgroundTasksQueryTrigger(): Boolean {
+        val hasQueryVerb = listOf("查看", "查询", "列出", "看看", "看一下", "有哪些", "状态", "列表")
+            .any { it in this }
+        val hasTarget = listOf("后台任务", "提醒任务", "提醒列表", "已安排提醒", "本地提醒", "周期检查状态", "周期检查策略")
+            .any { it in this }
+        return hasQueryVerb && hasTarget
+    }
+
+    private fun String.looksLikeBackgroundTasksQueryNonAction(): Boolean {
+        val normalized = lowercase()
+        return startsWithActionNegation() ||
+            listOf(
+                "后台任务是什么",
+                "后台任务怎么",
+                "后台任务如何",
+                "后台任务 api",
+                "后台任务API",
+                "后台任务 接口",
+                "后台任务 实现",
+                "后台任务 设计",
+                "后台任务 文档",
+                "后台任务 测试",
+                "后台任务 schema",
+                "后台任务 parser",
+                "提醒任务怎么",
+                "周期检查是什么",
+                "周期检查 api",
+                "周期检查API",
+                "周期检查 实现",
+                "周期检查 文档",
+                "怎么实现",
+                "如何实现",
+                "怎么设计",
+                "取消后台任务",
+                "删除后台任务",
+                "开启周期检查",
+                "启用周期检查",
+                "关闭周期检查",
+                "停用周期检查",
+                "配置周期检查",
+                "设置周期检查",
+            ).any { it in this } ||
+            normalized.contains(Regex("""\b(?:api|implementation|architecture|design|schema|tests?|parser|docs?|documentation)\b.*\b(?:background\s+tasks?|scheduled\s+tasks?|periodic\s+checks?)\b""")) ||
+            normalized.contains(Regex("""\b(?:what\s+is|explain|describe|meaning|how\s+(?:do|can|to)|implement|design)\b.*\b(?:background\s+tasks?|scheduled\s+tasks?|periodic\s+checks?)\b""")) ||
+            normalized.contains(Regex("""\b(?:cancel|delete|remove)\s+(?:background\s+tasks?|scheduled\s+tasks?|reminders?)\b""")) ||
+            normalized.contains(Regex("""\b(?:enable|disable|turn\s+on|turn\s+off|configure|set)\s+(?:local\s+)?periodic\s+checks?\b"""))
+    }
+}
+
 internal object PeriodicCheckActionParser {
     private const val AMOUNT_PATTERN = """\d+(?:\.\d+)?"""
     private val intervalPattern =

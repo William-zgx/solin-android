@@ -2,6 +2,13 @@ package com.bytedance.zgx.pocketmind.tool
 
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
+import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
+import com.bytedance.zgx.pocketmind.background.ScheduledTask
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.device.ContactSummaryItem
 import com.bytedance.zgx.pocketmind.device.ContactSummaryProvider
 import com.bytedance.zgx.pocketmind.device.ContactSummaryReadResult
@@ -20,6 +27,7 @@ import com.bytedance.zgx.pocketmind.device.RecentImageTextItem
 import com.bytedance.zgx.pocketmind.device.RecentImageTextProvider
 import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
 import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -400,6 +408,117 @@ class DeviceContextToolExecutorTest {
     }
 
     @Test
+    fun backgroundTasksQueryReturnsLocalOnlyTaskAndPolicyMetadataWithoutBodies() {
+        val scheduler = RecordingBackgroundTaskScheduler(
+            activeTasks = listOf(
+                ScheduledTask(
+                    id = "task-active",
+                    type = ScheduledTaskType.Reminder,
+                    title = "Doctor appointment",
+                    body = "secret reminder body",
+                    triggerAtMillis = 10_000L,
+                    status = ScheduledTaskStatus.Scheduled,
+                    createdAtMillis = 1_000L,
+                    updatedAtMillis = 2_000L,
+                ),
+            ),
+            historyTasks = listOf(
+                ScheduledTask(
+                    id = "task-history",
+                    type = ScheduledTaskType.Reminder,
+                    title = "Paid invoice",
+                    body = "private completed body",
+                    triggerAtMillis = 8_000L,
+                    status = ScheduledTaskStatus.Delivered,
+                    createdAtMillis = 3_000L,
+                    updatedAtMillis = 4_000L,
+                ),
+            ),
+            policy = PeriodicCheckPolicySummary(
+                request = PeriodicCheckScheduleRequest(
+                    enabled = true,
+                    intervalMinutes = 120L,
+                    minNotificationSpacingMinutes = 180L,
+                    overdueGraceMinutes = 30L,
+                ),
+                taskStatus = ScheduledTaskStatus.Scheduled,
+                nextAllowedRunAtMillis = 12_000L,
+                lastRunSummary = "lastRun=secret",
+                updatedAtMillis = 5_000L,
+            ),
+        )
+        val executor = BackgroundTasksToolExecutor(scheduler)
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "background-tasks",
+                toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+                arguments = mapOf("scope" to "all", "maxCount" to "3"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(null, result.error)
+        assertFalse(result.retryable)
+        assertEquals(3, scheduler.scheduledLimit)
+        assertEquals(3, scheduler.recentLimit)
+        assertTrue(scheduler.policyRead)
+        assertTrue(scheduler.mutationCalls.isEmpty())
+        assertEquals(MobileActionFunctions.QUERY_BACKGROUND_TASKS, result.data["toolName"])
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals("true", result.data["requiresLocalModel"])
+        assertEquals("all", result.data["scope"])
+        assertEquals("local_store", result.data["source"])
+        assertEquals("false", result.data["rawPayloadIncluded"])
+        assertEquals("background_tasks_local_only_no_reminder_body", result.data["metadataPolicy"])
+        assertEquals("1", result.data["activeTaskCount"])
+        assertEquals("1", result.data["historyTaskCount"])
+        assertFalse(result.summary.contains("Doctor appointment"))
+        assertFalse(result.summary.contains("secret reminder body"))
+        val tasks = JSONArray(result.data.getValue("tasksJson"))
+        assertEquals(2, tasks.length())
+        val task = tasks.getJSONObject(0)
+        assertEquals(
+            setOf("scope", "id", "type", "status", "title", "triggerAtMillis", "createdAtMillis", "updatedAtMillis"),
+            task.keysSet(),
+        )
+        assertEquals("Doctor appointment", task.getString("title"))
+        assertFalse(task.has("body"))
+        assertFalse(task.has("prompt"))
+        assertFalse(task.has("text"))
+        val policy = JSONObject(result.data.getValue("policyJson"))
+        assertEquals(true, policy.getBoolean("enabled"))
+        assertEquals(120, policy.getInt("intervalMinutes"))
+        assertEquals(false, policy.getBoolean("lastRunSummaryIncluded"))
+        assertFalse(policy.has("lastRunSummary"))
+    }
+
+    @Test
+    fun backgroundTasksPolicyScopeDoesNotReadTaskLists() {
+        val scheduler = RecordingBackgroundTaskScheduler(
+            policy = PeriodicCheckPolicySummary.disabled(),
+        )
+
+        val result = BackgroundTasksToolExecutor(scheduler).execute(
+            ToolRequest(
+                id = "background-policy",
+                toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+                arguments = mapOf("scope" to "policy"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(null, scheduler.scheduledLimit)
+        assertEquals(null, scheduler.recentLimit)
+        assertTrue(scheduler.policyRead)
+        assertFalse(result.data.containsKey("tasksJson"))
+        assertTrue(result.data.containsKey("policyJson"))
+        assertTrue(scheduler.mutationCalls.isEmpty())
+    }
+
+    @Test
     fun recentScreenshotOcrSuccessReturnsLocalOnlyTextWithoutImageIdentifiers() {
         val provider = RecordingRecentImageTextProvider(
             RecentImageTextReadResult.Available(
@@ -695,6 +814,9 @@ class DeviceContextToolExecutorTest {
                     RecentFileReadResult.Failed("not used"),
                 ),
             ).execute(request),
+            BackgroundTasksToolExecutor(
+                RecordingBackgroundTaskScheduler(),
+            ).execute(request),
             RecentScreenshotOcrToolExecutor(
                 StaticRecentImageTextProvider(
                     RecentImageTextReadResult.Failed("not used"),
@@ -771,6 +893,55 @@ class DeviceContextToolExecutorTest {
             lastKind = kind
             lastMaxCount = maxCount
             return result
+        }
+    }
+
+    private class RecordingBackgroundTaskScheduler(
+        private val activeTasks: List<ScheduledTask> = emptyList(),
+        private val historyTasks: List<ScheduledTask> = emptyList(),
+        private val policy: PeriodicCheckPolicySummary = PeriodicCheckPolicySummary.disabled(),
+    ) : BackgroundTaskScheduler {
+        var scheduledLimit: Int? = null
+            private set
+        var recentLimit: Int? = null
+            private set
+        var policyRead: Boolean = false
+            private set
+        val mutationCalls = mutableListOf<String>()
+
+        override fun scheduledTasks(limit: Int): List<ScheduledTask> {
+            scheduledLimit = limit
+            return activeTasks.take(limit)
+        }
+
+        override fun recentTasks(limit: Int): List<ScheduledTask> {
+            recentLimit = limit
+            return historyTasks.take(limit)
+        }
+
+        override fun periodicCheckPolicy(): PeriodicCheckPolicySummary {
+            policyRead = true
+            return policy
+        }
+
+        override fun setPeriodicCheckPolicy(request: PeriodicCheckScheduleRequest): Result<PeriodicCheckPolicySummary> {
+            mutationCalls += "setPeriodicCheckPolicy"
+            return Result.success(policy)
+        }
+
+        override fun disablePeriodicCheckPolicy(): Result<PeriodicCheckPolicySummary> {
+            mutationCalls += "disablePeriodicCheckPolicy"
+            return Result.success(policy)
+        }
+
+        override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> {
+            mutationCalls += "scheduleReminder"
+            return Result.failure(UnsupportedOperationException("not used"))
+        }
+
+        override fun cancel(taskId: String): Result<Unit> {
+            mutationCalls += "cancel"
+            return Result.success(Unit)
         }
     }
 

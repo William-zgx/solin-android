@@ -106,6 +106,7 @@ class PocketMindAppContainer(context: Context) {
                     backgroundTaskScheduler = backgroundTaskSchedulerInternal,
                     canPostReminderNotifications = reminderNotificationHelper::canPostNotifications,
                 ),
+                backgroundTaskScheduler = backgroundTaskSchedulerInternal,
                 recentImageTextProvider = AndroidRecentImageTextProvider(appContext),
                 currentScreenTextProvider = AndroidCurrentScreenTextProvider(),
             ),

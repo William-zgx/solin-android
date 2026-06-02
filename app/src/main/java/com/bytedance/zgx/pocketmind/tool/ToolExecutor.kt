@@ -3,6 +3,9 @@ package com.bytedance.zgx.pocketmind.tool
 import android.provider.Settings
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
+import com.bytedance.zgx.pocketmind.background.ScheduledTask
 import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityProvider
 import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityQuery
 import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityQueryValidation
@@ -27,6 +30,9 @@ import org.json.JSONObject
 
 private const val MAX_CONTACT_SUMMARY_COUNT = 20
 private const val MAX_NOTIFICATION_SUMMARY_COUNT = 20
+private const val DEFAULT_BACKGROUND_TASK_QUERY_COUNT = 20
+private const val MAX_BACKGROUND_TASK_QUERY_COUNT = 50
+private const val BACKGROUND_TASK_METADATA_POLICY = "background_tasks_local_only_no_reminder_body"
 
 interface ToolExecutor {
     fun execute(request: ToolRequest): ToolResult
@@ -39,6 +45,7 @@ class RoutingToolExecutor(
     private val notificationSummaryProvider: NotificationSummaryProvider,
     private val recentFileProvider: RecentFileProvider,
     private val delegate: ToolExecutor,
+    private val backgroundTaskScheduler: BackgroundTaskScheduler? = null,
     private val recentImageTextProvider: RecentImageTextProvider? = null,
     private val currentScreenTextProvider: CurrentScreenTextProvider? = null,
 ) : ToolExecutor {
@@ -49,6 +56,8 @@ class RoutingToolExecutor(
     private val notificationSummaryToolExecutor =
         NotificationSummaryToolExecutor(notificationSummaryProvider)
     private val recentFilesToolExecutor = RecentFilesToolExecutor(recentFileProvider)
+    private val backgroundTasksToolExecutor =
+        backgroundTaskScheduler?.let(::BackgroundTasksToolExecutor)
     private val recentScreenshotOcrToolExecutor =
         recentImageTextProvider?.let(::RecentScreenshotOcrToolExecutor)
     private val currentScreenTextToolExecutor =
@@ -66,6 +75,14 @@ class RoutingToolExecutor(
                 notificationSummaryToolExecutor.execute(request)
             MobileActionFunctions.QUERY_RECENT_FILES ->
                 recentFilesToolExecutor.execute(request)
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS ->
+                backgroundTasksToolExecutor?.execute(request)
+                    ?: request.failed(
+                        code = ToolErrorCode.ExecutionFailed,
+                        summary = "后台任务本地存储不可用",
+                        retryable = true,
+                        data = request.localOnlyData(),
+                    )
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
             MobileActionFunctions.READ_RECENT_IMAGE_OCR ->
                 recentScreenshotOcrToolExecutor?.execute(request)
@@ -371,6 +388,72 @@ class RecentFilesToolExecutor(
     }
 }
 
+class BackgroundTasksToolExecutor(
+    private val scheduler: BackgroundTaskScheduler,
+) : ToolExecutor {
+    override fun execute(request: ToolRequest): ToolResult {
+        if (request.toolName != MobileActionFunctions.QUERY_BACKGROUND_TASKS) {
+            return request.failed(
+                code = ToolErrorCode.UnknownTool,
+                summary = "Unknown tool: ${request.toolName}",
+                retryable = false,
+            )
+        }
+
+        val scope = request.arguments["scope"]?.trim()?.lowercase().orEmpty().ifBlank { "active" }
+        val maxCount = (request.arguments["maxCount"]?.trim()?.toIntOrNull() ?: DEFAULT_BACKGROUND_TASK_QUERY_COUNT)
+            .coerceIn(1, MAX_BACKGROUND_TASK_QUERY_COUNT)
+
+        val activeTasks = if (scope == "active" || scope == "all") {
+            scheduler.scheduledTasks(maxCount)
+        } else {
+            emptyList()
+        }
+        val historyTasks = if (scope == "history" || scope == "all") {
+            scheduler.recentTasks(maxCount)
+        } else {
+            emptyList()
+        }
+        val policy = if (scope == "policy" || scope == "all") {
+            scheduler.periodicCheckPolicy()
+        } else {
+            null
+        }
+
+        val includedTasks = JSONArray().apply {
+            activeTasks.appendToBackgroundTasksJson(scope = "active", target = this)
+            historyTasks.appendToBackgroundTasksJson(scope = "history", target = this)
+        }
+        val summary = when (scope) {
+            "history" -> "已读取 ${historyTasks.size} 条后台任务历史。"
+            "policy" -> "已读取本地提醒周期检查策略。"
+            "all" -> "已读取 ${activeTasks.size} 个活动后台任务、${historyTasks.size} 条历史与周期检查策略。"
+            else -> "已读取 ${activeTasks.size} 个活动后台任务。"
+        }
+        return request.succeeded(
+            summary = summary,
+            data = buildMap {
+                putAll(request.localOnlyData())
+                put("scope", scope)
+                put("source", "local_store")
+                put("maxCount", maxCount.toString())
+                put("metadataPolicy", BACKGROUND_TASK_METADATA_POLICY)
+                put("rawPayloadIncluded", false.toString())
+                if (scope == "active" || scope == "all") {
+                    put("activeTaskCount", activeTasks.size.toString())
+                }
+                if (scope == "history" || scope == "all") {
+                    put("historyTaskCount", historyTasks.size.toString())
+                }
+                if (includedTasks.length() > 0 || scope != "policy") {
+                    put("tasksJson", includedTasks.toString())
+                }
+                policy?.let { put("policyJson", it.toJsonString()) }
+            },
+        )
+    }
+}
+
 class RecentScreenshotOcrToolExecutor(
     private val provider: RecentImageTextProvider,
 ) : ToolExecutor {
@@ -569,6 +652,41 @@ private fun List<RecentFileItem>.toRecentFilesJsonString(): String {
         )
     }
     return filesArray.toString()
+}
+
+private fun List<ScheduledTask>.appendToBackgroundTasksJson(
+    scope: String,
+    target: JSONArray,
+) {
+    forEach { task ->
+        target.put(
+            JSONObject()
+                .put("scope", scope)
+                .put("id", task.id)
+                .put("type", task.type.name)
+                .put("status", task.status.name)
+                .put("title", task.title)
+                .put("triggerAtMillis", task.triggerAtMillis)
+                .put("createdAtMillis", task.createdAtMillis)
+                .put("updatedAtMillis", task.updatedAtMillis),
+        )
+    }
+}
+
+private fun PeriodicCheckPolicySummary.toJsonString(): String {
+    val normalized = request.normalized()
+    return JSONObject()
+        .put("enabled", normalized.enabled)
+        .put("intervalMinutes", normalized.intervalMinutes)
+        .put("minNotificationSpacingMinutes", normalized.minNotificationSpacingMinutes)
+        .put("overdueGraceMinutes", normalized.overdueGraceMinutes)
+        .put("requiresBatteryNotLow", normalized.constraints.requiresBatteryNotLow)
+        .put("requiresCharging", normalized.constraints.requiresCharging)
+        .put("taskStatus", taskStatus?.name)
+        .put("nextAllowedRunAtMillis", nextAllowedRunAtMillis)
+        .put("updatedAtMillis", updatedAtMillis)
+        .put("lastRunSummaryIncluded", false)
+        .toString()
 }
 
 private fun ToolRequest.localOnlyData(): Map<String, String> =
