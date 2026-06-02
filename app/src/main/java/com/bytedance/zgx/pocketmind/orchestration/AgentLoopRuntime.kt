@@ -646,7 +646,13 @@ class AgentLoopRuntime(
             )
         }
         val finalState = when (decision) {
-            AgentObservationDecision.Complete -> AgentRunState.Completed
+            AgentObservationDecision.Complete ->
+                if (observedResult.isUnverifiedExternalLaunch()) {
+                    AgentRunState.AwaitingExternalOutcome
+                } else {
+                    AgentRunState.Completed
+                }
+
             is AgentObservationDecision.ContinueWithModel -> AgentRunState.GeneratingAnswer
             is AgentObservationDecision.RetryTool -> AgentRunState.RetryingTool
             is AgentObservationDecision.PlanNextTool -> AgentRunState.AwaitingUserConfirmation
@@ -981,7 +987,7 @@ class AgentLoopRuntime(
             .asSequence()
             .map { summary -> summary.run }
             .filter { run ->
-                run.state == AgentRunState.Completed &&
+                run.state in pendingExternalOutcomeRestoreStates &&
                     (sessionId == null || run.sessionId == sessionId)
             }
             .mapNotNull { run -> pendingExternalOutcomeSnapshotFor(run) }
@@ -1587,6 +1593,11 @@ class AgentLoopRuntime(
         AgentRunState.Completed,
         AgentRunState.Cancelled,
         AgentRunState.Failed,
+    )
+
+    private val pendingExternalOutcomeRestoreStates = setOf(
+        AgentRunState.AwaitingExternalOutcome,
+        AgentRunState.Completed,
     )
 
     private fun ToolResult.requiresLocalModelContinuation(): Boolean =

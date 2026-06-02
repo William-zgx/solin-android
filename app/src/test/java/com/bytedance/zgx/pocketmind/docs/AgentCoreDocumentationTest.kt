@@ -48,7 +48,7 @@ class AgentCoreDocumentationTest {
     @Test
     fun documentedCoreModuleTestsReferenceExistingTestFiles() {
         val repoRoot = repoRoot()
-        val testClassFiles = buildTestClassIndex(repoRoot)
+        val testClasses = buildTestClassIndex(repoRoot)
         val documentedRefs = agentCoreSections()
             .filterKeys { title -> title != "Regression Strategy" }
             .values
@@ -60,11 +60,24 @@ class AgentCoreDocumentationTest {
         val missingClasses = documentedRefs
             .map { ref -> ref.substringBefore(".") }
             .distinct()
-            .filterNot { className -> className in testClassFiles }
+            .filterNot { className -> className in testClasses }
 
         assertTrue(
             "Documented test classes must exist: $missingClasses",
             missingClasses.isEmpty(),
+        )
+
+        val missingMethods = documentedRefs
+            .mapNotNull { ref ->
+                val className = ref.substringBefore(".")
+                val methodName = ref.substringAfter(".", missingDelimiterValue = "")
+                if (methodName.isBlank()) return@mapNotNull null
+                ref.takeUnless { methodName in testClasses[className].orEmpty() }
+            }
+
+        assertTrue(
+            "Documented test methods must exist: $missingMethods",
+            missingMethods.isEmpty(),
         )
     }
 
@@ -117,14 +130,18 @@ class AgentCoreDocumentationTest {
             .toList()
     }
 
-    private fun buildTestClassIndex(repoRoot: File): Set<String> =
+    private fun buildTestClassIndex(repoRoot: File): Map<String, Set<String>> =
         listOf(
             File(repoRoot, "app/src/test/java"),
             File(repoRoot, "app/src/androidTest/java"),
         )
             .flatMap { root -> root.walkTopDown().filter { file -> file.extension == "kt" }.toList() }
-            .map { file -> file.nameWithoutExtension }
-            .toSet()
+            .associate { file ->
+                file.nameWithoutExtension to Regex("""(?m)^\s*fun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(""")
+                    .findAll(file.readText())
+                    .map { match -> match.groupValues[1] }
+                    .toSet()
+            }
 
     private fun agentCoreDoc(): File =
         File(repoRoot(), "docs/agent_core_modules.md").also { file ->

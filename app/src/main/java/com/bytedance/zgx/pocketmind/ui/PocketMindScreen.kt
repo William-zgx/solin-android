@@ -2441,6 +2441,7 @@ private fun AgentRunState.label(): String =
         AgentRunState.RetryingTool -> "重试工具"
         AgentRunState.Observing -> "观察结果"
         AgentRunState.GeneratingAnswer -> "生成回答"
+        AgentRunState.AwaitingExternalOutcome -> "待确认外部结果"
         AgentRunState.Completed -> "已完成"
         AgentRunState.Cancelled -> "已取消"
         AgentRunState.Failed -> "失败"

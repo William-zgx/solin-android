@@ -4699,7 +4699,7 @@ class AgentLoopRuntimeTest {
         )
 
         requireNotNull(opened)
-        assertEquals(AgentRunState.Completed, opened.run.state)
+        assertEquals(AgentRunState.AwaitingExternalOutcome, opened.run.state)
         assertEquals(AgentObservationDecision.Complete, opened.decision)
         val observed = runtime.recordExternalOutcome(
             runId = planned.run.id,
@@ -4807,7 +4807,7 @@ class AgentLoopRuntimeTest {
         )
 
         requireNotNull(observed)
-        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertEquals(AgentRunState.AwaitingExternalOutcome, observed.run.state)
         assertEquals(AgentObservationDecision.Complete, observed.decision)
         assertEquals(0, replanCallCount)
         assertTrue(observed.assistantMessage.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX))
@@ -5011,7 +5011,7 @@ class AgentLoopRuntimeTest {
             ),
         )
         requireNotNull(opened)
-        assertEquals(AgentRunState.Completed, opened.run.state)
+        assertEquals(AgentRunState.AwaitingExternalOutcome, opened.run.state)
 
         val restoredRuntime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -5021,6 +5021,7 @@ class AgentLoopRuntimeTest {
         val pending = restoredRuntime.latestPendingExternalOutcome("session-restored")
 
         requireNotNull(pending)
+        assertEquals(AgentRunState.AwaitingExternalOutcome.name, dao.run(planned.run.id)?.state)
         assertEquals(planned.run.id, pending.runId)
         assertEquals(planned.plan.request.id, pending.requestId)
         assertEquals(MobileActionFunctions.WEB_SEARCH, pending.toolName)

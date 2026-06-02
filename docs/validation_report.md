@@ -1,5 +1,37 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Awaiting external outcome state
+
+本轮覆盖项：
+
+- `AgentRunState` 新增 `AwaitingExternalOutcome`，launch-only 外部 Activity
+  观察不再把 run 标记为 `Completed`。
+- `latestPendingExternalOutcome()` 同时兼容新的
+  `AwaitingExternalOutcome` 和旧的 launch-only `Completed` trace。
+- Agent trace UI 状态文案新增“待确认外部结果”。
+- `AgentCoreDocumentationTest` 现在校验 `docs/agent_core_modules.md`
+  中的 `Class.method` 测试引用真实存在，防止核心模块文档覆盖漂移。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin \
+  :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.completedExternalOutcomeConfirmationCanPlanNextTool \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredUnverifiedExternalLaunchRestoresPendingOutcomeAndRecordsConfirmation \
+  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.unverifiedExternalLaunchShowsLaunchOnlyStatus \
+  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateRestoresPendingExternalOutcomeWithoutExecutingTool \
+  --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest
+
+./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin && git diff --check
+```
+
+结果：
+
+- 通过：launch-only 状态、外部结果确认、跨重启恢复、ViewModel UI
+  回归、核心模块文档契约、全量 debug JVM 单测和 AndroidTest Kotlin 编译。
+
 ## 2026-06-02 External Activity outcome restore
 
 本轮覆盖项：
@@ -1756,7 +1788,7 @@ rg -n "<sensitive endpoint/model/key patterns>" . --glob '!**/build/**' --glob '
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsPayloadPendingConfirmationWithoutPuttingRawArgumentsInTrace' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreHydratesPriorToolRequestsForRestoreDedupWithoutOldConfirmations' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredPendingConfirmationContinuesSequentialNextActionAfterObservation' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredPendingConfirmationRejectsReplannedOldRequestId'
@@ -3314,7 +3346,7 @@ adb devices -l
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRedactsAllowlistedCompletionMetadataValues' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace'
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsPayloadPendingConfirmationWithoutPuttingRawArgumentsInTrace'
 ```
 
 ## 2026-06-01 Task-state memory suppression 增量验证
@@ -3510,7 +3542,7 @@ adb devices -l
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting' \
-  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredClipboardSummarySharePendingFailsClosedAfterRestart' \
   --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest.clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation' \
   --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoredSharePendingPreviewDoesNotExecuteUntilCurrentConfirmation' \
   --tests 'com.bytedance.zgx.pocketmind.skill.SkillRunExecutorTest.privateToolOutputCannotBindDirectlyToLaterToolArgument'

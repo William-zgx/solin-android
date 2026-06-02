@@ -20,6 +20,7 @@ enum class AgentRunState {
     RetryingTool,
     Observing,
     GeneratingAnswer,
+    AwaitingExternalOutcome,
     Completed,
     Cancelled,
     Failed,

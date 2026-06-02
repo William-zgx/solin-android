@@ -2480,7 +2480,7 @@ class PocketMindViewModelTest {
             ),
             confirmedRun = AgentRun("run-share", "分享这段文字", AgentRunState.ExecutingTool, 1L, 2L),
             toolObservation = AgentObservationResult(
-                run = AgentRun("run-share", "分享这段文字", AgentRunState.Completed, 1L, 3L),
+                run = AgentRun("run-share", "分享这段文字", AgentRunState.AwaitingExternalOutcome, 1L, 3L),
                 result = result,
                 assistantMessage = assistantMessage,
                 decision = AgentObservationDecision.Complete,

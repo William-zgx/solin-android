@@ -201,6 +201,11 @@ Current status:
   stopping the model runtime/coroutine. Non-terminal runs move to `Cancelled`,
   late model output is ignored, and awaiting tool confirmations reuse the
   existing user-cancelled tool observation path so the tool is not executed.
+- Launch-only external Activity observations now move the run to
+  `AwaitingExternalOutcome` instead of `Completed`. This state records the
+  real boundary: the external UI opened, but the target app outcome is still
+  waiting for explicit user confirmation. Older launch-only completed traces
+  remain restorable for compatibility.
 - The loop has run-level hard budgets in addition to per-tool retry attempts:
   it fails closed before saving another pending confirmation when the run tool
   step budget is exhausted, and fails closed before retry/replan/model
@@ -479,7 +484,7 @@ Tests:
 - `AgentLoopRuntimeTest.toolStepToToolStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
 - `AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation`
-- `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare`
+- `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingFailsClosedAfterRestart`
 - `AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions`
 - `AgentLoopRuntimeTest.roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears`
 - `AgentLoopRuntimeTest.modelObservationReplannerPlansNextToolAfterVerifiedObservation`
@@ -497,7 +502,7 @@ Tests:
 - `AgentTraceStoreTest.roomStoreToolPlanningTraceDoesNotPersistParameterLikeReasonText`
 - `AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson`
 - `AgentTraceStoreTest.roomStoreRedactsAllowlistedCompletionMetadataValues`
-- `AgentTraceStoreTest.roomStoreRestoresPendingConfirmationWithoutPuttingRawArgumentsInTrace`
+- `AgentTraceStoreTest.roomStoreFailsPayloadPendingConfirmationWithoutPuttingRawArgumentsInTrace`
 - `AgentTraceStoreTest.roomStoreReturnsRecentRunSummariesWithStepLimit`
 - `ToolAuditRepositoryTest.recordDoesNotPersistToolParametersFromPlannedSummary`
 - `PocketMindViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution`
