@@ -359,6 +359,15 @@ Current status:
   returned to `AwaitingUserConfirmation`. The progression fails closed if the
   next tool still depends on another unsatisfied step, preventing model output
   from skipping required tool or model prerequisites.
+- Declarative Skill tool-to-tool progressions can now continue within the
+  current process without a model step: after a schema-valid successful
+  `ToolStep` observation, `SkillRunProgressor` may bind public tool result data
+  into the next dependent `ToolStep`, then the Agent loop reruns Tool Registry
+  validation, `SafetyPolicy`, trace/audit, and user confirmation before any
+  execution. The path fails closed when the result does not belong to a
+  requested skill step, when the next tool has unmet dependencies, when a
+  binding is missing, or when a private tool output would be bound directly into
+  another tool argument.
 - Default sequential replanning now splits explicit connectors such as
   "then", "然后", and "再" into a live-only bounded sequence. A verified
   successful segment can plan only the next segment, returns to
@@ -375,8 +384,9 @@ Current status:
 - Planned-tool audit persistence stores parameter-free planned/confirmation
   summaries; tool arguments remain out of persisted audit text.
 - Open-ended autonomous model-driven replanning beyond the bounded
-  observation-draft path, arbitrary multi-confirmation skill UI orchestration,
-  and full argument-bearing typed step rehydration are still pending.
+  observation-draft path, cross-restart arbitrary multi-confirmation skill
+  continuation, and full argument-bearing typed step rehydration are still
+  pending.
 
 Tests:
 
@@ -404,6 +414,8 @@ Tests:
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation`
 - `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`
+- `AgentLoopRuntimeTest.toolStepOutputBindsToDependentToolStepInCurrentProcessAndRequestsConfirmation`
+- `AgentLoopRuntimeTest.toolStepToToolStepBindingCannotDirectlyExposePrivateToolOutputToShare`
 - `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
 - `AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation`
 - `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingIgnoresOldReadRequestAndCompletesShare`
@@ -501,6 +513,11 @@ Current status:
   private tool output fences. `SkillRunExecutor` and Agent model-result
   replanning now share this progression logic instead of maintaining separate
   binding implementations.
+- `SkillRunProgressor` also supports current-process tool-result-to-tool-step
+  progression for declarative Skills. It binds only available public outputs,
+  treats private output refs as unbindable to later tool arguments, requires the
+  current result id to be among requested skill steps, and rejects unmet
+  dependencies instead of letting a generic replanner bypass the Skill graph.
 - `SkillRunProgressor.nextToolAfterModelOutput()` also verifies that every
   declared dependency of the next `ToolStep` is already satisfied before
   returning another confirmation. A model output cannot skip an unrequested
@@ -598,6 +615,8 @@ Tests:
 - `SkillRunExecutorTest.resumeRejectsMalformedSucceededToolResultBeforeModelStep`
 - `SkillRunExecutorTest.privateToolOutputCannotBindDirectlyToLaterToolArgument`
 - `SkillRunExecutorTest.cancelStopsPendingSkillWithoutExecutingOrLeakingPrivateOutputs`
+- `SkillRunProgressorTest.bindsPublicToolOutputToDependentToolRequestAndDraft`
+- `SkillRunProgressorTest.rejectsPrivateToolOutputBindingBetweenToolSteps`
 - `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation`
 - `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`

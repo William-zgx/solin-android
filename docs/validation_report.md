@@ -1,5 +1,39 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Skill ToolStep-to-ToolStep Agent loop 增量验证
+
+本轮覆盖项：
+
+- `SkillRunProgressor` 新增 current-process `ToolStep -> ToolStep` progression：
+  schema-valid 的成功工具结果可以把公开输出绑定到同一声明式 Skill 的下一个
+  dependent `ToolStep`，不需要插入模型步骤。
+- Agent loop 在普通 observation replanner 之前优先尝试当前 `SkillPlan` 的下一个
+  ToolStep；绑定出的工具仍重新经过 Tool Registry validation、`SafetyPolicy`、
+  trace/audit 和用户确认，不会直接执行。
+- Progressor fail-closed 边界：非成功结果不续跑；`result.requestId` 必须属于已请求
+  Skill step；后续 ToolStep 依赖未满足时拒绝；缺失 binding 拒绝；私密 tool output
+  不能直接绑定到任何后续工具参数。
+- Agent loop 回归覆盖 schedule-reminder `ToolStep` 结果绑定到
+  `cancel_reminder(taskId)` 后进入第二张确认卡，并在第二次确认观察成功后完成 run。
+- Agent loop 负例覆盖 `query_contacts.contactsJson -> share_text.text` 直接私密绑定：
+  run 进入 `Failed`，不生成 share pending confirmation，不调用 observation
+  replanner，trace/audit 不含联系人原始电话。
+- 该切片不实现跨重启的任意 Skill continuation，也不改变完整 typed step
+  rehydration；这些仍需要独立切片。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.skill.SkillRunProgressorTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.toolStepOutputBindsToDependentToolStepInCurrentProcessAndRequestsConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.toolStepToToolStepBindingCannotDirectlyExposePrivateToolOutputToShare' \
+  --no-daemon
+```
+
+结果：targeted Skill progression / Agent loop ToolStep-to-ToolStep 回归通过；
+完整 JVM 单测与 AndroidTest Kotlin 编译通过。
+
 ## 2026-06-02 Reminder recovery receiver and rollback schema 增量验证
 
 本轮覆盖项：

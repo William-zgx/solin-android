@@ -2179,6 +2179,117 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun toolStepOutputBindsToDependentToolStepInCurrentProcessAndRequestsConfirmation() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = ToolToToolSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = ToolToToolSkillRuntime.REMINDER_INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(ToolToToolSkillRuntime.REMINDER_SKILL_ID, planned.plan.skillRequest?.skillId)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, planned.plan.request.toolName)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已安排 10000 触发的后台提醒",
+                data = scheduleReminderResultData(taskId = "task-1", triggerAtMillis = "10000"),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(null, observed.continuationPromptForModel)
+        val cancelPlan = observed.decision.plan
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, cancelPlan.request.toolName)
+        assertEquals(mapOf("taskId" to "task-1"), cancelPlan.request.arguments)
+        assertEquals(mapOf("taskId" to "task-1"), cancelPlan.draft.parameters)
+        assertEquals(ToolToToolSkillRuntime.REMINDER_SKILL_ID, cancelPlan.skillRequest?.skillId)
+        assertEquals("skill tool step", cancelPlan.fallbackReason)
+        assertEquals(cancelPlan.request.id, runtime.latestPendingConfirmation()?.request?.id)
+        assertEquals(
+            listOf(MobileActionFunctions.SCHEDULE_REMINDER, MobileActionFunctions.CANCEL_REMINDER),
+            observed.steps.filterIsInstance<AgentStep.ToolRequested>().map { it.request.toolName },
+        )
+
+        runtime.confirmToolRequest(planned.run.id, cancelPlan.request.id)
+        val completed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = cancelPlan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已取消后台任务：task-1",
+                data = cancelReminderResultData(taskId = "task-1"),
+            ),
+        )
+
+        requireNotNull(completed)
+        assertEquals(AgentRunState.Completed, completed.run.state)
+        assertEquals(AgentObservationDecision.Complete, completed.decision)
+    }
+
+    @Test
+    fun toolStepToToolStepBindingCannotDirectlyExposePrivateToolOutputToShare() {
+        val auditSink = InMemoryToolAuditSink()
+        var replanCallCount = 0
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = ToolToToolSkillRuntime(),
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner {
+                replanCallCount += 1
+                error("unsafe skill progression must fail before replanning")
+            },
+        )
+        val planned = runtime.runOnce(
+            input = ToolToToolSkillRuntime.UNSAFE_CONTACTS_INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(ToolToToolSkillRuntime.UNSAFE_CONTACTS_SKILL_ID, planned.plan.skillRequest?.skillId)
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, planned.plan.request.toolName)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取联系人摘要",
+                data = contactsResultData(),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        require(observed.decision is AgentObservationDecision.Fail)
+        assertTrue(observed.decision.reason.contains("private tool output cannot be bound directly"))
+        assertTrue(observed.decision.reason.contains("contacts.contactsJson"))
+        assertTrue(observed.steps.any { it is AgentStep.ToolRejected })
+        assertTrue(observed.steps.none { step ->
+            step is AgentStep.UserConfirmationRequested &&
+                step.request.toolName == MobileActionFunctions.SHARE_TEXT
+        })
+        assertNull(runtime.latestPendingConfirmation())
+        assertEquals(0, replanCallCount)
+        assertTrue(!observed.steps.toString().contains("+1 555 0100"))
+        assertTrue(!auditSink.events.toString().contains("+1 555 0100"))
+    }
+
+    @Test
     fun ocrSkillModelStepTakesPrecedenceOverPrivateReadFallbackPrompt() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -5543,6 +5654,169 @@ class AgentLoopRuntimeTest {
             usedModel = false,
             fallbackReason = "test fallback",
         )
+
+    private class ToolToToolSkillRuntime : SkillRuntime {
+        private val reminderManifest = manifest(
+            id = REMINDER_SKILL_ID,
+            requiredTools = listOf(
+                MobileActionFunctions.SCHEDULE_REMINDER,
+                MobileActionFunctions.CANCEL_REMINDER,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+        )
+        private val unsafeContactsManifest = manifest(
+            id = UNSAFE_CONTACTS_SKILL_ID,
+            requiredTools = listOf(
+                MobileActionFunctions.QUERY_CONTACTS,
+                MobileActionFunctions.SHARE_TEXT,
+            ),
+            riskLevel = RiskLevel.HighExternalSend,
+        )
+
+        override fun manifests(): List<SkillManifest> = listOf(reminderManifest, unsafeContactsManifest)
+
+        override fun plan(input: String): SkillPlan? =
+            when (input) {
+                REMINDER_INPUT -> reminderPlan(input)
+                UNSAFE_CONTACTS_INPUT -> unsafeContactsPlan(input)
+                else -> null
+            }
+
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+
+        private fun reminderPlan(input: String): SkillPlan {
+            val scheduleDraft = ActionDraft(
+                functionName = MobileActionFunctions.SCHEDULE_REMINDER,
+                title = "安排提醒",
+                summary = "安排一个测试提醒。",
+                parameters = mapOf("title" to "喝水", "delayMinutes" to "15"),
+                requiresConfirmation = true,
+            )
+            val cancelDraft = ActionDraft(
+                functionName = MobileActionFunctions.CANCEL_REMINDER,
+                title = "撤销提醒",
+                summary = "撤销刚安排的提醒。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            return SkillPlan(
+                request = SkillRequest(
+                    id = "tool-to-tool-reminder-skill-request",
+                    skillId = REMINDER_SKILL_ID,
+                    arguments = mapOf("input" to input),
+                    reason = input,
+                ),
+                manifest = reminderManifest,
+                steps = listOf(
+                    SkillStep.ToolStep(
+                        id = "schedule",
+                        request = ToolRequest(
+                            id = "tool-to-tool-schedule-request",
+                            toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                            arguments = scheduleDraft.parameters,
+                            reason = scheduleDraft.summary,
+                        ),
+                        draft = scheduleDraft,
+                    ),
+                    SkillStep.ToolStep(
+                        id = "cancel",
+                        dependsOn = listOf("schedule"),
+                        request = ToolRequest(
+                            id = "tool-to-tool-cancel-request",
+                            toolName = MobileActionFunctions.CANCEL_REMINDER,
+                            reason = cancelDraft.summary,
+                        ),
+                        draft = cancelDraft,
+                        argumentBindings = mapOf("taskId" to "schedule.taskId"),
+                    ),
+                ),
+            )
+        }
+
+        private fun unsafeContactsPlan(input: String): SkillPlan {
+            val contactsDraft = ActionDraft(
+                functionName = MobileActionFunctions.QUERY_CONTACTS,
+                title = "查询联系人",
+                summary = "查询联系人摘要。",
+                parameters = mapOf("query" to "Alice"),
+                requiresConfirmation = true,
+            )
+            val shareDraft = ActionDraft(
+                functionName = MobileActionFunctions.SHARE_TEXT,
+                title = "分享联系人",
+                summary = "分享联系人摘要。",
+                parameters = emptyMap(),
+                requiresConfirmation = true,
+            )
+            return SkillPlan(
+                request = SkillRequest(
+                    id = "unsafe-contacts-skill-request",
+                    skillId = UNSAFE_CONTACTS_SKILL_ID,
+                    arguments = mapOf("input" to input),
+                    reason = input,
+                ),
+                manifest = unsafeContactsManifest,
+                steps = listOf(
+                    SkillStep.ToolStep(
+                        id = "contacts",
+                        request = ToolRequest(
+                            id = "unsafe-contacts-request",
+                            toolName = MobileActionFunctions.QUERY_CONTACTS,
+                            arguments = contactsDraft.parameters,
+                            reason = contactsDraft.summary,
+                        ),
+                        draft = contactsDraft,
+                    ),
+                    SkillStep.ToolStep(
+                        id = "share",
+                        dependsOn = listOf("contacts"),
+                        request = ToolRequest(
+                            id = "unsafe-share-request",
+                            toolName = MobileActionFunctions.SHARE_TEXT,
+                            reason = shareDraft.summary,
+                        ),
+                        draft = shareDraft,
+                        argumentBindings = mapOf("text" to "contacts.contactsJson"),
+                    ),
+                ),
+            )
+        }
+
+        private fun manifest(
+            id: String,
+            requiredTools: List<String>,
+            riskLevel: RiskLevel,
+        ): SkillManifest =
+            SkillManifest(
+                id = id,
+                version = 1,
+                title = id,
+                description = "Test-only tool-to-tool skill",
+                triggerExamples = listOf(id),
+                requiredTools = requiredTools,
+                inputSchemaJson = """
+                    {
+                      "type": "object",
+                      "required": ["input"],
+                      "properties": {
+                        "input": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                """.trimIndent(),
+                riskLevel = riskLevel,
+            )
+
+        companion object {
+            const val REMINDER_INPUT = "tool to tool reminder skill"
+            const val UNSAFE_CONTACTS_INPUT = "unsafe contacts share skill"
+            const val REMINDER_SKILL_ID = "tool_to_tool_reminder_skill"
+            const val UNSAFE_CONTACTS_SKILL_ID = "unsafe_contacts_share_skill"
+        }
+    }
 
     private class CustomClipboardTransformSkillRuntime(
         private val shareBinding: String = "custom_model.shareText",

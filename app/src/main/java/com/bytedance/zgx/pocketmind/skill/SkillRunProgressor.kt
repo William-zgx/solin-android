@@ -4,6 +4,7 @@ import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolResult
+import com.bytedance.zgx.pocketmind.tool.ToolStatus
 
 class SkillRunProgressor(
     private val maxSteps: Int = DEFAULT_MAX_STEPS,
@@ -88,8 +89,62 @@ class SkillRunProgressor(
                     is SkillToolStepBinding.Rejected ->
                         SkillModelOutputProgression.Rejected(binding.reason)
                 }
-            }
+        }
         return SkillModelOutputProgression.None
+    }
+
+    fun nextToolAfterToolResult(
+        skillPlan: SkillPlan,
+        requestedRequestIds: Set<String>,
+        result: ToolResult,
+    ): SkillToolResultProgression {
+        if (result.status != ToolStatus.Succeeded) return SkillToolResultProgression.None
+        if (result.requestId !in requestedRequestIds) {
+            return SkillToolResultProgression.Rejected("tool result does not match requested skill step")
+        }
+        validateForExecution(skillPlan)?.let { reason ->
+            return SkillToolResultProgression.Rejected("Invalid skill plan: $reason")
+        }
+        val currentStepIndex = skillPlan.steps.indexOfFirst { step ->
+            step is SkillStep.ToolStep && step.request.id == result.requestId
+        }
+        if (currentStepIndex < 0) return SkillToolResultProgression.None
+        val currentStep = skillPlan.steps[currentStepIndex] as SkillStep.ToolStep
+        val requestedToolStepIds = skillPlan.steps
+            .filterIsInstance<SkillStep.ToolStep>()
+            .filter { step -> step.request.id in requestedRequestIds }
+            .mapTo(mutableSetOf()) { step -> step.id }
+        val nextToolStep = skillPlan.steps
+            .drop(currentStepIndex + 1)
+            .filterIsInstance<SkillStep.ToolStep>()
+            .firstOrNull { step -> step.request.id !in requestedRequestIds }
+            ?: return SkillToolResultProgression.None
+        val unmetDependencies = nextToolStep.dependsOn.filter { dependency -> dependency !in requestedToolStepIds }
+        if (unmetDependencies.isNotEmpty()) {
+            return SkillToolResultProgression.Rejected(
+                "Unmet skill dependency for ${nextToolStep.id}: ${unmetDependencies.joinToString()}",
+            )
+        }
+
+        val privateOutputRefs = privateOutputRefsForRequestedTools(skillPlan, requestedRequestIds)
+        val outputs = initialOutputs(skillPlan).apply {
+            put(currentStep.id, outputForToolResult(result, currentStep.draft))
+        }
+        return when (val binding = bindToolStep(nextToolStep, outputs, privateOutputRefs)) {
+            is SkillToolStepBinding.Bound ->
+                SkillToolResultProgression.BoundTool(
+                    sourceStep = currentStep,
+                    toolStep = nextToolStep,
+                    request = binding.request,
+                    draft = binding.draft,
+                )
+
+            is SkillToolStepBinding.Missing ->
+                SkillToolResultProgression.Rejected("Missing tool result binding for skill step.")
+
+            is SkillToolStepBinding.Rejected ->
+                SkillToolResultProgression.Rejected(binding.reason)
+        }
     }
 
     fun outputForToolResult(
@@ -202,4 +257,19 @@ sealed class SkillModelOutputProgression {
     data class Rejected(
         val reason: String,
     ) : SkillModelOutputProgression()
+}
+
+sealed class SkillToolResultProgression {
+    data object None : SkillToolResultProgression()
+
+    data class BoundTool(
+        val sourceStep: SkillStep.ToolStep,
+        val toolStep: SkillStep.ToolStep,
+        val request: ToolRequest,
+        val draft: ActionDraft,
+    ) : SkillToolResultProgression()
+
+    data class Rejected(
+        val reason: String,
+    ) : SkillToolResultProgression()
 }

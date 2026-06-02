@@ -32,6 +32,266 @@ class SkillRunProgressorTest {
     }
 
     @Test
+    fun bindsPublicToolOutputToDependentToolRequestAndDraft() {
+        val scheduleDraft = ActionDraft(
+            functionName = MobileActionFunctions.SCHEDULE_REMINDER,
+            title = "安排提醒",
+            summary = "安排测试提醒。",
+            parameters = mapOf("title" to "喝水", "delayMinutes" to "15"),
+        )
+        val cancelDraft = ActionDraft(
+            functionName = MobileActionFunctions.CANCEL_REMINDER,
+            title = "撤销提醒",
+            summary = "撤销刚安排的提醒。",
+            parameters = emptyMap(),
+        )
+        val scheduleStep = SkillStep.ToolStep(
+            id = "schedule",
+            request = ToolRequest(
+                id = "schedule-request",
+                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                arguments = scheduleDraft.parameters,
+            ),
+            draft = scheduleDraft,
+        )
+        val cancelStep = SkillStep.ToolStep(
+            id = "cancel",
+            dependsOn = listOf("schedule"),
+            request = ToolRequest(
+                id = "cancel-request",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+            ),
+            draft = cancelDraft,
+            argumentBindings = mapOf("taskId" to "schedule.taskId"),
+        )
+        val plan = twoToolPlan(
+            skillId = "schedule_then_cancel_skill",
+            requiredTools = listOf(
+                MobileActionFunctions.SCHEDULE_REMINDER,
+                MobileActionFunctions.CANCEL_REMINDER,
+            ),
+            steps = listOf(scheduleStep, cancelStep),
+        )
+
+        val progression = progressor.nextToolAfterToolResult(
+            skillPlan = plan,
+            requestedRequestIds = setOf(scheduleStep.request.id),
+            result = ToolResult(
+                requestId = scheduleStep.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已安排提醒",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
+                    "taskId" to "task-1",
+                    "taskStatus" to "Scheduled",
+                    "triggerAtMillis" to "10000",
+                    "recoveryToolName" to MobileActionFunctions.CANCEL_REMINDER,
+                    "recoveryTaskId" to "task-1",
+                ),
+            ),
+        )
+
+        require(progression is SkillToolResultProgression.BoundTool)
+        assertEquals("schedule", progression.sourceStep.id)
+        assertEquals("cancel", progression.toolStep.id)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, progression.request.toolName)
+        assertEquals(mapOf("taskId" to "task-1"), progression.request.arguments)
+        assertEquals(mapOf("taskId" to "task-1"), progression.draft.parameters)
+    }
+
+    @Test
+    fun rejectsPrivateToolOutputBindingBetweenToolSteps() {
+        val contactsDraft = ActionDraft(
+            functionName = MobileActionFunctions.QUERY_CONTACTS,
+            title = "查询联系人",
+            summary = "查询联系人摘要。",
+            parameters = mapOf("query" to "Alice"),
+        )
+        val shareDraft = ActionDraft(
+            functionName = MobileActionFunctions.SHARE_TEXT,
+            title = "分享联系人",
+            summary = "分享联系人摘要。",
+            parameters = emptyMap(),
+        )
+        val contactsStep = SkillStep.ToolStep(
+            id = "contacts",
+            request = ToolRequest(
+                id = "contacts-request",
+                toolName = MobileActionFunctions.QUERY_CONTACTS,
+                arguments = contactsDraft.parameters,
+            ),
+            draft = contactsDraft,
+        )
+        val shareStep = SkillStep.ToolStep(
+            id = "share",
+            dependsOn = listOf("contacts"),
+            request = ToolRequest(
+                id = "share-request",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+            ),
+            draft = shareDraft,
+            argumentBindings = mapOf("text" to "contacts.contactsJson"),
+        )
+        val plan = twoToolPlan(
+            skillId = "unsafe_contacts_share_skill",
+            requiredTools = listOf(
+                MobileActionFunctions.QUERY_CONTACTS,
+                MobileActionFunctions.SHARE_TEXT,
+            ),
+            steps = listOf(contactsStep, shareStep),
+        )
+
+        val progression = progressor.nextToolAfterToolResult(
+            skillPlan = plan,
+            requestedRequestIds = setOf(contactsStep.request.id),
+            result = ToolResult(
+                requestId = contactsStep.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取联系人摘要",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.QUERY_CONTACTS,
+                    "query" to "Alice",
+                    "maxCount" to "5",
+                    "contactCount" to "1",
+                    "contactsJson" to """[{"name":"Alice","phone":"+1 555 0100"}]""",
+                    "privacy" to "LocalOnly",
+                    "requiresLocalModel" to "true",
+                ),
+            ),
+        )
+
+        require(progression is SkillToolResultProgression.Rejected)
+        assertTrue(progression.reason.contains("private tool output cannot be bound directly"))
+        assertTrue(progression.reason.contains("contacts.contactsJson"))
+    }
+
+    @Test
+    fun rejectsToolResultNotInRequestedSkillSteps() {
+        val contactsDraft = ActionDraft(
+            functionName = MobileActionFunctions.QUERY_CONTACTS,
+            title = "查询联系人",
+            summary = "查询联系人摘要。",
+            parameters = mapOf("query" to "Alice"),
+        )
+        val contactsStep = SkillStep.ToolStep(
+            id = "contacts",
+            request = ToolRequest(
+                id = "contacts-request",
+                toolName = MobileActionFunctions.QUERY_CONTACTS,
+                arguments = contactsDraft.parameters,
+            ),
+            draft = contactsDraft,
+        )
+        val shareStep = SkillStep.ToolStep(
+            id = "share",
+            request = ToolRequest(
+                id = "share-request",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.SHARE_TEXT,
+                title = "分享联系人",
+                summary = "分享联系人摘要。",
+                parameters = emptyMap(),
+            ),
+            argumentBindings = mapOf("text" to "contacts.contactsJson"),
+        )
+        val plan = twoToolPlan(
+            skillId = "untrusted_requested_ids_skill",
+            requiredTools = listOf(
+                MobileActionFunctions.QUERY_CONTACTS,
+                MobileActionFunctions.SHARE_TEXT,
+            ),
+            steps = listOf(contactsStep, shareStep),
+        )
+
+        val progression = progressor.nextToolAfterToolResult(
+            skillPlan = plan,
+            requestedRequestIds = emptySet(),
+            result = ToolResult(
+                requestId = contactsStep.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取联系人摘要",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.QUERY_CONTACTS,
+                    "contactsJson" to """[{"name":"Alice","phone":"+1 555 0100"}]""",
+                ),
+            ),
+        )
+
+        require(progression is SkillToolResultProgression.Rejected)
+        assertEquals("tool result does not match requested skill step", progression.reason)
+    }
+
+    @Test
+    fun nextToolAfterToolResultRejectsToolWithUnmetDependencies() {
+        val scheduleDraft = ActionDraft(
+            functionName = MobileActionFunctions.SCHEDULE_REMINDER,
+            title = "安排提醒",
+            summary = "安排测试提醒。",
+            parameters = mapOf("title" to "喝水", "delayMinutes" to "15"),
+        )
+        val scheduleStep = SkillStep.ToolStep(
+            id = "schedule",
+            request = ToolRequest(
+                id = "schedule-request",
+                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                arguments = scheduleDraft.parameters,
+            ),
+            draft = scheduleDraft,
+        )
+        val modelStep = SkillStep.ModelStep(
+            id = "summarize_schedule",
+            dependsOn = listOf("schedule"),
+            title = "整理提醒结果",
+            instruction = "整理提醒结果。",
+            inputBindings = mapOf("summary" to "schedule.summary"),
+            outputKey = "summary",
+        )
+        val cancelStep = SkillStep.ToolStep(
+            id = "cancel",
+            dependsOn = listOf(modelStep.id),
+            request = ToolRequest(
+                id = "cancel-request",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.CANCEL_REMINDER,
+                title = "撤销提醒",
+                summary = "撤销提醒。",
+                parameters = emptyMap(),
+            ),
+            argumentBindings = mapOf("taskId" to "schedule.taskId"),
+        )
+        val plan = twoToolPlan(
+            skillId = "tool_result_unmet_dependency_skill",
+            requiredTools = listOf(
+                MobileActionFunctions.SCHEDULE_REMINDER,
+                MobileActionFunctions.CANCEL_REMINDER,
+            ),
+            steps = listOf(scheduleStep, modelStep, cancelStep),
+        )
+
+        val progression = progressor.nextToolAfterToolResult(
+            skillPlan = plan,
+            requestedRequestIds = setOf(scheduleStep.request.id),
+            result = ToolResult(
+                requestId = scheduleStep.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已安排提醒",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.SCHEDULE_REMINDER,
+                    "taskId" to "task-1",
+                ),
+            ),
+        )
+
+        require(progression is SkillToolResultProgression.Rejected)
+        assertTrue(progression.reason.contains("Unmet skill dependency"))
+        assertTrue(progression.reason.contains("summarize_schedule"))
+    }
+
+    @Test
     fun bindsModelOutputToDependentToolRequestAndDraft() {
         val plan = BuiltInSkillRuntime().planClipboardSummaryShare("总结剪贴板并分享")
         val readStep = plan.steps[0] as SkillStep.ToolStep
@@ -518,4 +778,40 @@ class SkillRunProgressorTest {
         assertTrue(progression.reason.contains("check_foreground"))
     }
 
+    private fun twoToolPlan(
+        skillId: String,
+        requiredTools: List<String>,
+        steps: List<SkillStep>,
+    ): SkillPlan =
+        SkillPlan(
+            request = SkillRequest(
+                id = "$skillId-request",
+                skillId = skillId,
+                arguments = mapOf("input" to skillId),
+                reason = skillId,
+            ),
+            manifest = SkillManifest(
+                id = skillId,
+                version = 1,
+                title = skillId,
+                description = "Test skill",
+                triggerExamples = listOf(skillId),
+                requiredTools = requiredTools,
+                inputSchemaJson = """
+                    {
+                      "type": "object",
+                      "required": ["input"],
+                      "properties": {
+                        "input": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                """.trimIndent(),
+                riskLevel = RiskLevel.HighExternalSend,
+            ),
+            steps = steps,
+        )
 }

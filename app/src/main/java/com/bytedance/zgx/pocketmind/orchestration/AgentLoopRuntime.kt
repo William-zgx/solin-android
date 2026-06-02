@@ -24,6 +24,7 @@ import com.bytedance.zgx.pocketmind.skill.SkillPlan
 import com.bytedance.zgx.pocketmind.skill.SkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillRunProgressor
 import com.bytedance.zgx.pocketmind.skill.SkillStep
+import com.bytedance.zgx.pocketmind.skill.SkillToolResultProgression
 import com.bytedance.zgx.pocketmind.skill.validateStructure
 import com.bytedance.zgx.pocketmind.skill.valueFreeCheckpointForPendingTool
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
@@ -497,6 +498,9 @@ class AgentLoopRuntime(
         request: ToolRequest,
         result: ToolResult,
     ): NextObservationPlan {
+        planNextToolStepFromCurrentSkill(run, result)?.let { nextPlan ->
+            return nextPlan
+        }
         val priorRequests = toolRequestsFor(run.id)
         val completedSegmentCount = plannedSequentialSegmentCount(run.id)
         planNextCompositeSkillSegment(
@@ -524,6 +528,35 @@ class AgentLoopRuntime(
             fallbackReason = replan.fallbackReason,
             skillPlan = skillPlan,
         )
+    }
+
+    private fun planNextToolStepFromCurrentSkill(
+        run: AgentRun,
+        result: ToolResult,
+    ): NextObservationPlan? {
+        val skillPlan = latestSkillPlan(run.id) ?: return null
+        val requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { request -> request.id }
+        return when (val progression = skillProgressor.nextToolAfterToolResult(
+            skillPlan = skillPlan,
+            requestedRequestIds = requestedRequestIds,
+            result = result,
+        )) {
+            SkillToolResultProgression.None -> null
+            is SkillToolResultProgression.Rejected ->
+                rejectNextToolPlan(
+                    run.id,
+                    requestForSkillProgressionRejection(skillPlan, requestedRequestIds, progression.reason),
+                )
+            is SkillToolResultProgression.BoundTool ->
+                buildNextToolPlan(
+                    runId = run.id,
+                    request = progression.request,
+                    draft = progression.draft,
+                    plannedByModel = false,
+                    fallbackReason = "skill tool step",
+                    skillPlan = skillPlan,
+                )
+        }
     }
 
     private fun planNextToolAfterModelResult(
