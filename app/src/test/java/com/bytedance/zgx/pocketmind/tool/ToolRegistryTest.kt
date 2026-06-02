@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.tool
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -313,11 +314,16 @@ class ToolRegistryTest {
         val recentImageOcrPrivateKeys = setOf("name", "mimeType", "sizeBytes", "lastModifiedMillis", "ocrText")
         val expectedPrivateOutputs = mapOf(
             MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
-            MobileActionFunctions.QUERY_CONTACTS to setOf("query", "contactsJson"),
-            MobileActionFunctions.QUERY_FOREGROUND_APP to setOf("packageName", "appLabel"),
+            MobileActionFunctions.QUERY_CONTACTS to setOf("query", "contactCount", "contactsJson"),
+            MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY to
+                setOf("start", "end", "busyBlockCount", "freeBlockCount", "blocksJson"),
+            MobileActionFunctions.QUERY_FOREGROUND_APP to setOf("packageName", "appLabel", "lastTimeUsedMillis"),
+            MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS to setOf("notificationCount", "notificationsJson"),
+            MobileActionFunctions.QUERY_RECENT_FILES to setOf("fileCount", "filesJson"),
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to recentImageOcrPrivateKeys,
-            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("screenText"),
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to
+                setOf("capturedAtMillis", "nodeCount", "screenText", "packageName"),
         )
 
         expectedPrivateOutputs.forEach { (toolName, privateKeys) ->
@@ -385,6 +391,39 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun localOnlyDeviceContextOutputsRequireLocalModelMetadata() {
+        val localOnlyDeviceTools = listOf(
+            MobileActionFunctions.READ_CLIPBOARD,
+            MobileActionFunctions.QUERY_CONTACTS,
+            MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+            MobileActionFunctions.QUERY_FOREGROUND_APP,
+            MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+            MobileActionFunctions.QUERY_RECENT_FILES,
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+        )
+
+        localOnlyDeviceTools.forEach { toolName ->
+            val spec = registry.specFor(toolName)
+            assertNotNull(spec)
+            requireNotNull(spec)
+
+            val schema = JSONObject(spec.outputSchemaJson)
+            val required = schema.optJSONArray("required")
+            val properties = schema.getJSONObject("properties")
+
+            assertTrue("$toolName output must require privacy", required.containsString("privacy"))
+            assertTrue("$toolName output must require requiresLocalModel", required.containsString("requiresLocalModel"))
+            assertEquals("boolean", properties.getJSONObject("requiresLocalModel").getString("type"))
+            assertTrue(
+                "$toolName privacy must be LocalOnly",
+                properties.getJSONObject("privacy").getJSONArray("enum").containsString(MessagePrivacy.LocalOnly.name),
+            )
+        }
+    }
+
+    @Test
     fun reminderOutputSchemasExposeOnlyTaskRecoveryMetadata() {
         val forbiddenKeys = listOf("title", "body", "prompt", "summary", "text")
         listOf(
@@ -407,11 +446,16 @@ class ToolRegistryTest {
         val recentImageOcrPrivateKeys = setOf("name", "mimeType", "sizeBytes", "lastModifiedMillis", "ocrText")
         val expectedPrivateOutputs = mapOf(
             MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
-            MobileActionFunctions.QUERY_CONTACTS to setOf("query", "contactsJson"),
-            MobileActionFunctions.QUERY_FOREGROUND_APP to setOf("packageName", "appLabel"),
+            MobileActionFunctions.QUERY_CONTACTS to setOf("query", "contactCount", "contactsJson"),
+            MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY to
+                setOf("start", "end", "busyBlockCount", "freeBlockCount", "blocksJson"),
+            MobileActionFunctions.QUERY_FOREGROUND_APP to setOf("packageName", "appLabel", "lastTimeUsedMillis"),
+            MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS to setOf("notificationCount", "notificationsJson"),
+            MobileActionFunctions.QUERY_RECENT_FILES to setOf("fileCount", "filesJson"),
             MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to recentImageOcrPrivateKeys,
-            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("screenText"),
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to
+                setOf("capturedAtMillis", "nodeCount", "screenText", "packageName"),
         )
 
         expectedPrivateOutputs.forEach { (toolName, privateKeys) ->
@@ -843,4 +887,12 @@ class ToolRegistryTest {
         assertNull(valid)
     }
 
+}
+
+private fun JSONArray?.containsString(value: String): Boolean {
+    if (this == null) return false
+    for (index in 0 until length()) {
+        if (optString(index) == value) return true
+    }
+    return false
 }

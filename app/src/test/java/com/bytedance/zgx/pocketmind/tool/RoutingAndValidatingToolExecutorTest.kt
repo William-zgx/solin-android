@@ -96,6 +96,7 @@ class RoutingAndValidatingToolExecutorTest {
             assertEquals(ToolStatus.Succeeded, result.status)
             assertEquals(request.toolName, result.data["toolName"])
             assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+            assertEquals(true.toString(), result.data["requiresLocalModel"])
             assertTrue(result.data.containsKey(routedDataKey))
         }
         assertTrue(delegate.requests.isEmpty())
@@ -430,6 +431,15 @@ class RoutingAndValidatingToolExecutorTest {
         val executor = ValidatingToolExecutor(routingExecutor(delegate))
         val privateDeviceRequests = listOf(
             ToolRequest(
+                id = "calendar-private-output",
+                toolName = MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+                arguments = mapOf(
+                    "start" to "2026-06-01T09:00:00Z",
+                    "end" to "2026-06-01T10:00:00Z",
+                ),
+                reason = "test",
+            ),
+            ToolRequest(
                 id = "foreground-private-output",
                 toolName = MobileActionFunctions.QUERY_FOREGROUND_APP,
                 reason = "test",
@@ -438,6 +448,16 @@ class RoutingAndValidatingToolExecutorTest {
                 id = "contacts-private-output",
                 toolName = MobileActionFunctions.QUERY_CONTACTS,
                 arguments = mapOf("query" to "Alice"),
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "notifications-private-output",
+                toolName = MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "files-private-output",
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
                 reason = "test",
             ),
             ToolRequest(
@@ -466,6 +486,7 @@ class RoutingAndValidatingToolExecutorTest {
             assertEquals(ToolStatus.Succeeded, result.status)
             assertEquals(request.toolName, result.data["toolName"])
             assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+            assertEquals(true.toString(), result.data["requiresLocalModel"])
             assertNotNull(registry.redactedResultSummaryFor(request.toolName))
             assertTrue("$request should have private output keys", privateKeys.isNotEmpty())
             privateKeys.forEach { privateKey ->

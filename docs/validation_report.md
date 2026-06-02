@@ -1,5 +1,42 @@
 # PocketMind 验证报告
 
+## 2026-06-02 LocalOnly device private output coverage 增量验证
+
+本轮覆盖项：
+
+- `query_calendar_availability`、`query_recent_notifications`、
+  `query_recent_files` 现在声明私密输出字段和脱敏 summary，避免日历忙闲、
+  通知标题/时间和最近文件 metadata 绕过 trace redaction / Skill public-output
+  边界。
+- `query_contacts` 的 `contactCount`、`query_foreground_app` 的
+  `lastTimeUsedMillis`、`read_current_screen_text` 的 `capturedAtMillis`、
+  `nodeCount`、`packageName` 同步纳入 private output policy。
+- Tool Registry 合同测试要求所有 LocalOnly 设备上下文输出 schema 同时声明
+  `privacy=LocalOnly` 和 `requiresLocalModel`，并要求 private output key 仍存在
+  于 output schema。
+- Routing / validating executor 回归覆盖 calendar、foreground app、contacts、
+  notifications、recent files、OCR、current screen text 的真实结果仍保留私密
+  key，且 continuation 必须留在本地模型边界。
+- Observation replanner 回归同步验证新增的前台应用私密 metadata 不会进入模型
+  prompt 的 public data key 列表。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest \
+  --tests com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest \
+  --tests com.bytedance.zgx.pocketmind.tool.CalendarAvailabilityToolExecutorTest \
+  --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest \
+  --no-daemon
+
+./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin --no-daemon
+```
+
+结果：targeted registry / routing / device-context / documentation 回归通过；
+完整 JVM 单测与 AndroidTest Kotlin 编译通过。
+
 ## 2026-06-02 Explicit preference forget command 增量验证
 
 本轮覆盖项：

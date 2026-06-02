@@ -658,6 +658,11 @@ Current status:
   busy/free windows, and recent file metadata. Recent file reads return
   `LocalOnly` metadata only: file name, MIME type, coarse kind, size, and last
   modified time. The tool does not return file paths, URIs, or file contents.
+  The successful outputs for contact matches, calendar busy/free windows,
+  foreground-app metadata, current-app notification summaries, recent file
+  metadata, recent OCR excerpts, and current-screen Accessibility snapshots
+  declare their local payload fields as private tool outputs so Skill public
+  outputs and trace redaction share the same local-only policy source.
 - Foreground app summaries may require Usage Access. Without the grant the tool
   returns a structured permission failure with the recovery settings action;
   successful reads remain `LocalOnly` minimal app metadata, not usage history
@@ -900,10 +905,13 @@ Current status:
   depend on raw private data.
 - The first local-only privacy boundary is implemented for shared input,
   clipboard-derived continuations, and remote chat history. Tool specs now
-  declare private output keys for clipboard text, recent OCR text, and
-  current-screen Accessibility text so Skill output fencing and trace redaction
-  share one policy source. Reminder rollback now has a visible Agent/UI
-  confirmation handoff, while broader taint propagation is still pending.
+  declare private output keys for clipboard text, contact matches, calendar
+  busy/free windows, foreground-app metadata, current-app notification
+  summaries, recent file metadata, recent OCR text/file metadata, and
+  current-screen Accessibility text/snapshot metadata so Skill output fencing
+  and trace redaction share one policy source. Reminder rollback now has a
+  visible Agent/UI confirmation handoff, while broader taint propagation is
+  still pending.
 
 Tests:
 
