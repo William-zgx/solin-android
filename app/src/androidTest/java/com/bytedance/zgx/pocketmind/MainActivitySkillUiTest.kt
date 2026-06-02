@@ -1,11 +1,17 @@
 package com.bytedance.zgx.pocketmind
 
 import android.content.Intent
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -49,15 +55,7 @@ class MainActivitySkillUiTest {
 
             composeRule.onNodeWithTag("top_background_tasks_button").performClick()
             composeRule.waitForTag("background_task_manager_title")
-            composeRule.waitForText("最近审计日志", substring = true)
-            composeRule.onNodeWithText("UserCancelled").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithText("ToolObserved").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithText("web_search", substring = true).performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithText("工具执行已取消。").performScrollTo().assertIsDisplayed()
-
-            composeRule.waitForText("最近 Agent 轨迹", substring = true)
-            composeRule.onNodeWithText("已取消").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithText("UserRejected", substring = true).performScrollTo().assertIsDisplayed()
+            composeRule.assertToolCancellationEvidence("web_search")
         }
     }
 
@@ -88,13 +86,7 @@ class MainActivitySkillUiTest {
 
             composeRule.onNodeWithTag("top_background_tasks_button").performClick()
             composeRule.waitForTag("background_task_manager_title")
-            composeRule.onNodeWithText("UserCancelled").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithText("read_clipboard", substring = true).performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithText("工具执行已取消。").performScrollTo().assertIsDisplayed()
-
-            composeRule.waitForText("最近 Agent 轨迹", substring = true)
-            composeRule.onNodeWithText("已取消").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithText("UserRejected", substring = true).performScrollTo().assertIsDisplayed()
+            composeRule.assertToolCancellationEvidence("read_clipboard")
         }
     }
 
@@ -129,14 +121,7 @@ class MainActivitySkillUiTest {
 
             composeRule.onNodeWithTag("top_background_tasks_button").performClick()
             composeRule.waitForTag("background_task_manager_title")
-            composeRule.onNodeWithText("UserCancelled").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithText("read_current_screen_text", substring = true).performScrollTo()
-                .assertIsDisplayed()
-            composeRule.onNodeWithText("工具执行已取消。").performScrollTo().assertIsDisplayed()
-
-            composeRule.waitForText("最近 Agent 轨迹", substring = true)
-            composeRule.onNodeWithText("已取消").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithText("UserRejected", substring = true).performScrollTo().assertIsDisplayed()
+            composeRule.assertToolCancellationEvidence("read_current_screen_text")
         }
     }
 
@@ -173,6 +158,50 @@ class MainActivitySkillUiTest {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
         }
     }
+
+    private fun ComposeTestRule.assertToolCancellationEvidence(toolName: String) {
+        waitForText("最近审计日志", substring = true)
+        assertTaggedRowDisplayed(
+            tagPrefix = "audit_event_",
+            matcher = hasAnyDescendant(hasText("UserCancelled")) and
+                hasAnyDescendant(hasText("$toolName · Cancelled", substring = true)) and
+                hasAnyDescendant(hasText("用户已取消工具执行。")),
+        )
+        assertTaggedRowDisplayed(
+            tagPrefix = "audit_event_",
+            matcher = hasAnyDescendant(hasText("ToolObserved")) and
+                hasAnyDescendant(hasText("$toolName · Cancelled", substring = true)) and
+                hasAnyDescendant(hasText("工具执行已取消。")),
+        )
+
+        waitForText("最近 Agent 轨迹", substring = true)
+        assertTaggedRowDisplayed(
+            tagPrefix = "agent_trace_run_",
+            matcher = hasAnyDescendant(hasText("已取消")) and
+                hasAnyDescendant(hasText("UserRejected", substring = true)) and
+                hasAnyDescendant(hasText("ToolObserved · Observed Cancelled", substring = true)),
+        )
+    }
+
+    private fun ComposeTestRule.assertTaggedRowDisplayed(
+        tagPrefix: String,
+        matcher: SemanticsMatcher,
+        timeoutMillis: Long = 5_000,
+    ) {
+        val rowMatcher = hasTestTagPrefix(tagPrefix) and matcher
+        waitUntil(timeoutMillis = timeoutMillis) {
+            onAllNodes(rowMatcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        onAllNodes(rowMatcher, useUnmergedTree = true)
+            .onFirst()
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
+
+    private fun hasTestTagPrefix(prefix: String): SemanticsMatcher =
+        SemanticsMatcher("has test tag prefix $prefix") { node ->
+            node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith(prefix) == true
+        }
 
     private fun ComposeTestRule.assertTextAbsent(text: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {

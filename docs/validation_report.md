@@ -1,5 +1,59 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Emulator regression artifact gate
+
+本轮覆盖项：
+
+- 新增 `scripts/regression_emulator.sh` 作为完整模拟器回归上层入口；默认写入
+  `build/verification/regression-emulator-*/regression-emulator.properties`。
+- 该入口强制 `CLEAN_DEVICE=1` 调用 `scripts/verify_emulator.sh`，再校验
+  `emulator-verification.properties` 与嵌套 `device-verification.properties`
+  均为 `status=passed`，且 device report 的 `instrumentation=passed`。
+- 自动扫描当前 `app/src/androidTest` 下的 `@Test` 数量并写入
+  `source_android_test_count`；当前源码基线为 23。`EXPECTED_ANDROID_TEST_COUNT`
+  只能上调不能下调，runner report 的 `instrumentation_test_count` 必须为数字且
+  不小于该基线，避免少跑测试却误记为完整回归。
+- device helper 现在把 instrumentation runner 输出持久化为 `instrumentation.txt`；
+  regression failed report 会在 nested emulator/device 失败时尽量回填 serial、
+  API、ABI、actual test count 和 instrumentation artifact，便于复盘真实失败。
+- `scripts/test_validation_scripts.sh` 新增 fake SDK 覆盖：成功路径按当前源码基线
+  动态生成、调用方 `CLEAN_DEVICE=0` 仍强制清机、低于源码基线失败、高于源码基线
+  expected count override、低于源码基线 override 前置失败、`@Test()` /
+  `@Test(timeout=...)` / `@org.junit.Test` 计数、非法 expected count 前置失败、
+  缺失 instrumentation count 失败、emulator helper preflight 失败时仍写
+  regression failed report，以及 nested device instrumentation 失败时 regression
+  report 回填证据。
+- `MainActivitySkillUiTest` 的后台任务断言改为同一 audit row / 同一 trace run 的
+  组合证据，避免多条历史/取消记录让 `onNodeWithText(..., substring=true)` 因
+  非唯一节点误失败，同时避免全局任意匹配掩盖真实错误。
+- README、真机验收、Agent core regression strategy、release checklist 和 release
+  readiness 同步改为优先引用 `regression-emulator.properties` 作为完整模拟器回归证据。
+
+验证命令：
+
+```bash
+bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/regression_emulator.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+./gradlew :app:compileDebugAndroidTestKotlin
+AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-snapshot-save -no-boot-anim' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：shell syntax 检查。
+- 通过：fake SDK validation script 回归。
+- 通过：Agent core documentation unit test。
+- 通过：AndroidTest Kotlin 编译。
+- 通过：真实模拟器 `focus_agent_api36_arm64` / `emulator-5554`，API 36，
+  ABI `arm64-v8a`，`CLEAN_DEVICE=1`。runner 报告 `OK (23 tests)`；
+  `build/verification/regression-emulator-20260602-112828/regression-emulator.properties`
+  记录 `status=passed`、`source_android_test_count=23`、
+  `expected_android_test_count=23`、
+  `actual_android_test_count=23`，并链接同目录的
+  `emulator-verification.properties`、`device-verification.properties` 和
+  `instrumentation.txt`。
+
 ## 2026-06-02 Screenshot OCR output schema boundary
 
 本轮覆盖项：

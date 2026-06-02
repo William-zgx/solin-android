@@ -12,6 +12,7 @@ ADB_BIN="${ANDROID_SDK}/platform-tools/adb"
 CLEAN_DEVICE="${CLEAN_DEVICE:-0}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/device-$(date +%Y%m%d-%H%M%S)}"
 VERIFICATION_REPORT_FILE="${VERIFICATION_REPORT_FILE:-${ARTIFACT_DIR}/device-verification.properties}"
+INSTRUMENTATION_OUTPUT_FILE="${INSTRUMENTATION_OUTPUT_FILE:-${ARTIFACT_DIR}/instrumentation.txt}"
 
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 SELECTED_SERIAL=""
@@ -48,6 +49,7 @@ write_verification_report() {
     echo "data_free_kb=${DATA_FREE_KB:-}"
     echo "instrumentation=$INSTRUMENTATION_STATUS"
     echo "instrumentation_test_count=${INSTRUMENTATION_TEST_COUNT:-}"
+    echo "instrumentation_output_file=$INSTRUMENTATION_OUTPUT_FILE"
     echo "debug_apk=$DEBUG_APK"
     echo "android_test_apk=$ANDROID_TEST_APK"
   } > "$VERIFICATION_REPORT_FILE"
@@ -134,6 +136,8 @@ set +e
 TEST_OUTPUT="$(run_device_tests 2>&1)"
 TEST_STATUS=$?
 set -e
+mkdir -p "$(dirname "$INSTRUMENTATION_OUTPUT_FILE")"
+printf '%s\n' "$TEST_OUTPUT" > "$INSTRUMENTATION_OUTPUT_FILE"
 printf '%s\n' "$TEST_OUTPUT"
 INSTRUMENTATION_TEST_COUNT="$(instrumentation_test_count_for "$TEST_OUTPUT")"
 if [[ "$TEST_STATUS" -eq 0 ]] && instrumentation_output_failed "$TEST_OUTPUT"; then

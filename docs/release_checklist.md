@@ -69,13 +69,15 @@ release ticket or PR.
 
 ## Device And Emulator Validation
 
-- [ ] `scripts/verify_emulator.sh` passes on a prepared arm64 AVD, or the
+- [ ] `scripts/regression_emulator.sh` passes on a prepared arm64 AVD, or the
   release record explains why emulator validation was not applicable.
 - [ ] `scripts/install_and_test_device.sh` passes on at least one physical
   arm64 device before a broad release candidate.
 - [ ] Validation record includes device serial or AVD name, API level, ABI,
   `CLEAN_DEVICE` value, executed command, instrumentation result, and
-  `instrumentation_test_count` from the verification report.
+  `instrumentation_test_count` from the verification report. Emulator release
+  records should link `regression-emulator.properties` plus the nested
+  emulator/device reports.
 - [ ] Manual acceptance in `docs/phone_acceptance.md` is sampled for model
   setup, remote-mode privacy, tool confirmation, permissions, background
   reminders, sharing, and multimodal entry points.

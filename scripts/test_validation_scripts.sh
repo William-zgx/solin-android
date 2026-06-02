@@ -104,6 +104,7 @@ case "${1:-}" in
     case "$*" in
       "avd name")
         echo "test-avd"
+        echo "OK"
         ;;
       *)
         echo "unexpected emulator command: $*" >&2
@@ -180,6 +181,11 @@ reset_logs() {
   mkdir -p "$ARTIFACT_DIR"
 }
 
+count_android_tests() {
+  find app/src/androidTest \( -name '*.kt' -o -name '*.java' \) -print0 |
+    xargs -0 awk '/^[[:space:]]*@(org[.]junit[.])?Test([[:space:](]|$)/ {count += 1} END {print count + 0}'
+}
+
 NO_ADB_SDK="$TMP_DIR/no-adb-sdk"
 NO_EMULATOR_SDK="$TMP_DIR/no-emulator-sdk"
 FAKE_SDK="$TMP_DIR/fake-sdk"
@@ -198,11 +204,23 @@ create_fake_emulator "$FAKE_SDK"
 create_fake_gradle "$FAKE_GRADLE"
 reset_logs
 
+SOURCE_ANDROID_TEST_COUNT="$(count_android_tests)"
+if [[ "$SOURCE_ANDROID_TEST_COUNT" -le 1 ]]; then
+  fail "Expected more than one AndroidTest source method for regression count tests"
+fi
+LOW_ANDROID_TEST_COUNT=$((SOURCE_ANDROID_TEST_COUNT - 1))
+HIGH_ANDROID_TEST_COUNT=$((SOURCE_ANDROID_TEST_COUNT + 1))
+SOURCE_INSTRUMENTATION_OUTPUT="$(printf 'INSTRUMENTATION_STATUS: numtests=%s\nOK (%s tests)' "$SOURCE_ANDROID_TEST_COUNT" "$SOURCE_ANDROID_TEST_COUNT")"
+LOW_INSTRUMENTATION_OUTPUT="$(printf 'INSTRUMENTATION_STATUS: numtests=%s\nOK (%s tests)' "$LOW_ANDROID_TEST_COUNT" "$LOW_ANDROID_TEST_COUNT")"
+HIGH_INSTRUMENTATION_OUTPUT="$(printf 'INSTRUMENTATION_STATUS: numtests=%s\nOK (%s tests)' "$HIGH_ANDROID_TEST_COUNT" "$HIGH_ANDROID_TEST_COUNT")"
+
 ksp_line="$(grep -n 'GRADLE_CMD.*:app:kspReleaseKotlin' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
 verify_line="$(grep -n 'GRADLE_CMD.*testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
 if [[ -z "$ksp_line" || -z "$verify_line" || "$ksp_line" -ge "$verify_line" ]]; then
   fail "verify_local.sh must generate release KSP sources before lintDebug"
 fi
+grep -q 'scripts/regression_emulator.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include regression_emulator.sh in shell syntax checks"
 
 expect_success \
   "doctor local without adb" \
@@ -295,6 +313,9 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "api_level
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "abi=arm64-v8a,armeabi-v7a"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=passed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=20"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
+grep -q "OK (20 tests)" "$ARTIFACT_DIR/instrumentation.txt" ||
+  fail "Expected install helper to persist instrumentation output"
 grep -q -- "-s device-a shell getprop ro.product.cpu.abilist64" "$FAKE_ADB_LOG" ||
   fail "Expected adb device commands to target the only authorized device"
 
@@ -322,6 +343,8 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=fa
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "serial=device-a"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=failed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=3"
+grep -q "FAILURES!!!" "$ARTIFACT_DIR/instrumentation.txt" ||
+  fail "Expected failed instrumentation output to be persisted"
 
 reset_logs
 expect_failure \
@@ -377,6 +400,7 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=pa
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "serial=emulator-5554"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=passed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=20"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
 grep -q -- "-s emulator-5554 shell getprop sys.boot_completed" "$FAKE_ADB_LOG" ||
   fail "Expected emulator helper to wait for emulator boot completion"
 grep -q -- "-s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk" "$FAKE_ADB_LOG" ||
@@ -391,5 +415,170 @@ expect_success \
 assert_gradle_called
 grep -q "Starting emulator AVD: test-avd" <<<"$LAST_OUTPUT" ||
   fail "Expected emulator helper to enter AVD startup path"
+
+reset_logs
+SAVED_ARTIFACT_DIR="$ARTIFACT_DIR"
+expect_success \
+  "emulator helper keeps default device artifacts with emulator artifacts" \
+  env -u ARTIFACT_DIR ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' GRADLE_CMD="$FAKE_GRADLE" \
+  scripts/verify_emulator.sh
+EMULATOR_DEFAULT_REPORT="$(sed -nE 's/^Emulator verification report: (.*)$/\1/p' <<<"$LAST_OUTPUT" | tail -n 1)"
+[[ -n "$EMULATOR_DEFAULT_REPORT" && -f "$EMULATOR_DEFAULT_REPORT" ]] ||
+  fail "Expected emulator helper to print its default report path"
+DEFAULT_DEVICE_REPORT="$(awk -F= '$1 == "device_report_file" {print $2}' "$EMULATOR_DEFAULT_REPORT")"
+[[ -n "$DEFAULT_DEVICE_REPORT" && -f "$DEFAULT_DEVICE_REPORT" ]] ||
+  fail "Expected default emulator report to link an existing nested device report"
+DEFAULT_INSTRUMENTATION_OUTPUT="$(awk -F= '$1 == "instrumentation_output_file" {print $2}' "$DEFAULT_DEVICE_REPORT")"
+[[ "$DEFAULT_INSTRUMENTATION_OUTPUT" == "$(dirname "$DEFAULT_DEVICE_REPORT")/instrumentation.txt" ]] ||
+  fail "Expected default nested instrumentation output to live beside the device report"
+[[ -s "$DEFAULT_INSTRUMENTATION_OUTPUT" ]] ||
+  fail "Expected default nested instrumentation output to be non-empty"
+ARTIFACT_DIR="$SAVED_ARTIFACT_DIR"
+export ARTIFACT_DIR
+
+REGRESSION_COUNT_FIXTURE="$TMP_DIR/android-test-count-fixture"
+mkdir -p "$REGRESSION_COUNT_FIXTURE/java/example"
+cat > "$REGRESSION_COUNT_FIXTURE/java/example/FixtureTest.kt" <<'COUNT_FIXTURE'
+package example
+
+class FixtureTest {
+    @Test
+    fun bareAnnotation() = Unit
+
+    @Test()
+    fun emptyArguments() = Unit
+
+    @Test(timeout = 1)
+    fun annotationArguments() = Unit
+
+    @org.junit.Test
+    fun fullyQualifiedAnnotation() = Unit
+}
+COUNT_FIXTURE
+
+reset_logs
+expect_success \
+  "regression emulator validates reports and forces clean device" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' \
+  FAKE_INSTRUMENTATION_OUTPUT="$SOURCE_INSTRUMENTATION_OUTPUT" \
+  CLEAN_DEVICE=0 GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
+assert_gradle_called
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "target=regression-emulator"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "clean_device=1"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "source_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "expected_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "actual_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
+assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "clean_device=1"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "clean_device=1"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
+grep -q -- "-s emulator-5554 uninstall com.bytedance.zgx.pocketmind" "$FAKE_ADB_LOG" ||
+  fail "Expected regression emulator to force CLEAN_DEVICE=1 through device helper"
+
+reset_logs
+expect_failure \
+  "regression emulator fails when instrumentation count is below source count" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' \
+  FAKE_INSTRUMENTATION_OUTPUT="$LOW_INSTRUMENTATION_OUTPUT" GRADLE_CMD="$FAKE_GRADLE" \
+  scripts/regression_emulator.sh
+assert_gradle_called
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "expected_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "actual_android_test_count=$LOW_ANDROID_TEST_COUNT"
+grep -q "expected at least $SOURCE_ANDROID_TEST_COUNT" <<<"$LAST_OUTPUT" ||
+  fail "Expected regression emulator to explain insufficient instrumentation count"
+
+reset_logs
+expect_success \
+  "regression emulator honors higher expected count override" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' \
+  FAKE_INSTRUMENTATION_OUTPUT="$HIGH_INSTRUMENTATION_OUTPUT" EXPECTED_ANDROID_TEST_COUNT="$HIGH_ANDROID_TEST_COUNT" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
+assert_gradle_called
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "source_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "expected_android_test_count=$HIGH_ANDROID_TEST_COUNT"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "actual_android_test_count=$HIGH_ANDROID_TEST_COUNT"
+
+reset_logs
+expect_failure \
+  "regression emulator rejects expected count override below source count before Gradle" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' EXPECTED_ANDROID_TEST_COUNT="$LOW_ANDROID_TEST_COUNT" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "source_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "expected_android_test_count=$LOW_ANDROID_TEST_COUNT"
+grep -q "cannot be lower than AndroidTest source count" <<<"$LAST_OUTPUT" ||
+  fail "Expected regression emulator to reject lowered expected count override"
+
+reset_logs
+expect_success \
+  "regression emulator counts supported JUnit test annotations" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  ANDROID_TEST_SOURCE_DIR="$REGRESSION_COUNT_FIXTURE" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' \
+  FAKE_INSTRUMENTATION_OUTPUT=$'INSTRUMENTATION_STATUS: numtests=4\nOK (4 tests)' \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
+assert_gradle_called
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "expected_android_test_count=4"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "actual_android_test_count=4"
+
+reset_logs
+expect_failure \
+  "regression emulator rejects invalid expected count before Gradle" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' EXPECTED_ANDROID_TEST_COUNT=abc \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "expected_android_test_count=abc"
+
+reset_logs
+expect_failure \
+  "regression emulator fails when instrumentation count is missing" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' FAKE_INSTRUMENTATION_OUTPUT="OK" \
+  EXPECTED_ANDROID_TEST_COUNT="$SOURCE_ANDROID_TEST_COUNT" GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
+assert_gradle_called
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "expected_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "actual_android_test_count="
+grep -q "instrumentation_test_count" <<<"$LAST_OUTPUT" ||
+  fail "Expected regression emulator to explain missing instrumentation count"
+
+reset_logs
+expect_failure \
+  "regression emulator writes failed report when emulator helper fails preflight" \
+  env ANDROID_SDK_ROOT="$NO_EMULATOR_SDK" ANDROID_HOME="$NO_EMULATOR_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' EXPECTED_ANDROID_TEST_COUNT="$SOURCE_ANDROID_TEST_COUNT" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "target=regression-emulator"
+
+reset_logs
+expect_failure \
+  "regression emulator failed report harvests nested device evidence" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'emulator-5554\tdevice' \
+  FAKE_INSTRUMENTATION_OUTPUT=$'INSTRUMENTATION_STATUS: numtests=3\nFAILURES!!!\nTests run: 3,  Failures: 1\nINSTRUMENTATION_CODE: -1' \
+  EXPECTED_ANDROID_TEST_COUNT="$SOURCE_ANDROID_TEST_COUNT" GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
+assert_gradle_called
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "serial=emulator-5554"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "api_level=36"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "abi=arm64-v8a,armeabi-v7a"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "actual_android_test_count=3"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
+grep -q "FAILURES!!!" "$ARTIFACT_DIR/instrumentation.txt" ||
+  fail "Expected regression failed report to link persisted instrumentation failure output"
 
 echo "Validation script tests passed."

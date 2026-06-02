@@ -423,6 +423,15 @@ instrumentation flow:
 AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 ```
 
+For release-candidate style emulator regression, use the stricter artifact
+gate. It forces `CLEAN_DEVICE=1`, runs the emulator helper, verifies both
+machine-readable reports, and fails if the runner reports fewer AndroidTest
+cases than the current `app/src/androidTest` source count:
+
+```bash
+AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
+```
+
 When more than one authorized device is connected, select the target explicitly:
 
 ```bash
@@ -490,6 +499,7 @@ scripts/
   doctor.sh                 Local Android/JDK environment checker
   verify_local.sh           Local build/test helper
   verify_emulator.sh        Emulator-only install and smoke-test helper
+  regression_emulator.sh    Emulator regression artifact gate
   install_and_test_device.sh Device install and smoke-test helper
   test_validation_scripts.sh Shell preflight regression tests
 ```

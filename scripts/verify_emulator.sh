@@ -97,6 +97,12 @@ authorized_emulators() {
   "$ADB_BIN" devices | awk 'NR > 1 && $1 ~ /^emulator-[0-9]+$/ && $2 == "device" {print $1}'
 }
 
+emulator_avd_name() {
+  "${ADB[@]}" emu avd name 2>/dev/null |
+    tr -d '\r' |
+    awk 'NF && $0 != "OK" {value = $0} END {print value}'
+}
+
 select_emulator_once() {
   if [[ -n "${ANDROID_SERIAL:-}" ]]; then
     local selected_state
@@ -168,7 +174,7 @@ wait_for_boot_completed
 ADB=("$ADB_BIN" -s "$SELECTED_SERIAL")
 API_LEVEL="$("${ADB[@]}" shell getprop ro.build.version.sdk | tr -d '\r')"
 ABI_LIST="$("${ADB[@]}" shell getprop ro.product.cpu.abilist64 | tr -d '\r')"
-AVD_LABEL="$("${ADB[@]}" emu avd name 2>/dev/null | tail -n 1 | tr -d '\r' || true)"
+AVD_LABEL="$(emulator_avd_name || true)"
 
 echo "Using Android emulator: $SELECTED_SERIAL"
 echo "API: ${API_LEVEL:-unknown}"
@@ -179,7 +185,9 @@ echo "CLEAN_DEVICE: ${CLEAN_DEVICE:-0}"
 ANDROID_SERIAL="$SELECTED_SERIAL" \
   CLEAN_DEVICE="${CLEAN_DEVICE:-0}" \
   GRADLE_CMD="$GRADLE_CMD" \
+  ARTIFACT_DIR="$ARTIFACT_DIR" \
   VERIFICATION_REPORT_FILE="$DEVICE_REPORT_FILE" \
+  INSTRUMENTATION_OUTPUT_FILE="${ARTIFACT_DIR}/instrumentation.txt" \
   scripts/install_and_test_device.sh
 
 echo "Emulator verification passed."

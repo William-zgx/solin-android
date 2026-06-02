@@ -80,6 +80,14 @@ ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh
 AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 ```
 
+完整模拟器回归优先使用更严格的 artifact gate；它会强制 `CLEAN_DEVICE=1`，
+复用 emulator helper，并校验 `emulator-verification.properties`、
+嵌套 `device-verification.properties` 和当前 AndroidTest 源码数量：
+
+```bash
+AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
+```
+
 `verify_emulator.sh` 只接受 `emulator-*` 目标；未指定 `ANDROID_SERIAL` 时要求恰好一台已授权模拟器。如果只有真机或同时存在多台模拟器，脚本会在 Gradle 构建、安装和 instrumentation 前退出。
 `AVD_NAME` 不存在时会列出可用 AVD 并在 Gradle 前退出。失败时会在
 `build/verification/` 下尽量保存截图、UI dump、短 logcat 和 emulator 日志路径。
@@ -90,7 +98,8 @@ AVD_NAME=focus_agent_api36_arm64 scripts/verify_emulator.sh
 `build/verification/` 下写入机器可读证据：真机 helper 产出
 `device-verification.properties`；模拟器 helper 产出
 `emulator-verification.properties`，并把复用的 device helper 摘要写入同目录的
-`device-verification.properties`。验收记录必须引用这些 artifact；没有对应
+`device-verification.properties`；完整模拟器回归还会产出
+`regression-emulator.properties`。验收记录必须引用这些 artifact；没有对应
 `status=passed` 摘要时，不应把设备或模拟器回归写成已执行通过。
 
 ## 手动模型验收

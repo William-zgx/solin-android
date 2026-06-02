@@ -1439,6 +1439,7 @@ Emulator regression:
 ```bash
 adb devices -l
 ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh
+AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 ```
 
 Use `AVD_NAME=<name> scripts/verify_emulator.sh` when the helper should launch
@@ -1455,8 +1456,12 @@ instrumentation test count. Direct device reports record that count as
 `instrumentation_test_count`. The helpers also write machine-readable evidence
 under `build/verification/`: `device-verification.properties` for direct device
 runs, and `emulator-verification.properties` plus a nested device report for
-emulator runs. Treat those reports as the artifact-of-record for whether a
-device or emulator regression actually executed.
+emulator runs. `scripts/regression_emulator.sh` is the stricter full emulator
+gate: it forces `CLEAN_DEVICE=1`, validates the nested reports, checks that
+`instrumentation_test_count` is at least the current AndroidTest source count,
+and writes `regression-emulator.properties`. Treat those reports as the
+artifact-of-record for whether a device or emulator regression actually
+executed.
 
 Full device validation remains required for LiteRT-LM model execution because
 emulators usually do not expose the same GPU backend behavior as physical
