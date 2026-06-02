@@ -1,5 +1,38 @@
 # PocketMind 验证报告
 
+## 2026-06-02 External outcome continuation cursor
+
+本轮覆盖项：
+
+- Launch-only 外部 Activity 进入 `AwaitingExternalOutcome` 时，如果当前 run 已有无参数、
+  非 model-planned、单工具 continuation cursor，会额外写入 redacted
+  `ContinuationCursorRecorded` trace step；不恢复 raw `nextActionInput` 或完整 run input。
+- App 重启后，用户在恢复的 external outcome sheet 中选择 `Completed`，Agent loop 可以从
+  trace 恢复该 cursor，并在预算、Tool Registry、SafetyPolicy、trace/audit 边界全部重跑后
+  进入下一张用户确认卡。
+- `NotCompleted` / `OpenedOnly` 不继续规划；payload-bearing tail 没有 cursor 时继续
+  fail closed。
+- Store 边界新增 fail-closed 校验：带 request/draft payload 的 cursor 不落库；被污染的
+  nested SkillPlan raw input cursor 在恢复时删除 pending 并 fail run。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredExternalOutcomeUsesContinuationCursorForNoPayloadTailAfterCompletion \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.restoredExternalOutcomeDoesNotContinuePayloadTailWithoutContinuationCursor \
+  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoredPendingExternalOutcomeCompletedCanShowNextPendingConfirmation \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreRestoresContinuationCursorFromTraceAfterPendingConfirmationClears \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreDoesNotPersistContinuationCursorWithExecutablePayload \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreFailsClosedWhenContinuationCursorSkillPlanContainsRawInput
+```
+
+结果：
+
+- 通过：external outcome 跨重启 no-payload cursor happy path、payload tail fail-closed、
+  UI 下一步确认卡切换、trace cursor 恢复、payload cursor 不落库、污染 SkillPlan
+  cursor fail-closed。
+
 ## 2026-06-02 Structured sequence continuation cursor
 
 本轮覆盖项：
@@ -11,8 +44,9 @@
   redacted cursor。
 - 恢复 pending confirmation 后，用户重新确认当前工具并观察成功时，Agent loop 可以用
   cursor 规划下一张确认卡；规划仍重跑预算、Tool Registry、SafetyPolicy、trace/audit。
-- payload-bearing tail 不生成 cursor；composite Skill tail、model-planned tail、外部
-  outcome 已打开后的跨重启 continuation 仍保持未恢复，等待更完整 value-free cursor。
+- payload-bearing tail 不生成 cursor；composite Skill tail、model-planned tail 仍保持
+  未恢复，等待更完整 value-free cursor。外部 outcome 已打开后的 no-payload cursor
+  恢复由后续条目覆盖。
 
 验证命令：
 

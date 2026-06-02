@@ -446,8 +446,12 @@ Current status:
   reconfirms the restored pending tool and its observation succeeds, the Agent
   loop revalidates that cursor through the normal budget, Tool Registry,
   SafetyPolicy, trace, audit, and user-confirmation boundary before planning
-  the next tool. Payload-bearing, model-planned, and composite Skill tails
-  remain fail-closed across restart until a richer value-free cursor is added.
+  the next tool. If that observation only opened an external Activity and the
+  target-side outcome is still unverified, the same value-free cursor is
+  recorded as a redacted `ContinuationCursorRecorded` trace step so a later
+  restart can continue only after the user records `Completed`. Payload-bearing,
+  model-planned, and composite Skill tails remain fail-closed across restart
+  until a richer value-free cursor is added.
 - Full-input Skill-first planning still rejects sequential commands so a Skill
   cannot swallow later user intent. Per-segment fallback may start a composite
   Skill for that segment only, while a bare private-read segment such as "read
@@ -498,6 +502,12 @@ Tests:
 - `AgentLoopRuntimeTest.roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears`
 - `AgentLoopRuntimeTest.restoredSequentialPendingUsesContinuationCursorForNoPayloadTailAfterObservation`
 - `AgentLoopRuntimeTest.payloadSequentialTailDoesNotPersistContinuationCursor`
+- `AgentLoopRuntimeTest.restoredExternalOutcomeUsesContinuationCursorForNoPayloadTailAfterCompletion`
+- `AgentLoopRuntimeTest.restoredExternalOutcomeDoesNotContinuePayloadTailWithoutContinuationCursor`
+- `PocketMindViewModelTest.restoredPendingExternalOutcomeCompletedCanShowNextPendingConfirmation`
+- `AgentTraceStoreTest.roomStoreRestoresContinuationCursorFromTraceAfterPendingConfirmationClears`
+- `AgentTraceStoreTest.roomStoreDoesNotPersistContinuationCursorWithExecutablePayload`
+- `AgentTraceStoreTest.roomStoreFailsClosedWhenContinuationCursorSkillPlanContainsRawInput`
 - `AgentLoopRuntimeTest.modelObservationReplannerPlansNextToolAfterVerifiedObservation`
 - `AgentLoopRuntimeTest.modelObservationReplannerDoesNotExposePrivateObservationValuesInPrompt`
 - `AgentLoopRuntimeTest.modelObservationReplannerIgnoresRuleFallbackDraft`
@@ -933,6 +943,11 @@ Current status:
   session. The restore path does not replay the tool, does not restore raw
   arguments or payloads, and refuses to restore once an
   `ExternalOutcomeConfirmed` step exists.
+- For no-payload sequential tails, a launch-only external result can also
+  restore a redacted `ContinuationCursorRecorded` trace cursor. After restart,
+  only a user-recorded `Completed` outcome can revalidate that cursor and move
+  to the next pending confirmation; `NotCompleted` and `OpenedOnly` complete
+  without planning another tool.
 - Special-app-access flow is modeled for both Usage Access
   (`query_foreground_app`) and Accessibility screen text
   (`read_current_screen_text`): the confirmation UI warns with a

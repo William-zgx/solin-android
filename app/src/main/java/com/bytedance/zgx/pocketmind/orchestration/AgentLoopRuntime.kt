@@ -575,6 +575,7 @@ class AgentLoopRuntime(
         val retryAttempt = if (budgetExceeded) 0 else nextRetryAttempt(runId, observedResult)
         val retryRequest = if (retryAttempt > 0) request else null
         traceStore.appendStep(runId, AgentStep.ToolObserved(observedResult))
+        recordContinuationCursorForUnverifiedExternalLaunch(run, request, observedResult)
         auditSink.record(
             ToolAuditEvent(
                 runId = runId,
@@ -777,6 +778,23 @@ class AgentLoopRuntime(
             fallbackReason = cursor.fallbackReason,
             skillPlan = cursor.skillPlan,
         )
+    }
+
+    private fun recordContinuationCursorForUnverifiedExternalLaunch(
+        run: AgentRun,
+        request: ToolRequest,
+        result: ToolResult,
+    ) {
+        if (!result.isUnverifiedExternalLaunch()) return
+        val cursor = traceStore.continuationCursor(run.id) ?: return
+        if (cursor.sourceRequestId != request.id) return
+        if (cursor.completedSegmentCount != plannedSequentialSegmentCount(run.id)) return
+        val alreadyRecorded = traceStore.steps(run.id).any { step ->
+            step is AgentStep.ContinuationCursorRecorded &&
+                step.cursor.sourceRequestId == cursor.sourceRequestId
+        }
+        if (alreadyRecorded) return
+        traceStore.appendStep(run.id, AgentStep.ContinuationCursorRecorded(cursor))
     }
 
     private fun canPlanNextToolAfterObservation(
@@ -1820,6 +1838,21 @@ class AgentLoopRuntime(
                 else -> Unit
             }
         }
+        pendingSkillSegmentKey = null
+        traceStore.stepSummaries(runId).forEach { step ->
+            when (step.type) {
+                "SkillPlanned" -> {
+                    pendingSkillSegmentKey = step.skillRequestIdFromJson()?.let { requestId -> "skill:$requestId" }
+                }
+
+                "ToolRequested" -> {
+                    step.requestIdFromJson()?.let { requestId ->
+                        segmentKeys += pendingSkillSegmentKey ?: "tool:$requestId"
+                    }
+                    pendingSkillSegmentKey = null
+                }
+            }
+        }
         return segmentKeys.size
     }
 
@@ -1921,6 +1954,9 @@ class AgentLoopRuntime(
 
     private fun AgentTraceStepSummary.requestIdFromJson(): String? =
         jsonObjectOrNull()?.optString("requestId")?.takeIf { it.isNotBlank() }
+
+    private fun AgentTraceStepSummary.skillRequestIdFromJson(): String? =
+        jsonObjectOrNull()?.optString("skillRequestId")?.takeIf { it.isNotBlank() }
 
     private fun AgentTraceStepSummary.jsonObjectOrNull(): JSONObject? =
         runCatching { JSONObject(json) }.getOrNull()

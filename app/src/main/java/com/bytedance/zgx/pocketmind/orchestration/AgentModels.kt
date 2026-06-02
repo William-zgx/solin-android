@@ -113,6 +113,10 @@ sealed class AgentStep {
         val result: ToolResult,
     ) : AgentStep()
 
+    data class ContinuationCursorRecorded(
+        val cursor: AgentContinuationCursor,
+    ) : AgentStep()
+
     data class ToolRetryScheduled(
         val request: ToolRequest,
         val attempt: Int,

@@ -962,6 +962,203 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreRestoresContinuationCursorFromTraceAfterPendingConfirmationClears() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-trace-continuation-cursor" },
+        )
+        val rawInput = "打开 Wi-Fi 设置，然后打开手电筒设置"
+        val sourceRequest = ToolRequest(
+            id = "request-open-wifi",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = "Open Wi-Fi settings",
+        )
+        val sourceDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "将打开系统 Wi-Fi 设置页。",
+            parameters = emptyMap(),
+        )
+        val cursorRequest = ToolRequest(
+            id = "request-open-flashlight",
+            toolName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            reason = "Open flashlight settings",
+        )
+        val cursorDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            title = "打开手电筒设置",
+            summary = "将打开手电筒设置页。",
+            parameters = emptyMap(),
+        )
+        val cursor = AgentContinuationCursor(
+            sourceRequestId = sourceRequest.id,
+            completedSegmentCount = 1,
+            request = cursorRequest,
+            draft = cursorDraft,
+            plannedByModel = false,
+            fallbackReason = "test cursor",
+        )
+        val waitingRun = store.updateState(
+            store.createRun(rawInput).id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+        store.appendStep(waitingRun.id, AgentStep.ToolRequested(sourceRequest, sourceDraft))
+        store.appendStep(waitingRun.id, AgentStep.UserConfirmationRequested(sourceRequest, sourceDraft))
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = sourceRequest,
+                draft = sourceDraft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = "test source",
+                continuationCursor = cursor,
+            ),
+        )
+
+        assertEquals(cursorRequest.toolName, store.continuationCursor(waitingRun.id)?.request?.toolName)
+        assertTrue(store.clearPendingConfirmation(waitingRun.id, sourceRequest.id))
+        store.appendStep(waitingRun.id, AgentStep.ContinuationCursorRecorded(cursor))
+        val persistedCursorStep = dao.steps(waitingRun.id).last { step ->
+            step.type == "ContinuationCursorRecorded"
+        }
+        assertFalse(persistedCursorStep.json.contains(rawInput))
+        assertFalse(persistedCursorStep.json.contains("然后"))
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+        val restoredCursor = restartedStore.continuationCursor(waitingRun.id)
+
+        requireNotNull(restoredCursor)
+        assertEquals(sourceRequest.id, restoredCursor.sourceRequestId)
+        assertEquals(cursorRequest.id, restoredCursor.request.id)
+        assertEquals(cursorRequest.toolName, restoredCursor.request.toolName)
+        assertEquals(emptyMap<String, String>(), restoredCursor.request.arguments)
+    }
+
+    @Test
+    fun roomStoreDoesNotPersistContinuationCursorWithExecutablePayload() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-payload-cursor" },
+        )
+        val secretQuery = "private payload query"
+        val sourceRequest = ToolRequest(
+            id = "request-open-wifi",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = "Open Wi-Fi settings",
+        )
+        val sourceDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "将打开系统 Wi-Fi 设置页。",
+            parameters = emptyMap(),
+        )
+        val payloadRequest = ToolRequest(
+            id = "request-search",
+            toolName = MobileActionFunctions.WEB_SEARCH,
+            arguments = mapOf("query" to secretQuery),
+            reason = "Search private payload query",
+        )
+        val payloadDraft = ActionDraft(
+            functionName = MobileActionFunctions.WEB_SEARCH,
+            title = "Web 搜索",
+            summary = "Search private payload query",
+            parameters = payloadRequest.arguments,
+        )
+        val waitingRun = store.updateState(
+            store.createRun("打开 Wi-Fi 设置，然后搜索 private payload query").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = sourceRequest,
+                draft = sourceDraft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = "test source",
+                continuationCursor = AgentContinuationCursor(
+                    sourceRequestId = sourceRequest.id,
+                    completedSegmentCount = 1,
+                    request = payloadRequest,
+                    draft = payloadDraft,
+                    plannedByModel = false,
+                    fallbackReason = "payload cursor",
+                ),
+            ),
+        )
+
+        val persisted = dao.latestPendingConfirmation()
+        requireNotNull(persisted)
+        assertNull(persisted.continuationCursorJson)
+        assertFalse(persisted.argumentsJson.contains(secretQuery))
+        assertFalse(persisted.draftParametersJson.contains(secretQuery))
+    }
+
+    @Test
+    fun roomStoreFailsClosedWhenContinuationCursorSkillPlanContainsRawInput() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-raw-cursor-skill-plan" },
+        )
+        val sourceRequest = ToolRequest(
+            id = "request-open-wifi",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = "Open Wi-Fi settings",
+        )
+        val sourceDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "将打开系统 Wi-Fi 设置页。",
+            parameters = emptyMap(),
+        )
+        val rawSkillInput = "打开手电筒设置"
+        val skillPlan = requireNotNull(BuiltInSkillRuntime().plan(rawSkillInput))
+        val toolStep = requireNotNull(skillPlan.steps.singleOrNull() as? SkillStep.ToolStep)
+        val waitingRun = store.updateState(
+            store.createRun("打开 Wi-Fi 设置，然后打开手电筒设置").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = sourceRequest,
+                draft = sourceDraft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = "test source",
+                continuationCursor = AgentContinuationCursor(
+                    sourceRequestId = sourceRequest.id,
+                    completedSegmentCount = 1,
+                    request = toolStep.request,
+                    draft = toolStep.draft,
+                    plannedByModel = false,
+                    fallbackReason = "skill cursor",
+                    skillPlan = skillPlan,
+                ),
+            ),
+        )
+        val persisted = requireNotNull(dao.latestPendingConfirmation())
+        val safeCursorJson = requireNotNull(persisted.continuationCursorJson)
+        assertTrue(safeCursorJson.contains("[redacted]"))
+        dao.upsertPendingConfirmation(
+            persisted.copy(
+                continuationCursorJson = safeCursorJson.replace("[redacted]", rawSkillInput),
+            ),
+        )
+
+        val restartedStore = RoomAgentTraceStore(traceDao = dao)
+
+        assertNull(restartedStore.latestPendingConfirmation())
+        assertEquals(AgentRunState.Failed, restartedStore.run(waitingRun.id)?.state)
+        assertTrue(dao.pendingConfirmations().isEmpty())
+    }
+
+    @Test
     fun roomStoreRestoresPendingSkillPlanForContinuation() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(

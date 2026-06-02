@@ -203,8 +203,14 @@ class InMemoryAgentTraceStore(
     override fun nextActionInput(runId: String): String? =
         pendingConfirmations[runId]?.nextActionInput
 
-    override fun continuationCursor(runId: String): AgentContinuationCursor? =
-        continuationCursors[runId]
+    override fun continuationCursor(runId: String): AgentContinuationCursor? {
+        val run = runs[runId] ?: return null
+        if (run.state.isTerminal()) {
+            continuationCursors.remove(runId)
+            return null
+        }
+        return continuationCursors[runId]
+    }
 
     override fun failStaleInFlightRuns(reason: String): Int {
         val staleRuns = runs.values
@@ -389,8 +395,16 @@ class RoomAgentTraceStore(
     override fun nextActionInput(runId: String): String? =
         liveNextActionInputs[runId]
 
-    override fun continuationCursor(runId: String): AgentContinuationCursor? =
-        liveContinuationCursors[runId]
+    override fun continuationCursor(runId: String): AgentContinuationCursor? {
+        val run = run(runId) ?: return null
+        if (run.state.isTerminal()) {
+            liveContinuationCursors.remove(runId)
+            return null
+        }
+        liveContinuationCursors[runId]?.let { cursor -> return cursor }
+        return restoredContinuationCursor(runId)
+            ?.also { cursor -> liveContinuationCursors[runId] = cursor }
+    }
 
     override fun failStaleInFlightRuns(reason: String): Int {
         val pendingRepair = repairPendingConfirmations()
@@ -421,6 +435,7 @@ class RoomAgentTraceStore(
             liveSteps.remove(runId)
             livePendingConfirmations.remove(runId)
             liveNextActionInputs.remove(runId)
+            liveContinuationCursors.remove(runId)
         }
         return deletedCount
     }
@@ -458,11 +473,30 @@ class RoomAgentTraceStore(
                     null -> null
                     else -> {
                         livePendingConfirmations.remove(snapshot.run.id)
+                        liveNextActionInputs.remove(snapshot.run.id)
                         liveContinuationCursors.remove(snapshot.run.id)
                         null
                     }
                 }
             }
+
+    private fun restoredContinuationCursor(runId: String): AgentContinuationCursor? {
+        val requestedIds = stepSummaries(runId)
+            .asSequence()
+            .filter { step -> step.type == "ToolRequested" }
+            .mapNotNull { step -> step.requestIdFromJson() }
+            .toSet()
+        if (requestedIds.isEmpty()) return null
+        return stepSummaries(runId)
+            .asReversed()
+            .asSequence()
+            .filter { step -> step.type == "ContinuationCursorRecorded" }
+            .mapNotNull { step -> step.restoredContinuationCursorOrNull() }
+            .firstOrNull { cursor ->
+                cursor.sourceRequestId in requestedIds &&
+                    cursor.isRestorableForSourceRequest(cursor.sourceRequestId, toolRegistry)
+            }
+    }
 
     private fun restorablePendingSnapshotOrFailRun(
         entity: PendingAgentConfirmationEntity,
@@ -705,7 +739,7 @@ private fun PendingToolConfirmationSnapshot.toEntity(
         fallbackReason = fallbackReason,
         nextActionInput = null,
         continuationCursorJson = continuationCursor
-            ?.redactedForPendingPersistence()
+            ?.persistableForPendingPersistence(sourceRequestId = request.id, toolRegistry = toolRegistry)
             ?.toJsonObject()
             ?.toString(),
         createdAtMillis = now,
@@ -767,18 +801,56 @@ private fun PendingToolConfirmationSnapshot.hasRestorableContinuationCursor(
     toolRegistry: ToolRegistry,
 ): Boolean {
     val cursor = continuationCursor ?: return true
-    if (cursor.sourceRequestId != request.id) return false
-    if (cursor.completedSegmentCount < 0) return false
-    if (cursor.plannedByModel) return false
-    if (cursor.request.toolName != cursor.draft.functionName) return false
-    if (cursor.request.arguments.isNotEmpty()) return false
-    if (cursor.draft.parameters.isNotEmpty()) return false
-    if (cursor.request.arguments.hasRedactedValue()) return false
-    if (cursor.draft.parameters.hasRedactedValue()) return false
-    if (toolRegistry.validate(cursor.request) != null) return false
-    val skillPlan = cursor.skillPlan ?: return true
-    if (!skillPlan.isSingleToolStepPlanFor(cursor.request)) return false
+    return cursor.isRestorableForSourceRequest(request.id, toolRegistry)
+}
+
+private fun AgentContinuationCursor.isRestorableForSourceRequest(
+    sourceRequestId: String,
+    toolRegistry: ToolRegistry,
+): Boolean {
+    if (!hasValueFreeCursorPersistenceShape(sourceRequestId)) return false
+    if (toolRegistry.validate(request) != null) return false
+    val skillPlan = skillPlan ?: return true
+    if (!skillPlan.isSingleToolStepPlanFor(request)) return false
     return skillPlan.validateStructure().isValid
+}
+
+private fun AgentContinuationCursor.persistableForPendingPersistence(
+    sourceRequestId: String,
+    toolRegistry: ToolRegistry,
+): AgentContinuationCursor? =
+    redactedForPendingPersistence()
+        .takeIf { cursor -> cursor.isRestorableForSourceRequest(sourceRequestId, toolRegistry) }
+
+private fun AgentContinuationCursor.persistableForTracePersistence(): AgentContinuationCursor? =
+    redactedForPendingPersistence()
+        .takeIf { cursor -> cursor.hasValueFreeCursorPersistenceShape(cursor.sourceRequestId) }
+
+private fun AgentContinuationCursor.hasValueFreeCursorPersistenceShape(sourceRequestId: String): Boolean {
+    if (this.sourceRequestId != sourceRequestId) return false
+    if (this.sourceRequestId.isBlank()) return false
+    if (completedSegmentCount < 0) return false
+    if (plannedByModel) return false
+    if (request.toolName != draft.functionName) return false
+    if (request.arguments.isNotEmpty()) return false
+    if (draft.parameters.isNotEmpty()) return false
+    if (!request.reason.isBlankOrRedacted()) return false
+    if (!draft.title.isBlankOrRedacted()) return false
+    if (!draft.summary.isBlankOrRedacted()) return false
+    return skillPlan?.hasOnlyValueFreeOrRedactedPayloadForCursor() ?: true
+}
+
+private fun SkillPlan.hasOnlyValueFreeOrRedactedPayloadForCursor(): Boolean {
+    if (!request.arguments.hasOnlyBlankOrRedactedValues()) return false
+    if (!request.reason.isBlankOrRedacted()) return false
+    val step = steps.singleOrNull() as? SkillStep.ToolStep ?: return false
+    if (step.request.arguments.isNotEmpty()) return false
+    if (step.draft.parameters.isNotEmpty()) return false
+    if (step.argumentBindings.isNotEmpty()) return false
+    if (!step.request.reason.isBlankOrRedacted()) return false
+    if (!step.draft.title.isBlankOrRedacted()) return false
+    if (!step.draft.summary.isBlankOrRedacted()) return false
+    return true
 }
 
 private fun AgentContinuationCursor.redactedForPendingPersistence(): AgentContinuationCursor =
@@ -797,6 +869,12 @@ private fun PendingToolConfirmationSnapshot.hasRedactedExecutablePayload(): Bool
 
 private fun Map<String, String>.hasRedactedValue(): Boolean =
     values.any { value -> value == REDACTED_AGENT_RUN_INPUT }
+
+private fun Map<String, String>.hasOnlyBlankOrRedactedValues(): Boolean =
+    values.all { value -> value.isBlankOrRedacted() }
+
+private fun String.isBlankOrRedacted(): Boolean =
+    isBlank() || this == REDACTED_AGENT_RUN_INPUT
 
 private fun Map<String, String>.persistablePendingArgumentsFor(
     toolName: String,
@@ -1058,6 +1136,19 @@ private fun JSONObject.toAgentContinuationCursor(): AgentContinuationCursor =
         skillPlan = optJSONObject("skillPlan")?.toSkillPlan(),
     )
 
+private fun AgentTraceStepSummary.restoredContinuationCursorOrNull(): AgentContinuationCursor? =
+    runCatching {
+        JSONObject(json)
+            .optJSONObject("cursor")
+            ?.toAgentContinuationCursor()
+    }.getOrNull()
+
+private fun AgentTraceStepSummary.requestIdFromJson(): String? =
+    runCatching { JSONObject(json) }
+        .getOrNull()
+        ?.optString("requestId")
+        ?.takeIf { it.isNotBlank() }
+
 private fun List<String>.toJsonArray(): JSONArray =
     JSONArray().also { array -> forEach { value -> array.put(value) } }
 
@@ -1080,6 +1171,7 @@ private fun AgentStep.traceType(): String =
         is AgentStep.UserRejected -> "UserRejected"
         is AgentStep.ToolObserved -> "ToolObserved"
         is AgentStep.ExternalOutcomeConfirmed -> "ExternalOutcomeConfirmed"
+        is AgentStep.ContinuationCursorRecorded -> "ContinuationCursorRecorded"
         is AgentStep.ToolRetryScheduled -> "ToolRetryScheduled"
         is AgentStep.ObservationDecided -> "ObservationDecided"
         is AgentStep.AssistantResponded -> "AssistantResponded"
@@ -1105,6 +1197,8 @@ private fun AgentStep.traceSummary(): String =
         is AgentStep.ToolObserved -> "Observed ${result.status} for ${result.requestId}: ${result.summary.shortTraceText()}"
         is AgentStep.ExternalOutcomeConfirmed ->
             "External outcome ${outcome.name} confirmed for $requestId."
+        is AgentStep.ContinuationCursorRecorded ->
+            "Recorded continuation cursor for ${cursor.sourceRequestId} -> ${cursor.request.toolName}."
         is AgentStep.ToolRetryScheduled -> "Retry $attempt scheduled for ${request.toolName}: ${reason.shortTraceText()}"
         is AgentStep.ObservationDecided -> decision.traceSummary()
         is AgentStep.AssistantResponded -> "Assistant responded: ${text.shortTraceText()}"
@@ -1185,6 +1279,15 @@ private fun AgentStep.traceJson(type: String): JSONObject {
                 val metadata = result.data.allowlistedCompletionMetadataJson()
                 if (metadata.length() > 0) {
                     it.put("completionMetadata", metadata)
+                }
+            }
+
+        is AgentStep.ContinuationCursorRecorded -> json
+            .put("sourceRequestId", cursor.sourceRequestId)
+            .put("targetToolName", cursor.request.toolName)
+            .also {
+                cursor.persistableForTracePersistence()?.let { persistableCursor ->
+                    it.put("cursor", persistableCursor.toJsonObject())
                 }
             }
 

@@ -2912,6 +2912,86 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun restoredPendingExternalOutcomeCompletedCanShowNextPendingConfirmation() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore()
+        val executor = RecordingToolExecutor()
+        val pending = PendingExternalOutcomeSnapshot(
+            runId = "run-external-next",
+            requestId = "request-external-next",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "$UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX：已打开 Wi-Fi 设置页",
+        )
+        val nextRequest = ToolRequest(
+            id = "request-flashlight",
+            toolName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            reason = "Open flashlight settings after external completion",
+        )
+        val nextDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            title = "打开手电筒设置",
+            summary = "将打开手电筒设置页。",
+            parameters = emptyMap(),
+        )
+        val assistantRouter = FakeAssistantRouter(
+            restoredPendingExternalOutcome = pending,
+            externalOutcomeResult = AgentExternalOutcomeResult(
+                run = AgentRun("run-external-next", "打开 Wi-Fi 设置，然后打开手电筒设置", AgentRunState.AwaitingUserConfirmation, 1L, 2L),
+                result = ToolResult(
+                    requestId = pending.requestId,
+                    status = ToolStatus.Succeeded,
+                    summary = "$EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX：目标应用中的操作已完成",
+                    data = mapOf(
+                        "completionState" to "ExternalActivityOpened",
+                        "completionVerified" to "true",
+                        "externalOutcome" to "Completed",
+                        "externalOutcomeSource" to "UserConfirmed",
+                    ),
+                ),
+                assistantMessage = "$EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX：目标应用中的操作已完成",
+                decision = AgentObservationDecision.PlanNextTool(
+                    plan = AgentPlan.UseTool(
+                        request = nextRequest,
+                        draft = nextDraft,
+                        plannedByModel = false,
+                        fallbackReason = "restored continuation cursor",
+                        safetyDecision = SafetyDecision(
+                            outcome = SafetyOutcome.RequireConfirmation,
+                            reason = "Next tool requires confirmation.",
+                        ),
+                    ),
+                    reason = "external outcome completed",
+                ),
+                steps = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        val restored = viewModel.uiState.value.pendingExternalOutcome
+        requireNotNull(restored)
+
+        viewModel.recordExternalOutcome(restored, AgentExternalOutcome.Completed)
+        advanceUntilIdle()
+
+        assertEquals(1, assistantRouter.recordExternalOutcomeCallCount)
+        assertEquals(AgentExternalOutcome.Completed, assistantRouter.lastExternalOutcome)
+        assertEquals(null, viewModel.uiState.value.pendingExternalOutcome)
+        val nextConfirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(nextConfirmation)
+        assertEquals("run-external-next", nextConfirmation.runId)
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, nextConfirmation.toolRequest?.toolName)
+        assertEquals("下一步动作待确认", viewModel.uiState.value.statusText)
+        assertTrue(executor.executedRequests.isEmpty())
+    }
+
+    @Test
     fun restoredPendingConfirmationExecutesAndObservesOnlyOnce() = runTest(dispatcher) {
         val request = ToolRequest(
             id = "request-restored-once",

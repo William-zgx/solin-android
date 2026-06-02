@@ -5137,6 +5137,151 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun restoredExternalOutcomeUsesContinuationCursorForNoPayloadTailAfterCompletion() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = WifiFlashlightActionRuntime()
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-restored-external-sequence-cursor" },
+            ),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val rawInput = "打开 Wi-Fi 设置，然后打开手电筒设置"
+        val planned = initialRuntime.runOnce(
+            input = rawInput,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            sessionId = "session-restored-external",
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, planned.plan.request.toolName)
+
+        initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val opened = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
+            ),
+        )
+
+        requireNotNull(opened)
+        assertEquals(AgentRunState.AwaitingExternalOutcome, opened.run.state)
+        assertNull(dao.latestPendingConfirmation())
+        val cursorStep = dao.steps(planned.run.id).lastOrNull { step ->
+            step.type == "ContinuationCursorRecorded"
+        }
+        requireNotNull(cursorStep)
+        assertFalse(cursorStep.json.contains(rawInput))
+        assertFalse(cursorStep.json.contains("然后"))
+        assertEquals(
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            JSONObject(cursorStep.json).getString("targetToolName"),
+        )
+
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = RoomAgentTraceStore(traceDao = dao),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val pending = restoredRuntime.latestPendingExternalOutcome("session-restored-external")
+        requireNotNull(pending)
+
+        val confirmed = restoredRuntime.recordExternalOutcome(
+            runId = pending.runId,
+            requestId = pending.requestId,
+            outcome = AgentExternalOutcome.Completed,
+        )
+
+        requireNotNull(confirmed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, confirmed.run.state)
+        require(confirmed.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            confirmed.decision.plan.request.toolName,
+        )
+        val nextPending = dao.latestPendingConfirmation()
+        requireNotNull(nextPending)
+        assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, nextPending.toolName)
+        assertNull(nextPending.nextActionInput)
+    }
+
+    @Test
+    fun restoredExternalOutcomeDoesNotContinuePayloadTailWithoutContinuationCursor() {
+        val dao = FakeAgentTraceDao()
+        val actionRuntime = RuleActionRuntime()
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 1_000L },
+                runIdFactory = { "run-restored-external-payload-tail" },
+            ),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val planned = initialRuntime.runOnce(
+            input = "打开 Wi-Fi 设置，然后搜索 Kotlin",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            sessionId = "session-restored-external-payload",
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, planned.plan.request.toolName)
+
+        initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
+            ),
+        )
+        assertTrue(dao.steps(planned.run.id).none { step ->
+            step.type == "ContinuationCursorRecorded"
+        })
+
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = RoomAgentTraceStore(traceDao = dao),
+            observationReplanner = SequentialActionObservationReplanner(actionRuntime),
+        )
+        val pending = restoredRuntime.latestPendingExternalOutcome("session-restored-external-payload")
+        requireNotNull(pending)
+
+        val confirmed = restoredRuntime.recordExternalOutcome(
+            runId = pending.runId,
+            requestId = pending.requestId,
+            outcome = AgentExternalOutcome.Completed,
+        )
+
+        requireNotNull(confirmed)
+        assertEquals(AgentRunState.Completed, confirmed.run.state)
+        assertEquals(AgentObservationDecision.Complete, confirmed.decision)
+        assertNull(dao.latestPendingConfirmation())
+    }
+
+    @Test
     fun replannedToolCannotReuseExistingRequestId() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
