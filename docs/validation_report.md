@@ -24,11 +24,17 @@
 - 补跑 Skill/多模态入口、长期记忆、运行时权限和特殊访问确认卡 UI 测试。
 - 未执行真实 DeepSeek live 调用：本轮没有可用的安全环境变量或一次性密钥输入入口；
   按本计划约束，不使用也不落盘聊天中出现过的 API key。
+- 补充 `scripts/live_remote_emulator.sh` 作为真实远程模型模拟器验收入口：debug-only
+  receiver 只存在于 debug APK，脚本从 `POCKETMIND_LIVE_REMOTE_API_KEY` 或
+  `DEEPSEEK_API_KEY` 读取密钥，artifact 只记录密钥来源变量名。
 
 验证命令：
 
 ```bash
 ./gradlew :app:assembleDebug
+./gradlew :app:compileDebugAndroidTestKotlin
+bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/regression_emulator.sh scripts/live_remote_emulator.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
 adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
 adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivityComprehensiveTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
 adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmind.MainActivitySkillUiTest com.bytedance.zgx.pocketmind.test/androidx.test.runner.AndroidJUnitRunner
@@ -52,6 +58,11 @@ adb -s emulator-5554 shell am instrument -w -e class com.bytedance.zgx.pocketmin
 - UI 证据：`build/verification/manual-live-20260602-remote/07-relaunch-after-comprehensive-tests.png`
   和同名 XML 显示 `mock-model · 远程 · 已就绪`、`远程可用`，并保留远程工具调用后的
   `Web 搜索` 动作草稿。
+- 真实 DeepSeek live 仍未执行：当前环境没有 `POCKETMIND_LIVE_REMOTE_API_KEY` 或
+  `DEEPSEEK_API_KEY`，因此未生成 `live-remote-emulator.properties status=passed`。
+- 无 key 预检通过失败路径验证：
+  `build/verification/live-remote-no-key-20260602/live-remote-emulator.properties`
+  记录 `status=failed`、`api_key_source=`，没有记录密钥值。
 
 ## 2026-06-02 Emulator full functional walkthrough
 

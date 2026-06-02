@@ -221,6 +221,8 @@ if [[ -z "$ksp_line" || -z "$verify_line" || "$ksp_line" -ge "$verify_line" ]]; 
 fi
 grep -q 'scripts/regression_emulator.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include regression_emulator.sh in shell syntax checks"
+grep -q 'scripts/live_remote_emulator.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include live_remote_emulator.sh in shell syntax checks"
 
 expect_success \
   "doctor local without adb" \

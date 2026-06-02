@@ -519,6 +519,7 @@ scripts/
   verify_emulator.sh        Emulator-only install and smoke-test helper
   regression_emulator.sh    Emulator regression artifact gate
   install_and_test_device.sh Device install and smoke-test helper
+  live_remote_emulator.sh   Optional live remote model emulator check
   test_validation_scripts.sh Shell preflight regression tests
 ```
 

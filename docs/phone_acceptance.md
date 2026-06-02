@@ -102,6 +102,15 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 `regression-emulator.properties`。验收记录必须引用这些 artifact；没有对应
 `status=passed` 摘要时，不应把设备或模拟器回归写成已执行通过。
 
+### Live remote model check
+
+真实远程模型检查使用 debug APK 和 `scripts/live_remote_emulator.sh`。脚本只从
+`POCKETMIND_LIVE_REMOTE_API_KEY` 或 `DEEPSEEK_API_KEY` 读取密钥，默认 endpoint 为
+`https://api.deepseek.com/v1`、model 为 `deepseek-v4-pro`；可通过
+`POCKETMIND_LIVE_REMOTE_BASE_URL` 和 `POCKETMIND_LIVE_REMOTE_MODEL` 覆盖。脚本会通过
+debug-only ADB receiver 写入远程配置，发送一个固定提示，保存截图、UI dump 和
+`live-remote-emulator.properties`，报告只记录密钥来源变量名，不记录密钥值。
+
 ## 手动模型验收
 
 1. 使用 `CLEAN_DEVICE=1 scripts/install_and_test_device.sh` 或手动清除数据后打开“PocketMind”，确认首屏会展示基础能力包准备向导。
