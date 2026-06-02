@@ -13,7 +13,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
+import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -46,6 +48,8 @@ class MainActivity : ComponentActivity() {
     private var pendingRuntimePermissionConfirmation: PendingAgentConfirmation? = null
     private var pendingMediaProjectionConfirmation: PendingAgentConfirmation? = null
     private var pendingSpecialAccessRequirement: SpecialAccessRequirement? = null
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var voiceInputCancellationRequested = false
     private val runtimePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grantResults ->
@@ -74,18 +78,13 @@ class MainActivity : ComponentActivity() {
             granted = hasSpecialAccess(requirement),
         )
     }
-    private val voiceInputLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        if (result.resultCode != Activity.RESULT_OK) {
-            viewModel.reportVoiceInputUnavailable("语音输入已取消")
-            return@registerForActivityResult
-        }
-        val transcript = result.data?.recognizedSpeechText()
-        if (transcript.isNullOrBlank()) {
-            viewModel.reportVoiceInputUnavailable("未识别到语音")
+    private val voiceAudioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            startVoiceInput()
         } else {
-            viewModel.acceptVoiceTranscript(transcript)
+            viewModel.reportVoiceInputUnavailable("未授权麦克风权限")
         }
     }
     private val sharedAttachmentLauncher = registerForActivityResult(
@@ -164,7 +163,11 @@ class MainActivity : ComponentActivity() {
                     onRecordExternalOutcome = viewModel::recordExternalOutcome,
                     onOpenRecoveryAction = viewModel::requestRecoveryActionConfirmation,
                     onSendMessage = viewModel::sendMessage,
+                    onSendPendingSharedInput = viewModel::sendPendingSharedInput,
+                    onClearPendingSharedInput = viewModel::clearPendingSharedInputDraft,
                     onStartVoiceInput = ::startVoiceInput,
+                    onCancelVoiceInput = ::cancelVoiceInput,
+                    onFinishVoiceInput = ::finishVoiceInput,
                     onPickSharedAttachment = {
                         sharedAttachmentLauncher.launch(SHARED_ATTACHMENT_MIME_TYPES)
                     },
@@ -189,6 +192,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        speechRecognizer?.destroy()
+        speechRecognizer = null
         shareIntentScope.cancel()
         super.onDestroy()
     }
@@ -218,7 +223,7 @@ class MainActivity : ComponentActivity() {
             val sharedInput = withContext(Dispatchers.IO) {
                 ShareIntentReader(applicationContext).readUris(uris, mode = readMode)
             }
-            sharedInput?.let(viewModel::ingestSharedInput)
+            sharedInput?.let(viewModel::stageSharedInput)
         }
     }
 
@@ -230,14 +235,85 @@ class MainActivity : ComponentActivity() {
         }
 
     private fun startVoiceInput() {
+        if (!hasRuntimePermission(Manifest.permission.RECORD_AUDIO)) {
+            voiceAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            viewModel.reportVoiceInputUnavailable("当前设备没有可用语音识别服务")
+            return
+        }
+        val recognizer = speechRecognizer ?: SpeechRecognizer.createSpeechRecognizer(this).also {
+            speechRecognizer = it
+        }
+        voiceInputCancellationRequested = false
+        recognizer.setRecognitionListener(appVoiceRecognitionListener())
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_PROMPT, "开始说话")
-        runCatching { voiceInputLauncher.launch(intent) }
+            .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        viewModel.startVoiceInputCapture()
+        runCatching { recognizer.startListening(intent) }
+            .onFailure {
+                viewModel.reportVoiceInputUnavailable("语音输入启动失败")
+            }
+    }
+
+    private fun finishVoiceInput() {
+        runCatching { speechRecognizer?.stopListening() }
+            .onSuccess { viewModel.finishVoiceInputCapture() }
             .onFailure {
                 viewModel.reportVoiceInputUnavailable("当前设备没有可用语音识别服务")
             }
     }
+
+    private fun cancelVoiceInput() {
+        voiceInputCancellationRequested = true
+        runCatching { speechRecognizer?.cancel() }
+        viewModel.reportVoiceInputUnavailable("语音输入已取消")
+    }
+
+    private fun appVoiceRecognitionListener(): RecognitionListener =
+        object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {
+                viewModel.startVoiceInputCapture()
+            }
+
+            override fun onBeginningOfSpeech() = Unit
+
+            override fun onRmsChanged(rmsdB: Float) {
+                viewModel.updateVoiceInputLevel(rmsDb = rmsdB)
+            }
+
+            override fun onBufferReceived(buffer: ByteArray?) = Unit
+
+            override fun onEndOfSpeech() {
+                viewModel.finishVoiceInputCapture()
+            }
+
+            override fun onError(error: Int) {
+                if (voiceInputCancellationRequested) {
+                    voiceInputCancellationRequested = false
+                    return
+                }
+                viewModel.reportVoiceInputUnavailable(error.voiceInputErrorMessage())
+            }
+
+            override fun onResults(results: Bundle?) {
+                val transcript = results?.recognizedSpeechText()
+                if (transcript.isNullOrBlank()) {
+                    viewModel.reportVoiceInputUnavailable("未识别到语音")
+                } else {
+                    viewModel.acceptVoiceTranscript(transcript)
+                }
+            }
+
+            override fun onPartialResults(partialResults: Bundle?) {
+                partialResults?.recognizedSpeechText()?.let(viewModel::updateVoiceInputPartialTranscript)
+            }
+
+            override fun onEvent(eventType: Int, params: Bundle?) = Unit
+        }
 
     private fun openSpecialAccessSettings(requirement: SpecialAccessRequirement) {
         pendingSpecialAccessRequirement = requirement
@@ -379,8 +455,21 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun Intent.recognizedSpeechText(): String? =
-    getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+private fun Bundle.recognizedSpeechText(): String? =
+    getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         ?.firstOrNull()
         ?.trim()
         ?.takeIf { it.isNotBlank() }
+
+private fun Int.voiceInputErrorMessage(): String =
+    when (this) {
+        SpeechRecognizer.ERROR_NO_MATCH -> "未识别到语音"
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没有听到声音"
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "未授权麦克风权限"
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "语音识别服务忙碌"
+        SpeechRecognizer.ERROR_NETWORK,
+        SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
+        -> "语音识别网络不可用"
+
+        else -> "语音输入不可用"
+    }

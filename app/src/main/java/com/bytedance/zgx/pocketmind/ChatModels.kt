@@ -123,6 +123,19 @@ data class VoiceInputDraft(
     val text: String,
 )
 
+data class VoiceCaptureUiState(
+    val isListening: Boolean = false,
+    val level: Float = 0f,
+    val partialText: String = "",
+)
+
+data class SharedInputDraft(
+    val id: Long,
+    val prompt: String,
+    val summary: String,
+    val privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+)
+
 data class PendingAgentConfirmation(
     val runId: String?,
     val draft: ActionDraft,
@@ -202,6 +215,8 @@ data class ChatUiState(
     val activeSessionId: String? = null,
     val messages: List<ChatMessage> = emptyList(),
     val voiceInputDraft: VoiceInputDraft? = null,
+    val voiceCapture: VoiceCaptureUiState = VoiceCaptureUiState(),
+    val pendingSharedInputDraft: SharedInputDraft? = null,
 ) {
     val selectedRecommendedModel: RecommendedModel
         get() = ModelCatalog.recommendedChatModelById(selectedModelId)

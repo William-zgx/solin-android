@@ -115,6 +115,7 @@ class PocketMindViewModel(
     private var setupDownloadInProgress = false
     private var startupRestored = false
     private var nextVoiceInputDraftId = 0L
+    private var nextSharedInputDraftId = 0L
 
     private val _uiState = MutableStateFlow(createInitialState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -419,13 +420,17 @@ class PocketMindViewModel(
             .replace(Regex("""\s+"""), " ")
             .trim()
             .take(MAX_VOICE_TRANSCRIPT_CHARS)
-        if (cleaned.isBlank()) return
+        if (cleaned.isBlank()) {
+            _uiState.update { it.copy(voiceCapture = VoiceCaptureUiState()) }
+            return
+        }
         _uiState.update {
             it.copy(
                 voiceInputDraft = VoiceInputDraft(
                     id = ++nextVoiceInputDraftId,
                     text = cleaned,
                 ),
+                voiceCapture = VoiceCaptureUiState(),
                 statusText = "语音已转写",
             )
         }
@@ -443,7 +448,57 @@ class PocketMindViewModel(
 
     fun reportVoiceInputUnavailable(message: String = "语音输入不可用") {
         _uiState.update {
-            it.copy(statusText = message)
+            it.copy(
+                voiceCapture = VoiceCaptureUiState(),
+                statusText = message,
+            )
+        }
+    }
+
+    fun startVoiceInputCapture() {
+        _uiState.update {
+            it.copy(
+                voiceCapture = VoiceCaptureUiState(isListening = true, level = 0.18f),
+                statusText = "正在收音",
+            )
+        }
+    }
+
+    fun updateVoiceInputLevel(rmsDb: Float) {
+        val normalizedLevel = ((rmsDb + 2f) / 12f).coerceIn(0.08f, 1f)
+        _uiState.update {
+            if (!it.voiceCapture.isListening) {
+                it
+            } else {
+                it.copy(voiceCapture = it.voiceCapture.copy(level = normalizedLevel))
+            }
+        }
+    }
+
+    fun updateVoiceInputPartialTranscript(transcript: String) {
+        val cleaned = transcript
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+            .take(MAX_VOICE_TRANSCRIPT_CHARS)
+        _uiState.update {
+            if (!it.voiceCapture.isListening) {
+                it
+            } else {
+                it.copy(voiceCapture = it.voiceCapture.copy(partialText = cleaned))
+            }
+        }
+    }
+
+    fun finishVoiceInputCapture(message: String = "正在转写") {
+        _uiState.update {
+            if (!it.voiceCapture.isListening) {
+                it
+            } else {
+                it.copy(
+                    voiceCapture = it.voiceCapture.copy(isListening = false, level = 0f),
+                    statusText = message,
+                )
+            }
         }
     }
 
@@ -1328,6 +1383,84 @@ class PocketMindViewModel(
         _uiState.update {
             it.copy(statusText = "已接收分享内容")
         }
+    }
+
+    fun stageSharedInput(sharedInput: SharedInput) {
+        if (sharedInput.isEmpty) return
+        val prompt = sharedInput.toPrompt()
+        if (prompt.isBlank()) return
+        _uiState.update {
+            it.copy(
+                pendingSharedInputDraft = SharedInputDraft(
+                    id = ++nextSharedInputDraftId,
+                    prompt = prompt,
+                    summary = sharedInput.composerSummary(),
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+                statusText = "已选择附件",
+            )
+        }
+    }
+
+    fun clearPendingSharedInputDraft(draftId: Long) {
+        _uiState.update {
+            if (it.pendingSharedInputDraft?.id == draftId) {
+                it.copy(
+                    pendingSharedInputDraft = null,
+                    statusText = "已移除附件",
+                )
+            } else {
+                it
+            }
+        }
+    }
+
+    fun sendPendingSharedInput(userInstruction: String = "") {
+        val draft = _uiState.value.pendingSharedInputDraft ?: return
+        val message = buildString {
+            val cleanedInstruction = userInstruction.trim()
+            if (cleanedInstruction.isNotBlank()) {
+                append(cleanedInstruction)
+                append("\n\n")
+            }
+            append(draft.prompt)
+        }.trim()
+        if (message.isBlank()) return
+        val state = _uiState.value
+        if (state.pendingConfirmation != null) {
+            _uiState.update { it.copy(statusText = "请先确认或取消待执行动作") }
+            return
+        }
+        if (state.pendingExternalOutcome != null) {
+            _uiState.update { it.copy(statusText = "请先确认外部动作结果") }
+            return
+        }
+        if (state.isBusy || generationJob?.isActive == true) return
+
+        _uiState.update {
+            if (it.pendingSharedInputDraft?.id == draft.id) {
+                it.copy(pendingSharedInputDraft = null)
+            } else {
+                it
+            }
+        }
+        if (!_uiState.value.isReady) {
+            replaceActiveSessionMessages(
+                _uiState.value.messages + ChatMessage(
+                    role = MessageRole.User,
+                    text = message,
+                    privacy = draft.privacy,
+                ) + ChatMessage(
+                    role = MessageRole.Assistant,
+                    text = "已接收分享内容。请先准备模型后再发送，当前只会读取受限文本、JSON/XML/YAML/RTF/PDF/Office 文档摘录、OCR 摘录和附件元数据。",
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+                persistNow = true,
+            )
+            _uiState.update { it.copy(statusText = "已接收分享内容") }
+            return
+        }
+        sendMessage(message, messagePrivacy = draft.privacy)
     }
 
     private fun cancelActiveGenerationRun(runId: String?) {
@@ -3121,4 +3254,21 @@ class PocketMindViewModel(
             toolRequest?.id == other.toolRequest?.id &&
             draft.functionName == other.draft.functionName &&
             draft.parameters == other.draft.parameters
+}
+
+private fun SharedInput.composerSummary(): String {
+    if (protectedSourceCount > 0) {
+        return "受保护分享 ${protectedSourceCount} 项"
+    }
+    val labels = buildList {
+        if (text.isNotBlank()) add("文本")
+        attachments.take(3).forEach { attachment ->
+            add(attachment.safeDisplayNameForPrompt() ?: attachment.kind.label)
+        }
+    }
+    val extraCount = attachments.size - 3
+    return buildString {
+        append(labels.joinToString(separator = "、").ifBlank { "附件" })
+        if (extraCount > 0) append(" 等 ${extraCount + 3} 项")
+    }
 }

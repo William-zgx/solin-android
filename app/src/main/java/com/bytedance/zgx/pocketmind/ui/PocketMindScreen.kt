@@ -3,6 +3,11 @@ package com.bytedance.zgx.pocketmind.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -177,7 +182,11 @@ fun PocketMindScreen(
     onRecordExternalOutcome: (PendingExternalOutcomeConfirmation, AgentExternalOutcome) -> Unit,
     onOpenRecoveryAction: (AgentRecoveryAction) -> Unit,
     onSendMessage: (String) -> Unit,
+    onSendPendingSharedInput: (String) -> Unit,
+    onClearPendingSharedInput: (Long) -> Unit,
     onStartVoiceInput: () -> Unit,
+    onCancelVoiceInput: () -> Unit,
+    onFinishVoiceInput: () -> Unit,
     onPickSharedAttachment: () -> Unit,
     onVoiceInputConsumed: (Long) -> Unit,
     onStopGeneration: () -> Unit,
@@ -296,11 +305,18 @@ fun PocketMindScreen(
                     onInputChanged = { input = it },
                     onOpenModelManager = { showModelManager = true },
                     onStartVoiceInput = onStartVoiceInput,
+                    onCancelVoiceInput = onCancelVoiceInput,
+                    onFinishVoiceInput = onFinishVoiceInput,
                     onPickSharedAttachment = onPickSharedAttachment,
+                    onClearPendingSharedInput = onClearPendingSharedInput,
                     onSend = {
                         val message = input
                         input = ""
-                        onSendMessage(message)
+                        if (state.pendingSharedInputDraft != null) {
+                            onSendPendingSharedInput(message)
+                        } else {
+                            onSendMessage(message)
+                        }
                     },
                     onStopGeneration = onStopGeneration,
                 )
@@ -3293,7 +3309,10 @@ private fun Composer(
     onInputChanged: (String) -> Unit,
     onOpenModelManager: () -> Unit,
     onStartVoiceInput: () -> Unit,
+    onCancelVoiceInput: () -> Unit,
+    onFinishVoiceInput: () -> Unit,
     onPickSharedAttachment: () -> Unit,
+    onClearPendingSharedInput: (Long) -> Unit,
     onSend: () -> Unit,
     onStopGeneration: () -> Unit,
 ) {
@@ -3301,16 +3320,13 @@ private fun Composer(
     val attachmentEnabled = !state.isBusy
     val actionIsStop = state.isGenerating
     val semanticColors = LocalPocketMindColors.current
+    val hasPendingSharedInput = state.pendingSharedInputDraft != null
+    val canSend = inputEnabled && (input.isNotBlank() || hasPendingSharedInput)
     val placeholder = when {
         state.isBusy -> state.statusText
         !state.isReady -> "先准备模型，再开始提问"
+        hasPendingSharedInput -> "补充说明"
         else -> "输入问题"
-    }
-    val modelLabel = if (state.inferenceMode == InferenceMode.Remote) {
-        state.remoteModelConfig.modelName.ifBlank { "远程模型" }
-    } else {
-        state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }?.displayName
-            ?: state.selectedRecommendedModel.shortName
     }
     val showCompactStatus = !state.isReady || state.isBusy
     Column(
@@ -3329,64 +3345,50 @@ private fun Composer(
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                modifier = if (showCompactStatus) {
-                    Modifier.weight(1f)
-                } else {
-                    Modifier.weight(1f, fill = false)
-                },
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
-                onClick = onOpenModelManager,
-                enabled = !state.isBusy,
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        modifier = Modifier.size(15.dp),
-                        imageVector = if (state.inferenceMode == InferenceMode.Remote) {
-                            Icons.Filled.Cloud
-                        } else {
-                            Icons.Filled.Storage
-                        },
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(
-                        modifier = Modifier.weight(1f, fill = false),
-                        text = modelLabel,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            if (showCompactStatus) {
-                Text(
-                    modifier = Modifier.weight(1f),
-                    text = state.statusText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+        if (state.voiceCapture.isListening) {
+            VoiceCaptureBar(
+                level = state.voiceCapture.level,
+                partialText = state.voiceCapture.partialText,
+                onCancel = onCancelVoiceInput,
+                onFinish = onFinishVoiceInput,
+            )
+        }
+        state.pendingSharedInputDraft?.let { draft ->
+            PendingSharedInputStrip(
+                summary = draft.summary,
+                onRemove = { onClearPendingSharedInput(draft.id) },
+            )
+        }
+        if (showCompactStatus) {
+            Text(
+                modifier = Modifier.fillMaxWidth(),
+                text = state.statusText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
+            ComposerIconButton(
+                modifier = Modifier
+                    .testTag("composer_attachment_button")
+                    .semantics {
+                        contentDescription = "选择附件"
+                    },
+                enabled = attachmentEnabled,
+                onClick = onPickSharedAttachment,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.AttachFile,
+                    contentDescription = null,
+                )
+            }
+
             OutlinedTextField(
                 modifier = Modifier
                     .weight(1f)
@@ -3398,45 +3400,16 @@ private fun Composer(
                 minLines = 1,
                 maxLines = 5,
                 placeholder = { Text(placeholder) },
-                leadingIcon = {
-                    IconButton(
-                        modifier = Modifier
-                            .testTag("composer_attachment_button")
-                            .semantics {
-                                contentDescription = "选择附件"
-                            },
-                        onClick = onPickSharedAttachment,
-                        enabled = attachmentEnabled,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.AttachFile,
-                            contentDescription = null,
-                        )
-                    }
-                },
             )
 
-            IconButton(
+            ComposerIconButton(
                 modifier = Modifier
-                    .height(52.dp)
-                    .width(52.dp)
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        shape = CircleShape,
-                    )
                     .testTag("composer_voice_button")
                     .semantics {
                         contentDescription = "语音输入"
                     },
                 onClick = onStartVoiceInput,
                 enabled = inputEnabled,
-                colors = IconButtonDefaults.iconButtonColors(
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.58f),
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.34f),
-                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-                ),
             ) {
                 Icon(
                     imageVector = Icons.Filled.Mic,
@@ -3444,27 +3417,14 @@ private fun Composer(
                 )
             }
 
-            IconButton(
+            ComposerIconButton(
                 modifier = Modifier
-                    .height(52.dp)
-                    .width(52.dp)
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        shape = CircleShape,
-                    )
                     .testTag("composer_model_button")
                     .semantics {
                         contentDescription = "模型管理"
                     },
                 onClick = onOpenModelManager,
                 enabled = !state.isBusy,
-                colors = IconButtonDefaults.iconButtonColors(
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.58f),
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.34f),
-                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-                ),
             ) {
                 Icon(
                     imageVector = Icons.Filled.Tune,
@@ -3486,17 +3446,17 @@ private fun Composer(
                 },
                 enabled = when {
                     actionIsStop -> true
-                    else -> inputEnabled && input.isNotBlank()
+                    else -> canSend
                 },
                 colors = IconButtonDefaults.iconButtonColors(
                     containerColor = when {
                         actionIsStop -> semanticColors.busy
-                        inputEnabled && input.isNotBlank() -> MaterialTheme.colorScheme.primary
+                        canSend -> MaterialTheme.colorScheme.primary
                         else -> MaterialTheme.colorScheme.surfaceVariant
                     },
                     contentColor = when {
                         actionIsStop -> semanticColors.onBusy
-                        inputEnabled && input.isNotBlank() -> MaterialTheme.colorScheme.onPrimary
+                        canSend -> MaterialTheme.colorScheme.onPrimary
                         else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.52f)
                     },
                 ),
@@ -3506,6 +3466,176 @@ private fun Composer(
                     contentDescription = null,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ComposerIconButton(
+    modifier: Modifier = Modifier,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    IconButton(
+        modifier = modifier
+            .height(52.dp)
+            .width(46.dp)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = CircleShape,
+            ),
+        onClick = onClick,
+        enabled = enabled,
+        colors = IconButtonDefaults.iconButtonColors(
+            contentColor = MaterialTheme.colorScheme.primary,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.58f),
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.34f),
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+        ),
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun PendingSharedInputStrip(
+    summary: String,
+    onRemove: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("pending_shared_input_strip"),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.46f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 10.dp, top = 6.dp, end = 4.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                modifier = Modifier.size(16.dp),
+                imageVector = Icons.Filled.AttachFile,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Text(
+                modifier = Modifier.weight(1f),
+                text = summary,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            IconButton(
+                modifier = Modifier
+                    .size(36.dp)
+                    .semantics { contentDescription = "移除附件" },
+                onClick = onRemove,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = null,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoiceCaptureBar(
+    level: Float,
+    partialText: String,
+    onCancel: () -> Unit,
+    onFinish: () -> Unit,
+) {
+    val transition = rememberInfiniteTransition(label = "voice_wave")
+    val pulse by transition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 520),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "voice_wave_pulse",
+    )
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("voice_capture_bar"),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            VoiceWaveform(
+                level = level,
+                pulse = pulse,
+            )
+            Text(
+                modifier = Modifier.weight(1f),
+                text = partialText.ifBlank { "正在收音" },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            IconButton(
+                modifier = Modifier
+                    .size(38.dp)
+                    .semantics { contentDescription = "取消语音输入" },
+                onClick = onCancel,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = null,
+                )
+            }
+            IconButton(
+                modifier = Modifier
+                    .size(38.dp)
+                    .semantics { contentDescription = "结束语音输入" },
+                onClick = onFinish,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoiceWaveform(
+    level: Float,
+    pulse: Float,
+) {
+    val normalized = level.coerceIn(0.08f, 1f)
+    val bars = listOf(0.46f, 0.78f, 1f, 0.62f, 0.88f)
+    Row(
+        modifier = Modifier.width(42.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        bars.forEachIndexed { index, multiplier ->
+            val animated = (normalized * multiplier * (0.72f + pulse * 0.28f + index * 0.02f))
+                .coerceIn(0.16f, 1f)
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height((8f + animated * 24f).dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(MaterialTheme.colorScheme.primary),
+            )
         }
     }
 }

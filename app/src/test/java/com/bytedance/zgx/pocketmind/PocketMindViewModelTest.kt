@@ -594,6 +594,57 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun stagedSharedImageWaitsForExplicitSendAndStaysLocalOnly() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore()
+        val runtime = FakeLiteRtRuntime(localResponse = "本地回复：图片文字摘要")
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            runtime = runtime,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.stageSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Image,
+                        mimeType = "image/png",
+                        displayName = "receipt.png",
+                        sizeBytes = 128L,
+                        textPreview = SharedTextPreview(
+                            text = "private receipt text",
+                            truncated = false,
+                            source = SharedTextPreviewSource.ImageOcr,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals("已选择附件", viewModel.uiState.value.statusText)
+        assertEquals("receipt.png", viewModel.uiState.value.pendingSharedInputDraft?.summary)
+        assertTrue(sessionStore.messages.isEmpty())
+        assertTrue(runtime.prompts.isEmpty())
+
+        viewModel.sendPendingSharedInput("帮我总结这张图")
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingSharedInputDraft)
+        val prompt = runtime.prompts.single()
+        assertTrue(prompt.contains("帮我总结这张图"))
+        assertTrue(prompt.contains("receipt.png"))
+        assertTrue(prompt.contains("private receipt text"))
+        assertEquals(
+            listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
+            sessionStore.messages.map { it.privacy },
+        )
+    }
+
+    @Test
     fun voiceTranscriptDraftIsOneShotAndDoesNotSendMessage() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()
@@ -620,6 +671,36 @@ class PocketMindViewModelTest {
         assertEquals(null, viewModel.uiState.value.voiceInputDraft)
         viewModel.consumeVoiceInputDraft(draft.id)
         assertEquals(null, viewModel.uiState.value.voiceInputDraft)
+    }
+
+    @Test
+    fun voiceCaptureStateShowsPartialTextAndClearsAfterTranscript() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+        )
+
+        viewModel.startVoiceInputCapture()
+        viewModel.updateVoiceInputLevel(7f)
+        viewModel.updateVoiceInputPartialTranscript("  第一段\n语音  ")
+        advanceUntilIdle()
+
+        val capture = viewModel.uiState.value.voiceCapture
+        assertTrue(capture.isListening)
+        assertTrue(capture.level > 0.5f)
+        assertEquals("第一段 语音", capture.partialText)
+        assertTrue(sessionStore.messages.isEmpty())
+        assertTrue(remoteRuntime.calls.isEmpty())
+
+        viewModel.acceptVoiceTranscript("第一段语音")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.voiceCapture.isListening)
+        assertEquals("第一段语音", viewModel.uiState.value.voiceInputDraft?.text)
+        assertTrue(sessionStore.messages.isEmpty())
+        assertTrue(remoteRuntime.calls.isEmpty())
     }
 
     @Test
