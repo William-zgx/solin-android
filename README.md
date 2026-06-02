@@ -280,6 +280,8 @@ gated skill-run executor, minimal device context
 snapshots, safety policy, persistent tool audit, long-term memory controls,
 local reminder scheduling, confirmed periodic reminder-check configuration,
 running background task review/cancellation/read-only Agent queries,
+run-level Agent cancellation and hard budgets before additional tool
+confirmations/retries/model continuations,
 confirmed clipboard/device-context reads, outbound text sharing, safe HTTPS
 deep-link navigation, package-level app launches, Android share intent and
 in-app picker text plus bounded `text/*` and JSON/XML/YAML document excerpt

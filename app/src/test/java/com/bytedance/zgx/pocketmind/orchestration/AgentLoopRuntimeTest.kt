@@ -5382,6 +5382,164 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun cancelGeneratingRunMarksCancelledAndIgnoresLateModelOutput() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "普通问题",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        val cancelled = runtime.cancelRun(planned.run.id, "user stopped generation")
+        val lateOutput = runtime.observeModelResult(planned.run.id, "迟到的模型输出")
+
+        requireNotNull(cancelled)
+        assertEquals(AgentRunState.Cancelled, cancelled.run.state)
+        assertEquals(AgentObservationDecision.Cancel, cancelled.decision)
+        assertTrue(cancelled.steps.any { step ->
+            step is AgentStep.ObservationDecided &&
+                step.decision == AgentObservationDecision.Cancel
+        })
+        assertTrue(cancelled.steps.none { it is AgentStep.Failed })
+        assertNull(lateOutput)
+    }
+
+    @Test
+    fun cancelRunAwaitingConfirmationClearsPendingWithoutExecutingTool() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将在浏览器中搜索：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "搜一下 Kotlin",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+
+        val cancelled = runtime.cancelRun(planned.run.id, "user stopped run")
+
+        requireNotNull(cancelled)
+        assertEquals(AgentRunState.Cancelled, cancelled.run.state)
+        assertEquals(AgentObservationDecision.Cancel, cancelled.decision)
+        assertNull(runtime.latestPendingConfirmation())
+        assertTrue(cancelled.steps.any { it is AgentStep.UserRejected })
+        assertTrue(cancelled.steps.any { step ->
+            step is AgentStep.ToolObserved &&
+                step.result.status == ToolStatus.Cancelled
+        })
+        assertEquals(
+            listOf(
+                ToolAuditEventType.ToolPlanned,
+                ToolAuditEventType.ConfirmationRequested,
+                ToolAuditEventType.UserCancelled,
+                ToolAuditEventType.ToolObserved,
+            ),
+            auditSink.events.map { it.eventType },
+        )
+    }
+
+    @Test
+    fun runBudgetExceededFailsBeforeNextToolConfirmation() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.WEB_SEARCH,
+                        title = "Web 搜索",
+                        summary = "将在浏览器中搜索：Kotlin",
+                        parameters = mapOf("query" to "Kotlin"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val nextDraft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            title = "打开 Wi-Fi 设置",
+            summary = "搜索完成后继续打开 Wi-Fi 设置页。",
+            parameters = emptyMap(),
+            requiresConfirmation = true,
+        )
+        val nextRequest = ToolRequest(
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            reason = nextDraft.summary,
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner {
+                AgentObservationReplan(
+                    request = nextRequest,
+                    draft = nextDraft,
+                    fallbackReason = "test replan",
+                )
+            },
+            maxRunToolSteps = 1,
+        )
+        val planned = runtime.runOnce(
+            input = "先搜 Kotlin，然后打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已完成搜索",
+                data = externalActivityResultData(MobileActionFunctions.WEB_SEARCH),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        require(observed.decision is AgentObservationDecision.Fail)
+        assertTrue(
+            "Unexpected failure reason: ${observed.decision.reason}",
+            observed.decision.reason.contains("budget exceeded"),
+        )
+        assertNull(runtime.latestPendingConfirmation())
+        assertTrue(observed.steps.any { step ->
+            step is AgentStep.Failed &&
+                step.reason.contains("budget exceeded")
+        })
+        assertEquals(1, observed.steps.filterIsInstance<AgentStep.UserConfirmationRequested>().size)
+    }
+
+    @Test
     fun invalidActionDraftIsRejectedBeforeConfirmation() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
@@ -7007,11 +7165,3 @@ class AgentLoopRuntimeTest {
             error("memory context unavailable")
     }
 }
-
-/*
- * Boundary cases to enable once the production API exposes them:
- * - maxSteps: inject a continuing tool/plan and assert the run ends in Failed with
- *   an AgentStep.Failed trace when the limit is reached.
- * - cancellation: expose cancel(runId) or coroutine cancellation and assert the run
- *   moves to Cancelled without executing a pending tool.
- */

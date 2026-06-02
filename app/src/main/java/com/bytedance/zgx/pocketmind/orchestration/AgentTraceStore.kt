@@ -79,6 +79,7 @@ interface AgentTraceStore {
     fun savePendingConfirmation(snapshot: PendingToolConfirmationSnapshot)
     fun latestPendingConfirmation(sessionId: String? = null): PendingToolConfirmationSnapshot?
     fun clearPendingConfirmation(runId: String, requestId: String): Boolean
+    fun clearPendingConfirmationsForRun(runId: String): Int
     fun nextActionInput(runId: String): String?
     fun failStaleInFlightRuns(reason: String): Int
     fun deleteRunsForSession(sessionId: String): Int
@@ -183,6 +184,9 @@ class InMemoryAgentTraceStore(
                 pendingConfirmations.remove(runId)
                 true
             } ?: false
+
+    override fun clearPendingConfirmationsForRun(runId: String): Int =
+        if (pendingConfirmations.remove(runId) != null) 1 else 0
 
     override fun nextActionInput(runId: String): String? =
         pendingConfirmations[runId]?.nextActionInput
@@ -343,6 +347,17 @@ class RoomAgentTraceStore(
             } ?: false
         val persistedRemoved = traceDao.deletePendingConfirmationWithCheckpoint(runId, requestId) > 0
         return persistedRemoved || liveRemoved
+    }
+
+    override fun clearPendingConfirmationsForRun(runId: String): Int {
+        val liveRemoved = if (livePendingConfirmations.remove(runId) != null) 1 else 0
+        liveNextActionInputs.remove(runId)
+        val persistedRemoved = traceDao.pendingConfirmations()
+            .filter { entity -> entity.runId == runId }
+            .sumOf { entity ->
+                traceDao.deletePendingConfirmationWithRunCheckpoints(entity.runId, entity.requestId)
+            }
+        return maxOf(liveRemoved, persistedRemoved)
     }
 
     override fun nextActionInput(runId: String): String? =

@@ -76,6 +76,8 @@ import kotlinx.coroutines.withContext
 private const val MAX_VOICE_TRANSCRIPT_CHARS = 2_000
 private const val STALE_AGENT_RUN_STARTUP_REASON =
     "App restarted before this Agent step completed."
+private const val USER_STOPPED_AGENT_RUN_REASON =
+    "User stopped this Agent run."
 
 class PocketMindViewModel(
     private val modelRepository: ModelRepositoryFacade,
@@ -99,6 +101,7 @@ class PocketMindViewModel(
 ) : ViewModel() {
     private val runtimeLock = Mutex()
     private var generationJob: Job? = null
+    private var activeGenerationRunId: String? = null
     private var downloadMonitorJob: Job? = null
     private var activeDownloadId: Long? = null
     private val setupDownloadQueue = ArrayDeque<ModelDownloadSource>()
@@ -985,6 +988,7 @@ class PocketMindViewModel(
 
                     is AssistantRoute.Chat -> {
                         activeModelRunId = route.runId
+                        activeGenerationRunId = route.runId
                         val responsePrivacy = if (
                             !useRemoteModel &&
                             (messagePrivacy == MessagePrivacy.LocalOnly || route.memoryHits.isNotEmpty())
@@ -1212,6 +1216,7 @@ class PocketMindViewModel(
                     }
                 }
             } catch (cancellation: CancellationException) {
+                cancelActiveGenerationRun(activeModelRunId)
                 if (_uiState.value.isGenerating) {
                     finishStoppedGeneration()
                 } else if (_uiState.value.isBusy) {
@@ -1253,6 +1258,7 @@ class PocketMindViewModel(
         job.invokeOnCompletion {
             if (generationJob == job) {
                 generationJob = null
+                activeGenerationRunId = null
             }
         }
     }
@@ -1298,6 +1304,13 @@ class PocketMindViewModel(
         }
     }
 
+    private fun cancelActiveGenerationRun(runId: String?) {
+        val id = runId ?: return
+        if (activeGenerationRunId != id) return
+        assistantOrchestrator.cancelRun(id, USER_STOPPED_AGENT_RUN_REASON)
+        activeGenerationRunId = null
+    }
+
     fun stopGeneration() {
         val job = generationJob ?: return
         if (_uiState.value.inferenceMode == InferenceMode.Local) {
@@ -1305,6 +1318,7 @@ class PocketMindViewModel(
         } else {
             remoteRuntime.stop()
         }
+        cancelActiveGenerationRun(activeGenerationRunId)
         job.cancel()
         finishStoppedGeneration()
     }
@@ -1683,6 +1697,7 @@ class PocketMindViewModel(
         val useRemoteModel = stateAtStart.inferenceMode == InferenceMode.Remote
         val remoteConfig = stateAtStart.remoteModelConfig
         val remoteHistory = stateAtStart.messages.dropLast(1).remoteEligibleMessages()
+        activeGenerationRunId = runId
         val job = viewModelScope.launch(ioDispatcher) {
             try {
                 if (useRemoteModel && responsePrivacy == MessagePrivacy.LocalOnly) {
@@ -1848,6 +1863,7 @@ class PocketMindViewModel(
                     )
                 }
             } catch (cancellation: CancellationException) {
+                cancelActiveGenerationRun(runId)
                 finishStoppedGeneration()
                 throw cancellation
             } catch (throwable: Throwable) {
@@ -1877,6 +1893,7 @@ class PocketMindViewModel(
         job.invokeOnCompletion {
             if (generationJob == job) {
                 generationJob = null
+                activeGenerationRunId = null
             }
         }
     }
@@ -2708,6 +2725,7 @@ class PocketMindViewModel(
                 isBusy = false,
                 isGenerating = false,
                 isReady = if (remoteMode) it.remoteModelConfig.isConfigured else runtime.isLoaded,
+                agentTraceRuns = loadAgentTraceRuns(),
                 statusText = if (remoteMode) {
                     "已停止 · 远程"
                 } else if (!runtime.isLoaded) {

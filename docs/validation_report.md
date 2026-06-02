@@ -1,5 +1,56 @@
 # PocketMind 验证报告
 
+## 2026-06-02 Agent loop hard budget and run cancellation
+
+本轮覆盖项：
+
+- `AgentLoopRuntime` 新增 run-level `cancelRun(runId, reason)`：生成中 run 可直接进入
+  `Cancelled`，迟到模型输出会被状态机拒绝；待确认工具 run 复用现有
+  `cancelToolRequest` 路径，留下 `UserRejected -> ToolObserved(Cancelled) ->
+  ObservationDecided(Cancel)`，并且不执行工具。
+- Agent loop 增加全局工具 step budget 和 observation-decision budget；预算耗尽时在
+  保存下一张 pending confirmation、自动 retry、观察后 replan 或模型 continuation 前
+  fail closed。失败 trace 使用固定通用原因，不写入 prompt、模型输出或私密工具数据。
+- `AssistantRouter` / `AssistantOrchestrator` 暴露 run-level cancel；ViewModel 的
+  “停止生成”现在会停止本地/远程 runtime、取消当前 active Agent run，并刷新最近
+  Agent trace，而不是只取消 coroutine。
+- `AgentTraceStore` 增加按 run 清 pending helper；Room-backed store 会立即删除
+  `pending_agent_confirmations` 和对应 skill checkpoint，避免终态 run 在重启后被懒清理或
+  二次 fail。
+- README、Agent core 文档和真机验收清单同步记录该能力边界。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.cancelGeneratingRunMarksCancelledAndIgnoresLateModelOutput' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.cancelRunAwaitingConfirmationClearsPendingWithoutExecutingTool' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.runBudgetExceededFailsBeforeNextToolConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreClearPendingConfirmationsForRunDeletesPersistedPendingAndCheckpoint' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.stopGenerationCancelsActiveAgentRunForLocalChat'
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.cancelGeneratingRunMarksCancelledAndIgnoresLateModelOutput' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.cancelRunAwaitingConfirmationClearsPendingWithoutExecutingTool' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.runBudgetExceededFailsBeforeNextToolConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreClearPendingConfirmationsForRunDeletesPersistedPendingAndCheckpoint' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.stopGenerationCancelsActiveAgentRunForLocalChat'
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest'
+./gradlew testDebugUnitTest :app:compileDebugAndroidTestKotlin
+git diff --check
+```
+
+结果：
+
+- 通过：定向 Agent loop cancellation / hard budget、Room pending cleanup、ViewModel
+  stop-generation run cancel 回归。
+- 通过：Agent core documentation、AgentLoopRuntime / AgentTraceStore /
+  PocketMindViewModel 完整测试类、完整 JVM 单测、AndroidTest Kotlin 编译和
+  diff whitespace 检查。
+
 ## 2026-06-02 Emulator regression artifact gate
 
 本轮覆盖项：

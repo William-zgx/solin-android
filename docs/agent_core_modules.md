@@ -197,6 +197,16 @@ Current status:
 - The same immediate failure closure is used when a remote-mode continuation is
   blocked because the tool result requires a local model, so privacy protection
   does not leave an in-flight run behind.
+- User stop-generation now maps to `cancelRun(runId, reason)` instead of only
+  stopping the model runtime/coroutine. Non-terminal runs move to `Cancelled`,
+  late model output is ignored, and awaiting tool confirmations reuse the
+  existing user-cancelled tool observation path so the tool is not executed.
+- The loop has run-level hard budgets in addition to per-tool retry attempts:
+  it fails closed before saving another pending confirmation when the run tool
+  step budget is exhausted, and fails closed before retry/replan/model
+  continuation when the observation-decision budget is exhausted. Budget failure
+  trace uses generic reasons and does not include prompts, model output, or
+  private tool data.
 - Remote OpenAI-compatible chat can now opt into `tools` and parse
   OpenAI-style `tool_calls`. Parsed remote tool calls are converted into
   `ToolRequest` values and handed back to the Agent loop, which still performs
@@ -441,6 +451,9 @@ Tests:
 - `AssistantOrchestratorTest`
 - `AgentLoopRuntimeCompatibilityTest`
 - `AgentLoopRuntimeTest.successfulObservationCanPlanNextToolAndRequestConfirmationAgain`
+- `AgentLoopRuntimeTest.cancelGeneratingRunMarksCancelledAndIgnoresLateModelOutput`
+- `AgentLoopRuntimeTest.cancelRunAwaitingConfirmationClearsPendingWithoutExecutingTool`
+- `AgentLoopRuntimeTest.runBudgetExceededFailsBeforeNextToolConfirmation`
 - `AgentLoopRuntimeTest.replannedToolCannotReuseExistingRequestId`
 - `AgentLoopRuntimeTest.skillFirstClipboardSummaryShareBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstClipboardContextBypassesActionPlannerAndRequestsConfirmation`
@@ -981,6 +994,10 @@ Current status:
   needed for an explicit later confirmation. It is separate from trace/audit
   summaries and is cleared when the request is confirmed, cancelled, or found
   stale.
+- Run-level cancellation and hard-budget failure explicitly clear pending
+  confirmations for that run, including persisted Room pending rows and skill
+  checkpoints, so restart repair does not later resurrect or double-fail a
+  terminal run.
 - On startup, persisted in-flight Agent runs that cannot be safely resumed
   after process death (`Created`, context loading, planning, executing,
   observing, retrying, or model generation) are marked `Failed` with a trace
@@ -1010,6 +1027,8 @@ Tests:
 - `ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess`
 - `SessionRepositoryTest`
 - `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
+- `AgentTraceStoreTest.roomStoreClearPendingConfirmationsForRunDeletesPersistedPendingAndCheckpoint`
+- `PocketMindViewModelTest.stopGenerationCancelsActiveAgentRunForLocalChat`
 - `MainActivitySkillUiTest.webSearchSkillFirstShowsConfirmationWithoutRemoteRuntime`
 - `MainActivitySkillUiTest.clipboardSummaryShareSkillStartsAtLocalReadConfirmation`
 - `AgentTraceStoreTest.roomStoreFailsStaleInFlightRunsButKeepsPendingConfirmationsOnStartup`

@@ -611,6 +611,74 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreClearPendingConfirmationsForRunDeletesPersistedPendingAndCheckpoint() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-clear-pending" },
+        )
+        val run = store.updateState(
+            store.createRun("查询后台任务").id,
+            AgentRunState.AwaitingUserConfirmation,
+        )
+        val request = ToolRequest(
+            id = "request-clear-background-tasks",
+            toolName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+            arguments = mapOf("scope" to "all", "maxCount" to "5"),
+            reason = "Query background tasks",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+            title = "查询后台任务",
+            summary = "查询后台任务",
+            parameters = request.arguments,
+        )
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = run,
+                request = request,
+                draft = draft,
+                skillId = null,
+                plannedByModel = false,
+                fallbackReason = null,
+                nextActionInput = "private next action should be live-only",
+            ),
+        )
+        dao.upsertSkillRunCheckpoint(
+            AgentSkillRunCheckpointEntity(
+                runId = run.id,
+                requestId = request.id,
+                skillId = "skill-clear",
+                skillRequestId = "skill-request-clear",
+                manifestId = "manifest-clear",
+                manifestVersion = 1,
+                manifestHash = "hash-clear",
+                phase = "AwaitingToolConfirmation",
+                pendingStepIndex = 0,
+                pendingStepId = "step-clear",
+                pendingToolName = request.toolName,
+                completedStepIdsJson = "[]",
+                outputKeysByStepJson = "{}",
+                privateOutputRefsJson = "{}",
+                schemaVersion = 1,
+                createdAtMillis = 1_000L,
+                updatedAtMillis = 1_001L,
+            ),
+        )
+
+        assertEquals("private next action should be live-only", store.nextActionInput(run.id))
+        assertEquals(1, dao.pendingConfirmations().size)
+        assertEquals(1, dao.skillRunCheckpointsForRun(run.id).size)
+
+        val removed = store.clearPendingConfirmationsForRun(run.id)
+
+        assertEquals(1, removed)
+        assertTrue(dao.pendingConfirmations().isEmpty())
+        assertTrue(dao.skillRunCheckpointsForRun(run.id).isEmpty())
+        assertNull(store.nextActionInput(run.id))
+    }
+
+    @Test
     fun roomStoreFailsAllowlistedPendingWhenPersistedValuesDoNotPassSchema() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(

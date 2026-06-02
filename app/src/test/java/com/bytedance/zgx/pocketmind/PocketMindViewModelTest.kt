@@ -74,9 +74,11 @@ import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import java.io.File
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -1972,6 +1974,42 @@ class PocketMindViewModelTest {
         assertTrue(call.history.isEmpty())
         assertFalse(call.history.toString().contains("打开 Wi-Fi 设置"))
         assertFalse(call.history.toString().contains("动作草稿"))
+    }
+
+    @Test
+    fun stopGenerationCancelsActiveAgentRunForLocalChat() = runTest(dispatcher) {
+        val localRuntime = FakeLiteRtRuntime(hangDuringSend = true)
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-stop",
+                promptForModel = "本地生成 prompt",
+                memoryHits = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            runtime = localRuntime,
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通问题")
+
+        assertTrue(viewModel.uiState.value.isGenerating)
+        assertEquals(listOf("本地生成 prompt"), localRuntime.prompts)
+
+        viewModel.stopGeneration()
+        advanceUntilIdle()
+
+        assertEquals(1, localRuntime.stopCallCount)
+        assertEquals(1, assistantRouter.cancelRunCallCount)
+        assertEquals("run-stop", assistantRouter.lastCancelledRunId)
+        assertTrue(assistantRouter.lastCancelledRunReason.orEmpty().contains("stopped"))
+        assertFalse(viewModel.uiState.value.isGenerating)
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertEquals(listOf("run-stop"), viewModel.uiState.value.agentTraceRuns.map { it.id })
+        assertEquals(AgentRunState.Cancelled, viewModel.uiState.value.agentTraceRuns.single().state)
     }
 
     @Test
@@ -4399,8 +4437,11 @@ class PocketMindViewModelTest {
     private class FakeLiteRtRuntime(
         private val localResponse: String = "本地回复",
         private val failure: Throwable? = null,
+        private val hangDuringSend: Boolean = false,
     ) : LiteRtRuntime {
         val prompts = mutableListOf<String>()
+        var stopCallCount: Int = 0
+            private set
         override var isLoaded: Boolean = false
 
         override fun load(
@@ -4422,12 +4463,17 @@ class PocketMindViewModelTest {
         override fun send(prompt: String): Flow<String> {
             prompts += prompt
             failure?.let { throw it }
+            if (hangDuringSend) {
+                return flow { awaitCancellation() }
+            }
             return flowOf(localResponse)
         }
 
         override fun lastGenerationStats(): GenerationStats? = null
 
-        override fun stop() = Unit
+        override fun stop() {
+            stopCallCount += 1
+        }
 
         override fun close() {
             isLoaded = false
@@ -4463,6 +4509,8 @@ class PocketMindViewModelTest {
             private set
         var failModelGenerationCallCount: Int = 0
             private set
+        var cancelRunCallCount: Int = 0
+            private set
         var failPendingCallCount: Int = 0
             private set
         var lastObservedResult: ToolResult? = null
@@ -4472,6 +4520,10 @@ class PocketMindViewModelTest {
         var lastFailedModelRunId: String? = null
             private set
         var lastFailedModelReason: String? = null
+            private set
+        var lastCancelledRunId: String? = null
+            private set
+        var lastCancelledRunReason: String? = null
             private set
         var lastFailedPendingResult: ToolResult? = null
             private set
@@ -4487,6 +4539,7 @@ class PocketMindViewModelTest {
             private set
         private val knownRunStates = linkedMapOf<String, AgentRunState>()
         private var failedModelTraceRun: AgentTraceRunSummary? = null
+        private var cancelledTraceRun: AgentTraceRunSummary? = null
         val deletedTraceSessionIds = mutableListOf<String>()
 
         override fun route(
@@ -4553,6 +4606,39 @@ class PocketMindViewModelTest {
             )
         }
 
+        override fun cancelRun(runId: String, reason: String): AgentModelObservationResult? {
+            cancelRunCallCount += 1
+            lastCancelledRunId = runId
+            lastCancelledRunReason = reason
+            val existingState = knownRunStates[runId]
+            if (
+                existingState == AgentRunState.Completed ||
+                existingState == AgentRunState.Cancelled ||
+                existingState == AgentRunState.Failed
+            ) {
+                return null
+            }
+            knownRunStates[runId] = AgentRunState.Cancelled
+            cancelledTraceRun = AgentTraceRunSummary(
+                run = AgentRun(runId, "", AgentRunState.Cancelled, 1L, 2L),
+                steps = listOf(
+                    AgentTraceStepSummary(
+                        runId = runId,
+                        position = 0,
+                        type = "ObservationDecided",
+                        summary = "Observation cancelled.",
+                        json = """{"type":"ObservationDecided","decision":{"type":"Cancel"}}""",
+                        createdAtMillis = 2L,
+                    ),
+                ),
+            )
+            return AgentModelObservationResult(
+                run = AgentRun(runId, "", AgentRunState.Cancelled, 1L, 2L),
+                decision = AgentObservationDecision.Cancel,
+                steps = emptyList(),
+            )
+        }
+
         override fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
             confirmCallCount += 1
             confirmFailure?.let { throw it }
@@ -4607,11 +4693,11 @@ class PocketMindViewModelTest {
             recentTraceRunLimit = limit
             recentTraceStepLimit = stepLimit
             val failedTraceRun = failedModelTraceRun
-            return if (failedTraceRun == null) {
-                recentTraceRuns
-            } else {
-                listOf(failedTraceRun) + recentTraceRuns.filterNot { it.run.id == failedTraceRun.run.id }
-            }
+            val cancelledRun = cancelledTraceRun
+            return listOfNotNull(cancelledRun, failedTraceRun) +
+                recentTraceRuns.filterNot { trace ->
+                    trace.run.id == failedTraceRun?.run?.id || trace.run.id == cancelledRun?.run?.id
+                }
         }
 
         override fun deleteRunsForSession(sessionId: String): Int {

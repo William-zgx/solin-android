@@ -40,6 +40,10 @@ import com.bytedance.zgx.pocketmind.tool.rejected
 import com.bytedance.zgx.pocketmind.tool.unverifiedExternalLaunchSummary
 
 private const val REDACTED_AGENT_RUN_INPUT_VALUE = "[redacted]"
+private const val RUN_CANCELLED_REASON = "Agent run was cancelled by the user."
+private const val TOOL_STEP_BUDGET_EXCEEDED_REASON = "Agent run tool step budget exceeded."
+private const val OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON =
+    "Agent run observation decision budget exceeded."
 
 class AgentLoopRuntime(
     private val memoryIndex: MemoryIndex,
@@ -51,6 +55,8 @@ class AgentLoopRuntime(
     private val traceStore: AgentTraceStore = InMemoryAgentTraceStore(),
     private val observationReplanner: AgentObservationReplanner = NoOpAgentObservationReplanner,
     private val maxToolRetryAttempts: Int = 1,
+    private val maxRunToolSteps: Int = 8,
+    private val maxObservationDecisions: Int = 16,
 ) {
     private val skillProgressor = SkillRunProgressor(toolRegistry = toolRegistry)
     private val valueFreeCompletedStepFrontiersByRunId = mutableMapOf<String, Set<String>>()
@@ -149,6 +155,112 @@ class AgentLoopRuntime(
         )
     }
 
+    fun cancelRun(runId: String, reason: String = RUN_CANCELLED_REASON): AgentModelObservationResult? {
+        val run = traceStore.run(runId) ?: return null
+        if (run.state in terminalRunStates) return null
+        if (run.state == AgentRunState.AwaitingUserConfirmation) {
+            latestPendingToolRequest(runId)?.let { request ->
+                val cancelled = cancelToolRequest(runId, request.id) ?: return null
+                return AgentModelObservationResult(
+                    run = cancelled.run,
+                    decision = cancelled.decision,
+                    steps = cancelled.steps,
+                )
+            }
+            traceStore.clearPendingConfirmationsForRun(runId)
+        } else {
+            traceStore.clearPendingConfirmationsForRun(runId)
+        }
+        val decision = AgentObservationDecision.Cancel
+        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        val updatedRun = traceStore.updateState(runId, AgentRunState.Cancelled)
+        valueFreeCompletedStepFrontiersByRunId.remove(runId)
+        return AgentModelObservationResult(
+            run = updatedRun,
+            decision = decision,
+            steps = traceStore.steps(runId),
+        )
+    }
+
+    private fun failRunBudget(
+        runId: String,
+        reason: String,
+    ): AgentModelObservationResult {
+        traceStore.clearPendingConfirmationsForRun(runId)
+        traceStore.appendStep(runId, AgentStep.Failed(reason))
+        val decision = AgentObservationDecision.Fail(reason)
+        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        val updatedRun = traceStore.updateState(runId, AgentRunState.Failed)
+        valueFreeCompletedStepFrontiersByRunId.remove(runId)
+        return AgentModelObservationResult(
+            run = updatedRun,
+            decision = decision,
+            steps = traceStore.steps(runId),
+        )
+    }
+
+    private fun failObservationBudget(
+        runId: String,
+        result: ToolResult,
+        assistantMessage: String,
+        reason: String,
+    ): AgentObservationResult {
+        traceStore.clearPendingConfirmationsForRun(runId)
+        traceStore.appendStep(runId, AgentStep.Failed(reason))
+        val decision = AgentObservationDecision.Fail(reason)
+        traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
+        val updatedRun = traceStore.updateState(runId, AgentRunState.Failed)
+        valueFreeCompletedStepFrontiersByRunId.remove(runId)
+        return AgentObservationResult(
+            run = updatedRun,
+            result = result,
+            assistantMessage = assistantMessage,
+            decision = decision,
+            recoveryAction = null,
+            continuationPromptForModel = null,
+            continuationRequiresLocalModel = false,
+            retryRequest = null,
+            retryAttempt = 0,
+            steps = traceStore.steps(runId),
+        )
+    }
+
+    private fun failInitialPlanBudget(
+        run: AgentRun,
+        request: ToolRequest,
+    ): AgentLoopResult {
+        val rejectedPlan = AgentPlan.RejectedTool(request.rejected(TOOL_STEP_BUDGET_EXCEEDED_REASON))
+        traceStore.appendStep(run.id, AgentStep.ModelPlanned(rejectedPlan))
+        traceStore.appendStep(run.id, AgentStep.ToolRejected(rejectedPlan.result))
+        auditRejectedTool(run.id, rejectedPlan.result)
+        traceStore.appendStep(run.id, AgentStep.Failed(rejectedPlan.result.summary))
+        val failedRun = traceStore.updateState(run.id, AgentRunState.Failed)
+        valueFreeCompletedStepFrontiersByRunId.remove(run.id)
+        return AgentLoopResult(
+            run = failedRun,
+            plan = rejectedPlan,
+            steps = traceStore.steps(run.id),
+        )
+    }
+
+    private fun failNextPlanBudget(
+        runId: String,
+        request: ToolRequest,
+    ): NextObservationPlan {
+        val rejected = request.rejected(TOOL_STEP_BUDGET_EXCEEDED_REASON)
+        traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
+        traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
+        auditRejectedTool(runId, rejected)
+        traceStore.appendStep(runId, AgentStep.Failed(rejected.summary))
+        return NextObservationPlan.Rejected(rejected.summary)
+    }
+
+    private fun toolStepBudgetExceeded(runId: String): Boolean =
+        toolRequestsFor(runId).size >= maxRunToolSteps
+
+    private fun observationDecisionBudgetExceeded(runId: String): Boolean =
+        traceStore.steps(runId).count { step -> step is AgentStep.ObservationDecided } >= maxObservationDecisions
+
     fun confirmToolRequest(runId: String, requestId: String): AgentRun? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.AwaitingUserConfirmation) return run
@@ -245,6 +357,9 @@ class AgentLoopRuntime(
     fun observeModelResult(runId: String, text: String): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.GeneratingAnswer) return null
+        if (observationDecisionBudgetExceeded(runId)) {
+            return failRunBudget(runId, OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON)
+        }
         val nextToolPlan = when {
             text.isNotBlank() -> planNextToolAfterModelResult(run, text.trim())
             latestSkillPlan(runId) != null -> NextObservationPlan.Rejected(
@@ -293,6 +408,12 @@ class AgentLoopRuntime(
     fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.GeneratingAnswer) return null
+        if (observationDecisionBudgetExceeded(runId)) {
+            return failRunBudget(runId, OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON)
+        }
+        if (toolStepBudgetExceeded(runId)) {
+            return failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
+        }
         if (toolRequestFor(runId, request.id) != null) {
             val rejected = request.rejected("Model tool request id already exists: ${request.id}")
             traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
@@ -370,7 +491,8 @@ class AgentLoopRuntime(
         val continuationPrompt = continuation?.prompt
         val continuationRequiresLocalModel = continuation?.requiresLocalModel ?: false
         val observedResult = safeResult.redactedForTrace(request)
-        val retryAttempt = nextRetryAttempt(runId, observedResult)
+        val budgetExceeded = observationDecisionBudgetExceeded(runId)
+        val retryAttempt = if (budgetExceeded) 0 else nextRetryAttempt(runId, observedResult)
         val retryRequest = if (retryAttempt > 0) request else null
         traceStore.appendStep(runId, AgentStep.ToolObserved(observedResult))
         auditSink.record(
@@ -389,6 +511,14 @@ class AgentLoopRuntime(
         val recoveryAction = recoveryActionForObservation(request, observedResult)
         val assistantMessage = messageForObservation(observedResult, retryAttempt, recoveryAction)
         traceStore.appendStep(runId, AgentStep.AssistantResponded(assistantMessage))
+        if (budgetExceeded) {
+            return failObservationBudget(
+                runId = runId,
+                result = observedResult,
+                assistantMessage = assistantMessage,
+                reason = OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON,
+            )
+        }
         val nextToolPlan = if (
             observedResult.status == ToolStatus.Succeeded &&
             !observedResult.isUnverifiedExternalLaunch() &&
@@ -652,6 +782,9 @@ class AgentLoopRuntime(
         fallbackReason: String?,
         skillPlan: SkillPlan?,
     ): NextObservationPlan {
+        if (toolStepBudgetExceeded(runId)) {
+            return failNextPlanBudget(runId, request)
+        }
         if (toolRequestFor(runId, request.id) != null) {
             return rejectNextToolPlan(
                 runId,
@@ -720,6 +853,9 @@ class AgentLoopRuntime(
         run: AgentRun,
         plan: AgentPlan.UseTool,
     ): AgentLoopResult {
+        if (toolStepBudgetExceeded(run.id)) {
+            return failInitialPlanBudget(run, plan.request)
+        }
         appendToolPlanSteps(run.id, plan)
         val waitingRun = traceStore.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
         traceStore.savePendingConfirmation(plan.toPendingSnapshot(waitingRun))

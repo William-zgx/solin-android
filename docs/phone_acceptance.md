@@ -159,6 +159,7 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 - 安装并校验动作模型后，支持的动作请求可以显示“动作模型实验”的待确认草稿；执行前仍必须经过用户确认。
 - 确认动作后，聊天中应追加一条结构化执行结果，例如“工具执行结果：已打开网页搜索”。
 - 取消动作后，不应打开外部 App 或系统页面，Agent run 应进入 `Cancelled` 并写入审计事件。
+- 生成中点击停止后，当前 Agent run 应进入 `Cancelled`，迟到模型输出不应再改变 run 或生成新的待确认动作；最近 Agent 轨迹应刷新为取消状态。
 - 出现可恢复的待确认动作后杀进程并重启 App，应恢复同一个确认 UI；恢复瞬间不应执行工具、不应弹 Android runtime permission，只有再次确认后才继续执行链路。含外发文本、搜索 query、提醒标题/正文、深链 URI、模型输出或私密读取结果的 payload-bearing 待确认动作应 fail closed，而不是恢复可执行参数。
 - 需要 Android runtime permission 的工具应在确认卡提前展示友好权限名和用途；如果用户在系统权限弹窗中拒绝权限，不应执行工具、不应自动重试，应显示结构化权限失败并清除待确认状态，同时保留 raw manifest permission 供审计。
 - 需要 Usage Access 的前台 App 摘要不应触发 Android runtime permission 弹窗；确认卡应说明系统“使用情况访问权限 / Usage Access”设置入口，未授权时不应读取数据、不应自动重试，应返回结构化权限失败。
@@ -172,6 +173,7 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 - 未知工具、缺少参数或没有可处理 Intent 的设备，应显示明确失败原因，不应崩溃。
 - 工具参数错误、权限拒绝或 provider 失败应返回结构化失败；校验拒绝时不应执行 delegate。
 - 支持的动作应能在 Agent trace 中形成 `ToolRequested -> UserConfirmed -> ToolObserved -> AssistantResponded` 顺序。
+- Agent loop 硬预算耗尽时，应在生成下一张确认卡、重试或模型续写前 fail closed；失败原因应为通用预算原因，不应包含 prompt、模型输出、剪贴板、屏幕文本、联系人或 OCR 原文。
 - 支持的动作应先经过 `SafetyPolicy`，中高风险或外发文本工具不允许绕过确认。
 - 确认并执行动作后，`tool_audit_events` 应记录计划、请求确认、用户确认和观察结果；记录中不应包含 API Key、完整 prompt 或工具参数明文。
 - 通过“后台任务”入口应能查看最近持久化工具审计事件；列表只展示时间、事件类型、工具名、状态、风险、权限和不含参数的安全摘要，不展示工具参数、prompt、远程响应、剪贴板原文、Authorization 或 API Key。
