@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "policy": "Public release builds require VERIFY_RELEASE_OPERATIONS=1 and an approved CI, crash/ANR monitoring, artifact archive, signing, and rollback record.",
+  "status": "pending_operations_review",
+  "ci": {
+    "owner": "",
+    "provider": "",
+    "workflowName": "",
+    "runId": "",
+    "commitSha": "",
+    "localVerification": {
+      "status": "pending",
+      "jobName": "",
+      "evidence": {
+        "path": "",
+        "sha256": ""
+      }
+    },
+    "connectedAndroidTests": {
+      "status": "pending",
+      "jobName": "",
+      "evidence": {
+        "path": "",
+        "sha256": ""
+      }
+    },
+    "apiMatrix": {
+      "status": "pending",
+      "jobName": "",
+      "artifactName": "",
+      "evidence": {
+        "path": "",
+        "sha256": ""
+      }
+    },
+    "releaseArtifactArchive": {
+      "status": "pending",
+      "jobName": "",
+      "artifactName": "",
+      "evidence": {
+        "path": "",
+        "sha256": ""
+      }
+    },
+    "protectedSigning": {
+      "status": "pending",
+      "jobName": "",
+      "signingEnvironment": "",
+      "evidence": {
+        "path": "",
+        "sha256": ""
+      }
+    }
+  },
+  "monitoring": {
+    "owner": "",
+    "signalSources": [],
+    "first24HoursWatcher": "",
+    "crashFreeRateThresholdPercent": 0,
+    "anrRateThresholdPercent": 0,
+    "privacyReviewedForCrashSdk": true,
+    "evidence": {
+      "path": "",
+      "sha256": ""
+    }
+  },
+  "crashAnrSmoke": {
+    "window": "",
+    "track": "",
+    "noLaunchCrash": false,
+    "noInstallCrash": false,
+    "noCrashLoop": false,
+    "noFatalNativeLiteRtLmFailure": false,
+    "noReproducibleAnr": false,
+    "failureEvidencePolicy": "",
+    "evidence": {
+      "path": "",
+      "sha256": ""
+    }
+  },
+  "rollback": {
+    "owner": "",
+    "decisionChannel": "",
+    "criteria": [
+      "install failure",
+      "crash loop",
+      "model download verification failure",
+      "privacy boundary failure",
+      "critical tool execution regression"
+    ],
+    "firstStagedRolloutAction": "",
+    "playVersionCodePolicy": "",
+    "modelManifestRollbackPath": "",
+    "userDataCompatibility": "",
+    "evidence": {
+      "path": "",
+      "sha256": ""
+    },
+    "previousKnownGood": {
+      "status": "unknown",
+      "versionCode": 0,
+      "versionName": "",
+      "gitCommit": "",
+      "artifactPath": "",
+      "artifactSha256": "",
+      "releaseNotes": ""
+    }
+  },
+  "review": {
+    "reviewer": "",
+    "reviewDate": ""
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "policy": "Release builds require VERIFY_RELEASE_RECORD=1 and an approved record before public distribution. PUBLIC_RELEASE=1 requires the record to name the final public AAB, matching artifact SHA-256, matching signing certificate SHA-256, and a public distribution channel.",
+  "status": "pending_release_record",
+  "release": {
+    "applicationId": "com.bytedance.zgx.pocketmind",
+    "versionCode": 1,
+    "versionName": "0.1.0",
+    "gitCommit": "",
+    "gitBranch": "main",
+    "targetChannel": "",
+    "releaseDate": "",
+    "owner": "",
+    "reviewer": "",
+    "changelog": "",
+    "releaseNotes": "",
+    "agentBehaviorSummary": "Remote OpenAI-style public read-only tool calls can execute through the local Agent runtime; mixed private, action, or side-effect batches fail closed before any tool runs.",
+    "unsupportedCapabilities": [
+      "Full PDF parsing",
+      "Legacy Office parsing",
+      "Local image semantic understanding without a configured vision model",
+      "Arbitrary media OCR",
+      "Semantic screen understanding"
+    ],
+    "artifact": {
+      "type": "",
+      "path": "",
+      "sha256": "",
+      "sizeBytes": 0,
+      "signingCertificateSha256": ""
+    },
+    "verificationReports": [],
+    "blockers": [
+      {
+        "id": "privacy-review",
+        "status": "open",
+        "owner": "",
+        "date": "",
+        "evidencePath": "",
+        "evidenceSha256": "",
+        "riskNote": "docs/privacy_review.json is pending release/security/legal approval."
+      },
+      {
+        "id": "model-license-review",
+        "status": "open",
+        "owner": "",
+        "date": "",
+        "evidencePath": "",
+        "evidenceSha256": "",
+        "riskNote": "docs/model_license_review.json is pending license, redistribution, and attribution approval."
+      },
+      {
+        "id": "production-signing",
+        "status": "open",
+        "owner": "",
+        "date": "",
+        "evidencePath": "",
+        "evidenceSha256": "",
+        "riskNote": "Production keystore and upload certificate SHA-256 are not recorded in this repository."
+      }
+    ]
+  }
+}

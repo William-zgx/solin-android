@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "policy": "Public release builds require VERIFY_STORE_POLICY=1 and an approved store policy record.",
+  "status": "pending_policy_review",
+  "privacyNoticePath": "docs/privacy_notice.md",
+  "privacyNoticeSha256": "4345bcbb11830fa2ed1d3e4ef6acc739af0c674a9ccc495cfd7c1ef9398b8c16",
+  "appListing": {
+    "appName": "PocketMind",
+    "shortDescription": "Privacy-first pocket AI: local, optional remote, confirmed actions.",
+    "fullDescription": "PocketMind is a privacy-first pocket AI assistant for Android: it is locally usable with downloaded or imported models, can optionally use user-configured remote multimodal models for text and image requests, and only executes device actions after explicit confirmation. Chats, explicit memories, model files, and tool audit records stay in local app storage by default. Remote calls and model downloads happen only through user-configured or documented endpoints, with clear prompts before remote sends.",
+    "category": "Productivity",
+    "contactEmail": "release-contact@example.invalid",
+    "privacyPolicyUrl": "https://example.invalid/pocketmind/privacy"
+  },
+  "dataSafety": {
+    "userDataCollected": true,
+    "userDataShared": true,
+    "encryptedInTransit": true,
+    "userDeletable": true,
+    "optionalRemoteModelEndpoints": true,
+    "externalRecipients": [
+      "User-configured remote model endpoints",
+      "Recommended and custom model download hosts",
+      "Android system or destination apps opened by confirmed external intents"
+    ],
+    "noFirstPartyAnalyticsUpload": true,
+    "localStorageDisclosed": true,
+    "remoteModelCallsDisclosed": true,
+    "modelDownloadsDisclosed": true,
+    "androidPermissionsDisclosed": true
+  },
+  "modelDownloads": {
+    "describedAsLargeOptionalAssets": true,
+    "declaresNotBundledInApk": true,
+    "primaryChatModelBytes": 2588147712,
+    "remoteAlternativeDisclosed": true,
+    "officialLightweightChatAlternative": false
+  },
+  "permissions": [
+    {
+      "name": "android.permission.INTERNET",
+      "purpose": "Connects for user-configured remote model calls and optional model downloads."
+    },
+    {
+      "name": "android.permission.RECORD_AUDIO",
+      "purpose": "Lets the user dictate text through explicit voice input before sending."
+    },
+    {
+      "name": "android.permission.READ_CALENDAR",
+      "purpose": "Reads busy/free calendar windows only after user-confirmed tool requests."
+    },
+    {
+      "name": "android.permission.READ_CONTACTS",
+      "purpose": "Looks up contact names or phone matches only after user-confirmed tool requests."
+    },
+    {
+      "name": "android.permission.READ_EXTERNAL_STORAGE",
+      "purpose": "Supports legacy Android 12 and below media or file metadata reads after confirmation."
+    },
+    {
+      "name": "android.permission.READ_MEDIA_IMAGES",
+      "purpose": "Reads selected recent images or screenshots for metadata and OCR flows after confirmation."
+    },
+    {
+      "name": "android.permission.READ_MEDIA_VIDEO",
+      "purpose": "Supports user-provided video attachments and recent media metadata checks after confirmation."
+    },
+    {
+      "name": "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+      "purpose": "Honors Android selected visual media grants for user-chosen image inputs."
+    },
+    {
+      "name": "android.permission.READ_MEDIA_AUDIO",
+      "purpose": "Handles user-provided audio attachments as metadata-only inputs without automatic upload."
+    },
+    {
+      "name": "android.permission.POST_NOTIFICATIONS",
+      "purpose": "Posts reminder notifications only for user-created or confirmed background tasks."
+    },
+    {
+      "name": "android.permission.RECEIVE_BOOT_COMPLETED",
+      "purpose": "Restores scheduled reminder alarms after device reboot or app replacement."
+    },
+    {
+      "name": "android.permission.PACKAGE_USAGE_STATS",
+      "purpose": "Estimates the foreground app for confirmed device-context tools when Usage Access is granted."
+    }
+  ],
+  "specialAccessDisclosures": [
+    {
+      "name": "UsageAccess",
+      "purpose": "Used only after confirmation to estimate the current foreground app."
+    },
+    {
+      "name": "AccessibilityService",
+      "purpose": "Used only after confirmation to read current-screen text nodes."
+    },
+    {
+      "name": "MediaProjection",
+      "purpose": "Used only after foreground consent for one-shot current screenshot OCR."
+    }
+  ],
+  "review": {
+    "reviewer": "",
+    "reviewDate": "",
+    "evidencePath": "docs/store_policy_review_evidence/pending.properties",
+    "evidenceSha256": "15526adf0fbe3835cd9d05926667a7e3daf59b267e0cdd6f28542ab2d4e9d46d"
+  }
+}
