@@ -12,6 +12,8 @@ import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolSpec
+import com.bytedance.zgx.pocketmind.tool.isPublicEvidenceBatchEligible
+import com.bytedance.zgx.pocketmind.tool.isRemoteModelPlanningEligible
 
 sealed class AssistantRoute {
     data class Chat(
@@ -48,6 +50,7 @@ interface AssistantRouter : AutoCloseable {
         actionModelPath: String? = null,
         deviceContext: DeviceContextSnapshot? = null,
         sessionId: String? = null,
+        options: AgentRunOptions = AgentRunOptions(),
     ): AssistantRoute
 
     fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String? = null): AssistantRoute
@@ -72,7 +75,19 @@ interface AssistantRouter : AutoCloseable {
         outcome: AgentExternalOutcome,
     ): AgentExternalOutcomeResult?
 
-    fun observeModelResult(runId: String, text: String): AgentModelObservationResult?
+    fun observeModelResult(
+        runId: String,
+        text: String,
+        allowInlineToolCalls: Boolean = true,
+    ): AgentModelObservationResult?
+
+    fun recordRemoteToolsExposed(
+        runId: String,
+        scope: RemoteToolScope,
+        toolNames: Set<String>,
+    )
+
+    fun recordRunDataReceipt(runId: String, receipt: RunDataReceipt) = Unit
 
     fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult?
 
@@ -93,6 +108,14 @@ interface AssistantRouter : AutoCloseable {
     fun deleteRunsForSession(sessionId: String): Int = 0
 
     fun availableToolSpecs(): List<ToolSpec> = emptyList()
+
+    fun availableRemoteToolSpecs(scope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly): List<ToolSpec> =
+        availableToolSpecs().filter { spec ->
+            when (scope) {
+                RemoteToolScope.PublicEvidenceOnly -> spec.isPublicEvidenceBatchEligible()
+                RemoteToolScope.ModelPlanning -> spec.isRemoteModelPlanningEligible()
+            }
+        }
 }
 
 class AssistantOrchestrator(
@@ -127,6 +150,7 @@ class AssistantOrchestrator(
         actionModelPath: String?,
         deviceContext: DeviceContextSnapshot?,
         sessionId: String?,
+        options: AgentRunOptions,
     ): AssistantRoute =
         agentLoopRuntime.runOnce(
             input = input,
@@ -135,6 +159,7 @@ class AssistantOrchestrator(
             actionModelPath = actionModelPath,
             deviceContext = deviceContext,
             sessionId = sessionId,
+            options = options,
         ).toAssistantRoute()
 
     override fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String?): AssistantRoute =
@@ -173,8 +198,32 @@ class AssistantOrchestrator(
     ): AgentExternalOutcomeResult? =
         agentLoopRuntime.recordExternalOutcome(runId, requestId, outcome)
 
-    override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? =
-        agentLoopRuntime.observeModelResult(runId, text)
+    override fun observeModelResult(
+        runId: String,
+        text: String,
+        allowInlineToolCalls: Boolean,
+    ): AgentModelObservationResult? =
+        agentLoopRuntime.observeModelResult(
+            runId = runId,
+            text = text,
+            allowInlineToolCalls = allowInlineToolCalls,
+        )
+
+    override fun recordRemoteToolsExposed(
+        runId: String,
+        scope: RemoteToolScope,
+        toolNames: Set<String>,
+    ) {
+        agentLoopRuntime.recordRemoteToolsExposed(
+            runId = runId,
+            scope = scope,
+            toolNames = toolNames,
+        )
+    }
+
+    override fun recordRunDataReceipt(runId: String, receipt: RunDataReceipt) {
+        agentLoopRuntime.recordRunDataReceipt(runId, receipt)
+    }
 
     override fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? =
         agentLoopRuntime.observeModelToolRequest(runId, request)
@@ -202,6 +251,14 @@ class AssistantOrchestrator(
 
     override fun availableToolSpecs(): List<ToolSpec> =
         toolRegistry.specs()
+
+    override fun availableRemoteToolSpecs(scope: RemoteToolScope): List<ToolSpec> =
+        availableToolSpecs().filter { spec ->
+            when (scope) {
+                RemoteToolScope.PublicEvidenceOnly -> spec.isPublicEvidenceBatchEligible()
+                RemoteToolScope.ModelPlanning -> spec.isRemoteModelPlanningEligible()
+            }
+        }
 
     override fun close() {
         (actionPlanningRuntime as? AutoCloseable)?.close()

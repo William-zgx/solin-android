@@ -101,9 +101,14 @@ class AssistantOrchestratorTest {
             memoryEnabled = false,
         )
         require(route is AssistantRoute.Chat)
+        orchestrator.recordRemoteToolsExposed(
+            runId = requireNotNull(route.runId),
+            scope = RemoteToolScope.PublicEvidenceOnly,
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+        )
 
         val observed = orchestrator.observeModelToolRequest(
-            runId = requireNotNull(route.runId),
+            runId = route.runId,
             request = ToolRequest(
                 id = "call-1",
                 toolName = MobileActionFunctions.WEB_SEARCH,
@@ -119,6 +124,26 @@ class AssistantOrchestratorTest {
         assertEquals(true, observed.decision.plan.plannedByModel)
         assertEquals("remote tool call", observed.decision.plan.fallbackReason)
         assertEquals(null, orchestrator.restorePendingAction())
+    }
+
+    @Test
+    fun remotePlanningToolScopeIncludesSafeActionDraftsAndExcludesLocalEvidence() {
+        val orchestrator = AssistantOrchestrator(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = NeverActionRuntime(),
+        )
+
+        val publicEvidenceTools = orchestrator.availableRemoteToolSpecs(RemoteToolScope.PublicEvidenceOnly)
+        val planningTools = orchestrator.availableRemoteToolSpecs(RemoteToolScope.ModelPlanning)
+
+        assertTrue(publicEvidenceTools.any { tool -> tool.name == MobileActionFunctions.WEB_SEARCH })
+        assertTrue(publicEvidenceTools.none { tool -> tool.name == MobileActionFunctions.COMPOSE_EMAIL })
+        assertTrue(planningTools.any { tool -> tool.name == MobileActionFunctions.WEB_SEARCH })
+        assertTrue(planningTools.any { tool -> tool.name == MobileActionFunctions.COMPOSE_EMAIL })
+        assertTrue(planningTools.any { tool -> tool.name == MobileActionFunctions.SEARCH_MAPS })
+        assertTrue(planningTools.none { tool -> tool.name == MobileActionFunctions.READ_CLIPBOARD })
+        assertTrue(planningTools.none { tool -> tool.name == MobileActionFunctions.QUERY_CONTACTS })
+        assertTrue(planningTools.none { tool -> tool.name == MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR })
     }
 
     @Test
@@ -368,6 +393,8 @@ class AssistantOrchestratorTest {
     private fun webSearchResultData(): Map<String, String> =
         mapOf(
             "toolName" to MobileActionFunctions.WEB_SEARCH,
+            "privacy" to MessagePrivacy.RemoteEligible.name,
+            "requiresLocalModel" to "false",
             "query" to "Kotlin",
             "source" to "duckduckgo",
             "summaryText" to "Kotlin search summary",

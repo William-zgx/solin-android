@@ -26,6 +26,64 @@ enum class AgentRunState {
     Failed,
 }
 
+enum class AgentRuntimePhase {
+    Created,
+    LoadingContext,
+    Planning,
+    NeedsConfirmation,
+    Executing,
+    WaitingExternalResult,
+    GeneratingAnswer,
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+fun AgentRunState.contractPhase(): AgentRuntimePhase =
+    when (this) {
+        AgentRunState.Created -> AgentRuntimePhase.Created
+        AgentRunState.LoadingContext -> AgentRuntimePhase.LoadingContext
+        AgentRunState.Planning -> AgentRuntimePhase.Planning
+        AgentRunState.AwaitingUserConfirmation -> AgentRuntimePhase.NeedsConfirmation
+        AgentRunState.ExecutingTool,
+        AgentRunState.RetryingTool,
+        AgentRunState.Observing -> AgentRuntimePhase.Executing
+
+        AgentRunState.GeneratingAnswer -> AgentRuntimePhase.GeneratingAnswer
+        AgentRunState.AwaitingExternalOutcome -> AgentRuntimePhase.WaitingExternalResult
+        AgentRunState.Completed -> AgentRuntimePhase.Completed
+        AgentRunState.Cancelled -> AgentRuntimePhase.Cancelled
+        AgentRunState.Failed -> AgentRuntimePhase.Failed
+    }
+
+enum class RunDataDestination {
+    Local,
+    Remote,
+}
+
+data class RunDataReceipt(
+    val destination: RunDataDestination,
+    val currentPromptPrivacy: String,
+    val remoteHistoryCount: Int = 0,
+    val localOnlyHistoryFilteredCount: Int = 0,
+    val memoryHitCount: Int = 0,
+    val memoryContextIncluded: Boolean = false,
+    val deviceContextIncluded: Boolean = false,
+    val imageAttachmentCount: Int = 0,
+    val protectedSourceCount: Int = 0,
+    val rawContentPersisted: Boolean = false,
+    val protectedContentTypes: List<String> = emptyList(),
+    val deletableRecordTypes: List<String> = listOf("对话消息", "Agent 轨迹"),
+) {
+    init {
+        require(remoteHistoryCount >= 0) { "remoteHistoryCount must be >= 0" }
+        require(localOnlyHistoryFilteredCount >= 0) { "localOnlyHistoryFilteredCount must be >= 0" }
+        require(memoryHitCount >= 0) { "memoryHitCount must be >= 0" }
+        require(imageAttachmentCount >= 0) { "imageAttachmentCount must be >= 0" }
+        require(protectedSourceCount >= 0) { "protectedSourceCount must be >= 0" }
+    }
+}
+
 data class AgentRun(
     val id: String,
     val input: String,
@@ -74,6 +132,15 @@ sealed class AgentStep {
 
     data class ModelPlanned(
         val plan: AgentPlan,
+    ) : AgentStep()
+
+    data class RemoteToolsExposed(
+        val scope: RemoteToolScope,
+        val toolNames: List<String>,
+    ) : AgentStep()
+
+    data class RunDataReceiptRecorded(
+        val receipt: RunDataReceipt,
     ) : AgentStep()
 
     data class ToolRequested(
@@ -191,6 +258,7 @@ data class AgentObservationResult(
     val recoveryAction: AgentRecoveryAction? = null,
     val continuationPromptForModel: String? = null,
     val continuationRequiresLocalModel: Boolean = false,
+    val continuationRemoteToolScope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
     val retryRequest: ToolRequest? = null,
     val retryAttempt: Int = 0,
     val steps: List<AgentStep>,

@@ -146,6 +146,62 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStoreDoesNotPersistWebSearchObservationSummaryOrResultData() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-web-search-observed" },
+        )
+        val privateQuery = "private medical query"
+        val thirdPartySnippet = "third party returned private-looking snippet"
+        val request = ToolRequest(
+            id = "request-search-observed",
+            toolName = MobileActionFunctions.WEB_SEARCH,
+            arguments = mapOf("query" to privateQuery),
+            reason = "Search web.",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.WEB_SEARCH,
+            title = "联网搜索",
+            summary = "Search web.",
+            parameters = request.arguments,
+            requiresConfirmation = false,
+        )
+        val run = store.createRun("search")
+
+        store.appendStep(run.id, AgentStep.ToolRequested(request, draft))
+        store.appendStep(
+            run.id,
+            AgentStep.ToolObserved(
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已完成 Web 搜索：$privateQuery；$thirdPartySnippet",
+                    data = mapOf(
+                        "toolName" to MobileActionFunctions.WEB_SEARCH,
+                        "query" to privateQuery,
+                        "summaryText" to thirdPartySnippet,
+                        "resultsJson" to """{"snippet":"$thirdPartySnippet"}""",
+                    ),
+                ),
+            ),
+        )
+
+        val persistedTrace = store.stepSummaries(run.id).joinToString("\n") { step ->
+            "${step.summary}\n${step.json}"
+        }
+        val observedStep = store.stepSummaries(run.id).single { step -> step.type == "ToolObserved" }
+        val observedJson = JSONObject(observedStep.json)
+
+        assertEquals("Observed Succeeded for request-search-observed.", observedStep.summary)
+        assertEquals(ToolStatus.Succeeded.name, observedJson.getString("status"))
+        assertFalse(observedJson.has("summary"))
+        assertFalse(observedJson.has("completionMetadata"))
+        assertFalse(persistedTrace.contains(privateQuery))
+        assertFalse(persistedTrace.contains(thirdPartySnippet))
+    }
+
+    @Test
     fun roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(
