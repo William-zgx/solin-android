@@ -66,6 +66,10 @@ class ToolRegistryTest {
         assertEquals(ConfirmationPolicy.NotRequired, webSearchSpec.confirmationPolicy)
         assertEquals(ToolResultContinuationPolicy.PublicEvidence, webSearchSpec.resultContinuationPolicy)
         assertTrue(webSearchSpec.inputSchemaJson.contains("query"))
+        assertTrue(webSearchSpec.inputSchemaJson.contains("weather_current"))
+        assertTrue(webSearchSpec.inputSchemaJson.contains("maxResults"))
+        assertTrue(webSearchSpec.inputSchemaJson.contains("freshness"))
+        assertFalse(webSearchSpec.inputSchemaJson.contains("\"local\""))
         assertTrue(webSearchSpec.outputSchemaJson.contains("summaryText"))
         assertTrue(webSearchSpec.outputSchemaJson.contains("resultsJson"))
 
@@ -111,6 +115,7 @@ class ToolRegistryTest {
         requireNotNull(cancelReminderSpec)
         assertEquals(ToolCapability.BackgroundTask, cancelReminderSpec.capability)
         assertEquals(ConfirmationPolicy.Required, cancelReminderSpec.confirmationPolicy)
+        assertTrue(ToolPermission.SchedulesBackgroundWork in cancelReminderSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in cancelReminderSpec.permissions)
         assertTrue(cancelReminderSpec.inputSchemaJson.contains("taskId"))
 
@@ -127,6 +132,8 @@ class ToolRegistryTest {
         assertEquals(ToolCapability.ExternalShare, shareSpec.capability)
         assertTrue(ToolPermission.StartsExternalActivity in shareSpec.permissions)
         assertTrue(ToolPermission.SendsTextToExternalApp in shareSpec.permissions)
+        assertTrue(shareSpec.inputSchemaJson.contains("\"maxLength\": $MAX_SHARE_TEXT_CHARS"))
+        assertTrue(shareSpec.inputSchemaJson.contains("\"maxLength\": $MAX_SHARE_TITLE_CHARS"))
 
         val calendarAvailabilitySpec = registry.specFor(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY)
         assertNotNull(calendarAvailabilitySpec)
@@ -174,11 +181,21 @@ class ToolRegistryTest {
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"kind\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"maxCount\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("\"screenshots\""))
-        assertTrue(recentFilesSpec.inputSchemaJson.contains("\"documents\""))
+        assertFalse(recentFilesSpec.inputSchemaJson.contains("\"documents\""))
+        assertFalse(recentFilesSpec.inputSchemaJson.contains("\"downloads\""))
+        assertFalse(recentFilesSpec.inputSchemaJson.contains("\"others\""))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("系统文件选择器"))
         assertTrue(recentFilesSpec.inputSchemaJson.contains("已授权媒体"))
         assertTrue(recentFilesSpec.description.contains("Android 13"))
         assertTrue(recentFilesSpec.description.contains("系统文件选择器"))
+        val recentFilesOutputProperties = JSONObject(recentFilesSpec.outputSchemaJson).getJSONObject("properties")
+        assertTrue(recentFilesOutputProperties.has("mediaAccessScope"))
+        assertTrue(
+            recentFilesOutputProperties
+                .getJSONObject("mediaAccessScope")
+                .getJSONArray("enum")
+                .containsString("user_selected_visual_media"),
+        )
 
         val screenshotOcrSpec = registry.specFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
         assertNotNull(screenshotOcrSpec)
@@ -249,6 +266,9 @@ class ToolRegistryTest {
         assertEquals(ToolResultContinuationPolicy.LocalEvidence, foregroundAppSpec.resultContinuationPolicy)
         assertTrue(ToolPermission.ReadsDeviceContext in foregroundAppSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in foregroundAppSpec.permissions)
+        assertTrue(foregroundAppSpec.description.contains("UsageStats"))
+        assertTrue(foregroundAppSpec.description.contains("估计"))
+        assertTrue(foregroundAppSpec.outputSchemaJson.contains("usage_stats_estimate"))
 
         val deepLinkSpec = registry.specFor(MobileActionFunctions.OPEN_DEEP_LINK)
         assertNotNull(deepLinkSpec)
@@ -317,6 +337,72 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun remoteToolExposureRequiresExplicitReviewedAllowlist() {
+        val publicEvidenceTools = registry.specs()
+            .filter { spec -> spec.isPublicEvidenceBatchEligible() }
+            .map { spec -> spec.name }
+        val remotePlanningTools = registry.specs()
+            .filter { spec -> spec.isRemoteModelPlanningEligible() }
+            .map { spec -> spec.name }
+
+        assertEquals(
+            listOf(MobileActionFunctions.WEB_SEARCH),
+            publicEvidenceTools,
+        )
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+                MobileActionFunctions.SEARCH_MAPS,
+                MobileActionFunctions.WEB_SEARCH,
+                MobileActionFunctions.COMPOSE_EMAIL,
+                MobileActionFunctions.CREATE_CALENDAR_EVENT,
+                MobileActionFunctions.CREATE_CONTACT_DRAFT,
+                MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+                MobileActionFunctions.SCHEDULE_REMINDER,
+                MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+                MobileActionFunctions.SHARE_TEXT,
+                MobileActionFunctions.OPEN_DEEP_LINK,
+                MobileActionFunctions.OPEN_APP_INTENT,
+                MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                MobileActionFunctions.CANCEL_REMINDER,
+            ),
+            remotePlanningTools,
+        )
+    }
+
+    @Test
+    fun remoteModelPlanningEligibleToolsStillRequireUserConfirmation() {
+        // Issue 4: even though ExternalShare / ExternalNavigation / BackgroundTask capabilities are
+        // exposed to remote-model planning, the remote model must never be able to invoke those
+        // action tools without an explicit user confirmation. The only planning-eligible tool that
+        // may skip confirmation is the read-only public-evidence batch path (web_search); every
+        // other planning-eligible tool MUST require confirmation. This test pins that invariant so
+        // no future action tool can join the planning surface with a weaker confirmation policy.
+        val privilegedPlanningSpecs = registry.specs()
+            .filter { spec -> spec.isRemoteModelPlanningEligible() && !spec.isPublicEvidenceBatchEligible() }
+        assertTrue(
+            "expected at least one privileged remote-planning-eligible tool",
+            privilegedPlanningSpecs.isNotEmpty(),
+        )
+        privilegedPlanningSpecs.forEach { spec ->
+            assertEquals(
+                "remote-planning action tool ${spec.name} must still require user confirmation",
+                ConfirmationPolicy.Required,
+                spec.confirmationPolicy,
+            )
+        }
+
+        // Spot-check the highest-risk external egress tool explicitly.
+        val shareSpec = registry.specFor(MobileActionFunctions.SHARE_TEXT)
+        assertNotNull(shareSpec)
+        requireNotNull(shareSpec)
+        assertEquals(ToolCapability.ExternalShare, shareSpec.capability)
+        assertTrue(shareSpec.isRemoteModelPlanningEligible())
+        assertEquals(ConfirmationPolicy.Required, shareSpec.confirmationPolicy)
+    }
+
+    @Test
     fun recentNotificationSchemaRejectsUnsupportedMaxCount() {
         val rejection = registry.validate(
             ToolRequest(
@@ -331,6 +417,38 @@ class ToolRegistryTest {
         requireNotNull(rejection)
         assertEquals(ToolStatus.Rejected, rejection.status)
         assertTrue(rejection.summary.contains("at most 20"))
+    }
+
+    @Test
+    fun shareTextSchemaRejectsOversizedPayloads() {
+        val oversizedText = registry.validate(
+            ToolRequest(
+                id = "share-text-too-long",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+                arguments = mapOf("text" to "x".repeat(MAX_SHARE_TEXT_CHARS + 1)),
+                reason = "schema contract",
+            ),
+        )
+        val oversizedTitle = registry.validate(
+            ToolRequest(
+                id = "share-title-too-long",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+                arguments = mapOf(
+                    "text" to "hello",
+                    "title" to "x".repeat(MAX_SHARE_TITLE_CHARS + 1),
+                ),
+                reason = "schema contract",
+            ),
+        )
+
+        assertNotNull(oversizedText)
+        requireNotNull(oversizedText)
+        assertEquals(ToolStatus.Rejected, oversizedText.status)
+        assertTrue(oversizedText.summary.contains("at most $MAX_SHARE_TEXT_CHARS"))
+        assertNotNull(oversizedTitle)
+        requireNotNull(oversizedTitle)
+        assertEquals(ToolStatus.Rejected, oversizedTitle.status)
+        assertTrue(oversizedTitle.summary.contains("at most $MAX_SHARE_TITLE_CHARS"))
     }
 
     @Test
@@ -591,6 +709,27 @@ class ToolRegistryTest {
             assertTrue(
                 "$toolName privacy must be LocalOnly",
                 properties.getJSONObject("privacy").getJSONArray("enum").containsString(MessagePrivacy.LocalOnly.name),
+            )
+        }
+    }
+
+    @Test
+    fun publicEvidenceOutputSchemasRequireRemotePrivacyDeclaration() {
+        val publicEvidenceTools = registry.specs()
+            .filter { spec -> spec.resultContinuationPolicy == ToolResultContinuationPolicy.PublicEvidence }
+
+        assertEquals(listOf(MobileActionFunctions.WEB_SEARCH), publicEvidenceTools.map { spec -> spec.name })
+        publicEvidenceTools.forEach { spec ->
+            val schema = JSONObject(spec.outputSchemaJson)
+            val required = schema.optJSONArray("required")
+            val properties = schema.getJSONObject("properties")
+
+            assertTrue("${spec.name} output must require privacy", required.containsString("privacy"))
+            assertTrue("${spec.name} output must require requiresLocalModel", required.containsString("requiresLocalModel"))
+            assertEquals("boolean", properties.getJSONObject("requiresLocalModel").getString("type"))
+            assertTrue(
+                "${spec.name} privacy must be RemoteEligible",
+                properties.getJSONObject("privacy").getJSONArray("enum").containsString(MessagePrivacy.RemoteEligible.name),
             )
         }
     }
@@ -877,6 +1016,34 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun validateResultRejectsInvalidJsonContentMediaType() {
+        val request = ToolRequest(
+            id = "web-search-output-contract",
+            toolName = MobileActionFunctions.WEB_SEARCH,
+            reason = "schema contract",
+        )
+
+        val invalidJson = registry.validateResult(
+            request = request,
+            result = request.succeeded(
+                summary = "web search",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.WEB_SEARCH,
+                    "privacy" to MessagePrivacy.RemoteEligible.name,
+                    "requiresLocalModel" to "false",
+                    "query" to "北京天气",
+                    "source" to "duckduckgo",
+                    "summaryText" to "北京天气摘要",
+                    "resultsJson" to "[{\"title\":\"weather\"}",
+                ),
+            ),
+        )
+
+        assertInvalidResult(invalidJson, "resultsJson")
+        assertTrue(invalidJson?.summary.orEmpty().contains("valid JSON"))
+    }
+
+    @Test
     fun validateResultRejectsPrivateOutputWithRequiresLocalModelFalse() {
         val request = ToolRequest(
             id = "clipboard-local-model-boundary",
@@ -1097,11 +1264,48 @@ class ToolRegistryTest {
             ToolRequest(
                 id = "request-4",
                 toolName = MobileActionFunctions.WEB_SEARCH,
-                arguments = mapOf("query" to "Kotlin coroutines Android"),
+                arguments = mapOf(
+                    "query" to "Kotlin coroutines Android",
+                    "searchMode" to "weather_current",
+                    "freshness" to "current",
+                    "maxResults" to "3",
+                ),
                 reason = "test",
             ),
         )
         assertNull(valid)
+
+        val invalidSearchMode = registry.validate(
+            ToolRequest(
+                id = "request-5",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf(
+                    "query" to "Kotlin coroutines Android",
+                    "searchMode" to "local",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidSearchMode)
+        requireNotNull(invalidSearchMode)
+        assertEquals(ToolStatus.Rejected, invalidSearchMode.status)
+        assertTrue(invalidSearchMode.summary.contains("searchMode"))
+
+        val invalidMaxResults = registry.validate(
+            ToolRequest(
+                id = "request-6",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf(
+                    "query" to "Kotlin coroutines Android",
+                    "maxResults" to "6",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidMaxResults)
+        requireNotNull(invalidMaxResults)
+        assertEquals(ToolStatus.Rejected, invalidMaxResults.status)
+        assertTrue(invalidMaxResults.summary.contains("maxResults"))
     }
 
     @Test

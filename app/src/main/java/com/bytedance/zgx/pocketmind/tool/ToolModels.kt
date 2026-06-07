@@ -5,6 +5,9 @@ import java.util.UUID
 const val TOOL_NAME_ONLY_OUTPUT_SCHEMA_JSON =
     """{"type":"object","required":["toolName"],"properties":{"toolName":{"type":"string","minLength":1}},"additionalProperties":false}"""
 
+const val MAX_SHARE_TEXT_CHARS = 4_000
+const val MAX_SHARE_TITLE_CHARS = 120
+
 data class ToolSpec(
     val name: String,
     val title: String,
@@ -138,6 +141,35 @@ fun ToolSpec.isPublicEvidenceBatchEligible(): Boolean =
         riskLevel == RiskLevel.LowReadOnly &&
         privateOutputKeys.isEmpty() &&
         permissions.none { permission -> permission in publicEvidenceBatchDisallowedPermissions }
+
+private val remoteModelPlanningCapabilities = setOf(
+    ToolCapability.DeviceSettings,
+    ToolCapability.ExternalNavigation,
+    ToolCapability.ExternalDraft,
+    ToolCapability.ExternalShare,
+    ToolCapability.BackgroundTask,
+)
+
+private val remoteModelPlanningDisallowedPermissions = setOf(
+    ToolPermission.ReadsDeviceContext,
+    ToolPermission.ReadsClipboard,
+    ToolPermission.ReadsCalendar,
+    ToolPermission.ReadsContacts,
+    ToolPermission.ReadsFiles,
+    ToolPermission.ReadsAccessibilityText,
+    ToolPermission.RequiresMediaProjectionConsent,
+)
+
+fun ToolSpec.isRemoteModelPlanningEligible(): Boolean =
+    isPublicEvidenceBatchEligible() ||
+        (
+            privateOutputKeys.isEmpty() &&
+                resultContinuationPolicy != ToolResultContinuationPolicy.LocalEvidence &&
+                riskLevel != RiskLevel.CriticalDeviceOrPayment &&
+                confirmationPolicy == ConfirmationPolicy.Required &&
+                capability in remoteModelPlanningCapabilities &&
+                permissions.none { permission -> permission in remoteModelPlanningDisallowedPermissions }
+            )
 
 fun ToolRequest.succeeded(
     summary: String,

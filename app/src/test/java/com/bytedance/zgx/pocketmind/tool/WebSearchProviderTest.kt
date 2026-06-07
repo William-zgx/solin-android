@@ -7,6 +7,9 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 
 class WebSearchProviderTest {
     @Test
@@ -17,13 +20,60 @@ class WebSearchProviderTest {
             server.start()
             val provider = provider(server)
 
-            val result = provider.search("北京今天下雨了吗？")
+            val result = provider.search(
+                WebSearchRequest(
+                    query = "北京今天下雨了吗？",
+                    searchMode = WebSearchMode.WeatherCurrent,
+                ),
+            )
 
             require(result is WebSearchReadResult.Available)
             assertEquals("open_meteo", result.source)
             assertTrue(result.summaryText.contains("北京"))
+            assertEquals(WebSearchMode.WeatherCurrent, result.searchMode)
+            assertEquals(fixedInstant, result.retrievedAt)
+            assertEquals(WebSearchFreshness.Current, result.freshness)
+            val json = JSONObject(result.resultsJson)
+            assertEquals(1, json.getInt("schemaVersion"))
+            assertEquals("web_search_evidence", json.getString("kind"))
+            assertEquals("北京今天下雨了吗？", json.getString("query"))
+            assertEquals("weather_current", json.getString("searchMode"))
+            assertEquals(fixedInstant.toString(), json.getString("retrievedAt"))
+            assertEquals("current", json.getString("freshness"))
+            assertTrue(json.getJSONArray("sources").length() >= 1)
+            assertEquals("weather_current", json.getJSONArray("results").getJSONObject(0).getString("kind"))
             assertEquals("北京", server.takeRequest().url.queryParameter("name"))
             server.takeRequest()
+        }
+    }
+
+    @Test
+    fun generalWeatherWordingDoesNotRouteToOpenMeteo() {
+        MockWebServer().use { server ->
+            server.enqueue(
+                jsonResponse(
+                    """
+                    {
+                      "AbstractText": "北京天气相关搜索摘要",
+                      "AbstractURL": "https://example.com/weather",
+                      "Heading": "北京天气"
+                    }
+                    """.trimIndent(),
+                ),
+            )
+            server.start()
+            val provider = provider(server)
+
+            val result = provider.search("北京今天下雨了吗？")
+
+            require(result is WebSearchReadResult.Available)
+            assertEquals("duckduckgo", result.source)
+            assertEquals(WebSearchMode.General, result.searchMode)
+            val json = JSONObject(result.resultsJson)
+            assertEquals("general", json.getString("searchMode"))
+            assertEquals("any_time", json.getString("freshness"))
+            assertEquals("duckduckgo", json.getJSONArray("results").getJSONObject(0).getString("sourceId"))
+            assertTrue(server.takeRequest().target.startsWith("/instant?"))
         }
     }
 
@@ -36,7 +86,12 @@ class WebSearchProviderTest {
                 server.start()
                 val provider = provider(server)
 
-                val result = provider.search("${locationName}天气怎么样")
+                val result = provider.search(
+                    WebSearchRequest(
+                        query = "${locationName}天气怎么样",
+                        searchMode = WebSearchMode.WeatherCurrent,
+                    ),
+                )
 
                 require(result is WebSearchReadResult.Available)
                 assertTrue(result.summaryText.contains(locationName))
@@ -56,7 +111,12 @@ class WebSearchProviderTest {
             server.start()
             val provider = provider(server)
 
-            val result = provider.search("北京和上海的温差是多少")
+            val result = provider.search(
+                WebSearchRequest(
+                    query = "北京和上海的温差是多少",
+                    searchMode = WebSearchMode.WeatherCurrent,
+                ),
+            )
 
             require(result is WebSearchReadResult.Available)
             assertEquals("open_meteo", result.source)
@@ -64,8 +124,11 @@ class WebSearchProviderTest {
             assertTrue(result.summaryText.contains("上海"))
             assertTrue(!result.summaryText.contains("温差"))
             val json = JSONObject(result.resultsJson)
-            assertEquals("weather_current", json.getString("kind"))
-            val locations = json.getJSONArray("locations")
+            assertEquals(1, json.getInt("schemaVersion"))
+            assertEquals("web_search_evidence", json.getString("kind"))
+            assertEquals("weather_current", json.getString("searchMode"))
+            assertEquals("current", json.getString("freshness"))
+            val locations = json.getJSONArray("results")
             assertEquals(2, locations.length())
             assertEquals("北京", locations.getJSONObject(0).getString("requestedLocation"))
             assertEquals(12.0, locations.getJSONObject(0).getJSONObject("current").getDouble("temperature_2m"), 0.0)
@@ -88,7 +151,12 @@ class WebSearchProviderTest {
             server.start()
             val provider = provider(server)
 
-            val result = provider.search("北京比上海气温高多少")
+            val result = provider.search(
+                WebSearchRequest(
+                    query = "北京比上海气温高多少",
+                    searchMode = WebSearchMode.WeatherCurrent,
+                ),
+            )
 
             require(result is WebSearchReadResult.Available)
             assertEquals("北京", server.takeRequest().url.queryParameter("name"))
@@ -115,10 +183,17 @@ class WebSearchProviderTest {
             server.start()
             val provider = provider(server)
 
-            val result = provider.search("今天有什么热搜")
+            val result = provider.search(
+                WebSearchRequest(
+                    query = "今天有什么热搜",
+                    maxResults = 1,
+                ),
+            )
 
             require(result is WebSearchReadResult.Available)
             assertEquals("duckduckgo", result.source)
+            assertEquals(1, result.maxResults)
+            assertEquals(1, JSONObject(result.resultsJson).getInt("maxResults"))
             assertTrue(server.takeRequest().target.startsWith("/instant?"))
         }
     }
@@ -129,6 +204,7 @@ class WebSearchProviderTest {
             geocodingBaseUrl = server.url("/geo").toString(),
             forecastBaseUrl = server.url("/forecast").toString(),
             instantAnswerBaseUrl = server.url("/instant").toString(),
+            clock = Clock.fixed(fixedInstant, ZoneOffset.UTC),
         )
 
     private fun jsonResponse(body: String): MockResponse =
@@ -189,4 +265,8 @@ class WebSearchProviderTest {
           }
         }
         """.trimIndent()
+
+    private companion object {
+        val fixedInstant: Instant = Instant.parse("2026-06-02T04:00:00Z")
+    }
 }

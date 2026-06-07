@@ -63,6 +63,18 @@ class ToolRegistry private constructor(
         return null
     }
 
+    fun validatePublicEvidenceBatchRequest(request: ToolRequest): ToolResult? {
+        validate(request)?.let { return it }
+        val spec = specFor(request.toolName)
+            ?: return request.rejected("Unknown tool: ${request.toolName}")
+        if (!spec.isPublicEvidenceBatchEligible()) {
+            return request.rejected(
+                "Tool ${request.toolName} is not eligible for parallel public evidence execution.",
+            )
+        }
+        return null
+    }
+
     fun validateResult(request: ToolRequest, result: ToolResult): ToolResult? {
         if (result.status != ToolStatus.Succeeded) {
             val definition = definitionsByName[request.toolName] ?: return null
@@ -314,6 +326,7 @@ private data class ToolArgumentValidator(
                     pattern = propertyJson.optStringOrNull("pattern")?.let(::Regex),
                     enum = propertyJson.optStringSetOrNull("enum")?.toSet(),
                     format = propertyJson.optStringOrNull("format"),
+                    contentMediaType = propertyJson.optStringOrNull("contentMediaType"),
                     minimum = propertyJson.optDoubleOrNull("minimum"),
                     maximum = propertyJson.optDoubleOrNull("maximum"),
                     exclusiveMinimum = propertyJson.optDoubleOrNull("exclusiveMinimum"),
@@ -387,6 +400,7 @@ private data class ToolResultDataValidator(
                     pattern = propertyJson.optStringOrNull("pattern")?.let(::Regex),
                     enum = propertyJson.optStringSetOrNull("enum")?.toSet(),
                     format = propertyJson.optStringOrNull("format"),
+                    contentMediaType = propertyJson.optStringOrNull("contentMediaType"),
                     minimum = propertyJson.optDoubleOrNull("minimum"),
                     maximum = propertyJson.optDoubleOrNull("maximum"),
                     exclusiveMinimum = propertyJson.optDoubleOrNull("exclusiveMinimum"),
@@ -416,6 +430,7 @@ private data class PropertyRule(
     val pattern: Regex?,
     val enum: Set<String>?,
     val format: String?,
+    val contentMediaType: String?,
     val minimum: Double?,
     val maximum: Double?,
     val exclusiveMinimum: Double?,
@@ -443,7 +458,8 @@ private data class PropertyRule(
                         if (pattern != null && !pattern.matches(value)) {
                             "Tool $toolName $valueKind $valueName does not match required pattern"
                         } else {
-                            validateStringFormat(toolName, valueKind, valueName, value)
+                            validateStringContentMediaType(toolName, valueKind, valueName, value)
+                                ?: validateStringFormat(toolName, valueKind, valueName, value)
                         }
                     }
                 }
@@ -543,6 +559,30 @@ private data class PropertyRule(
 
             else -> null
         }
+
+    private fun validateStringContentMediaType(
+        toolName: String,
+        valueKind: String,
+        valueName: String,
+        value: String,
+    ): String? =
+        when (contentMediaType) {
+            null -> null
+            "application/json" -> runCatching {
+                val tokener = org.json.JSONTokener(value)
+                tokener.nextValue()
+                require(tokener.nextClean() == 0.toChar())
+            }.fold(
+                onSuccess = { null },
+                onFailure = { "Tool $toolName $valueKind $valueName must contain valid JSON" },
+            )
+
+            // Fail-closed: an unrecognized contentMediaType must NOT be treated as validated.
+            // Returning null here would silently pass unvalidated content; reject instead so that
+            // adding a new contentMediaType to a schema without a matching validator is caught.
+            else -> "Tool $toolName $valueKind $valueName declares unsupported contentMediaType " +
+                "'$contentMediaType'"
+        }
 }
 
 private fun JSONObject.keysSet(): Set<String> {
@@ -632,16 +672,62 @@ private val querySchemaJson = """
     }
 """.trimIndent()
 
+private val webSearchInputSchemaJson = """
+    {
+      "type": "object",
+      "required": ["query"],
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        },
+        "searchMode": {
+          "type": "string",
+          "enum": ["general", "weather_current"]
+        },
+        "freshness": {
+          "type": "string",
+          "enum": ["any_time", "current"]
+        },
+        "maxResults": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
 private val webSearchOutputSchemaJson = """
     {
       "type": "object",
-      "required": ["toolName", "query", "source", "summaryText", "resultsJson"],
+      "required": ["toolName", "privacy", "requiresLocalModel", "query", "source", "summaryText", "resultsJson"],
       "properties": {
         "toolName": {"type": "string", "minLength": 1},
+        "privacy": {"type": "string", "enum": ["RemoteEligible"]},
+        "requiresLocalModel": {"type": "boolean"},
         "query": {"type": "string", "minLength": 1},
         "source": {
           "type": "string",
           "enum": ["open_meteo", "duckduckgo"]
+        },
+        "searchMode": {
+          "type": "string",
+          "enum": ["general", "weather_current"]
+        },
+        "retrievedAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "freshness": {
+          "type": "string",
+          "enum": ["any_time", "current"]
+        },
+        "maxResults": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
         },
         "summaryText": {
           "type": "string",
@@ -650,6 +736,7 @@ private val webSearchOutputSchemaJson = """
         },
         "resultsJson": {
           "type": "string",
+          "contentMediaType": "application/json",
           "minLength": 1,
           "maxLength": 4003
         }
@@ -826,8 +913,8 @@ private val recentFilesSchemaJson = """
       "properties": {
         "kind": {
           "type": "string",
-          "description": "文件类别。Android 13 及以上的 all 只包含已授权媒体；documents/downloads/others 需要系统文件选择器授权，不能通过宽泛文件权限直接读取。",
-          "enum": ["all", "screenshots", "images", "videos", "audio", "documents", "downloads", "others"]
+          "description": "文件类别。该工具只直接查询已授权媒体；Android 13 及以上不提供 documents/downloads/others 的可执行直接读取路径，非媒体文件应由用户通过系统文件选择器或分享入口主动提供。",
+          "enum": ["all", "screenshots", "images", "videos", "audio"]
         },
         "maxCount": {
           "type": "integer",
@@ -904,10 +991,12 @@ private val shareTextSchemaJson = """
       "properties": {
         "text": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": $MAX_SHARE_TEXT_CHARS
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "maxLength": $MAX_SHARE_TITLE_CHARS
         }
       },
       "additionalProperties": false
@@ -1090,8 +1179,8 @@ private val backgroundTasksOutputSchemaJson = """
         "maxCount": {"type": "integer", "minimum": 1, "maximum": 50},
         "activeTaskCount": {"type": "integer", "minimum": 0},
         "historyTaskCount": {"type": "integer", "minimum": 0},
-        "tasksJson": {"type": "array"},
-        "policyJson": {"type": "object"},
+        "tasksJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"},
+        "policyJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"},
         "metadataPolicy": {"type": "string", "enum": ["background_tasks_local_only_no_reminder_body"]},
         "rawPayloadIncluded": {"type": "boolean"}
       },
@@ -1130,11 +1219,30 @@ private val clipboardOutputSchemaJson = """
 private val foregroundAppOutputSchemaJson = """
     {
       "type": "object",
-      "required": ["toolName", "privacy", "requiresLocalModel", "packageName", "appLabel", "lastTimeUsedMillis"],
+      "required": [
+        "toolName",
+        "privacy",
+        "requiresLocalModel",
+        "source",
+        "confidence",
+        "packageName",
+        "appLabel",
+        "lastTimeUsedMillis"
+      ],
       "properties": {
         "toolName": {"type": "string", "minLength": 1},
         "privacy": {"type": "string", "enum": ["LocalOnly"]},
         "requiresLocalModel": {"type": "boolean"},
+        "source": {
+          "type": "string",
+          "description": "How the current app estimate was derived.",
+          "enum": ["usage_stats_estimate"]
+        },
+        "confidence": {
+          "type": "string",
+          "description": "UsageStats can only approximate the current foreground app.",
+          "enum": ["estimate"]
+        },
         "packageName": {"type": "string", "minLength": 1},
         "appLabel": {"type": "string", "minLength": 1},
         "lastTimeUsedMillis": {"type": "integer"}
@@ -1154,7 +1262,7 @@ private val contactsOutputSchemaJson = """
         "query": {"type": "string"},
         "maxCount": {"type": "integer", "minimum": 1, "maximum": 20},
         "contactCount": {"type": "integer", "minimum": 0},
-        "contactsJson": {"type": "array"}
+        "contactsJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"}
       },
       "additionalProperties": false
     }
@@ -1170,7 +1278,7 @@ private val notificationsOutputSchemaJson = """
         "requiresLocalModel": {"type": "boolean"},
         "maxCount": {"type": "integer", "minimum": 1, "maximum": 20},
         "notificationCount": {"type": "integer", "minimum": 0},
-        "notificationsJson": {"type": "array"}
+        "notificationsJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"}
       },
       "additionalProperties": false
     }
@@ -1179,15 +1287,29 @@ private val notificationsOutputSchemaJson = """
 private val recentFilesOutputSchemaJson = """
     {
       "type": "object",
-      "required": ["toolName", "privacy", "requiresLocalModel", "kind", "maxCount", "fileCount", "filesJson"],
+      "required": [
+        "toolName",
+        "privacy",
+        "requiresLocalModel",
+        "kind",
+        "maxCount",
+        "mediaAccessScope",
+        "fileCount",
+        "filesJson"
+      ],
       "properties": {
         "toolName": {"type": "string", "minLength": 1},
         "privacy": {"type": "string", "enum": ["LocalOnly"]},
         "requiresLocalModel": {"type": "boolean"},
         "kind": {"type": "string", "minLength": 1},
         "maxCount": {"type": "integer", "minimum": 1, "maximum": 50},
+        "mediaAccessScope": {
+          "type": "string",
+          "description": "Whether MediaStore was queried through legacy storage, full visual media, user-selected visual media, or currently granted media-only access.",
+          "enum": ["legacy_storage", "full_visual_media", "user_selected_visual_media", "granted_media_only"]
+        },
         "fileCount": {"type": "integer", "minimum": 0},
-        "filesJson": {"type": "array"}
+        "filesJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"}
       },
       "additionalProperties": false
     }
@@ -1209,6 +1331,7 @@ private fun recentOcrOutputSchemaJson(maxCountMaximum: Int): String = """
         "source",
         "maxCount",
         "scannedCount",
+        "mediaAccessScope",
         "ocrTextIncluded",
         "rawPayloadIncluded",
         "metadataPolicy"
@@ -1220,6 +1343,11 @@ private fun recentOcrOutputSchemaJson(maxCountMaximum: Int): String = """
         "source": {"type": "string", "minLength": 1},
         "maxCount": {"type": "integer", "minimum": 1, "maximum": $maxCountMaximum},
         "scannedCount": {"type": "integer", "minimum": 0},
+        "mediaAccessScope": {
+          "type": "string",
+          "description": "Whether OCR image candidates came from legacy storage, full visual media, user-selected visual media, or currently granted media-only access.",
+          "enum": ["legacy_storage", "full_visual_media", "user_selected_visual_media", "granted_media_only"]
+        },
         "name": {"type": "string"},
         "mimeType": {"type": "string"},
         "kind": {"type": "string"},
@@ -1319,7 +1447,7 @@ private val calendarAvailabilityOutputSchemaJson = """
         "end": {"type": "string", "minLength": 1},
         "busyBlockCount": {"type": "integer", "minimum": 0},
         "freeBlockCount": {"type": "integer", "minimum": 0},
-        "blocksJson": {"type": "array"}
+        "blocksJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"}
       },
       "additionalProperties": false
     }
@@ -1363,8 +1491,8 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
         spec = ToolSpec(
             name = MobileActionFunctions.WEB_SEARCH,
             title = "Web 搜索",
-            description = "执行只读网络信息查询并返回摘要和结构化结果，不打开浏览器。",
-            inputSchemaJson = querySchemaJson,
+            description = "执行只读网络信息查询并返回摘要和结构化结果，不打开浏览器；多主体比较、差值、汇总或交叉核验问题可对每个主体发起独立 web_search 工具调用，由宿主并发执行公开只读批次后再综合；疑似个人信息或密钥查询需要用户确认后才联网。",
+            inputSchemaJson = webSearchInputSchemaJson,
             outputSchemaJson = webSearchOutputSchemaJson,
             capability = ToolCapability.WebSearch,
             riskLevel = RiskLevel.LowReadOnly,
@@ -1592,7 +1720,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
         spec = ToolSpec(
             name = MobileActionFunctions.QUERY_FOREGROUND_APP,
             title = "查询当前前台应用",
-            description = "读取当前前台应用的应用名与包名（用户当前界面可见应用）。",
+            description = "通过 Android UsageStats 读取当前前台应用的应用名与包名估计值；不是窗口管理器真值，也不读取屏幕内容。",
             inputSchemaJson = emptyObjectSchemaJson,
             outputSchemaJson = foregroundAppOutputSchemaJson,
             capability = ToolCapability.DeviceContext,
@@ -1629,7 +1757,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
         spec = ToolSpec(
             name = MobileActionFunctions.QUERY_RECENT_FILES,
             title = "查询最近文件",
-            description = "读取本机最近文件摘要，仅返回文件名与文件类型等最小信息。Android 13 及以上仅直接支持已授权媒体；文档、下载与其他非媒体文件需要系统文件选择器授权。",
+            description = "读取本机最近媒体文件摘要，仅返回文件名与文件类型等最小信息。Android 13 及以上没有 documents/downloads/others 的可执行直接读取授权路径；非媒体文件应由用户通过系统文件选择器或分享入口主动提供。",
             inputSchemaJson = recentFilesSchemaJson,
             outputSchemaJson = recentFilesOutputSchemaJson,
             capability = ToolCapability.DeviceContext,
@@ -1732,7 +1860,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             inputSchemaJson = cancelReminderSchemaJson,
             outputSchemaJson = cancelReminderOutputSchemaJson,
             capability = ToolCapability.BackgroundTask,
-            permissions = emptySet(),
+            permissions = setOf(ToolPermission.SchedulesBackgroundWork),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
             pendingArgumentAllowlist = setOf("taskId"),

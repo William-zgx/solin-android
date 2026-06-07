@@ -6,14 +6,69 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.util.Locale
+import java.time.Clock
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 private const val MAX_WEB_SEARCH_SUMMARY_CHARS = 1_200
 private const val MAX_WEB_SEARCH_RESULTS_JSON_CHARS = 4_000
+private const val WEB_SEARCH_EVIDENCE_SCHEMA_VERSION = 1
+private const val DEFAULT_WEB_SEARCH_MAX_RESULTS = 3
+private const val MAX_WEB_SEARCH_MAX_RESULTS = 5
 
 interface WebSearchProvider {
-    fun search(query: String, searchMode: String? = null): WebSearchReadResult
+    fun search(request: WebSearchRequest): WebSearchReadResult
+
+    fun search(query: String, searchMode: String? = null): WebSearchReadResult {
+        val mode = WebSearchMode.fromSchemaValue(searchMode)
+            ?: return WebSearchReadResult.Failed("不支持的搜索模式：$searchMode")
+        return search(WebSearchRequest(query = query, searchMode = mode))
+    }
+}
+
+data class WebSearchRequest(
+    val query: String,
+    val searchMode: WebSearchMode = WebSearchMode.General,
+    val freshness: WebSearchFreshness = searchMode.defaultFreshness,
+    val maxResults: Int = DEFAULT_WEB_SEARCH_MAX_RESULTS,
+)
+
+enum class WebSearchMode(val schemaValue: String) {
+    General("general"),
+    WeatherCurrent("weather_current"),
+    ;
+
+    val defaultFreshness: WebSearchFreshness
+        get() = when (this) {
+            General -> WebSearchFreshness.AnyTime
+            WeatherCurrent -> WebSearchFreshness.Current
+        }
+
+    companion object {
+        fun fromSchemaValue(value: String?): WebSearchMode? =
+            when (value?.trim()?.takeIf { it.isNotBlank() } ?: General.schemaValue) {
+                General.schemaValue -> General
+                WeatherCurrent.schemaValue -> WeatherCurrent
+                else -> null
+            }
+    }
+}
+
+enum class WebSearchFreshness(val schemaValue: String) {
+    AnyTime("any_time"),
+    Current("current"),
+
+    ;
+
+    companion object {
+        fun fromSchemaValue(value: String?): WebSearchFreshness? =
+            when (value?.trim()?.takeIf { it.isNotBlank() }) {
+                null -> null
+                AnyTime.schemaValue -> AnyTime
+                Current.schemaValue -> Current
+                else -> null
+            }
+    }
 }
 
 sealed class WebSearchReadResult {
@@ -22,6 +77,10 @@ sealed class WebSearchReadResult {
         val source: String,
         val summaryText: String,
         val resultsJson: String,
+        val searchMode: WebSearchMode = WebSearchMode.General,
+        val retrievedAt: Instant = Instant.now(),
+        val freshness: WebSearchFreshness = searchMode.defaultFreshness,
+        val maxResults: Int = DEFAULT_WEB_SEARCH_MAX_RESULTS,
     ) : WebSearchReadResult()
 
     data class Failed(
@@ -36,33 +95,43 @@ class OkHttpWebSearchProvider(
     private val geocodingBaseUrl: String = "https://geocoding-api.open-meteo.com/v1/search",
     private val forecastBaseUrl: String = "https://api.open-meteo.com/v1/forecast",
     private val instantAnswerBaseUrl: String = "https://api.duckduckgo.com/",
+    private val clock: Clock = Clock.systemUTC(),
 ) : WebSearchProvider {
-    override fun search(query: String, searchMode: String?): WebSearchReadResult {
-        val cleanedQuery = query.trim()
+    override fun search(request: WebSearchRequest): WebSearchReadResult {
+        val cleanedQuery = request.query.trim()
         if (cleanedQuery.isBlank()) {
             return WebSearchReadResult.Failed("搜索词不能为空")
         }
-        return if (cleanedQuery.looksLikeWeatherQuery()) {
-            searchWeather(cleanedQuery)
-        } else {
-            searchInstantAnswer(cleanedQuery)
+        val normalizedRequest = request.copy(
+            query = cleanedQuery,
+            freshness = if (request.searchMode == WebSearchMode.WeatherCurrent) {
+                WebSearchFreshness.Current
+            } else {
+                request.freshness
+            },
+            maxResults = request.maxResults.coerceIn(1, MAX_WEB_SEARCH_MAX_RESULTS),
+        )
+        val retrievedAt = Instant.now(clock)
+        return when (normalizedRequest.searchMode) {
+            WebSearchMode.General -> searchInstantAnswer(normalizedRequest, retrievedAt)
+            WebSearchMode.WeatherCurrent -> searchWeather(normalizedRequest, retrievedAt)
         }
     }
 
-    private fun searchWeather(query: String): WebSearchReadResult {
-        val locationQueries = query.weatherLocationQueries()
+    private fun searchWeather(request: WebSearchRequest, retrievedAt: Instant): WebSearchReadResult {
+        val locationQueries = request.query.weatherLocationQueries()
         if (locationQueries.isEmpty()) {
             return WebSearchReadResult.Failed("天气查询需要明确地点")
         }
-        val snapshots = locationQueries.map { locationQuery ->
+        val snapshots = locationQueries.take(request.maxResults.coerceAtMost(2)).map { locationQuery ->
             readWeatherSnapshot(locationQuery).getOrElse { throwable ->
                 return WebSearchReadResult.Failed(throwable.cleanReason())
             }
         }
         return if (snapshots.size > 1) {
-            weatherEvidenceResult(query, snapshots.take(2))
+            weatherEvidenceResult(request, retrievedAt, snapshots)
         } else {
-            singleWeatherResult(query, snapshots.single())
+            singleWeatherResult(request, retrievedAt, snapshots.single())
         }
     }
 
@@ -127,7 +196,11 @@ class OkHttpWebSearchProvider(
         )
     }
 
-    private fun singleWeatherResult(query: String, snapshot: WeatherSnapshot): WebSearchReadResult {
+    private fun singleWeatherResult(
+        request: WebSearchRequest,
+        retrievedAt: Instant,
+        snapshot: WeatherSnapshot,
+    ): WebSearchReadResult {
         val current = snapshot.current
         val units = snapshot.units
         val locationName = snapshot.displayName
@@ -155,51 +228,55 @@ class OkHttpWebSearchProvider(
             append(windUnit)
             append("。")
         }.boundedText(MAX_WEB_SEARCH_SUMMARY_CHARS)
-        val results = JSONObject()
-            .put("kind", "weather")
-            .put("provider", "Open-Meteo")
-            .put("query", query)
-            .put("location", locationName)
-            .put("latitude", snapshot.latitude)
-            .put("longitude", snapshot.longitude)
-            .put("timezone", snapshot.timezone)
-            .put("current", current)
-            .toString()
-            .boundedText(MAX_WEB_SEARCH_RESULTS_JSON_CHARS)
         return WebSearchReadResult.Available(
-            query = query,
+            query = request.query,
             source = "open_meteo",
             summaryText = summary,
-            resultsJson = results,
+            resultsJson = request.evidenceJson(
+                retrievedAt = retrievedAt,
+                sources = openMeteoSources(),
+                results = JSONArray().put(snapshot.toJsonObject()),
+            ),
+            searchMode = request.searchMode,
+            retrievedAt = retrievedAt,
+            freshness = request.freshness,
+            maxResults = request.maxResults,
         )
     }
 
-    private fun weatherEvidenceResult(query: String, snapshots: List<WeatherSnapshot>): WebSearchReadResult {
+    private fun weatherEvidenceResult(
+        request: WebSearchRequest,
+        retrievedAt: Instant,
+        snapshots: List<WeatherSnapshot>,
+    ): WebSearchReadResult {
         val locationArray = JSONArray()
         snapshots.forEach { snapshot ->
             locationArray.put(snapshot.toJsonObject())
         }
         val summary = "已读取${snapshots.joinToString("、") { snapshot -> snapshot.shortName }}当前天气。"
             .boundedText(MAX_WEB_SEARCH_SUMMARY_CHARS)
-        val results = JSONObject()
-            .put("kind", "weather_current")
-            .put("provider", "Open-Meteo")
-            .put("query", query)
-            .put("locations", locationArray)
         return WebSearchReadResult.Available(
-            query = query,
+            query = request.query,
             source = "open_meteo",
             summaryText = summary,
-            resultsJson = results.toString().boundedText(MAX_WEB_SEARCH_RESULTS_JSON_CHARS),
+            resultsJson = request.evidenceJson(
+                retrievedAt = retrievedAt,
+                sources = openMeteoSources(),
+                results = locationArray,
+            ),
+            searchMode = request.searchMode,
+            retrievedAt = retrievedAt,
+            freshness = request.freshness,
+            maxResults = request.maxResults,
         )
     }
 
-    private fun searchInstantAnswer(query: String): WebSearchReadResult {
+    private fun searchInstantAnswer(request: WebSearchRequest, retrievedAt: Instant): WebSearchReadResult {
         val json = runCatching {
             JSONObject(
                 get(
                     instantAnswerBaseUrl.toHttpUrl().newBuilder()
-                        .addQueryParameter("q", query)
+                        .addQueryParameter("q", request.query)
                         .addQueryParameter("format", "json")
                         .addQueryParameter("no_html", "1")
                         .addQueryParameter("skip_disambig", "1")
@@ -215,14 +292,14 @@ class OkHttpWebSearchProvider(
             if (abstractText.isNotBlank()) {
                 add(
                     WebSearchItem(
-                        title = json.optString("Heading").ifBlank { query },
+                        title = json.optString("Heading").ifBlank { request.query },
                         snippet = abstractText,
                         url = json.optString("AbstractURL"),
                     ),
                 )
             }
             addAll(json.optJSONArray("RelatedTopics").relatedTopicItems())
-        }.distinctBy { item -> item.snippet }.take(3)
+        }.distinctBy { item -> item.snippet }.take(request.maxResults)
 
         val summary = if (results.isEmpty()) {
             "没有找到可直接引用的搜索摘要。"
@@ -233,25 +310,21 @@ class OkHttpWebSearchProvider(
         }.boundedText(MAX_WEB_SEARCH_SUMMARY_CHARS)
         val resultArray = JSONArray()
         results.forEach { item ->
-            resultArray.put(
-                JSONObject()
-                    .put("title", item.title)
-                    .put("snippet", item.snippet.boundedText(500))
-                    .put("url", item.url),
-            )
+            resultArray.put(item.toJsonObject())
         }
-        val resultsJson = JSONObject()
-            .put("kind", "instant_answer")
-            .put("provider", "DuckDuckGo")
-            .put("query", query)
-            .put("results", resultArray)
-            .toString()
-            .boundedText(MAX_WEB_SEARCH_RESULTS_JSON_CHARS)
         return WebSearchReadResult.Available(
-            query = query,
+            query = request.query,
             source = "duckduckgo",
             summaryText = summary,
-            resultsJson = resultsJson,
+            resultsJson = request.evidenceJson(
+                retrievedAt = retrievedAt,
+                sources = duckDuckGoSources(),
+                results = resultArray,
+            ),
+            searchMode = request.searchMode,
+            retrievedAt = retrievedAt,
+            freshness = request.freshness,
+            maxResults = request.maxResults,
         )
     }
 
@@ -270,7 +343,15 @@ private data class WebSearchItem(
     val title: String,
     val snippet: String,
     val url: String,
-)
+) {
+    fun toJsonObject(): JSONObject =
+        JSONObject()
+            .put("kind", "instant_answer")
+            .put("sourceId", "duckduckgo")
+            .put("title", title)
+            .put("snippet", snippet.boundedText(500))
+            .put("url", url)
+}
 
 private data class WeatherSnapshot(
     val requestedLocation: String,
@@ -285,6 +366,8 @@ private data class WeatherSnapshot(
 
     fun toJsonObject(): JSONObject =
         JSONObject()
+            .put("kind", WebSearchMode.WeatherCurrent.schemaValue)
+            .put("sourceId", "open_meteo")
             .put("requestedLocation", requestedLocation)
             .put("location", displayName)
             .put("latitude", latitude)
@@ -292,17 +375,6 @@ private data class WeatherSnapshot(
             .put("timezone", timezone)
             .put("currentUnits", units)
             .put("current", current)
-}
-
-private fun String.looksLikeWeatherQuery(): Boolean {
-    val normalized = lowercase(Locale.US)
-    return listOf("天气", "气温", "降雨", "下雨", "温度", "温差", "相差", "更高", "更低", "更热", "更冷")
-        .any { it in this } ||
-        Regex("""(比.+[冷热]|[冷热]多少|哪个.*[冷热]|哪一个.*[冷热]|谁.*[冷热])""").containsMatchIn(this) ||
-        Regex(
-            """\bweather\b|\btemperature\b|\brain\b|\bforecast\b|\bhotter\b|\bcolder\b|\bwarmer\b|\bcooler\b|\bdifference\b|\bcompare\b""",
-            RegexOption.IGNORE_CASE,
-        ).containsMatchIn(normalized)
 }
 
 private fun String.weatherLocationQueries(): List<String> {
@@ -383,6 +455,48 @@ private fun JSONArray?.relatedTopicItems(): List<WebSearchItem> {
     }
     return items
 }
+
+private fun WebSearchRequest.evidenceJson(
+    retrievedAt: Instant,
+    sources: JSONArray,
+    results: JSONArray,
+): String =
+    JSONObject()
+        .put("schemaVersion", WEB_SEARCH_EVIDENCE_SCHEMA_VERSION)
+        .put("kind", "web_search_evidence")
+        .put("query", query)
+        .put("searchMode", searchMode.schemaValue)
+        .put("retrievedAt", retrievedAt.toString())
+        .put("freshness", freshness.schemaValue)
+        .put("maxResults", maxResults)
+        .put("sources", sources)
+        .put("results", results)
+        .toString()
+        .boundedText(MAX_WEB_SEARCH_RESULTS_JSON_CHARS)
+
+private fun openMeteoSources(): JSONArray =
+    JSONArray()
+        .put(
+            JSONObject()
+                .put("id", "open_meteo_geocoding")
+                .put("name", "Open-Meteo Geocoding API")
+                .put("url", "https://geocoding-api.open-meteo.com/v1/search"),
+        )
+        .put(
+            JSONObject()
+                .put("id", "open_meteo")
+                .put("name", "Open-Meteo Forecast API")
+                .put("url", "https://api.open-meteo.com/v1/forecast"),
+        )
+
+private fun duckDuckGoSources(): JSONArray =
+    JSONArray()
+        .put(
+            JSONObject()
+                .put("id", "duckduckgo")
+                .put("name", "DuckDuckGo Instant Answer API")
+                .put("url", "https://api.duckduckgo.com/"),
+        )
 
 private fun String.boundedText(maxChars: Int): String =
     if (length <= maxChars) this else take(maxChars).trimEnd() + "..."

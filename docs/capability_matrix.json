@@ -1,0 +1,758 @@
+{
+  "version": 1,
+  "source": "CapabilityMatrix and ToolRegistry",
+  "productPositioning": "隐私优先的随身 AI 助手：本地可用，远程多模态可选，设备动作必须确认执行。",
+  "targetUserJob": "在手机上处理私人日常问答、记忆、图片/文件输入和受确认保护的设备动作，同时默认把本地上下文留在本机。",
+  "sensitiveCapabilityDisclosures": [
+    {
+      "capabilityId": "remote_model_send",
+      "displayName": "远程模型发送",
+      "dataAccessed": "当前输入、可远程发送历史和用户主动附加的图片；不包含本地记忆、设备上下文或 LocalOnly 历史。",
+      "consentBoundary": "切换远程模型并点击发送后展示远程发送预览；确认前不请求远程接口。",
+      "remoteBoundary": "远程请求只发往用户配置的 HTTPS 或本机调试 endpoint；图片字节只有在主动附加且模型支持视觉时发送。",
+      "revokeOrClearControl": "可取消发送预览、清除远程服务地址/模型名/API Key，并删除会话记录。",
+      "requiredTests": [
+        "PocketMindViewModelTest",
+        "PocketMindScreenDisplayTest",
+        "RemoteChatRuntimeTest"
+      ]
+    },
+    {
+      "capabilityId": "voice_transcript_input",
+      "displayName": "语音输入和麦克风",
+      "dataAccessed": "实时麦克风音频交由 Android 系统语音识别服务处理；PocketMind 不读取本地音频文件、不保存音频文件，转写结果只进入输入框且不自动发送。",
+      "consentBoundary": "用户点击语音按钮后必须先在 App 内同意语音输入说明；确认后才请求麦克风权限或开始收音，发送仍需要用户显式点击。",
+      "remoteBoundary": "转写文本只有在用户确认远程发送预览后才可进入远程请求。",
+      "revokeOrClearControl": "可取消语音输入、删除输入框草稿，并在 Android 设置中撤销麦克风权限。",
+      "requiredTests": [
+        "PocketMindViewModelTest",
+        "PocketMindScreenDisplayTest",
+        "MainActivityAdaptiveUiTest",
+        "PocketMindVoiceInputConsentUiTest",
+        "MainActivityVoicePermissionUiTest"
+      ]
+    },
+    {
+      "capabilityId": "share_and_file_picker_input",
+      "displayName": "分享和文件选择",
+      "dataAccessed": "用户通过分享入口或系统文件选择器主动提供的文本、文件元数据和受限文本摘录。",
+      "consentBoundary": "仅处理用户主动分享或通过系统文件选择器确认的内容；本地模式才读取受支持文本/PDF/OCR 摘录，图片不自动 OCR。",
+      "remoteBoundary": "远程模式保护分享文本、非图片附件、文本摘录和 OCR 摘录；仅在远程模式、视觉开启且用户确认发送后，图片才走远程视觉路径。",
+      "revokeOrClearControl": "可取消草稿、删除当前会话，并通过系统 picker/分享入口重新选择范围。",
+      "requiredTests": [
+        "SharedInputTest",
+        "MainActivitySharedIntentTest",
+        "PocketMindScreenDisplayTest",
+        "MainActivityAdaptiveUiTest"
+      ]
+    },
+    {
+      "capabilityId": "confirmed_device_actions",
+      "displayName": "设备动作和外部 App",
+      "dataAccessed": "用户请求、动作草稿、目标 App/链接/提醒参数和外部打开结果；不在未确认结果前宣称动作完成。",
+      "consentBoundary": "中高风险设备动作、外部 App 打开、后台提醒和批量动作都必须先确认；取消或混合风险时 fail-closed。",
+      "remoteBoundary": "设备动作结果和私密参数默认 LocalOnly，不作为远程模型自动上下文；只读公共 evidence 工具才可进入远程规划。",
+      "revokeOrClearControl": "可取消动作确认、标记外部操作未完成、撤销可撤销提醒，并删除相关会话记录。",
+      "requiredTests": [
+        "AgentLoopRuntimeTest",
+        "SafetyPolicyTest",
+        "MainActivitySkillUiTest"
+      ]
+    },
+    {
+      "capabilityId": "contacts_calendar_reads",
+      "displayName": "联系人和日历忙闲",
+      "dataAccessed": "联系人名称/号码匹配和日历忙闲时间段；不读取日历标题、地点或参与人。",
+      "consentBoundary": "工具确认后才请求 READ_CONTACTS 或 READ_CALENDAR；权限拒绝会作为结构化失败返回。",
+      "remoteBoundary": "读取结果标记为 LocalOnly，要求本地模型续写，不进入远程模型规划或远程历史。",
+      "revokeOrClearControl": "可取消工具确认、在 Android 设置撤销联系人/日历权限，并删除相关会话记录；审计仅保留脱敏摘要并按保留策略裁剪。",
+      "requiredTests": [
+        "AgentRuntimePermissionPolicyTest",
+        "ToolRegistryTest",
+        "CalendarAvailabilityProviderTest",
+        "MainActivityRuntimePermissionUiTest"
+      ]
+    },
+    {
+      "capabilityId": "media_and_recent_ocr",
+      "displayName": "媒体、最近图片和截图 OCR",
+      "dataAccessed": "用户授权的图片/视频媒体范围、最近截图或最近图片的 OCR 摘录；不持久化原始像素。",
+      "consentBoundary": "显式 OCR 工具确认后才请求媒体权限或 selected visual media；普通图片输入不强制 OCR。",
+      "remoteBoundary": "OCR 摘录是 LocalOnly；远程视觉图片发送与 OCR 工具分离。",
+      "revokeOrClearControl": "可取消工具确认、撤销媒体权限、删除相关会话记录，并重新选择 selected visual media 范围；审计仅保留脱敏摘要并按保留策略裁剪。",
+      "requiredTests": [
+        "AgentRuntimePermissionPolicyTest",
+        "ToolRegistryTest",
+        "AgentLoopRuntimeTest",
+        "MainActivityRuntimePermissionUiTest"
+      ]
+    },
+    {
+      "capabilityId": "usage_stats_foreground_app",
+      "displayName": "Usage Stats 前台应用估计",
+      "dataAccessed": "前台应用包名/应用名估计；不读取屏幕内容、输入内容或使用历史详情。",
+      "consentBoundary": "用户确认工具并授予系统 Usage Access 后才可读取；结果标注为 UsageStats estimate。",
+      "remoteBoundary": "前台应用结果是 LocalOnly 设备上下文，不自动发送到远程模型。",
+      "revokeOrClearControl": "可取消工具确认，并通过使用情况访问权限设置撤销授权。",
+      "requiredTests": [
+        "AgentRuntimePermissionPolicyTest",
+        "ActionPlannerTest",
+        "MainActivitySpecialAccessUiTest"
+      ]
+    },
+    {
+      "capabilityId": "accessibility_current_screen_text",
+      "displayName": "Accessibility 当前屏幕文本",
+      "dataAccessed": "当前 active window 暴露的 Accessibility 文本节点；不是截图、像素读取或视觉理解。",
+      "consentBoundary": "用户打开系统无障碍服务并确认单次工具读取后才处理当前屏幕文本。",
+      "remoteBoundary": "Accessibility 文本标记为 LocalOnly，只进入本地续写和审计边界，不进入远程模型。",
+      "revokeOrClearControl": "可取消工具确认，在系统无障碍设置关闭服务，并删除相关会话记录；审计仅保留脱敏摘要并按保留策略裁剪。",
+      "requiredTests": [
+        "ToolRegistryTest",
+        "AgentLoopRuntimeTest",
+        "MainActivitySkillUiTest",
+        "MainActivitySpecialAccessUiTest"
+      ]
+    },
+    {
+      "capabilityId": "media_projection_screenshot_ocr",
+      "displayName": "当前屏幕截图 OCR",
+      "dataAccessed": "前台一次性 MediaProjection 同意后的当前屏幕截图 OCR 文字；不把原始截图作为长期记录。",
+      "consentBoundary": "每次当前屏幕截图 OCR 都需要前台 MediaProjection 同意和工具确认；取消即不执行。",
+      "remoteBoundary": "截图 OCR 结果是 LocalOnly，不自动发送给远程模型。",
+      "revokeOrClearControl": "可拒绝 MediaProjection 弹窗、取消工具确认，并删除相关会话记录；审计仅保留脱敏摘要并按保留策略裁剪。",
+      "requiredTests": [
+        "AgentRuntimePermissionPolicyTest",
+        "AgentLoopRuntimeTest",
+        "MainActivitySkillUiTest"
+      ]
+    }
+  ],
+  "productCapabilities": [
+    {
+      "capabilityId": "local_offline_chat",
+      "entrypoint": "chat_input",
+      "toolName": null,
+      "modelCapability": "Chat",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "本地模型未就绪时停止生成并提示先准备模型。",
+      "requiredTests": [
+        "PocketMindViewModelTest"
+      ],
+      "ownerAgent": "EdgeModel"
+    },
+    {
+      "capabilityId": "explicit_memory",
+      "entrypoint": "remember_forget_commands",
+      "toolName": null,
+      "modelCapability": "MemoryEmbedding",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": false,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "删除失败时保留现有记忆；会话回忆只从用户消息重建，不索引助手输出，也不把记忆写入远端请求。",
+      "requiredTests": [
+        "MemoryRepositoryTest",
+        "MemoryQualityContractTest"
+      ],
+      "ownerAgent": "Memory"
+    },
+    {
+      "capabilityId": "shared_file_text_input",
+      "entrypoint": "share_or_document_picker",
+      "toolName": null,
+      "modelCapability": "Chat",
+      "privacyLevel": "UserProvided",
+      "requiresLocalModel": false,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "远程模式保护分享文本和非图片附件；本地模式只读取受限文本、PDF 扫描页 OCR 或元数据，图片不自动 OCR。",
+      "requiredTests": [
+        "SharedInputTest",
+        "PocketMindViewModelTest",
+        "MainActivitySharedIntentTest"
+      ],
+      "ownerAgent": "Multimodal"
+    },
+    {
+      "capabilityId": "remote_vision_image_input",
+      "entrypoint": "share_or_attachment_image",
+      "toolName": null,
+      "modelCapability": "Chat",
+      "privacyLevel": "UserProvided",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "图片只在远程发送预览确认后随请求发送；远程配置不支持图片输入时直接提示不支持，不强制 OCR；远程视觉 prompt 不包含附件文件名、MIME、大小或 OCR。",
+      "requiredTests": [
+        "RemoteChatRuntimeTest",
+        "PocketMindViewModelTest",
+        "MainActivitySharedInputModeTest",
+        "SharedInputTest"
+      ],
+      "ownerAgent": "Multimodal"
+    },
+    {
+      "capabilityId": "voice_transcript_input",
+      "entrypoint": "composer_voice_input",
+      "toolName": null,
+      "modelCapability": "Chat",
+      "privacyLevel": "UserProvided",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "语音识别失败或权限拒绝时只更新本地状态，不读取音频文件或自动发送消息。",
+      "requiredTests": [
+        "PocketMindViewModelTest",
+        "MainActivitySmokeTest",
+        "PocketMindVoiceInputConsentUiTest",
+        "MainActivityVoicePermissionUiTest"
+      ],
+      "ownerAgent": "Multimodal"
+    },
+    {
+      "capabilityId": "confirmed_device_tools",
+      "entrypoint": "agent_tool_confirmation",
+      "toolName": null,
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "中高风险、本地私密读取和外部动作必须先确认；取消、权限拒绝或批量混合风险时 fail-closed。",
+      "requiredTests": [
+        "ToolRegistryTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "auditable_agent_trace",
+      "entrypoint": "agent_trace_and_audit_surfaces",
+      "toolName": null,
+      "modelCapability": null,
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": false,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "损坏、过期或越界的 pending/trace 数据在恢复时清理或标记失败，不恢复敏感 payload。",
+      "requiredTests": [
+        "AgentTraceStoreTest",
+        "RunDataReceiptTraceTest",
+        "ToolAuditRepositoryTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "model_management",
+      "entrypoint": "model_manager",
+      "toolName": null,
+      "modelCapability": null,
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": false,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "下载、导入、校验、加载或 fallback 失败时更新 ModelHealth，不把模型已下载误报为所有能力可用。",
+      "requiredTests": [
+        "ModelCatalogTest",
+        "PocketMindViewModelTest",
+        "PocketMindScreenDisplayTest"
+      ],
+      "ownerAgent": "EdgeModel"
+    },
+    {
+      "capabilityId": "run_data_receipt",
+      "entrypoint": "run_completion_receipt",
+      "toolName": null,
+      "modelCapability": null,
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": false,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "回执只记录本地/远端边界、受保护来源和计数，不记录原始 prompt、文件内容或图片数据。",
+      "requiredTests": [
+        "RunDataReceiptTraceTest",
+        "PocketMindScreenDisplayTest"
+      ],
+      "ownerAgent": "TrustPrivacy"
+    },
+    {
+      "capabilityId": "release_gate",
+      "entrypoint": "scripts/verify_release_gate.sh",
+      "toolName": null,
+      "modelCapability": null,
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": false,
+      "remoteEligible": false,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "缺少 perf baseline、签名、AAB、审批、验证记录或 artifact 绑定时 release gate 失败。",
+      "requiredTests": [
+        "CapabilityMatrixDocumentationTest",
+        "AgentCoreDocumentationTest",
+        "ModelManifestDocumentationTest"
+      ],
+      "ownerAgent": "PerformanceQa"
+    }
+  ],
+  "toolCapabilities": [
+    {
+      "capabilityId": "tool_open_wifi_settings",
+      "entrypoint": "tool_registry",
+      "toolName": "open_wifi_settings",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_open_usage_access_settings",
+      "entrypoint": "tool_registry",
+      "toolName": "open_usage_access_settings",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_search_maps",
+      "entrypoint": "tool_registry",
+      "toolName": "search_maps",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_web_search",
+      "entrypoint": "tool_registry",
+      "toolName": "web_search",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "PublicEvidence",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "NotRequired",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_compose_email",
+      "entrypoint": "tool_registry",
+      "toolName": "compose_email",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_create_calendar_event",
+      "entrypoint": "tool_registry",
+      "toolName": "create_calendar_event",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_create_contact_draft",
+      "entrypoint": "tool_registry",
+      "toolName": "create_contact_draft",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_query_contacts",
+      "entrypoint": "tool_registry",
+      "toolName": "query_contacts",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_query_recent_files",
+      "entrypoint": "tool_registry",
+      "toolName": "query_recent_files",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_read_recent_screenshot_ocr",
+      "entrypoint": "tool_registry",
+      "toolName": "read_recent_screenshot_ocr",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_read_recent_image_ocr",
+      "entrypoint": "tool_registry",
+      "toolName": "read_recent_image_ocr",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_read_current_screen_text",
+      "entrypoint": "tool_registry",
+      "toolName": "read_current_screen_text",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_capture_current_screenshot_ocr",
+      "entrypoint": "tool_registry",
+      "toolName": "capture_current_screenshot_ocr",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_open_flashlight_settings",
+      "entrypoint": "tool_registry",
+      "toolName": "open_flashlight_settings",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_schedule_reminder",
+      "entrypoint": "tool_registry",
+      "toolName": "schedule_reminder",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "BackgroundTask",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_configure_periodic_check",
+      "entrypoint": "tool_registry",
+      "toolName": "configure_periodic_check",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "BackgroundTask",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_query_background_tasks",
+      "entrypoint": "tool_registry",
+      "toolName": "query_background_tasks",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_read_clipboard",
+      "entrypoint": "tool_registry",
+      "toolName": "read_clipboard",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_share_text",
+      "entrypoint": "tool_registry",
+      "toolName": "share_text",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_open_deep_link",
+      "entrypoint": "tool_registry",
+      "toolName": "open_deep_link",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_open_app_intent",
+      "entrypoint": "tool_registry",
+      "toolName": "open_app_intent",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_open_app_deep_target",
+      "entrypoint": "tool_registry",
+      "toolName": "open_app_deep_target",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_query_calendar_availability",
+      "entrypoint": "tool_registry",
+      "toolName": "query_calendar_availability",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_query_foreground_app",
+      "entrypoint": "tool_registry",
+      "toolName": "query_foreground_app",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_query_recent_notifications",
+      "entrypoint": "tool_registry",
+      "toolName": "query_recent_notifications",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "返回失败摘要并阻止无效结果进入模型上下文。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_cancel_reminder",
+      "entrypoint": "tool_registry",
+      "toolName": "cancel_reminder",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "BackgroundTask",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    }
+  ],
+  "toolMatrixSourceFields": [
+    "name",
+    "title",
+    "capability",
+    "permissions",
+    "riskLevel",
+    "confirmationPolicy",
+    "resultContinuationPolicy",
+    "privateOutputKeys",
+    "pendingArgumentAllowlist",
+    "publicEvidenceBatchEligible",
+    "remoteModelPlanningEligible"
+  ]
+}

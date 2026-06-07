@@ -196,6 +196,23 @@ class ToolSchemaContractTest {
     }
 
     @Test
+    fun jsonPayloadOutputFieldsAreStringEncoded() {
+        val jsonPayloadFields = registry.specs().flatMap { spec ->
+            val outputProperties = JSONObject(spec.outputSchemaJson).optJSONObject("properties") ?: JSONObject()
+            outputProperties.keysSet()
+                .filter { propertyName -> propertyName.endsWith("Json") }
+                .map { propertyName -> spec.name to (propertyName to outputProperties.getJSONObject(propertyName)) }
+        }
+
+        assertTrue("expected at least one JSON payload output field", jsonPayloadFields.isNotEmpty())
+        jsonPayloadFields.forEach { (toolName, field) ->
+            val (propertyName, property) = field
+            assertEquals("$toolName.$propertyName must be encoded in ToolResult.data as a string", "string", property.getString("type"))
+            assertEquals("$toolName.$propertyName must declare JSON content", "application/json", property.getString("contentMediaType"))
+        }
+    }
+
+    @Test
     fun numericOutputBoundsCannotBeWiderThanMatchingInputBounds() {
         registry.specs().forEach { spec ->
             val inputProperties = JSONObject(spec.inputSchemaJson).optJSONObject("properties") ?: JSONObject()
@@ -261,6 +278,7 @@ class ToolSchemaContractTest {
             "source" to "screenshots",
             "maxCount" to "1",
             "scannedCount" to "1",
+            "mediaAccessScope" to "full_visual_media",
             "ocrTextIncluded" to "true",
             "rawPayloadIncluded" to "false",
             "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted",

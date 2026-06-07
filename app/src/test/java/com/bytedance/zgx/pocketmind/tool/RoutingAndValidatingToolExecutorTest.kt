@@ -141,12 +141,13 @@ class RoutingAndValidatingToolExecutorTest {
     @Test
     fun currentScreenshotOcrFailsClosedUntilMediaProjectionConsent() {
         val delegate = RecordingDelegate()
+        val provider = StaticCurrentScreenshotOcrProvider(
+            CurrentScreenshotOcrReadResult.MissingConsent,
+        )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
-                currentScreenshotOcrProvider = StaticCurrentScreenshotOcrProvider(
-                    CurrentScreenshotOcrReadResult.MissingConsent,
-                ),
+                currentScreenshotOcrProvider = provider,
             ),
         )
 
@@ -167,20 +168,22 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals(true.toString(), result.data["requiresLocalModel"])
         assertEquals(CurrentScreenshotOcrContract.CONSENT_REASON, result.data["specialAccess"])
         assertTrue(delegate.requests.isEmpty())
+        assertEquals(listOf("current-screenshot-ocr"), provider.capturedRequestIds)
     }
 
     @Test
     fun currentScreenshotOcrUsesOneShotProviderResultAfterConsent() {
         val delegate = RecordingDelegate()
+        val provider = StaticCurrentScreenshotOcrProvider(
+            CurrentScreenshotOcrReadResult.Available(
+                text = "当前屏幕 OCR 文本",
+                truncated = false,
+            ),
+        )
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
-                currentScreenshotOcrProvider = StaticCurrentScreenshotOcrProvider(
-                    CurrentScreenshotOcrReadResult.Available(
-                        text = "当前屏幕 OCR 文本",
-                        truncated = false,
-                    ),
-                ),
+                currentScreenshotOcrProvider = provider,
             ),
         )
 
@@ -203,6 +206,7 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
         assertEquals(true.toString(), result.data["requiresLocalModel"])
         assertEquals(CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY, result.data["metadataPolicy"])
+        assertEquals(listOf("current-screenshot-ocr"), provider.capturedRequestIds)
         assertTrue(delegate.requests.isEmpty())
     }
 
@@ -271,6 +275,14 @@ class RoutingAndValidatingToolExecutorTest {
                 reason = "test",
             ),
         )
+        val nonMediaKind = executor.execute(
+            ToolRequest(
+                id = "files-non-media-kind",
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to "documents"),
+                reason = "test",
+            ),
+        )
         val invalidRange = executor.execute(
             ToolRequest(
                 id = "files-range",
@@ -296,6 +308,10 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals(ToolErrorCode.InvalidRequest, blankKind.error?.code)
         assertFalse(blankKind.retryable)
         assertTrue(blankKind.summary.contains("invalid value"))
+        assertEquals(ToolStatus.Rejected, nonMediaKind.status)
+        assertEquals(ToolErrorCode.InvalidRequest, nonMediaKind.error?.code)
+        assertFalse(nonMediaKind.retryable)
+        assertTrue(nonMediaKind.summary.contains("invalid value"))
         assertEquals(ToolStatus.Rejected, invalidRange.status)
         assertEquals(ToolErrorCode.InvalidRequest, invalidRange.error?.code)
         assertFalse(invalidRange.retryable)
@@ -872,9 +888,21 @@ class RoutingAndValidatingToolExecutorTest {
     private class StaticCurrentScreenshotOcrProvider(
         private val result: CurrentScreenshotOcrReadResult,
     ) : CurrentScreenshotOcrProvider {
-        override fun setOneShotConsent(resultCode: Int, data: android.content.Intent?) = Unit
+        val capturedRequestIds = mutableListOf<String>()
 
-        override fun captureCurrentScreenshotOcr(): CurrentScreenshotOcrReadResult = result
+        override fun setOneShotConsent(
+            requestId: String,
+            resultCode: Int,
+            data: android.content.Intent?,
+            issuedAtMillis: Long,
+        ) = Unit
+
+        override fun clearOneShotConsent(requestId: String) = Unit
+
+        override fun captureCurrentScreenshotOcr(requestId: String, nowMillis: Long): CurrentScreenshotOcrReadResult {
+            capturedRequestIds += requestId
+            return result
+        }
     }
 
     private class StaticWebSearchProvider(
@@ -887,8 +915,8 @@ class RoutingAndValidatingToolExecutorTest {
             )
         },
     ) : WebSearchProvider {
-        override fun search(query: String, searchMode: String?): WebSearchReadResult =
-            resultForQuery(query, searchMode)
+        override fun search(request: WebSearchRequest): WebSearchReadResult =
+            resultForQuery(request.query, request.searchMode.schemaValue)
     }
 
     private class StaticBackgroundTaskScheduler : BackgroundTaskScheduler {
