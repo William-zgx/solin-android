@@ -17,6 +17,32 @@ class PocketMindExternalOutcomeUiTest {
 
     @Test
     fun externalOutcomeSheetReportsCompletedSelection() {
+        assertExternalOutcomeSelection(
+            buttonTag = "external_outcome_completed_button",
+            expectedOutcome = AgentExternalOutcome.Completed,
+        )
+    }
+
+    @Test
+    fun externalOutcomeSheetReportsNotCompletedSelection() {
+        assertExternalOutcomeSelection(
+            buttonTag = "external_outcome_not_completed_button",
+            expectedOutcome = AgentExternalOutcome.NotCompleted,
+        )
+    }
+
+    @Test
+    fun externalOutcomeSheetReportsOpenedOnlySelection() {
+        assertExternalOutcomeSelection(
+            buttonTag = "external_outcome_opened_only_button",
+            expectedOutcome = AgentExternalOutcome.OpenedOnly,
+        )
+    }
+
+    private fun assertExternalOutcomeSelection(
+        buttonTag: String,
+        expectedOutcome: AgentExternalOutcome,
+    ) {
         val pending = PendingExternalOutcomeConfirmation(
             runId = "run-share",
             requestId = "request-share",
@@ -68,6 +94,8 @@ class PocketMindExternalOutcomeUiTest {
                         recorded = currentPending to outcome
                     },
                     onOpenRecoveryAction = {},
+                    onConfirmRemoteSendDisclosure = {},
+                    onDismissRemoteSendDisclosure = {},
                     onSendMessage = {},
                     onSendPendingSharedInput = {},
                     onClearPendingSharedInput = {},
@@ -86,9 +114,9 @@ class PocketMindExternalOutcomeUiTest {
         composeRule.onNodeWithTag("external_outcome_not_completed_button").assertIsDisplayed()
         composeRule.onNodeWithTag("external_outcome_opened_only_button").assertIsDisplayed()
 
-        composeRule.onNodeWithTag("external_outcome_completed_button").performClick()
+        composeRule.onNodeWithTag(buttonTag).performClick()
 
         assertEquals(pending, recorded?.first)
-        assertEquals(AgentExternalOutcome.Completed, recorded?.second)
+        assertEquals(expectedOutcome, recorded?.second)
     }
 }

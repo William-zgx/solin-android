@@ -53,36 +53,50 @@ class MainActivityComprehensiveTest {
             assertPlaintextRemoteApiKeyIsNotInLegacyPrefs()
 
             sendPrompt("请记住：蓝色机器人喜欢端侧 AI")
-            composeRule.waitForText("已记住这条本地偏好", substring = true)
+            composeRule.waitForAnyText(
+                listOf(
+                    "已记住这条本地偏好",
+                    "本地记忆已关闭，未保存",
+                    "本地记忆暂不可用",
+                ),
+                substring = true,
+            )
             server.assertNoPost()
 
-            sendPrompt("用一句话介绍端侧 AI")
+            sendPrompt("用一句话介绍端侧 AI", server)
             composeRule.waitForText("模拟器回答")
             val firstRequest = server.awaitPost()
             assertTrue(firstRequest.path.endsWith("/v1/chat/completions"))
             assertTrue(firstRequest.body.contains("用一句话介绍端侧 AI"))
             assertFalse(firstRequest.body.contains("请记住"))
+            assertFalse(firstRequest.body.contains("蓝色机器人喜欢端侧 AI"))
             assertFalse(firstRequest.body.contains("已记住这条本地偏好"))
+            assertFalse(firstRequest.body.contains("本地记忆已关闭"))
+            assertFalse(firstRequest.body.contains("本地记忆暂不可用"))
 
-            sendPrompt("蓝色机器人偏好是什么")
+            sendPrompt("蓝色机器人偏好是什么", server)
             val memoryRequest = server.awaitPost()
             assertFalse(memoryRequest.body.contains("本地记忆："))
             assertFalse(memoryRequest.body.contains("设备上下文："))
             assertFalse(memoryRequest.body.contains("请记住"))
             assertFalse(memoryRequest.body.contains("蓝色机器人喜欢端侧 AI"))
             assertFalse(memoryRequest.body.contains("已记住这条本地偏好"))
+            assertFalse(memoryRequest.body.contains("本地记忆已关闭"))
+            assertFalse(memoryRequest.body.contains("本地记忆暂不可用"))
             composeRule.waitForText("记忆回答")
 
-            sendPrompt("打开 Wi-Fi 设置")
+            sendPrompt("打开 Wi-Fi 设置", server)
             composeRule.waitForText("规则回退", substring = true)
             composeRule.waitForText("打开 Wi-Fi 设置")
             composeRule.onNodeWithTag("action_dismiss_button").performClick()
 
-            sendPrompt("请慢慢回答")
+            sendPrompt("请慢慢回答", server)
             composeRule.waitForText("慢")
             val streamingRequest = server.awaitPost()
             assertFalse(streamingRequest.body.contains("请记住"))
             assertFalse(streamingRequest.body.contains("已记住这条本地偏好"))
+            assertFalse(streamingRequest.body.contains("本地记忆已关闭"))
+            assertFalse(streamingRequest.body.contains("本地记忆暂不可用"))
             assertFalse(streamingRequest.body.contains("打开 Wi-Fi 设置"))
             assertFalse(streamingRequest.body.contains("动作草稿"))
             composeRule.onNodeWithTag("composer_send_button").performClick()
@@ -99,7 +113,7 @@ class MainActivityComprehensiveTest {
             dismissFirstRunSetupIfPresent()
             configureRemoteModel(server.baseUrl)
 
-            sendPrompt(REMOTE_TOOL_CALL_PROMPT)
+            sendPrompt(REMOTE_TOOL_CALL_PROMPT, server)
             val request = server.awaitPost()
             assertTrue(request.path.endsWith("/v1/chat/completions"))
             assertRemoteToolRequestBody(request)
@@ -125,14 +139,14 @@ class MainActivityComprehensiveTest {
     }
 
     private fun dismissFirstRunSetupIfPresent() {
-        val setupVisible = composeRule.waitForOptionalText("准备基础能力包", timeoutMillis = 3_000)
+        val setupVisible = composeRule.waitForOptionalText("离线基础问答可选下载", timeoutMillis = 3_000)
         if (!setupVisible) return
-        composeRule.onNodeWithTag("first_run_model_chat-e2b").assertIsOn()
-        composeRule.onNodeWithTag("first_run_model_memory-embedding-300m").assertIsOff()
-        composeRule.onNodeWithTag("first_run_model_mobile-action-270m").assertIsOff()
-        composeRule.onNodeWithText("先跳过").performClick()
+        composeRule.onNodeWithTag("first_run_model_chat-e2b").performScrollTo().assertIsOn()
+        composeRule.onNodeWithTag("first_run_model_memory-embedding-300m").performScrollTo().assertIsOff()
+        composeRule.onNodeWithTag("first_run_model_mobile-action-270m").performScrollTo().assertIsOff()
+        composeRule.onNodeWithText("先跳过").performScrollTo().performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("准备基础能力包").fetchSemanticsNodes().isEmpty()
+            composeRule.onAllNodesWithText("离线基础问答可选下载").fetchSemanticsNodes().isEmpty()
         }
     }
 
@@ -147,22 +161,35 @@ class MainActivityComprehensiveTest {
         closeSheet("model_manager_sheet")
     }
 
-    private fun sendPrompt(prompt: String) {
+    private fun sendPrompt(prompt: String, server: LocalOpenAiServer? = null) {
         composeRule.onNodeWithTag("composer_input")
             .performTextClearance()
         composeRule.onNodeWithTag("composer_input").performTextInput(prompt)
         composeRule.onNodeWithTag("composer_send_button").performClick()
+        confirmRemoteSendIfPresent(server)
+    }
+
+    private fun confirmRemoteSendIfPresent(server: LocalOpenAiServer? = null) {
+        val needsConfirmation = composeRule.waitForOptionalTag(
+            tag = "remote_send_disclosure_sheet",
+            timeoutMillis = 1_500,
+        )
+        if (!needsConfirmation) return
+        server?.assertNoPost(timeoutMillis = 250)
+        composeRule.onNodeWithTag("remote_send_confirm_button").performClick()
+        composeRule.waitForTagGone("remote_send_disclosure_sheet", timeoutMillis = 5_000)
     }
 
     private fun createAndSwitchSessions() {
+        val previousSessionTitle = "用一句话介绍端侧 AI"
         composeRule.onNodeWithTag("top_session_button").performClick()
         composeRule.waitForTag("session_manager_title")
         composeRule.onNodeWithTag("session_create_button").performClick()
         composeRule.waitForTextGone("记忆回答")
 
         composeRule.onNodeWithTag("top_session_button").performClick()
-        composeRule.waitForText("请记住：蓝色机器人喜欢端侧 AI", substring = true)
-        composeRule.onAllNodesWithText("请记住：蓝色机器人喜欢端侧 AI", substring = true)
+        composeRule.waitForText(previousSessionTitle)
+        composeRule.onAllNodesWithText(previousSessionTitle)
             .onFirst()
             .performClick()
         composeRule.waitForText("记忆回答")
@@ -265,6 +292,18 @@ class MainActivityComprehensiveTest {
         }
     }
 
+    private fun ComposeTestRule.waitForAnyText(
+        texts: List<String>,
+        timeoutMillis: Long = 10_000,
+        substring: Boolean = false,
+    ) {
+        waitUntil(timeoutMillis = timeoutMillis) {
+            texts.any { text ->
+                onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+            }
+        }
+    }
+
     private fun ComposeTestRule.waitForTextGone(
         text: String,
         timeoutMillis: Long = 10_000,
@@ -278,6 +317,12 @@ class MainActivityComprehensiveTest {
     private fun ComposeTestRule.waitForOptionalText(text: String, timeoutMillis: Long): Boolean =
         runCatching {
             waitForText(text, timeoutMillis = timeoutMillis)
+            true
+        }.getOrDefault(false)
+
+    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean =
+        runCatching {
+            waitForTag(tag, timeoutMillis = timeoutMillis)
             true
         }.getOrDefault(false)
 

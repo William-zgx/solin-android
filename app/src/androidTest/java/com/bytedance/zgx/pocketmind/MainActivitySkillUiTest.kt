@@ -1,14 +1,16 @@
 package com.bytedance.zgx.pocketmind
 
-import android.content.Intent
+import android.content.Context
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
+import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as createAndroidComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
@@ -18,143 +20,130 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
-import androidx.test.core.app.ActivityScenario
-import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import org.junit.Rule
 import org.junit.Test
 
 class MainActivitySkillUiTest {
-    @get:Rule
-    val composeRule = createEmptyComposeRule()
+    private val targetContext: Context = ApplicationProvider.getApplicationContext()
 
-    @Test
-    fun webSearchSkillFirstExecutesReadOnlyToolWithoutRemoteRuntime() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
+    init {
         resetMainActivityPersistentState(
-            context = context,
+            context = targetContext,
             inferenceMode = InferenceMode.Remote,
             remoteModelConfig = ReadyRemoteModelConfig,
         )
-        val launchIntent = Intent(context, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, true)
-        }
+    }
 
-        ActivityScenario.launch<MainActivity>(launchIntent).use {
-            composeRule.waitForTag("app_title")
+    @get:Rule
+    val composeRule: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
+        createAndroidComposeTestRule(
+            ActivityScenarioRule(
+                mainActivitySkipStartupIntent(
+                    context = targetContext,
+                    debugRemoteModelConfig = ReadyRemoteModelConfig,
+                ),
+            ),
+        ) { rule -> activityFromScenarioRule(rule) }
 
-            composeRule.sendPrompt("搜一下 Kotlin 协程")
+    @Test
+    fun webSearchSkillFirstExecutesReadOnlyToolWithoutRemoteRuntime() {
+        composeRule.waitForTag("app_title")
 
-            composeRule.waitForText("正在使用工具：Web 搜索")
-            composeRule.waitForTagGone("action_confirm_button")
-        }
+        composeRule.sendPrompt("搜一下 Kotlin 协程")
+
+        composeRule.waitForText("正在使用工具：Web 搜索")
+        composeRule.waitForTagGone("action_confirm_button")
     }
 
     @Test
     fun clipboardSummaryShareSkillStartsAtLocalReadConfirmation() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        resetMainActivityPersistentState(
-            context = context,
-            inferenceMode = InferenceMode.Remote,
-            remoteModelConfig = ReadyRemoteModelConfig,
-        )
-        val launchIntent = Intent(context, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, true)
-        }
+        composeRule.waitForTag("app_title")
 
-        ActivityScenario.launch<MainActivity>(launchIntent).use {
-            composeRule.waitForTag("app_title")
+        composeRule.sendPrompt("总结剪贴板并分享")
 
-            composeRule.sendPrompt("总结剪贴板并分享")
+        composeRule.waitForTag("action_confirm_button")
+        composeRule.onNodeWithText("读取剪贴板").assertIsDisplayed()
+        composeRule.onNodeWithText("将读取当前剪贴板文本，用于生成可分享摘要。").assertIsDisplayed()
+        composeRule.assertTextAbsent("分享摘要")
 
-            composeRule.waitForTag("action_confirm_button")
-            composeRule.onNodeWithText("读取剪贴板").assertIsDisplayed()
-            composeRule.onNodeWithText("将读取当前剪贴板文本，用于生成可分享摘要。").assertIsDisplayed()
-            composeRule.assertTextAbsent("分享摘要")
+        composeRule.onNodeWithTag("action_dismiss_button").performClick()
+        composeRule.waitForTagGone("action_confirm_button")
 
-            composeRule.onNodeWithTag("action_dismiss_button").performClick()
-            composeRule.waitForTagGone("action_confirm_button")
-
-            composeRule.onNodeWithTag("top_background_tasks_button").performClick()
-            composeRule.waitForTag("background_task_manager_title")
-            composeRule.assertToolCancellationEvidence("read_clipboard")
-        }
+        composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+        composeRule.waitForTag("background_task_manager_title")
+        composeRule.assertToolCancellationEvidence("read_clipboard")
     }
 
     @Test
     fun currentScreenTextSummaryShareSkillStartsAtScreenTextConfirmation() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        resetMainActivityPersistentState(
-            context = context,
-            inferenceMode = InferenceMode.Remote,
-            remoteModelConfig = ReadyRemoteModelConfig,
-        )
-        val launchIntent = Intent(context, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, true)
-        }
+        composeRule.waitForTag("app_title")
 
-        ActivityScenario.launch<MainActivity>(launchIntent).use {
-            composeRule.waitForTag("app_title")
+        composeRule.sendPrompt("总结当前屏幕文字并分享")
 
-            composeRule.sendPrompt("总结当前屏幕文字并分享")
+        composeRule.waitForTag("action_confirm_button")
+        composeRule.onNodeWithText("读取当前屏幕文本").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。",
+        ).assertIsDisplayed()
+        composeRule.onNodeWithTag("special_access_requirements").assertIsDisplayed()
+        composeRule.assertTagAbsent("runtime_permission_requirements")
+        composeRule.assertTextAbsent("分享屏幕摘要")
 
-            composeRule.waitForTag("action_confirm_button")
-            composeRule.onNodeWithText("读取当前屏幕文本").assertIsDisplayed()
-            composeRule.onNodeWithText(
-                "将读取当前屏幕的可访问文本快照，用于生成可分享摘要；不会读取截图、像素、坐标或完整节点树。",
-            ).assertIsDisplayed()
-            composeRule.onNodeWithTag("special_access_requirements").assertIsDisplayed()
-            composeRule.assertTagAbsent("runtime_permission_requirements")
-            composeRule.assertTextAbsent("分享屏幕摘要")
+        composeRule.onNodeWithTag("action_dismiss_button").performClick()
+        composeRule.waitForTagGone("action_confirm_button")
 
-            composeRule.onNodeWithTag("action_dismiss_button").performClick()
-            composeRule.waitForTagGone("action_confirm_button")
-
-            composeRule.onNodeWithTag("top_background_tasks_button").performClick()
-            composeRule.waitForTag("background_task_manager_title")
-            composeRule.assertToolCancellationEvidence("read_current_screen_text")
-        }
+        composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+        composeRule.waitForTag("background_task_manager_title")
+        composeRule.assertToolCancellationEvidence("read_current_screen_text")
     }
 
     @Test
     fun currentScreenshotOcrSkillShowsOneShotMediaProjectionConfirmation() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        resetMainActivityPersistentState(
-            context = context,
-            inferenceMode = InferenceMode.Remote,
-            remoteModelConfig = ReadyRemoteModelConfig,
-        )
-        val launchIntent = Intent(context, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, true)
-        }
+        composeRule.waitForTag("app_title")
 
-        ActivityScenario.launch<MainActivity>(launchIntent).use {
-            composeRule.waitForTag("app_title")
+        composeRule.sendPrompt("OCR 当前屏幕截图文字")
 
-            composeRule.sendPrompt("OCR 当前屏幕截图文字")
+        composeRule.waitForTag("action_confirm_button")
+        composeRule.onNodeWithText("截取当前屏幕 OCR").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。",
+        ).assertIsDisplayed()
+        composeRule.onNodeWithText("captureMode").assertIsDisplayed()
+        composeRule.onNodeWithText("current_screen").assertIsDisplayed()
+        composeRule.assertTagAbsent("runtime_permission_requirements")
+        composeRule.assertTagAbsent("special_access_requirements")
+        composeRule.assertTextAbsent("已从当前屏幕单次截图提取")
 
-            composeRule.waitForTag("action_confirm_button")
-            composeRule.onNodeWithText("截取当前屏幕 OCR").assertIsDisplayed()
-            composeRule.onNodeWithText(
-                "将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。",
-            ).assertIsDisplayed()
-            composeRule.onNodeWithText("captureMode: current_screen").assertIsDisplayed()
-            composeRule.assertTagAbsent("runtime_permission_requirements")
-            composeRule.assertTagAbsent("special_access_requirements")
-            composeRule.assertTextAbsent("已从当前屏幕单次截图提取")
+        composeRule.onNodeWithTag("action_dismiss_button").performClick()
+        composeRule.waitForTagGone("action_confirm_button")
 
-            composeRule.onNodeWithTag("action_dismiss_button").performClick()
-            composeRule.waitForTagGone("action_confirm_button")
-
-            composeRule.onNodeWithTag("top_background_tasks_button").performClick()
-            composeRule.waitForTag("background_task_manager_title")
-            composeRule.assertToolCancellationEvidence("capture_current_screenshot_ocr")
-        }
+        composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+        composeRule.waitForTag("background_task_manager_title")
+        composeRule.assertToolCancellationEvidence("capture_current_screenshot_ocr")
     }
 
     private fun ComposeTestRule.sendPrompt(prompt: String) {
+        waitForReadyComposer()
         onNodeWithTag("composer_input").performTextClearance()
         onNodeWithTag("composer_input").performTextInput(prompt)
         onNodeWithTag("composer_send_button").performClick()
+        confirmRemoteSendIfPresent()
+    }
+
+    private fun ComposeTestRule.waitForReadyComposer(timeoutMillis: Long = 10_000) {
+        waitUntil(timeoutMillis = timeoutMillis) {
+            onAllNodesWithText("输入问题").fetchSemanticsNodes().isNotEmpty()
+        }
+        onNodeWithTag("composer_input").assertIsEnabled()
+    }
+
+    private fun ComposeTestRule.confirmRemoteSendIfPresent() {
+        val needsConfirmation = waitForOptionalTag("remote_send_disclosure_sheet", timeoutMillis = 5_000)
+        if (!needsConfirmation) return
+        onNodeWithTag("remote_send_confirm_button").performClick()
+        waitForTagGone("remote_send_disclosure_sheet")
     }
 
     private fun ComposeTestRule.waitForTag(tag: String, timeoutMillis: Long = 5_000) {
@@ -168,6 +157,12 @@ class MainActivitySkillUiTest {
             onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()
         }
     }
+
+    private fun ComposeTestRule.waitForOptionalTag(tag: String, timeoutMillis: Long): Boolean =
+        runCatching {
+            waitForTag(tag, timeoutMillis = timeoutMillis)
+            true
+        }.getOrDefault(false)
 
     private fun ComposeTestRule.assertTagAbsent(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {

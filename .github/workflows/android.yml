@@ -6,12 +6,25 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      perf_baseline_file:
+        description: "Path to the RC perf-baseline.properties file available in the workflow workspace or evidence artifact."
+        required: true
+        type: string
+      release_evidence_artifact_name:
+        description: "Optional artifact name containing release validation evidence paths such as build/verification/**."
+        required: false
+        type: string
+      release_evidence_run_id:
+        description: "Optional GitHub Actions run id that produced the release evidence artifact."
+        required: false
+        type: string
   schedule:
     - cron: "17 3 * * 1"
 
 jobs:
   verify:
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -36,6 +49,27 @@ jobs:
 
       - name: Verify
         run: scripts/verify_local.sh
+
+      - name: Record local verification evidence
+        if: success()
+        run: |
+          mkdir -p build/verification/ci-local-verification
+          {
+            echo "status=passed"
+            echo "target=ci-local-verification"
+            echo "workflow=${GITHUB_WORKFLOW}"
+            echo "job=verify"
+            echo "runId=${GITHUB_RUN_ID}"
+            echo "commitSha=${GITHUB_SHA}"
+            echo "command=scripts/verify_local.sh"
+          } > build/verification/ci-local-verification/local-verification.properties
+
+      - name: Upload local verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-local-verification-evidence
+          path: build/verification/ci-local-verification
 
   model-provenance:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
@@ -63,3 +97,339 @@ jobs:
 
       - name: Verify model provenance
         run: VERIFY_MODEL_URLS=1 scripts/verify_local.sh
+
+  emulator-regression:
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: macos-14
+    timeout-minutes: 75
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK emulator packages
+        run: |
+          sdkmanager \
+            "cmdline-tools;latest" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "platform-tools" \
+            "emulator" \
+            "system-images;android-36;google_apis;arm64-v8a"
+
+      - name: Create API 36 arm64 AVD
+        run: |
+          echo "no" | avdmanager create avd \
+            --force \
+            --name pocketmind_ci_api36_arm64 \
+            --package "system-images;android-36;google_apis;arm64-v8a"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run connected emulator regression
+        run: |
+          AVD_NAME=pocketmind_ci_api36_arm64 \
+          EMULATOR_SELECT_TIMEOUT_SECONDS=180 \
+          BOOT_TIMEOUT_SECONDS=600 \
+          ARTIFACT_DIR=build/verification/ci-emulator-regression \
+          scripts/regression_emulator.sh
+
+      - name: Upload emulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-regression-evidence
+          path: |
+            build/verification/ci-emulator-regression
+            build/verification/ci-emulator-regression-emulator.log
+
+  emulator-api-matrix:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: macos-14
+    timeout-minutes: 240
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK base packages
+        run: |
+          sdkmanager \
+            "cmdline-tools;latest" \
+            "platform-tools" \
+            "emulator" \
+            "build-tools;36.0.0"
+
+      - name: Prepare API matrix AVDs
+        run: |
+          APPLY=1 \
+          REQUIRED_APIS="28 32 33 34 36" \
+          AVD_NAME_PREFIX=pocketmind_ci_api \
+          REPORT_FILE=build/verification/ci-emulator-api-matrix-prepare/prepare.properties \
+          scripts/prepare_emulator_api_matrix.sh
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run connected API matrix regression
+        run: |
+          REQUIRED_APIS="28 32 33 34 36" \
+          EMULATOR_SELECT_TIMEOUT_SECONDS=180 \
+          BOOT_TIMEOUT_SECONDS=600 \
+          ARTIFACT_DIR=build/verification/ci-emulator-api-matrix \
+          scripts/regression_emulator_api_matrix.sh
+
+      - name: Upload API matrix evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-api-matrix-evidence
+          path: |
+            build/verification/ci-emulator-api-matrix-prepare
+            build/verification/ci-emulator-api-matrix
+
+  release-artifact-archive:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [verify, emulator-regression]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build release APK and AAB
+        run: ./gradlew :app:assembleRelease :app:bundleRelease
+
+      - name: Scan release artifacts
+        run: |
+          mkdir -p build/verification/ci-release-artifact-archive
+          scripts/scan_android_artifacts.sh \
+            --apk app/build/outputs/apk/release/app-release-unsigned.apk \
+            --aab app/build/outputs/bundle/release/app-release.aab \
+            --report build/verification/ci-release-artifact-archive/android-artifact-scan.properties
+
+      - name: Record release artifact archive evidence
+        run: |
+          mkdir -p build/verification/ci-release-artifact-archive
+          AAB_PATH="app/build/outputs/bundle/release/app-release.aab"
+          APK_PATH="app/build/outputs/apk/release/app-release-unsigned.apk"
+          MAPPING_PATH="app/build/outputs/mapping/release/mapping.txt"
+          {
+            echo "status=passed"
+            echo "target=ci-release-artifact-archive"
+            echo "workflow=${GITHUB_WORKFLOW}"
+            echo "job=release-artifact-archive"
+            echo "runId=${GITHUB_RUN_ID}"
+            echo "commitSha=${GITHUB_SHA}"
+            echo "artifactUploadName=android-release-artifacts"
+            echo "aabPath=${AAB_PATH}"
+            echo "aabSha256=$(shasum -a 256 "$AAB_PATH" | awk '{print $1}')"
+            echo "apkPath=${APK_PATH}"
+            echo "apkSha256=$(shasum -a 256 "$APK_PATH" | awk '{print $1}')"
+            echo "mappingPath=${MAPPING_PATH}"
+            echo "mappingSha256=$(shasum -a 256 "$MAPPING_PATH" | awk '{print $1}')"
+            echo "artifactScanReport=build/verification/ci-release-artifact-archive/android-artifact-scan.properties"
+            echo "artifactScanStatus=$(awk -F= '$1 == "status" {print $2; exit}' build/verification/ci-release-artifact-archive/android-artifact-scan.properties)"
+          } > build/verification/ci-release-artifact-archive/release-artifact-archive.properties
+
+      - name: Upload release artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-artifacts
+          path: |
+            app/build/outputs/apk/release
+            app/build/outputs/bundle/release
+            app/build/outputs/mapping/release
+            build/verification/ci-release-artifact-archive
+
+  protected-signing:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [verify, emulator-regression, release-artifact-archive]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: android-production-signing
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release-artifacts
+
+      - name: Sign release artifacts in protected environment
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          EXPECTED_SIGNING_CERT_SHA256: ${{ secrets.EXPECTED_SIGNING_CERT_SHA256 }}
+        run: |
+          mkdir -p build/verification/ci-protected-signing build/ci-signing
+          if [[ -z "${RELEASE_KEYSTORE_BASE64}" || -z "${RELEASE_KEY_ALIAS}" || -z "${RELEASE_KEYSTORE_PASSWORD}" || -z "${RELEASE_KEY_PASSWORD}" || -z "${EXPECTED_SIGNING_CERT_SHA256}" ]]; then
+            {
+              echo "status=failed"
+              echo "target=release-signing"
+              echo "failedTarget=environment"
+              echo "reason=protected-signing-secrets-not-configured"
+              echo "workflow=${GITHUB_WORKFLOW}"
+              echo "job=protected-signing"
+              echo "runId=${GITHUB_RUN_ID}"
+              echo "commitSha=${GITHUB_SHA}"
+            } > build/verification/ci-protected-signing/signing.properties
+            echo "Protected signing requires production signing secrets." >&2
+            exit 1
+          fi
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > build/ci-signing/release.keystore
+          RELEASE_KEYSTORE="$PWD/build/ci-signing/release.keystore" \
+          RELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
+          RELEASE_KEYSTORE_PASSWORD="$RELEASE_KEYSTORE_PASSWORD" \
+          RELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD" \
+          EXPECTED_SIGNING_CERT_SHA256="$EXPECTED_SIGNING_CERT_SHA256" \
+          UNSIGNED_APK="$PWD/app/build/outputs/apk/release/app-release-unsigned.apk" \
+          UNSIGNED_AAB="$PWD/app/build/outputs/bundle/release/app-release.aab" \
+          SIGNED_APK="$PWD/app/build/outputs/apk/release/app-release-signed.apk" \
+          SIGNED_AAB="$PWD/app/build/outputs/bundle/release/app-release-signed.aab" \
+          REPORT_FILE="$PWD/build/verification/ci-protected-signing/signing.properties" \
+          scripts/sign_release_artifacts.sh
+
+      - name: Upload signed release artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-signed-release-artifacts
+          path: |
+            app/build/outputs/apk/release/*signed*.apk
+            app/build/outputs/bundle/release/*signed*.aab
+            build/verification/ci-protected-signing
+
+  final-release-gate:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [verify, emulator-regression, emulator-api-matrix, release-artifact-archive, protected-signing]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Download local verification evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: android-local-verification-evidence
+
+      - name: Download emulator regression evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: android-emulator-regression-evidence
+
+      - name: Download API matrix evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: android-emulator-api-matrix-evidence
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release-artifacts
+
+      - name: Download signed release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-signed-release-artifacts
+
+      - name: Download current-run release evidence bundle
+        if: inputs.release_evidence_artifact_name != '' && inputs.release_evidence_run_id == ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.release_evidence_artifact_name }}
+
+      - name: Download external release evidence bundle
+        if: inputs.release_evidence_artifact_name != '' && inputs.release_evidence_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.release_evidence_artifact_name }}
+          run-id: ${{ inputs.release_evidence_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Run final public release gate
+        env:
+          EXPECTED_SIGNING_CERT_SHA256: ${{ secrets.EXPECTED_SIGNING_CERT_SHA256 }}
+          PERF_BASELINE_FILE: ${{ inputs.perf_baseline_file }}
+        run: |
+          ARTIFACT_DIR=build/verification/ci-final-release-gate \
+          PUBLIC_RELEASE=1 \
+          EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256}" \
+          PERF_BASELINE_FILE="${PERF_BASELINE_FILE}" \
+          scripts/verify_release_gate.sh
+
+      - name: Upload final release gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-final-release-gate-evidence
+          path: build/verification/ci-final-release-gate

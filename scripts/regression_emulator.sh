@@ -11,6 +11,7 @@ DEVICE_REPORT_FILE="${DEVICE_REPORT_FILE:-${ARTIFACT_DIR}/device-verification.pr
 ANDROID_TEST_SOURCE_DIR="${ANDROID_TEST_SOURCE_DIR:-app/src/androidTest}"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 EXPECTED_ANDROID_TEST_COUNT="${EXPECTED_ANDROID_TEST_COUNT:-}"
+RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
 SOURCE_ANDROID_TEST_COUNT=""
 ACTUAL_ANDROID_TEST_COUNT=""
 EMULATOR_SERIAL=""
@@ -18,6 +19,8 @@ EMULATOR_API_LEVEL=""
 EMULATOR_ABI=""
 EMULATOR_AVD=""
 DEVICE_INSTRUMENTATION_OUTPUT_FILE=""
+FAILED_TARGET=""
+FAILURE_REASON=""
 
 count_android_tests() {
   find "$ANDROID_TEST_SOURCE_DIR" \( -name '*.kt' -o -name '*.java' \) -print0 |
@@ -27,17 +30,21 @@ count_android_tests() {
 report_value() {
   local file="$1"
   local key="$2"
+  [[ -f "$file" ]] || return 0
   awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$file"
 }
 
 fail() {
+  FAILED_TARGET="$1"
+  FAILURE_REASON="$2"
+  shift 2
   echo "regression_emulator: $*" >&2
   exit 1
 }
 
 require_report() {
   local file="$1"
-  [[ -f "$file" ]] || fail "Missing verification report: $file"
+  [[ -f "$file" ]] || fail report missing-verification-report "Missing verification report: $file"
 }
 
 require_report_value() {
@@ -47,16 +54,17 @@ require_report_value() {
   local actual
   actual="$(report_value "$file" "$key")"
   [[ "$actual" == "$expected" ]] ||
-    fail "Expected $file to contain $key=$expected, got ${actual:-<missing>}."
+    fail report verification-report-value-mismatch "Expected $file to contain $key=$expected, got ${actual:-<missing>}."
 }
 
 require_non_empty_report_value() {
-  local file="$1"
-  local key="$2"
+  local output_var="$1"
+  local file="$2"
+  local key="$3"
   local actual
   actual="$(report_value "$file" "$key")"
-  [[ -n "$actual" ]] || fail "Expected $file to contain non-empty $key."
-  printf '%s\n' "$actual"
+  [[ -n "$actual" ]] || fail report verification-report-value-missing "Expected $file to contain non-empty $key."
+  printf -v "$output_var" '%s' "$actual"
 }
 
 harvest_reports() {
@@ -89,12 +97,15 @@ write_regression_report() {
     echo "status=$status_label"
     echo "exit_code=$exit_code"
     echo "target=regression-emulator"
+    echo "failedTarget=${FAILED_TARGET:-}"
+    echo "reason=${FAILURE_REASON:-}"
     echo "started_at_utc=$STARTED_AT_UTC"
     echo "finished_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "clean_device=1"
     echo "source_android_test_count=${SOURCE_ANDROID_TEST_COUNT:-}"
     echo "expected_android_test_count=${EXPECTED_ANDROID_TEST_COUNT:-}"
     echo "actual_android_test_count=${ACTUAL_ANDROID_TEST_COUNT:-}"
+    echo "releaseArtifactSha256=$RELEASE_ARTIFACT_SHA256"
     echo "serial=${EMULATOR_SERIAL:-}"
     echo "api_level=${EMULATOR_API_LEVEL:-}"
     echo "abi=${EMULATOR_ABI:-}"
@@ -110,12 +121,12 @@ trap 'status=$?; write_regression_report "$status"; exit "$status"' EXIT
 
 SOURCE_ANDROID_TEST_COUNT="$(count_android_tests)"
 [[ "$SOURCE_ANDROID_TEST_COUNT" =~ ^[1-9][0-9]*$ ]] ||
-  fail "AndroidTest source count must be a positive integer; got ${SOURCE_ANDROID_TEST_COUNT:-<empty>}."
+  fail android-test-source android-test-source-count-invalid "AndroidTest source count must be a positive integer; got ${SOURCE_ANDROID_TEST_COUNT:-<empty>}."
 [[ -n "$EXPECTED_ANDROID_TEST_COUNT" ]] || EXPECTED_ANDROID_TEST_COUNT="$SOURCE_ANDROID_TEST_COUNT"
 [[ "$EXPECTED_ANDROID_TEST_COUNT" =~ ^[1-9][0-9]*$ ]] ||
-  fail "EXPECTED_ANDROID_TEST_COUNT must be a positive integer; got ${EXPECTED_ANDROID_TEST_COUNT:-<empty>}."
+  fail expected-android-test-count expected-android-test-count-invalid "EXPECTED_ANDROID_TEST_COUNT must be a positive integer; got ${EXPECTED_ANDROID_TEST_COUNT:-<empty>}."
 if [[ "$EXPECTED_ANDROID_TEST_COUNT" -lt "$SOURCE_ANDROID_TEST_COUNT" ]]; then
-  fail "EXPECTED_ANDROID_TEST_COUNT=$EXPECTED_ANDROID_TEST_COUNT cannot be lower than AndroidTest source count $SOURCE_ANDROID_TEST_COUNT."
+  fail expected-android-test-count expected-android-test-count-below-source "EXPECTED_ANDROID_TEST_COUNT=$EXPECTED_ANDROID_TEST_COUNT cannot be lower than AndroidTest source count $SOURCE_ANDROID_TEST_COUNT."
 fi
 
 mkdir -p "$ARTIFACT_DIR"
@@ -130,7 +141,9 @@ EMULATOR_VERIFY_STATUS=$?
 set -e
 harvest_reports
 if [[ "$EMULATOR_VERIFY_STATUS" -ne 0 ]]; then
-  fail "Emulator verification failed; see $EMULATOR_REPORT_FILE and $DEVICE_REPORT_FILE."
+  nested_reason="$(report_value "$EMULATOR_REPORT_FILE" "reason")"
+  [[ -n "$nested_reason" ]] || nested_reason="emulator-verification-failed"
+  fail emulator-verification "emulator-verification-$nested_reason" "Emulator verification failed; see $EMULATOR_REPORT_FILE and $DEVICE_REPORT_FILE."
 fi
 
 require_report "$EMULATOR_REPORT_FILE"
@@ -146,18 +159,22 @@ require_report_value "$DEVICE_REPORT_FILE" "target" "device"
 require_report_value "$DEVICE_REPORT_FILE" "clean_device" "1"
 require_report_value "$DEVICE_REPORT_FILE" "instrumentation" "passed"
 
-EMULATOR_SERIAL="$(require_non_empty_report_value "$EMULATOR_REPORT_FILE" "serial")"
-EMULATOR_API_LEVEL="$(require_non_empty_report_value "$EMULATOR_REPORT_FILE" "api_level")"
-EMULATOR_ABI="$(require_non_empty_report_value "$EMULATOR_REPORT_FILE" "abi")"
+require_non_empty_report_value EMULATOR_SERIAL "$EMULATOR_REPORT_FILE" "serial"
+require_non_empty_report_value EMULATOR_API_LEVEL "$EMULATOR_REPORT_FILE" "api_level"
+require_non_empty_report_value EMULATOR_ABI "$EMULATOR_REPORT_FILE" "abi"
 EMULATOR_AVD="$(report_value "$EMULATOR_REPORT_FILE" "avd")"
-DEVICE_INSTRUMENTATION_OUTPUT_FILE="$(require_non_empty_report_value "$DEVICE_REPORT_FILE" "instrumentation_output_file")"
+DEVICE_INSTRUMENTATION_OUTPUT_FILE="$(report_value "$DEVICE_REPORT_FILE" "instrumentation_output_file")"
+[[ -n "$DEVICE_INSTRUMENTATION_OUTPUT_FILE" ]] ||
+  fail instrumentation-output instrumentation-output-file-missing "Expected $DEVICE_REPORT_FILE to contain non-empty instrumentation_output_file."
 [[ -s "$DEVICE_INSTRUMENTATION_OUTPUT_FILE" ]] ||
-  fail "Expected non-empty instrumentation output artifact: $DEVICE_INSTRUMENTATION_OUTPUT_FILE."
-ACTUAL_ANDROID_TEST_COUNT="$(require_non_empty_report_value "$DEVICE_REPORT_FILE" "instrumentation_test_count")"
+  fail instrumentation-output instrumentation-output-file-empty "Expected non-empty instrumentation output artifact: $DEVICE_INSTRUMENTATION_OUTPUT_FILE."
+ACTUAL_ANDROID_TEST_COUNT="$(report_value "$DEVICE_REPORT_FILE" "instrumentation_test_count")"
+[[ -n "$ACTUAL_ANDROID_TEST_COUNT" ]] ||
+  fail instrumentation-test-count instrumentation-test-count-missing "Expected $DEVICE_REPORT_FILE to contain non-empty instrumentation_test_count."
 [[ "$ACTUAL_ANDROID_TEST_COUNT" =~ ^[0-9]+$ ]] ||
-  fail "instrumentation_test_count must be numeric; got $ACTUAL_ANDROID_TEST_COUNT."
+  fail instrumentation-test-count instrumentation-test-count-invalid "instrumentation_test_count must be numeric; got $ACTUAL_ANDROID_TEST_COUNT."
 if [[ "$ACTUAL_ANDROID_TEST_COUNT" -lt "$EXPECTED_ANDROID_TEST_COUNT" ]]; then
-  fail "Instrumentation ran $ACTUAL_ANDROID_TEST_COUNT tests, expected at least $EXPECTED_ANDROID_TEST_COUNT."
+  fail instrumentation-test-count instrumentation-test-count-below-expected "Instrumentation ran $ACTUAL_ANDROID_TEST_COUNT tests, expected at least $EXPECTED_ANDROID_TEST_COUNT."
 fi
 
 echo "Emulator regression passed with $ACTUAL_ANDROID_TEST_COUNT AndroidTest(s)."
