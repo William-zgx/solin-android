@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "policy": "Public release builds require VERIFY_PRIVACY_REVIEW=1 and approved release/security/legal records for the current privacy notice SHA.",
+  "noticePath": "docs/privacy_notice.md",
+  "noticeSha256": "4345bcbb11830fa2ed1d3e4ef6acc739af0c674a9ccc495cfd7c1ef9398b8c16",
+  "status": "pending_manual_review",
+  "reviews": [
+    {
+      "role": "release",
+      "decision": "pending",
+      "reviewer": "",
+      "reviewDate": "",
+      "evidencePath": "docs/privacy_review_evidence/release-pending.properties",
+      "evidenceSha256": "bafc7270e1cc853b052d257127fa2ecfa2f05d6019396d2685e8c457ac37d0e3"
+    },
+    {
+      "role": "security",
+      "decision": "pending",
+      "reviewer": "",
+      "reviewDate": "",
+      "evidencePath": "docs/privacy_review_evidence/security-pending.properties",
+      "evidenceSha256": "b2c39564c81d260129f326110c200fa074b4c079547e314ed42e2bdcd7456f93"
+    },
+    {
+      "role": "legal",
+      "decision": "pending",
+      "reviewer": "",
+      "reviewDate": "",
+      "evidencePath": "docs/privacy_review_evidence/legal-pending.properties",
+      "evidenceSha256": "db244273b8f023c818c7101c6874265e1706ab080644bd32154bb49134cb80fc"
+    }
+  ]
+}
