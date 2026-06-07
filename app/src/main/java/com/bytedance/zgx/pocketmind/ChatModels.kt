@@ -58,12 +58,22 @@ data class ChatMessage(
     val privacy: MessagePrivacy = MessagePrivacy.RemoteEligible,
 )
 
+data class ChatImageAttachment(
+    val mimeType: String,
+    val dataUrl: String,
+)
+
 fun List<ChatMessage>.remoteEligibleMessages(): List<ChatMessage> =
     filter { it.privacy == MessagePrivacy.RemoteEligible }
 
 data class GenerationStats(
     val tokenCount: Int,
     val tokensPerSecond: Double,
+    val modelId: String? = null,
+    val backend: BackendChoice? = null,
+    val loadMs: Long? = null,
+    val firstTokenMs: Long? = null,
+    val usedFallbackBackend: Boolean = false,
 )
 
 fun GenerationStats.isUsable(): Boolean =
@@ -109,6 +119,22 @@ data class AgentTraceStepUiSummary(
     val type: String,
     val summary: String,
     val createdAtMillis: Long,
+    val runDataReceipt: RunDataReceiptUiSummary? = null,
+)
+
+data class RunDataReceiptUiSummary(
+    val destination: String,
+    val currentPromptPrivacy: String,
+    val remoteHistoryCount: Int,
+    val localOnlyHistoryFilteredCount: Int,
+    val memoryHitCount: Int,
+    val memoryContextIncluded: Boolean,
+    val deviceContextIncluded: Boolean,
+    val imageAttachmentCount: Int,
+    val protectedSourceCount: Int,
+    val rawContentPersisted: Boolean,
+    val protectedContentTypes: List<String>,
+    val deletableRecordTypes: List<String>,
 )
 
 data class AgentTraceRunUiSummary(
@@ -116,6 +142,7 @@ data class AgentTraceRunUiSummary(
     val state: AgentRunState,
     val updatedAtMillis: Long,
     val steps: List<AgentTraceStepUiSummary>,
+    val runDataReceipt: RunDataReceiptUiSummary? = null,
 )
 
 data class VoiceInputDraft(
@@ -125,16 +152,20 @@ data class VoiceInputDraft(
 
 data class VoiceCaptureUiState(
     val isListening: Boolean = false,
+    val isTranscribing: Boolean = false,
     val level: Float = 0f,
     val waveformLevels: List<Float> = emptyList(),
     val waveformFrame: Int = 0,
     val partialText: String = "",
-)
+) {
+    val isActive: Boolean get() = isListening || isTranscribing
+}
 
 data class SharedInputDraft(
     val id: Long,
     val prompt: String,
     val summary: String,
+    val imageAttachments: List<ChatImageAttachment> = emptyList(),
     val privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
 )
 
@@ -145,6 +176,25 @@ data class PendingAgentConfirmation(
     val skillId: String?,
     val plannedByModel: Boolean,
     val fallbackReason: String?,
+)
+
+enum class RemoteSendDisclosureKind {
+    CurrentInput,
+    ToolResultContinuation,
+}
+
+data class PendingRemoteSendDisclosure(
+    val kind: RemoteSendDisclosureKind = RemoteSendDisclosureKind.CurrentInput,
+    val prompt: String,
+    val messagePrivacy: MessagePrivacy,
+    val remoteHost: String,
+    val remoteModelName: String,
+    val remoteHistoryCount: Int,
+    val localOnlyHistoryFilteredCount: Int,
+    val imageAttachmentCount: Int,
+    val protectedSourceCount: Int,
+    val apiKeyConfigured: Boolean,
+    val imageAttachments: List<ChatImageAttachment> = emptyList(),
 )
 
 data class PendingExternalOutcomeConfirmation(
@@ -197,12 +247,18 @@ data class ChatUiState(
     val auditEvents: List<AuditEventSummary> = emptyList(),
     val agentTraceRuns: List<AgentTraceRunUiSummary> = emptyList(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
+    val pendingRemoteSendDisclosure: PendingRemoteSendDisclosure? = null,
     val pendingExternalOutcome: PendingExternalOutcomeConfirmation? = null,
     val latestRecoveryAction: AgentRecoveryAction? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,
     val remoteModelConfig: RemoteModelConfig = RemoteModelConfig(),
     val backend: BackendChoice = BackendChoice.GPU,
     val generationParameters: GenerationParameters = GenerationParameters(),
+    val localMaxTotalTokens: Int = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
+    val modelHealth: ModelHealth = ModelHealth(
+        profileId = DEFAULT_CHAT_MODEL_ID,
+        state = ModelHealthState.NotInstalled,
+    ),
     val statusText: String = "未加载模型",
     val isArm64Supported: Boolean = true,
     val availableModelStorageBytes: Long = 0L,

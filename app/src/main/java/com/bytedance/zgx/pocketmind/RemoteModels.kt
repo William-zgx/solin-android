@@ -11,6 +11,9 @@ data class RemoteModelConfig(
     val baseUrl: String = "",
     val modelName: String = "",
     val apiKey: String = "",
+    // Fail-closed: only enable vision when the model is explicitly declared vision-capable.
+    // Defaulting to false prevents sending images to a remote model whose capability is unknown.
+    val supportsVisionInput: Boolean = false,
 ) {
     val isConfigured: Boolean
         get() = modelName.isNotBlank() && hasAllowedTransport()
@@ -25,6 +28,7 @@ data class RemoteModelConfig(
             baseUrl = baseUrl.trim().trimEnd('/'),
             modelName = modelName.trim(),
             apiKey = apiKey.trim(),
+            supportsVisionInput = supportsVisionInput,
         )
 
     private fun hasAllowedTransport(): Boolean {
@@ -40,10 +44,29 @@ data class RemoteModelConfig(
         runCatching { URI(baseUrl.trim()) }.getOrNull()
 }
 
-private fun String?.isLocalDebugHost(): Boolean =
+fun RemoteModelConfig.modelProfile(): ModelProfile =
+    normalized().let { normalized ->
+        ModelCatalog.remoteVisionProfile.copy(
+            id = "remote-openai-compatible-${normalized.modelName.ifBlank { "unconfigured" }}",
+            displayName = normalized.modelName.ifBlank { "远程模型" },
+            inputModalities = if (normalized.supportsVisionInput) {
+                setOf(ModelInputModality.Text, ModelInputModality.Vision)
+            } else {
+                setOf(ModelInputModality.Text)
+            },
+            features = if (normalized.supportsVisionInput) {
+                setOf(ModelFeature.TextGeneration, ModelFeature.VisionInput)
+            } else {
+                setOf(ModelFeature.TextGeneration)
+            },
+        )
+    }
+
+internal fun String?.isLocalDebugHost(): Boolean =
     this == "localhost" ||
         this == "127.0.0.1" ||
         this == "::1" ||
+        this == "[::1]" ||
         this == "10.0.2.2"
 
 fun InferenceMode.label(): String =

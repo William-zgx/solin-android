@@ -38,6 +38,14 @@ class RemoteModelRepository(
             normalized
         }
 
+    override fun saveConfigWithoutApiKey(config: RemoteModelConfig): Result<RemoteModelConfig> =
+        runCatching {
+            val normalized = config.copy(apiKey = "").normalized()
+            settingsStore.saveRemoteConfig(normalized)
+            legacyPrefs?.edit()?.remove(PREF_REMOTE_API_KEY)?.apply()
+            normalized
+        }
+
     private fun loadApiKey(): Result<String> {
         val plaintextLegacy = legacyPrefs?.getString(PREF_REMOTE_API_KEY, "").orEmpty()
         if (plaintextLegacy.isNotBlank()) {

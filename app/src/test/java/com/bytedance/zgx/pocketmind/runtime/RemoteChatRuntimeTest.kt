@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.runtime
 
+import com.bytedance.zgx.pocketmind.ChatImageAttachment
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.MessagePrivacy
@@ -23,6 +24,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okio.Timeout
 import kotlin.reflect.KClass
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -48,6 +50,8 @@ class RemoteChatRuntimeTest {
         assertEquals("system", messages.getJSONObject(0).getString("role"))
         assertTrue(messages.getJSONObject(0).getString("content").contains("PocketMind"))
         assertTrue(messages.getJSONObject(0).getString("content").contains("用户当前输入一致的语言"))
+        assertTrue(messages.getJSONObject(0).getString("content").contains("优先调用合适工具获取证据"))
+        assertTrue(messages.getJSONObject(0).getString("content").contains("多个独立工具调用"))
         assertEquals("history-5", messages.getJSONObject(1).getString("content"))
         assertEquals("你好", messages.getJSONObject(21).getString("content"))
     }
@@ -88,8 +92,63 @@ class RemoteChatRuntimeTest {
         assertEquals("function", tool.getString("type"))
         assertEquals(MobileActionFunctions.WEB_SEARCH, function.getString("name"))
         assertTrue(function.getString("description").isNotBlank())
+        assertTrue(function.getString("description").contains("多主体比较"))
+        assertTrue(function.getString("description").contains("独立 web_search 工具调用"))
         assertEquals("object", function.getJSONObject("parameters").getString("type"))
         assertEquals("auto", body.getString("tool_choice"))
+    }
+
+    @Test
+    fun buildChatCompletionBodySerializesImageAttachmentsAsOpenAiContentParts() {
+        val body = buildChatCompletionBody(
+            prompt = "描述这张图",
+            history = emptyList(),
+            parameters = GenerationParameters(),
+            config = RemoteModelConfig("https://api.example.com/v1", "model-a", supportsVisionInput = true),
+            imageAttachments = listOf(
+                ChatImageAttachment(
+                    mimeType = "image/png",
+                    dataUrl = "data:image/png;base64,AA==",
+                ),
+            ),
+        )
+
+        val userMessage = body.getJSONArray("messages").getJSONObject(1)
+        val content = userMessage.getJSONArray("content")
+
+        assertEquals("user", userMessage.getString("role"))
+        assertEquals("text", content.getJSONObject(0).getString("type"))
+        assertEquals("描述这张图", content.getJSONObject(0).getString("text"))
+        assertEquals("image_url", content.getJSONObject(1).getString("type"))
+        assertEquals(
+            "data:image/png;base64,AA==",
+            content.getJSONObject(1).getJSONObject("image_url").getString("url"),
+        )
+    }
+
+    @Test
+    fun buildChatCompletionBodyRejectsImagesWhenRemoteProfileDisablesVision() {
+        val error = runCatching {
+            buildChatCompletionBody(
+                prompt = "描述这张图",
+                history = emptyList(),
+                parameters = GenerationParameters(),
+                config = RemoteModelConfig(
+                    baseUrl = "https://api.example.com/v1",
+                    modelName = "text-only",
+                    supportsVisionInput = false,
+                ),
+                imageAttachments = listOf(
+                    ChatImageAttachment(
+                        mimeType = "image/png",
+                        dataUrl = "data:image/png;base64,AA==",
+                    ),
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertTrue(error?.message.orEmpty().contains("未启用图片输入能力"))
     }
 
     @Test
@@ -293,6 +352,24 @@ class RemoteChatRuntimeTest {
     }
 
     @Test
+    fun remoteToolCallAccumulatorRejectsAmbiguousUnindexedMultiToolArgumentFragments() {
+        val accumulator = RemoteToolCallAccumulator()
+
+        accumulator.absorb(
+            """
+            {"choices":[{"delta":{"tool_calls":[
+              {"id":"call-1","type":"function","function":{"name":"web_search","arguments":"{\"query\""}},
+              {"id":"call-2","type":"function","function":{"name":"web_search","arguments":"{\"query\""}}
+            ]}}]}
+            """.trimIndent(),
+        )
+        accumulator.absorb("""{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":":\"北京天气\"}"}}]}}]}""")
+
+        val error = accumulator.finish().single() as RemoteChatEvent.ParseError
+        assertTrue(error.summary.contains("缺少稳定 index"))
+    }
+
+    @Test
     fun remoteToolCallAccumulatorRejectsStreamingMixedToolCallFormats() {
         val accumulator = RemoteToolCallAccumulator()
 
@@ -351,6 +428,59 @@ class RemoteChatRuntimeTest {
             assertTrue(requestBody.contains(""""stream":true"""))
             assertTrue(requestBody.contains("可发送历史"))
             assertFalse(requestBody.contains("仅本地历史"))
+        }
+    }
+
+    @Test
+    fun sendWithImageUsesOpenAiVisionContentPartInHttpFixture() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(200)
+                    .addHeader("Content-Type", "text/event-stream")
+                    .body(
+                        """
+                        data: {"choices":[{"delta":{"content":"完成"}}]}
+
+                        data: [DONE]
+
+                        """.trimIndent(),
+                    )
+                    .build(),
+            )
+            server.start()
+            val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
+            val dataUrl = "data:image/png;base64,AA=="
+
+            val chunks = runtime.send(
+                prompt = "描述图片",
+                history = emptyList(),
+                parameters = GenerationParameters(),
+                config = RemoteModelConfig(
+                    baseUrl = server.url("/v1").toString().trimEnd('/'),
+                    modelName = "vision-model",
+                    supportsVisionInput = true,
+                ),
+                imageAttachments = listOf(
+                    ChatImageAttachment(
+                        mimeType = "image/png",
+                        dataUrl = dataUrl,
+                    ),
+                ),
+            ).toList()
+
+            assertEquals("完成", chunks.joinToString(separator = ""))
+            val request = server.takeRequest()
+            assertEquals("/v1/chat/completions", request.target)
+            val body = JSONObject(request.body!!.utf8())
+            assertTrue(body.getBoolean("stream"))
+            val messages = body.getJSONArray("messages")
+            val content = messages.getJSONObject(messages.length() - 1).getJSONArray("content")
+            assertEquals(2, content.length())
+            assertEquals("text", content.getJSONObject(0).getString("type"))
+            assertEquals("描述图片", content.getJSONObject(0).getString("text"))
+            assertEquals("image_url", content.getJSONObject(1).getString("type"))
+            assertEquals(dataUrl, content.getJSONObject(1).getJSONObject("image_url").getString("url"))
         }
     }
 
@@ -484,6 +614,44 @@ class RemoteChatRuntimeTest {
             val message = requireNotNull(failure).message.orEmpty()
             assertTrue(message.contains("401"))
             assertFalse(message.contains("secret-key"))
+        }
+    }
+
+    @Test
+    fun sendWithImageReportsUnsupportedWithoutLeakingResponseBody() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse.Builder()
+                    .code(400)
+                    .body("""{"error":"secret-image-body should not appear"}""")
+                    .build(),
+            )
+            server.start()
+            val runtime = OkHttpRemoteChatRuntime(OkHttpClient())
+
+            val failure = runCatching {
+                runtime.send(
+                    prompt = "描述图片",
+                    history = emptyList(),
+                    parameters = GenerationParameters(),
+                    config = RemoteModelConfig(
+                        server.url("/v1").toString().trimEnd('/'),
+                        "model-a",
+                        supportsVisionInput = true,
+                    ),
+                    imageAttachments = listOf(
+                        ChatImageAttachment(
+                            mimeType = "image/png",
+                            dataUrl = "data:image/png;base64,AA==",
+                        ),
+                    ),
+                ).toList()
+            }.exceptionOrNull()
+
+            val message = requireNotNull(failure).message.orEmpty()
+            assertTrue(message.contains("不支持图片输入"))
+            assertTrue(message.contains("400"))
+            assertFalse(message.contains("secret-image-body"))
         }
     }
 

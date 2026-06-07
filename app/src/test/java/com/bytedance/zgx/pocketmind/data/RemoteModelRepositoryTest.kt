@@ -40,12 +40,14 @@ class RemoteModelRepositoryTest {
                 baseUrl = " https://api.example.com/v1/ ",
                 modelName = " model-a ",
                 apiKey = "secret",
+                supportsVisionInput = false,
             ),
         )
 
         assertTrue(result.isSuccess)
         assertEquals("https://api.example.com/v1", settingsStore.remoteConfig.baseUrl)
         assertEquals("model-a", settingsStore.remoteConfig.modelName)
+        assertEquals(false, settingsStore.remoteConfig.supportsVisionInput)
         assertEquals("secret", secretStore.loadString("remote_model_api_key").getOrThrow())
     }
 

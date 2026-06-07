@@ -17,6 +17,19 @@ class RemoteModelConfigTest {
         assertEquals("https://api.example.com/v1", config.baseUrl)
         assertEquals("model-a", config.modelName)
         assertEquals("key", config.apiKey)
+        assertFalse(config.supportsVisionInput)
+    }
+
+    @Test
+    fun normalizedPreservesVisionCapabilitySwitch() {
+        val config = RemoteModelConfig(
+            baseUrl = " https://api.example.com/v1/ ",
+            modelName = " model-a ",
+            apiKey = " key ",
+            supportsVisionInput = false,
+        ).normalized()
+
+        assertFalse(config.supportsVisionInput)
     }
 
     @Test

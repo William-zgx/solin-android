@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.runtime
 
 import com.bytedance.zgx.pocketmind.ChatMessage
+import com.bytedance.zgx.pocketmind.ChatImageAttachment
 import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
@@ -39,6 +40,7 @@ interface RemoteChatRuntime {
         history: List<ChatMessage>,
         parameters: GenerationParameters,
         config: RemoteModelConfig,
+        imageAttachments: List<ChatImageAttachment> = emptyList(),
     ): Flow<String>
 
     fun sendWithTools(
@@ -47,8 +49,9 @@ interface RemoteChatRuntime {
         parameters: GenerationParameters,
         config: RemoteModelConfig,
         tools: List<ToolSpec>,
+        imageAttachments: List<ChatImageAttachment> = emptyList(),
     ): Flow<RemoteChatEvent> =
-        send(prompt, history, parameters, config).map { chunk -> RemoteChatEvent.TextDelta(chunk) }
+        send(prompt, history, parameters, config, imageAttachments).map { chunk -> RemoteChatEvent.TextDelta(chunk) }
 
     fun stop()
 }
@@ -63,18 +66,27 @@ class OkHttpRemoteChatRuntime(
     @Volatile
     private var activeCall: Call? = null
 
+    fun send(
+        prompt: String,
+        history: List<ChatMessage>,
+        parameters: GenerationParameters,
+        config: RemoteModelConfig,
+    ): Flow<String> =
+        send(prompt, history, parameters, config, emptyList())
+
     override fun send(
         prompt: String,
         history: List<ChatMessage>,
         parameters: GenerationParameters,
         config: RemoteModelConfig,
+        imageAttachments: List<ChatImageAttachment>,
     ): Flow<String> = callbackFlow {
         val normalized = config.normalized()
         require(normalized.isConfigured) { "请先配置远程模型地址和模型名" }
         val request = Request.Builder()
             .url(normalized.chatCompletionsUrl())
             .post(
-                buildChatCompletionBody(prompt, history, parameters, normalized)
+                buildChatCompletionBody(prompt, history, parameters, normalized, imageAttachments = imageAttachments)
                     .toString()
                     .toRequestBody(JSON),
             )
@@ -93,7 +105,7 @@ class OkHttpRemoteChatRuntime(
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
                         response.body.close()
-                        error("远程模型请求失败 ${response.code}")
+                        error(remoteFailureMessage(response.code, imageAttachments))
                     }
                     val body = response.body
                     if (response.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)) {
@@ -133,19 +145,36 @@ class OkHttpRemoteChatRuntime(
         }
     }
 
+    fun sendWithTools(
+        prompt: String,
+        history: List<ChatMessage>,
+        parameters: GenerationParameters,
+        config: RemoteModelConfig,
+        tools: List<ToolSpec>,
+    ): Flow<RemoteChatEvent> =
+        sendWithTools(prompt, history, parameters, config, tools, emptyList())
+
     override fun sendWithTools(
         prompt: String,
         history: List<ChatMessage>,
         parameters: GenerationParameters,
         config: RemoteModelConfig,
         tools: List<ToolSpec>,
+        imageAttachments: List<ChatImageAttachment>,
     ): Flow<RemoteChatEvent> = callbackFlow {
         val normalized = config.normalized()
         require(normalized.isConfigured) { "请先配置远程模型地址和模型名" }
         val request = Request.Builder()
             .url(normalized.chatCompletionsUrl())
             .post(
-                buildChatCompletionBody(prompt, history, parameters, normalized, tools)
+                buildChatCompletionBody(
+                    prompt,
+                    history,
+                    parameters,
+                    normalized,
+                    tools,
+                    imageAttachments,
+                )
                     .toString()
                     .toRequestBody(JSON),
             )
@@ -164,7 +193,7 @@ class OkHttpRemoteChatRuntime(
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
                         response.body.close()
-                        error("远程模型请求失败 ${response.code}")
+                        error(remoteFailureMessage(response.code, imageAttachments))
                     }
                     val body = response.body
                     if (response.header("Content-Type").orEmpty().contains("text/event-stream", ignoreCase = true)) {
@@ -216,8 +245,12 @@ internal fun buildChatCompletionBody(
     parameters: GenerationParameters,
     config: RemoteModelConfig,
     tools: List<ToolSpec> = emptyList(),
-): JSONObject =
-    JSONObject()
+    imageAttachments: List<ChatImageAttachment> = emptyList(),
+): JSONObject {
+    require(imageAttachments.isEmpty() || config.supportsVisionInput) {
+        "当前远程模型未启用图片输入能力，未读取、OCR 或发送图片；请切换支持视觉的远程模型后重新选择图片。"
+    }
+    return JSONObject()
         .put("model", config.modelName)
         .put("stream", true)
         .put("temperature", parameters.temperature.toDouble())
@@ -231,13 +264,57 @@ internal fun buildChatCompletionBody(
                         .put("content", DEFAULT_CHAT_SYSTEM_INSTRUCTION),
                 )
                 .appendHistory(history)
-                .put(JSONObject().put("role", "user").put("content", prompt)),
+                .put(userMessageJson(prompt, imageAttachments)),
         ).apply {
             if (tools.isNotEmpty()) {
                 put("tools", tools.toOpenAiToolsJson())
                 put("tool_choice", "auto")
             }
         }
+}
+
+private fun userMessageJson(prompt: String, imageAttachments: List<ChatImageAttachment>): JSONObject {
+    val message = JSONObject().put("role", "user")
+    if (imageAttachments.isEmpty()) {
+        return message.put("content", prompt)
+    }
+    val content = JSONArray()
+        .put(JSONObject().put("type", "text").put("text", prompt))
+    imageAttachments.forEach { image ->
+        content.put(
+            JSONObject()
+                .put("type", "image_url")
+                .put(
+                    "image_url",
+                    JSONObject()
+                        .put("url", image.dataUrl),
+                ),
+        )
+    }
+    return message.put("content", content)
+}
+
+private fun remoteFailureMessage(code: Int, imageAttachments: List<ChatImageAttachment>): String =
+    if (imageAttachments.isNotEmpty()) {
+        when (code) {
+            400, 404, 415 ->
+                "图片输入请求失败，当前远程模型或接口可能不支持图片输入（HTTP $code）"
+
+            401, 403 ->
+                "远程模型认证失败，图片未发送成功（HTTP $code）"
+
+            429 ->
+                "远程模型请求受限，图片未发送成功（HTTP $code）"
+
+            in 500..599 ->
+                "远程模型服务异常，图片未发送成功（HTTP $code）"
+
+            else ->
+                "图片输入请求失败，图片未发送成功（HTTP $code）"
+        }
+    } else {
+        "远程模型请求失败 $code"
+    }
 
 internal fun parseChatCompletionChunkText(raw: String): String {
     val json = runCatching { JSONObject(raw) }.getOrNull() ?: return ""
@@ -324,6 +401,7 @@ internal class RemoteToolCallAccumulator {
     private var sawToolCalls = false
     private var sawLegacyFunctionCall = false
     private var mixedToolCallFormats = false
+    private var ambiguousUnindexedToolCallFragments = false
 
     fun absorb(raw: String): List<RemoteChatEvent> {
         val json = runCatching { JSONObject(raw) }.getOrElse {
@@ -379,6 +457,10 @@ internal class RemoteToolCallAccumulator {
         if (id.isBlank() && name.isBlank() && builders.size == 1) {
             return builders.keys.single()
         }
+        if (id.isBlank() && name.isBlank() && builders.size > 1) {
+            ambiguousUnindexedToolCallFragments = true
+            return nextSyntheticToolCallIndex()
+        }
         return nextSyntheticToolCallIndex()
     }
 
@@ -399,6 +481,9 @@ internal class RemoteToolCallAccumulator {
     fun finish(): List<RemoteChatEvent> {
         if (mixedToolCallFormats) {
             return listOf(RemoteChatEvent.ParseError("远程模型同时返回多种工具调用格式，已拒绝执行"))
+        }
+        if (ambiguousUnindexedToolCallFragments) {
+            return listOf(RemoteChatEvent.ParseError("远程模型流式多工具调用缺少稳定 index，已拒绝执行"))
         }
         if (builders.isEmpty()) return emptyList()
         val requests = mutableListOf<ToolRequest>()

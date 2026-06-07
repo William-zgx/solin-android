@@ -13,6 +13,65 @@ enum class ModelCapability {
     MobileAction,
 }
 
+enum class ModelInputModality {
+    Text,
+    Vision,
+}
+
+enum class ModelFeature {
+    TextGeneration,
+    VisionInput,
+    MemoryEmbedding,
+    MobileActionPlanning,
+}
+
+enum class ModelBackendKind {
+    LocalLiteRt,
+    RemoteOpenAiCompatible,
+}
+
+enum class ModelHealthState {
+    NotInstalled,
+    InstalledUnverified,
+    Verified,
+    Loading,
+    Loaded,
+    LoadFailed,
+    FallbackActive,
+}
+
+data class ModelProfile(
+    val id: String,
+    val displayName: String,
+    val capability: ModelCapability,
+    val backendKind: ModelBackendKind,
+    val inputModalities: Set<ModelInputModality>,
+    val features: Set<ModelFeature>,
+    val byteSize: Long? = null,
+    val sha256Hex: String? = null,
+    val sourceRevision: String? = null,
+    val tokenBudget: Int? = null,
+    val experimental: Boolean = false,
+) {
+    val supportsVisionInput: Boolean
+        get() = ModelInputModality.Vision in inputModalities && ModelFeature.VisionInput in features
+}
+
+data class ModelHealth(
+    val profileId: String,
+    val state: ModelHealthState,
+    val backend: BackendChoice? = null,
+    val loadMs: Long? = null,
+    val firstTokenMs: Long? = null,
+    val tokenCount: Int? = null,
+    val tokensPerSecond: Double? = null,
+    val fallbackBackend: BackendChoice? = null,
+    val failureReason: String? = null,
+) {
+    val usedFallbackBackend: Boolean
+        get() = fallbackBackend != null
+}
+
 enum class SetupTier {
     BasicRecommended,
     OptionalChat,
@@ -101,6 +160,16 @@ internal val DEFAULT_CHAT_MODEL: RecommendedModel =
 internal val DEFAULT_CHAT_MODEL_BYTES: Long = DEFAULT_CHAT_MODEL.byteSize
 
 internal object ModelCatalog {
+    val remoteVisionProfile: ModelProfile =
+        ModelProfile(
+            id = "remote-openai-compatible-vision",
+            displayName = "远程视觉模型",
+            capability = ModelCapability.Chat,
+            backendKind = ModelBackendKind.RemoteOpenAiCompatible,
+            inputModalities = setOf(ModelInputModality.Text, ModelInputModality.Vision),
+            features = setOf(ModelFeature.TextGeneration, ModelFeature.VisionInput),
+        )
+
     fun recommendedModelById(modelId: String?): RecommendedModel =
         RECOMMENDED_MODELS.firstOrNull { it.id == modelId } ?: DEFAULT_CHAT_MODEL
 
@@ -111,6 +180,31 @@ internal object ModelCatalog {
 
     fun recommendedModelsFor(capability: ModelCapability): List<RecommendedModel> =
         RECOMMENDED_MODELS.filter { it.capability == capability }
+
+    fun profileFor(model: RecommendedModel): ModelProfile =
+        ModelProfile(
+            id = model.id,
+            displayName = model.displayName,
+            capability = model.capability,
+            backendKind = ModelBackendKind.LocalLiteRt,
+            inputModalities = setOf(ModelInputModality.Text),
+            features = model.capability.defaultFeatures(),
+            byteSize = model.byteSize,
+            sha256Hex = model.sha256Hex,
+            sourceRevision = model.sourceRevision,
+            tokenBudget = if (model.capability == ModelCapability.Chat) {
+                LocalModelTokenLimits.MAX_TOTAL_TOKENS
+            } else {
+                null
+            },
+            experimental = model.capability != ModelCapability.Chat,
+        )
+
+    fun recommendedProfiles(): List<ModelProfile> =
+        RECOMMENDED_MODELS.map(::profileFor)
+
+    fun profileForModelId(modelId: String?): ModelProfile =
+        profileFor(recommendedModelById(modelId))
 
     fun basicSetupModels(): List<RecommendedModel> =
         RECOMMENDED_MODELS.filter { it.setupTier == SetupTier.BasicRecommended }
@@ -223,3 +317,10 @@ internal object ModelCatalog {
             else -> "代码 $reason"
         }
 }
+
+private fun ModelCapability.defaultFeatures(): Set<ModelFeature> =
+    when (this) {
+        ModelCapability.Chat -> setOf(ModelFeature.TextGeneration)
+        ModelCapability.MemoryEmbedding -> setOf(ModelFeature.MemoryEmbedding)
+        ModelCapability.MobileAction -> setOf(ModelFeature.MobileActionPlanning)
+    }

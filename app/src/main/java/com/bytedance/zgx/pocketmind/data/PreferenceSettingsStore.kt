@@ -97,6 +97,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
             baseUrl = readString(Keys.REMOTE_BASE_URL, ""),
             modelName = readString(Keys.REMOTE_MODEL_NAME, ""),
             apiKey = apiKey,
+            supportsVisionInput = readBoolean(Keys.REMOTE_SUPPORTS_VISION_INPUT, false),
         ).normalized()
 
     override fun saveRemoteConfig(config: RemoteModelConfig): RemoteModelConfig {

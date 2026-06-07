@@ -12,7 +12,9 @@ import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.ModelCatalog
 import com.bytedance.zgx.pocketmind.RECOMMENDED_MODELS
 import com.bytedance.zgx.pocketmind.RecommendedModel
+import com.bytedance.zgx.pocketmind.isLocalDebugHost
 import java.io.File
+import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.json.JSONObject
@@ -54,11 +56,93 @@ data class ModelDownloadSource(
             ?: file.nameWithoutExtension
 }
 
+internal fun createCustomModelDownloadSource(downloadUrl: String): ModelDownloadSource? {
+    val trimmedUrl = downloadUrl.trim()
+    val uri = runCatching { URI(trimmedUrl) }.getOrNull() ?: return null
+    val scheme = uri.scheme?.lowercase()
+    val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
+    if (!uri.userInfo.isNullOrBlank()) return null
+    when (scheme) {
+        "https" -> Unit
+        "http" -> if (!host.isLocalDebugHost()) return null
+        else -> return null
+    }
+    val rawFileName = uri.path
+        ?.substringAfterLast('/')
+        ?.takeIf { it.isNotBlank() }
+        ?: return null
+    if (!ModelCatalog.isAcceptedModelName(rawFileName)) return null
+    val fileName = ModelCatalog.sanitizeModelName(rawFileName)
+    return ModelDownloadSource(
+        title = "自定义模型",
+        fileName = fileName,
+        downloadUrl = trimmedUrl,
+        expectedBytes = null,
+        expectedSha256 = null,
+        modelId = null,
+    )
+}
+
 data class TransferProgress(
     val percent: Int?,
     val transferredBytes: Long,
     val totalBytes: Long,
 )
+
+internal data class ImportedModelFile(
+    val path: String,
+    val displayName: String,
+    val recommendedModelId: String? = null,
+    val verificationStatus: ModelVerificationStatus = ModelVerificationStatus.UnverifiedCustom,
+)
+
+internal fun importModelFileToModelDir(
+    modelDir: File,
+    displayName: String,
+    sourceSizeBytes: Long,
+    usableSpaceBytes: Long = modelDir.usableSpace,
+    copyToTemp: (File) -> Unit,
+): ImportedModelFile {
+    require(ModelCatalog.isAcceptedModelName(displayName)) {
+        "请选择 $MODEL_FILE_EXTENSION 模型文件"
+    }
+    if (sourceSizeBytes > 0L && !ModelCatalog.hasEnoughSpace(usableSpaceBytes, sourceSizeBytes)) {
+        error("存储空间不足，导入需要 ${ModelCatalog.formatBytes(sourceSizeBytes)}")
+    }
+    if (!modelDir.exists() && !modelDir.mkdirs()) {
+        error("无法创建模型目录")
+    }
+
+    val target = File(modelDir, ModelCatalog.sanitizeModelName(displayName))
+    val tempPrefix = target.nameWithoutExtension.takeIf { it.length >= 3 } ?: "model"
+    val tempTarget = File.createTempFile(tempPrefix, ".tmp", modelDir)
+    try {
+        copyToTemp(tempTarget)
+        check(tempTarget.length() > 0L) { "模型文件为空" }
+        val moved = runCatching {
+            Files.move(
+                tempTarget.toPath(),
+                target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }.recoverCatching {
+            Files.move(
+                tempTarget.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
+        if (moved.isFailure) error("无法保存模型文件")
+    } catch (throwable: Throwable) {
+        tempTarget.delete()
+        throw throwable
+    }
+    return ImportedModelFile(
+        path = target.absolutePath,
+        displayName = target.nameWithoutExtension,
+    )
+}
 
 data class ModelSelectionState(
     val selectedModelId: String,
@@ -162,47 +246,22 @@ class ModelRepository(
         onProgress: (TransferProgress) -> Unit,
     ): String {
         clearPendingDownload()
-        modelDir.mkdirs()
         val displayName = resolveDisplayName(uri)
-        require(ModelCatalog.isAcceptedModelName(displayName)) {
-            "请选择 $MODEL_FILE_EXTENSION 模型文件"
-        }
         val sourceSize = resolveFileSize(uri)
-        if (sourceSize > 0L && !ModelCatalog.hasEnoughSpace(modelDir.usableSpace, sourceSize)) {
-            error("存储空间不足，导入需要 ${ModelCatalog.formatBytes(sourceSize)}")
-        }
-        val target = File(modelDir, ModelCatalog.sanitizeModelName(displayName))
-        val tempPrefix = target.nameWithoutExtension.takeIf { it.length >= 3 } ?: "model"
-        val tempTarget = File.createTempFile(tempPrefix, ".tmp", modelDir)
-        try {
+        val imported = importModelFileToModelDir(
+            modelDir = modelDir,
+            displayName = displayName,
+            sourceSizeBytes = sourceSize,
+        ) { tempTarget ->
             copyUriToFile(uri, tempTarget, onProgress)
-            check(tempTarget.length() > 0L) { "模型文件为空" }
-            val moved = runCatching {
-                Files.move(
-                    tempTarget.toPath(),
-                    target.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            }.recoverCatching {
-                Files.move(
-                    tempTarget.toPath(),
-                    target.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            }
-            if (moved.isFailure) error("无法保存模型文件")
-        } catch (throwable: Throwable) {
-            tempTarget.delete()
-            throw throwable
         }
         registerInstalledModel(
-            path = target.absolutePath,
-            displayName = target.nameWithoutExtension,
-            recommendedModelId = null,
-            verificationStatus = ModelVerificationStatus.UnverifiedCustom,
+            path = imported.path,
+            displayName = imported.displayName,
+            recommendedModelId = imported.recommendedModelId,
+            verificationStatus = imported.verificationStatus,
         )
-        return target.absolutePath
+        return imported.path
     }
 
     override fun pendingDownloadId(): Long =
@@ -240,26 +299,7 @@ class ModelRepository(
             }
 
     override fun createCustomDownloadSource(downloadUrl: String): ModelDownloadSource? {
-        val trimmedUrl = downloadUrl.trim()
-        val uri = runCatching { Uri.parse(trimmedUrl) }.getOrNull() ?: return null
-        val scheme = uri.scheme?.lowercase()
-        if (scheme != "http" && scheme != "https") return null
-        if (uri.host.isNullOrBlank()) return null
-        val fileName = ModelCatalog.sanitizeModelName(
-            uri.lastPathSegment
-                ?.substringAfterLast('/')
-                ?.substringBefore('?')
-                ?.takeIf { it.isNotBlank() }
-                ?: "custom-model$MODEL_FILE_EXTENSION",
-        )
-        return ModelDownloadSource(
-            title = "自定义模型",
-            fileName = fileName,
-            downloadUrl = trimmedUrl,
-            expectedBytes = null,
-            expectedSha256 = null,
-            modelId = null,
-        )
+        return createCustomModelDownloadSource(downloadUrl)
     }
 
     override fun downloadedModelFile(fileName: String): File? =
@@ -449,7 +489,11 @@ class ModelRepository(
                     ?.let { return it }
             }
         }
-        return selectedRecommendedModel().fileName
+        return uri.lastPathSegment
+            ?.substringAfterLast('/')
+            ?.substringAfterLast(':')
+            ?.takeIf { it.isNotBlank() }
+            ?: ""
     }
 
     private fun cleanTemporaryModelFiles() {

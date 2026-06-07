@@ -67,6 +67,38 @@ class ModelCatalogTest {
     }
 
     @Test
+    fun modelProfilesSeparateAssetCapabilityFromInputModality() {
+        val chatProfile = ModelCatalog.profileForModelId(DEFAULT_CHAT_MODEL_ID)
+        val memoryProfile = ModelCatalog.profileForModelId(MEMORY_EMBEDDING_MODEL_ID)
+        val remoteVisionProfile =
+            RemoteModelConfig(modelName = "vision-model", supportsVisionInput = true).modelProfile()
+
+        assertEquals(ModelCapability.Chat, chatProfile.capability)
+        assertEquals(setOf(ModelInputModality.Text), chatProfile.inputModalities)
+        assertTrue(ModelFeature.TextGeneration in chatProfile.features)
+        assertFalse(chatProfile.supportsVisionInput)
+
+        assertEquals(ModelCapability.MemoryEmbedding, memoryProfile.capability)
+        assertEquals(setOf(ModelFeature.MemoryEmbedding), memoryProfile.features)
+
+        assertEquals(ModelCapability.Chat, remoteVisionProfile.capability)
+        assertEquals(setOf(ModelInputModality.Text, ModelInputModality.Vision), remoteVisionProfile.inputModalities)
+        assertTrue(remoteVisionProfile.supportsVisionInput)
+    }
+
+    @Test
+    fun remoteModelProfileCanDisableVisionWithoutChangingChatCapability() {
+        val profile = RemoteModelConfig(
+            modelName = "text-only",
+            supportsVisionInput = false,
+        ).modelProfile()
+
+        assertEquals(ModelCapability.Chat, profile.capability)
+        assertEquals(setOf(ModelInputModality.Text), profile.inputModalities)
+        assertFalse(profile.supportsVisionInput)
+    }
+
+    @Test
     fun sha256Hex_matchesKnownFileContent() {
         val file = File.createTempFile("pocketmind-sha", ".txt")
         try {
