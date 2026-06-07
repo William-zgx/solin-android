@@ -1,8 +1,9 @@
 # Privacy Notice
 
-This notice describes the privacy boundary implemented in this repository for
-internal testing. It is not a final public legal policy. Review it with release,
-security, and legal owners before broad distribution.
+This notice describes the privacy boundary implemented by PocketMind for Android
+release candidates. Public distribution still requires release, security, and
+legal approval for the current app behavior, support process, and publication
+channel.
 
 ## Local Storage
 
@@ -17,6 +18,8 @@ Privacy-sensitive generated or tool-derived content is marked `LocalOnly` where
 the code can identify it. Examples include clipboard-derived messages,
 shared-input excerpts, OCR excerpts, current-screen Accessibility text
 continuations, local memory-control status turns, and local action turns.
+If a chat-message row is inserted without an explicit privacy value, the local
+database defaults that row to `LocalOnly`.
 
 Remote API keys are stored separately through Android Keystore-backed encrypted
 preferences. Clearing the API key field removes the stored secret.
@@ -36,6 +39,11 @@ not automatically sent to a remote model. If the user manually types or pastes
 the same content into a normal remote-eligible message, that message can be
 sent.
 
+When the user explicitly sends images to a configured remote vision model, the
+image bytes are attached to that request, but the text prompt uses only a
+generic image count and support notice. It does not include attachment display
+names, MIME types, byte sizes, OCR text, or non-image attachment metadata.
+
 Remote transport requires HTTPS, except for local debug hosts such as
 `localhost`, `127.0.0.1`, and Android emulator `10.0.2.2`. When an API key is
 configured, the runtime sends it as an authorization credential to the
@@ -45,14 +53,24 @@ apply.
 Remote model tool requests are not executed by the remote endpoint. The app
 parses OpenAI-compatible `tool_calls` locally and revalidates every request
 through the Tool Registry, safety policy, Agent trace, and audit path before
-execution. A single public read-only evidence tool such as `web_search` may run
-without confirmation. Multiple tool calls in one remote model turn may run
+execution. Remote mode exposes a model-planning tool schema set that can include
+public search plus non-private draft, navigation, sharing, or local
+reminder-style tools, but those non-public tools still require local
+confirmation and are not executed by the remote model. Local evidence tools
+that read clipboard, contacts, calendar, files, notifications, screen text, OCR,
+or other private context are not exposed to remote planning. A single public
+read-only evidence tool such as `web_search` may run without confirmation for
+public queries; queries that appear to contain personal data or secrets require
+confirmation before network access. Multiple tool calls in one remote model turn may run
 concurrently only when every requested tool is `PublicEvidence`,
 `LowReadOnly`, `NotRequired`, has no private output keys, and declares no
 device-context, Android permission, MediaProjection, external-navigation,
 sharing, scheduling, notification, or other side-effect permission. Mixed
 batches are rejected as a whole before any tool runs, so a safe public lookup
-is not executed beside a private local read or action tool.
+is not executed beside a private local read or action tool. A public evidence
+result can return to the remote model only when it explicitly declares
+`privacy=RemoteEligible` and `requiresLocalModel=false`; missing or local-only
+metadata fails closed before remote continuation.
 
 ## Device Context Tools
 
@@ -67,16 +85,27 @@ These tools are designed to minimize returned data. For example, recent file
 reads return metadata rather than file contents, paths, or URIs; current-screen
 text reads use Accessibility text nodes rather than screenshots or pixels; OCR
 tools avoid persisting image identifiers, paths, raw pixels, and raw OCR text in
-trace or audit stores. Clipboard text, contact matches, calendar busy/free
-windows, foreground-app metadata, current-app notification summaries, recent
-file metadata, OCR excerpts, and current-screen Accessibility snapshots are
-marked `LocalOnly` and `requiresLocalModel=true`; their local payload fields are
+trace or audit stores. Foreground-app reads are labeled as UsageStats
+estimates, and Android 14+ selected-photo grants are labeled as user-selected
+visual media rather than full-library access. Clipboard text, contact matches,
+calendar busy/free windows, foreground-app metadata, current-app notification
+summaries, recent file metadata, OCR excerpts, and current-screen
+Accessibility snapshots are marked `LocalOnly` and `requiresLocalModel=true`;
+their local payload fields are
 declared as private tool outputs so they remain inside local continuation,
 observation, trace-redaction, and Skill public-output boundaries.
 
 Android runtime permissions and special app access are requested only after the
 user confirms the associated tool request. Permission denial is treated as a
 structured tool failure rather than an automatic retry.
+On Android 13 and above, `query_recent_files` does not expose a direct
+`documents`, `downloads`, or `others` query path; non-media files must be
+provided through the system file picker or Android share input.
+Special-access flows are disclosed separately from runtime permissions:
+Usage Access is used only for confirmed foreground-app estimates,
+Accessibility is used only for confirmed current-screen text reads, and
+MediaProjection is used only for one-shot current-screen screenshot OCR after
+foreground consent.
 
 ## External Intents And Sharing
 
@@ -90,9 +119,19 @@ whether the user completed the destination app action.
 System speech recognition inserts a transcript into the compose box only.
 Sending remains explicit. Audio/video/legacy Office/binary attachments are
 metadata-only in the current app; supported strict UTF-8 text, RTF, PDF text
-layers, PDF scanned-page OCR fallback, Office Open XML, and user-provided image
-attachments may produce bounded local excerpts. Malformed PDFs remain
-metadata-only.
+layers, PDF scanned-page OCR fallback, and Office Open XML attachments may
+produce bounded local excerpts. User-provided image attachments are not
+automatically OCRed or visually read unless they are sent to a supported remote
+vision model; explicit confirmed OCR tools remain separate. Malformed PDFs remain
+metadata-only. If Android does not provide a useful MIME type for a
+user-provided attachment, PocketMind may infer common supported types from the
+display-name extension before deciding whether a bounded local excerpt is
+possible. Shared-input excerpts are staged as local composer drafts and are not
+sent to local generation until the user taps send. LocalOnly conversation text
+is not indexed for automatic memory recall. Automatic conversation recall is
+rebuilt only from user messages; assistant responses are not indexed as
+conversation recall. LocalOnly user text is not used verbatim for session-list
+titles. This inference does not make shared-input excerpts remote-eligible.
 
 ## Model Downloads
 
@@ -102,6 +141,11 @@ after SHA-256 verification against the pinned model manifest. Custom imported
 models and custom URL downloads are user-supplied and are not covered by the
 recommended-model provenance guarantees.
 
+The recommended local chat path currently starts with the E2B model, which is a
+multi-GB download. Users can instead configure a remote model endpoint or import
+a trusted compatible `.litertlm` file. The smaller memory and action model
+assets are not replacements for a chat model.
+
 Model files are stored in local app storage and are not bundled into the APK.
 Network operators and model hosts may receive normal download metadata such as
 IP address, URL, user agent, timing, and download size.
@@ -110,13 +154,16 @@ IP address, URL, user agent, timing, and download size.
 
 Tool audit events store metadata such as event time, event type, tool name,
 status, risk level, permission names, and sanitized summaries. They are
-intentionally not a full prompt or tool-argument log.
+intentionally not a full prompt or tool-argument log. The app prunes the
+Room-backed audit table after writes and keeps only the most recent 500 audit
+events.
 
 Agent trace and pending confirmation recovery are intentionally narrower than a
 full execution replay. Pending rows persist only allowlisted request arguments,
 redacted structure, and value-free checkpoint identifiers where possible.
-Payload-bearing confirmations fail closed after restart instead of restoring
-private executable payload values.
+Payload-bearing confirmations, including Skill pending arguments bound from
+earlier outputs but not pending-allowlisted, fail closed after restart instead
+of restoring private executable payload values or incomplete confirmations.
 
 ## Retention And Controls
 
@@ -124,6 +171,9 @@ Users can create, switch, and delete chat sessions in the app. Long-term memory
 supports reviewing explicit records, forgetting individual records, and
 clearing explicit memory records. Clearing app data or uninstalling the app
 removes local app storage according to Android platform behavior.
+When local memory is disabled, explicit remember/fact commands do not create
+new long-term memory records; forget and clear controls can still remove
+existing records.
 
 This codebase does not contain a first-party analytics upload path beyond
 user-configured remote model calls, recommended/custom model downloads, and

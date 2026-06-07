@@ -7,10 +7,3376 @@
 - `本轮覆盖项：` 描述本次验证覆盖的行为、文档或脚本契约。
 - `验证命令：` 记录实际执行的命令；未执行的设备、模拟器或真机项必须明确说明。
 - `结果：` 记录通过、失败或未执行原因，并引用关键 artifact。
+- 设备、模拟器和发布门禁失败必须记录机器可读 `failedTarget` / `reason`，以及关键
+  evidence path；不能只写“见 artifact”。
+- 自动回归与必须手工验收的结论必须分开记录；语音输入、Android 系统文档选择器和
+  MediaProjection 前台同意不能因为脚本、mock intent、直接 reader/ViewModel 调用或
+  UI 文案存在而写成已手工通过。
 
 完整模拟器回归以 `scripts/regression_emulator.sh` 产出的
 `regression-emulator.properties` 为准；只有该文件包含 `status=passed` 时，才能把完整模拟器回归记录为通过。`emulator-verification.properties` 和嵌套
 `device-verification.properties` 是配套证据，不替代完整回归结论。
+
+当前 release validation evidence contract 以最新 verifier 为准：API matrix
+必须链接 nested per-API regression report 及其 emulator/device/instrumentation
+证据；manual acceptance 必须链接正式 `manual-acceptance` 报告；flow matrix 必须链接正式
+`release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
+report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
+
+## 2026-06-07 Remote network failure retry recovery
+
+本轮覆盖项：
+
+- 扩展 `PocketMindViewModelTest.remoteNetworkFailureShowsReadableFailureAndFailsTrace`：
+  远程模型网络失败后，UI 必须恢复为非 busy、非 generating、仍可用 remote ready 状态，
+  并清空 `pendingRemoteSendDisclosure`。
+- 同一测试继续模拟第二次远程发送：先重新出现远程发送确认，确认后 remote runtime
+  成功返回 `远程回复`，且不会再次调用 `failModelGeneration`。
+- 测试 fake `RecordingRemoteChatRuntime.failure` 改为可在用例内解除，用来证明失败后可恢复，
+  不是只证明失败文案存在。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteNetworkFailureShowsReadableFailureAndFailsTrace'
+```
+
+结果：
+
+- 通过：targeted JVM 测试覆盖远程网络失败后的 UI 解锁、确认 sheet 清理、二次确认发送和成功回复。
+- 未执行：本轮不跑模拟器或真机；模拟器 API 36 完整回归仍以
+  `build/verification/product-contract-regression-current/regression-emulator.properties`
+  的 51/51 结果为当前完整自动回归证据。
+
+## 2026-06-07 Emulator API matrix readiness check
+
+本轮覆盖项：
+
+- 按 release matrix 要求检查 API 28、32、33、34、36 的 `google_apis/arm64-v8a`
+  system image 和 AVD readiness。
+- 该检查只判断本地 Android SDK/AVD 环境是否能启动矩阵回归；不代表应用测试失败。
+
+验证命令：
+
+```bash
+scripts/check_emulator_api_matrix.sh --required-apis "28 32 33 34 36"
+shasum -a 256 build/verification/emulator-api-matrix-readiness.properties
+```
+
+结果：
+
+- 失败：`build/verification/emulator-api-matrix-readiness.properties`
+  记录 `status=failed`、`failedTarget=api-matrix-readiness`。
+- 缺失项：API 28、32、33、34 均缺 system image 和 AVD；API 36 已具备。
+- evidence SHA-256：
+  `deff3969e6a85e9c58e7967115d242538367a6d41da60f6aabd626dc35992b91`。
+- 下一步：补齐 API 28/32/33/34 的 `system-images;android-<api>;google_apis;arm64-v8a`
+  和对应 AVD 后，才能运行完整 `scripts/regression_emulator_api_matrix.sh`。
+
+## 2026-06-07 Release screenshots current evidence refresh
+
+本轮覆盖项：
+
+- `MODEL_MANAGER_POSITIONING_TEXT` 改为包含精确发布合同短语“本地可用”，同时保留
+  “可离线使用”的产品含义。
+- `confirmation-sheet` release 截图合同从旧的剪贴板动作确认，调整为当前 clean
+  remote screenshot flow 的远程发送披露：`即将发送到远程模型`、`确认后才会`、`取消`。
+  设备动作确认仍由独立 instrumentation / JVM 合同覆盖。
+- `capture_release_screenshots.sh` 在后台任务页先等待顶部内容，再滚动到审计区，确保
+  `最近审计日志` 和 `最近 Agent 轨迹` 同屏进入截图 UI dump。
+- `docs/release_validation_record.json` 重新绑定四张 PNG 和
+  `release-screenshots.properties` 的 SHA-256。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+bash -n scripts/capture_release_screenshots.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  AVD_NAME=pocketmind_api36_arm64 \
+  ARTIFACT_DIR=build/verification/release-screenshots-current \
+  REPORT_FILE=build/verification/release-screenshots-current/release-screenshots.properties \
+  EMULATOR_ARGS='-no-window -no-audio -no-boot-anim -no-snapshot-save' \
+  EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=360 \
+  scripts/capture_release_screenshots.sh
+scripts/verify_release_validation_record.sh \
+  --file docs/release_validation_record.json \
+  --report build/verification/release-validation-after-screenshots-current.properties
+```
+
+结果：
+
+- 通过：`build/verification/release-screenshots-current/release-screenshots.properties`
+  记录 `status=passed`、`target=release-screenshots`、`clean_device=1`、
+  `api_level=36`、`avd=pocketmind_api36_arm64`。
+- 通过：四张截图 `chat-home`、`model-manager`、`confirmation-sheet`、
+  `background-tasks-or-audit` 均记录 PNG SHA、UI dump、UI dump SHA、
+  `visualRegression=passed` 和 `requiredText`。
+- evidence SHA-256：`release-screenshots.properties` 为
+  `f274bc04f8c730cae2aba783a0e763ae213094d1d4747c800093f6f79fe94b27`。
+- 预期失败：release validation record 仍未 approved；剩余失败为真机、API 28/32/33/34、
+  manual acceptance、flow matrix、performance sanity、reviewer/date，截图相关失败已消失。
+
+## 2026-06-07 CI API matrix release path
+
+本轮覆盖项：
+
+- `.github/workflows/android.yml` 新增 `emulator-api-matrix` job，只在
+  `workflow_dispatch` 和 weekly schedule 运行，避免拉高普通 PR 成本。
+- 该 job 使用 `scripts/prepare_emulator_api_matrix.sh` 准备 API 28、32、33、34、36
+  的 `google_apis/arm64-v8a` system image 与 AVD，然后运行
+  `scripts/regression_emulator_api_matrix.sh` 生成矩阵 evidence。
+- `final-release-gate` 现在显式依赖 `emulator-api-matrix`，并下载
+  `android-emulator-api-matrix-evidence` artifact，防止 public release gate 在没有
+  API matrix 证据的情况下继续。
+- `scripts/test_validation_scripts.sh` 增加 workflow 合同检查，锁住 matrix job、
+  required API 列表、prepare/regression 脚本和 artifact 名称。
+
+验证命令：
+
+```bash
+bash -n scripts/test_validation_scripts.sh scripts/verify_local.sh \
+  scripts/prepare_emulator_api_matrix.sh scripts/regression_emulator_api_matrix.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：validation script tests，覆盖新增 CI API matrix workflow 合同。
+- 未执行：本轮未在 GitHub Actions 实际跑 API matrix；本地 Android SDK 仍只具备 API 36
+  AVD，API 28/32/33/34 需要由 CI job 或本机 `prepare_emulator_api_matrix.sh --apply`
+  准备后才能产生真实 matrix report。
+- 仍需真机：`performanceSanity` 不能用 emulator evidence 闭合；`verify_perf_baseline.sh`
+  会拒绝 `deviceSerial=emulator-*`。
+
+## 2026-06-07 Release operations API matrix evidence gate
+
+本轮覆盖项：
+
+- `docs/release_operations_record.json` 的 `ci` 区块新增 `apiMatrix` evidence 槽位，
+  记录 `jobName`、`artifactName` 和矩阵 report path/SHA。
+- `scripts/verify_release_operations_record.sh` 现在要求 `ci.apiMatrix` 指向
+  `target=regression-emulator-api-matrix` 的通过报告，并校验：
+  `requiredApis=28,32,33,34,36`、`passedApis=28,32,33,34,36`、`failedApis` 为空、
+  readiness report 存在，以及每个 API child regression report 的 path/SHA/API level、
+  clean-device、AndroidTest count、device report 和 instrumentation output 字段。
+- `scripts/test_validation_scripts.sh` 的 operations approved fixture 补齐 API matrix
+  evidence，并增加弱 matrix report 负例，防止缺 API 或失败 API 被误收。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_operations_record.sh scripts/test_validation_scripts.sh
+python3 -m json.tool docs/release_operations_record.json >/dev/null
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：validation script tests，覆盖 release operations verifier 对 CI API matrix evidence
+  的正例与弱证据拒绝。
+- 未执行：本轮未产生真实 GitHub Actions API matrix artifact；该证据仍需
+  `emulator-api-matrix` workflow job 实际运行后绑定到 operations record。
+
+## 2026-06-07 Product positioning and first-run model recovery
+
+本轮覆盖项：
+
+- 首屏空状态新增 `home_positioning_panel`，直接回答“为什么装它”：
+  隐私优先的随身 AI 助手，本地可用，远程多模态可选，设备动作必须确认执行。
+- `MainActivitySmokeTest` 锁住首屏定位、隐私入口定位、远程配置入口滚动路径；
+  `MainActivityFirstRunSetupUiTest` 锁住 first-run 页面也能看到同一产品定位。
+- `remote_vision_image_input` 能力矩阵改为 `confirmationPolicy=Required`，
+  明确图片只在远程发送预览确认后才会随请求发送；不支持视觉时仍直接提示，不强制 OCR。
+- `startSetupModelDownload()` 不再在目录/空间/下载启动失败前提前关闭 first-run；
+  只有下载任务真正入队后才标记 setup dismissed。
+- 下载失败分支清空 `downloadedBytes` 和 `totalBytes`，避免失败后继续显示旧进度块。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
+  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startSetupModelDownloadKeepsFirstRunOpenWhenPreflightFails' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.monitorDownloadFailureClearsPendingDeletesTargetAndShowsReason' \
+  :app:compileDebugAndroidTestKotlin
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
+  BOOT_TIMEOUT_SECONDS=180 \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest,com.bytedance.zgx.pocketmind.MainActivityFirstRunSetupUiTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=360 LOGCAT_TAIL_LINES=5000 \
+  ARTIFACT_DIR=build/verification/home-positioning-first-run-smoke-current \
+  scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：targeted JVM tests 和 AndroidTest Kotlin 编译。
+- 通过：API 36 arm64 `pocketmind_api36_arm64` clean-device emulator smoke，
+  `build/verification/home-positioning-first-run-smoke-current/device-verification.properties`
+  记录 `status=passed`、`instrumentation_test_count=7`、`clean_device=1`。
+- 通过：`build/verification/home-positioning-first-run-smoke-current/crash-anr-smoke.properties`
+  记录 `status=passed`、所有 crash/ANR/LiteRT counters 为 0，SHA-256 为
+  `cea6602ec98319785bebbd6e8dd94739d75a39526afd1d7a828c67dda8584b78`。
+- 未完成：本轮不改变“远程视觉默认可用”的产品决策；未知远程模型若实际不支持图片，
+  仍由远程错误处理给出“不支持图片”提示。
+
+## 2026-06-07 Crash/ANR operations evidence binding
+
+本轮覆盖项：
+
+- `verify_release_operations_record.sh` 不再只接受 `crashAnrSmoke.evidence`
+  的 path/SHA；必须解析 smoke report，并要求 `status=passed`、
+  `target=crash-anr-smoke-evidence`、`operationsRecordField=crashAnrSmoke.evidence`、
+  `logcatAnalyzed=true`。
+- operations 记录里的 `window`、`track`、`failureEvidencePolicy` 必须和 smoke
+  report 一致；五个 `no*` 结果必须为 true，六个 crash/ANR/LiteRT signal counter
+  必须为 0。
+- smoke report 引用的 device report、instrumentation output、logcat 必须存在，并且
+  SHA-256 与 size 都匹配；device report 的 serial/API/ABI/test count/logcat 路径也必须和
+  smoke report 对齐。
+- 不修改 `docs/release_operations_record.json` 的 pending 状态，不把模拟器 evidence
+  伪装成正式运营审批。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_operations_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
+  BOOT_TIMEOUT_SECONDS=180 INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=240 LOGCAT_TAIL_LINES=5000 \
+  ARTIFACT_DIR=build/verification/crash-anr-operations-smoke-clean-current \
+  scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 approved operations 正例、
+  failed smoke report 但 SHA 匹配的负例，以及 logcat SHA 被篡改的负例。
+- 通过：API 36 arm64 `pocketmind_api36_arm64` clean-device smoke，
+  `MainActivitySmokeTest` 6 个测试通过。
+- 通过：`build/verification/crash-anr-operations-smoke-clean-current/crash-anr-smoke.properties`
+  记录 `status=passed`、`instrumentationTestCount=6`、`logcatSizeBytes=665048`、
+  所有 crash/ANR/LiteRT counters 为 0，SHA-256 为
+  `8f13e172a916da88725c94f339cd1d180d5154649be032536636a169e9b64930`。
+- 未完成：正式 release operations 仍需要真实 CI artifact、production signing、Android
+  Vitals/值班、rollback owner 和人工 review 后才能从 pending 变为 approved。
+
+## 2026-06-07 Store data safety privacy notice consistency
+
+本轮覆盖项：
+
+- `verify_store_policy_record.sh` 将 Data Safety 布尔声明和外部接收方映射到
+  `docs/privacy_notice.md` 中的具体披露短语；隐私 notice 缺少对应披露时 gate 失败。
+- 隐私 notice 匹配改为归一化空白，避免 Markdown 换行拆分短语造成误判。
+- `docs/privacy_notice.md` 明确列出 Usage Access、Accessibility、MediaProjection
+  与运行时权限分开的特殊授权边界。
+- `docs/store_policy_record.json` 同步新的 privacy notice SHA；记录仍保持 pending，
+  不把人工 Store/Legal/Policy 审批伪装为已完成。
+
+验证命令：
+
+```bash
+scripts/verify_store_policy_record.sh --report build/verification/store-policy-current/store-policy.properties || true
+bash -n scripts/verify_store_policy_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 approved store policy 正例、privacy notice SHA
+  mismatch、review evidence SHA mismatch、manifest permission mismatch、placeholder contact/privacy URL，
+  以及 Data Safety 与 privacy notice mismatch 负例。
+- 当前仓库真实 `docs/store_policy_record.json` 仍按预期失败：
+  `build/verification/store-policy-current/store-policy.properties` 记录
+  `status=failed`，原因只剩 `status-not-approved`、占位联系邮箱/隐私政策 URL、
+  reviewer/date 缺失；不再包含 Data Safety/privacy notice mismatch。
+- 未执行模拟器：本轮只加固 Store/Data Safety 发布门禁和文档，不改变 APK runtime。
+
+## 2026-06-07 Media/file permission UI anchors
+
+本轮覆盖项：
+
+- `MainActivityRuntimePermissionUiTest` 新增最近图片 OCR 和最近图片文件摘要确认页覆盖：
+  确认页必须展示动作标题、最小读取范围、系统权限说明、LocalOnly 数据边界，并且取消后不执行工具。
+- `MainActivityAdaptiveUiTest` 锁定远程模式 composer 附近的附件保护提示：
+  主动选择图片才会发送给远程视觉模型，其他附件/分享文本不会读取正文或 OCR。
+- Capability Matrix 和 `docs/capability_matrix.json` 把新增 UI 证据挂入
+  `share_and_file_picker_input`、`contacts_calendar_reads`、`media_and_recent_ocr`
+  和 `accessibility_current_screen_text` 的 required tests。
+- `CapabilityMatrixDocumentationTest` 新增敏感能力到 UI/test anchor 的显式映射校验，
+  不再只证明 required test class 存在。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest \
+  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
+  :app:compileDebugAndroidTestKotlin
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+  ARTIFACT_DIR=build/verification/media-permission-ui-current \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=300 scripts/verify_emulator.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+  ARTIFACT_DIR=build/verification/remote-attachment-notice-current \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityAdaptiveUiTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=300 scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：targeted JVM tests 和 AndroidTest Kotlin 编译。
+- 通过：API 36 arm64 `MainActivityRuntimePermissionUiTest`，
+  `build/verification/media-permission-ui-current/device-verification.properties`
+  记录 `status=passed`、`instrumentation_test_count=5`。
+- 通过：API 36 arm64 `MainActivityAdaptiveUiTest`，
+  `build/verification/remote-attachment-notice-current/device-verification.properties`
+  记录 `status=passed`、`instrumentation_test_count=3`。
+
+## 2026-06-07 CI final public release gate
+
+本轮覆盖项：
+
+- `workflow_dispatch` 发布路径新增必填 `perf_baseline_file` 输入，可选下载外部 release evidence artifact。
+- 新增 `final-release-gate` job，显式依赖 `verify`、`emulator-regression`、
+  `release-artifact-archive` 和 `protected-signing`；签名成功后下载 local/emulator/release/signed evidence，
+  再以 `PUBLIC_RELEASE=1` 运行 `scripts/verify_release_gate.sh`。
+- final gate 上传 `android-final-release-gate-evidence`；正式发布状态以该 job 成败为准。
+- `scripts/test_validation_scripts.sh` 锁定 workflow 合同，防止未来回退成“只签名不跑 release gate”。
+
+验证命令：
+
+```bash
+bash -n scripts/test_validation_scripts.sh scripts/verify_release_gate.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：workflow/release validation script self-tests。
+- 说明：本轮未把 pending release records 改成 approved；`PUBLIC_RELEASE=1` gate 仍会在
+  `docs/release_validation_record.json`、`docs/release_operations_record.json` 等真实 RC 证据未完成时 fail-closed。
+
+## 2026-06-07 Voice input prominent consent gate
+
+本轮覆盖项：
+
+- 语音输入从“点击麦克风后直接进入系统权限/收音流程”改为先展示 App 内明确同意弹窗；
+  用户点“同意并开启语音输入”后才会请求麦克风权限或开始收音。
+- 语音入口近场文案同步说明：系统语音转写、只进入输入框、不自动发送、不读取本地音频文件、
+  开启前先确认。
+- Capability Matrix 和 `docs/capability_matrix.json` 同步把 `voice_transcript_input`
+  标记为需要确认，并把 `PocketMindVoiceInputConsentUiTest` 纳入必测用例。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
+  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending' \
+  :app:compileDebugAndroidTestKotlin
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+  ARTIFACT_DIR=build/verification/voice-input-consent-current \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.PocketMindVoiceInputConsentUiTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：targeted JVM tests，覆盖展示文案、Capability Matrix/JSON 合同和语音权限失败恢复。
+- 通过：AndroidTest Kotlin 编译。
+- 通过：API 36 arm64 `PocketMindVoiceInputConsentUiTest`，
+  `build/verification/voice-input-consent-current/device-verification.properties`
+  记录 `status=passed`、`instrumentation_test_count=1`。
+
+## 2026-06-07 Memory-disabled controls and remote send disclosure
+
+本轮覆盖项：
+
+- 本地记忆关闭后，已保存的长期记忆仍在模型管理页可见且可删除；关闭状态只停止召回和自动携带，
+  不再把用户锁在无法清理旧记忆的状态。
+- 记忆关闭时，任务状态记忆仍会被移除并禁止重新索引；偏好/事实类长期记忆保留在 UI 控制面板中。
+- 长期记忆删除按钮的无障碍名称包含目标记忆内容，避免多条记录时测试和用户都无法区分删除目标。
+- 远程发送确认区分当前输入和工具结果续写，并提示远程服务方可能按其政策记录或保留请求、图片和响应。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.memoryDisabledDoesNotIndexScheduledTaskStateOnStartupRefreshOrSend' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.updateMemoryDisabledRemovesActiveTaskStateMemoryAndPreventsResync' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.memoryDisabledKeepsSavedRecordsVisibleAndClearable' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteSendDisclosureBlocksRuntimeUntilConfirmed' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModelToolBatchExecutionRequiresConfirmationAndObservationBeforeCompletion' \
+  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
+  :app:compileDebugAndroidTestKotlin
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+  ARTIFACT_DIR=build/verification/memory-disabled-clear-current \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityLongTermMemoryUiTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：targeted JVM tests 和 `PocketMindScreenDisplayTest`，覆盖记忆关闭后的可见/可删控制、
+  远程发送保留提示、工具结果续写披露类型。
+- 通过：AndroidTest Kotlin 编译。
+- 通过：API 36 arm64 `MainActivityLongTermMemoryUiTest`，
+  `build/verification/memory-disabled-clear-current/device-verification.properties`
+  记录 `status=passed`、`instrumentation_test_count=1`。
+- 说明：本轮早期模拟器尝试暴露了测试选择器问题；最终改为按具体记忆内容定位删除按钮后通过。
+
+## 2026-06-07 Release fail-closed and deletion control gate
+
+本轮覆盖项：
+
+- GitHub Actions `workflow_dispatch` 发布包路径收紧：`verify` 也在手动发布时运行；
+  `release-artifact-archive` 依赖 local verify 和 emulator regression；
+  `protected-signing` 显式依赖 local verify、emulator regression 和 artifact archive。
+- 生产签名缺少 keystore、alias、password 或 expected signing certificate 时，
+  `protected-signing` 写入 `status=failed`、`failedTarget=environment`、
+  `reason=protected-signing-secrets-not-configured` 并退出失败，不再以 skipped 成功。
+- 模型管理页文案收敛为“本地离线可用；远程多模态可选”，隐私说明页改为面向用户的数据边界说明。
+- 当前会话删除控制覆盖唯一会话：删除最后一个会话会清除旧消息、旧 session Agent 轨迹和待发送分享草稿，
+  然后自动创建一个新的空会话。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.data.SessionRepositoryTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deleteActiveSessionClearsSessionAgentTraceAndPendingConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deleteOnlyActiveSessionClearsMessagesAndPendingSharedDraft' \
+  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
+  :app:compileDebugAndroidTestKotlin
+git diff --check
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 workflow 发布依赖、protected-signing fail-closed、
+  fresh-start helper 和模型管理新文案。
+- 通过：targeted JVM tests，覆盖唯一会话删除、旧多会话删除、UI 信任边界文案和仓库删除行为。
+- 通过：AndroidTest Kotlin 编译，确认 smoke 文案同步后可编译。
+- 通过：`git diff --check`。
+
+## 2026-06-07 First-run setup and skip gate
+
+本轮覆盖项：
+
+- 新用户、无本地模型且无远程配置时，`showFirstRunSetup` 从真实 first-run 设置读取，
+  不再写死为 false；首次启动会展示离线基础问答下载/跳过路径。
+- 已跳过、已有远程配置或保存远程配置后不再重新弹 first-run；开始下载、导入或校验
+  本地模型成功后也会收起 first-run。
+- 新增 API 36 模拟器 UI 用例，覆盖 first-run 默认选中聊天模型、下载按钮可见、
+  点击“先跳过”后回到主界面。
+- `verify_fresh_start_main_shell_emulator.sh` 不再把可跳过的 first-run 引导当失败；
+  release flow evidence 为 `firstInstall` 新增 first-run 可见、默认聊天模型和跳过后主界面字段。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupShowsSetupOnFreshInstallWhenNoLocalOrRemoteModelIsAvailable' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupKeepsSetupDismissedWhenNoLocalOrRemoteModelIsAvailable' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupDoesNotReopenSetupWhenRemoteModelIsConfigured' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.savingRemoteConfigDismissesFreshSetup'
+./gradlew :app:compileDebugAndroidTestKotlin
+scripts/test_validation_scripts.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+  ARTIFACT_DIR=build/verification/first-run-setup-ui-current \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityFirstRunSetupUiTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+  ARTIFACT_DIR=build/verification/fresh-start-first-run-skip-current \
+  scripts/verify_fresh_start_main_shell_emulator.sh
+bash scripts/verify_local.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=180 BOOT_TIMEOUT_SECONDS=600 \
+  ARTIFACT_DIR=build/verification/first-run-main-smoke-current \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：targeted JVM first-run 合同测试。
+- 通过：AndroidTest 编译和 validation script self-tests。
+- 通过：API 36 arm64 first-run UI 用例，
+  `build/verification/first-run-setup-ui-current/device-verification.properties`
+  记录 `status=passed`、`instrumentation_test_count=1`。
+- 通过：fresh-start main shell helper，
+  `build/verification/fresh-start-first-run-skip-current/fresh-start-main-shell.properties`
+  记录 `status=passed`、`main_shell_copy_visible=true`、`model_manager_click_opened=true`。
+- 通过：`scripts/verify_local.sh`，包含 JVM tests、lint、debug/androidTest APK、
+  release APK/AAB 组装和 artifact scan。
+- 通过：API 36 arm64 `MainActivitySmokeTest`，
+  `build/verification/first-run-main-smoke-current/device-verification.properties`
+  记录 `status=passed`、`instrumentation_test_count=6`。
+
+## 2026-06-07 No-model main shell entry polish
+
+本轮覆盖项：
+
+- 无本地/远程模型时，首屏从“接入默认页”观感收敛为主界面：主标题改为
+  “开始和 PocketMind 对话”，先展示离线问答、显式记忆、图片/文件和确认动作。
+- 模型接入降级为紧凑的“模型未就绪”状态条；首屏移除模型选择 chip，模型切换仍保留在模型管理页。
+- 首页按钮文案保持单行：配置远程模型、下载模型、导入模型、模型管理。
+- Targeted smoke 固定 `home_capability_pills` 与 `model_startup_banner`，避免回退到大接入面板。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon -Pkotlin.incremental=false :app:compileDebugKotlin \
+  :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest' \
+  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest'
+ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 \
+  ARTIFACT_DIR=build/verification/main-shell-entry-final \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#quickRemoteConfigEntryOpensRemoteModelForm,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' \
+  scripts/verify_emulator.sh
+ANDROID_SERIAL=emulator-5554 \
+  ARTIFACT_DIR=build/verification/main-shell-entry-fresh-start-final \
+  MAIN_COPY_TEXT='开始和 PocketMind 对话' \
+  scripts/verify_fresh_start_main_shell_emulator.sh
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell pm clear com.bytedance.zgx.pocketmind
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am force-stop com.bytedance.zgx.pocketmind.test
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am force-stop com.bytedance.zgx.pocketmind
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 uninstall com.bytedance.zgx.pocketmind.test
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell pm clear com.bytedance.zgx.pocketmind
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am start -W -n com.bytedance.zgx.pocketmind/.MainActivity
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 exec-out uiautomator dump /dev/tty \
+  > build/verification/current-main-shell-after-wording/current.xml
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 exec-out screencap -p \
+  > build/verification/current-main-shell-after-wording/current.png
+```
+
+结果：
+
+- 通过：debug Kotlin、androidTest Kotlin 编译和 targeted JVM tests。
+- 通过：API 36 arm64 targeted smoke，
+  `build/verification/main-shell-entry-final/device-verification.properties`
+  包含 `status=passed`、`instrumentation_test_count=3`。
+- 通过：API 36 arm64 fresh-start，
+  `build/verification/main-shell-entry-fresh-start-final/fresh-start-main-shell.properties`
+  包含 `status=passed`、`first_run_setup_visible=false`、`main_shell_copy_visible=true`。
+- 通过：当前模拟器已安装并停在新首页；UI dump 显示“开始和 PocketMind 对话”、
+  “没有模型时只展示启动选项”、“模型未就绪”、“配置远程模型，立即试用”、
+  “下载模型”、“导入模型”和“模型管理”。截图保存于
+  `build/verification/current-main-shell-after-wording/current.png`。
+- 说明：targeted smoke 后模拟器上曾残留 `com.bytedance.zgx.pocketmind.test` instrumentation，
+  导致 `uiautomator dump` 报 UiAutomation already registered，并短暂显示空白测试窗口；force-stop
+  并卸载 test APK 后，正式 App 进程表只剩 `com.bytedance.zgx.pocketmind`，当前首页恢复正常。
+
+## 2026-06-07 Calendar local planning and skill smoke stability
+
+本轮覆盖项：
+
+- Safety policy 不再把 ISO 日期/时间窗口误判为手机号，避免“查忙闲 2026-06-01T09:00:00Z
+  到 2026-06-01T10:00:00Z”被远程/本地边界拦错。
+- 远程模式下，日历忙闲先走远程发送确认；确认后仍在本地生成日历权限动作草稿，不调用远程模型。
+- Runtime permission UI 增加日历忙闲确认卡验证：展示日历权限说明，不展示 special access。
+- Skill UI smoke 以 ready remote config 启动并等待可用输入框，降低被无模型首屏状态干扰的概率。
+- GitHub emulator regression workflow 扩展到 PR/push，防止只在手动/定时任务中发现模拟器回归。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.safety.SafetyPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModePlansCalendarAvailabilityLocallyAfterSendDisclosure' \
+  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 \
+  ARTIFACT_DIR=build/verification/calendar-skill-runtime-final \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest#calendarAvailabilityConfirmationShowsRuntimePermissionRequirementWithoutSpecialAccess,com.bytedance.zgx.pocketmind.MainActivitySkillUiTest' \
+  scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：targeted JVM tests，覆盖 ISO 时间窗口安全策略、远程模式日历本地规划和首屏文案合同。
+- 通过：API 36 arm64 targeted emulator，
+  `build/verification/calendar-skill-runtime-final/device-verification.properties`
+  包含 `status=passed`、`instrumentation_test_count=5`，覆盖 4 个 skill UI 用例和 1 个日历权限 UI 用例。
+
+## 2026-06-07 Start path and sensitive capability disclosure contract
+
+本轮覆盖项：
+
+- 无本地/远程模型时，主界面状态文案从失败口吻收敛为
+  “选择远程模型或下载本地模型后即可开始”，输入占位改为“配置远程或下载本地后提问”。
+- `CapabilityMatrix` 新增 `sensitiveCapabilityDisclosures`，把远程模型发送、语音/麦克风、
+  分享和文件选择、设备动作/外部 App、联系人/日历、媒体与最近 OCR、Usage Stats、
+  Accessibility 当前屏幕文本、MediaProjection 当前屏幕截图 OCR 的数据范围、同意边界、
+  远程边界、撤销/清除路径和必测用例固化为机器可读合同。
+- App 内隐私说明页新增“敏感能力披露”区，直接展示上述能力，不再只用笼统的“敏感权限”概括。
+- `docs/capability_matrix.json` 与代码逐字段校验；测试禁止披露承诺“清理/删除审计记录”
+  这类当前没有用户入口的能力。
+- Smoke 隐私入口用例扩展到敏感披露区，确认模拟器中能看到设备动作、Usage Stats 和当前屏幕截图 OCR 披露。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest' \
+  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupDoesNotShowSetupOnFreshInstallWhenNoLocalOrRemoteModelIsAvailable' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupKeepsSetupDismissedWhenNoLocalOrRemoteModelIsAvailable'
+ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 \
+  ARTIFACT_DIR=build/verification/sensitive-disclosure-ui-current \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#quickRemoteConfigEntryOpensRemoteModelForm,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' \
+  scripts/verify_emulator.sh
+ANDROID_SERIAL=emulator-5554 \
+  ARTIFACT_DIR=build/verification/start-path-guidance-fresh-start-current \
+  scripts/verify_fresh_start_main_shell_emulator.sh
+ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 \
+  ARTIFACT_DIR=build/verification/runtime-permission-disclosure-current2 \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest' \
+  scripts/verify_emulator.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：`CapabilityMatrixDocumentationTest` 和 `PocketMindScreenDisplayTest`，覆盖敏感披露
+  JSON/代码一致性、必测类存在性、数据/同意/远程/撤销字段完整性，以及隐私页展示文本。
+- 通过：`AgentCoreDocumentationTest`，确认 README 顶部产品合同、首屏信任流和 manual/automatic
+  验收分离仍符合文档契约。
+- 通过：`PocketMindViewModelTest` 两条无模型启动回归，确认无本地/远程模型时保持主界面待准备态，
+  状态文案收敛为“选择远程模型或下载本地模型后即可开始”。
+- 通过：API 36 arm64 模拟器 targeted smoke，
+  `build/verification/sensitive-disclosure-ui-current/device-verification.properties`
+  包含 `status=passed`、`instrumentation_test_count=3`，覆盖模型管理、远程配置入口和
+  隐私说明里的敏感披露区。
+- 通过：API 36 arm64 fresh-start，
+  `build/verification/start-path-guidance-fresh-start-current/fresh-start-main-shell.properties`
+  包含 `status=passed`、`first_run_setup_visible=false`、`main_shell_copy_visible=true`。
+- 通过：API 36 arm64 runtime permission UI smoke，
+  `build/verification/runtime-permission-disclosure-current2/device-verification.properties`
+  包含 `status=passed`、`instrumentation_test_count=2`；覆盖联系人权限说明和最近截图 OCR
+  图片权限说明/取消路径。
+- 通过：`scripts/verify_local.sh`，覆盖 validation script self-tests、JVM tests、lint、
+  debug/androidTest APK assembly、release APK/AAB assembly 和 Android artifact scan。
+- 未作为通过证据：日历忙闲 Activity UI prompt 链路未稳定触发确认卡；日历权限仍由
+  `AgentRuntimePermissionPolicyTest` 的 JVM 合同覆盖，正式发布前仍需补稳定 UI 或手工验收证据。
+- 未作为手工验收通过证据：麦克风系统弹窗、Android 系统文件选择器、Usage Access、
+  Accessibility 服务和 MediaProjection 前台同意仍需要正式 manual acceptance。
+
+## 2026-06-07 Product contract screen check and current regression
+
+本轮覆盖项：
+
+- API 36 arm64 模拟器安装当前包后复核首屏，不再把“仍在待准备/接入态”误判为测试占用或
+  UI 卡死。
+- 复核“配置远程模型（无需下载）”点击可打开模型管理的远程配置表单；无模型时页面保持
+  `待准备` 是因为没有下载/导入本地模型，也没有配置远程模型。
+- API 36 arm64 完整模拟器回归重新绑定到当前 product-contract UI 文案后的 35 个
+  AndroidTest。
+- release flow matrix candidate 继续 fail closed，但失败目标已从 stale source regression
+  收敛为缺正式批准的 release flow evidence。
+
+验证命令：
+
+```bash
+ARTIFACT_DIR=build/verification/product-contract-regression-current \
+  ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=1 scripts/regression_emulator.sh
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 \
+  shell dumpsys package com.bytedance.zgx.pocketmind
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 \
+  exec-out uiautomator dump /dev/tty > build/verification/current-screen/ui.xml
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 \
+  exec-out screencap -p > build/verification/current-screen/current.png
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 \
+  shell input tap 540 1678
+ARTIFACT_DIR=build/verification/product-contract-flow-matrix-current \
+  REPORT_FILE=build/verification/product-contract-flow-matrix-current/release-flow-matrix-candidate-evidence.properties \
+  scripts/collect_release_flow_matrix_evidence.sh
+```
+
+结果：
+
+- 通过：API 36 arm64 完整模拟器回归，
+  `build/verification/product-contract-regression-current/regression-emulator.properties`
+  包含 `status=passed`、`source_android_test_count=35`、
+  `expected_android_test_count=35`、`actual_android_test_count=35`、`clean_device=1`；
+  report SHA-256 为
+  `ed29aeb0a5cfe0508bf273ecfbbc2c6c8a95f8a1d1306c4a6f108410ca8a2844`。
+- 通过：当前模拟器安装包前台为 `com.bytedance.zgx.pocketmind/.MainActivity`，
+  `lastUpdateTime=2026-06-07 05:37:02`；UI dump 显示“隐私优先的随身 AI 助手”、
+  “配置远程模型（无需下载）”和“未找到可用模型，请下载、导入或配置远程模型”。
+- 通过：点击“配置远程模型（无需下载）”后打开模型管理远程页，UI dump 显示
+  “模型管理”、“选择本地离线或可选远程；远程发送和设备动作仍会先确认。”、
+  “服务地址”、“模型名”、“API Key”和“图片输入”。
+- 未通过但按预期生成失败证据：当前 flow matrix candidate report
+  `build/verification/product-contract-flow-matrix-current/release-flow-matrix-candidate-evidence.properties`
+  包含 `status=failed`、`failedTarget=flow-matrix`、
+  `reason=missing-approved-release-evidence-firstInstall,...`、
+  `sourceAndroidTestCount=35`，并生成 13 条 candidate-only flow evidence。
+- 未执行：真机复核。当前 `adb devices -l` 只发现 `emulator-5554`，没有物理设备 serial；
+  因此用户手上真机的页面状态不能记录为已验证或已修复。
+
+## 2026-06-07 API36 regression refresh and stale evidence guard
+
+本轮覆盖项：
+
+- API 36 arm64 完整模拟器回归重新绑定到当前 AndroidTest 源测试数：35 个源测试、
+  35 个预期测试、35 个实际执行测试全部通过。
+- Smoke instrumentation 在每个测试实例启动 Activity 前重置持久状态，避免远程/本地模式状态污染导致
+  “配置远程模型”入口和首屏文案用例不稳定。
+- release flow 候选证据脚本会比较当前 AndroidTest 源测试数与 regression artifact
+  记录的测试数；如果 artifact 仍是旧的 28 个测试，会以
+  `failedTarget=source-regression`、`reason=emulator-regression-source-test-count-mismatch`
+  fail closed。
+- release flow 候选覆盖从 8 条扩展到 13 条，新增本地模型下载校验、重启后提醒、
+  分享/文件输入、语音输入、最近媒体 OCR 等候选证据。候选证据仍不能替代正式人工 flow
+  acceptance。
+
+验证命令：
+
+```bash
+ANDROID_SERIAL=emulator-5554 ARTIFACT_DIR=build/verification/smoke-isolated-current \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' \
+  scripts/install_and_test_device.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  ANDROID_SERIAL=emulator-5554 \
+  ARTIFACT_DIR=build/verification/regression-emulator-api36-flow-expanded-current \
+  REGRESSION_REPORT_FILE=build/verification/regression-emulator-api36-flow-expanded-current/regression-emulator.properties \
+  EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 \
+  scripts/regression_emulator.sh
+bash -n scripts/collect_release_flow_matrix_evidence.sh scripts/test_validation_scripts.sh scripts/verify_local.sh
+scripts/test_validation_scripts.sh
+ARTIFACT_DIR=build/verification/release-flow-matrix-expanded-current \
+  REPORT_FILE=build/verification/release-flow-matrix-expanded-current/release-flow-matrix-candidate-evidence.properties \
+  scripts/collect_release_flow_matrix_evidence.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+scripts/verify_local.sh
+git diff --check
+```
+
+结果：
+
+- 通过：API 36 arm64 targeted SmokeTest，
+  `build/verification/smoke-isolated-current/device-verification.properties`
+  包含 `status=passed`、`instrumentation_test_count=6`。
+- 通过：API 36 arm64 完整模拟器回归，
+  `build/verification/regression-emulator-api36-flow-expanded-current/regression-emulator.properties`
+  包含 `status=passed`、`source_android_test_count=35`、
+  `expected_android_test_count=35`、`actual_android_test_count=35`；report SHA-256 为
+  `3f44dbe853251c3901e5f104a05995242281fe7fb30a97d7e08aa3c1dfa80144`。
+- 通过：`scripts/test_validation_scripts.sh`，覆盖 validation record、release record、
+  perf baseline、screenshot capture、release flow 候选证据和 APK/AAB 扫描脚本自测。
+- 未通过但按预期生成失败证据：当前 flow matrix 候选报告
+  `build/verification/release-flow-matrix-expanded-current/release-flow-matrix-candidate-evidence.properties`
+  包含 `status=failed`、`failedTarget=flow-matrix`、
+  `reason=missing-approved-release-evidence-firstInstall,...`、`sourceAndroidTestCount=35`，
+  并生成 13 条 candidate-only flow evidence。
+- 未通过但按预期生成失败证据：当前 release validation report
+  `build/verification/release-validation-current.properties` 包含 `status=failed`，
+  失败原因集中在 pending 的真机、API 28/32/33/34、manual acceptance、flow matrix、
+  performance sanity 和 reviewer approval。
+- 通过：`scripts/verify_local.sh` 完成 validation script self-tests、JVM tests、lint、
+  debug/androidTest APK assembly、release APK/AAB assembly 和 Android artifact scan。
+- 通过：`git diff --check` 未发现空白或补丁格式问题；本轮 diff 敏感信息扫描未发现 API key、
+  bearer token 或远程模型密钥。
+- 未作为正式 release 通过证据：API 28/32/33/34、非模拟器真机验收、正式 flow
+  acceptance、performance baseline、reviewer approval 仍保持 pending。
+
+## 2026-06-07 Product positioning entry and flow matrix guard
+
+本轮覆盖项：
+
+- 无模型首屏从“主界面已就绪”收敛为“隐私优先的随身 AI 助手”，并在首屏说明中直接回答
+  为什么安装：本地模型让基础问答离线可用，远程多模态是可选入口，远程发送和设备动作都先确认。
+- 待准备主操作补充“配置远程模型（无需下载）”，降低 2.4 GB 本地模型下载前的启动门槛。
+- Smoke instrumentation 固定首屏定位文案、远程模型直达表单和 App 内隐私说明入口。
+- release flow matrix 候选证据扩展到本地模型下载校验、重启后提醒、分享/文件输入、
+  语音输入、最近媒体 OCR 等核心链路；同时修复候选证据失败路径在空 evidence path
+  数组下触发 `set -u` 崩溃的问题。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon -Pkotlin.incremental=false :app:compileDebugKotlin \
+  :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+ARTIFACT_DIR=build/verification/product-positioning-entry-smoke-rerun \
+  CLEAN_DEVICE=1 \
+  ANDROID_SERIAL=emulator-5554 \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#quickRemoteConfigEntryOpensRemoteModelForm,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' \
+  scripts/verify_emulator.sh
+ARTIFACT_DIR=build/verification/product-positioning-fresh-start-current \
+  ANDROID_SERIAL=emulator-5554 \
+  scripts/verify_fresh_start_main_shell_emulator.sh
+bash -n scripts/collect_release_flow_matrix_evidence.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ARTIFACT_DIR=build/verification/release-flow-matrix-expanded-current \
+  scripts/collect_release_flow_matrix_evidence.sh
+/Users/bytedance/Library/Android/sdk/build-tools/36.0.0/aapt dump badging \
+  app/build/outputs/apk/debug/app-debug.apk
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 exec-out screencap -p \
+  > build/verification/product-positioning-entry-screen/current.png
+```
+
+结果：
+
+- 通过：debug Kotlin、androidTest Kotlin 编译和 `PocketMindScreenDisplayTest`。
+- 通过：API 36 arm64 干净模拟器 targeted smoke，
+  `build/verification/product-positioning-entry-smoke-rerun/emulator-verification.properties`
+  包含 `status=passed`、`avd=pocketmind_api36_arm64`；嵌套
+  `device-verification.properties` 包含 `status=passed`、`instrumentation_test_count=3`。
+- 通过：API 36 arm64 真实 fresh-start，
+  `build/verification/product-positioning-fresh-start-current/fresh-start-main-shell.properties`
+  包含 `status=passed`、`first_run_setup_visible=false`、`main_shell_copy_visible=true`。
+- 通过：`scripts/test_validation_scripts.sh`，确认 release-flow 脚本自测通过，且 debug
+  APK 自测后恢复为有效 APK；`aapt dump badging` 读取到
+  `package: name='com.bytedance.zgx.pocketmind' versionCode='1' versionName='0.1.0'`。
+- 通过：最新首屏截图和 UI dump 已保存到
+  `build/verification/product-positioning-entry-screen/current.png` 和同名 XML；截图显示
+  “隐私优先的随身 AI 助手”和“配置远程模型（无需下载）”。
+- 未通过但按预期生成失败证据：当前 flow matrix 候选报告
+  `build/verification/release-flow-matrix-expanded-current/release-flow-matrix-candidate-evidence.properties`
+  包含 `status=failed`、`failedTarget=source-regression`、
+  `reason=emulator-regression-source-test-count-mismatch`；当前源测试数为 35，
+  既有 regression artifact 记录为 28。需要重跑完整 regression 后，才能把扩展 flow
+  matrix 作为 release gate 通过证据。
+
+## 2026-06-07 Model path guidance and sensitive input disclosure
+
+本轮覆盖项：
+
+- 待准备页和模型管理页新增本地/远程/轻量路径说明：本地 E2B 是约 2.4 GB 大下载，
+  可离线问答；远程模型可作为不下载本地对话模型的可选路径；当前没有更小的官方推荐聊天模型，
+  记忆/动作小模型不是聊天替代。
+- 空间不足提示补充远程模型和可信 `.litertlm` 导入作为恢复路径。
+- 远程发送预览明确图片字节会发往当前远程地址；确认前仍不发送。
+- 输入区展示可见的语音隐私说明：系统语音转写只进入输入框，不自动发送，不读取本地音频文件。
+- 顶栏新增“隐私说明”入口，直接打开 App 内隐私说明页，提高隐私政策入口可发现性。
+- 复核 README、`docs/privacy_notice.md`、store policy / privacy review pending evidence 已同步模型下载口径，
+  且当前 privacy notice SHA 与记录一致。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+shasum -a 256 docs/privacy_notice.md docs/store_policy_review_evidence/pending.properties \
+  docs/privacy_review_evidence/release-pending.properties \
+  docs/privacy_review_evidence/security-pending.properties \
+  docs/privacy_review_evidence/legal-pending.properties
+ARTIFACT_DIR=build/verification/model-path-guidance-adaptive-ui-final \
+  ANDROID_SERIAL=emulator-5554 \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityAdaptiveUiTest' \
+  scripts/install_and_test_device.sh
+ANDROID_SERIAL=emulator-5554 ARTIFACT_DIR=build/verification/privacy-entry-smoke INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' scripts/install_and_test_device.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：`PocketMindScreenDisplayTest`，覆盖产品定位、模型路径说明、远程发送图片字节披露、
+  远程发送确认、语音隐私说明和 run data receipt 展示合同。
+- 通过：privacy notice 当前 SHA 为
+  `672d8aa10462659c079c3cb467bbe694b32938e562cc1f8a07f5899df0620430`；store policy /
+  privacy review pending evidence SHA 已同步到对应 JSON 记录。
+- 通过：API 36 arm64 自适应 UI targeted instrumentation，
+  `build/verification/model-path-guidance-adaptive-ui-final/device-verification.properties`
+  包含 `status=passed`、`instrumentation_test_count=2`。
+- 通过：API 36 arm64 隐私入口 smoke，
+  `build/verification/privacy-entry-smoke/device-verification.properties` 包含
+  `status=passed`、`instrumentation_test_count=1`。
+- 通过：`scripts/verify_local.sh`，覆盖 validation script self-tests、JVM tests、lint、
+  debug/androidTest APK assembly、release APK/AAB assembly 和 Android artifact scan。
+- 未执行：完整 API 矩阵、真机矩阵和人工 Play policy review；这些仍按 release gate 保持
+  pending，不作为本轮完成项。
+
+## 2026-06-07 Permission disclosure and adaptive UI smoke
+
+本轮覆盖项：
+
+- 前台应用查询确认页明确说明 UsageStats 只是估计当前前台应用包名/应用名，不读取屏幕内容
+  或使用历史，并展示系统“使用情况访问权限”入口。
+- 日历忙闲权限 contract 明确只读忙闲时间段，不读取日历标题、地点或参与人。
+- 权限 UI instrumentation 改为每个测试先写入远程调试配置再启动 Activity，避免停在
+  “先准备模型”的不可输入状态。
+- 自适应 UI smoke 覆盖 1.3x 字体下聊天主控件/模型管理可达，以及核心按钮的可访问标签。
+- 手动冷启动复核覆盖最新 debug APK 在无本地模型、无远程配置的干净状态下进入主界面待准备态，
+  而不是停在旧的启动接入页或系统桌面。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.foregroundAppActionParserCreatesUsageStatsReadDraft' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.calendarAvailabilityParserCreatesReadOnlyDraft'
+./gradlew --no-daemon -Pkotlin.incremental=false assembleDebug assembleDebugAndroidTest
+ARTIFACT_DIR=build/verification/permission-ui-stable \
+  AVD_NAME=pocketmind_api36_arm64 \
+  EMULATOR_SELECT_TIMEOUT_SECONDS=180 \
+  BOOT_TIMEOUT_SECONDS=360 \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest,com.bytedance.zgx.pocketmind.MainActivitySpecialAccessUiTest' \
+  scripts/verify_emulator.sh
+ARTIFACT_DIR=build/verification/adaptive-ui-stable-final3 \
+  ANDROID_SERIAL=emulator-5554 \
+  GRADLE_CMD=/usr/bin/true \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityAdaptiveUiTest' \
+  scripts/verify_emulator.sh
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell pm clear com.bytedance.zgx.pocketmind
+/Users/bytedance/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell am start -W -n com.bytedance.zgx.pocketmind/.MainActivity
+```
+
+结果：
+
+- 通过：目标 JVM contract 测试覆盖日历/联系人 runtime permission、UsageStats special
+  access、前台应用动作草稿和日历忙闲动作草稿。
+- 通过：`assembleDebug assembleDebugAndroidTest` 生成新的 debug 和 androidTest APK。
+- 通过：API 36 arm64 权限 UI emulator smoke，
+  `build/verification/permission-ui-stable/emulator-verification.properties` 包含
+  `status=passed`，嵌套
+  `build/verification/permission-ui-stable/device-verification.properties` 包含
+  `instrumentation_test_count=3`。
+- 通过：API 36 arm64 自适应 UI emulator smoke，
+  `build/verification/adaptive-ui-stable-final3/emulator-verification.properties` 包含
+  `status=passed`，嵌套
+  `build/verification/adaptive-ui-stable-final3/device-verification.properties` 包含
+  `instrumentation_test_count=2`。
+- 通过：API 36 arm64 模拟器手动冷启动，`am start -W` 返回 `LaunchState: COLD`、
+  `TotalTime: 1645`，Window 焦点为 `com.bytedance.zgx.pocketmind/.MainActivity`；UI dump
+  显示 `PocketMind`、`主界面已就绪` 和
+  `未找到可用模型，请下载、导入或配置远程模型`。证据：
+  `build/verification/manual-cold-start-check/cold-start-screen.png`、
+  `build/verification/manual-cold-start-check/cold-start-ui.xml`。
+- 未执行：真机安装/页面复核。当前 ADB 只发现 `emulator-5554`，没有物理设备序列号，因此不能把
+  用户手上真机的“默认页”现象记录为已验证或已修复。
+- 未作为通过证据：日历忙闲 Activity UI 单测在 API 36 模拟器上稳定触发 instrumentation
+  process crash，`build/verification/calendar-permission-ui/device-verification.properties`
+  记录 `failedTarget=instrumentation`、`reason=instrumentation-failed`；该覆盖已下沉到
+  JVM contract 测试。
+- 未作为通过证据：横屏远程发送确认 Activity UI 用例在 API 36 模拟器上不稳定，
+  `build/verification/adaptive-ui-stable/device-verification.properties` 记录
+  `failedTarget=instrumentation`、`reason=instrumentation-failed`；本轮只保留稳定的大字体
+  和可访问标签 smoke。
+
+## 2026-06-07 Remote send disclosure gate
+
+本轮覆盖项：
+
+- 远程模型模式下，用户主动发送文本或远程视觉图片前必须先展示发送预览；确认前不调用
+  `RemoteChatRuntime`，也不会对 mock OpenAI-compatible server 发出 POST。
+- 预览显示远程 host、模型名、可远程发送历史数量、图片数量、LocalOnly 历史过滤数量、
+  本地记忆/设备上下文/非图片附件保护说明和 API Key 配置状态；不展示 API Key 原文。
+- 远程图片分享确认后保留 `ChatImageAttachment`，直接交给支持视觉的远程模型；不做强制
+  OCR 兜底。
+- public evidence 工具结果续写也复用同一个远程发送预览；确认前不会进行第二次远程模型
+  请求，取消会把工具结果续写标记为未发送。
+- 远程模式下的动作/权限 UI 测试已适配新的远程发送确认层，继续验证本地工具确认页。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteSendDisclosureBlocksRuntimeUntilConfirmed' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteImageDisclosureKeepsAttachmentForConfirmedVisionSend' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutesAndContinuesWithModel' \
+  --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest.remoteSendDisclosureRowsNameDestinationAndProtectedData'
+scripts/verify_local.sh
+ARTIFACT_DIR=build/verification/remote-send-disclosure-emulator-rerun \
+  AVD_NAME=pocketmind_api36_arm64 \
+  EMULATOR_SELECT_TIMEOUT_SECONDS=120 \
+  BOOT_TIMEOUT_SECONDS=360 \
+  scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：目标 JVM 测试覆盖文本发送确认、图片附件确认、public evidence 工具结果续写确认和
+  远程发送预览文案。
+- 通过：`scripts/verify_local.sh`，覆盖 validation script self-tests、JVM tests、lint、
+  debug/androidTest APK assembly、release APK/AAB assembly 和 Android artifact scan。
+- 通过：API 36 arm64 emulator regression，
+  `build/verification/remote-send-disclosure-emulator-rerun/regression-emulator.properties`
+  包含 `status=passed`、`actual_android_test_count=30`、`avd=pocketmind_api36_arm64`、
+  `abi=arm64-v8a`。
+- 首次尝试 `build/verification/remote-send-disclosure-emulator/regression-emulator.properties`
+  未进入测试，`failedTarget=emulator-verification`，原因是脚本等待单一授权 emulator 时
+  当前 emulator 掉线；已用显式 `AVD_NAME=pocketmind_api36_arm64` 重跑并通过。
+
+## 2026-06-07 Product positioning and CI emulator regression wiring
+
+本轮覆盖项：
+
+- README 首段收敛为“隐私优先的随身 AI 助手”：本地可用、远程多模态可选、
+  设备动作必须确认执行。
+- 能力矩阵新增 `productPositioning` 和 `targetUserJob`，让产品主线进入机器可读
+  release contract，而不是只停留在文档描述。
+- 模型管理页把“信任”页签调整为“隐私”，新增“为什么装它”和 App 内隐私说明入口；
+  同步补充远程模型发送边界和本地模型下载理由。
+- 动作确认页新增“数据去向”区块：外部 App/系统页面动作说明不会自动完成外部操作，
+  本地读取说明结果默认 LocalOnly，提醒/后台任务说明默认留在本机。
+- 麦克风入口的 accessibility/就近说明明确：使用系统语音转写，结果只进入输入框，
+  不自动发送，不读取本地音频文件。
+- `.github/workflows/android.yml` 新增 `emulator-regression` job，在
+  `workflow_dispatch` 和 weekly `schedule` 事件中创建 API 36 arm64 AVD 并运行
+  `scripts/regression_emulator.sh`。
+- CI job 上传 `android-emulator-regression-evidence`，包含
+  `regression-emulator.properties`、嵌套 emulator/device report、instrumentation
+  output、截图/UI/logcat artifact 和 emulator log。
+- `docs/release_checklist.md` 明确 RC 必须绑定通过的 CI emulator regression job，
+  或记录 CI 不可用原因并链接等价本地 `scripts/regression_emulator.sh` 报告。
+
+验证命令：
+
+```bash
+git diff --check
+ruby -e 'require "yaml"; YAML.load_file(".github/workflows/android.yml"); puts "workflow yaml parsed"'
+bash -n scripts/regression_emulator.sh scripts/verify_emulator.sh scripts/install_and_test_device.sh
+./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：本地 whitespace、workflow YAML parse、相关 shell syntax 检查。
+- 通过：`PocketMindScreenDisplayTest` 覆盖产品定位、App 内隐私说明入口、远程发送边界、
+  本地模型下载理由、动作确认数据去向、麦克风就近说明和信任/删除控制文案。
+- 通过：`scripts/verify_local.sh`，覆盖 validation script self-tests、JVM tests、lint、
+  debug/androidTest APK assembly、release APK/AAB assembly 和 Android artifact scan。
+- 未执行 GitHub Actions macOS runner：本地只能验证 workflow 配置和脚本入口；实际
+  `emulator-regression` job 需要在 GitHub Actions 上通过后，才能作为 CI connected
+  Android test evidence。
+
+## 2026-06-07 Core emulator regression refresh
+
+本轮覆盖项：
+
+- 重新验证全新安装后默认进入主界面，不再停留在“准备基础能力包”的接入页。
+- 重新跑 API 36 arm64 emulator 完整 connected Android regression，覆盖远程配置、
+  会话、记忆、受确认保护的设备动作、分享入口、权限提示、模型管理和 Room migration。
+
+验证命令：
+
+```bash
+AVD_NAME=pocketmind_api36_arm64 ARTIFACT_DIR=build/verification/core-fresh-start-current scripts/verify_fresh_start_main_shell_emulator.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/core-emulator-second-current scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：fresh-start 证据为
+  `build/verification/core-fresh-start-current/fresh-start-main-shell.properties`，
+  `first_run_setup_visible=false`、`main_shell_copy_visible=true`。
+- 通过：完整 emulator regression 证据为
+  `build/verification/core-emulator-second-current/regression-emulator.properties`，
+  `status=passed`、`actual_android_test_count=28`、`api_level=36`、`abi=arm64-v8a`。
+- 备注：首轮完整回归出现一次 instrumentation process crash；随后单独复现综合主链路通过，
+  清空 adb/emulator 状态后完整回归通过。当前有效通过证据以上述 second-current artifact 为准。
+
+## 2026-06-07 Fresh start default-page clarity and APK artifact cleanup
+
+本轮覆盖项：
+
+- 将无模型首屏从“PocketMind 已进入，模型待配置”调整为更明确的“主界面已就绪”，并把
+  首页次级入口“更多”改为“模型管理”，降低看起来仍停在默认接入页的误解。
+- `scripts/verify_fresh_start_main_shell_emulator.sh` 的 main-shell 断言同步到新首屏文案，
+  并为 `adb install` 增加最多 3 次重试；安装失败时写入明确
+  `failedTarget=install` / `reason=debug-apk-install-failed`。
+- `scripts/test_validation_scripts.sh` 现在会在 fake Gradle 测试前备份真实 debug APK，
+  退出时恢复或清理，避免把 `app/build/outputs/apk/debug/app-debug.apk` 留成 15B 假包。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon :app:assembleDebug --rerun-tasks
+scripts/test_validation_scripts.sh
+ARTIFACT_DIR=build/verification/current-page-check-final-retry AVD_NAME=pocketmind_api36_arm64 scripts/verify_fresh_start_main_shell_emulator.sh
+scripts/verify_local.sh
+git diff --check
+rg -n "<provider endpoint/model/API-key denylist>" -S . -g '!**/.git/**' -g '!**/.gradle/**' -g '!**/build/**'
+```
+
+结果：
+
+- 通过：debug APK 强制重建后为 109 MB zip，SHA-256 为
+  `080baa96372de8cb3ef37899acdd41bc4a54171615982c666902eaacd61d808c`。
+- 通过：`scripts/test_validation_scripts.sh` 结束后 debug APK 仍为同一真实 zip 包，没有再被
+  fake Gradle 留成 15B 文本文件。
+- 通过：API 36 emulator fresh start 验证，
+  `build/verification/current-page-check-final-retry/fresh-start-main-shell.properties` 记录
+  `status=passed`、`first_run_setup_visible=false`、`main_shell_copy_visible=true`；截图为
+  `build/verification/current-page-check-final-retry/fresh-start.png`。
+- 通过：`scripts/verify_local.sh`，包含 validation script self-tests、JVM tests、lint、
+  debug/androidTest APK assembly、release APK/AAB assembly 和 Android artifact scan。
+- 通过：`git diff --check` 无 whitespace 问题；敏感配置扫描未发现 DeepSeek endpoint、
+  model name 或 API key。
+- 未执行真机安装：当前 `adb devices -l` 未发现授权物理设备。
+
+## 2026-06-07 Formal release flow evidence recorder
+
+本轮覆盖项：
+
+- 新增 `scripts/record_release_flow_evidence.sh`，用于人工/真机验收后生成正式
+  `target=release-flow`、`releaseFlowPassed=true`、`candidateOnly=false` 的 flow
+  evidence 文件。
+- recorder 要求显式 `OWNER`，支持 `RELEASE_FLOW_KEYS` partial 记录和
+  `RELEASE_FLOW_ALL=1` 全量记录；partial summary 必须失败并列出 `pendingFlows`。
+- 不自动修改 `docs/release_validation_record.json`，也不把 candidate evidence 升级为
+  passed flow；release validation 仍等待真实 owner、date、evidencePath 和 SHA 绑定。
+
+验证命令：
+
+```bash
+bash -n scripts/record_release_flow_evidence.sh scripts/test_validation_scripts.sh scripts/verify_local.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：validation script self-tests 覆盖 release flow recorder 缺少 owner 失败、
+  partial flow 失败、全量 formal evidence 通过，以及每个 flow evidence 的
+  `status`、`target`、`flowKey`、`releaseFlowPassed`、`candidateOnly`、owner/date
+  字段。
+- 通过：`scripts/verify_local.sh` 已在本轮后续总验证中通过，覆盖 shell syntax、
+  validation script self-tests、JVM tests、lint、debug/androidTest、release APK/AAB
+  和 artifact scan。
+- 预期仍未完成：`docs/release_validation_record.json.flowMatrix` 保持 pending，等待真实
+  release flow owner sign-off 和 evidence binding。
+
+## 2026-06-07 Store policy evidence packet refresh
+
+本轮覆盖项：
+
+- 同步 `docs/store_policy_record.json.privacyNoticeSha256` 到当前
+  `docs/privacy_notice.md`。
+- 新增 store policy pending review evidence packet，作为 Play listing / Data safety /
+  permissions / special-access reviewer 输入；明确标记 `status=pending`、
+  `approvalStatus=not-approved`。
+- 不修改 `status`、contact email、privacy policy URL、reviewer 或 review date；Store
+  policy gate 仍保持 fail-closed。
+
+验证命令：
+
+```bash
+shasum -a 256 docs/privacy_notice.md docs/store_policy_review_evidence/pending.properties
+scripts/verify_store_policy_record.sh --report build/verification/store-policy-current.properties
+```
+
+结果：
+
+- 通过：当前 privacy notice SHA 为
+  `027ffabe4d4be62c3ce14434c8bdcee9d106620222af37d8d937fcbbddf65385`，已写入
+  `docs/store_policy_record.json`。
+- 通过：store policy pending evidence packet SHA-256 为
+  `b811e582501e1d7f18c3644210898e07bf501ff5945fea0e857ec032ca9066ce`，已绑定到
+  `docs/store_policy_record.json.review`。
+- 预期失败：`scripts/verify_store_policy_record.sh` 仍记录 `status=failed`；当前失败原因
+  只剩 pending approval、占位 contact email、占位 privacy policy URL、reviewer 和
+  review date。
+
+## 2026-06-07 Privacy review evidence packet refresh
+
+本轮覆盖项：
+
+- 同步 `docs/privacy_review.json.noticeSha256` 到当前 `docs/privacy_notice.md`。
+- 新增 release/security/legal 三份 pending privacy review evidence packet，作为 reviewer
+  审查输入；它们明确标记 `status=pending`、`approvalStatus=not-approved`。
+- 不修改三方 `decision`、reviewer 或 review date；public privacy review 仍保持
+  fail-closed。
+
+验证命令：
+
+```bash
+shasum -a 256 docs/privacy_notice.md docs/privacy_review_evidence/*.properties
+scripts/verify_privacy_review.sh --report build/verification/privacy-review-current.properties
+```
+
+结果：
+
+- 通过：当前 privacy notice SHA 为
+  `027ffabe4d4be62c3ce14434c8bdcee9d106620222af37d8d937fcbbddf65385`，已写入
+  `docs/privacy_review.json`。
+- 通过：三份 pending evidence packet 的 SHA-256 已绑定到 review 文件：
+  release `9915a7262b5ffcdddd5539e3143a0d689ea0857d85aab6b1ac1a4ca985b3e8b8`，
+  security `9a2f6c6348e6063937d0e20ae865f4f7b28fdf8215de87edcb7cca44d6fca3ca`，
+  legal `75bbb042f32b460eeacd2bfcf6348a4cb4e33cb7f69741dcbb808b8a417bc51f`。
+- 预期失败：`scripts/verify_privacy_review.sh` 仍记录 `status=failed`；当前失败原因
+  只剩 release/security/legal 三方 decision、reviewer 和 review date。
+
+## 2026-06-07 Model license source metadata refresh
+
+本轮覆盖项：
+
+- 重新运行 `scripts/collect_model_license_metadata.sh`，从 Hugging Face model API 刷新四个
+  推荐模型的 license metadata。
+- 在 `docs/model_license_review.json` 中补齐可由 metadata 支撑的 license name 和 pinned
+  README license source URL；不修改 `status`、`redistributionDecision`、reviewer、
+  review date 或 review evidence。
+- 保持 fail-closed：模型 license review 仍必须由人工 reviewer 完成 redistribution、
+  attribution/notice 和批准证据。
+
+验证命令：
+
+```bash
+scripts/collect_model_license_metadata.sh
+scripts/verify_model_license_review.sh --report build/verification/model-license-review-current.properties
+```
+
+结果：
+
+- 通过：metadata 刷新完成，`docs/model_license_metadata.json.recordedAt` 更新到
+  `2026-06-06T18:34:06Z`。
+- 通过：`docs/model_license_review.json` 现在记录 `chat-e2b`、`memory-embedding-300m`
+  和 `chat-e4b` 的 `Apache-2.0` license name，以及 `mobile-action-270m` 的 `Gemma`
+  license name；四个 `licenseUrl` 均指向 pinned upstream revision 的 README。
+- 预期失败：`scripts/verify_model_license_review.sh` 仍记录 `status=failed`；当前失败原因
+  只剩每个模型的人工 approval、redistribution approval、attribution notice、reviewer、
+  review evidence 和 review date。
+
+## 2026-06-07 Upgrade install and flow candidate refresh
+
+本轮覆盖项：
+
+- 刷新当前 HEAD 的 API 36 emulator upgrade install smoke：从上一个 app 源码版本构建
+  base debug APK，再覆盖安装当前 debug APK，并运行 `MainActivitySmokeTest`。
+- 刷新 release flow matrix candidate evidence；继续证明 candidate evidence 不能替代正式
+  `target=release-flow` / `releaseFlowPassed=true` 的 release evidence。
+- 不修改 `docs/release_validation_record.json`：`flowMatrix.upgradeInstall` 和其他 flow
+  项仍保持 pending。
+
+验证命令：
+
+```bash
+ARTIFACT_DIR=build/verification/release-flow-matrix-current REPORT_FILE=build/verification/release-flow-matrix-current/release-flow-matrix-candidate-evidence.properties scripts/collect_release_flow_matrix_evidence.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" AVD_NAME=pocketmind_api36_arm64 ARTIFACT_DIR=build/verification/upgrade-install-emulator-current REPORT_FILE=build/verification/upgrade-install-emulator-current/upgrade-install-emulator.properties EMULATOR_ARGS='-wipe-data -no-window -no-audio -no-boot-anim -no-snapshot-save -gpu swiftshader_indirect' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/verify_upgrade_install_emulator.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+```
+
+结果：
+
+- 通过：API 36 upgrade install smoke，
+  `build/verification/upgrade-install-emulator-current/upgrade-install-emulator.properties`
+  记录 `status=passed`、`target=upgrade-install-emulator`、`baseRef=0be4bde...`、
+  `currentCommit=61f3be9...`、`signerSha256Matches=true`、`instrumentation=passed`、
+  `instrumentation_test_count=4`，SHA-256 为
+  `7b380a00f564ed72227dc4ce1e718eb5201afe9ecd997dfd608e8dc3a96bef7a`。
+- 通过：upgrade package evidence 显示 `firstInstallTime` 保持
+  `2026-06-07 02:30:25`，`lastUpdateTime` 更新到 `2026-06-07 02:30:36`；
+  debug base/current `versionCode` 均为 1，因此 `versionCodeIncreased=false`。
+- 预期失败：release flow candidate collector 生成 8 个 candidate evidence 文件，但总报告仍
+  `status=failed` / `failedTarget=flow-matrix`，SHA-256 为
+  `d5b922bc708b0635000db60b028aece633dee29dc5317d3eacd799fc60302f6f`。
+- 预期失败：release validation record 仍未 approved，真实剩余项继续是 physical device、
+  API 28/32/33/34、manual acceptance、正式 flow evidence、performance 和 reviewer/date。
+
+## 2026-06-07 Manual review install and setup page loop fix
+
+本轮覆盖项：
+
+- 首屏不再把“准备基础能力包”作为全新安装默认页；没有本地模型和远程配置时仍进入
+  PocketMind 主界面，并通过主界面卡片提示去下载、导入或配置远程模型。
+- 新增 `scripts/install_review_device.sh` 作为人工验收安装入口；它不运行
+  instrumentation、不默认清 App 数据，报告标记为 `target=manual-acceptance-install`
+  和 `regressionEvidence=false`。
+- `scripts/install_and_test_device.sh` 的自动回归洁净行为保持不变，仍默认
+  `RESET_APP_DATA_AFTER_TESTS=1`。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupDoesNotShowSetupOnFreshInstallWhenNoLocalOrRemoteModelIsAvailable' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupKeepsSetupDismissedWhenNoLocalOrRemoteModelIsAvailable' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupDoesNotReopenSetupWhenRemoteModelIsConfigured'
+ARTIFACT_DIR=build/verification/fresh-start-main-shell-current AVD_NAME=pocketmind_api36_arm64 scripts/verify_fresh_start_main_shell_emulator.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：`scripts/test_validation_scripts.sh`，确认人工验收安装 report 不清 App 数据、
+  不运行 instrumentation、不落远程 API key，且不能被 release validation 误当作
+  physical regression evidence。
+- 通过：targeted ViewModel JVM tests，确认 fresh install 和已跳过状态都不再显示准备区；
+  远程模型已配置时仍直接进入 ready 状态。
+- 通过：API 36 clean install 手工启动验证，
+  `build/verification/fresh-start-main-shell-current/fresh-start-main-shell.properties`
+  记录 `status=passed`、`target=fresh-start-main-shell`、
+  `first_run_setup_visible=false`、`main_shell_copy_visible=true`；截图为
+  `build/verification/fresh-start-main-shell-current/fresh-start.png`，UI dump 为
+  `build/verification/fresh-start-main-shell-current/fresh-start.xml`。SHA-256：
+  report `84c908da204a5707804951dc5c2d9b39c00140eb97a0749ce4683e6e224cc7e1`，
+  screenshot `8ac50c443b862d9fb07e52cbfe0b2fe7d700277ec6d75833942fdb3cd9e4085a`，
+  UI dump `f3532b97d99cc51cf08967c8db1063ef431b8e5ac38c1a9183df925fb59336e1`。
+- 通过：`scripts/verify_local.sh`，包含 validation script self-tests、JVM tests、lint、
+  debug/androidTest APK assembly、release APK/AAB assembly 和 Android artifact scan。
+
+## 2026-06-07 API 36 default emulator startup validation
+
+本轮覆盖项：
+
+- `scripts/verify_emulator.sh` 指定 `AVD_NAME` 且未显式传入 `EMULATOR_ARGS` 时，默认
+  使用 headless、wipe-data、no-snapshot 的确定性启动参数。
+- fresh API 36 AVD 上的首装准备区 smoke helper 滚动到按钮后再断言和跳过。
+- `docs/release_validation_record.json` 的 emulator regression 和 API 36 matrix evidence
+  绑定到当前默认启动参数路径下的新完整回归 artifact。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest ARTIFACT_DIR=build/verification/emulator-api36-default-args-smoke-current scripts/verify_emulator.sh
+scripts/verify_local.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/regression-emulator-api36-default-args-current scripts/regression_emulator.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+```
+
+结果：
+
+- 通过：`scripts/test_validation_scripts.sh`，覆盖默认 emulator args 和显式
+  `EMULATOR_ARGS` 覆盖路径。
+- 通过：API 36 smoke，`build/verification/emulator-api36-default-args-smoke-current`
+  记录 `MainActivitySmokeTest` 4 条全部通过。
+- 通过：`scripts/verify_local.sh`，包含 JVM tests、lint、debug/androidTest APK assembly、
+  release APK/AAB assembly 和 Android artifact scan。
+- 通过：完整 API 36 regression，
+  `build/verification/regression-emulator-api36-default-args-current/regression-emulator.properties`
+  记录 `status=passed`、`actual_android_test_count=28`、`api_level=36`、
+  `abi=arm64-v8a`、`avd=pocketmind_api36_arm64`，SHA-256 为
+  `d2fc72b000b39ad20e77741ba43b1abeb2646fca580108ebeafcf582c215ee4f`。
+- 预期失败：release validation record 仍未 approved，当前失败原因继续是未完成的
+  physical device full evidence、API 28/32/33/34 matrix、manual acceptance、flow
+  matrix、performance sanity 和 reviewer/date。API 36 evidence 已绑定到本轮通过的
+  完整回归报告。
+
+## 2026-06-06 Physical install and live remote device validation
+
+本轮覆盖项：
+
+- 在真实设备 `fb6272c` 上重新安装当前 debug APK 和 androidTest APK，并完整跑
+  `MainActivitySmokeTest` 4 条发布 smoke。
+- `scripts/live_remote_emulator.sh` 保持默认只选 emulator；新增显式
+  `POCKETMIND_LIVE_REMOTE_TARGET=device` 后才允许选择真机 serial。
+- live remote 输入坐标改为读取设备屏幕尺寸后按比例计算，覆盖 1200x2670 真机；
+  成功路径也保存 screenshot、UI dump 和 logcat evidence。
+- 使用用户提供的远程模型配置做真机 live remote 验证；API key 只通过静默 stdin/env
+  注入，报告和 artifact 不记录实际密钥。
+
+验证命令：
+
+```bash
+ANDROID_SERIAL=fb6272c CLEAN_DEVICE=0 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest INSTRUMENTATION_TIMEOUT_SECONDS=600 ARTIFACT_DIR=build/verification/physical-device-install-retry-wide-timeout VERIFICATION_REPORT_FILE=build/verification/physical-device-install-retry-wide-timeout/device-verification.properties INSTRUMENTATION_OUTPUT_FILE=build/verification/physical-device-install-retry-wide-timeout/instrumentation.txt scripts/install_and_test_device.sh
+bash -n scripts/live_remote_emulator.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+POCKETMIND_LIVE_REMOTE_TARGET=device ANDROID_SERIAL=fb6272c POCKETMIND_LIVE_REMOTE_BASE_URL=<redacted> POCKETMIND_LIVE_REMOTE_MODEL=<redacted> POCKETMIND_LIVE_REMOTE_API_KEY=<provided-secret> POCKETMIND_LIVE_REMOTE_PROMPT="Return POCKETMIND_LIVE_OK" POCKETMIND_LIVE_REMOTE_EXPECTED_TEXT=POCKETMIND_LIVE_OK POCKETMIND_LIVE_REMOTE_WAIT_SECONDS=60 ARTIFACT_DIR=build/verification/live-remote-device-deepseek-final REPORT_FILE=build/verification/live-remote-device-deepseek-final/live-remote-device.properties scripts/live_remote_emulator.sh
+```
+
+结果：
+
+- 通过：真机 `fb6272c` 安装成功，`MainActivitySmokeTest` 4 条通过，
+  `build/verification/physical-device-install-retry-wide-timeout/device-verification.properties`
+  记录 `status=passed`、`target=device`、`api_level=36`、`abi=arm64-v8a`、
+  `instrumentation=passed`、`instrumentation_test_count=4`，SHA-256
+  `bb50a6deb34bede4681deb9e93437546fd197a239c0b7bf59089e8911b1a18b7`。
+- 通过：live remote 真机验证返回 `POCKETMIND_LIVE_OK`，报告
+  `build/verification/live-remote-device-deepseek-final/live-remote-device.properties`
+  记录 `status=passed`、`target=live-remote-device`、`device_target=device`、
+  `serial=fb6272c`，并链接 screenshot、UI dump 和 logcat，SHA-256
+  `29845bd67c9b3e1eef3134cf1840944e6cbad4750af45d7faa6e7c1434ac20cc`。
+- 通过：live remote 报告只记录 `base_url=<redacted>`、`model=<redacted>` 和
+  `api_key_source=POCKETMIND_LIVE_REMOTE_API_KEY`；实际 API key 未落盘。
+
+## 2026-06-06 Physical smoke scope narrowing
+
+本轮覆盖项：
+
+- `MainActivitySmokeTest.backgroundTaskManagerShowsEmptyState` 收窄为发布 smoke
+  适合的入口检查：只验证后台任务 sheet 打开、标题、刷新按钮和周期检查策略首屏可见。
+- 完整审计日志和 Agent 轨迹内容继续由 `MainActivitySkillUiTest` 的专项用例覆盖；
+  不再让真机 smoke 在 bottom sheet 内滚动完整内容，避免发布门禁被非核心滚动路径卡住。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin
+git diff --check
+ANDROID_SERIAL=fb6272c CLEAN_DEVICE=0 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest INSTRUMENTATION_TIMEOUT_SECONDS=180 ARTIFACT_DIR=build/verification/physical-device-smoke-after-narrowing scripts/install_and_test_device.sh
+```
+
+结果：
+
+- 通过：`:app:compileDebugAndroidTestKotlin` 和 `git diff --check`。
+- 未完成真机重跑：设备 `fb6272c` 仍拒绝 ADB 安装，
+  `build/verification/physical-device-smoke-after-narrowing/device-verification.properties`
+  记录 `failedTarget=install`、`reason=install-user-restricted`，SHA-256
+  `f124cd3836321ab7934ab0f222ace3f102eb4d9eb1bd9fff1b5081d889939009`。
+  需要在手机上允许 USB 安装后继续重跑真机 smoke 和远程模型验证。
+
+## 2026-06-06 Physical device validation fail-closed hardening
+
+本轮覆盖项：
+
+- `scripts/install_and_test_device.sh` 新增 `INSTRUMENTATION_CLASS`，支持在真机上按
+  class 或 method 分组跑 instrumentation，避免发布 smoke 被长链路综合测试拖死。
+- `scripts/install_and_test_device.sh` 新增 `INSTRUMENTATION_TIMEOUT_SECONDS`，并在
+  timeout 后强制停止 target/test package，写入 `failedTarget=instrumentation`、
+  `reason=instrumentation-timeout`。
+- EXIT trap 改为 fail-closed：脚本中断、timeout、未完整结束或无最终成功 marker 时，
+  不允许写成 `status=passed`。
+- `scripts/test_validation_scripts.sh` 新增 class filter、timeout、force-stop 和
+  report path 固定化的回归覆盖。
+
+验证命令：
+
+```bash
+bash -n scripts/install_and_test_device.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+ANDROID_SERIAL=fb6272c CLEAN_DEVICE=1 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest INSTRUMENTATION_TIMEOUT_SECONDS=180 ARTIFACT_DIR=build/verification/physical-device-smoke scripts/install_and_test_device.sh
+ANDROID_SERIAL=fb6272c CLEAN_DEVICE=1 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager INSTRUMENTATION_TIMEOUT_SECONDS=120 ARTIFACT_DIR=build/verification/physical-device-smoke-chat scripts/install_and_test_device.sh
+ANDROID_SERIAL=fb6272c CLEAN_DEVICE=1 INSTRUMENTATION_CLASS=com.bytedance.zgx.pocketmind.MainActivitySmokeTest#sessionManagerShowsSessionControls INSTRUMENTATION_TIMEOUT_SECONDS=120 ARTIFACT_DIR=build/verification/physical-device-smoke-session scripts/install_and_test_device.sh
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check`、validation script self-tests。
+- 通过：真机 `fb6272c` 上
+  `MainActivitySmokeTest#chatShellShowsModelManager` 通过，artifact：
+  `build/verification/physical-device-smoke-chat/device-verification.properties`，
+  SHA-256 `7d773dead695352ee5440806b2fd459235ccde687e4f9120b3590e8761f0b6fc`。
+- 失败并正确 fail-closed：真机全 `MainActivitySmokeTest` 卡在
+  `backgroundTaskManagerShowsEmptyState`，180s 后生成
+  `build/verification/physical-device-smoke/device-verification.properties`，
+  `failedTarget=instrumentation`、`reason=instrumentation-timeout`，
+  SHA-256 `956785fed9818e3f8e84569dc0091b597a855aca7949384704b8042ff59c4ad9`。
+- 失败并正确 fail-closed：重跑 session manager 单测时设备拒绝 ADB 安装，
+  `build/verification/physical-device-smoke-session/device-verification.properties`
+  记录 `failedTarget=install`、`reason=install-user-restricted`，
+  SHA-256 `51cd84b15c4ddfa38f6741533a9159f5d37a4f81d058fa99308172a1cd81d01d`。
+- 远程模型真机验证未执行：当前主包已被 clean uninstall，设备只剩
+  `com.bytedance.zgx.pocketmind.test`；需要用户在手机上允许 USB 安装后，才能通过
+  debug receiver 临时注入远程配置。远程 API key 不写入 repo、报告或 commit。
+
+## 2026-06-06 Release validation API nested evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 现在要求每个 API matrix evidence
+  report 具备真实 `regression-emulator.properties` 的关键字段：`exit_code=0`、
+  空 `failedTarget`/`reason`、start/finish 时间、source/expected/actual test count、
+  emulator serial、API level、ABI、AVD 和 instrumentation output。
+- instrumentation output 必须可读，最终 `OK (N tests)` 的 N 必须和
+  `actual_android_test_count` 一致。
+- per-API regression report 必须链接 nested `emulator-verification.properties` 和
+  `device-verification.properties`；nested reports 的 serial/API/ABI/AVD、
+  device report path、instrumentation output 和 test count 必须和 parent report 匹配。
+- `scripts/test_validation_scripts.sh` 的 approved validation fixture 改为每个 API
+  生成 parent regression report、nested emulator report、nested device report 和
+  instrumentation output。
+- 新增负例：形式上接近真实 regression report、但缺 nested reports 和
+  instrumentation output 的 API evidence 必须失败。
+- `docs/release_checklist.md` 同步该门禁口径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check`、validation script self-tests 和
+  `scripts/verify_local.sh`。
+- 预期失败：当前 release validation record 仍未 approved；失败原因继续保留真实未完成项：
+  真机、API 28/32/33/34、manual acceptance、flow matrix、performance sanity 和
+  reviewer/date。现有 API 36 nested evidence 满足本轮新门禁。
+- 未执行模拟器：本轮只加固 release validation 门禁脚本、测试 fixture 和文档；
+  没有重新跑 API matrix。
+
+## 2026-06-06 Release validation performance semantics hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 现在要求每个 performance evidence
+  verifier report 包含有效 `expectedArtifactSha256` 和非空 `expectedAppVersion`。
+- release validation 会读取 linked `baselineFile`，并确认 baseline 的
+  `baselineSha256`、`releaseArtifactSha256` / `appVersion` 与 verifier report 的
+  expected 字段匹配。
+- baseline 必须来自非 emulator 设备、`abi=arm64-v8a`、`oomOrAnrObserved=false`，
+  且 `recordedAt` 必须是 UTC、非未来、未超过 `maxRecordAgeDays`。
+- `scripts/verify_perf_baseline.sh` 现在会在 verifier report 中写入
+  `baselineSha256`；`scripts/collect_perf_baseline.sh` 调用 verifier 时会传入
+  `--app-version "$APP_VERSION"`。
+- `scripts/test_validation_scripts.sh` 的 approved validation fixture 改为绑定
+  baseline SHA、artifact SHA 和 app version，并新增 baseline file SHA mismatch
+  与 baseline artifact SHA mismatch 负例。
+- `docs/release_checklist.md` 同步该门禁口径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check`、validation script self-tests 和
+  `scripts/verify_local.sh`。
+- 预期失败：当前 release validation record 仍未 approved；失败原因继续保留真实未完成项：
+  真机、API 28/32/33/34、manual acceptance、flow matrix、performance sanity 和
+  reviewer/date。
+- 未执行真机：本轮只加固 release validation 门禁脚本、测试 fixture 和文档；
+  没有采集新的 perf baseline。
+
+## 2026-06-06 Release validation physical device report hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 现在要求 physical device report
+  具备 `exit_code=0`、空 `failedTarget`/`reason`、非空 start/finish 时间字段、
+  `data_free_kb` 不低于 3GB、`instrumentation=passed` 和足够的
+  `instrumentation_test_count`。
+- physical device report 必须链接可读的 `instrumentation_output_file`；该文件不得为空、
+  不得包含 instrumentation failure marker，并且必须包含最终 `OK` 成功标记。
+- `OK` 中的测试数必须和 `instrumentation_test_count` 一致；physical ABI report
+  必须包含 `arm64-v8a` 和 validation record 中声明的 ABI。
+- `debug_apk` / `android_test_apk` 必须匹配项目认可的 debug APK 路径。
+- `scripts/test_validation_scripts.sh` 的 approved validation fixture 改为更接近
+  `scripts/install_and_test_device.sh` 的 report 形态，并新增弱 physical report 和
+  instrumentation output count mismatch 负例。
+- `docs/release_checklist.md` 同步该门禁口径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check`、validation script self-tests 和
+  `scripts/verify_local.sh`。
+- 预期失败：当前 release validation record 仍未 approved；失败原因继续保留真实未完成项：
+  真机、API 28/32/33/34、manual acceptance、flow matrix、performance sanity 和
+  reviewer/date。
+- 未执行真机：本轮只加固 release validation 门禁脚本、测试 fixture 和文档；
+  仍按当前约束不连接真机。
+
+## 2026-06-06 Release validation screenshot report binding
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 现在会校验每张 screenshot 文件的
+  PNG signature，而不只检查文件存在和 SHA。
+- 每个 screenshot entry 必须链接 `release-screenshots.properties`，并通过
+  `reportSha256` 绑定报告文件。
+- screenshot report 必须是 `status=passed`、`target=release-screenshots`、
+  `clean_device=1`，并且报告里的 `screenshot.<name>.path`、`sha256`、
+  `sanitized` 必须和 JSON entry 匹配。
+- `scripts/test_validation_scripts.sh` 的 approved validation fixture 改为真实
+  PNG 签名和正式 screenshot report，并新增“文本冒充 PNG”负例。
+- `docs/release_validation_record.json` 的四张现有截图都绑定到当前
+  `build/verification/release-screenshots-current/release-screenshots.properties`。
+- `docs/release_checklist.md` 同步该门禁口径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check`、validation script self-tests 和
+  `scripts/verify_local.sh`。
+- 预期失败：当前 release validation record 仍未 approved；失败原因继续保留真实未完成项：
+  真机、API 28/32/33/34、manual acceptance、flow matrix、performance sanity 和
+  reviewer/date。没有截图 report 或 PNG 相关失败。
+- 未执行模拟器：本轮只加固 release validation 门禁脚本、测试 fixture 和文档；
+  没有重新采集截图。
+
+## 2026-06-06 Release validation performance key binding
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 现在要求每个 `performanceSanity`
+  evidence report 声明 `performanceKey`，并且必须和当前记录 key 匹配。
+- `scripts/test_validation_scripts.sh` 的 approved validation fixture 为每个
+  performance report 写入对应 `performanceKey`。
+- 新增负例：`modelLoad` 引用 `firstLaunch` 的 perf verifier report 时必须失败，
+  并记录 `performance-modelLoad-evidence-key-mismatch`。
+- `docs/release_checklist.md` 同步该门禁口径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check`、validation script self-tests 和
+  `scripts/verify_local.sh`。
+- 预期失败：当前 release validation record 仍未 approved；失败原因继续保留真实未完成项：
+  真机、API 28/32/33/34、manual acceptance、flow matrix、performance sanity 和
+  reviewer/date。
+- 未执行模拟器：本轮只加固 release validation 门禁脚本、测试 fixture 和文档，
+  不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Release validation flow evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 现在会校验 `flowMatrix`
+  evidence 文件本身，而不只拒绝 candidate-only 证据。
+- flow evidence 必须是正式 release flow 报告：`status=passed`、
+  `target=release-flow`、`flowKey` 匹配当前记录 key，并且
+  `releaseFlowPassed=true`。
+- candidate-only 或 `releaseFlowPassed=false` 仍会被拒绝；只有
+  `status=passed` / `flow=firstInstall` 的轻量文件也会被拒绝。
+- `scripts/test_validation_scripts.sh` 的 approved validation fixture 改为正式
+  release flow 报告，并新增弱证据负例。
+- `docs/release_checklist.md` 同步该门禁口径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check`、validation script self-tests 和
+  `scripts/verify_local.sh`。
+- 预期失败：当前 release validation record 仍未 approved；失败原因继续保留真实未完成项：
+  真机、API 28/32/33/34、manual acceptance、flow matrix、performance sanity 和
+  reviewer/date。
+- 未执行模拟器：本轮只加固 release validation 门禁脚本、测试 fixture 和文档，
+  不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Release validation manual evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 现在会校验 `manualAcceptance`
+  evidence 文件本身，而不只校验 evidence object、文件存在和 SHA。
+- manual evidence 必须是正式手工验收报告：`status=passed`、
+  `target=manual-acceptance`、`manualKey` 匹配当前记录 key，并且
+  `manualAcceptance=true`。
+- `scripts/test_validation_scripts.sh` 的 approved validation fixture 改为正式
+  manual acceptance 报告，并新增弱证据负例：只有 `status=passed` /
+  `manual=modelSetup` 的文件必须被拒绝。
+- `docs/release_checklist.md` 同步该门禁口径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check`、validation script self-tests 和
+  `scripts/verify_local.sh`。
+- 预期失败：当前 release validation record 仍未 approved；失败原因继续保留真实未完成项：
+  真机、API 28/32/33/34、manual acceptance、flow matrix、performance sanity 和
+  reviewer/date。
+- 未执行模拟器：本轮只加固 release validation 门禁脚本、测试 fixture 和文档，
+  不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Release validation performance evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 现在会校验 `performanceSanity`
+  evidence 文件本身，而不只校验 evidence object、文件存在和 SHA。
+- performance evidence 必须是 `scripts/verify_perf_baseline.sh` 产出的通过报告：
+  `status=passed`、`target=perf-baseline`、`missingFieldCount=0`，并且
+  `baselineFile` 非空且可读。
+- `scripts/test_validation_scripts.sh` 的 approved validation fixture 改为引用
+  perf baseline verifier report，并新增弱证据负例：只有 `status=passed` /
+  `performance=firstLaunch` 的文件必须被拒绝。
+- `docs/release_checklist.md` 同步该门禁口径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check` 和 validation script self-tests。
+- 预期失败：当前 release validation record 仍未 approved；performance sanity
+  仍是 pending，失败原因继续保留真实未完成项。
+- 未执行模拟器：本轮只加固 release validation 门禁脚本、测试 fixture 和文档，
+  不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Release validation API matrix evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 现在会校验每个 `apiMatrix`
+  evidence 文件本身，而不只相信 JSON 中的 `status=passed` 和 SHA。
+- API matrix evidence 必须是 nested per-API `regression-emulator.properties`：
+  `status=passed`、`target=regression-emulator`、`clean_device=1`、API level
+  匹配、`abi=arm64-v8a`、AVD 非空，且 `actual_android_test_count` 不低于
+  AndroidTest source count。
+- `scripts/test_validation_scripts.sh` 的 approved validation fixture 改为完整
+  per-API regression report 形态，并新增弱证据负例：只有 `status=passed` /
+  `api_level=28` 的文件必须被拒绝。
+- `docs/release_checklist.md` 同步该门禁口径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check` 和 validation script self-tests。
+- 预期失败：当前 release validation record 仍未 approved；API 36 evidence
+  已是完整 nested regression report，失败原因仍集中在未完成的真机、API 28/32/33/34、
+  manual acceptance、flow matrix、performance sanity 和 reviewer/date 项。
+- 未执行模拟器：本轮只加固 release validation 门禁脚本、测试 fixture 和文档，
+  不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Release validation API36 evidence refresh after image boundary
+
+本轮覆盖项：
+
+- `docs/release_validation_record.json` 的 `emulatorRegression` 和 API 36 evidence
+  从较早的 API 36 emulator report 更新到 post shared-image no-implicit-OCR boundary 的
+  API 36 matrix nested report。
+- `docs/release_readiness.md` 同步记录当前 API 36 release-candidate emulator
+  evidence 和 matrix evidence path。
+- 整体 release validation 仍保持 `pending_validation`；没有把 API 36 emulator
+  evidence 冒充为真机、API 28/32/33/34、manual acceptance、flow matrix、
+  performance sanity 或 reviewer approval。
+
+验证命令：
+
+```bash
+shasum -a 256 build/verification/regression-emulator-api36-no-implicit-image-ocr/api-36/regression-emulator.properties
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+```
+
+结果：
+
+- 通过：API 36 nested regression report SHA-256 为
+  `4811a6b53c3096ad5b441c807bc877f54aa7a384a991b0e14ed0d261ad9cd47b`，与
+  `docs/release_validation_record.json` 中的 `emulatorRegression.reportSha256` 和
+  API 36 `evidenceSha256` 一致。
+- 预期失败：当前 release validation record 仍未 approved；
+  `build/verification/release-validation-current.properties` 继续记录未完成的真机、
+  API 28/32/33/34、manual acceptance、flow matrix、performance sanity 和
+  reviewer/date 项。
+- 未执行模拟器：本轮只刷新已存在的通过证据引用；不新增 runtime 行为验证。
+
+## 2026-06-06 Release flow candidate evidence rejection
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 现在会拒绝把 flow candidate evidence
+  当成正式 passed flow evidence。
+- 若 flow evidence 文件包含 `target=release-flow-matrix-candidate-evidence`、
+  `candidateOnly=true` 或 `releaseFlowPassed=false`，release validation record 会失败；
+  这些文件只能作为 reviewer input，不能替代真实 release flow。
+- `scripts/test_validation_scripts.sh` 新增负例：approved validation fixture 中的
+  `firstInstall` 被替换成 candidate evidence 后，验证器必须报告
+  `flow-firstInstall-candidate-evidence-not-approved` 和
+  `flow-firstInstall-release-flow-not-passed`。
+- `docs/release_checklist.md` 同步该门禁口径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check` 和 validation script self-tests。
+- 预期失败：当前 `docs/release_validation_record.json` 仍未 approved；
+  `build/verification/release-validation-current.properties` 记录
+  `status=failed`，失败原因仍是未完成的真机、API 28/32/33/34、
+  manual acceptance、flow matrix、performance sanity 和 reviewer 字段。
+- 未执行模拟器：本轮只加固 release validation 门禁脚本、测试 fixture 和文档，
+  不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Shared image no implicit OCR boundary
+
+本轮覆盖项：
+
+- 分享/附件中的普通 `image/*` 在本地模型路径不再自动运行 OCR，也不打开图片 stream；
+  图片默认进入远程视觉模型输入，远程模型不支持视觉时直接提示不支持。
+- 保留显式、受确认保护的 OCR 工具能力，例如最近图片 OCR、截图 OCR 和 PDF 扫描页
+  OCR fallback；本次只移除 shared image 的隐式 OCR 兜底。
+- UI prompt、composer 摘要、远程 runtime require message、Capability Matrix、
+  privacy notice 和 phone acceptance 文档同步为“不自动 OCR / 不支持视觉”口径。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.stagedSharedImageWithoutOcrWarnsLocalModelThatVisualContentIsUnavailable' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt' --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest'
+git diff --check
+bash -n scripts/check_emulator_api_matrix.sh scripts/regression_emulator_api_matrix.sh scripts/test_validation_scripts.sh scripts/verify_local.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" scripts/check_emulator_api_matrix.sh --report build/verification/emulator-api-matrix-readiness-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" scripts/verify_local.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" EMULATOR_ARGS='-no-window -no-audio -no-boot-anim -no-snapshot-save' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/regression_emulator_api_matrix.sh --required-apis 36 --artifact-dir build/verification/regression-emulator-api36-no-implicit-image-ocr --report build/verification/regression-emulator-api36-no-implicit-image-ocr/regression-emulator-api-matrix.properties --readiness-report build/verification/regression-emulator-api36-no-implicit-image-ocr/emulator-api-matrix-readiness.properties
+```
+
+结果：
+
+- 通过：targeted JVM 回归、validation script self-tests、`git diff --check`、
+  脚本语法检查和 `scripts/verify_local.sh`。
+- 通过：API 36 emulator matrix 回归；
+  `build/verification/regression-emulator-api36-no-implicit-image-ocr/regression-emulator-api-matrix.properties`
+  记录 `status=passed`、`passedApis=36`、
+  `api36ReportSha256=4811a6b53c3096ad5b441c807bc877f54aa7a384a991b0e14ed0d261ad9cd47b`。
+- 通过：API 36 per-API 回归；
+  `build/verification/regression-emulator-api36-no-implicit-image-ocr/api-36/regression-emulator.properties`
+  记录 `status=passed`、`actual_android_test_count=28`、`api_level=36`、
+  `abi=arm64-v8a`、`avd=focus_agent_api36_arm64`。
+- 预期失败：完整 API matrix readiness 仍未就绪；
+  `build/verification/emulator-api-matrix-readiness-current.properties` 记录
+  `status=failed`、`failedTarget=api-matrix-readiness`、
+  `reason=missing-system-image-api-28,missing-avd-api-28,missing-system-image-api-32,missing-avd-api-32,missing-system-image-api-33,missing-avd-api-33,missing-system-image-api-34,missing-avd-api-34`。
+- 未执行：真机验收仍按当前约束跳过；本轮只在模拟器中验证。
+
+## 2026-06-06 Upgrade install emulator evidence
+
+本轮覆盖项：
+
+- 新增 `scripts/verify_upgrade_install_emulator.sh`，默认从最近一次 app 源码变更的前一个
+  commit 构建 base debug APK，也支持用 `UPGRADE_BASE_APK` / `UPGRADE_CURRENT_APK`
+  显式传入待验证 APK，再在 API 36 emulator 上执行 base install -> current
+  `adb install -r` -> current smoke AndroidTest。
+- report 记录 base/current APK SHA、base/current signer SHA-256、signer 是否一致、
+  install 原始输出文件、base/current package `firstInstallTime` / `lastUpdateTime`、
+  versionCode、当前 commit、base commit、AVD、API、ABI 和 instrumentation 结果。
+- 该 report 明确写入 `releaseFlowPassed=false`：当前只证明 debug APK 的升级安装
+  smoke path，不证明正式 release upgrade flow。`docs/release_validation_record.json`
+  的 `flowMatrix.upgradeInstall` 保持 pending。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_upgrade_install_emulator.sh scripts/verify_local.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" AVD_NAME=focus_agent_api36_arm64 ARTIFACT_DIR=build/verification/upgrade-install-emulator-current REPORT_FILE=build/verification/upgrade-install-emulator-current/upgrade-install-emulator.properties EMULATOR_ARGS='-no-window -no-audio -no-boot-anim -no-snapshot-save' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/verify_upgrade_install_emulator.sh
+ARTIFACT_DIR=build/verification/release-flow-matrix-current REPORT_FILE=build/verification/release-flow-matrix-current/release-flow-matrix-candidate-evidence.properties scripts/collect_release_flow_matrix_evidence.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+```
+
+结果：
+
+- 通过：真实 API 36 emulator upgrade install smoke；
+  `build/verification/upgrade-install-emulator-current/upgrade-install-emulator.properties`
+  记录 `status=passed`、`installMode=adb-install-r`、`releaseFlowPassed=false`、
+  `instrumentation=passed`、`instrumentation_test_count=4`。
+- 通过：upgrade smoke report 保留 `baseInstallOutputFile`、`currentInstallOutputFile`、
+  `testInstallOutputFile`、`baseSignerSha256`、`currentSignerSha256` 和
+  `signerSha256Matches`，便于后续替换为正式 signed release APK 时复核签名与安装输出。
+- 通过：package evidence 显示 `firstInstallTime` 保持 `2026-06-06 20:32:56`，
+  `lastUpdateTime` 从 `2026-06-06 20:32:56` 更新到 `2026-06-06 20:33:04`。
+- 未通过正式 flow：base/current debug APK 的 `versionCode` 都是 1，
+  report 同时保留纯数字 `baseVersionCode=1` / `currentVersionCode=1` 与 raw
+  dumpsys 行，`versionCodeIncreased=false`，且尚未验证 seeded
+  session/memory/reminder 保留或 `MY_PACKAGE_REPLACED` 后 reminder 重排。
+- 通过：validation script self-tests。
+- 预期失败：release validation record 仍未 approved；`flow-upgradeInstall-not-passed`
+  仍保留，避免把 debug smoke evidence 冒充为正式 release upgrade evidence。
+
+## 2026-06-06 Release flow matrix candidate evidence
+
+本轮覆盖项：
+
+- 新增 `scripts/collect_release_flow_matrix_evidence.sh`，基于已通过且
+  `clean_device=1` 的 API 36 `regression-emulator.properties` 生成 flow matrix
+  候选 evidence。
+- 候选 evidence 明确写入 `candidateOnly=true` 和 `releaseFlowPassed=false`；它只说明
+  当前自动化回归覆盖到哪些行为，不会把脚本、mock 或 UI 文案冒充成 release flow 通过。
+- collector 仍要求 `docs/release_validation_record.json` 里的 flowMatrix 项提供正式
+  `status=passed`、evidence path、SHA、owner 和日期；缺项时报告
+  `failedTarget=flow-matrix`。
+- `docs/release_validation_record.json` 的 flowMatrix 保持 pending，等待真实 release
+  flow、系统 picker、语音、MediaProjection 前台同意、重启提醒、升级安装和模型下载校验
+  证据补齐。
+
+验证命令：
+
+```bash
+bash -n scripts/collect_release_flow_matrix_evidence.sh scripts/test_validation_scripts.sh scripts/verify_local.sh
+ARTIFACT_DIR=build/verification/release-flow-matrix-current REPORT_FILE=build/verification/release-flow-matrix-current/release-flow-matrix-candidate-evidence.properties scripts/collect_release_flow_matrix_evidence.sh
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" AVD_NAME=focus_agent_api36_arm64 ARTIFACT_DIR=build/verification/regression-emulator-flow-candidate-current REGRESSION_REPORT_FILE=build/verification/regression-emulator-flow-candidate-current/regression-emulator.properties EMULATOR_ARGS='-no-window -no-audio -no-boot-anim -no-snapshot-save' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/regression_emulator.sh
+```
+
+结果：
+
+- 预期失败：当前 release validation record 的 flowMatrix 全部仍为 pending；
+  `build/verification/release-flow-matrix-current/release-flow-matrix-candidate-evidence.properties`
+  记录 `status=failed`、`failedTarget=flow-matrix` 和
+  `reason=missing-approved-release-evidence-...`。
+- 通过：collector 生成 8 个候选 evidence 文件，覆盖 first install、custom model URL、
+  remote config contract、encrypted API key clear、session persistence、memory controls、
+  Accessibility confirmation 和 MediaProjection cancellation confirmation 的自动化证据映射。
+- 通过：validation script self-tests，覆盖 collector pending 失败、完整 flowMatrix fixture
+  通过和 source regression SHA 不匹配失败。
+- 通过：`scripts/verify_local.sh`，覆盖 shell syntax、validation script self-tests、JVM
+  tests、lint、debug/release assemble、release bundle 和 Android artifact scan。
+- 通过：真实 API 36 emulator 回归；
+  `build/verification/regression-emulator-flow-candidate-current/regression-emulator.properties`
+  记录 `status=passed`、`actual_android_test_count=28`、`serial=emulator-5554`、
+  `api_level=36`、`avd=focus_agent_api36_arm64`。
+- 未更新 release validation record 为 passed；这些候选文件不能替代系统介入型流程和人工验收。
+
+## 2026-06-06 Release screenshot evidence capture
+
+本轮覆盖项：
+
+- 新增 `scripts/capture_release_screenshots.sh`，在模拟器上安装 debug 包，通过
+  UiAutomator 节点导航采集 `chat-home`、`model-manager`、`confirmation-sheet`、
+  `background-tasks-or-audit` 四张脱敏发布截图。
+- 截图脚本默认只接受 emulator serial；物理设备必须显式设置
+  `ALLOW_PHYSICAL_SCREENSHOTS=1`，避免误采个人设备内容。
+- Debug-only Activity extra 只在 debuggable build 中启用，用于截图 evidence 时配置
+  远程 ready 状态；它不保存 API key，正式包不会启用。
+- `docs/release_validation_record.json` 的 screenshots 字段已更新为本次 PNG path 和
+  SHA-256；没有把截图 evidence 冒充为物理真机、API 28/32/33/34、人工验收或性能通过。
+
+验证命令：
+
+```bash
+bash -n scripts/capture_release_screenshots.sh scripts/test_validation_scripts.sh scripts/verify_local.sh
+scripts/test_validation_scripts.sh
+./gradlew :app:assembleDebug
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" AVD_NAME=focus_agent_api36_arm64 ARTIFACT_DIR=build/verification/release-screenshots-current REPORT_FILE=build/verification/release-screenshots-current/release-screenshots.properties EMULATOR_ARGS='-no-window -no-audio -no-boot-anim -no-snapshot-save' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/capture_release_screenshots.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖截图脚本默认拒绝物理 serial、MainActivity
+  debug extra、四张截图 SHA 和脱敏标记。
+- 通过：真实 API 36 emulator 截图采集；
+  `build/verification/release-screenshots-current/release-screenshots.properties` 记录
+  `status=passed`、`serial=emulator-5554`、`api_level=36`、`clean_device=1`。
+- 通过：四张 PNG 已人工视觉检查，分别对应首页、模型管理、工具确认、后台任务页。
+- 通过：脚本结束后 `adb devices -l` 为空，没有遗留运行中的 emulator。
+- 通过：`scripts/verify_local.sh`，覆盖 shell syntax、validation script self-tests、JVM
+  tests、lint、debug/release assemble、release bundle 和 Android artifact scan。
+
+## 2026-06-06 Emulator API matrix regression runner
+
+本轮覆盖项：
+
+- 新增 `scripts/regression_emulator_api_matrix.sh`，先执行
+  `scripts/check_emulator_api_matrix.sh`，readiness 通过后再按 API 顺序运行
+  `scripts/regression_emulator.sh`。
+- 每个 API 生成独立 `api-<level>/regression-emulator.properties`，顶层生成
+  `regression-emulator-api-matrix.properties`，记录 `passedApis`、`failedApis`、
+  per-API AVD、report path 和 SHA-256。
+- runner 默认不允许已有 emulator 混入矩阵；每个 API 跑完后尝试关闭本轮选中的
+  emulator，避免后续 API 选择歧义。
+- runner 支持 `--artifact-dir`、`--report`、`--readiness-report`、`--required-apis`、
+  `--avd-root`、`--check-script`、`--regression-script`、`--allow-existing-emulators`
+  和 `--keep-emulators`；显式 `REPORT_FILE` 环境变量不会被 `--artifact-dir` 覆盖。
+- `scripts/test_validation_scripts.sh` 用 fake sdkmanager / fake AVD / fake regression
+  覆盖 matrix runner 全通过、显式 env report path 和单 API 回归失败路径。
+
+验证命令：
+
+```bash
+bash -n scripts/regression_emulator_api_matrix.sh scripts/check_emulator_api_matrix.sh scripts/test_validation_scripts.sh scripts/verify_local.sh
+scripts/test_validation_scripts.sh
+ARTIFACT_DIR=build/verification/regression-emulator-api-matrix-current REPORT_FILE=build/verification/regression-emulator-api-matrix-current/regression-emulator-api-matrix.properties scripts/regression_emulator_api_matrix.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" REQUIRED_APIS=36 ARTIFACT_DIR=build/verification/regression-emulator-api36-current REPORT_FILE=build/verification/regression-emulator-api36-current/regression-emulator-api-matrix.properties EMULATOR_ARGS='-no-window -no-audio -no-boot-anim -no-snapshot-save' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/regression_emulator_api_matrix.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" EMULATOR_ARGS='-no-window -no-audio -no-boot-anim -no-snapshot-save' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/regression_emulator_api_matrix.sh --required-apis 36 --artifact-dir build/verification/regression-emulator-api36-cli-current --report build/verification/regression-emulator-api36-cli-current/regression-emulator-api-matrix.properties --readiness-report build/verification/regression-emulator-api36-cli-current/emulator-api-matrix-readiness.properties
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 matrix runner success 和 API failure report。
+- 预期失败：完整默认矩阵在 readiness 阶段失败；
+  `build/verification/regression-emulator-api-matrix-current/regression-emulator-api-matrix.properties`
+  记录 `failedTarget=readiness`，原因是 API 28/32/33/34 system image 和 AVD 缺失。
+- 通过：真实 API 36 matrix runner CLI 回归；
+  `build/verification/regression-emulator-api36-cli-current/regression-emulator-api-matrix.properties`
+  记录 `status=passed`、`passedApis=36`，嵌套
+  `api-36/regression-emulator.properties` 记录 28 个 AndroidTest 全部通过，SHA-256 为
+  `ffeeed7942cf4fd13a1cd9a9ef1d1577ff96360a262cea7f6629896fd7151373`。
+- 通过：runner 结束后 `adb devices -l` 为空，没有遗留运行中的 emulator。
+
+## 2026-06-06 Emulator API matrix readiness reporting
+
+本轮覆盖项：
+
+- 新增 `scripts/check_emulator_api_matrix.sh`，只检查本机 SDK system image 和 AVD
+  是否覆盖 API 28/32/33/34/36 的 `google_apis` / `arm64-v8a` 组合。
+- 脚本不安装 SDK 包、不创建 AVD、不启动 emulator；失败时写
+  `emulator-api-matrix-readiness.properties`，包含 `failedTarget`、`reason`、
+  installed/available/missing API 列表。
+- readiness 脚本支持 `--report`、`--required-apis`、`--avd-root`、`--tag`、
+  `--abi` 和 `--sdkmanager` CLI 参数。
+- `scripts/test_validation_scripts.sh` 用 fake sdkmanager 和 fake AVD 覆盖 matrix
+  readiness passed、CLI report path，以及缺少 system image / AVD 的 failed report。
+- `scripts/verify_local.sh` 将新脚本纳入 shell syntax check。
+
+验证命令：
+
+```bash
+bash -n scripts/check_emulator_api_matrix.sh scripts/verify_local.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+REPORT_FILE=build/verification/emulator-api-matrix-readiness.properties scripts/check_emulator_api_matrix.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/check_emulator_api_matrix.sh --report build/verification/emulator-api-matrix-readiness-current.properties
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 API matrix readiness success 和 failure
+  report。
+- 预期失败：当前本机 readiness report 记录 `status=failed`、
+  `installedSystemImageApis=36`、`availableAvdApis=36`、
+  `missingSystemImageApis=28,32,33,34`、`missingAvdApis=28,32,33,34`。
+- 未安装 SDK 包：按 Android emulator testing 约束，本轮只记录缺口，不擅自下载
+  API 28/32/33/34 system image 或创建 AVD。
+
+## 2026-06-06 Release validation record emulator evidence refresh
+
+本轮覆盖项：
+
+- `docs/release_validation_record.json` 的 `emulatorRegression` 和 API 36 matrix evidence
+  更新到最新通过的模拟器回归：
+  `build/verification/regression-emulator-20260606-182722/regression-emulator.properties`。
+- 该 report 记录 `status=passed`、`actual_android_test_count=28`、API 36、
+  `arm64-v8a`、AVD `focus_agent_api36_arm64`，SHA-256 为
+  `9ec70151511c741701e9e53bb924e3671b990bd921273d7c11da6a3560fdfa51`。
+- 没有把 emulator evidence 冒充为物理真机、API 28/32/33/34、手工验收、
+  screenshot 或 performance sanity 通过；这些字段仍保持 pending。
+
+验证命令：
+
+```bash
+shasum -a 256 build/verification/regression-emulator-20260606-182722/regression-emulator.properties
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+```
+
+结果：
+
+- 通过：最新 API 36 emulator evidence 文件存在，SHA-256 与
+  `docs/release_validation_record.json` 一致。
+- 预期失败：`scripts/verify_release_validation_record.sh --report
+  build/verification/release-validation-current.properties` 仍返回 `status=failed`；
+  原因是 release validation record 尚未完成非模拟器物理设备、API 28/32/33/34、
+  manual acceptance、flow matrix、sanitized screenshots、performance sanity 和 reviewer
+  approval。
+
+## 2026-06-06 Model license metadata source candidate hardening
+
+本轮覆盖项：
+
+- `scripts/collect_model_license_metadata.sh` 新增 `REPORT_FILE` 输出，成功和失败都会记录
+  `target=model-license-metadata-collector`、`failedTarget`、`reason`、输入文件、API
+  base URL 和 model count。
+- metadata collector 从 Hugging Face API 的 `siblings` 中提取 license、notice、terms、
+  model-card、README 等候选来源，写入
+  `docs/model_license_metadata.json.licenseSourceCandidates`。
+- `scripts/test_validation_scripts.sh` 使用本地 fake Hugging Face API 覆盖成功采集、
+  source candidate 写入，以及缺少 review 文件时的机器可读失败报告。
+- 实际刷新了 `docs/model_license_metadata.json`，四个推荐模型均记录了 pinned revision
+  下的 README 候选来源。
+- 当前 `docs/model_license_review.json` 仍为 `pending_manual_review` /
+  `not_approved`；候选来源只服务人工审核，不替代 legal/release approval。
+
+验证命令：
+
+```bash
+bash -n scripts/collect_model_license_metadata.sh scripts/verify_model_license_review.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+REPORT_FILE=build/verification/model-license-metadata-collector.properties scripts/collect_model_license_metadata.sh
+scripts/verify_model_license_review.sh --report build/verification/model-license-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-boot-anim -no-snapshot-save' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 collector success report、
+  `licenseSourceCandidates` 写入和 missing review failure report。
+- 通过：真实 Hugging Face metadata 刷新；
+  `build/verification/model-license-metadata-collector.properties` 记录
+  `status=passed`、`modelCount=4`。
+- 预期失败：`scripts/verify_model_license_review.sh --report
+  build/verification/model-license-current.properties` 返回
+  `status=failed`，原因是四个模型尚未完成人工审批、redistribution approval、具体
+  license source、reviewer、evidence 和 review date。
+- 通过：`scripts/verify_local.sh`。
+- 通过：真实模拟器回归 `focus_agent_api36_arm64` / `emulator-5554`，API 36，
+  `arm64-v8a`，28 个 AndroidTest 全部通过；
+  `build/verification/regression-emulator-20260606-182722/regression-emulator.properties`
+  记录 `status=passed`、`failedTarget=`、`reason=`，SHA-256 为
+  `9ec70151511c741701e9e53bb924e3671b990bd921273d7c11da6a3560fdfa51`。
+
+## 2026-06-06 Perf baseline collector failure reason hardening
+
+本轮覆盖项：
+
+- `scripts/collect_perf_baseline.sh` 失败时会把 `OUT_FILE` 写成
+  `status=failed` 的 `perf-baseline-collector` 报告。
+- collector failed report 新增 `exit_code`、`failedTarget`、`reason`、
+  release artifact path/SHA、设备元数据、app/model/backend、verification report
+  和 verification reason。
+- 缺少必填环境变量、release artifact 不存在、ADB 无法读取且未手动提供设备元数据、
+  以及 `verify_perf_baseline.sh` 拒绝采集结果时，都会写机器可读失败原因。
+- 成功路径仍只记录真实输入的测量值，不发明 timing；失败路径不会写成可发布 baseline。
+- `scripts/test_validation_scripts.sh` 覆盖 missing env、missing artifact、emulator
+  serial 被 verifier 拒绝，以及成功采集路径。
+- `docs/release_checklist.md` 同步 collector failed report 字段要求。
+
+验证命令：
+
+```bash
+bash -n scripts/collect_perf_baseline.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 perf collector failedTarget / reason 和
+  verificationReason 汇总。
+- 通过：`scripts/verify_local.sh`。
+- 未记录正式 RC perf baseline：当前未连接目标物理设备，也没有生产签名 release
+  artifact；不能用模拟器或手填假数据替代。
+
+## 2026-06-06 Release signing failure reason hardening
+
+本轮覆盖项：
+
+- `scripts/sign_release_artifacts.sh` 现在通过统一 report trap 为成功和失败都生成
+  `release-signing` report。
+- signing report 新增 `exit_code`、`failedTarget`、`reason`、`allowDebugKeystore`、
+  unsigned/signed artifact path、artifact scan report/status/reason，以及已生成产物 SHA。
+- 缺少签名环境变量、debug keystore、缺少 production cert pin、缺少 unsigned AAB、
+  工具缺失、签名/验证失败、artifact scan 失败都会写机器可读失败原因。
+- report 不记录 keystore password、key password 或私钥材料。
+- `scripts/test_validation_scripts.sh` 覆盖 signing 早失败路径的 failedTarget/reason。
+- `docs/release_checklist.md` 同步 signing failed report 字段要求。
+
+验证命令：
+
+```bash
+bash -n scripts/sign_release_artifacts.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 release signing missing env、debug
+  keystore、missing production cert pin、missing unsigned AAB 的失败报告。
+- 通过：`scripts/verify_local.sh`。
+- 未执行 production signing：当前没有外部 production keystore 和
+  `EXPECTED_SIGNING_CERT_SHA256`。
+
+## 2026-06-06 Live remote emulator failure reason hardening
+
+本轮覆盖项：
+
+- `scripts/live_remote_emulator.sh` 的 report 新增 `failedTarget`、`reason`、
+  `evidence_dir`、`screenshot`、`ui_dump` 和 `logcat_file`。
+- 缺少 `POCKETMIND_LIVE_REMOTE_BASE_URL` / model / API key、非 emulator serial、
+  assemble/install/config broadcast、UI 输入、远端请求失败、预期文本缺失等路径会写入
+  机器可读失败原因。
+- 失败且已选中 emulator 时，会尽量捕获截图、UI dump 和短 logcat。
+- `scripts/test_validation_scripts.sh` 覆盖缺配置、非 emulator serial、成功 redaction、
+  expected text missing，并确认失败 report 不落盘 API key。
+- `docs/release_checklist.md` 同步 live remote report 失败字段和证据路径要求。
+
+验证命令：
+
+```bash
+bash -n scripts/live_remote_emulator.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 live remote failedTarget / reason、
+  screenshot / UI dump / logcat evidence path，以及 API key redaction。
+- 通过：`scripts/verify_local.sh`。
+- 未执行真实 live remote 模型请求：当前没有临时注入
+  `POCKETMIND_LIVE_REMOTE_BASE_URL`、`POCKETMIND_LIVE_REMOTE_MODEL` 和
+  `POCKETMIND_LIVE_REMOTE_API_KEY`。
+
+## 2026-06-06 Emulator failure evidence contract hardening
+
+本轮覆盖项：
+
+- `scripts/install_and_test_device.sh` 的 device report 新增机器可读 `failedTarget`
+  和 `reason`，覆盖 device selection、ABI、data free space、install 和
+  instrumentation 失败。
+- `scripts/verify_emulator.sh` 的 emulator report 新增 `failedTarget`、`reason`、
+  `evidence_dir`、`screenshot_file`、`window_dump_file`、`logcat_file`，并把 nested
+  device report reason 汇总为 emulator 失败原因。
+- `scripts/regression_emulator.sh` 的权威 regression report 新增 `failedTarget`
+  和 `reason`，覆盖 emulator helper 失败、expected test count 配置错误、
+  instrumentation count 缺失或不足。
+- `scripts/test_validation_scripts.sh` 锁住 device / emulator / regression failed
+  reports 的 reason、failedTarget 和 failure screenshot evidence。
+- `docs/release_checklist.md` 同步设备/模拟器验证报告失败字段要求。
+
+验证命令：
+
+```bash
+bash -n scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/regression_emulator.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" AVD_NAME=focus_agent_api36_arm64 EMULATOR_ARGS='-no-window -no-audio -no-boot-anim -no-snapshot-save' EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=300 scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 device / emulator / regression failed
+  report reason 和 evidence path。
+- 通过：`scripts/verify_local.sh`。
+- 通过：真实模拟器回归 `focus_agent_api36_arm64` / `emulator-5554`，API 36，
+  `arm64-v8a`，28 个 AndroidTest 全部通过；
+  `build/verification/regression-emulator-20260606-175158/regression-emulator.properties`
+  记录 `status=passed`、`failedTarget=`、`reason=`，SHA-256 为
+  `abeaf2f2fc8c108da77d9fbb541bc44be29a1aa739ed985a8eab310e613d1509`。
+
+## 2026-06-06 Privacy scan failure reason hardening
+
+本轮覆盖项：
+
+- `scripts/privacy_scan.sh` 在 failed report 中新增机器可读 `reason` 字段，发现高置信
+  secret 模式时写入 `secret-pattern-detected`。
+- `scripts/verify_release_gate.sh` 可以把 privacy scan 子报告的 `reason` 提升到
+  `release-gate.properties.failedReason`，并支持追加临时 scan target 以验证失败路径，不替换默认扫描范围。
+- 追加 scan target 只接受路径；option-like 输入会 fail-closed，避免影响 child report
+  输出位置。
+- `scripts/test_validation_scripts.sh` 覆盖直接 privacy scan 失败，以及 release gate
+  privacy-scan failedTarget / failedReason 汇总，以及无效追加 scan target；测试 secret
+  放在临时目录，避免污染仓库工作区。
+- `docs/release_checklist.md` 同步 privacy scan failed report 必须提供 reason。
+
+验证命令：
+
+```bash
+bash -n scripts/privacy_scan.sh scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 privacy scan failure reason 和 release gate
+  privacy-scan failedReason 汇总。
+- 通过：`scripts/verify_local.sh`。
+- 未执行模拟器：本轮只加固 privacy/release gate 报告和测试 fixture，不改变 APK runtime
+  或 UI 行为。
+
+## 2026-06-06 Android artifact scan failure reason hardening
+
+本轮覆盖项：
+
+- `scripts/scan_android_artifacts.sh` 在 failed report 中新增机器可读 `reason` 字段，
+  汇总 missing artifact、不可读 zip、manifest 结构缺失、禁止打包文件、敏感字符串、
+  signing status、debug certificate 和证书 SHA mismatch 等失败原因。
+- `scripts/verify_release_gate.sh` 可以把 artifact scan 子报告的 `reason` 提升到
+  `release-gate.properties.failedReason`。
+- `scripts/test_validation_scripts.sh` 覆盖 bundled model、bad AAB、unsigned artifact、
+  debug certificate、certificate mismatch，以及 release gate artifact scan failedReason。
+- `docs/release_checklist.md` 同步 artifact scan failed report 必须提供 reason list。
+
+验证命令：
+
+```bash
+bash -n scripts/scan_android_artifacts.sh scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 Android artifact scan failure reason 和 release
+  gate artifact failedReason 汇总。
+- 通过：`scripts/verify_local.sh`。
+- 未执行模拟器：本轮只加固 artifact/release gate 报告和测试 fixture，不改变 APK runtime
+  或 UI 行为。
+
+## 2026-06-06 Perf baseline failure reason hardening
+
+本轮覆盖项：
+
+- `scripts/verify_perf_baseline.sh` 在 failed report 中新增机器可读 `reason` 字段，
+  记录缺失字段、emulator 设备、ABI、artifact SHA、app version、数值、时间戳等失败原因。
+- `scripts/verify_release_gate.sh` 可以把 perf baseline 子报告的 `reason` 提升到
+  `release-gate.properties.failedReason`。
+- `scripts/test_validation_scripts.sh` 覆盖 incomplete perf、artifact SHA mismatch、
+  emulator serial，以及 release gate 中 perf 子门禁失败摘要。
+- `docs/release_checklist.md` 同步 perf baseline failed report 必须提供 reason list。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_perf_baseline.sh scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 perf baseline failure reason 和 release gate
+  perf failedReason 汇总。
+- 通过：`scripts/verify_local.sh`。
+- 未执行模拟器：本轮只加固 perf/release gate 报告和测试 fixture，不改变 APK runtime
+  或 UI 行为。
+
+## 2026-06-06 Release gate failure summary hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_gate.sh` 的 `release-gate.properties` 新增 `failedTarget` 和
+  `failedReason` 字段，失败时指向具体失败子门禁和原因。
+- privacy scan、contract tests、artifact scan、perf baseline、mapping、release record、
+  store policy、operations、validation、model license、privacy review 的失败路径统一走
+  `fail_gate`，避免 `set -e` 直接退出而缺少总 gate 失败摘要。
+- 保留所有子报告文件作为权威细节；总报告只做定位索引。
+- `scripts/test_validation_scripts.sh` 覆盖 missing perf、signing cert、privacy/model
+  review、artifact scan、release record、mapping、store policy、operations、validation
+  等失败目标。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 release gate 失败摘要字段。
+- 通过：`scripts/verify_local.sh`，覆盖 shell syntax、validation script self-tests、JVM
+  tests、lint、debug/release assemble、release bundle 和 Android artifact scan。
+- 未执行模拟器：本轮只加固 release gate 报告和测试 fixture，不改变 APK runtime 或 UI
+  行为。
+
+## 2026-06-06 Release blocker evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_record.sh` 要求每个 resolved/accepted blocker 都提供存在的
+  `evidencePath`，并匹配 `evidenceSha256`。
+- `docs/release_record.json` pending 模板为 privacy review、model license review 和
+  production signing blocker 新增 evidence path / sha 字段；状态仍保持
+  `pending_release_record`，不替代真实 release owner 决策。
+- `scripts/test_validation_scripts.sh` 增加 blocker evidence 正例和 blocker evidence SHA
+  mismatch 负例。
+- `docs/release_checklist.md` 同步 release blocker decision evidence 必须绑定 SHA 的门禁要求。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_release_record.sh --report build/verification/release-record-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 approved blocker evidence 正例和 blocker
+  evidence SHA mismatch 负例。
+- 当前 `docs/release_record.json` 仍按预期未通过；真实剩余项仍是 release owner/reviewer、
+  release artifact、verification reports、blocker decision 和对应 blocker evidence。
+- 未执行模拟器：本轮只加固 release record 脚本、测试 fixture 和文档，不改变 APK
+  runtime 或 UI 行为。
+
+## 2026-06-06 Store policy review evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_store_policy_record.sh` 要求 approved store policy review
+  提供存在的 `review.evidencePath`，并匹配 `review.evidenceSha256`。
+- `docs/store_policy_record.json` pending 模板新增 review evidence path / sha 字段；
+  状态仍保持 `pending_policy_review`，不替代真实商店政策审批。
+- `scripts/test_validation_scripts.sh` 增加 store policy review evidence 正例和 review
+  evidence SHA mismatch 负例。
+- `docs/release_checklist.md` 同步 store policy review evidence path 必须绑定 SHA
+  的门禁要求。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_store_policy_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_store_policy_record.sh --report build/verification/store-policy-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 approved review evidence 正例和 review
+  evidence SHA mismatch 负例。
+- 当前 `docs/store_policy_record.json` 仍按预期未通过；真实剩余项仍是非占位联系邮箱、
+  非占位 privacy policy URL、reviewer、review date 和对应 review evidence。
+- 未执行模拟器：本轮只加固 store policy review 脚本、测试 fixture 和文档，不改变
+  APK runtime 或 UI 行为。
+
+## 2026-06-06 Model license review evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_model_license_review.sh` 要求每个 approved model license review
+  都提供存在的 `reviewEvidencePath`，并匹配 `reviewEvidenceSha256`。
+- `docs/model_license_review.json` pending 模板新增每个模型的 review evidence path /
+  sha 字段；状态仍保持 `pending_manual_review`，不替代真实 license 审批。
+- `scripts/test_validation_scripts.sh` 增加模型 license review evidence 正例和
+  review evidence SHA mismatch 负例。
+- `docs/release_checklist.md` 同步模型 license approval evidence path 必须绑定 SHA
+  的门禁要求。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_model_license_review.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_model_license_review.sh --report build/verification/model-license-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 approved review evidence 正例和 review
+  evidence SHA mismatch 负例。
+- 当前 `docs/model_license_review.json` 仍按预期未通过；真实剩余项仍是每个模型的
+  license source、redistribution/attribution 决策、reviewer、review date 和对应
+  review evidence。
+- 未执行模拟器：本轮只加固 model license review 脚本、测试 fixture 和文档，不改变
+  APK runtime 或 UI 行为。
+
+## 2026-06-06 Privacy review evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_privacy_review.sh` 要求 release/security/legal 三方审批记录必须是
+  version 1，且每个 approved role 都提供存在的 evidence file 和匹配 SHA-256。
+- `docs/privacy_review.json` pending 模板新增每个 role 的 `evidencePath` /
+  `evidenceSha256` 字段；状态仍保持 `pending_manual_review`，不替代真实审批。
+- `scripts/test_validation_scripts.sh` 增加三方 privacy review evidence 正例和 release
+  evidence SHA mismatch 负例。
+- `docs/release_checklist.md` 同步隐私 review evidence path 必须绑定 SHA 的门禁要求。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_privacy_review.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_privacy_review.sh --report build/verification/privacy-review-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 approved evidence 正例和 evidence SHA
+  mismatch 负例。
+- 当前 `docs/privacy_review.json` 仍按预期未通过；真实剩余项仍是 release/security/legal
+  owner 审批、reviewer、review date 和对应 evidence。
+- 未执行模拟器：本轮只加固 privacy review 脚本、测试 fixture 和文档，不改变 APK
+  runtime 或 UI 行为。
+
+## 2026-06-06 Release validation evidence SHA hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 要求 release validation 中的 emulator
+  regression report、physical device report、API matrix evidence、manual/flow/perf
+  evidence 和 sanitized screenshots 都提供匹配 SHA-256。
+- `docs/release_validation_record.json` 将已真实存在的 API 36 emulator regression
+  证据绑定到当前 `regression-emulator.properties` SHA；pending 项仍保持空证据并继续阻塞
+  release。
+- `scripts/test_validation_scripts.sh` 的 approved validation fixture 自动注入 evidence
+  SHA，并新增 report、API、manual evidence、screenshot SHA mismatch 负例。
+- `docs/release_checklist.md` 同步 validation evidence path 必须绑定 SHA 的门禁要求。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 approved SHA-bound evidence 正例，以及
+  emulator report、API evidence、manual evidence、screenshot SHA mismatch 负例。
+- 通过：`AgentCoreDocumentationTest` targeted JVM test。
+- 通过：`scripts/verify_local.sh`，覆盖 shell syntax、validation script self-tests、JVM
+  tests、lint、debug/release assemble、release bundle 和 Android artifact scan。
+- 当前 `docs/release_validation_record.json` 仍按预期未通过；真实剩余项仍是未完成的
+  physical device、API 28/32/33/34、manual/flow/perf、截图和 review。
+- 未执行模拟器：本轮只加固 release validation 脚本、测试 fixture 和文档，不改变 APK
+  runtime 或 UI 行为。
+
+## 2026-06-06 Release operations evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_operations_record.sh` 要求 monitoring setup、crash/ANR smoke
+  和 rollback plan 都提供存在的 evidence file，并匹配 SHA-256。
+- `docs/release_operations_record.json` 模板新增三处 evidence path / sha256 字段，状态仍保持
+  `pending_operations_review`。
+- `scripts/test_validation_scripts.sh` 增加 operations evidence 正例和 crash/ANR smoke SHA
+  mismatch 负例。
+- `docs/release_checklist.md` 同步该门禁要求。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_operations_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_release_operations_record.sh --report build/verification/release-operations-current.properties
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 operations evidence 文件正例和 SHA mismatch 负例。
+- 当前 `docs/release_operations_record.json` 仍按预期未通过；失败原因包含
+  monitoring/crash-anr-smoke/rollback evidence path 缺失，以及真实待补的 owner、watcher、
+  crash/ANR smoke、rollback、previous known-good 和 reviewer/date。
+- 未执行模拟器：本轮只加固 release operations 脚本、测试 fixture 和文档，不改变 APK
+  runtime 或 UI 行为。
+
+## 2026-06-06 Model license source specificity hardening
+
+本轮覆盖项：
+
+- `scripts/verify_model_license_review.sh` 不再接受 Hugging Face repository root
+  作为 approved review 的 license source。
+- Hugging Face license source 必须指向同一 manifest repository 下的具体文件 URL，
+  例如 `blob`、`raw` 或 `resolve` 路径中的 README、LICENSE、NOTICE、terms 或 model card。
+- `scripts/test_validation_scripts.sh` 将 approved fixture 改为具体 README blob URL，并新增
+  repository root 失败用例。
+- `docs/release_checklist.md` 同步该门禁要求。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_model_license_review.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_model_license_review.sh --report build/verification/model-license-current.properties
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖具体 Hugging Face source 正例、错误 repository
+  负例和 repository root 负例。
+- 当前 `docs/model_license_review.json` 仍按预期未通过；失败原因包含每个 pending 模型的
+  `license-source-not-concrete`，仍需人工补具体 license/model-card source、license name、
+  redistribution decision、attribution notice、reviewer 和 review date。
+- 未执行模拟器：本轮只加固 model license review 脚本、测试 fixture 和文档，不改变 APK
+  runtime 或 UI 行为。
+
+## 2026-06-06 Release validation manual evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 不再接受 manual acceptance、flow matrix
+  或 performance sanity 中的裸字符串 `passed`。
+- 这些项目现在必须是结构化 evidence record：`status=passed`、非空 evidence、
+  存在的 `evidencePath`、owner、非未来日期。
+- `scripts/test_validation_scripts.sh` 升级 approved fixture，并增加裸 `passed` 失败用例。
+- `docs/release_checklist.md` 同步该门禁口径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 structured evidence 正例和裸 `passed` 负例。
+- 当前 `docs/release_validation_record.json` 仍按预期未通过；真实剩余项仍是未完成的
+  physical device、API 28/32/33/34、manual/flow/perf、截图和 review。
+- 未执行模拟器：本轮只加固 release validation 脚本、测试 fixture 和文档，不改变 APK
+  runtime 或 UI 行为。
+
+## 2026-06-06 Release validation emulator evidence refresh
+
+本轮覆盖项：
+
+- `docs/release_readiness.md` 的 current emulator regression 证据从旧的 26 tests
+  记录更新为最新 28/28 AndroidTest 记录。
+- `docs/release_validation_record.json` 只填入已真实通过的 API 36 emulator regression
+  证据；整体状态继续保持 `pending_validation`，不替代真机、API matrix、manual
+  acceptance、截图或 perf 验收。
+
+验证命令：
+
+```bash
+scripts/verify_release_validation_record.sh --report build/verification/release-validation-current.properties
+```
+
+结果：
+
+- 当前 verifier 按预期未通过；失败原因不包含 emulator regression report mismatch，说明
+  `build/verification/regression-emulator-20260606-160247/regression-emulator.properties`
+  已被识别为有效 emulator 证据。
+- 剩余失败项仍为真实未完成的 release validation 门槛：非 emulator 真机、API 28/32/33/34
+  matrix、manual acceptance、flow matrix、净化截图、performance sanity 和 reviewer/date。
+
+## 2026-06-06 Store policy draft hardening
+
+本轮覆盖项：
+
+- `docs/store_policy_record.json` 从空壳补成可审核草案：同步当前 privacy notice SHA，
+  补 Store listing 草稿、Data safety 说明、模型下载说明、manifest 权限用途和特殊访问说明。
+- `scripts/verify_store_policy_record.sh` 新增占位联系邮箱/隐私 URL 拒绝，避免
+  `example.*` 或 `.invalid` 占位值被误审批为正式商店记录。
+- `scripts/test_validation_scripts.sh` 增加 store policy 占位值负测。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+scripts/verify_store_policy_record.sh --report build/verification/store-policy-current.properties
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 store policy 占位联系信息负测。
+- 通过：local verification，包含 JVM、lint、debug/release 构建、`bundleRelease` 和 APK/AAB scan。
+- 当前 `scripts/verify_store_policy_record.sh` 仍按预期未通过；失败原因收敛为
+  `status-not-approved`、占位 contact/privacy URL、reviewer/date 缺失，仍需真实商店联系信息、
+  外部隐私政策 URL 和人工 policy review。
+- 未执行模拟器：本轮只修改发布政策 JSON、验证脚本和文档，不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Chat message privacy DB default hardening
+
+本轮覆盖项：
+
+- `chat_messages.privacy` 的 Room schema 默认值从 `RemoteEligible` 收紧为
+  `LocalOnly`，让省略 privacy 的持久化写入在数据库边界 fail-closed。
+- 新增 `MIGRATION_11_12` 重建 `chat_messages` 表，仅修改默认值，不改变已有行显式
+  privacy；新增 instrumentation 回归覆盖 11→12 默认值变更和省略字段插入。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest'
+AVD_NAME=focus_agent_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=90 BOOT_TIMEOUT_SECONDS=300 \
+  EMULATOR_ARGS="-no-window -no-audio -no-boot-anim -no-snapshot-save" \
+  ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  scripts/regression_emulator.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+scripts/verify_privacy_review.sh --report build/verification/privacy-review-current.properties
+```
+
+结果：
+
+- 通过：debug Kotlin / AndroidTest Kotlin 编译。
+- 通过：targeted JVM 文档、记忆和工具隐私契约回归。
+- 通过：emulator regression，`focus_agent_api36_arm64` / API 36 / arm64-v8a / clean device。
+- 通过：28 个 AndroidTest，artifact:
+  `build/verification/regression-emulator-20260606-160247/regression-emulator.properties`。
+- 通过：local verification，包含 JVM、lint、debug/release 构建、`bundleRelease` 和 APK/AAB scan。
+- 隐私 notice SHA 已同步到 `docs/privacy_review.json`；public privacy review 仍保持
+  `pending_manual_review`，`scripts/verify_privacy_review.sh` 未通过的原因仅为
+  release/security/legal 决策、reviewer 和日期缺失，需要人工审批后才能通过公开发布门禁。
+
+## 2026-06-06 Legacy title LocalOnly migration boundary
+
+本轮覆盖项：
+
+- `LegacyPrefsMigrator` 在为旧 SharedPreferences 会话推导标题时，把 legacy message
+  显式转成 `LocalOnly`，避免无标题旧会话把分享文本、OCR 摘录或其他本地内容写进
+  session title。
+- 新增 instrumentation 回归：
+  `PocketMindDatabaseMigrationTest.legacyPrefsMigratorDerivesUntitledLegacyMessagesAsLocalOnlyTitle`，
+  断言旧私密用户消息导入后标题为 `本地内容`，且不包含原始 secret token。
+
+验证命令：
+
+```bash
+AVD_NAME=focus_agent_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=90 BOOT_TIMEOUT_SECONDS=300 \
+  EMULATOR_ARGS="-no-window -no-audio -no-boot-anim -no-snapshot-save" \
+  ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  scripts/regression_emulator.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：emulator regression，`focus_agent_api36_arm64` / API 36 / arm64-v8a / clean device。
+- 通过：27 个 AndroidTest，artifact:
+  `build/verification/regression-emulator-20260606-154829/regression-emulator.properties`。
+- 通过：local verification，包含 JVM、lint、debug/release 构建、`bundleRelease` 和 APK/AAB scan。
+
+## 2026-06-06 Public evidence remote-continuation boundary
+
+本轮覆盖项：
+
+- `AgentLoopRuntime` 只允许显式 `privacy=RemoteEligible` 且
+  `requiresLocalModel=false` 的公开证据结果进入远端续跑；缺失 metadata 不再 fail-open。
+- `web_search` 成功结果和 output schema 声明 `RemoteEligible` / `requiresLocalModel=false`。
+- Tool Registry 和 Agent Loop 增加合同测试，锁定公开证据结果的远端资格声明。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.publicEvidenceOutputSchemasRequireRemotePrivacyDeclaration' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.publicEvidenceContinuationRejectsResultMissingRemotePrivacyDeclaration' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.sequentialPublicEvidenceContinuationIncludesPriorEvidence'
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：targeted public evidence JVM contract tests。
+- 通过：local verification，包含 JVM、lint、debug/release 构建、`bundleRelease` 和 APK/AAB scan。
+- 通过：emulator regression 中的 remote `web_search` instrumentation path。
+
+## 2026-06-06 Conversation recall assistant-output boundary
+
+本轮覆盖项：
+
+- `MemoryRepository.rebuild()` 只从用户消息重建 `Conversation` 回忆，不再索引助手
+  消息；即使助手消息被标记为 `RemoteEligible`，也不会进入自动记忆召回池。
+- Capability Matrix 和 privacy notice 同步说明会话回忆只从用户消息重建，助手输出不作为
+  conversation recall。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest'
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：MemoryRepository JVM tests。
+- 通过：local verification，包含 JVM、lint、debug/release 构建、`bundleRelease` 和 APK/AAB scan。
+- 未执行模拟器：本轮只修改本地记忆索引边界和 JVM 回归测试，不改变 Android UI 或系统交互。
+
+## 2026-06-06 Dirty public release record hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_record.sh` 在 `PUBLIC_RELEASE_CONTEXT=1` 时默认拒绝脏 Git
+  工作区，避免正式 release record 绑定到含未提交或未跟踪改动的源码状态。
+- 新增 `ALLOW_DIRTY_RELEASE=1` 显式 override，仅用于非生产 dry-run/self-test，并写入
+  verifier report。
+- `scripts/test_validation_scripts.sh` 增加脏公开发布记录失败用例。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests。
+- 通过：local verification，包含 release record dirty-worktree gate 自测。
+- 未执行模拟器：本轮只加固 release record 脚本和文档，不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Remote privacy boundary hardening
+
+本轮覆盖项：
+
+- 新增 `SharedInput.toRemoteVisionPrompt()`，远端视觉图片请求的文字 prompt 只记录图片数量
+  和不支持提示，不包含附件文件名、MIME、大小、OCR 或非图片元数据；图片 bytes 仍作为
+  `ChatImageAttachment` 直接交给视觉模型。
+- 远端初始 Chat 发送前增加 fail-closed 边界：`AssistantRoute.Chat` 若带
+  `memoryHits`、`deviceContext`，或把远端 prompt 改写成非用户输入，会本地失败并把诊断
+  消息标为 `LocalOnly`，不调用 remote runtime。
+- 隐私 notice 和 capability matrix 同步说明远端视觉 prompt 不携带附件元数据。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeSendsSharedImageAttachmentToVisionRuntime' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteImageDraftWhenRemoteIsNotReadyDoesNotEnterLaterRemoteHistory' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeFailsClosedWhenRouteIncludesMemoryContext' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeFailsClosedWhenRouteRewritesPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeKeepsSemanticMemoryRuntimeButDoesNotSendMemoryContext'
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryQualityContractTest' \
+  --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest'
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：targeted shared-input / remote privacy JVM tests。
+- 通过：ViewModel、MemoryQualityContract、RemoteChatRuntime JVM tests。
+- 通过：local verification，包含 JVM、lint、debug/release 构建、`bundleRelease` 和 APK/AAB scan。
+- 未执行模拟器：本轮修改 ViewModel/multimodal privacy boundary 和 JVM 回归测试，不改变 Android UI 或系统交互。
+
+## 2026-06-06 Release artifact integrity hardening
+
+本轮覆盖项：
+
+- `scripts/scan_android_artifacts.sh` 现在拒绝不可读 zip、缺失 APK manifest、缺失 AAB
+  `BundleConfig.pb` 或 `base/manifest/AndroidManifest.xml` 的产物。
+- `scripts/verify_release_gate.sh` 只要启用 release record 校验，就把 gate 实际选择的
+  artifact path/type/sha 传给 `scripts/verify_release_record.sh`，不再只限制 public release。
+- `scripts/sign_release_artifacts.sh` 生产签名默认要求 unsigned AAB 存在，避免 APK-only
+  signing report 被误当成 Play candidate。
+
+验证命令：
+
+```bash
+bash -n scripts/scan_android_artifacts.sh scripts/verify_release_gate.sh scripts/sign_release_artifacts.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests。
+- 通过：local verification，真实 release APK/AAB 通过 artifact integrity scan。
+- 未执行模拟器：本轮只加固 release artifact/record/signing 脚本和文档，不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Release AAB gate hardening
+
+本轮覆盖项：
+
+- `scripts/verify_local.sh` 现在执行 `bundleRelease`，确认 release AAB 存在，并把
+  APK/AAB 一起交给 `scripts/scan_android_artifacts.sh` 扫描。
+- `scripts/verify_release_gate.sh` 在要求 signed AAB 时，默认校验
+  `app/build/outputs/bundle/release/app-release-signed.aab`，避免正式门禁误验未签名
+  `app-release.aab`。
+- `scripts/test_validation_scripts.sh` 增加本地 AAB 扫描契约和 signed AAB 默认路径负测。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_local.sh scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests。
+- 通过：local verification，包含 `bundleRelease` 和 APK/AAB artifact scan。
+- 未执行模拟器：本轮只加固 release/AAB 脚本和文档，不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Release record source commit hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_record.sh` 要求 `release.gitCommit` 等于当前 `HEAD`，不再接受
+  仅作为当前历史祖先的旧提交。
+- `scripts/test_validation_scripts.sh` 增加旧 commit release record 的失败用例。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：validation script self-tests。
+- 未执行模拟器：本轮只加固 release record 脚本和文档，不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 ModelHealth generation failure hardening
+
+本轮覆盖项：
+
+- 本地/远程生成失败 catch 分支会将 `modelHealth.state` 更新为 `LoadFailed`，并写入
+  `failureReason`，避免 UI 同时显示“生成失败”和“健康：已加载”。
+- 覆盖普通本地生成崩溃、本地工具续写崩溃、远程工具 parse failure 三条路径。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localGenerationFailureUpdatesModelHealth' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.clipboardSummaryShareLocalContinuationFailureFailsAgentRunWithoutSecondConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution'
+```
+
+结果：
+
+- 通过：targeted ViewModel ModelHealth JVM tests。
+- 未执行模拟器：本轮只修改 ViewModel 状态模型和 JVM 回归测试，不改变 Android UI 或系统交互。
+
+## 2026-06-06 Remote tool exposure allowlist hardening
+
+本轮覆盖项：
+
+- `ToolRegistryTest.remoteToolExposureRequiresExplicitReviewedAllowlist` 锁定远端公共证据工具
+  和远端模型规划工具的完整工具名清单。
+- 新增工具若要暴露给远程模型，必须显式修改 allowlist contract test；不能只靠
+  `isRemoteModelPlanningEligible()` 派生规则静默进入远端工具 snapshot。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.remoteToolExposureRequiresExplicitReviewedAllowlist' \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.publicEvidenceBatchEligibilityOnlyAllowsSafePublicReadOnlyTools'
+```
+
+结果：
+
+- 通过：targeted ToolRegistry JVM tests。
+- 未执行模拟器：本轮只新增工具暴露 contract test，不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Memory disabled task-state suppression
+
+本轮覆盖项：
+
+- `syncTaskStateMemories()` 受 `memoryEnabled` gate 控制；本地记忆关闭时会删除自动管理的
+  TaskState 记录，并跳过 scheduled/running background task 的自动写入。
+- `createInitialState()` 先读取 first-run memory 开关，再同步 TaskState，避免初始化阶段绕过
+  用户关闭记忆的选择。
+- `updateMemoryEnabled(false)` 会清空 UI 里的长期记忆和 memory hits，并防止 refresh/send
+  路径重新生成 TaskState 记忆。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.memoryDisabledDoesNotIndexScheduledTaskStateOnStartupRefreshOrSend' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.updateMemoryDisabledRemovesActiveTaskStateMemoryAndPreventsResync'
+```
+
+结果：
+
+- 通过：targeted ViewModel memory JVM tests。
+- 未执行模拟器：本轮只修改记忆开关和 JVM 回归测试，不改变 Android UI 或系统交互。
+
+## 2026-06-06 Remote image draft not-ready privacy hardening
+
+本轮覆盖项：
+
+- `sendPendingSharedInput()` 在模型或远程配置未就绪时，保存的 shared-input 用户消息强制标记
+  `LocalOnly`，即使原 draft 是带图片的 `RemoteEligible`。
+- 新增回归：远程视觉图片 draft 创建后，如果远程配置变为未就绪，发送失败留下的历史不会进入
+  后续远程请求。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteImageDraftWhenRemoteIsNotReadyDoesNotEnterLaterRemoteHistory'
+```
+
+结果：
+
+- 通过：targeted ViewModel JVM test。
+- 未执行模拟器：本轮只修改 ViewModel 未就绪分支和 JVM 回归测试，不改变 Android UI
+  控件或平台交互。
+
+## 2026-06-06 Release validation API evidence hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 要求 `apiMatrix` 中 API 28、32、33、
+  34、36 每一行除了 `status=passed` 和非空描述外，还必须提供存在的
+  `evidencePath` 文件。
+- `docs/release_validation_record.json` 模板同步新增每个 API 行的 `evidencePath`。
+- `scripts/test_validation_scripts.sh` 增加 approved record 的 API evidence 文件正例和
+  缺失 evidence file 的失败用例。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：validation script self-tests。
+- 未执行模拟器：本轮只加固 release validation 证据脚本和文档模板，不改变 APK runtime
+  或 UI 行为。
+
+## 2026-06-06 Capability test reference hardening
+
+本轮覆盖项：
+
+- `CapabilityMatrixDocumentationTest` 将 required test class 存在性校验从
+  product capabilities 扩展到 `CapabilityMatrix.allDescriptors()`，覆盖产品能力和
+  `ToolRegistry` 派生的全部工具能力。
+- 目的：能力矩阵中的 `requiredTests` 不能只是非空字符串；拼错、删除或漂移的测试类名会在
+  release gate 默认 contract tests 中失败。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest'
+```
+
+结果：
+
+- 通过：capability matrix contract JVM test。
+- 未执行模拟器：本轮只加固文档/代码 contract test，不改变 APK runtime 或 UI 行为。
+
+## 2026-06-06 Tool capability matrix materialization
+
+本轮覆盖项：
+
+- `docs/capability_matrix.json` 新增 `toolCapabilities`，按 `ToolRegistry` 当前顺序
+  逐项记录 26 个工具能力的 capabilityId、entrypoint、toolName、model capability、
+  privacy level、local-model requirement、remote eligibility、confirmation policy、
+  failure behavior、required tests 和 owner Agent。
+- `CapabilityMatrixDocumentationTest` 校验 `toolCapabilities` 与
+  `CapabilityMatrix.toolDescriptors(ToolRegistry())` 逐字段一致，防止 ToolRegistry
+  和机器可读能力矩阵漂移。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest'
+```
+
+结果：
+
+- 通过：capability matrix contract JVM test。
+- 未执行模拟器：本轮只修改能力矩阵 JSON 和 JVM 文档测试，不改变 Android runtime
+  或 UI 行为。
+
+## 2026-06-06 Product capability matrix mainline coverage
+
+本轮覆盖项：
+
+- `CapabilityMatrix.productDescriptors` 从 3 个能力扩展为覆盖产品主线的 10 个能力：
+  离线聊天、显式记忆、分享/文件文本输入、远程视觉图片输入、语音转写输入、受确认端侧工具、
+  可审计 trace/audit、模型管理、Run Data Receipt 和 release gate。
+- 新增 `UserProvided` capability privacy level，区分用户主动提供的文本/图片/语音转写与
+  public evidence 工具结果。
+- `CapabilityMatrixDocumentationTest` 从只校验 capability ID 扩展为逐字段校验
+  `docs/capability_matrix.json` 与代码 descriptor 一致，并校验每个 product capability
+  的 required test class 确实存在。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.docs.ModelManifestDocumentationTest'
+```
+
+结果：
+
+- 通过：capability matrix / agent core / model manifest contract JVM tests。
+- 未执行模拟器：本轮只修改 capability contract、JSON 文档和 JVM 文档测试；不改变
+  Android runtime 或 UI 行为。
+
+## 2026-06-06 Remote image input unsupported-vision boundary
+
+本轮覆盖项：
+
+- 远程模式只有在当前 remote profile 声明支持 vision input 时，才进入
+  `RemoteVision` 图片 byte 读取和 `ChatImageAttachment` 构造路径。
+- 远程模式且 vision 关闭时，分享/选择图片只生成受保护图片信号；不读取图片 bytes、
+  不生成 OCR、不创建可发送 draft，并给出本地 `LocalOnly` 不支持提示。
+- 远程模式下分享文本保持受保护信号，不读取或发送分享文本值。
+
+验证命令：
+
+```bash
+./gradlew testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
+  --tests 'com.bytedance.zgx.pocketmind.MainActivitySharedInputModeTest'
+
+ANDROID_HOME="$HOME/Library/Android/sdk" \
+ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+scripts/verify_local.sh
+
+ANDROID_HOME="$HOME/Library/Android/sdk" \
+ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+AVD_NAME=focus_agent_api36_arm64 \
+EMULATOR_ARGS='-no-window -no-audio -no-snapshot-save -no-boot-anim' \
+EMULATOR_SELECT_TIMEOUT_SECONDS=120 \
+BOOT_TIMEOUT_SECONDS=300 \
+scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：目标 JVM 回归，覆盖 `SharedInputTest`、`PocketMindViewModelTest` 和
+  `MainActivitySharedInputModeTest`。
+- 通过：`scripts/verify_local.sh`，包含 validation script 回归、JVM tests、lint、
+  debug/androidTest APK assembly、release assembly 和 APK 内容检查。
+- 通过：完整 emulator regression：
+  `build/verification/regression-emulator-20260606-140228/regression-emulator.properties`
+  为 `status=passed`、`exit_code=0`；nested
+  `emulator-verification.properties` 和 `device-verification.properties` 均
+  `status=passed`；`instrumentation=passed`，`actual_android_test_count=26`，
+  `source_android_test_count=26`。设备为 `focus_agent_api36_arm64` /
+  `emulator-5554`，API 36，`arm64-v8a`。
+
+## 2026-06-04 Agent privacy, public evidence, and emulator regression pass
+
+本轮覆盖项：
+
+- 本地模式普通聊天默认保存为 `LocalOnly`，后续切换远程模型时不会进入远程
+  history；远程发送前会再次过滤误标为 `RemoteEligible` 的敏感历史。
+- 工具 observation 隐私判定改为 fail-closed：未知/本地/缺失隐私结果默认
+  `LocalOnly`；只有注册表声明的 public evidence 工具和 runtime 内部
+  `public_evidence_batch` 聚合结果可远程续写。
+- Public evidence batch 支持部分成功继续综合，失败缺口进入 continuation prompt；
+  顺序 public evidence continuation 带上前序公开证据。
+- 外部 Activity 启动失败不再把异常 message 写入用户 summary；后台任务查询只返回
+  本地元数据，不暴露 reminder title/body。
+- 文档与脚本门禁同步最新 emulator regression 通过状态。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest
+./gradlew --no-daemon -Pkotlin.incremental=false :app:compileDebugAndroidTestKotlin
+bash -n scripts/*.sh && scripts/test_validation_scripts.sh && git diff --check
+scripts/doctor.sh
+scripts/verify_local.sh
+
+AVD_NAME=focus_agent_api36_arm64 \
+EMULATOR_ARGS='-no-window -no-audio -no-snapshot-save -no-boot-anim' \
+EMULATOR_SELECT_TIMEOUT_SECONDS=120 \
+BOOT_TIMEOUT_SECONDS=300 \
+scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：完整 JVM 单测 `:app:testDebugUnitTest`，892 tests。
+- 通过：`:app:compileDebugAndroidTestKotlin`。
+- 通过：shell 语法、validation script 回归、`git diff --check`。
+- 通过：`scripts/doctor.sh` 与 `scripts/verify_local.sh`，包含 debug/release 构建、
+  JVM 单测、lint、androidTest APK 和 release APK 产物检查。
+- 通过：完整 emulator regression：
+  `build/verification/regression-emulator-20260604-040806/regression-emulator.properties`
+  为 `status=passed`、`exit_code=0`；nested
+  `emulator-verification.properties` 和 `device-verification.properties` 均
+  `status=passed`；`instrumentation=passed`，`actual_android_test_count=26`，
+  `source_android_test_count=26`，`instrumentation.txt` 非空。设备为
+  `focus_agent_api36_arm64` / `emulator-5554`，API 36，`arm64-v8a`。
+- 通过：密钥扫描未命中用户提供的 DeepSeek endpoint/model/key；远程模型配置仍只走
+  现有安全配置入口。
+
+## 2026-06-04 Device gate final success marker and emulator failure status
+
+本轮覆盖项：
+
+- `MainActivityComprehensiveTest.createAndSwitchSessions` 不再等待过期的
+  `本地内容` 会话标题，改用测试内已发送的稳定远程提问标题
+  `用一句话介绍端侧 AI` 作为切回旧会话锚点，并继续验证切回后能看到
+  `记忆回答`。
+- `scripts/install_and_test_device.sh` 的 instrumentation 通过条件收紧为：
+  runner 退出码成功、没有 failure marker，且输出包含最终 `OK` / `OK (N tests)`
+  成功 marker。单独出现 `INSTRUMENTATION_STATUS: numtests=N` 不再算通过。
+- `scripts/test_validation_scripts.sh` 新增 malformed instrumentation 输出负例，覆盖
+  只有 `numtests`、缺少最终 `OK` 时 device helper 必须失败并写出 failed report。
+
+验证命令：
+
+```bash
+bash -n scripts/install_and_test_device.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+./gradlew --no-daemon -Pkotlin.incremental=false :app:compileDebugAndroidTestKotlin
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：fake SDK validation script 回归，包含新增的 `numtests` without final `OK`
+  负例。
+- 未通过/阻塞：`:app:compileDebugAndroidTestKotlin` 在 `:app:compileDebugKotlin`
+  阶段被当前工作区已有主代码编译错误阻塞：
+  `AgentLoopRuntime.kt` 调用中 `successfulPairs` 和 `gapPairs` 参数未解析。该文件不在
+  本轮写入范围内，本轮未修改业务实现。
+- 此前完整 emulator regression 尝试为失败状态，不能作为通过证据：
+  `build/verification/regression-emulator-20260604-033011/regression-emulator.properties`
+  为 `status=failed`、`exit_code=1`；嵌套 device report 为
+  `instrumentation=failed`、`instrumentation_test_count=26`。失败日志显示
+  `MainActivityComprehensiveTest.createAndSwitchSessions` 等待旧 `本地内容` 标题超时。
+  该轮未重跑完整 emulator regression，因此当时 release-candidate emulator gate
+  未通过；最新通过记录见上方 2026-06-04 04:08 artifact。
+
+## 2026-06-04 UI/docs worker acceptance wording
+
+本轮覆盖项：
+
+- 远程模型模式下，composer 附件 picker 显示与分享入口一致的本地保护提示，明确不会读取分享文本、附件元数据、文件流、文本摘录或 OCR 摘录，也不会自动发送。
+- 远程规划动作确认卡只优化 UI 展示：长摘要/长参数折叠并显示长度，链接先显示域名，`packageName` 显示为目标包；不改变 planner、executor、权限或安全策略。
+- README、Agent core 文档和 phone acceptance 收窄工具结果展示口径：聊天只显示安全摘要，结构化详情和 allowlisted completion metadata 在 trace/audit 查看，不声称已有 typed chat card。
+- phone acceptance、validation report 和 release checklist 明确区分自动回归与必须手工验收；语音输入、Android 系统文档选择器和 MediaProjection 前台同意不能用脚本或直接 reader/ViewModel 调用替代。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest
+./gradlew --no-daemon -Pkotlin.incremental=false :app:compileDebugKotlin
+git diff --check
+rg -n "远程模型模式下，选择附件只生成受保护信号|聊天中只应追加安全摘要|自动回归与必须手工验收的结论必须分开记录|Scripted regression and manual acceptance must be recorded separately|链接域名|目标包" README.md docs app/src/main/java/com/bytedance/zgx/pocketmind/ui/PocketMindScreen.kt app/src/test/java/com/bytedance/zgx/pocketmind -g '!**/build/**'
+rg -n "聊天中应追加一条结构化执行结果|Agent run trace, audit log, and chat session|typed chat card" README.md docs app/src/test/java/com/bytedance/zgx/pocketmind/docs/AgentCoreDocumentationTest.kt
+```
+
+结果：
+
+- 通过：`:app:compileDebugKotlin`。
+- 通过：`git diff --check`。
+- 通过：关键文案存在性扫描。旧工具结果口径只出现在本轮验证记录的扫描命令/说明和文档测试的否定断言中；`typed chat card` 只出现在 README 否定说明、本轮验证记录和文档测试断言中。
+- 未通过/阻塞：定向 JVM 测试第一次成功编译并执行目标测试集，但旧断言失败；修正断言后，重跑在 `compileDebugUnitTestKotlin` 阶段被当前工作区内 `PocketMindViewModelTest.kt` 的 `lastRouteDeviceContext` 相关未解析符号和 `SkillRunExecutorTest.kt` 的 `reminderCancelSkillPlan` 未解析符号阻塞。这两个文件不在本轮 UI/docs worker 写入范围内，本轮未修改。
+- 未执行：语音输入、Android 系统文档选择器和 MediaProjection 前台同意的手工验收；不能据此写成已手工通过。
+
+## 2026-06-04 Agent safety/runtime integration 验证
+
+本轮覆盖项：
+
+- Debug 远程配置 receiver 改为非导出，live remote emulator 脚本通过
+  debuggable app uid (`run-as`) 配置测试远程模型，不向源码、文档、报告或日志写入
+  API key。
+- 远程模型只接收 public-evidence eligible 工具目录；联系人、剪贴板、当前屏幕、
+  文件、日历、通知、外部动作等私密或副作用工具不暴露给远程工具规划。
+- `web_search` 对公开查询仍可无确认执行；疑似包含手机号、邮箱、地址、身份证、
+  工号、账号、密码、token、API key 或类似个人/密钥内容的查询会动态回到用户确认
+  路径，确认前不联网。
+- 工具执行统一进入 IO coroutine 边界，executor 异常或 timeout 转为 retryable
+  `ToolResult`；并发 public evidence 批次只重试失败且 retryable 的 request 一次，
+  已成功的 request 不重复执行。
+- 迟到的 external outcome 只能写回 `AwaitingExternalOutcome` run；已经
+  `Completed`、`Failed` 或 `Cancelled` 的 run 不会被旧回调复活。
+- Agent trace/audit 默认不持久化普通工具观察结果摘要或 result data；completion
+  metadata 仍只走 allowlist。
+- 工具输出 schema 中的 `*Json` payload 字段按当前 `ToolResult.data` string-map
+  合同声明为 JSON string，并标注 `contentMediaType=application/json`，不再把
+  字符串字段伪装成 array/object。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.safety.SafetyPolicyTest --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeOnlyExposesPublicEvidenceToolsToRemoteRuntime --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remotePublicEvidenceToolCallBatchRetriesOnlyRetryableFailures --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutesAndContinuesWithModel --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutorFailureIsObservedAsToolFailure --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.terminalRunRejectsLateExternalOutcomeConfirmation --tests com.bytedance.zgx.pocketmind.AndroidManifestTest --tests com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest --tests com.bytedance.zgx.pocketmind.device.ForegroundAppProviderTest --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest --tests com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest --tests com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest --tests com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest --tests com.bytedance.zgx.pocketmind.audit.ToolAuditRepositoryTest --tests com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest.roomStoreDoesNotPersistWebSearchObservationSummaryOrResultData
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest
+scripts/test_validation_scripts.sh
+bash -n scripts/live_remote_emulator.sh scripts/test_validation_scripts.sh
+git diff --check
+KEY_PREFIX='s''k' FORBIDDEN_REMOTE_MARKERS='e715''d561|deep''seek|api\.deep''seek' rg -n "\b${KEY_PREFIX}-[A-Za-z0-9_-]{16,}\b|${FORBIDDEN_REMOTE_MARKERS}" . --glob '!app/build/**' --glob '!build/**' --glob '!*.iml'
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest
+./gradlew --no-daemon -Pkotlin.incremental=false :app:compileDebugAndroidTestKotlin
+```
+
+结果：
+
+- 通过：targeted JVM safety/runtime/device/tool/audit/trace 回归。
+- 通过：`scripts/test_validation_scripts.sh` 和 shell syntax check。
+- 通过：`git diff --check`。
+- 通过：严格 API-key / DeepSeek 配置扫描无命中；仅源码中的任务状态前缀曾触发
+  宽松 `sk-` 模式误报，严格 key pattern 无命中。
+- 通过：完整 `:app:testDebugUnitTest`，834 tests completed。
+- 通过：`:app:compileDebugAndroidTestKotlin`。
+- 未执行：模拟器/真机回归；完整设备回归仍以
+  `scripts/regression_emulator.sh` 生成的 `regression-emulator.properties`
+  `status=passed` 为准。
+
+## 2026-06-04 Device permission boundary 增量验证
+
+本轮覆盖项：
+
+- AndroidManifest 显式声明 Android 14+
+  `READ_MEDIA_VISUAL_USER_SELECTED`，权限策略在 API 34+ 对最近图片、
+  截图、视频和 OCR 建模 selected visual media，与完整图片/视频权限互为可接受授权结果。
+- `AndroidRecentFileProvider` 和最近图片 OCR provider 允许
+  `READ_MEDIA_VISUAL_USER_SELECTED` 只查询用户选择的视觉媒体，并在工具结果中输出
+  `mediaAccessScope`，避免把部分照片访问误写成完整相册访问。
+- `query_recent_files` schema 不再暴露 `documents`、`downloads`、`others`
+  作为可直接执行 kind；Android 13+ 非媒体文件必须通过系统文件选择器或分享入口由用户主动提供。
+- `query_foreground_app` 成功结果输出 `source=usage_stats_estimate` 和
+  `confidence=estimate`，文档说明该结果是 UsageStats 估计，不是窗口管理器真值或屏幕内容。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest' --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' --tests 'com.bytedance.zgx.pocketmind.device.ForegroundAppProviderTest' --tests 'com.bytedance.zgx.pocketmind.device.RecentFileCollectorTest' --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' --tests 'com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest' --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest'
+./gradlew :app:testDebugUnitTest
+```
+
+结果：
+
+- 通过：targeted JVM permission/provider/schema/tool executor 回归。
+- 通过：完整 `:app:testDebugUnitTest`，831 tests completed。
+- 未执行：模拟器/真机回归；本轮只覆盖 JVM 权限边界和工具契约。
 
 ## 2026-06-03 Final code and documentation audit
 
@@ -6064,3 +9430,1749 @@ git diff --check
 - 通过：`AgentCoreDocumentationTest` 文档契约。
 - 通过：`git diff --check` whitespace 检查。
 - 通过：全量 `./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin`。
+
+## 2026-06-04 Remote model-first planning and typed web evidence
+
+本轮覆盖项：
+
+- 远程模型模式新增 `AgentRunOptions(initialPlanningMode=ModelFirstRemoteTools)`；
+  本地模式仍保持 `RuleFirst`。远程模式先执行 direct built-in Skill preflight，
+  保护本地确认/LocalOnly 工具路径；未被 direct Skill 命中的输入再由模型选择
+  safe planning tools。
+- 远程工具 schema 新增 `RemoteToolScope.ModelPlanning`：公开证据工具可无确认执行；
+  非私密、非 critical 的草稿/导航/分享/本地后台计划类工具只作为模型规划候选，
+  仍必须经过本地 registry、safety 和用户确认。LocalOnly 设备上下文工具不暴露给
+  远程 planning。
+- `web_search` 改成 typed evidence provider。`general` 不再因 query 含天气词自动走
+  Open-Meteo；只有 `weather_current` 进入天气 evidence path。`resultsJson` 使用
+  evidence schema v1，携带 `schemaVersion`、`searchMode`、`retrievedAt`、
+  `freshness`、`sources` 和 bounded `results`。
+- 新增 `ToolExecutionBoundary`，集中处理工具执行异常/timeout 映射和公开证据批次
+  retry，只重试 retryable 失败 request，不重复执行成功 request。
+
+验证命令：
+
+```bash
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeUsesModelFirstPlanningAndExposesSafePlanningToolsToRemoteRuntime'
+
+./gradlew --no-daemon -Pkotlin.incremental=false :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.tool.WebSearchProviderTest \
+  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest \
+  --tests com.bytedance.zgx.pocketmind.tool.ToolExecutionBoundaryTest
+
+scripts/doctor.sh && scripts/verify_local.sh
+
+AVD_NAME=focus_agent_api36_arm64 \
+EMULATOR_ARGS='-no-window -no-audio -no-snapshot-save -no-boot-anim' \
+EMULATOR_SELECT_TIMEOUT_SECONDS=120 \
+BOOT_TIMEOUT_SECONDS=300 \
+scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：Agent loop / orchestrator / ViewModel 远程模型优先规划 targeted 回归。
+- 通过：Web search typed evidence、Tool Registry、RoutingAndValidating executor、
+  ToolExecutionBoundary targeted 回归。
+- 通过：`scripts/doctor.sh && scripts/verify_local.sh`，包含本地环境检查、脚本校验、
+  debug/release 构建、JVM 单测和 lint。
+- 首次完整 emulator regression（`build/verification/regression-emulator-20260604-013007`）
+  暴露 7 个远程模式 UI timeout，根因是无条件 model-first 跳过了 direct local
+  Skill confirmations。修复为 direct Skill preflight 后重跑完整 regression。
+- 通过：`build/verification/regression-emulator-20260604-013940/regression-emulator.properties`
+  `status=passed`；nested emulator/device reports 均 `status=passed`，
+  `instrumentation=passed`，`actual_android_test_count=26`，且
+  `instrumentation.txt` 非空。
+
+## 2026-06-06 Release signing, AAB, and license evidence
+
+本轮覆盖项：
+
+- 新增 AAB release artifact 生成与扫描验证；`scan_android_artifacts.sh` 现在同时支持
+  APK/AAB，且 AAB 签名验证必须看到 `jar verified.`，不会再把 `jar is unsigned`
+  误判为通过。
+- 新增 `sign_release_artifacts.sh`，生产签名只接受外部注入的
+  `RELEASE_KEYSTORE`、`RELEASE_KEY_ALIAS`、`RELEASE_KEYSTORE_PASSWORD`、
+  `RELEASE_KEY_PASSWORD`，不在仓库内保存私钥或密码。
+- 新增 `collect_model_license_metadata.sh` 与
+  `docs/model_license_metadata.json`，记录 Hugging Face API 返回的 license tag、
+  card license、model sha、last modified 与 gated 状态；该文件只作为证据，
+  不替代 `docs/model_license_review.json` 的人工批准。
+- `verify_release_gate.sh` 在 public AAB 场景下不会把默认本地 unsigned APK 混入
+  signed AAB 扫描；当要求 `REQUIRE_AAB=1` 与
+  `REQUIRE_SIGNED_ARTIFACT=1` 时，最终分发 artifact 必须单独显式通过签名扫描。
+
+验证命令：
+
+```bash
+./gradlew :app:bundleRelease
+scripts/collect_model_license_metadata.sh
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+
+RELEASE_KEYSTORE="$HOME/.android/debug.keystore" \
+RELEASE_KEY_ALIAS=androiddebugkey \
+RELEASE_KEYSTORE_PASSWORD=android \
+RELEASE_KEY_PASSWORD=android \
+ALLOW_DEBUG_KEYSTORE=1 \
+SIGNED_APK=app/build/outputs/apk/release/app-release-local-signed-smoke.apk \
+SIGNED_AAB=app/build/outputs/bundle/release/app-release-local-signed-smoke.aab \
+REPORT_FILE=build/verification/signing-smoke/signing.properties \
+scripts/sign_release_artifacts.sh
+
+ARTIFACT_DIR=build/verification/release-gate-signed-smoke \
+PERF_BASELINE_FILE=build/verification/release-gate-signed-smoke/perf-baseline.properties \
+RELEASE_AAB=app/build/outputs/bundle/release/app-release-local-signed-smoke.aab \
+REQUIRE_AAB=1 \
+REQUIRE_SIGNED_ARTIFACT=1 \
+VERIFY_MODEL_LICENSES=0 \
+VERIFY_CONTRACT_TESTS=0 \
+scripts/verify_release_gate.sh
+```
+
+结果：
+
+- 通过：AAB 构建与 artifact scan；unsigned AAB 在 `--require-signed` 下会失败。
+- 通过：debug keystore signing smoke，证明 APK/AAB 签名脚本和证书指纹扫描链路可用；
+  该证书不是 production signing，不能作为正式发布签名。
+- 通过：signed AAB release gate smoke（关闭 license gate）；
+  `build/verification/release-gate-signed-smoke/release-gate.properties`
+  `status=passed`。
+- 通过：license 负向门禁；在 signed AAB、privacy scan、artifact scan 和 perf
+  baseline 都通过后，`VERIFY_MODEL_LICENSES=1` 的唯一失败原因是
+  `Model license review is incomplete.`。
+
+仍阻塞正式 RC：
+
+- 需要 release owner 提供 production keystore 并运行 `sign_release_artifacts.sh`。
+- 需要人工完成 `docs/model_license_review.json` 中所有模型的 license /
+  redistribution 批准。
+- 需要在固定真机上生成真实 `perf-baseline`，当前 signed gate smoke 只验证门禁链路，
+  不代表正式性能基线。
+
+## 2026-06-06 Debug-keystore release signing guard
+
+本轮覆盖项：
+
+- `sign_release_artifacts.sh` 默认拒绝 Android debug keystore 或 Android Debug
+  certificate，避免把本地 smoke 签名误当作 production signing。
+- `scan_android_artifacts.sh --require-signed` 默认拒绝 Android Debug
+  certificate；`--allow-debug-certificate` 只用于 smoke scan，因此 release gate
+  不会接受外部传入的 debug-signed APK/AAB。
+- 只有显式设置 `ALLOW_DEBUG_KEYSTORE=1` 时，debug keystore 才能用于本地 signing
+  smoke；生成的 signing report 会记录 `signingMode=debug-smoke`。
+- 通过 SDK adb 检查当前没有 attached device，因此真机安装、真机 instrumentation 和
+  真机 perf baseline 仍不能完成。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+
+RELEASE_KEYSTORE="$HOME/.android/debug.keystore" \
+RELEASE_KEY_ALIAS=androiddebugkey \
+RELEASE_KEYSTORE_PASSWORD=android \
+RELEASE_KEY_PASSWORD=android \
+ALLOW_DEBUG_KEYSTORE=1 \
+SIGNED_APK=app/build/outputs/apk/release/app-release-local-signed-smoke.apk \
+SIGNED_AAB=app/build/outputs/bundle/release/app-release-local-signed-smoke.aab \
+REPORT_FILE=build/verification/signing-smoke/signing.properties \
+scripts/sign_release_artifacts.sh
+
+ARTIFACT_DIR=build/verification/release-gate-debug-cert-negative \
+PERF_BASELINE_FILE=build/verification/release-gate-signed-smoke/perf-baseline.properties \
+RELEASE_AAB=app/build/outputs/bundle/release/app-release-local-signed-smoke.aab \
+REQUIRE_AAB=1 \
+REQUIRE_SIGNED_ARTIFACT=1 \
+VERIFY_MODEL_LICENSES=0 \
+VERIFY_CONTRACT_TESTS=0 \
+scripts/verify_release_gate.sh
+
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 “未提供 keystore 环境失败” 和 “debug keystore 默认拒绝”。
+- 通过：脚本单测现场生成 debug-signed fake AAB，确认普通 signed artifact scan
+  拒绝它，只有 `--allow-debug-certificate` smoke scan 会放行。
+- 通过：显式 `ALLOW_DEBUG_KEYSTORE=1` 的 debug signing smoke；
+  `build/verification/signing-smoke/signing.properties` 包含
+  `status=passed` 和 `signingMode=debug-smoke`。
+- 通过：release gate 负向验证；debug-signed AAB 的 signing status 为
+  `verified`，但 artifact scan 因 `CN=Android Debug` certificate 失败。
+- 通过：`scripts/verify_local.sh`。
+
+仍阻塞正式 RC：
+
+- 需要 release owner 提供非 debug 的 production keystore 并保持
+  `ALLOW_DEBUG_KEYSTORE` 未设置。
+- 需要连接固定目标真机后运行正式设备验收和真实 perf baseline。
+- 需要人工完成模型 license / redistribution review。
+
+## 2026-06-06 Latest emulator regression on current HEAD
+
+本轮覆盖项：
+
+- 按当前要求不连接真机，直接使用模拟器验证最新提交。
+- 使用 `focus_agent_api36_arm64` AVD，以 headless 参数启动，执行完整
+  `scripts/regression_emulator.sh`。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+AVD_NAME=focus_agent_api36_arm64 \
+EMULATOR_ARGS='-no-window -no-audio -no-snapshot-save -no-boot-anim' \
+EMULATOR_SELECT_TIMEOUT_SECONDS=120 \
+BOOT_TIMEOUT_SECONDS=300 \
+scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：`build/verification/regression-emulator-20260606-131714/regression-emulator.properties`
+  `status=passed`。
+- 通过：模拟器 `emulator-5554`，API 36，`arm64-v8a`，AVD
+  `focus_agent_api36_arm64`。
+- 通过：debug APK 与 androidTest APK 均安装成功。
+- 通过：instrumentation `OK (26 tests)`，实际运行 26 个 AndroidTest，与源码计数一致。
+- 通过：嵌套 `emulator-verification.properties` 和
+  `device-verification.properties` 均记录 `status=passed`，且
+  `clean_device=1`。
+
+仍阻塞正式 RC：
+
+- 当前验证满足模拟器回归要求，但不替代 production signing、模型 license /
+  redistribution 人工批准、正式发布隐私审查、目标真机验收和真实 perf baseline。
+
+## 2026-06-06 Release validation physical-device evidence hardening
+
+本轮覆盖项：
+
+- 使用只读多 Agent 审查 release validation gate，发现
+  `physicalDevice.reportPath` 可能引用 emulator helper 生成的 nested
+  `target=device` report，从而把 `emulator-*` serial 冒充成真机证据。
+- 修复 `scripts/verify_release_validation_record.sh`，要求
+  `physicalDevice.serial` 非空且不能以 `emulator-` 开头，并拒绝 report 中
+  `serial=emulator-*` 的 device report。
+- `scripts/test_validation_scripts.sh` 增加回归：emulator nested device report
+  即使 `target=device`、`instrumentation=passed`、测试数量满足，也不能作为
+  physical-device evidence 通过。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation 脚本单测覆盖 emulator-as-physical 负向用例。
+- 通过：`scripts/verify_local.sh`。
+
+仍阻塞正式 RC：
+
+- 当前只修门禁逻辑，不连接真机；正式 RC 仍需要目标真机验收、真实 perf
+  baseline 和人工发布记录批准。
+
+## 2026-06-06 Previous emulator regression on current HEAD
+
+本轮覆盖项：
+
+- 按当前要求不连接真机，直接使用模拟器验证最新提交。
+- 使用 `focus_agent_api36_arm64` AVD，以 headless 参数启动，执行完整
+  `scripts/regression_emulator.sh`。
+
+验证命令：
+
+```bash
+AVD_NAME=focus_agent_api36_arm64 \
+EMULATOR_ARGS='-no-window -no-audio -no-snapshot-save -no-boot-anim' \
+EMULATOR_SELECT_TIMEOUT_SECONDS=120 \
+BOOT_TIMEOUT_SECONDS=300 \
+scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：`build/verification/regression-emulator-20260606-113802/regression-emulator.properties`
+  `status=passed`。
+- 通过：模拟器 `emulator-5554`，API 36，`arm64-v8a`，AVD
+  `focus_agent_api36_arm64`。
+- 通过：debug APK 与 androidTest APK 均安装成功。
+- 通过：instrumentation `OK (26 tests)`，实际运行 26 个 AndroidTest，与源码计数一致。
+
+仍阻塞正式 RC：
+
+- 当前验证满足模拟器回归要求，但不替代 production signing、模型 license /
+  redistribution 人工批准和正式发布隐私审查。
+
+## 2026-06-06 Privacy review release gate
+
+本轮覆盖项：
+
+- 新增 `docs/privacy_review.json`，记录 release/security/legal 三方对当前
+  `docs/privacy_notice.md` SHA 的 review 状态；当前状态为
+  `pending_manual_review`，用于阻塞 public RC。
+- 新增 `scripts/verify_privacy_review.sh`，校验 review 文件、notice 路径、notice
+  SHA、三方 reviewer、approved decision，以及真实且不晚于当前日期的 review date。
+- `scripts/verify_release_gate.sh` 新增 `VERIFY_PRIVACY_REVIEW=1`，public gate
+  开启后会要求隐私 review 完成。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+
+ARTIFACT_DIR=build/verification/release-gate-privacy-negative \
+VERIFY_PRIVACY_REVIEW=1 \
+PERF_BASELINE_FILE=build/verification/release-gate-privacy-negative/perf-baseline.properties \
+VERIFY_MODEL_LICENSES=0 \
+VERIFY_CONTRACT_TESTS=0 \
+scripts/verify_release_gate.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 pending privacy review 失败、approved 当前 notice 成功。
+- 通过：脚本单测覆盖 privacy review 未来日期失败。
+- 通过：release gate 集成负向验证；`VERIFY_PRIVACY_REVIEW=1` 时，当前 pending
+  `docs/privacy_review.json` 生成
+  `build/verification/release-gate-privacy-negative/privacy-review.properties`
+  `status=failed`。
+
+仍阻塞正式 RC：
+
+- 需要 release/security/legal owner 在 `docs/privacy_review.json` 中批准当前
+  privacy notice SHA。
+
+## 2026-06-06 Public release profile and signing certificate pin
+
+本轮覆盖项：
+
+- `scan_android_artifacts.sh` 新增 `--expected-certificate-sha256`，signed APK/AAB
+  可以绑定 production upload certificate SHA-256；证书指纹支持大小写和冒号格式规范化。
+- `sign_release_artifacts.sh` 支持 `EXPECTED_SIGNING_CERT_SHA256`，生产签名后立即
+  校验产物证书是否匹配预期；production signing 未提供该值会 fail closed。
+- `verify_release_gate.sh` 新增 `PUBLIC_RELEASE=1` profile，自动启用
+  `VERIFY_PRIVACY_REVIEW=1`、`VERIFY_MODEL_LICENSES=1`、`REQUIRE_AAB=1`、
+  `REQUIRE_SIGNED_ARTIFACT=1`，并要求 `EXPECTED_SIGNING_CERT_SHA256`。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+
+ARTIFACT_DIR=build/verification/release-gate-public-profile-negative \
+PUBLIC_RELEASE=1 \
+PERF_BASELINE_FILE=build/verification/release-gate-public-profile-negative/perf-baseline.properties \
+scripts/verify_release_gate.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 signed artifact 证书指纹匹配成功与不匹配失败。
+- 通过：脚本单测覆盖 production signing 未提供
+  `EXPECTED_SIGNING_CERT_SHA256` 时失败；显式 debug smoke 不受影响。
+- 通过：脚本单测覆盖 `PUBLIC_RELEASE=1` 缺少
+  `EXPECTED_SIGNING_CERT_SHA256` 时失败，并确认 public profile 自动打开 privacy
+  review、model license、AAB 和 signed-artifact gate。
+- 通过：真实 release gate 负向验证；
+  `build/verification/release-gate-public-profile-negative/release-gate.properties`
+  记录 `publicRelease=1`、`verifyPrivacyReview=1`、`verifyModelLicenses=1`、
+  `requireAab=1`、`requireSignedArtifact=1`，并因缺少
+  `EXPECTED_SIGNING_CERT_SHA256` 生成 failed `signing-cert.properties`。
+
+仍阻塞正式 RC：
+
+- 需要 release owner 提供 production upload certificate SHA-256，并用
+  `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=...` 运行最终 gate。
+
+## 2026-06-06 Production signing requires certificate pin
+
+本轮覆盖项：
+
+- `sign_release_artifacts.sh` 在 production signing 模式下强制要求
+  `EXPECTED_SIGNING_CERT_SHA256`；未提供时直接失败，不会进入签名步骤。
+- `ALLOW_DEBUG_KEYSTORE=1` 的本地 smoke signing 仍允许不传 production cert pin，
+  且报告继续标记 `signingMode=debug-smoke`。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+
+RELEASE_KEYSTORE="$HOME/.android/debug.keystore" \
+RELEASE_KEY_ALIAS=androiddebugkey \
+RELEASE_KEYSTORE_PASSWORD=android \
+RELEASE_KEY_PASSWORD=android \
+ALLOW_DEBUG_KEYSTORE=1 \
+SIGNED_APK=app/build/outputs/apk/release/app-release-local-signed-smoke.apk \
+SIGNED_AAB=app/build/outputs/bundle/release/app-release-local-signed-smoke.aab \
+REPORT_FILE=build/verification/signing-smoke/signing.properties \
+scripts/sign_release_artifacts.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 production signing 缺少
+  `EXPECTED_SIGNING_CERT_SHA256` 时失败。
+- 通过：`scripts/verify_local.sh`。
+- 通过：显式 debug signing smoke；`build/verification/signing-smoke/signing.properties`
+  包含 `status=passed`、`signingMode=debug-smoke` 和空
+  `expectedSigningCertSha256`。
+
+仍阻塞正式 RC：
+
+- 需要 release owner 提供 production keystore 和 production upload certificate
+  SHA-256。
+
+## 2026-06-06 Structured model license review gate
+
+本轮覆盖项：
+
+- 新增 `scripts/verify_model_license_review.sh`，结构化校验
+  `docs/model_license_review.json` 与 `docs/model_license_metadata.json`。
+- 校验项包括：metadata 对齐的模型 ID、`status=approved`、
+  `redistributionDecision=approved`、license 名称、HTTPS license URL 或本地 license
+  文件路径、attribution/notice、reviewer、真实且不晚于当前日期的
+  `YYYY-MM-DD` review date。
+- `scripts/verify_release_gate.sh` 的 `VERIFY_MODEL_LICENSES=1` 不再使用 grep，
+  改为调用结构化 license review verifier。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+
+ARTIFACT_DIR=build/verification/release-gate-model-license-negative \
+VERIFY_MODEL_LICENSES=1 \
+PERF_BASELINE_FILE=build/verification/release-gate-model-license-negative/perf-baseline.properties \
+scripts/verify_release_gate.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 incomplete model license review 失败。
+- 通过：脚本单测覆盖 metadata-aligned approved review 成功。
+- 通过：脚本单测覆盖 privacy review 和 model license review 的未来日期失败。
+- 通过：release gate 集成负向验证；当前 pending
+  `docs/model_license_review.json` 会生成
+  `build/verification/release-gate-model-license-negative/model-license-review.properties`
+  `status=failed`，并列出每个模型缺失的批准字段。
+
+仍阻塞正式 RC：
+
+- 需要人工完成所有推荐模型的 license / redistribution / attribution review。
+
+## 2026-06-06 Model license manifest binding hardening
+
+本轮覆盖项：
+
+- 使用只读多 Agent 审查 release gates，确认模型 license gate 不能只让
+  `docs/model_license_review.json` 和 `docs/model_license_metadata.json` 互相背书；
+  必须直接绑定 `docs/model_manifest.md` 中当前推荐模型的 ID、repository 和
+  pinned upstream revision。
+- `scripts/verify_model_license_review.sh` 新增 manifest 输入，要求 review、
+  metadata、manifest 三者模型 ID 顺序一致；metadata repository/API URL/
+  manifest revision 必须匹配 manifest；review repository/upstreamRevision 必须匹配
+  manifest。
+- license source 如果是 Hugging Face URL，必须指向同一个 manifest repository；
+  approved review date 不能早于 metadata `recordedAt` 日期；license name 必须和
+  metadata card license 或 license tag 对齐。
+- `scripts/collect_model_license_metadata.sh` 改为从 `docs/model_manifest.md`
+  派生推荐模型列表，review 文件只提供人工状态，不再决定 metadata 覆盖范围。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_model_license_review.sh scripts/collect_model_license_metadata.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 manifest/metadata/review aligned approval 成功。
+- 通过：脚本单测覆盖 Hugging Face license source 指向错误 repository 失败。
+- 通过：脚本单测覆盖 review date 早于 metadata collection 失败。
+- 通过：当前 pending `docs/model_license_review.json` 仍保持 fail-closed。
+
+仍阻塞正式 RC：
+
+- 需要人工完成所有推荐模型的 license / redistribution / attribution review。
+
+## 2026-06-06 Review date validity gates
+
+本轮覆盖项：
+
+- `scripts/verify_privacy_review.sh` 的 `reviewDate` 校验升级为真实
+  `YYYY-MM-DD` 日期，且不得晚于当前日期。
+- `scripts/verify_model_license_review.sh` 的 `reviewDate` 校验同样升级为真实
+  `YYYY-MM-DD` 日期，且不得晚于当前日期。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 privacy review 的未来日期失败。
+- 通过：脚本单测覆盖 model license review 的未来日期失败。
+- 通过：`scripts/verify_local.sh`。
+
+## 2026-06-06 Release mapping gate
+
+本轮覆盖项：
+
+- 新增 `scripts/verify_release_mapping.sh`，校验 release R8/ProGuard
+  `mapping.txt` 存在且非空，并生成 `release-mapping.properties`，记录
+  mapping 路径、SHA-256 和字节数。
+- `scripts/verify_release_gate.sh` 新增 `VERIFY_RELEASE_MAPPING=1`；正式
+  `PUBLIC_RELEASE=1` profile 会自动开启 mapping gate。
+- release checklist 明确要求归档 `release-mapping.properties` 和对应
+  mapping 文件，避免正式包发布后无法反混淆 crash stack。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+scripts/verify_release_mapping.sh --report build/verification/release-mapping/release-mapping.properties
+
+AVD_NAME=focus_agent_api36_arm64 \
+EMULATOR_ARGS='-no-window -no-audio -no-snapshot-save -no-boot-anim' \
+EMULATOR_SELECT_TIMEOUT_SECONDS=120 \
+BOOT_TIMEOUT_SECONDS=300 \
+scripts/regression_emulator.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 release mapping verifier 成功、缺失失败、空文件失败。
+- 通过：脚本单测覆盖 `PUBLIC_RELEASE=1` 自动启用 `verifyReleaseMapping=1`。
+- 通过：脚本单测覆盖 `VERIFY_RELEASE_MAPPING=1` 时 release gate 对缺失
+  mapping fail-closed。
+- 通过：`scripts/verify_local.sh`。
+- 通过：真实 release mapping verifier；报告为
+  `build/verification/release-mapping/release-mapping.properties`。
+- 通过：仅模拟器回归；`focus_agent_api36_arm64` / `emulator-5554` / API 36 /
+  `arm64-v8a`，`build/verification/regression-emulator-20260606-121722/regression-emulator.properties`
+  记录 `status=passed`，instrumentation 为 `OK (26 tests)`。
+
+## 2026-06-06 Release record gate
+
+本轮覆盖项：
+
+- 新增 `docs/release_record.json`，把 release owner、reviewer、target
+  channel、Gradle version、Git commit、artifact checksum、signing certificate
+  fingerprint、verification reports、unsupported capabilities、Agent behavior
+  summary 和 blocker 决策收敛为机器可读记录。
+- 新增 `scripts/verify_release_record.sh`，校验 release record 已 approved，
+  且 Gradle 版本、当前 checkout 可追溯的 Git commit、artifact SHA/size、证书
+  SHA、证据文件和 blocker resolved/accepted 状态都一致。
+- `scripts/verify_release_gate.sh` 新增 `VERIFY_RELEASE_RECORD=1`；
+  `PUBLIC_RELEASE=1` profile 会自动开启 release record gate。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 pending release record 失败。
+- 通过：脚本单测覆盖 approved release record 成功。
+- 通过：脚本单测覆盖 future release date 和 artifact SHA mismatch 失败。
+- 通过：脚本单测覆盖 `PUBLIC_RELEASE=1` 自动启用 `verifyReleaseRecord=1`。
+- 通过：脚本单测覆盖 `VERIFY_RELEASE_RECORD=1` 时 release gate 对 pending
+  record fail-closed。
+
+## 2026-06-06 Public release record artifact binding
+
+本轮覆盖项：
+
+- 使用只读多 Agent 审查 release gates，发现 `PUBLIC_RELEASE=1` 会扫描 signed AAB，
+  但 `scripts/verify_release_record.sh` 仍可接受记录中的内部渠道或另一个 APK/AAB。
+- `scripts/verify_release_gate.sh` 在 public profile 下向 release record verifier
+  传入 public context、最终 `RELEASE_AAB` 路径、AAB SHA-256 和
+  `EXPECTED_SIGNING_CERT_SHA256`。
+- `scripts/verify_release_record.sh` 在 public context 下要求 `targetChannel`
+  为 `open_testing`、`staged_production` 或 `full_production`，artifact type
+  必须为 `aab`，并且 artifact path、SHA-256、签名证书 SHA-256 必须与
+  release gate 期望值一致。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_record.sh scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 public context 拒绝 `internal_testing`。
+- 通过：脚本单测覆盖 public context 接受匹配的 public AAB record。
+- 通过：脚本单测覆盖 public context 拒绝 artifact path/SHA 与最终 AAB 不一致。
+
+仍阻塞正式 RC：
+
+- 需要 production signing、真实 final AAB 和 release owner 批准后的
+  `docs/release_record.json`。
+
+## 2026-06-06 Perf baseline physical-device gate hardening
+
+本轮覆盖项：
+
+- 使用只读多 Agent 审查 release gates，发现 `scripts/verify_perf_baseline.sh`
+  主要检查字段存在，无法充分证明“最终真机 RC SLO”。
+- `scripts/verify_perf_baseline.sh` 新增严格语义：拒绝 `emulator-*` serial，
+  要求 `abi=arm64-v8a`、Android API 28-36、release artifact SHA-256 为 64 位
+  hex，关键耗时/内存字段必须大于 0，`recordedAt` 必须是 UTC、非未来且在
+  `MAX_RECORD_AGE_DAYS` 窗口内。
+- `scripts/verify_release_gate.sh` 读取当前 Gradle `versionName` 并传给 perf
+  verifier，要求 RC baseline 的 `appVersion` 与本次 release 版本一致。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_perf_baseline.sh scripts/verify_release_gate.sh scripts/collect_perf_baseline.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖完整 perf baseline 成功和 artifact SHA 匹配成功。
+- 通过：脚本单测覆盖 emulator serial、0ms 关键耗时、future `recordedAt`、
+  mismatched artifact SHA 失败。
+- 通过：release gate fixture 覆盖当前 Gradle `versionName` 绑定。
+
+仍阻塞正式 RC：
+
+- 需要在目标真机上采集真实 RC perf baseline；当前不连接真机。
+
+## 2026-06-06 Store policy gate
+
+本轮覆盖项：
+
+- 新增 `docs/store_policy_record.json`，把 Store listing、Data safety、隐私
+  policy URL、模型下载说明、Android manifest 权限用途和 Usage
+  Access/Accessibility/MediaProjection 特殊访问披露收敛为机器可读记录。
+- 新增 `scripts/verify_store_policy_record.sh`，校验 store policy 已
+  approved，隐私 notice SHA 与当前文件一致，manifest 权限与记录完全一致，
+  且每个权限/特殊访问都有用途说明。
+- `scripts/verify_release_gate.sh` 新增 `VERIFY_STORE_POLICY=1`；
+  `PUBLIC_RELEASE=1` profile 会自动开启 store policy gate。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 pending store policy 失败。
+- 通过：脚本单测覆盖 approved store policy 成功。
+- 通过：脚本单测覆盖 privacy notice SHA mismatch 和 manifest permission
+  mismatch 失败。
+- 通过：脚本单测覆盖 `PUBLIC_RELEASE=1` 自动启用 `verifyStorePolicy=1`。
+- 通过：脚本单测覆盖 `VERIFY_STORE_POLICY=1` 时 release gate 对 pending
+  record fail-closed。
+
+## 2026-06-06 Release operations gate
+
+本轮覆盖项：
+
+- 新增 `docs/release_operations_record.json`，把 crash/ANR monitoring owner、
+  Android Vitals 信号源、首 24 小时 watcher、分阶段 rollout 阈值、RC
+  crash/ANR smoke 结果和 rollback 计划收敛为机器可读记录。
+- 新增 `scripts/verify_release_operations_record.sh`，校验 operations record
+  已 approved，包含 Android Vitals、有效 crash-free/ANR 阈值、无 launch/install
+  crash、无 crash loop、无 fatal native LiteRT-LM failure、无可复现 ANR、完整
+  rollback criteria、Play versionCode 策略、模型 manifest 回滚路径和数据兼容说明。
+- `scripts/verify_release_gate.sh` 新增 `VERIFY_RELEASE_OPERATIONS=1`；
+  `PUBLIC_RELEASE=1` profile 会自动开启 release operations gate。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 pending release operations 失败。
+- 通过：脚本单测覆盖 approved initial-release operations 成功。
+- 通过：脚本单测覆盖 missing Android Vitals 和 future review date 失败。
+- 通过：脚本单测覆盖 `PUBLIC_RELEASE=1` 自动启用
+  `verifyReleaseOperations=1`。
+- 通过：脚本单测覆盖 `VERIFY_RELEASE_OPERATIONS=1` 时 release gate 对 pending
+  record fail-closed。
+
+## 2026-06-06 Release validation gate
+
+本轮覆盖项：
+
+- 新增 `docs/release_validation_record.json`，把 emulator regression、physical
+  device instrumentation、API matrix、manual acceptance、系统中介手工项、remote
+  public evidence 样例、mixed-batch fail-closed、sanitized screenshots、flow
+  matrix 和 performance sanity 证据收敛为机器可读记录。
+- 新增 `scripts/verify_release_validation_record.sh`，校验 validation record
+  已 approved，关联 emulator/device report 真实存在且通过，instrumentation test
+  count 不低于当前 AndroidTest 源码数量，API 28/32/33/34/36 都有通过证据，截图
+  文件存在且标记 sanitized。
+- `scripts/verify_release_gate.sh` 新增 `VERIFY_RELEASE_VALIDATION=1`；
+  `PUBLIC_RELEASE=1` profile 会自动开启 release validation gate。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：脚本单测覆盖 pending release validation 失败。
+- 通过：脚本单测覆盖 approved validation record 成功。
+- 通过：脚本单测覆盖缺失 physical report、API matrix 缺口和截图未 sanitized 失败。
+- 通过：脚本单测覆盖 `PUBLIC_RELEASE=1` 自动启用
+  `verifyReleaseValidation=1`。
+- 通过：脚本单测覆盖 `VERIFY_RELEASE_VALIDATION=1` 时 release gate 对 pending
+  record fail-closed。
+
+## 2026-06-07 Crash/ANR smoke evidence collector
+
+本轮覆盖项：
+
+- 新增 `scripts/collect_crash_anr_smoke_evidence.sh`，从 device verification
+  report、instrumentation 输出和 `adb logcat` 生成 `crashAnrSmoke.evidence`
+  可引用的 properties 证据。
+- 证据默认 fail-closed：缺 device report、缺 instrumentation 输出、缺 logcat、
+  device/instrumentation 未通过、logcat 有 crash/ANR/fatal LiteRT-LM 信号时都失败。
+- `scripts/test_validation_scripts.sh` 的 release operations 正例改为使用 collector
+  生成 smoke evidence，并覆盖 ANR、instrumentation process crash 和单次 Java crash
+  不误判 crash loop。
+- `docs/release_checklist.md` 和 `docs/release_readiness.md` 增加 collector 使用入口。
+
+验证命令：
+
+```bash
+bash -n scripts/collect_crash_anr_smoke_evidence.sh scripts/test_validation_scripts.sh scripts/verify_local.sh
+scripts/test_validation_scripts.sh
+bash scripts/verify_local.sh
+git diff --check
+```
+
+结果：
+
+- 通过：collector 成功生成 clean instrumentation/logcat 的 smoke evidence。
+- 通过：collector 对 ANR logcat 信号 fail-closed。
+- 通过：collector 对 instrumentation process crash 信号 fail-closed。
+- 通过：collector 将单次 Java crash 计为一次 launch crash，不误判 crash loop。
+- 通过：`verify_local` 全链路，包括脚本自测、unit test、lint、debug/release APK、
+  release AAB 和 artifact scan。
+- 通过：DeepSeek 测试配置的 key、endpoint 和 model 字面量没有落入仓库源码。
+
+## 2026-06-07 Emulator Crash/ANR smoke evidence chain
+
+本轮覆盖项：
+
+- `scripts/install_and_test_device.sh` 新增成功/失败路径的 `adb logcat` 采集，
+  device report 写入 `logcat_file`、`logcat_captured` 和 `logcat_tail_lines`。
+- `scripts/verify_emulator.sh` 在 device verification 通过后自动调用
+  `scripts/collect_crash_anr_smoke_evidence.sh`，并在 emulator report 写入
+  `crash_anr_smoke_report_file`。
+- collector 在给定 device report 时优先使用 report 里的 instrumentation/logcat
+  路径，避免外部环境变量污染证据来源。
+- `scripts/test_validation_scripts.sh` 新增 direct device logcat、emulator smoke
+  report 和 report-path 优先级覆盖。
+
+验证命令：
+
+```bash
+bash -n scripts/install_and_test_device.sh scripts/verify_emulator.sh scripts/collect_crash_anr_smoke_evidence.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+bash scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：direct device fake flow 生成非空 `logcat.txt` 并记录在
+  `device-verification.properties`。
+- 通过：emulator fake flow 自动生成 `crash-anr-smoke.properties` 且状态为 passed。
+- 通过：collector 不再被外部 `INSTRUMENTATION_OUTPUT_FILE` 环境变量覆盖 report
+  内的证据路径。
+- 通过：`verify_local` 全链路，包括脚本自测、unit test、lint、debug/release APK、
+  release AAB 和 artifact scan。
+
+## 2026-06-07 Release validation consumes Crash/ANR smoke evidence
+
+本轮覆盖项：
+
+- `scripts/verify_release_validation_record.sh` 新增 Crash/ANR smoke report 校验：
+  要求 nested emulator report 指向 `crash_anr_smoke_report_file`，且该 report
+  为 `status=passed`、`target=crash-anr-smoke-evidence`、`logcatAnalyzed=true`。
+- 校验 smoke report 中的 `noLaunchCrash`、`noInstallCrash`、`noCrashLoop`、
+  `noFatalNativeLiteRtLmFailure`、`noReproducibleAnr` 都为 true，并要求 crash、
+  ANR、LiteRT fatal 和 instrumentation failure counters 为 0。
+- 校验 smoke report 绑定的 device report、instrumentation output、logcat path
+  与 nested emulator/device evidence 一致，并验证 report 中记录的 SHA-256。
+- `scripts/test_validation_scripts.sh` 的 release validation fixture 新增 top-level
+  emulator 和 API matrix 的 smoke evidence；新增缺失 smoke report 的 fail-closed
+  负例。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+bash scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：approved release validation fixture 必须包含 nested Crash/ANR smoke
+  evidence 才能通过。
+- 通过：API matrix nested emulator report 缺少 `crash_anr_smoke_report_file` 时
+  release validation verifier fail-closed。
+- 通过：`verify_local` 全链路，包括脚本自测、unit test、lint、debug/release APK、
+  release AAB 和 artifact scan。
+
+## 2026-06-07 Model flow release evidence hardening
+
+本轮覆盖项：
+
+- `scripts/record_release_flow_evidence.sh` 写入模型 flow 的结构化验收字段。
+  `localModelDownloadVerification` 必须声明本地模型下载验证、SHA-256 校验、
+  存储空间预检、失败恢复、远程 fallback 说明和轻量替代说明。
+- `customModelImportOrUrlRejection` 必须声明 `.litertlm` 导入、自定义下载
+  HTTPS-only、非法 URL 拒绝、带凭据 URL 拒绝和未校验自定义模型标记。
+- `scripts/verify_release_validation_record.sh` 对上述字段 fail-closed，避免
+  仅凭 `releaseFlowPassed=true` 的薄证据通过正式 release validation。
+- `scripts/collect_release_flow_matrix_evidence.sh` 的候选证据同步展示这些字段，
+  并在判断已批准 release flow 时使用同一套模型证据契约。
+- `docs/release_checklist.md` 同步记录验收人需要检查的模型 flow 字段。
+
+验证命令：
+
+```bash
+bash -n scripts/collect_release_flow_matrix_evidence.sh scripts/record_release_flow_evidence.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+bash scripts/verify_local.sh
+git diff --check
+```
+
+结果：
+
+- 通过：release validation verifier 接受包含模型 flow 字段的 approved fixture。
+- 通过：缺少本地模型下载结构化字段的 flow evidence 被拒绝。
+- 通过：缺少自定义模型 HTTPS/非法 URL/未校验标记字段的 flow evidence 被拒绝。
+- 通过：flow matrix candidate evidence 和正式 release flow recorder 都输出模型字段。
+- 通过：`verify_local` 全链路，包括脚本自测、unit test、lint、debug/release APK、
+  release AAB 和 artifact scan。
+- 通过：使用用户提供的 DeepSeek endpoint、model 和 key 字面量做仓库扫描，
+  均未命中；具体敏感 literal 未写入文档。
+
+## 2026-06-07 Fresh-start main shell interaction smoke
+
+本轮覆盖项：
+
+- `scripts/verify_fresh_start_main_shell_emulator.sh` 在 clean install 后不只检查
+  主 Shell 文案，还会从真实 UI dump 中定位 clickable `模型管理` 节点并执行
+  `adb shell input tap`。
+- 点击后脚本采集 `model-manager.xml`，要求模型管理 sheet 出现
+  `选择本地离线或可选远程；远程发送和设备动作仍会先确认。`，否则以
+  `model-manager-click-no-response` fail-closed。
+- report 新增 `model_manager_window_dump` 和 `model_manager_click_opened`，
+  用于区分“首屏文案存在”与“关键控件确实可交互”。
+- `scripts/test_validation_scripts.sh` 新增 fake adb 正例和“点击后仍停留主页面”
+  负例，覆盖用户反馈的“页面看起来卡住、点击没反应”风险。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_fresh_start_main_shell_emulator.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+AVD_NAME=pocketmind_api36_arm64 ARTIFACT_DIR=build/verification/fresh-start-interactive-current scripts/verify_fresh_start_main_shell_emulator.sh
+bash scripts/verify_local.sh
+git diff --check
+```
+
+结果：
+
+- 通过：API 36 arm64 clean install fresh-start，
+  `build/verification/fresh-start-interactive-current/fresh-start-main-shell.properties`
+  记录 `first_run_setup_visible=false`、`main_shell_copy_visible=true`、
+  `model_manager_click_opened=true`。
+- 通过：`fresh-start.xml` 包含 `隐私优先的随身 AI 助手` 和
+  `开始和 PocketMind 对话`，不包含 `离线基础问答可选下载`。
+- 通过：点击后 `model-manager.xml` 包含 `模型管理`、`当前模型` 和
+  `选择本地离线或可选远程；远程发送和设备动作仍会先确认。`
+- 通过：`verify_local` 全链路，包括脚本自测、unit test、lint、debug/release APK、
+  release AAB 和 artifact scan。
+
+## 2026-06-07 Live remote emulator input targeting and evidence redaction
+
+本轮覆盖项：
+
+- 修复 `scripts/live_remote_emulator.sh` 的真实设备输入流程：不再只按屏幕比例盲点
+  prompt/send 坐标，而是在输入前、发送前、发送后分别采集 UI dump，并从
+  `EditText`、`发送`、`确认发送` 节点坐标执行 `adb shell input tap`。
+- live remote 脚本现在能识别 `即将发送到远程模型` 披露 sheet，并在真实发送前
+  点击 `确认发送`；report 新增 `input_dump`、`send_ready_dump`、
+  `after_send_dump` 和 `remote_confirmation_handled`。
+- 退出前清洗文本证据中的 API key、远程 base URL、host 和 model，避免归档的
+  XML/logcat artifact 保留远程配置 literal；report 继续只写 `<redacted>` 和来源变量名。
+- `scripts/test_validation_scripts.sh` 新增 fake UI dump 覆盖输入框、发送按钮、
+  远程发送确认和 artifact redaction。
+
+验证命令：
+
+```bash
+bash -n scripts/live_remote_emulator.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+POCKETMIND_LIVE_REMOTE_BASE_URL=<provided-remote-base-url> \
+POCKETMIND_LIVE_REMOTE_MODEL=<provided-remote-model> \
+POCKETMIND_LIVE_REMOTE_API_KEY=<provided-secret> \
+POCKETMIND_LIVE_REMOTE_PROMPT='Return POCKETMIND_LIVE_OK' \
+POCKETMIND_LIVE_REMOTE_EXPECTED_TEXT=POCKETMIND_LIVE_OK \
+POCKETMIND_LIVE_REMOTE_WAIT_SECONDS=75 \
+ARTIFACT_DIR=build/verification/live-remote-emulator-deepseek-current \
+REPORT_FILE=build/verification/live-remote-emulator-deepseek-current/live-remote-emulator.properties \
+scripts/live_remote_emulator.sh
+bash scripts/verify_local.sh
+git diff --check
+```
+
+结果：
+
+- 通过：API 36 arm64 emulator 真实远程模型请求返回 `POCKETMIND_LIVE_OK`，
+  `live-remote-emulator.properties` 记录 `status=passed`、`target=live-remote-emulator`、
+  `device_target=emulator`、`remote_confirmation_handled=true`。
+- 通过：`after_send_dump` 证明远程发送前出现确认 sheet，最终 `ui_dump` 证明收到
+  远程响应，且没有 `远程模型请求失败`。
+- 通过：live remote 文本证据目录扫描未命中用户提供的 API key、endpoint 或 model literal；
+  相关 UI/logcat 文本已替换为 `<redacted>`。
+- 通过：仓库源码扫描未命中用户提供的 API key、endpoint 或 model literal。
+- 通过：`verify_local` 全链路，包括脚本自测、unit test、lint、debug/release APK、
+  release AAB 和 artifact scan。
+
+## 2026-06-07 Share and picker release evidence hardening
+
+本轮覆盖项：
+
+- `shareAndPickerInput` release flow evidence 现在必须显式记录 ACTION_SEND 文本暂存、
+  远程模式文本分享保护、远程视觉图片附件暂存、远程视觉不支持时的保护信号、
+  不做隐式 OCR、文档摘录边界和 picker 附件提示。
+- `scripts/verify_release_validation_record.sh` 会拒绝只有粗粒度分享证据的 release
+  record；`scripts/record_release_flow_evidence.sh` 和
+  `scripts/collect_release_flow_matrix_evidence.sh` 会输出对应结构化字段。
+- 现有 Android/JVM 用例已经覆盖 ACTION_SEND 文本、远程模式文本保护、远程视觉图片暂存、
+  远程视觉不支持保护、图片不强制 OCR、文档摘录边界和 picker 提示，本轮把这些能力变成
+  release gate 的必填证据。
+- `docs/release_checklist.md` 新增 share/picker 输入验收项，避免正式包只凭“流程存在”
+  而未证明多模态和隐私边界。
+
+验证命令：
+
+```bash
+bash -n scripts/record_release_flow_evidence.sh scripts/collect_release_flow_matrix_evidence.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+bash scripts/verify_local.sh
+git diff --check
+```
+
+结果：
+
+- 通过：弱 `shareAndPickerInput` flow evidence 会被拒绝，并返回远程文本保护、远程视觉图片暂存、
+  不做隐式 OCR 等缺失原因。
+- 通过：候选 release flow 和 formal release flow 均生成新的 share/picker 必填字段。
+- 通过：`verify_local` 全链路，包括脚本自测、unit test、lint、debug/release APK、
+  release AAB 和 artifact scan。
+
+## 2026-06-07 Privacy and data controls release gate
+
+本轮覆盖项：
+
+- `docs/release_validation_record.json` 新增 `privacyAndDataControls` flow，
+  正式 release validation 必须单独证明 App 内隐私说明入口、长期记忆清空/遗忘、
+  当前会话删除、远程配置清除和用户可删除/清除文案。
+- `scripts/record_release_flow_evidence.sh`、
+  `scripts/collect_release_flow_matrix_evidence.sh` 和
+  `scripts/verify_release_validation_record.sh` 均新增上述机器可读字段；弱证据会被拒绝。
+- 隐私入口 smoke 测试现在覆盖“用户控制”里的长期记忆、当前会话和远程配置清除口径；
+  UI 文案合同也固定这些删除/清除控制。
+- 修复 `scripts/collect_crash_anr_smoke_evidence.sh`：Android instrumentation
+  成功输出里的最终 `INSTRUMENTATION_CODE: -1` 不再被误判为 failure signal。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=240 ARTIFACT_DIR=build/verification/privacy-data-controls-smoke-current3 INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest#privacyButtonOpensAppPrivacyNotice' INSTRUMENTATION_TIMEOUT_SECONDS=180 scripts/verify_emulator.sh
+scripts/collect_crash_anr_smoke_evidence.sh --device-report build/verification/privacy-data-controls-smoke-current2/device-verification.properties --instrumentation-output build/verification/privacy-data-controls-smoke-current2/instrumentation.txt --logcat build/verification/privacy-data-controls-smoke-current2/logcat.txt --report build/verification/privacy-data-controls-smoke-current2/crash-anr-smoke-rerun.properties --window 'privacy data controls targeted emulator rerun' --track local-emulator
+```
+
+结果：
+
+- 通过：release validation verifier 会拒绝缺少隐私入口、记忆清除和远程配置清除字段的
+  `privacyAndDataControls` 弱证据。
+- 通过：API 36 arm64 targeted emulator smoke，
+  `build/verification/privacy-data-controls-smoke-current3/emulator-verification.properties`
+  记录 `status=passed`，instrumentation 输出 `OK (1 test)`，crash/ANR smoke 通过。
+- 通过：先前失败的 `privacy-data-controls-smoke-current2` 在修复后重跑 crash/ANR 收集器通过，
+  证明失败原因是 `INSTRUMENTATION_CODE: -1` 的 verifier 误判，不是 App 崩溃。
+
+## 2026-06-07 CI release operations gate
+
+本轮覆盖项：
+
+- 扩展 `.github/workflows/android.yml`：现有 `verify` job 继续跑
+  `scripts/verify_local.sh`，并生成/上传 `ci-local-verification` evidence；
+  现有 `emulator-regression` job 继续作为 connected Android test evidence。
+- 新增 workflow_dispatch 的 `release-artifact-archive` job：构建 release APK/AAB，
+  扫描 artifact，并归档 APK、AAB、mapping 和机器可读 evidence。
+- 新增 `protected-signing` job：在 `android-production-signing` 受保护环境中使用
+  signing secrets 运行 `scripts/sign_release_artifacts.sh`；secrets 未配置时只生成
+  skipped evidence，正式 release operations verifier 不接受 skipped signing。
+- `docs/release_operations_record.json` 新增 `ci` 区块，要求 local verification、
+  connected Android tests、release artifact archive 和 protected signing 均有 evidence path
+  与 SHA-256。
+- `scripts/verify_release_operations_record.sh` 新增 CI 门禁：connected test evidence 必须是
+  `target=regression-emulator` 且有实际 instrumentation count；artifact archive 必须记录 AAB
+  和 mapping SHA；protected signing 必须是 `target=release-signing`、`signingMode=production`
+  且 artifact scan 通过。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_operations_record.sh scripts/test_validation_scripts.sh scripts/verify_release_gate.sh
+ruby -e 'require "yaml"; YAML.load_file(".github/workflows/android.yml"); puts "workflow yaml ok"'
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：workflow YAML 可解析。
+- 通过：release operations verifier 接受包含 CI evidence 的 approved initial-release record。
+- 通过：release operations verifier 拒绝把本地验证 evidence 冒充 connected Android test evidence。
+
+## 2026-06-07 Release screenshot visual contract
+
+本轮覆盖项：
+
+- `scripts/capture_release_screenshots.sh` 在每张 release 截图后同步保存 UI dump，
+  记录 `uiDump`、`uiDumpSha256`、`visualRegression=passed` 和 `requiredText`。
+- 固定 4 个发布截图的可见文字合同：chat home、model manager、confirmation sheet、
+  background tasks / audit。截图即使是 PNG，只要停在默认页、空白页或错误页面，UI dump
+  缺少这些文字就会失败。
+- `scripts/verify_release_validation_record.sh` 会验证截图报告的 visual contract、
+  UI dump SHA-256 和必需文案；缺少 UI dump 或 visualRegression 不通过的报告会被拒绝。
+- `scripts/test_validation_scripts.sh` 新增弱 visual report 负例，并增强 release screenshot
+  capture 自测，确保截图报告实际写出 UI dump、requiredText 和 visualRegression 字段。
+
+验证命令：
+
+```bash
+bash -n scripts/capture_release_screenshots.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 预期：approved release validation record 必须携带 release screenshot visual contract 才能通过。
+- 预期：缺少 UI dump 或 `visualRegression=passed` 的截图报告会被 release validation verifier 拒绝。
+
+## 2026-06-07 Adaptive UI release flow gate
+
+本轮覆盖项：
+
+- `adaptiveUi` 新增为正式 `flowMatrix` 必填项，当前
+  `docs/release_validation_record.json` 中保持 `pending`，等待真实 release owner 证据绑定。
+- `scripts/collect_release_flow_matrix_evidence.sh` 和
+  `scripts/record_release_flow_evidence.sh` 都会生成/要求 `adaptiveUi` 证据。
+- `scripts/verify_release_validation_record.sh` 对 `adaptiveUi` 正式 flow evidence
+  强制校验 3 个字段：大字体可达、横屏可达、核心控件可访问标签/动作。
+- `MainActivityAdaptiveUiTest` 新增横屏远程发送确认可达测试；横屏下会滚动确认 sheet，
+  确认“确认发送”和“取消”按钮可见。
+
+验证命令：
+
+```bash
+bash -n scripts/collect_release_flow_matrix_evidence.sh scripts/record_release_flow_evidence.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/adaptive-ui-flow-gate-current3 INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityAdaptiveUiTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+bash scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 `adaptiveUi` 正式证据字段、弱证据拒绝、
+  recorder 全量/部分 flow 行为。
+- 通过：API 36 targeted emulator，`build/verification/adaptive-ui-flow-gate-current3`
+  记录 `MainActivityAdaptiveUiTest` 的 `OK (3 tests)`，覆盖大字体、横屏远程发送确认、
+  核心控件无障碍标签。
+- 通过：`verify_local` 全链路，包括脚本自测、unit test、lint、debug/release APK、
+  release AAB 和 artifact scan。
+
+## 2026-06-07 Voice input release flow gate
+
+本轮覆盖项：
+
+- `voiceInput` release flow evidence 新增正式必填字段：就近语音说明、一次性
+  transcript draft 且不自动发送、麦克风权限失败/恢复、语音 capture 取消路径。
+- `scripts/collect_release_flow_matrix_evidence.sh` 和
+  `scripts/record_release_flow_evidence.sh` 都会写出这些 voice contract 字段。
+- `scripts/verify_release_validation_record.sh` 会拒绝缺少上述字段的正式
+  `voiceInput` release flow evidence；`scripts/test_validation_scripts.sh` 新增弱证据负例。
+- `PocketMindViewModelTest` 新增权限失败/恢复契约测试：权限失败后清空 capture、
+  不生成 draft、不发送 session message、不触发远程 runtime 或工具动作，之后可以重新进入收音状态。
+- 系统麦克风权限弹窗的文案和按钮交互不作为 Compose AndroidTest 门禁；release gate
+  验证 PocketMind 自身的失败/恢复行为，系统 permission controller 交互保留为手工/真机验收证据。
+
+验证命令：
+
+```bash
+bash -n scripts/collect_release_flow_matrix_evidence.sh scripts/record_release_flow_evidence.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending'
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 `voiceInput` 正式证据字段和弱证据拒绝。
+- 通过：目标 JVM 测试，覆盖麦克风权限失败后的业务恢复和 no-auto-send 边界。
+
+## 2026-06-07 Model download failure recovery gate
+
+本轮覆盖项：
+
+- 自定义模型下载源现在必须显式指向 `.litertlm` 文件；HTTPS 下的 `.bin`、`.gguf`、
+  空路径或目录路径会被拒绝，不再被自动改名成 `.litertlm`。
+- 自定义下载失败文案明确提示需要 HTTPS `.litertlm` 模型链接。
+- `localModelDownloadVerification` release flow evidence 新增必填字段：下载目录不可用、
+  SHA 失败清理、pending 下载任务丢失恢复。
+- `customModelImportOrUrlRejection` release flow evidence 新增必填字段：
+  非 `.litertlm` 自定义下载 URL 必须被拒绝。
+- `PocketMindViewModelTest` 新增下载失败恢复契约：目录不可用不 enqueue、下载失败清
+  pending 并删除目标、SHA 失败删除坏文件且不注册模型、启动恢复时下载任务丢失会清理 pending。
+- `ModelRepositoryTest` 新增下载源和校验契约：非 `.litertlm` HTTPS URL 拒绝、
+  expected size 不匹配拒绝、SHA 不匹配拒绝、无 SHA 的自定义文件仅在大小匹配时接受。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.data.ModelRepositoryTest' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startModelDownloadReportsUnavailableDirectoryWithoutEnqueueing' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startCustomModelDownloadRejectsInvalidUrlWithoutEnqueueing' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.monitorDownloadFailureClearsPendingDeletesTargetAndShowsReason' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.monitorDownloadShaFailureDeletesFileClearsPendingAndStopsDownloading' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.restoreStartupStateClearsPendingDownloadWhenDownloadTaskMissing'
+scripts/test_validation_scripts.sh
+bash scripts/verify_local.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/model-download-gate-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：目标 JVM 测试覆盖模型下载 URL 边界、失败原因、坏文件清理和 pending 恢复。
+- 通过：validation script self-tests，覆盖新增 release flow 字段和弱证据拒绝。
+- 通过：`verify_local` 全链路，包括 unit test、lint、debug/release APK、release AAB 和 artifact scan。
+- 通过：API 36 targeted emulator，`build/verification/model-download-gate-smoke-current`
+  记录 `MainActivitySmokeTest` 的 `OK (6 tests)`，覆盖启动、模型管理、远程配置入口、
+  隐私入口、会话管理和后台任务空态。
+
+## 2026-06-07 Local model import file-flow gate
+
+本轮覆盖项：
+
+- `ModelRepository.importModel()` 的 Android `Uri/ContentResolver` 读取保持在 Android 适配层；
+  文件名校验、空间预检、临时文件、移动、失败清理和导入结果被抽成 JVM 可测的
+  `importModelFileToModelDir()`。
+- 系统文件提供方缺少 `DISPLAY_NAME` 时不再 fallback 到推荐模型文件名；只使用 URI 末段作为
+  最后文件名来源，否则走 `.litertlm` 校验失败，避免未知来源绕过后缀检查。
+- 本地导入新增 JVM 契约：非 `.litertlm` 拒绝且不 copy、存储不足时不 copy、空文件拒绝并删除
+  `.tmp`、copy 失败删除 `.tmp`、成功导入结果声明 `recommendedModelId=null` 且
+  `verificationStatus=UnverifiedCustom`。
+- `customModelImportOrUrlRejection` release flow evidence 新增必填字段：本地非 `.litertlm`
+  导入拒绝、导入存储预检、空文件拒绝、copy/move 失败临时文件清理。
+- `localModelDownloadVerification` release flow evidence 新增必填字段：
+  insufficient-storage 下载失败覆盖。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.data.ModelRepositoryTest'
+scripts/test_validation_scripts.sh
+bash scripts/verify_local.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/model-import-gate-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：仓库层 JVM 测试覆盖本地模型导入文件流边界。
+- 通过：validation script self-tests，覆盖新增 import/download release flow 字段和弱证据拒绝。
+- 通过：`verify_local` 全链路，包括 unit test、lint、debug/release APK、release AAB 和 artifact scan。
+- 通过：API 36 targeted emulator，`build/verification/model-import-gate-smoke-current`
+  记录 `MainActivitySmokeTest` 的 `OK (6 tests)`，覆盖启动、模型管理、远程配置入口、
+  隐私入口、会话管理和后台任务空态。
+
+## 2026-06-07 Remote boundary and recovery gate
+
+本轮覆盖项：
+
+- 远程模式未配置时，发送尝试不再静默返回；会写入本地 `LocalOnly` 提示，说明需要先配置远程模型，
+  并明确“还没有发送你的内容”，避免用户点击后无反馈。
+- `PocketMindViewModelTest` 新增远程记忆边界合同：远程发送时 route 层收到
+  `memoryEnabled=false`，设备上下文为 null，Run Data Receipt 标记 destination 为 `Remote`、
+  `memoryContextIncluded=false`，并声明本地记忆/设备上下文被保护。
+- 远程未配置发送尝试新增 JVM 合同：不调用 remote runtime、不进入 router、不持久化用户 prompt，
+  UI 状态为“请配置远程模型”，`ModelHealth` 为 `LoadFailed`。
+- `remoteHttpsConfiguration` release flow evidence 新增必填字段：远程网络失败恢复、
+  远程未配置失败、远程不自动携带本地记忆。
+- `shareAndPickerInput` release flow evidence 新增必填字段：远程模式非图片附件不自动携带。
+- 正式 release-flow 记录脚本、候选证据收集脚本和 release record verifier 已同步这些字段；
+  弱远程/弱分享证据会被验证脚本拒绝。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeDoesNotEnableMemoryContextOrReceiptForRemoteSend' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeUnconfiguredSendAttemptShowsLocalNoticeWithoutCallingRuntime' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteNetworkFailureShowsReadableFailureAndFailsTrace'
+bash -n scripts/collect_release_flow_matrix_evidence.sh scripts/record_release_flow_evidence.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+bash scripts/verify_local.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/remote-boundary-gate-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：目标 JVM 测试覆盖远程记忆/receipt 边界、未配置远程点击反馈和网络失败恢复。
+- 通过：validation script self-tests，覆盖新增 release flow 字段和弱证据拒绝。
+- 通过：`verify_local` 全链路，包括 unit test、lint、debug/release APK、release AAB 和 artifact scan。
+- 通过：API 36 targeted emulator，`build/verification/remote-boundary-gate-smoke-current`
+  记录 `MainActivitySmokeTest` 的 `OK (6 tests)`，覆盖启动、模型管理、远程配置入口、
+  隐私入口、会话管理和后台任务空态。
+
+## 2026-06-07 Remote vision share stream-count gate
+
+本轮覆盖项：
+
+- 新增 debug-only `CountingSharedContentProvider`，只进入 debug APK，不进入 release；
+  androidTest 通过 `ContentResolver.call()` 重置/读取计数，避免依赖静态变量跨进程行为。
+- `MainActivitySharedIntentTest` 新增远程视觉分享计数合同：
+  支持视觉时，混合分享中的 PNG 图片流打开 1 次、文本附件流打开 0 次、图片 OCR 调用 0 次；
+  不支持视觉时，图片流打开 0 次、文本流打开 0 次、图片 OCR 调用 0 次。
+- 支持视觉的 direct reader 测试精确断言 tiny PNG 被转为
+  `data:image/png;base64,...`，并确认 remote vision prompt 不含文件名、URI 或文本附件内容。
+- `RemoteChatRuntimeTest` 新增 HTTP fixture：实际远程请求必须使用 OpenAI 兼容
+  `image_url` content part，且 `stream=true`。
+- `shareAndPickerInput` release flow evidence 新增 exact-value 字段：
+  `remoteVisionHttpFixtureImagePartCount=1`、支持视觉图片流 `1`、OCR `0`、
+  不支持视觉图片流 `0`、OCR `0`、混合分享受保护非图片数 `1`。
+- release flow collector、formal recorder、validation verifier 和脚本自测已同步这些字段；
+  collector 的 approved-record 校验也补齐，避免只跑 collector 时漏过弱证据。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntimeTest.sendWithImageUsesOpenAiVisionContentPartInHttpFixture'
+./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
+scripts/test_validation_scripts.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/remote-vision-share-gate-current INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySharedIntentTest' INSTRUMENTATION_TIMEOUT_SECONDS=300 scripts/verify_emulator.sh
+bash scripts/verify_local.sh
+AVD_NAME=pocketmind_api36_arm64 EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 ARTIFACT_DIR=build/verification/remote-vision-share-smoke-current INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivitySmokeTest' INSTRUMENTATION_TIMEOUT_SECONDS=240 scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：Runtime HTTP fixture JVM 测试覆盖远程视觉请求体。
+- 通过：validation script self-tests，覆盖新增 exact-value evidence 字段和弱证据拒绝。
+- 通过：API 36 targeted emulator，`build/verification/remote-vision-share-gate-current`
+  记录 `MainActivitySharedIntentTest` 的 `OK (5 tests)`。
+- 通过：`verify_local` 全链路，包括 unit test、lint、debug/release APK、release AAB 和 artifact scan。
+- 通过：API 36 targeted emulator smoke，`build/verification/remote-vision-share-smoke-current`
+  记录 `MainActivitySmokeTest` 的 `OK (6 tests)`。
+
+## 2026-06-07 Remote share unconfigured and cancellation polish
+
+本轮覆盖项：
+
+- 远程模式但远程模型未配置时，分享图片/附件不再只显示泛化“已保护分享内容”；
+  UI 会明确提示需要先配置远程模型，并声明本次未读取、OCR 或发送分享内容。
+- 已暂存的远程图片草稿如果在发送前远程配置被清空，发送时会 fail-closed：
+  不调用 remote runtime，不把图片 prompt 写入后续远程 history，并给出本地配置提示。
+- 远程生成 `stopGeneration()` 新增 ViewModel 级回归：远程流挂起时会调用
+  `remoteRuntime.stop()`、取消 active Agent run，并把 UI 恢复为非 busy/generating。
+- 远程工具结果续写确认新增取消回归：用户取消后不会发起第二次远程调用，
+  Agent run 进入失败路径，工具结果不会发送到远程模型。
+- 远程发送披露文案按图片数量分支：0 张图片时不再说“图片字节会发往该远程地址”
+  或“图片和响应”，避免隐私文案过度声明。
+- `MainActivitySharedIntentTest` 新增未配置远程图片分享的模拟器合同：
+  不出现附件草稿，不读取图片流，不暴露文件名或 `data:image`。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' --tests 'com.bytedance.zgx.pocketmind.MainActivitySharedInputModeTest' --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySharedIntentTest#actionSendTextUsesProtectedSignalWhenActivityStartsInRemoteMode
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySharedIntentTest
+git diff --check
+rg -n --hidden -g '!build/**' -g '!**/.git/**' 'sk-[A-Za-z0-9]{16,}' . || true
+```
+
+结果：
+
+- 通过：目标 JVM 测试覆盖远程未配置分享提示、远程图片草稿 fail-closed、
+  远程 stop、远程工具续写取消和披露文案分支。
+- 通过：API 36 emulator targeted 单测，远程文本分享保护可见。
+- 通过：API 36 emulator `MainActivitySharedIntentTest`，记录 `OK (6 tests)`，
+  覆盖 ACTION_SEND 文本、远程文本保护、远程视觉图片、未配置远程图片配置提示、
+  远程视觉不支持保护和 reader 流读取计数。
+- 通过：diff whitespace 检查。
+- 通过：工作区敏感配置扫描未命中用户提供的 API key、远程 endpoint 或模型名 literal。
+
+## 2026-06-07 First-screen positioning and remote clear guard
+
+本轮覆盖项：
+
+- 顶栏从“标题和五个入口挤在同一行”改为“定位标题行 + 操作入口行”，小屏首屏可完整显示
+  `PocketMind` 与“隐私优先的随身 AI 助手”。
+- 空状态主卡标题从“开始和 PocketMind 对话”收敛为“隐私优先的随身 AI 助手”，副标题第一句直接说明：
+  本地可用、远程多模态可选、设备动作必须确认执行。
+- `MainActivitySmokeTest` 锁住首屏定位副标题和主卡主定位第一眼可见。
+- 新增 `clearingRemoteConfigWhileInRemoteModeBlocksRemoteSend` JVM 回归：
+  用户清除远程配置后继续发送，不调用 remote runtime，不进入 router，
+  UI 提示“请配置远程模型”，`ModelHealth` 标记远程模型未配置。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.clearingRemoteConfigWhileInRemoteModeBlocksRemoteSend' --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager
+./gradlew :app:installDebug
+adb shell am start -n com.bytedance.zgx.pocketmind/.MainActivity --ez com.bytedance.zgx.pocketmind.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK true
+adb exec-out screencap -p > /tmp/pocketmind-positioning-first-screen.png
+```
+
+结果：
+
+- 通过：debug 和 androidTest Kotlin 编译。
+- 通过：目标 JVM 测试覆盖首屏定位文案和清除远程配置后的发送拦截。
+- 通过：API 36 emulator `MainActivitySmokeTest#chatShellShowsModelManager`。
+- 通过：截图 `/tmp/pocketmind-positioning-first-screen.png` 显示首屏主卡标题为
+  “隐私优先的随身 AI 助手”，顶栏完整显示 `PocketMind` 与定位副标题。
+
+## 2026-06-07 Store positioning, privacy entry, and release screenshot contract
+
+本轮覆盖项：
+
+- 首页空状态主卡新增可见“隐私说明”入口；不再只依赖顶栏盾牌图标。
+- `MainActivitySmokeTest` 新增首页隐私入口打开 App 内隐私说明页的模拟器合同，并把
+  首屏可滚动区域的能力胶囊断言改为滚动可达。
+- `docs/store_policy_record.json` 的 Store listing 草稿收敛为：
+  privacy-first pocket AI、local usable、optional remote multimodal、confirmed device actions。
+- `verify_store_policy_record.sh` 新增 Store listing 主定位检查；脚本自测新增缺失主定位的负例。
+- `docs/privacy_notice.md` 开头从 internal testing 草稿口径收敛为 Android release candidate
+  隐私边界说明；同步 store policy 和 privacy review 的 notice SHA / evidence SHA。
+- release screenshot capture / validation 合同不再要求旧文案“开始和 PocketMind 对话”，
+  改为要求 `PocketMind | 隐私优先的随身 AI 助手 | 为什么装它 | 模型管理`。
+
+验证命令：
+
+```bash
+bash -n scripts/capture_release_screenshots.sh scripts/verify_release_validation_record.sh scripts/verify_store_policy_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest'
+scripts/verify_store_policy_record.sh --report build/verification/store-policy-current/store-policy.properties || true
+scripts/verify_privacy_review.sh --report build/verification/privacy-review-current/privacy-review.properties || true
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySmokeTest#chatShellShowsModelManager,com.bytedance.zgx.pocketmind.MainActivitySmokeTest#homePrivacyEntryOpensAppPrivacyNotice
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 Store listing 主定位正例和缺失主定位负例。
+- 通过：目标 JVM display contract。
+- 通过：API 36 emulator 两条 Smoke 测试，覆盖首页主定位和首页隐私说明入口。
+- 通过：store policy 当前记录只因 pending approval、占位联系邮箱/隐私政策 URL、
+  reviewer/date 缺失失败；不再因 privacy SHA 或 listing 主定位失败。
+- 通过：privacy review 当前记录只因 release/security/legal pending 失败；不再因
+  notice SHA 或 evidence SHA 失败。
+
+剩余风险：
+
+- 麦克风系统权限拒绝/恢复、设备动作确认后 ActivityResult 权限拒绝仍需补模拟器测试。
+- 真实联系邮箱、公开隐私政策 URL、release/security/legal/store reviewer 和日期仍未填写；
+  因此公发门禁继续 fail-closed。
+
+## 2026-06-07 Remote vision unsupported share Activity contract
+
+本轮覆盖项：
+
+- `MainActivitySharedIntentTest` 新增远程模型已配置但关闭图片输入时的 ACTION_SEND 图片分享测试。
+- 测试从 Activity 分享入口进入，验证 UI 明确提示当前远程模型未启用图片输入能力，
+  并声明未读取、OCR 或发送图片。
+- 测试断言不会出现 `pending_shared_input_strip`，不会泄漏 `counting-image.png` 或 `data:image`。
+- `CountingSharedContentProvider` 的 image/text open count 均保持 0，证明该路径不打开图片流、
+  不触发 OCR，也不读取文本附件。
+- Debug-only remote config extra 增加 `supportsVisionInput`，让截图/Activity 测试可以稳定覆盖
+  远程视觉开启和关闭两类配置。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.MainActivitySharedInputModeTest'
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySharedIntentTest#actionSendImageInRemoteModeWithVisionDisabledShowsUnsupportedNoticeWithoutReadingImage
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivitySharedIntentTest
+```
+
+结果：
+
+- 通过：debug 和 androidTest Kotlin 编译。
+- 通过：JVM mode contract，覆盖远程已配置但不支持视觉时选择 `RemoteVisionUnsupportedSignal`。
+- 通过：API 36 emulator targeted 新用例，覆盖 Activity 分享入口的不支持图片提示和 0 读取计数。
+- 通过：API 36 emulator `MainActivitySharedIntentTest` 整组 7 条用例。
+
+## 2026-06-07 Contact runtime permission denial ActivityResult
+
+本轮覆盖项：
+
+- `MainActivityRuntimePermissionUiTest` 新增联系人查询确认后真实系统权限拒绝链路：
+  prompt -> 工具确认页 -> 系统权限弹窗 -> 拒绝 -> 确认页关闭 -> 状态显示
+  “权限被拒，工具未执行” -> 无工具结果。
+- 新增 UiAutomator androidTest 依赖，用于点击 Android 系统权限弹窗；Compose test 仍只负责 App 内 UI。
+- `Composer` 对工具未执行/权限拒绝/特殊权限拒绝/屏幕截图同意取消等安全结果保持紧凑状态可见，
+  并提供 `app_status_text` 测试锚点。
+- 权限重置 helper 等待 shell 命令完成，并在拒绝用例结束后清理 `READ_CONTACTS` user-set/user-fixed
+  标记，避免测试间污染。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest#contactLookupConfirmThenDenyPermissionShowsDeniedStateAndNoToolResult
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.AgentRuntimePermissionPolicyTest' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt'
+./gradlew :app:compileDebugAndroidTestKotlin && ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivityRuntimePermissionUiTest
+```
+
+结果：
+
+- 通过：debug 和 androidTest Kotlin 编译。
+- 通过：API 36 emulator targeted 新用例，覆盖 ActivityResult 系统拒绝、状态可见、权限仍 denied、
+  无 `工具执行结果`。
+- 通过：JVM 权限策略和 ViewModel 拒绝逻辑定向测试。
+- 通过：API 36 emulator `MainActivityRuntimePermissionUiTest` 整组 6 条用例。
+
+剩余风险：
+
+- 麦克风系统权限拒绝/恢复还未补真实系统弹窗模拟器测试。
+- production signing、公开隐私政策 URL、Store/Legal/Security/Release 人工审批仍未完成；
+  公发门禁继续 fail-closed。
+
+## 2026-06-07 Voice microphone permission denial Activity contract
+
+本轮覆盖项：
+
+- 新增 `MainActivityVoicePermissionUiTest`，覆盖真实 Activity 语音入口：
+  点击麦克风 -> App 内语音输入说明 -> 确认 -> Android 系统麦克风权限弹窗 -> 拒绝。
+- 测试断言拒绝后 `app_status_text` 显示“未授权麦克风权限”，`voice_capture_bar` 不出现，
+  `composer_input` 仍可用，`RECORD_AUDIO` 仍为 denied。
+- 测试断言拒绝后语音入口仍可再次打开 App 内说明弹窗，证明恢复入口仍可达；
+  不依赖模拟器是否有可用 `SpeechRecognizer`。
+- Capability Matrix / `docs/capability_matrix.json` 将 `MainActivityVoicePermissionUiTest`
+  纳入 `voice_transcript_input` required tests；文档锚点同步锁定真实系统拒绝证据。
+- `AndroidManifestTest` 新增 `RECORD_AUDIO` 声明断言，避免语音能力和 Manifest 脱节。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest'
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.MainActivityVoicePermissionUiTest
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending' --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest'
+./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.bytedance.zgx.pocketmind.PocketMindVoiceInputConsentUiTest
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.AndroidManifestTest' --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest' --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending'
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=0 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
+  BOOT_TIMEOUT_SECONDS=180 \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityVoicePermissionUiTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=240 LOGCAT_TAIL_LINES=5000 \
+  ARTIFACT_DIR=build/verification/voice-permission-denial-current \
+  scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：androidTest Kotlin 编译、Capability Matrix 文档契约、Manifest 契约和 ViewModel
+  语音权限失败/恢复状态机定向测试。
+- 通过：API 36 emulator `MainActivityVoicePermissionUiTest`，裸 Gradle connected test 1/1 通过。
+- 通过：API 36 emulator `PocketMindVoiceInputConsentUiTest`，App 内语音显著同意弹窗 1/1 通过。
+- 通过：`scripts/verify_emulator.sh` 生成
+  `build/verification/voice-permission-denial-current/device-verification.properties`，
+  记录 `status=passed`、`instrumentation_test_count=1`、
+  `instrumentation_class=com.bytedance.zgx.pocketmind.MainActivityVoicePermissionUiTest`。
+- 通过：`build/verification/voice-permission-denial-current/emulator-verification.properties`
+  记录 `status=passed`、`api_level=36`、`abi=arm64-v8a`、`avd=pocketmind_api36_arm64`。
+
+剩余风险：
+
+- 本轮不把真实 `SpeechRecognizer.onResults()` 进入输入框写成自动化通过；该路径仍由
+  ViewModel draft 测试和后续真机/手工语音验收共同覆盖。
+- Android 设置页恢复授权、永久拒绝后的设置跳转和真实语音服务可用性仍属于手工验收或后续更专门的设备测试。
+- production signing、公开隐私政策 URL、Store/Legal/Security/Release 人工审批仍未完成；
+  公发门禁继续 fail-closed。
+
+## 2026-06-07 External outcome fail-closed UI selections
+
+本轮覆盖项：
+
+- `PocketMindExternalOutcomeUiTest` 从单一“已完成”按钮覆盖扩展为三种外部结果选择：
+  `Completed`、`NotCompleted`、`OpenedOnly`。
+- 测试仍先断言外部结果确认 sheet 和三个按钮全部可见，再点击指定按钮，
+  验证 UI 写回同一个 `PendingExternalOutcomeConfirmation` 和对应
+  `AgentExternalOutcome`。
+- 这条证据锁定产品原则：外部 Activity、分享面板、草稿页或 App 启动页打开后，
+  UI 必须要求用户显式记录结果；“未完成”和“只是打开了”不能被误记成完成。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=0 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
+  BOOT_TIMEOUT_SECONDS=180 \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.PocketMindExternalOutcomeUiTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=240 LOGCAT_TAIL_LINES=5000 \
+  ARTIFACT_DIR=build/verification/external-outcome-ui-current \
+  scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：Debug AndroidTest Kotlin 编译。
+- 通过：API 36 emulator `PocketMindExternalOutcomeUiTest` 3/3：
+  `externalOutcomeSheetReportsCompletedSelection`、
+  `externalOutcomeSheetReportsNotCompletedSelection`、
+  `externalOutcomeSheetReportsOpenedOnlySelection`。
+- 通过：`scripts/verify_emulator.sh` 生成
+  `build/verification/external-outcome-ui-current/device-verification.properties`，
+  记录 `status=passed`、`instrumentation_test_count=3`、
+  `instrumentation_class=com.bytedance.zgx.pocketmind.PocketMindExternalOutcomeUiTest`。
+- 通过：敏感配置扫描未发现 DeepSeek endpoint、模型名或 API key 被写入仓库。
+
+剩余风险：
+
+- 本轮只覆盖外部结果确认 sheet 的 UI 写回；真实外部 App 内部操作结果仍只能由用户补录，
+  App 不应自动推断。
+- Godel 审计指出语音 `SpeechRecognizer.onResults()` 到 composer 输入框还缺 UI 自动化证据；
+  该项已在后续 `Voice transcript draft composer UI contract` 补齐。
+- production signing、公开隐私政策 URL、Store/Legal/Security/Release 人工审批仍未完成；
+  公发门禁继续 fail-closed。
+
+## 2026-06-07 Voice transcript draft composer UI contract
+
+本轮覆盖项：
+
+- `PocketMindVoiceInputConsentUiTest` 新增 `voiceTranscriptDraftFillsComposerOnceWithoutSending`。
+- 测试先在 `composer_input` 输入已有文本，再注入
+  `ChatUiState.voiceInputDraft = VoiceInputDraft(id = 42, text = "  语音转写结果  ")`。
+- 测试断言输入框最终为 `已有内容\n语音转写结果`，证明 UI 层会清理转写文本并追加到
+  composer，而不是直接发送。
+- 测试断言 `onVoiceInputConsumed(42)` 只触发一次，并且 `onSendMessage` 未触发；
+  强化语音转写“只生成草稿、不自动发送”的产品边界。
+- `PocketMindVoiceInputConsentUiTest` 抽出共用 `PocketMindScreen` helper，
+  保留原有语音显著同意弹窗覆盖。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugAndroidTestKotlin
+./gradlew :app:testDebugUnitTest --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.voiceTranscriptDraftIsOneShotAndDoesNotSendMessage'
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=0 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
+  BOOT_TIMEOUT_SECONDS=180 \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.PocketMindVoiceInputConsentUiTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=240 LOGCAT_TAIL_LINES=5000 \
+  ARTIFACT_DIR=build/verification/voice-transcript-draft-ui-current \
+  scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：Debug AndroidTest Kotlin 编译。
+- 通过：JVM `voiceTranscriptDraftIsOneShotAndDoesNotSendMessage`，覆盖转写清洗、
+  draft 消费、不新增消息、不触发远程模型或工具。
+- 通过：API 36 emulator `PocketMindVoiceInputConsentUiTest` 2/2：
+  `voiceButtonRequiresAppConsentBeforeStartingVoiceInput`、
+  `voiceTranscriptDraftFillsComposerOnceWithoutSending`。
+- 通过：`scripts/verify_emulator.sh` 生成
+  `build/verification/voice-transcript-draft-ui-current/device-verification.properties`，
+  记录 `status=passed`、`instrumentation_test_count=2`、
+  `instrumentation_class=com.bytedance.zgx.pocketmind.PocketMindVoiceInputConsentUiTest`。
+
+剩余风险：
+
+- 本轮证明 `voiceInputDraft` 进入 composer；真实系统 `SpeechRecognizer` 服务可用性、
+  语言识别质量、永久拒绝后设置页恢复仍属于真机/手工验收或后续专项设备测试。
+- production signing、公开隐私政策 URL、Store/Legal/Security/Release 人工审批仍未完成；
+  公发门禁继续 fail-closed。
+
+## 2026-06-07 First-run download failure recovery
+
+本轮覆盖项：
+
+- 首启向导下载入队后不再立即持久标记 setup dismissed；下载期间仍临时隐藏首启面板，
+  但只有基础能力包成功准备后才写入 dismissed。
+- `DownloadManager.STATUS_FAILED + ERROR_INSUFFICIENT_SPACE` 等下载失败后，
+  如果这是首启向导触发且本地模型仍未就绪，UI 状态会恢复 `showFirstRunSetup=true`，
+  让用户继续看到“为什么下载、空间不足、可先远程/导入”的恢复入口。
+- 新增 `PocketMindViewModelTest.setupModelDownloadFailureAfterEnqueueRestoresFirstRunRecovery`，
+  覆盖下载已入队、目标文件写入 partial、随后存储不足失败的交叉状态。
+- 保留普通下载失败合同：pending download 清理、partial 文件删除、进度清零和
+  “下载失败：存储空间不足”文案。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugKotlin
+./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.setupModelDownloadFailureAfterEnqueueRestoresFirstRunRecovery' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startSetupModelDownloadKeepsFirstRunOpenWhenPreflightFails' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.monitorDownloadFailureClearsPendingDeletesTargetAndShowsReason'
+./gradlew :app:compileDebugAndroidTestKotlin
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  ANDROID_SERIAL=emulator-5554 CLEAN_DEVICE=0 EMULATOR_SELECT_TIMEOUT_SECONDS=60 \
+  BOOT_TIMEOUT_SECONDS=180 \
+  INSTRUMENTATION_CLASS='com.bytedance.zgx.pocketmind.MainActivityFirstRunSetupUiTest' \
+  INSTRUMENTATION_TIMEOUT_SECONDS=240 LOGCAT_TAIL_LINES=5000 \
+  ARTIFACT_DIR=build/verification/first-run-download-failure-recovery-current \
+  scripts/verify_emulator.sh
+```
+
+结果：
+
+- 通过：Debug Kotlin 编译。
+- 通过：JVM 首启下载预检失败、入队后存储不足失败、普通下载失败三条定向回归。
+- 通过：Debug AndroidTest Kotlin 编译。
+- 通过：API 36 emulator `MainActivityFirstRunSetupUiTest` 1/1，
+  确认首启向导、默认基础对话模型、下载按钮和跳过恢复路径仍可用。
+- 通过：`scripts/verify_emulator.sh` 生成
+  `build/verification/first-run-download-failure-recovery-current/device-verification.properties`，
+  记录 `status=passed`、`instrumentation_test_count=1`、
+  `instrumentation_class=com.bytedance.zgx.pocketmind.MainActivityFirstRunSetupUiTest`。
+
+剩余风险：
+
+- 本轮通过 JVM 模拟 DownloadManager 存储不足，不等于真实低存储设备矩阵已经完成。
+- 真机/不同 Android 版本的真实下载、校验、加载耗时和空间压力仍需要发布前矩阵验收。
+- production signing、公开隐私政策 URL、Store/Legal/Security/Release 人工审批仍未完成；
+  公发门禁继续 fail-closed。
+
+## 2026-06-07 API 36 regression evidence refresh after core flow fixes
+
+本轮覆盖项：
+
+- 当前 `app/src/androidTest` 源测试数已增长到 51；旧
+  `product-contract-regression-current` report 仍绑定 35 个 AndroidTest，
+  release flow matrix candidate 因 stale source count 正确拒绝复用旧证据。
+- 重新执行 API 36 arm64 clean-device 完整模拟器回归，刷新
+  `build/verification/product-contract-regression-current/regression-emulator.properties`。
+- `docs/release_validation_record.json` 的 `emulatorRegression.reportSha256` 和
+  API 36 `apiMatrix.evidenceSha256` 同步到当前 51-test 回归 report。
+- 重新生成 release flow matrix candidate；它不再因为 stale source count 或 SHA mismatch
+  失败，而是继续因正式 flow evidence 未批准而 fail closed。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android/sdk" \
+  ANDROID_SERIAL=emulator-5554 AVD_NAME=pocketmind_api36_arm64 CLEAN_DEVICE=1 \
+  EMULATOR_SELECT_TIMEOUT_SECONDS=120 BOOT_TIMEOUT_SECONDS=360 \
+  ARTIFACT_DIR=build/verification/product-contract-regression-current \
+  REGRESSION_REPORT_FILE=build/verification/product-contract-regression-current/regression-emulator.properties \
+  scripts/regression_emulator.sh
+
+ARTIFACT_DIR=build/verification/release-flow-matrix-after-core-fixes-current \
+  REPORT_FILE=build/verification/release-flow-matrix-after-core-fixes-current/release-flow-matrix-candidate-evidence.properties \
+  scripts/collect_release_flow_matrix_evidence.sh
+
+scripts/verify_release_validation_record.sh \
+  --report build/verification/release-validation-after-core-fixes-current.properties
+```
+
+结果：
+
+- 通过：API 36 arm64 `pocketmind_api36_arm64` clean-device 完整模拟器回归，
+  `actual_android_test_count=51`、`source_android_test_count=51`、
+  `expected_android_test_count=51`。
+- 通过：当前 regression report SHA-256 为
+  `bcc2fb1ceee0d37d3a2204ea533256b4d24891b59c3f69fc051b4a36a6f5bfe0`，
+  已同步到 release validation record 的 emulator regression 和 API 36 matrix entry。
+- 预期失败：`collect_release_flow_matrix_evidence.sh` 生成 candidate evidence，
+  `sourceAndroidTestCount=51`，失败目标为 `flow-matrix`，原因是正式 flow evidence
+  仍未 approved。
+- 预期失败：`verify_release_validation_record.sh` 不再报告 API 36 SHA/source-count
+  mismatch；当前失败项集中在 non-emulator physical device、API 28/32/33/34、
+  manual acceptance、正式 flow evidence、截图视觉回归、performance sanity 和 reviewer/date。
+
+剩余风险：
+
+- 本轮只刷新 API 36 当前源码面的完整模拟器证据，不替代 API 28/32/33/34 矩阵、
+  真机、性能基线、视觉回归截图或人工验收。
+- production signing、公开隐私政策 URL、Store/Legal/Security/Release 人工审批仍未完成；
+  公发门禁继续 fail-closed。
+
+## 2026-06-07 release gate review hardening
+
+本轮覆盖项：
+
+- 隐私扫描和 Android 制品扫描不再向 stderr/report 暴露 raw secret；artifact 扫描也不再把
+  sensitive string grep 结果落到可预测 `/tmp` 文件。
+- Store policy 和 Privacy review record 不再只信任 evidence 路径/SHA，同时校验
+  approved status、approval target、notice path/SHA、scope 和 required decision。
+- Release operations record 绑定当前 commit、release artifact、mapping 和 signing cert；
+  local/archive CI 子 evidence 必须声明并匹配 workflow/runId/commit/job。
+- Release validation record 在传入当前 artifact SHA 时，同时校验 emulator、physical device、
+  API matrix、manual acceptance、release flow、screenshots 和 performance evidence。
+- manual/flow/screenshot/emulator evidence 生成脚本新增 `RELEASE_ARTIFACT_SHA256` 输出支持。
+
+验证命令：
+
+```bash
+bash -n scripts/privacy_scan.sh scripts/scan_android_artifacts.sh \
+  scripts/verify_store_policy_record.sh scripts/verify_privacy_review.sh \
+  scripts/verify_release_operations_record.sh scripts/verify_release_validation_record.sh \
+  scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+
+bash scripts/test_validation_scripts.sh
+
+git diff --check
+```
+
+结果：
+
+- 通过：validation script tests 全量通过。
+- 通过：新增 negative tests 覆盖 pending/candidate review evidence、raw secret redaction、
+  stale release artifact、stale mapping/signing cert 和 stale CI child evidence。
+- 通过：diff whitespace 检查。
+
+剩余风险：
+
+- 本轮强化的是门禁和证据契约，不替代真实 API matrix、真机、性能基线、截图视觉回归和人工审批。
+- 已有 pending release record 会继续 fail-closed，直到重新生成并批准绑定当前 artifact 的证据。

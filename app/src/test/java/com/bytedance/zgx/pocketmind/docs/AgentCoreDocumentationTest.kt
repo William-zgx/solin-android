@@ -47,6 +47,25 @@ class AgentCoreDocumentationTest {
     }
 
     @Test
+    fun readmeStartsWithProductContractBeforeImplementationDetails() {
+        val readme = readRepoFile("README.md")
+
+        val contractIndex = readme.indexOf("## Product Contract")
+        val implementationIndex = readme.indexOf("## Implementation Highlights")
+        val firstScreenIndex = readme.indexOf("## First Screen And Trust Flow")
+
+        assertTrue("README must introduce the product contract", contractIndex >= 0)
+        assertTrue("README must keep implementation details after the product contract", implementationIndex > contractIndex)
+        assertTrue("README must document the first-screen trust flow", firstScreenIndex > implementationIndex)
+        assertTrue(readme.contains("Local by default"))
+        assertTrue(readme.contains("Remote is optional"))
+        assertTrue(readme.contains("Actions are confirmed"))
+        assertTrue(readme.contains("Users stay in control"))
+        assertTrue(readme.contains("remote sends"))
+        assertTrue(readme.contains("device actions still require confirmation"))
+    }
+
+    @Test
     fun validationDocsUseRegressionEmulatorPassedArtifactAsFullRegressionContract() {
         listOf(
             "README.md" to readRepoFile("README.md"),
@@ -68,6 +87,50 @@ class AgentCoreDocumentationTest {
         assertTrue(report.contains("`验证命令：`"))
         assertTrue(report.contains("`结果：`"))
         assertTrue(report.contains("未执行的设备、模拟器或真机项必须明确说明"))
+        assertTrue(report.contains("自动回归与必须手工验收的结论必须分开记录"))
+        assertTrue(report.contains("语音输入、Android 系统文档选择器和"))
+        assertTrue(report.contains("MediaProjection 前台同意不能因为脚本"))
+    }
+
+    @Test
+    fun acceptanceDocsSeparateAutomaticRegressionFromManualSystemEntryChecks() {
+        val phoneAcceptance = readRepoFile("docs/phone_acceptance.md")
+        val releaseChecklist = readRepoFile("docs/release_checklist.md")
+        val readme = readRepoFile("README.md")
+
+        assertTrue(phoneAcceptance.contains("## 自动回归"))
+        assertTrue(phoneAcceptance.contains("## 必须手工验收的系统入口"))
+        assertTrue(phoneAcceptance.contains("语音输入必须在设备上点麦克风入口"))
+        assertTrue(phoneAcceptance.contains("系统文档选择器必须从输入区附件按钮打开"))
+        assertTrue(phoneAcceptance.contains("Android MediaProjection 前台同意弹窗"))
+        assertTrue(phoneAcceptance.contains("不能用脚本通过、直接调用 ViewModel/reader"))
+
+        assertTrue(releaseChecklist.contains("Manual acceptance records voice input"))
+        assertTrue(releaseChecklist.contains("Android system document picker"))
+        assertTrue(releaseChecklist.contains("MediaProjection consent separately"))
+
+        assertTrue(readme.contains("Scripted regression and manual acceptance must be recorded separately"))
+        assertTrue(readme.contains("Voice"))
+        assertTrue(readme.contains("Android system document picker"))
+        assertTrue(readme.contains("foreground"))
+        assertTrue(readme.contains("MediaProjection consent sheet"))
+    }
+
+    @Test
+    fun docsDoNotOverstateTypedToolResultCardsInChat() {
+        val readme = readRepoFile("README.md")
+        val phoneAcceptance = readRepoFile("docs/phone_acceptance.md")
+        val agentCore = readRepoFile("docs/agent_core_modules.md")
+
+        assertTrue(readme.contains("The chat surface only shows a safe result"))
+        assertTrue(readme.contains("through the trace/audit surfaces, not a typed chat card"))
+        assertTrue(phoneAcceptance.contains("聊天中只应追加安全摘要"))
+        assertTrue(phoneAcceptance.contains("通过 Agent trace / audit 入口查看"))
+        assertTrue(agentCore.contains("Surface safe execution summaries to the UI"))
+        assertTrue(agentCore.contains("remain in Agent trace and audit"))
+
+        assertFalse(phoneAcceptance.contains("聊天中应追加一条结构化执行结果"))
+        assertFalse(readme.contains("Agent run trace, audit log, and chat session"))
     }
 
     @Test
@@ -115,13 +178,13 @@ class AgentCoreDocumentationTest {
         assertTrue(backgroundTasks.contains("LocalOnly"))
         assertTrue(backgroundTasks.contains("requiresLocalModel=true"))
         assertTrue(backgroundTasks.contains("never calls schedule/cancel/set/disable"))
-        assertTrue(backgroundTasks.contains("`body`"))
+        assertTrue(backgroundTasks.contains("title/body"))
         assertTrue(backgroundTasks.contains("omitted"))
         assertTrue(backgroundTasks.contains("tasksJson"))
         assertTrue(backgroundTasks.contains("policyJson"))
         assertTrue(
             backgroundTasks.contains(
-                "DeviceContextToolExecutorTest.backgroundTasksQueryReturnsLocalOnlyTaskAndPolicyMetadataWithoutBodies",
+                "DeviceContextToolExecutorTest.backgroundTasksQueryReturnsLocalOnlyTaskAndPolicyMetadataWithoutReminderContent",
             ),
         )
         assertTrue(

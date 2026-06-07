@@ -47,6 +47,11 @@ Current status:
   satisfy `privacy=LocalOnly` and `requiresLocalModel=true`; schema-valid but
   remote-eligible private output is converted into a non-retryable
   `InvalidResult`.
+- `ToolResult.data` remains a string map for Android/runtime compatibility, so
+  payload fields such as `resultsJson`, `filesJson`, `contactsJson`,
+  `tasksJson`, `policyJson`, and `blocksJson` are declared as JSON-encoded
+  strings with `contentMediaType=application/json` instead of pretending to be
+  arrays or objects in the schema.
 - `ToolSpec.resultContinuationPolicy` separates the tool safety contract from
   answer synthesis. `PublicEvidence` tools such as `web_search` may return
   public evidence to the model; `LocalEvidence` tools such as contacts,
@@ -61,7 +66,21 @@ Current status:
   and declares no device-context, runtime-permission, MediaProjection,
   scheduling, notification, external-navigation, external-share, or other
   side-effect permission. Today this keeps `web_search` batchable and keeps
-  local/private or action tools out of remote batch execution.
+  local/private or action tools out of remote batch execution. Public
+  `web_search` queries can run without confirmation, but the safety policy
+  dynamically moves queries that look like personal data or secrets back to the
+  confirmation path before network access.
+- `web_search` now uses a typed evidence request rather than query-text
+  heuristics. `searchMode=general` stays on the general public search endpoint
+  even when the query contains weather words; `searchMode=weather_current` is
+  the only mode that calls Open-Meteo. The result keeps the legacy top-level
+  `summaryText`/`resultsJson` shape, but `resultsJson` is evidence schema v1
+  with `schemaVersion`, `query`, `searchMode`, `retrievedAt`, `freshness`,
+  `sources`, and bounded `results`.
+- `ToolExecutionBoundary` owns app-side tool timeout/exception mapping and
+  public-evidence batch retry. ViewModel code keeps UI/job/run lifecycle, while
+  thrown executor errors become retryable `ExecutionFailed` results and a
+  public-evidence batch retries only failed retryable request ids once.
 - For tools that declare `privateOutputKeys`, failed, rejected, and cancelled
   results are still not required to satisfy the success schema, but the Tool
   Registry sanitizes their non-success contract: data is rebuilt from a small
@@ -116,10 +135,11 @@ Current status:
   one-shot Android MediaProjection consent flow. Its input/output schema is
   locked to `current_screen` capture, `LocalOnly`, `requiresLocalModel=true`,
   `truncated` status, and bounded OCR text only. The ActivityResult token is
-  kept in memory, consumed once by `CurrentScreenshotOcrProvider`, and is never
+  kept in memory, bound to the pending tool `requestId`, consumed once by
+  `CurrentScreenshotOcrProvider` before a short TTL expires, and is never
   serialized into `ToolRequest`, trace, audit, or pending confirmation rows.
-  Without a fresh foreground MediaProjection consent result, the executor fails
-  closed.
+  Without a fresh matching foreground MediaProjection consent result, the
+  executor fails closed.
 - Tools that may require runtime permissions declare that requirement in
   `ToolSpec` only when the current runtime permission policy can request a
   concrete Android manifest permission. The Activity boundary maps pending tool
@@ -240,6 +260,14 @@ Current status:
   call `observeModelResult()` after generation, so successful answers finish as
   `Completed` instead of being recovered as stale `GeneratingAnswer` failures on
   the next process start.
+- The local LiteRT engine configuration now sets `EngineConfig.maxNumTokens`
+  from `LocalModelTokenLimits.MAX_TOTAL_TOKENS`. For the current Gemma 4
+  `.litertlm` chat assets this is intentionally capped at an app-level 8k
+  total window so conversation restore stays responsive on device. PocketMind
+  budgets local context before each local send: roughly 6k tokens for
+  system/history/current input and 2k tokens reserved for output because the
+  Kotlin Conversation API exposes no separate max-output-token knob. The UI
+  shows the total token window, input budget, and output reserve.
 - Model generation and parse failures now close the active run immediately via
   `failModelGeneration(runId, reason)`. The entry point only applies while the
   run is still `GeneratingAnswer`, appends a failure decision to trace, refreshes
@@ -272,6 +300,18 @@ Current status:
   registry validation, safety evaluation, trace/audit recording, and explicit
   user confirmation before any Android tool execution. The legacy remote
   `send()` text stream remains available for pure chat compatibility.
+- Remote mode uses `AgentRunOptions(initialPlanningMode=ModelFirstRemoteTools)`
+  for the initial turn, with a direct built-in Skill preflight. Explicit
+  built-in Skills still produce local confirmations or local no-confirmation
+  tool execution first, protecting clipboard, contacts, files, screen text, OCR,
+  settings, and direct search workflows. If the input is not claimed by a direct
+  Skill, the remote model can decide whether to call tools through
+  `RemoteToolScope.ModelPlanning`. That scope exposes only remote-safe planning
+  specs: public evidence tools plus non-private, non-critical
+  draft/navigation/share/background-planning tools that still require local
+  confirmation. Local evidence tools such as clipboard, contacts, files,
+  calendar details, notifications, screen text, and OCR remain outside remote
+  planning.
 - Remote OpenAI-compatible chat may also return multiple `tool_calls` in one
   model turn. The runtime treats this as a batch only when every request is a
   public evidence eligible tool such as `web_search`; it validates the whole
@@ -279,10 +319,31 @@ Current status:
   subset, records `PlanToolBatch`, and aggregates successful public results
   into one continuation prompt for model synthesis. This solves comparison and
   multi-evidence questions generically rather than hard-coding weather or city
-  logic in the tool layer. Batch tool execution fail-closes through ordinary
-  tool observation: thrown executor errors become failed `ToolResult`s, invalid
-  or local-only batch results fail the run, and cancelled results cancel the
-  Agent run instead of being reported as generic failures.
+  logic in the tool layer. Batch tool execution retries retryable per-request
+  failures once before observation, then fail-closes through ordinary tool
+  observation: thrown executor errors become failed `ToolResult`s, invalid or
+  local-only batch results fail the run, and cancelled results cancel the Agent
+  run instead of being reported as generic failures.
+- Batch execution isolates per-tool executor cancellation: a single tool's own
+  `CancellationException` becomes that request's `Cancelled` result while
+  sibling public evidence calls can still report their results. Parent job
+  cancellation, such as the user stopping the active generation, still cancels
+  the whole batch.
+- Streaming `tool_calls` require stable tool-call identity. Indexed chunks are
+  merged by `index`; unindexed single-call continuations can still merge, but
+  ambiguous unindexed multi-tool argument fragments fail closed before any tool
+  execution so arguments cannot be attached to the wrong request.
+- The remote chat system prompt and `web_search` tool description explicitly
+  describe evidence-first tool use: for comparison, difference, summary, or
+  cross-check questions, the model should issue independent public read-only
+  calls for each evidence target when needed, then synthesize after observation.
+  The decomposition remains a model-planning responsibility; the Android
+  runtime only validates, executes eligible public batches concurrently, and
+  rejects unsafe mixtures before any tool starts.
+- Public evidence continuations keep the remote tool scope restricted to
+  public read-only evidence tools. Remote plain text is treated as answer text;
+  only structured remote `tool_calls` can request tools, while inline
+  `call:tool{...}` parsing remains a local-model-only protocol.
 - Local model answers can also hand back an explicit, whole-output
   `call:function{...}` request. That protocol is parsed strictly: ordinary
   answers are left alone, malformed calls and unknown tools fail closed, and
@@ -356,6 +417,11 @@ Current status:
   clear the pending/checkpoint recovery rows. Plain pending confirmations
   without a `SkillPlan` do not require a checkpoint, and saving a plain pending
   clears any stale checkpoint for that run/request.
+- If a pending Skill tool argument is bound from earlier Skill outputs, restore
+  is allowed only when that argument target is also in the current tool's
+  pending-argument allowlist. Payload-bearing targets such as `share_text.text`
+  fail closed after restart with an unrestorable pending-confirmation trace
+  instead of restoring a confirmation with missing parameters.
 - Pending confirmation and skill checkpoint writes/deletes go through Room
   transaction helpers so restore never observes a pending row and checkpoint
   that were saved or removed separately.
@@ -547,10 +613,18 @@ Tests:
 - `AgentLoopRuntimeTest.replannedToolCannotReuseExistingRequestId`
 - `AgentLoopRuntimeTest.remoteModelMultiplePublicEvidenceToolCallsPlanBatchWithoutConfirmation`
 - `AgentLoopRuntimeTest.remoteModelMixedToolBatchIsRejectedAsWholeBeforeAnyToolRequest`
+- `AgentLoopRuntimeTest.modelFirstRemoteToolsSkipsActionRuntimeForNonSkillInput`
+- `AgentLoopRuntimeTest.modelFirstRemoteToolsKeepsDirectSkillPreflightLocal`
+- `AgentLoopRuntimeTest.modelFirstRemoteToolsKeepsDirectPublicEvidenceSkillLocal`
+- `AgentLoopRuntimeTest.defaultRuleFirstStillPlansActionLikeInputBeforeModelAnswer`
+- `AssistantOrchestratorTest.remotePlanningToolScopeIncludesSafeActionDraftsAndExcludesLocalEvidence`
 - `AgentLoopRuntimeTest.publicEvidenceToolBatchResultsAggregateAndContinueToModel`
 - `AgentLoopRuntimeTest.publicEvidenceToolBatchCancelledResultCancelsRun`
+- `ToolExecutionBoundaryTest`
+- `LiteRtRuntimeConfigTest.engineConfigUsesExplicitLocalContextWindow`
 - `PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutesAndContinuesWithModel`
 - `PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutorFailureIsObservedAsToolFailure`
+- `PocketMindViewModelTest.remoteModeUsesModelFirstPlanningAndExposesSafePlanningToolsToRemoteRuntime`
 - `AgentLoopRuntimeTest.skillFirstClipboardSummaryShareBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstClipboardContextBypassesActionPlannerAndRequestsConfirmation`
 - `AgentLoopRuntimeTest.skillFirstPlanStillUsesRegistryAndRejectsInvalidToolArguments`
@@ -898,6 +972,13 @@ Current status:
 - Chat history now carries `MessagePrivacy`; messages marked `LocalOnly` are
   persisted for the local conversation but are filtered from remote history, and
   a `LocalOnly` current prompt is rejected before any remote request is made.
+- The Room `chat_messages.privacy` column now defaults to `LocalOnly`, so rows
+  inserted without an explicit privacy value fail closed at the persistence
+  boundary as well as at the remote-history boundary.
+- Remote current prompts also pass a conservative outbound safety gate before
+  runtime calls. Inputs containing personal identifiers, contact details, or
+  token/API-key-like content are recorded as `LocalOnly` with a local notice
+  instead of being uploaded automatically.
 - Local action draft turns are persisted as `LocalOnly` user/assistant messages,
   even when the app is in remote mode. The confirmation flow executes Android
   tools locally and does not make that action text part of later remote-model
@@ -924,26 +1005,32 @@ Current status:
   outputs and trace redaction share the same local-only policy source.
 - Foreground app summaries may require Usage Access. Without the grant the tool
   returns a structured permission failure with the recovery settings action;
-  successful reads remain `LocalOnly` minimal app metadata, not usage history
-  or screen content.
+  successful reads remain `LocalOnly` minimal app metadata with
+  `source=usage_stats_estimate` and `confidence=estimate`, not a window manager
+  truth source, usage history, or screen content.
 - `query_recent_files` supports a `screenshots` kind that filters recent image
   metadata likely belonging to screenshot folders or names. It remains
   metadata-only and returns the same minimal fields as other recent-file reads.
   The MediaStore cursor stops once the requested number of matching metadata
   rows is collected, so the provider does not continue reading later file
   metadata after `maxCount` is satisfied. On Android 13 and above, non-media
-  file kinds such as `documents`, `downloads`, and `others` require system file
-  picker authorization instead of broad MediaStore runtime permissions; those
-  denials are surfaced as non-retryable for the same MediaStore tool.
+  file kinds such as `documents`, `downloads`, and `others` have no executable
+  direct-read authorization path for this MediaStore tool; the schema excludes
+  them and those files must be user-provided through the system file picker or
+  share input. Android 14+ selected photo/video grants are reported with
+  `mediaAccessScope=user_selected_visual_media` instead of being treated as
+  full-library access.
 - `read_recent_screenshot_ocr` is a separate skill-first, confirmed tool for
   explicit "识别最近 1 张截图文字" / recent screenshot OCR requests. It rejects
   multi-screenshot OCR requests, reads only the most recent screenshot pixels
-  after confirmation through `READ_MEDIA_IMAGES` or legacy storage permission,
-  extracts a bounded local OCR text excerpt, marks the result `LocalOnly`,
-  treats `ocrText` as private Skill output, and does not persist or expose the
-  MediaStore id, URI, path, original image, or raw pixels. OCR formatting
-  preserves recognized block/line order when ML Kit provides it, while still
-  omitting coordinates, image labels, captions, pixels, and visual semantics.
+  after confirmation through `READ_MEDIA_IMAGES`, Android 14+
+  `READ_MEDIA_VISUAL_USER_SELECTED` selected visual media access, or legacy
+  storage permission, extracts a bounded local OCR text excerpt, marks the
+  result `LocalOnly`, treats `ocrText` as private Skill output, and does not
+  persist or expose the MediaStore id, URI, path, original image, or raw
+  pixels. OCR formatting preserves recognized block/line order when ML Kit
+  provides it, while still omitting coordinates, image labels, captions,
+  pixels, and visual semantics.
   File metadata returned with the OCR result (`name`, `mimeType`, `sizeBytes`,
   and `lastModifiedMillis`) is treated as private output alongside `ocrText`.
   Remote mode treats the OCR continuation like other protected local context and
@@ -953,8 +1040,10 @@ Current status:
 - `read_recent_image_ocr` is a separate skill-first, confirmed tool for
   explicit "识别最近图片/照片文字" requests. It scans up to 3 recent images, returns
   the first bounded local OCR text excerpt, marks the result `LocalOnly`, and
-  reuses the same trace/audit redaction, remote-mode protection, and private
-  Skill output boundary as screenshot OCR. Plain
+  reports whether the image candidate set came from full visual media or
+  Android 14+ user-selected visual media. It reuses the same trace/audit
+  redaction, remote-mode protection, and private Skill output boundary as
+  screenshot OCR. Plain
   `query_recent_files(kind="images")` remains metadata-only and does not read
   pixels. The parser rejects all/many/more-than-3 image OCR, implementation/API
   or permission discussion, negated reads, and visual/semantic image
@@ -1018,7 +1107,8 @@ Responsibilities:
 
 - Convert confirmed `ToolRequest` values into Android system intents.
 - Return execution success or failure as `ToolResult`.
-- Surface execution results to the UI and Agent trace.
+- Surface safe execution summaries to the UI while structured result details
+  remain in Agent trace and audit.
 
 Current status:
 
@@ -1157,6 +1247,9 @@ Current status:
 - Audit events store request metadata, status, risk, permission names, and a
   short sanitized summary. They intentionally do not store tool arguments,
   prompts, remote responses, or secrets.
+- The Room-backed audit repository prunes old rows after each insert and keeps
+  only the most recent 500 audit events by `createdAtMillis`, preventing audit
+  metadata from growing without bound on-device.
 - Recent persisted audit events are now visible from the background task
   activity entry. The UI is intentionally metadata-only: time, event type, tool
   name, status, risk, permission names, and a parameter-free generated summary.
@@ -1211,6 +1304,7 @@ Tests:
 - `ToolRegistryTest.privateDeviceReadToolsMustRequireConfirmation`
 - `ToolAuditEventTest`
 - `ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess`
+- `ToolAuditRepositoryTest.recordPrunesOldAuditEventsToRetentionLimit`
 - `SessionRepositoryTest`
 - `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
 - `AgentTraceStoreTest.roomStoreClearPendingConfirmationsForRunDeletesPersistedPendingAndCheckpoint`
@@ -1267,6 +1361,9 @@ Current status:
   remote runtime; visible control/status messages are stored as `LocalOnly`.
   `rebuild` reloads persisted records and saved non-control session history into
   the in-memory index.
+- When local memory is disabled, explicit remember/fact commands remain
+  `LocalOnly` control messages but do not create new long-term memory records.
+  Forget and clear controls still delete existing records while memory is off.
 - `sendMessage` also treats explicit preference deletion statements such as
   `忘记：...` / `forget ...` as local memory-control commands. They delete the
   deterministic `Preference` record for the normalized target, or delete the
@@ -1448,6 +1545,10 @@ Current status:
   to `Scheduled` after a successful scan. Runner or Worker exceptions mark the
   periodic task `Failed` so local state no longer claims a healthy scheduled
   check.
+- `PeriodicCheckScheduler` validates the registered
+  `periodic_local_reminder_patrol` `BackgroundSkillSpec` against production
+  tool specs before saving an enabled policy or enqueueing work. Invalid specs
+  close the policy as `Failed` and return a scheduling failure.
 - A stale `Running` periodic check is reclaimed before a new worker run tries to
   acquire it, using the same bounded lease as reminder delivery recovery.
 - App startup now reconciles the singleton periodic check after reminder alarm
@@ -1462,6 +1563,10 @@ Current status:
   bounded task metadata (`taskId`, `taskStatus`, `triggerAtMillis`,
   `recoveryToolName`, `recoveryTaskId`) while continuing to omit reminder
   title/body content from audit display.
+- `cancel_reminder` now declares the local background scheduling boundary with
+  `SchedulesBackgroundWork`, so audit summaries and safety checks see the same
+  mutation class as reminder scheduling/configuration tools while still
+  requiring foreground confirmation.
 - Successful `schedule_reminder` results now include bounded rollback metadata:
   `recoveryToolName=cancel_reminder` and the scheduled `recoveryTaskId`. Agent
   trace preserves only this recovery metadata, not reminder title/body content.
@@ -1506,10 +1611,10 @@ Current status:
   `ActionExecutor`, calls only `scheduledTasks`, `recentTasks`, and
   `periodicCheckPolicy`, and never calls schedule/cancel/set/disable methods.
   Results are `LocalOnly` and `requiresLocalModel=true`; `tasksJson` may include
-  task id, type, status, title, and timestamps for local reasoning, but reminder
-  `body`, prompts, raw periodic `lastRunSummary`, remote responses, and secrets
-  are omitted. `tasksJson`, `policyJson`, and task counts are private outputs
-  and are redacted from trace/audit summaries.
+  task id, type, status, and timestamps for local reasoning, but reminder
+  title/body, prompts, raw periodic `lastRunSummary`, remote responses, and
+  secrets are omitted. `tasksJson`, `policyJson`, and task counts are private
+  outputs and are redacted from trace/audit summaries.
 - Periodic check run summaries preserve the saved policy fields instead of
   replacing them, so the UI reads typed policy state from the background layer
   rather than parsing task history rows.
@@ -1526,7 +1631,7 @@ Tests:
 - `ActionExecutorTest.configuresPeriodicCheckThroughBackgroundScheduler`
 - `ActionExecutorTest.disablesPeriodicCheckThroughBackgroundScheduler`
 - `ActionExecutorTest.reportsStaleReminderCancellationAsNonRetryableInvalidRequest`
-- `DeviceContextToolExecutorTest.backgroundTasksQueryReturnsLocalOnlyTaskAndPolicyMetadataWithoutBodies`
+- `DeviceContextToolExecutorTest.backgroundTasksQueryReturnsLocalOnlyTaskAndPolicyMetadataWithoutReminderContent`
 - `DeviceContextToolExecutorTest.backgroundTasksPolicyScopeDoesNotReadTaskLists`
 - `RoutingAndValidatingToolExecutorTest.routingExecutorDispatchesDeviceContextToolsBeforeDelegate`
 - `AgentLoopRuntimeTest.skillFirstBackgroundTasksQueryBypassesActionPlannerAndRequestsReadOnlyConfirmation`
@@ -1573,8 +1678,9 @@ Responsibilities:
   text-layer excerpts, bounded local PDF scanned-page OCR fallback, bounded
   local OCR text excerpts for user-provided `image/*` attachments, and
   attachment metadata from Android share targets and the in-app picker.
-- Classify attachments by MIME type; keep unsupported non-text files
-  metadata-only.
+- Classify attachments by MIME type, with display-name extension fallback when
+  Android providers return no type or only `application/octet-stream`; keep
+  unsupported non-text files metadata-only.
 - Keep multimodal source handling separate from chat generation and tools.
 
 Current status:
@@ -1589,6 +1695,10 @@ Current status:
 - Implemented privacy-minimal `SharedInput` prompts for bounded direct shared
   text plus attachment metadata such as kind, MIME type, display name, and byte
   size.
+- Share intents and picker selections now stage those generated prompts in the
+  composer as `LocalOnly` pending drafts. The prompt enters local chat
+  generation only after the user explicitly taps send; it no longer auto-routes
+  just because a local model is ready.
 - Implemented bounded local text excerpts for user-initiated shared `text/*`
   documents and JSON/XML/YAML text-like application MIME types, bounded
   text-layer excerpts for user-provided RTF, PDF text layers, and Office Open
@@ -1604,7 +1714,10 @@ Current status:
 - Implemented a voice input entry that launches Android system speech
   recognition and returns the transcript as a one-shot compose-box draft.
   Transcripts are not auto-sent, do not create chat messages until the user
-  taps send, and do not trigger model generation by themselves.
+  taps send, and do not trigger model generation by themselves. The UI keeps
+  the non-modal voice capture bar active across recording and the post-speech
+  transcription wait; RMS updates drive the waveform while recording, and
+  partial transcripts can still update after `onEndOfSpeech`.
 - Shared-input prompts are marked `LocalOnly` when generated automatically, so
   local processing can continue without later leaking shared text, generated
   excerpts, attachment metadata, or local assistant responses into remote chat
@@ -1612,15 +1725,19 @@ Current status:
   parsing the share intent or picked URIs; this value-free path does not read
   `EXTRA_TEXT` values, query attachment metadata, open file streams, parse text
   layers, or run OCR before showing the local privacy notice.
+- `LocalOnly` conversation messages are skipped by automatic memory rebuild and
+  are not used verbatim for session titles. Explicit user facts/preferences
+  still use the dedicated long-term memory record path.
 - The voice entry does not read or parse audio files. Recent screenshot OCR and
   recent image OCR are implemented as confirmed Device Context tools, not
   automatic shared-input ingestion. The current-screen Accessibility
   text snapshot tool follows the same Device Context boundary and reads text
   nodes only. `capture_current_screenshot_ocr` uses a user-confirmed, one-shot
-  Android MediaProjection ActivityResult flow, consumes the consent token in
-  memory, captures one current-screen frame, runs local ML Kit OCR, and returns
-  only bounded OCR text plus `truncated` / included flags. It does not persist
-  pixels, URIs, paths, window titles, or visual descriptions. Screen semantic
+  Android MediaProjection ActivityResult flow, consumes the request-bound
+  consent token in memory before its TTL expires, captures one current-screen
+  frame, runs local ML Kit OCR, and returns only bounded OCR text plus
+  `truncated` / included flags. It does not persist pixels, URIs, paths, window
+  titles, or visual descriptions. Screen semantic
   understanding, PDF layout parsing, legacy Office parsing, full rich-text
   fidelity, image semantic understanding, and media content understanding are
   pending. RTF, PDF text layer, and Office Open XML extraction are not complete
