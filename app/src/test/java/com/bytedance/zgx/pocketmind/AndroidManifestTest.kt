@@ -15,6 +15,22 @@ class AndroidManifestTest {
     }
 
     @Test
+    fun declaresMicrophonePermissionForVoiceInput() {
+        val manifest = readManifest()
+
+        assertTrue(manifest.contains("""android.permission.RECORD_AUDIO"""))
+    }
+
+    @Test
+    fun declaresAndroid14SelectedVisualMediaPermission() {
+        val manifest = readManifest()
+
+        assertTrue(manifest.contains("""android.permission.READ_MEDIA_IMAGES"""))
+        assertTrue(manifest.contains("""android.permission.READ_MEDIA_VIDEO"""))
+        assertTrue(manifest.contains("""android.permission.READ_MEDIA_VISUAL_USER_SELECTED"""))
+    }
+
+    @Test
     fun declaresAccessibilityServiceForCurrentScreenTextSpecialAccess() {
         val manifest = readManifest()
         val serviceConfig = readMainFile("res/xml/pocketmind_accessibility_service.xml")
@@ -37,6 +53,15 @@ class AndroidManifestTest {
         assertTrue(receiver.contains("""android:exported="true""""))
         assertTrue(receiver.contains("""android.intent.action.BOOT_COMPLETED"""))
         assertTrue(receiver.contains("""android.intent.action.MY_PACKAGE_REPLACED"""))
+    }
+
+    @Test
+    fun debugRemoteConfigReceiverIsNotExported() {
+        val manifest = readDebugManifest()
+        val receiver = manifest.receiverDeclarationFor(".debug.DebugRemoteConfigReceiver")
+
+        assertTrue(receiver.contains("""android:exported="false""""))
+        assertFalse(receiver.contains("""android:exported="true""""))
     }
 
     @Test
@@ -78,10 +103,18 @@ class AndroidManifestTest {
         return readMainFile("AndroidManifest.xml")
     }
 
+    private fun readDebugManifest(): String {
+        return readSourceFile("debug", "AndroidManifest.xml")
+    }
+
     private fun readMainFile(relativePath: String): String {
+        return readSourceFile("main", relativePath)
+    }
+
+    private fun readSourceFile(sourceSet: String, relativePath: String): String {
         val manifestFile = listOf(
-            File("src/main/$relativePath"),
-            File("app/src/main/$relativePath"),
+            File("src/$sourceSet/$relativePath"),
+            File("app/src/$sourceSet/$relativePath"),
         ).first { it.isFile }
         return manifestFile.readText()
     }
@@ -94,6 +127,12 @@ class AndroidManifestTest {
 
     private fun String.receiverBlockFor(receiverName: String): String =
         Regex("""<receiver[\s\S]*?</receiver>""")
+            .findAll(this)
+            .map { it.value }
+            .first { it.contains("""android:name="$receiverName"""") }
+
+    private fun String.receiverDeclarationFor(receiverName: String): String =
+        Regex("""<receiver\b[\s\S]*?(?:/>|</receiver>)""")
             .findAll(this)
             .map { it.value }
             .first { it.contains("""android:name="$receiverName"""") }

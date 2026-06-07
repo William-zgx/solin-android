@@ -12,6 +12,8 @@ import com.bytedance.zgx.pocketmind.background.ScheduledTask
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
+import com.bytedance.zgx.pocketmind.tool.MAX_SHARE_TEXT_CHARS
+import com.bytedance.zgx.pocketmind.tool.MAX_SHARE_TITLE_CHARS
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import org.junit.Assert.assertEquals
@@ -494,7 +496,10 @@ class ActionExecutorTest {
         assertExternalActivityNotStarted(result.data, "AndroidPackage", Intent.ACTION_MAIN)
         assertEquals("com.example.app", result.data["targetPackage"])
         assertEquals("IllegalStateException", result.data["exceptionType"])
-        assertTrue(result.summary.contains("launcher unavailable"))
+        assertEquals("外部应用或系统页面启动失败", result.summary)
+        assertEquals(result.summary, result.error?.message)
+        assertFalse(result.summary.contains("launcher unavailable"))
+        assertFalse(result.data.toString().contains("launcher unavailable"))
     }
 
     @Test
@@ -517,6 +522,46 @@ class ActionExecutorTest {
         assertExternalActivityOpened(result.data, "ShareSheet", Intent.ACTION_CHOOSER)
         assertEquals("text/plain", result.data["payloadMimeType"])
         assertTrue(!result.data.toString().contains("private share payload"))
+    }
+
+    @Test
+    fun rejectsOversizedShareTextBeforeStartingActivity() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val oversizedText = executor.execute(
+            ToolRequest(
+                id = "request-share-text-too-long",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+                arguments = mapOf("text" to "x".repeat(MAX_SHARE_TEXT_CHARS + 1)),
+                reason = "test",
+            ),
+        )
+        val oversizedTitle = executor.execute(
+            ToolRequest(
+                id = "request-share-title-too-long",
+                toolName = MobileActionFunctions.SHARE_TEXT,
+                arguments = mapOf(
+                    "text" to "hello",
+                    "title" to "x".repeat(MAX_SHARE_TITLE_CHARS + 1),
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, oversizedText.status)
+        assertEquals(ToolErrorCode.InvalidRequest, oversizedText.error?.code)
+        assertFalse(oversizedText.retryable)
+        assertEquals(ToolStatus.Failed, oversizedTitle.status)
+        assertEquals(ToolErrorCode.InvalidRequest, oversizedTitle.error?.code)
+        assertFalse(oversizedTitle.retryable)
+        assertTrue(launches.isEmpty())
     }
 
     @Test

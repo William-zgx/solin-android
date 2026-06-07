@@ -67,6 +67,8 @@ class ForegroundAppProviderTest {
         assertEquals("com.example.mail", result.appInfo.packageName)
         assertEquals("Mail", result.appInfo.appLabel)
         assertEquals(30L, result.appInfo.lastTimeUsedMillis)
+        assertEquals("usage_stats_estimate", result.appInfo.source)
+        assertEquals("estimate", result.appInfo.confidence)
     }
 
     private class RecordingForegroundUsageStatsSource(

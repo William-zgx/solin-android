@@ -88,6 +88,10 @@ class AgentRuntimePermissionPolicyTest {
             listOf(Manifest.permission.READ_CALENDAR),
             confirmation.runtimePermissionsFor(),
         )
+        assertEquals(
+            "用于只读查询忙闲时间段，不读取标题、地点或参与人。",
+            confirmation.runtimePermissionRequirementsFor().single().rationale,
+        )
         assertTrue(confirmation.specialAccessRequirementsFor().isEmpty())
     }
 
@@ -157,13 +161,58 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
-    fun recentNonMediaFilesDoNotPretendToHaveARequestableAndroid13Permission() {
-        val confirmation = confirmationFor(
-            toolName = MobileActionFunctions.QUERY_RECENT_FILES,
-            arguments = mapOf("kind" to "documents"),
+    fun recentVisualMediaModelsSelectedPhotoAccessOnAndroid14Plus() {
+        assertEquals(
+            listOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+            ),
+            confirmationFor(
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to "images"),
+            ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.UPSIDE_DOWN_CAKE),
         )
+        assertEquals(
+            listOf(
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+            ),
+            confirmationFor(
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to "videos"),
+            ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.UPSIDE_DOWN_CAKE),
+        )
+        assertEquals(
+            listOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+            ),
+            confirmationFor(MobileActionFunctions.READ_RECENT_IMAGE_OCR)
+                .runtimePermissionsFor(apiLevel = Build.VERSION_CODES.UPSIDE_DOWN_CAKE),
+        )
+        assertEquals(
+            listOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                Manifest.permission.READ_MEDIA_AUDIO,
+            ),
+            confirmationFor(MobileActionFunctions.QUERY_RECENT_FILES)
+                .runtimePermissionsFor(apiLevel = Build.VERSION_CODES.UPSIDE_DOWN_CAKE),
+        )
+    }
 
-        assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
+    @Test
+    fun recentNonMediaFilesDoNotPretendToHaveARequestableAndroid13Permission() {
+        listOf("documents", "downloads", "others").forEach { kind ->
+            val confirmation = confirmationFor(
+                toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+                arguments = mapOf("kind" to kind),
+            )
+
+            assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
+            assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.UPSIDE_DOWN_CAKE).isEmpty())
+        }
     }
 
     @Test
@@ -329,6 +378,10 @@ class AgentRuntimePermissionPolicyTest {
         assertEquals(1, requirements.size)
         assertEquals(SPECIAL_ACCESS_USAGE_STATS, requirements.single().id)
         assertEquals("使用情况访问权限", requirements.single().title)
+        assertEquals(
+            "用于通过 UsageStats 估计当前前台应用名和包名；不是窗口真值，不读取使用历史或屏幕内容，需要在系统设置中手动开启。",
+            requirements.single().rationale,
+        )
         assertEquals(Settings.ACTION_USAGE_ACCESS_SETTINGS, requirements.single().settingsAction)
     }
 
@@ -487,6 +540,129 @@ class AgentRuntimePermissionPolicyTest {
                 grantResults = emptyMap(),
                 hasRuntimePermission = { it == permission },
             ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun android14VisualMediaGrantAcceptsEitherFullOrUserSelectedAccess() {
+        val confirmation = confirmationFor(
+            toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+            arguments = mapOf("kind" to "images"),
+        )
+        val imagePermission = Manifest.permission.READ_MEDIA_IMAGES
+        val selectedVisualPermission = Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+
+        assertTrue(
+            confirmation.deniedRuntimePermissionsAfterGrantResult(
+                grantResults = mapOf(
+                    imagePermission to true,
+                    selectedVisualPermission to false,
+                ),
+                apiLevel = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                hasRuntimePermission = { false },
+            ).isEmpty(),
+        )
+        assertTrue(
+            confirmation.deniedRuntimePermissionsAfterGrantResult(
+                grantResults = mapOf(
+                    imagePermission to false,
+                    selectedVisualPermission to true,
+                ),
+                apiLevel = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                hasRuntimePermission = { false },
+            ).isEmpty(),
+        )
+        assertEquals(
+            listOf(imagePermission, selectedVisualPermission),
+            confirmation.deniedRuntimePermissionsAfterGrantResult(
+                grantResults = mapOf(
+                    imagePermission to false,
+                    selectedVisualPermission to false,
+                ),
+                apiLevel = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                hasRuntimePermission = { false },
+            ),
+        )
+    }
+
+    @Test
+    fun android14RecentFilesAllAcceptsPartialMediaGrantWithoutAudio() {
+        val confirmation = confirmationFor(
+            toolName = MobileActionFunctions.QUERY_RECENT_FILES,
+            arguments = mapOf("kind" to "all"),
+        )
+        val imagePermission = Manifest.permission.READ_MEDIA_IMAGES
+        val videoPermission = Manifest.permission.READ_MEDIA_VIDEO
+        val selectedVisualPermission = Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+        val audioPermission = Manifest.permission.READ_MEDIA_AUDIO
+
+        assertTrue(
+            confirmation.deniedRuntimePermissionsAfterGrantResult(
+                grantResults = mapOf(
+                    imagePermission to false,
+                    videoPermission to false,
+                    selectedVisualPermission to true,
+                    audioPermission to false,
+                ),
+                apiLevel = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                hasRuntimePermission = { false },
+            ).isEmpty(),
+        )
+        assertTrue(
+            confirmation.deniedRuntimePermissionsAfterGrantResult(
+                grantResults = mapOf(
+                    imagePermission to false,
+                    videoPermission to false,
+                    selectedVisualPermission to false,
+                    audioPermission to true,
+                ),
+                apiLevel = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                hasRuntimePermission = { false },
+            ).isEmpty(),
+        )
+        assertEquals(
+            listOf(imagePermission, videoPermission, selectedVisualPermission, audioPermission),
+            confirmation.deniedRuntimePermissionsAfterGrantResult(
+                grantResults = mapOf(
+                    imagePermission to false,
+                    videoPermission to false,
+                    selectedVisualPermission to false,
+                    audioPermission to false,
+                ),
+                apiLevel = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+                hasRuntimePermission = { false },
+            ),
+        )
+    }
+
+    @Test
+    fun runtimePermissionResultCanMatchCurrentPendingAfterActivityRecreation() {
+        val contacts = confirmationFor(MobileActionFunctions.QUERY_CONTACTS)
+        val screenshot = confirmationFor(MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR)
+
+        assertTrue(
+            contacts.requiresRuntimePermissionResult(
+                resultPermissions = setOf(Manifest.permission.READ_CONTACTS),
+                apiLevel = Build.VERSION_CODES.TIRAMISU,
+            ),
+        )
+        assertTrue(
+            contacts.requiresRuntimePermissionResult(
+                resultPermissions = emptySet(),
+                apiLevel = Build.VERSION_CODES.TIRAMISU,
+            ),
+        )
+        assertTrue(
+            contacts.matchesExecution(contacts.copy()),
+        )
+        assertTrue(
+            !contacts.matchesExecution(screenshot),
+        )
+        assertTrue(
+            !contacts.requiresRuntimePermissionResult(
+                resultPermissions = setOf(Manifest.permission.READ_MEDIA_IMAGES),
+                apiLevel = Build.VERSION_CODES.TIRAMISU,
+            ),
         )
     }
 

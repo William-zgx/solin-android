@@ -4997,6 +4997,9 @@ class PocketMindViewModelTest {
         RemoteModelConfig(
             baseUrl = "https://api.example.com/v1",
             modelName = "model-a",
+            // Vision-capable test model: supportsVisionInput now defaults to false (fail-closed),
+            // so image-sending tests must opt in explicitly.
+            supportsVisionInput = true,
         )
 
     private data class RemoteCall(

@@ -67,6 +67,17 @@ data class DeviceContextToolReadiness(
     }
 }
 
+data class DeviceContextAuthorizationSnapshot(
+    val grantedRuntimePermissions: Set<String> = emptySet(),
+    val grantedSpecialAccessIds: Set<String> = emptySet(),
+) {
+    fun hasRuntimePermission(permission: String): Boolean =
+        permission in grantedRuntimePermissions
+
+    fun hasSpecialAccess(id: String): Boolean =
+        id in grantedSpecialAccessIds
+}
+
 enum class DeviceContextToolReadinessState {
     Available,
     RequiresRuntimePermission,

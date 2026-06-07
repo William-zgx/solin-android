@@ -921,7 +921,7 @@ internal object ForegroundAppActionParser {
         ActionDraft(
             functionName = MobileActionFunctions.QUERY_FOREGROUND_APP,
             title = "查询当前前台应用",
-            summary = "将读取当前前台应用信息（包名与应用名）。",
+            summary = "将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。",
             parameters = emptyMap(),
             requiresConfirmation = true,
         )

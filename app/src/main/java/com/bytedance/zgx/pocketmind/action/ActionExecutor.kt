@@ -16,6 +16,8 @@ import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
+import com.bytedance.zgx.pocketmind.tool.MAX_SHARE_TEXT_CHARS
+import com.bytedance.zgx.pocketmind.tool.MAX_SHARE_TITLE_CHARS
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
@@ -414,8 +416,30 @@ class ActionExecutor(
 
             MobileActionFunctions.OPEN_APP_INTENT -> validateOpenAppIntentRequest(request)
             MobileActionFunctions.OPEN_APP_DEEP_TARGET -> validateOpenAppDeepTargetRequest(request)
+            MobileActionFunctions.SHARE_TEXT -> validateShareTextRequest(request)
             else -> null
         }
+
+    private fun validateShareTextRequest(request: ToolRequest): ToolResult? {
+        val unknownArguments = request.arguments.keys - setOf("text", "title")
+        val text = request.arguments["text"].orEmpty()
+        val title = request.arguments["title"].orEmpty()
+        val invalidReason = when {
+            unknownArguments.isNotEmpty() -> "分享文本仅支持 text 和 title 参数"
+            text.isBlank() -> "分享文本不能为空"
+            text.length > MAX_SHARE_TEXT_CHARS -> "分享文本不能超过 $MAX_SHARE_TEXT_CHARS 个字符"
+            title.length > MAX_SHARE_TITLE_CHARS -> "分享标题不能超过 $MAX_SHARE_TITLE_CHARS 个字符"
+            else -> null
+        }
+        return invalidReason?.let { reason ->
+            request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = reason,
+                retryable = false,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+    }
 
     private fun validateOpenAppIntentRequest(request: ToolRequest): ToolResult? {
         val packageName = request.arguments["packageName"].orEmpty()
@@ -610,7 +634,7 @@ class ActionExecutor(
     ): ToolResult =
         request.failed(
             code = ToolErrorCode.ExecutionFailed,
-            summary = "执行 ${request.toolName} 失败：${throwable.cleanMessage()}",
+            summary = EXTERNAL_ACTIVITY_START_FAILED_SUMMARY,
             retryable = true,
             data = externalActivityData(
                 request = request,
@@ -872,6 +896,7 @@ class ActionExecutor(
         const val MAX_DEEP_LINK_URI_CHARS = 2_048
         const val COMPLETION_STATE_EXTERNAL_ACTIVITY_OPENED = "ExternalActivityOpened"
         const val COMPLETION_STATE_NOT_STARTED = "NotStarted"
+        const val EXTERNAL_ACTIVITY_START_FAILED_SUMMARY = "外部应用或系统页面启动失败"
         val PACKAGE_NAME_PATTERN = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+$""")
     }
 }

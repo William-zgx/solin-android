@@ -216,6 +216,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent: Intent) {
+        if (!isDebuggableBuild()) return
+        val baseUrl = intent.getStringExtra(EXTRA_DEBUG_SCREENSHOT_REMOTE_BASE_URL) ?: return
+        val modelName = intent.getStringExtra(EXTRA_DEBUG_SCREENSHOT_REMOTE_MODEL_NAME) ?: return
+        val supportsVisionInput =
+            intent.getBooleanExtra(EXTRA_DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT, false)
+        viewModel.configureDebugRemoteModelForScreenshotEvidence(
+            baseUrl = baseUrl,
+            modelName = modelName,
+            supportsVisionInput = supportsVisionInput,
+        )
+    }
+
+    private fun isDebuggableBuild(): Boolean =
+        applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+
     private fun handlePickedSharedUris(uris: List<Uri>) {
         if (uris.isEmpty()) return
         shareIntentScope.launch {

@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.multimodal
 
+import com.bytedance.zgx.pocketmind.ChatImageAttachment
 import java.io.ByteArrayOutputStream
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.ZipEntry
@@ -98,10 +99,71 @@ class SharedInputTest {
 
         val prompt = input.toPrompt()
 
-        assertTrue(prompt.contains("用户主动提供的 image/* 附件"))
         assertTrue(prompt.contains("图片文字摘录（已截断）"))
         assertTrue(prompt.contains("标题"))
         assertTrue(prompt.contains("正文"))
+    }
+
+    @Test
+    fun promptMentionsAttachedImageForRemoteVisionAttachment() {
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = "image/png",
+                    displayName = "screen.png",
+                    sizeBytes = 120L,
+                    imageAttachment = ChatImageAttachment(
+                        mimeType = "image/png",
+                        dataUrl = "data:image/png;base64,AA==",
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("图片已随本次请求发送给模型"))
+        assertTrue(prompt.contains("不支持图片输入"))
+        assertTrue(prompt.contains("图片会随本次远程模型请求发送"))
+        assertTrue(prompt.contains("screen.png"))
+        assertFalse(prompt.contains("只支持图片 OCR"))
+    }
+
+    @Test
+    fun remoteVisionPromptOmitsAttachmentMetadataAndOcr() {
+        val input = SharedInput(
+            text = "",
+            protectedSourceCount = 2,
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = "image/png",
+                    displayName = "private-screen.png",
+                    sizeBytes = 120L,
+                    textPreview = SharedTextPreview(
+                        text = "private OCR text",
+                        truncated = false,
+                        source = SharedTextPreviewSource.ImageOcr,
+                    ),
+                    imageAttachment = ChatImageAttachment(
+                        mimeType = "image/png",
+                        dataUrl = "data:image/png;base64,AA==",
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toRemoteVisionPrompt()
+
+        assertTrue(prompt.contains("已附加 1 张图片"))
+        assertTrue(prompt.contains("不支持图片输入"))
+        assertTrue(prompt.contains("2 个非图片或分享来源已被保护"))
+        assertFalse(prompt.contains("private-screen.png"))
+        assertFalse(prompt.contains("image/png"))
+        assertFalse(prompt.contains("120"))
+        assertFalse(prompt.contains("private OCR text"))
     }
 
     @Test
@@ -482,6 +544,19 @@ class SharedInputTest {
     }
 
     @Test
+    fun protectedImageSharedInputBuildsValueFreePrompt() {
+        val input = SharedInput(text = "", attachments = emptyList(), protectedImageSourceCount = 2)
+
+        val prompt = input.toPrompt()
+
+        assertFalse(input.isEmpty)
+        assertTrue(prompt.contains("已收到受保护图片"))
+        assertTrue(prompt.contains("未读取、OCR 或发送图片内容"))
+        assertTrue(prompt.contains("当前模型未启用视觉输入能力"))
+        assertFalse(prompt.contains("2"))
+    }
+
+    @Test
     fun promptUsesSafeAttachmentNameOnly() {
         val input = SharedInput(
             text = "",
@@ -526,6 +601,32 @@ class SharedInputTest {
     }
 
     @Test
+    fun metadataOnlyDocumentAndGenericAttachmentsSayBodyWasNotRead() {
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/pdf",
+                    displayName = "report.pdf",
+                    sizeBytes = 12_000L,
+                ),
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Other,
+                    mimeType = "*/*",
+                    displayName = "archive.bin",
+                    sizeBytes = 4_096L,
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+
+        assertTrue(prompt.contains("文档正文未读取；当前仅有元数据。"))
+        assertTrue(prompt.contains("附件正文未读取；当前仅有元数据。"))
+    }
+
+    @Test
     fun mapsMimeTypesToAttachmentKinds() {
         assertEquals(SharedAttachmentKind.Image, sharedAttachmentKindFor("image/jpeg"))
         assertEquals(SharedAttachmentKind.Image, sharedAttachmentKindFor(" IMAGE/PNG "))
@@ -548,6 +649,181 @@ class SharedInputTest {
         assertEquals(SharedAttachmentKind.Document, sharedAttachmentKindFor("text/plain"))
         assertEquals(SharedAttachmentKind.Document, sharedAttachmentKindFor("text/plain; charset=utf-8"))
         assertEquals(SharedAttachmentKind.Other, sharedAttachmentKindFor("application/octet-stream"))
+    }
+
+    @Test
+    fun resolvesAttachmentMimeTypeFromDisplayNameWhenProviderTypeIsMissingOrGeneric() {
+        assertEquals(
+            "image/jpeg",
+            resolveSharedAttachmentMimeType(
+                resolverMimeType = null,
+                displayName = "Receipt.JPG",
+            ),
+        )
+        assertEquals(
+            "application/pdf",
+            resolveSharedAttachmentMimeType(
+                resolverMimeType = "application/octet-stream",
+                displayName = "report.pdf",
+            ),
+        )
+        assertEquals(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            resolveSharedAttachmentMimeType(
+                resolverMimeType = " application/octet-stream; charset=binary ",
+                displayName = "/tmp/private/brief.DOCX",
+            ),
+        )
+        assertEquals(
+            "image/png",
+            resolveSharedAttachmentMimeType(
+                resolverMimeType = "image/png",
+                displayName = "not-image.txt",
+                intentMimeType = "application/octet-stream",
+            ),
+        )
+    }
+
+    @Test
+    fun resolvesAttachmentMimeTypeFromExtensionBeforeWildcardOrAbstractTypes() {
+        assertEquals(
+            "application/pdf",
+            resolveSharedAttachmentMimeType(
+                resolverMimeType = "image/*",
+                displayName = "report.pdf",
+                intentMimeType = "application/*",
+            ),
+        )
+        assertEquals(
+            "text/plain",
+            resolveSharedAttachmentMimeType(
+                resolverMimeType = "*/*",
+                displayName = "notes.txt",
+                intentMimeType = "application/octet-stream",
+            ),
+        )
+        assertEquals(
+            "application/json",
+            resolveSharedAttachmentMimeType(
+                resolverMimeType = "application/*",
+                displayName = "config.JSON",
+                intentMimeType = "text/*",
+            ),
+        )
+        assertEquals(
+            "image/*",
+            resolveSharedAttachmentMimeType(
+                resolverMimeType = "image/*",
+                displayName = "unknown-file",
+                intentMimeType = null,
+            ),
+        )
+    }
+
+    @Test
+    fun trustedRemoteImageMimeTypeRequiresConcreteProviderTypeOrKnownExtension() {
+        assertEquals(
+            "image/png",
+            trustedRemoteImageMimeType(
+                resolverMimeType = "image/png",
+                displayName = "private.txt",
+            ),
+        )
+        assertEquals(
+            "image/jpeg",
+            trustedRemoteImageMimeType(
+                resolverMimeType = "image/*",
+                displayName = "Receipt.JPG",
+            ),
+        )
+        assertNull(
+            trustedRemoteImageMimeType(
+                resolverMimeType = null,
+                displayName = "unknown-file",
+            ),
+        )
+        assertNull(
+            trustedRemoteImageMimeType(
+                resolverMimeType = "text/plain",
+                displayName = "Receipt.JPG",
+            ),
+        )
+        assertNull(
+            trustedRemoteImageMimeType(
+                resolverMimeType = "image/*",
+                displayName = "unknown-file",
+            ),
+        )
+        assertNull(
+            trustedRemoteImageMimeType(
+                resolverMimeType = "image/svg+xml",
+                displayName = "diagram.svg",
+            ),
+        )
+    }
+
+    @Test
+    fun protectedRemoteImageSourceDetectionUsesOnlySafeTypeSignals() {
+        assertTrue(
+            isProtectedRemoteImageSource(
+                resolverMimeType = "image/png",
+                displayName = "private.txt",
+                intentMimeType = null,
+            ),
+        )
+        assertTrue(
+            isProtectedRemoteImageSource(
+                resolverMimeType = "image/*",
+                displayName = "Receipt.JPG",
+                intentMimeType = null,
+            ),
+        )
+        assertTrue(
+            isProtectedRemoteImageSource(
+                resolverMimeType = null,
+                displayName = "unknown-file",
+                intentMimeType = "image/*",
+            ),
+        )
+        assertFalse(
+            isProtectedRemoteImageSource(
+                resolverMimeType = "text/plain",
+                displayName = "Receipt.JPG",
+                intentMimeType = "image/*",
+            ),
+        )
+    }
+
+    @Test
+    fun remoteImageBytesMustMatchDeclaredSupportedImageType() {
+        val pngBytes = byteArrayOf(
+            0x89.toByte(),
+            'P'.code.toByte(),
+            'N'.code.toByte(),
+            'G'.code.toByte(),
+            0x0D.toByte(),
+            0x0A.toByte(),
+            0x1A.toByte(),
+            0x0A.toByte(),
+            0x00,
+        )
+        val jpgBytes = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte())
+        val webpBytes = "RIFF".encodeToByteArray() + byteArrayOf(0, 0, 0, 0) + "WEBP".encodeToByteArray()
+        val gifBytes = "GIF89a".encodeToByteArray()
+        val bmpBytes = "BM".encodeToByteArray() + byteArrayOf(0, 0)
+        val heicBytes = byteArrayOf(0, 0, 0, 24) + "ftypheic".encodeToByteArray()
+
+        assertTrue(remoteImageBytesMatchDeclaredMimeType("image/png", pngBytes))
+        assertTrue(remoteImageBytesMatchDeclaredMimeType("image/jpeg", jpgBytes))
+        assertTrue(remoteImageBytesMatchDeclaredMimeType("image/webp", webpBytes))
+        assertTrue(remoteImageBytesMatchDeclaredMimeType("image/gif", gifBytes))
+        assertTrue(remoteImageBytesMatchDeclaredMimeType("image/bmp", bmpBytes))
+        assertTrue(remoteImageBytesMatchDeclaredMimeType("image/heic", heicBytes))
+
+        assertFalse(remoteImageBytesMatchDeclaredMimeType("image/png", "not a png".encodeToByteArray()))
+        assertFalse(remoteImageBytesMatchDeclaredMimeType("image/jpeg", pngBytes))
+        assertFalse(remoteImageBytesMatchDeclaredMimeType("image/svg+xml", "<svg/>".encodeToByteArray()))
+        assertFalse(remoteImageBytesMatchDeclaredMimeType("image/*", pngBytes))
     }
 
     @Test
@@ -741,7 +1017,6 @@ class SharedInputTest {
                     streamOpened = true
                     """{\rtf1\ansi Visible RTF text}""".byteInputStream()
                 },
-                extractImageText = { error("image OCR should not be used for RTF") },
             )
 
             assertTrue(streamOpened)
@@ -759,7 +1034,6 @@ class SharedInputTest {
                 mismatchStreamOpened = true
                 """{\rtf1 should not be read}""".byteInputStream()
             },
-            extractImageText = { error("image OCR should not be used for application/rtf") },
         )
         assertNull(mismatchedKindPreview)
         assertFalse(mismatchStreamOpened)
@@ -771,7 +1045,6 @@ class SharedInputTest {
             mimeType = "application/pdf",
             kind = SharedAttachmentKind.Document,
             openInputStream = { pdfBytes("BT (PDF title) Tj ET").inputStream() },
-            extractImageText = { error("image OCR should not be used for PDF") },
             extractPdfImageText = { error("PDF OCR should not run when text layer is available") },
         )
 
@@ -791,7 +1064,6 @@ class SharedInputTest {
                 streamOpened = true
                 "%PDF-1.4\n%%EOF".byteInputStream()
             },
-            extractImageText = { error("image OCR should not be used directly for PDF") },
             extractPdfImageText = {
                 pdfOcrUsed = true
                 SharedTextPreview(
@@ -823,13 +1095,30 @@ class SharedInputTest {
                     streamOpened = true
                     "%PDF-1.4\n%%EOF".byteInputStream()
                 },
-                extractImageText = { null },
                 extractPdfImageText = { error("PDF OCR should not run for $kind $mimeType") },
             )
 
             assertNull(preview)
             assertFalse(streamOpened)
         }
+    }
+
+    @Test
+    fun sharedAttachmentTextPreviewDoesNotOpenImageStreamsForImplicitOcr() {
+        var streamOpened = false
+
+        val preview = readSharedAttachmentTextPreview(
+            mimeType = "image/png",
+            kind = SharedAttachmentKind.Image,
+            openInputStream = {
+                streamOpened = true
+                "private image bytes".byteInputStream()
+            },
+            extractPdfImageText = { error("PDF OCR should not run for image attachments") },
+        )
+
+        assertNull(preview)
+        assertFalse(streamOpened)
     }
 
     @Test
@@ -844,7 +1133,6 @@ class SharedInputTest {
                 mimeType = mimeType,
                 kind = SharedAttachmentKind.Document,
                 openInputStream = { text.byteInputStream() },
-                extractImageText = { error("image OCR should not be used for $mimeType") },
             )
 
             assertNotNull(preview)
@@ -864,7 +1152,6 @@ class SharedInputTest {
                     streamOpened = true
                     "binary".byteInputStream()
                 },
-                extractImageText = { error("image OCR should not be used for $mimeType") },
             )
 
             assertNull(preview)
@@ -874,24 +1161,25 @@ class SharedInputTest {
 
     @Test
     fun protectedSharedAttachmentTextPreviewDoesNotOpenStreamsOrRunOcr() {
-        listOf(
-            "text/plain" to SharedAttachmentKind.Document,
-            "application/json" to SharedAttachmentKind.Document,
-            "application/rtf" to SharedAttachmentKind.Document,
-            "application/pdf" to SharedAttachmentKind.Document,
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" to SharedAttachmentKind.Document,
-            "image/png" to SharedAttachmentKind.Image,
-        ).forEach { (mimeType, kind) ->
-            val preview = readSharedAttachmentTextPreview(
-                mimeType = mimeType,
-                kind = kind,
-                openInputStream = { error("protected share must not open attachment stream") },
-                extractImageText = { error("protected share must not run OCR") },
-                extractPdfImageText = { error("protected share must not run PDF OCR") },
-                mode = SharedInputReadMode.ProtectedSignal,
-            )
+        listOf(SharedInputReadMode.ProtectedSignal, SharedInputReadMode.RemoteVisionUnsupportedSignal).forEach { mode ->
+            listOf(
+                "text/plain" to SharedAttachmentKind.Document,
+                "application/json" to SharedAttachmentKind.Document,
+                "application/rtf" to SharedAttachmentKind.Document,
+                "application/pdf" to SharedAttachmentKind.Document,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document" to SharedAttachmentKind.Document,
+                "image/png" to SharedAttachmentKind.Image,
+            ).forEach { (mimeType, kind) ->
+                val preview = readSharedAttachmentTextPreview(
+                    mimeType = mimeType,
+                    kind = kind,
+                    openInputStream = { error("protected share must not open attachment stream") },
+                    extractPdfImageText = { error("protected share must not run PDF OCR") },
+                    mode = mode,
+                )
 
-            assertNull(preview)
+                assertNull(preview)
+            }
         }
     }
 

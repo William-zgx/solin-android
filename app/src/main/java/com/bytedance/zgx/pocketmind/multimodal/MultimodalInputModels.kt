@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.multimodal
 
+import com.bytedance.zgx.pocketmind.ChatImageAttachment
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -12,12 +13,17 @@ data class SharedInput(
     val text: String,
     val attachments: List<SharedAttachment>,
     val protectedSourceCount: Int = 0,
+    val protectedImageSourceCount: Int = 0,
 ) {
     val isEmpty: Boolean
-        get() = text.toBoundedSharedText().text.isBlank() && attachments.isEmpty() && protectedSourceCount <= 0
+        get() = text.toBoundedSharedText().text.isBlank() &&
+            attachments.isEmpty() &&
+            protectedSourceCount <= 0 &&
+            protectedImageSourceCount <= 0
 
     fun toPrompt(): String {
         val sharedText = text.toBoundedSharedText()
+        val hasAttachedImages = attachments.any { attachment -> attachment.imageAttachment != null }
         val attachmentBlock = attachments
             .take(MAX_ATTACHMENTS_IN_PROMPT)
             .mapIndexed { index, attachment ->
@@ -39,10 +45,18 @@ data class SharedInput(
             }
             .joinToString(separator = "\n")
         return buildString {
+            if (protectedImageSourceCount > 0) {
+                append("已收到受保护图片。当前模型未启用视觉输入能力，本次未读取、OCR 或发送图片内容；请切换支持视觉的远程模型后重新选择图片。")
+            }
             if (protectedSourceCount > 0) {
-                append(
-                    "已收到受保护分享。为保护隐私，本次未读取分享文本、附件元数据、文本摘录或 OCR；请切换到本地模型后重新分享，或手动粘贴你愿意处理的内容。",
-                )
+                if (isNotEmpty()) append("\n\n")
+                if (hasAttachedImages) {
+                    append("除已附加图片外，还收到受保护分享源；为保护隐私，本次未读取这些分享文本、非图片附件、文本摘录或 OCR。")
+                } else {
+                    append(
+                        "已收到受保护分享。为保护隐私，本次未读取分享文本、附件元数据、文本摘录或 OCR；请切换到本地模型后重新分享，或手动粘贴你愿意处理的内容。",
+                    )
+                }
             }
             if (sharedText.text.isNotBlank()) {
                 if (isNotEmpty()) append("\n\n")
@@ -52,14 +66,41 @@ data class SharedInput(
                 append(sharedText.text)
             } else if (attachments.isNotEmpty()) {
                 if (isNotEmpty()) append("\n\n")
-                append("请根据我分享的附件信息和可用文字摘录进行处理；如果图片没有 OCR 摘录，请明确说明当前无法看到图片视觉内容。")
+                if (hasAttachedImages) {
+                    append("请根据我分享的图片和附件信息进行处理；图片已随本次请求发送给模型。如果当前模型或接口不支持图片输入，请直接说明不支持。")
+                } else {
+                    append("请根据我分享的附件信息和可用文字摘录进行处理；如果包含图片，请明确说明当前模型不支持视觉输入，且不会自动 OCR。")
+                }
             }
             if (attachmentBlock.isNotBlank()) {
                 append("\n\n")
-                append(
-                    "已分享附件（默认只读取元数据；text/*/JSON/XML/YAML 文档、RTF/PDF 文本层、PDF 扫描页 OCR、Office Open XML 文档和用户主动提供的 image/* 附件会读取受限文本/OCR 摘录；当前不读取图片视觉内容或像素语义）：\n",
-                )
+                if (hasAttachedImages) {
+                    append(
+                        "已分享附件（图片会随本次远程模型请求发送；分享文本、非图片附件、文本摘录和 OCR 均未发送）：\n",
+                    )
+                } else {
+                    append(
+                        "已分享附件（默认只读取元数据；text/*/JSON/XML/YAML 文档、RTF/PDF 文本层、PDF 扫描页 OCR 和 Office Open XML 文档会读取受限文本/OCR 摘录；图片不会被自动 OCR，也不读取视觉内容或像素语义）：\n",
+                    )
+                }
                 append(attachmentBlock)
+            }
+        }.trim()
+    }
+
+    fun toRemoteVisionPrompt(): String {
+        val remoteImageCount = attachments.count { attachment -> attachment.imageAttachment != null }
+        return buildString {
+            if (remoteImageCount > 0) {
+                append("已附加 $remoteImageCount 张图片。请直接根据图片内容处理；如果当前模型或接口不支持图片输入，请明确说明不支持。")
+            }
+            if (protectedImageSourceCount > 0) {
+                if (isNotEmpty()) append("\n\n")
+                append("另有受保护图片未读取或发送。")
+            }
+            if (protectedSourceCount > 0) {
+                if (isNotEmpty()) append("\n\n")
+                append("另有 $protectedSourceCount 个非图片或分享来源已被保护，本次未读取或发送其文本、附件元数据、文本摘录或 OCR。")
             }
         }.trim()
     }
@@ -72,7 +113,11 @@ data class SharedInput(
 private fun SharedAttachment.unavailablePreviewNotice(): String? =
     when (kind) {
         SharedAttachmentKind.Image ->
-            "图片视觉内容未读取；当前只支持图片 OCR 文字摘录，无法看到照片/画面内容。"
+            if (imageAttachment != null) {
+                "图片已附加到本次模型请求；如果当前模型或接口不支持图片输入，请直接说明不支持。"
+            } else {
+                "当前模型不支持视觉输入；未读取图片内容，也不会自动 OCR。需要文字识别时，请显式使用 OCR 工具。"
+            }
 
         SharedAttachmentKind.Video ->
             "视频画面和音频内容未读取；当前仅有元数据。"
@@ -80,9 +125,11 @@ private fun SharedAttachment.unavailablePreviewNotice(): String? =
         SharedAttachmentKind.Audio ->
             "音频内容未转写；当前仅有元数据。"
 
-        SharedAttachmentKind.Document,
-        SharedAttachmentKind.Other,
-        -> null
+        SharedAttachmentKind.Document ->
+            "文档正文未读取；当前仅有元数据。"
+
+        SharedAttachmentKind.Other ->
+            "附件正文未读取；当前仅有元数据。"
     }
 
 private data class BoundedSharedText(
@@ -109,6 +156,7 @@ data class SharedAttachment(
     val displayName: String?,
     val sizeBytes: Long?,
     val textPreview: SharedTextPreview? = null,
+    val imageAttachment: ChatImageAttachment? = null,
 ) {
     fun safeDisplayNameForPrompt(): String? {
         val normalized = displayName
@@ -165,6 +213,26 @@ fun sharedAttachmentKindFor(mimeType: String?): SharedAttachmentKind =
         }
     }
 
+fun resolveSharedAttachmentMimeType(
+    resolverMimeType: String?,
+    displayName: String?,
+    intentMimeType: String? = null,
+): String? {
+    val normalizedResolverType = resolverMimeType.normalizedMediaType()
+    if (normalizedResolverType.isConcreteSharedMimeType()) {
+        return normalizedResolverType
+    }
+    val extensionType = displayName.inferredMimeTypeFromExtension()
+    if (extensionType != null) {
+        return extensionType
+    }
+    val normalizedIntentType = intentMimeType.normalizedMediaType()
+    if (normalizedIntentType.isConcreteSharedMimeType()) {
+        return normalizedIntentType
+    }
+    return normalizedResolverType ?: normalizedIntentType
+}
+
 fun canReadTextPreviewFor(mimeType: String?): Boolean =
     when (val normalizedMimeType = mimeType.normalizedMediaType()) {
         null -> false
@@ -216,12 +284,111 @@ fun canUseTextPreviewFor(attachment: SharedAttachment): Boolean =
         null -> false
     }
 
-private fun String?.normalizedMediaType(): String? =
+internal fun String?.normalizedMediaType(): String? =
     this
         ?.substringBefore(';')
         ?.trim()
         ?.lowercase(Locale.ROOT)
         ?.takeIf { it.isNotBlank() }
+
+internal fun String?.inferredMimeTypeFromExtension(): String? {
+    val safeName = this
+        ?.replace('\\', '/')
+        ?.substringAfterLast('/')
+        ?.substringBeforeLast('#')
+        ?.substringBeforeLast('?')
+        ?: return null
+    val extension = safeName
+        .substringAfterLast('.', missingDelimiterValue = "")
+        .lowercase(Locale.ROOT)
+        .takeIf { it.isNotBlank() }
+        ?: return null
+    return extensionMimeTypes[extension]
+}
+
+internal fun String?.isConcreteSharedMimeType(): Boolean {
+    val normalized = this ?: return false
+    if (normalized in abstractMimeTypes) return false
+    return !normalized.endsWith("/*") && !normalized.contains('*')
+}
+
+internal fun trustedRemoteImageMimeType(
+    resolverMimeType: String?,
+    displayName: String?,
+): String? {
+    val normalizedResolverType = resolverMimeType.normalizedMediaType()
+    if (normalizedResolverType.isConcreteSharedMimeType()) {
+        return normalizedResolverType.takeIf { it.isSupportedRemoteImageMimeType() }
+    }
+    return displayName
+        .inferredMimeTypeFromExtension()
+        ?.takeIf { inferred -> inferred.isSupportedRemoteImageMimeType() }
+}
+
+internal fun remoteImageBytesMatchDeclaredMimeType(
+    mimeType: String?,
+    bytes: ByteArray,
+): Boolean =
+    when (mimeType.normalizedMediaType()) {
+        "image/jpeg", "image/jpg", "image/pjpeg" -> bytes.hasJpegHeader()
+        "image/png" -> bytes.hasPngHeader()
+        "image/webp" -> bytes.hasWebpHeader()
+        "image/gif" -> bytes.hasGifHeader()
+        "image/bmp" -> bytes.hasBmpHeader()
+        "image/heic", "image/heif" -> bytes.hasHeifFamilyHeader()
+        else -> false
+    }
+
+private fun String?.isSupportedRemoteImageMimeType(): Boolean =
+    when (normalizedMediaType()) {
+        "image/jpeg", "image/jpg", "image/pjpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+        "image/bmp",
+        "image/heic",
+        "image/heif",
+        -> true
+
+        else -> false
+    }
+
+private fun ByteArray.hasJpegHeader(): Boolean =
+    size >= 3 &&
+        this[0] == 0xFF.toByte() &&
+        this[1] == 0xD8.toByte() &&
+        this[2] == 0xFF.toByte()
+
+private fun ByteArray.hasPngHeader(): Boolean =
+    size >= pngMagic.size && pngMagic.indices.all { index -> this[index] == pngMagic[index] }
+
+private fun ByteArray.hasWebpHeader(): Boolean =
+    size >= 12 &&
+        asciiEquals(offset = 0, value = "RIFF") &&
+        asciiEquals(offset = 8, value = "WEBP")
+
+private fun ByteArray.hasGifHeader(): Boolean =
+    size >= 6 &&
+        (asciiEquals(offset = 0, value = "GIF87a") || asciiEquals(offset = 0, value = "GIF89a"))
+
+private fun ByteArray.hasBmpHeader(): Boolean =
+    size >= 2 && this[0] == 'B'.code.toByte() && this[1] == 'M'.code.toByte()
+
+private fun ByteArray.hasHeifFamilyHeader(): Boolean {
+    if (size < 12 || !asciiEquals(offset = 4, value = "ftyp")) return false
+    val brands = heifCompatibleBrands
+    var offset = 8
+    while (offset + 4 <= size && offset <= 64) {
+        if (brands.any { brand -> asciiEquals(offset, brand) }) return true
+        offset += 4
+    }
+    return false
+}
+
+private fun ByteArray.asciiEquals(offset: Int, value: String): Boolean {
+    if (offset < 0 || offset + value.length > size) return false
+    return value.indices.all { index -> this[offset + index] == value[index].code.toByte() }
+}
 
 object TextAttachmentPreviewReader {
     fun read(inputStream: InputStream): SharedTextPreview? {
@@ -322,6 +489,16 @@ private val textLikeApplicationMimeTypes = setOf(
     "application/x-yaml",
 )
 
+private val abstractMimeTypes = setOf(
+    "*/*",
+    "application/*",
+    "application/octet-stream",
+    "audio/*",
+    "image/*",
+    "text/*",
+    "video/*",
+)
+
 private val richTextMimeTypes = setOf(
     "application/rtf",
     "text/rtf",
@@ -331,4 +508,55 @@ internal val officeOpenXmlMimeTypes = setOf(
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+)
+
+private val extensionMimeTypes = mapOf(
+    "txt" to "text/plain",
+    "text" to "text/plain",
+    "log" to "text/plain",
+    "md" to "text/markdown",
+    "markdown" to "text/markdown",
+    "csv" to "text/csv",
+    "json" to "application/json",
+    "xml" to "application/xml",
+    "yaml" to "application/x-yaml",
+    "yml" to "application/x-yaml",
+    "rtf" to "application/rtf",
+    "pdf" to "application/pdf",
+    "doc" to "application/msword",
+    "xls" to "application/vnd.ms-excel",
+    "ppt" to "application/vnd.ms-powerpoint",
+    "docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xlsx" to "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pptx" to "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "jpg" to "image/jpeg",
+    "jpeg" to "image/jpeg",
+    "png" to "image/png",
+    "webp" to "image/webp",
+    "gif" to "image/gif",
+    "bmp" to "image/bmp",
+    "heic" to "image/heic",
+    "heif" to "image/heif",
+)
+
+private val pngMagic = byteArrayOf(
+    0x89.toByte(),
+    'P'.code.toByte(),
+    'N'.code.toByte(),
+    'G'.code.toByte(),
+    0x0D.toByte(),
+    0x0A.toByte(),
+    0x1A.toByte(),
+    0x0A.toByte(),
+)
+
+private val heifCompatibleBrands = setOf(
+    "heic",
+    "heix",
+    "hevc",
+    "hevx",
+    "heif",
+    "heis",
+    "mif1",
+    "msf1",
 )

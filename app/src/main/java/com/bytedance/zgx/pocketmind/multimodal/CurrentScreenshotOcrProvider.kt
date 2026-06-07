@@ -19,10 +19,22 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
 
 private const val MAX_CURRENT_SCREEN_OCR_BITMAP_DIMENSION = 1_600
+private const val CURRENT_SCREENSHOT_OCR_CONSENT_TTL_MILLIS = 30_000L
 
 interface CurrentScreenshotOcrProvider {
-    fun setOneShotConsent(resultCode: Int, data: Intent?)
-    fun captureCurrentScreenshotOcr(): CurrentScreenshotOcrReadResult
+    fun setOneShotConsent(
+        requestId: String,
+        resultCode: Int,
+        data: Intent?,
+        issuedAtMillis: Long = System.currentTimeMillis(),
+    )
+
+    fun clearOneShotConsent(requestId: String)
+
+    fun captureCurrentScreenshotOcr(
+        requestId: String,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): CurrentScreenshotOcrReadResult
 }
 
 sealed interface CurrentScreenshotOcrReadResult {
@@ -39,18 +51,37 @@ class AndroidCurrentScreenshotOcrProvider(
     private val context: Context,
     private val imageTextExtractor: ImageTextExtractor = MlKitImageTextExtractor(context),
 ) : CurrentScreenshotOcrProvider {
-    private val pendingConsent = AtomicReference<CurrentScreenshotOcrConsent?>()
+    private val pendingConsent =
+        RequestBoundOneShotConsentStore<CurrentScreenshotOcrConsent>(
+            ttlMillis = CURRENT_SCREENSHOT_OCR_CONSENT_TTL_MILLIS,
+        )
 
-    override fun setOneShotConsent(resultCode: Int, data: Intent?) {
+    override fun setOneShotConsent(
+        requestId: String,
+        resultCode: Int,
+        data: Intent?,
+        issuedAtMillis: Long,
+    ) {
+        if (resultCode != Activity.RESULT_OK || data == null) {
+            pendingConsent.clear(requestId)
+            return
+        }
         pendingConsent.set(
-            data
-                ?.takeIf { resultCode == Activity.RESULT_OK }
-                ?.let { CurrentScreenshotOcrConsent(resultCode = resultCode, data = Intent(it)) },
+            requestId = requestId,
+            issuedAtMillis = issuedAtMillis,
+            data = CurrentScreenshotOcrConsent(resultCode = resultCode, data = Intent(data)),
         )
     }
 
-    override fun captureCurrentScreenshotOcr(): CurrentScreenshotOcrReadResult {
-        val consent = pendingConsent.getAndSet(null)
+    override fun clearOneShotConsent(requestId: String) {
+        pendingConsent.clear(requestId)
+    }
+
+    override fun captureCurrentScreenshotOcr(
+        requestId: String,
+        nowMillis: Long,
+    ): CurrentScreenshotOcrReadResult {
+        val consent = pendingConsent.consume(requestId, nowMillis)
             ?: return CurrentScreenshotOcrReadResult.MissingConsent
         val projection = mediaProjectionManager().getMediaProjection(consent.resultCode, consent.data)
             ?: return CurrentScreenshotOcrReadResult.MissingConsent
@@ -131,6 +162,48 @@ class AndroidCurrentScreenshotOcrProvider(
         const val CAPTURE_TIMEOUT_MILLIS = 2_500L
     }
 }
+
+internal class RequestBoundOneShotConsentStore<T>(
+    private val ttlMillis: Long,
+) {
+    private val pending = AtomicReference<RequestBoundOneShotConsent<T>?>()
+
+    fun set(requestId: String, issuedAtMillis: Long, data: T) {
+        pending.set(
+            RequestBoundOneShotConsent(
+                requestId = requestId,
+                issuedAtMillis = issuedAtMillis,
+                data = data,
+            ),
+        )
+    }
+
+    fun clear(requestId: String) {
+        while (true) {
+            val current = pending.get() ?: return
+            if (current.requestId != requestId) return
+            if (pending.compareAndSet(current, null)) return
+        }
+    }
+
+    fun consume(requestId: String, nowMillis: Long): T? {
+        while (true) {
+            val current = pending.get() ?: return null
+            if (current.requestId != requestId) return null
+            if (nowMillis < current.issuedAtMillis || nowMillis - current.issuedAtMillis > ttlMillis) {
+                if (pending.compareAndSet(current, null)) return null
+                continue
+            }
+            if (pending.compareAndSet(current, null)) return current.data
+        }
+    }
+}
+
+private data class RequestBoundOneShotConsent<T>(
+    val requestId: String,
+    val issuedAtMillis: Long,
+    val data: T,
+)
 
 private inline fun Image.useToBitmap(block: (Bitmap) -> CurrentScreenshotOcrReadResult): CurrentScreenshotOcrReadResult =
     use { image ->

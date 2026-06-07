@@ -5,7 +5,10 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
+import com.bytedance.zgx.pocketmind.ChatImageAttachment
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.util.Base64
 
 class ShareIntentReader(
     private val context: Context,
@@ -24,13 +27,30 @@ class ShareIntentReader(
             return intent.protectedSharedInput(action)
         }
 
-        val text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+        val text = if (mode == SharedInputReadMode.LocalPrompt) {
+            intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+        } else {
+            ""
+        }
+        val protectedTextSourceCount = if (mode != SharedInputReadMode.LocalPrompt &&
+            intent.hasExtra(Intent.EXTRA_TEXT)
+        ) {
+            1
+        } else {
+            0
+        }
         val uris = when (action) {
             Intent.ACTION_SEND -> listOfNotNull(intent.streamUri())
             Intent.ACTION_SEND_MULTIPLE -> intent.streamUris()
             else -> emptyList()
         }
-        return readUris(uris = uris, text = text, intentMimeType = intent.type, mode = mode)
+        return readUris(
+            uris = uris,
+            text = text,
+            intentMimeType = intent.type,
+            mode = mode,
+            protectedTextSourceCount = protectedTextSourceCount,
+        )
     }
 
     fun readUris(
@@ -38,18 +58,52 @@ class ShareIntentReader(
         text: String = "",
         intentMimeType: String? = null,
         mode: SharedInputReadMode = SharedInputReadMode.LocalPrompt,
+        protectedTextSourceCount: Int = 0,
     ): SharedInput? {
         if (mode == SharedInputReadMode.ProtectedSignal) {
-            val sourceCount = uris.take(MAX_SHARED_ATTACHMENTS).size + if (text.isNotBlank()) 1 else 0
+            val sourceCount =
+                uris.take(MAX_SHARED_ATTACHMENTS).size +
+                    protectedTextSourceCount +
+                    (if (text.isNotBlank()) 1 else 0)
             return SharedInput(
                 text = "",
                 attachments = emptyList(),
                 protectedSourceCount = sourceCount,
             ).takeUnless { it.isEmpty }
         }
+        if (mode == SharedInputReadMode.RemoteVisionUnsupportedSignal) {
+            val limitedUris = uris.take(MAX_SHARED_ATTACHMENTS)
+            val protectedImageSourceCount = limitedUris.count { uri ->
+                uri.isProtectedRemoteImageSource(intentMimeType)
+            }
+            val protectedSourceCount =
+                protectedTextSourceCount +
+                    (if (text.isNotBlank()) 1 else 0) +
+                    (limitedUris.size - protectedImageSourceCount)
+            return SharedInput(
+                text = "",
+                attachments = emptyList(),
+                protectedSourceCount = protectedSourceCount,
+                protectedImageSourceCount = protectedImageSourceCount,
+            ).takeUnless { it.isEmpty }
+        }
+        if (mode == SharedInputReadMode.RemoteVision) {
+            val limitedUris = uris.take(MAX_SHARED_ATTACHMENTS)
+            val imageAttachments = limitedUris
+                .mapNotNull { uri -> uri.toRemoteVisionImageAttachment(intentMimeType) }
+            val protectedSourceCount =
+                protectedTextSourceCount +
+                    (if (text.isNotBlank()) 1 else 0) +
+                    (limitedUris.size - imageAttachments.size)
+            return SharedInput(
+                text = "",
+                attachments = imageAttachments,
+                protectedSourceCount = protectedSourceCount,
+            ).takeUnless { it.isEmpty }
+        }
         val attachments = uris
             .take(MAX_SHARED_ATTACHMENTS)
-            .map { uri -> uri.toSharedAttachment(intentMimeType) }
+            .map { uri -> uri.toSharedAttachment(intentMimeType, mode) }
         return SharedInput(text = text, attachments = attachments)
             .takeUnless { it.isEmpty }
     }
@@ -85,23 +139,99 @@ class ShareIntentReader(
         ).takeUnless { it.isEmpty }
     }
 
-    private fun Uri.toSharedAttachment(intentMimeType: String?): SharedAttachment {
-        val resolvedMimeType = runCatching { context.contentResolver.getType(this) }.getOrNull() ?: intentMimeType
+    private fun Uri.toSharedAttachment(intentMimeType: String?, mode: SharedInputReadMode): SharedAttachment {
         val metadata = queryMetadata(this)
-        val kind = sharedAttachmentKindFor(resolvedMimeType)
-        val textPreview = readSharedAttachmentTextPreview(
-            mimeType = resolvedMimeType,
-            kind = kind,
-            openInputStream = { context.contentResolver.openInputStream(this) },
-            extractImageText = { imageTextExtractor.extract(this) },
-            extractPdfImageText = { pdfPageTextExtractor.extract(this) },
+        val resolvedMimeType = resolveSharedAttachmentMimeType(
+            resolverMimeType = runCatching { context.contentResolver.getType(this) }.getOrNull(),
+            displayName = metadata.displayName,
+            intentMimeType = intentMimeType,
         )
+        val kind = sharedAttachmentKindFor(resolvedMimeType)
+        val textPreview = if (mode == SharedInputReadMode.LocalPrompt) {
+            readSharedAttachmentTextPreview(
+                mimeType = resolvedMimeType,
+                kind = kind,
+                openInputStream = { context.contentResolver.openInputStream(this) },
+                extractPdfImageText = { pdfPageTextExtractor.extract(this) },
+            )
+        } else {
+            null
+        }
+        val imageAttachment = if (mode == SharedInputReadMode.RemoteVision && kind == SharedAttachmentKind.Image) {
+            toRemoteImageAttachment(resolvedMimeType, metadata.sizeBytes)
+        } else {
+            null
+        }
         return SharedAttachment(
             kind = kind,
             mimeType = resolvedMimeType,
             displayName = metadata.displayName,
             sizeBytes = metadata.sizeBytes,
             textPreview = textPreview,
+            imageAttachment = imageAttachment,
+        )
+    }
+
+    private fun Uri.toRemoteVisionImageAttachment(intentMimeType: String?): SharedAttachment? {
+        val resolverMimeType = runCatching { context.contentResolver.getType(this) }.getOrNull()
+        val metadata = queryMetadata(this)
+        val trustedImageMimeType = trustedRemoteImageMimeType(
+            resolverMimeType = resolverMimeType,
+            displayName = metadata.displayName,
+        )
+        if (resolverMimeType.normalizedMediaType().isConcreteSharedMimeType() && trustedImageMimeType == null) {
+            return null
+        }
+        if (trustedImageMimeType == null) {
+            return null
+        }
+        val resolvedMimeType = resolveSharedAttachmentMimeType(
+            resolverMimeType = resolverMimeType,
+            displayName = metadata.displayName,
+            intentMimeType = intentMimeType,
+        )
+        val kind = sharedAttachmentKindFor(resolvedMimeType)
+        if (kind != SharedAttachmentKind.Image) return null
+        val imageAttachment = toRemoteImageAttachment(resolvedMimeType, metadata.sizeBytes) ?: return null
+        return SharedAttachment(
+            kind = kind,
+            mimeType = resolvedMimeType,
+            displayName = metadata.displayName,
+            sizeBytes = metadata.sizeBytes,
+            textPreview = null,
+            imageAttachment = imageAttachment,
+        )
+    }
+
+    private fun Uri.isProtectedRemoteImageSource(intentMimeType: String?): Boolean {
+        val resolverMimeType = runCatching { context.contentResolver.getType(this) }.getOrNull()
+        val metadata = queryMetadata(this)
+        return isProtectedRemoteImageSource(
+            resolverMimeType = resolverMimeType,
+            displayName = metadata.displayName,
+            intentMimeType = intentMimeType,
+        )
+    }
+
+    private fun Uri.toRemoteImageAttachment(mimeType: String?, sizeBytes: Long?): ChatImageAttachment? {
+        val normalizedMimeType = mimeType
+            ?.substringBefore(';')
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { mediaType -> mediaType.startsWith("image/") }
+            ?: return null
+        if (sizeBytes != null && sizeBytes > MAX_REMOTE_IMAGE_BYTES) return null
+        val bytes = runCatching {
+            context.contentResolver.openInputStream(this)?.use { input ->
+                input.readRemoteImageBytes(maxBytes = MAX_REMOTE_IMAGE_BYTES)
+            }
+        }.getOrNull() ?: return null
+        if (bytes.isEmpty()) return null
+        if (!remoteImageBytesMatchDeclaredMimeType(normalizedMimeType, bytes)) return null
+        val base64 = Base64.getEncoder().encodeToString(bytes)
+        return ChatImageAttachment(
+            mimeType = normalizedMimeType,
+            dataUrl = "data:$normalizedMimeType;base64,$base64",
         )
     }
 
@@ -138,6 +268,7 @@ class ShareIntentReader(
 
     private companion object {
         const val MAX_SHARED_ATTACHMENTS = 5
+        const val MAX_REMOTE_IMAGE_BYTES = 8 * 1024 * 1024
     }
 }
 
@@ -145,12 +276,11 @@ internal fun readSharedAttachmentTextPreview(
     mimeType: String?,
     kind: SharedAttachmentKind,
     openInputStream: () -> InputStream?,
-    extractImageText: () -> SharedTextPreview?,
     extractPdfImageText: () -> SharedTextPreview? = { null },
     mode: SharedInputReadMode = SharedInputReadMode.LocalPrompt,
 ): SharedTextPreview? =
     when {
-        mode == SharedInputReadMode.ProtectedSignal -> null
+        mode != SharedInputReadMode.LocalPrompt -> null
 
         kind == SharedAttachmentKind.Document && canReadTextPreviewFor(mimeType) ->
             readSharedAttachmentTextPreviewFromStream(openInputStream) { input ->
@@ -172,15 +302,42 @@ internal fun readSharedAttachmentTextPreview(
                 OfficeOpenXmlPreviewReader.read(input, mimeType)
             }
 
-        kind == SharedAttachmentKind.Image && canReadImageTextPreviewFor(mimeType) ->
-            extractImageText()
-
         else -> null
     }
 
 enum class SharedInputReadMode {
     LocalPrompt,
     ProtectedSignal,
+    RemoteVision,
+    RemoteVisionUnsupportedSignal,
+}
+
+internal fun isProtectedRemoteImageSource(
+    resolverMimeType: String?,
+    displayName: String?,
+    intentMimeType: String?,
+): Boolean {
+    if (trustedRemoteImageMimeType(resolverMimeType, displayName) != null) return true
+    val resolvedMimeType = resolveSharedAttachmentMimeType(
+        resolverMimeType = resolverMimeType,
+        displayName = displayName,
+        intentMimeType = intentMimeType,
+    )
+    return sharedAttachmentKindFor(resolvedMimeType) == SharedAttachmentKind.Image
+}
+
+private fun InputStream.readRemoteImageBytes(maxBytes: Int): ByteArray? {
+    val output = ByteArrayOutputStream()
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    var total = 0
+    while (true) {
+        val read = read(buffer)
+        if (read < 0) break
+        total += read
+        if (total > maxBytes) return null
+        output.write(buffer, 0, read)
+    }
+    return output.toByteArray()
 }
 
 private fun readSharedAttachmentTextPreviewFromStream(

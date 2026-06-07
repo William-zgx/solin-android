@@ -228,7 +228,7 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
                 "将打开应用详情设置：${parameters["packageName"].orEmpty()}"
             MobileActionFunctions.QUERY_FOREGROUND_APP ->
-                "将读取当前前台应用信息（包名与应用名）。"
+                "将通过 UsageStats 估计当前前台应用（包名与应用名）；不读取屏幕内容或使用历史。"
             MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS -> {
                 val maxCount = parameters["maxCount"]
                 if (maxCount.isNullOrBlank()) {

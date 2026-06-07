@@ -4,6 +4,7 @@ import com.bytedance.zgx.pocketmind.MessagePrivacy
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -65,5 +66,36 @@ class CurrentScreenshotOcrContractTest {
         assertTrue(errors.any { it.contains("LocalOnly") })
         assertTrue(errors.any { it.contains("must not persist pixels") })
         assertTrue(errors.any { it.contains("OCR text only") })
+    }
+
+    @Test
+    fun oneShotConsentStoreRequiresMatchingRequestIdAndTtl() {
+        val store = RequestBoundOneShotConsentStore<String>(ttlMillis = 1_000L)
+
+        store.set(requestId = "request-a", issuedAtMillis = 10_000L, data = "consent-a")
+
+        assertNull(store.consume(requestId = "request-b", nowMillis = 10_100L))
+        assertEquals("consent-a", store.consume(requestId = "request-a", nowMillis = 10_100L))
+        assertNull(store.consume(requestId = "request-a", nowMillis = 10_100L))
+
+        store.set(requestId = "request-a", issuedAtMillis = 10_000L, data = "expired")
+
+        assertNull(store.consume(requestId = "request-a", nowMillis = 11_001L))
+        assertNull(store.consume(requestId = "request-a", nowMillis = 10_100L))
+    }
+
+    @Test
+    fun oneShotConsentStoreClearsOnlyMatchingRequest() {
+        val store = RequestBoundOneShotConsentStore<String>(ttlMillis = 1_000L)
+
+        store.set(requestId = "request-a", issuedAtMillis = 10_000L, data = "consent-a")
+        store.clear("request-b")
+
+        assertEquals("consent-a", store.consume(requestId = "request-a", nowMillis = 10_100L))
+
+        store.set(requestId = "request-a", issuedAtMillis = 10_000L, data = "consent-a")
+        store.clear("request-a")
+
+        assertNull(store.consume(requestId = "request-a", nowMillis = 10_100L))
     }
 }
