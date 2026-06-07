@@ -199,10 +199,29 @@ class SkillRunExecutorTest {
         assertEquals(setOf("read_clipboard.text"), checkpoint.privateOutputRefs)
         assertEquals(listOf("summary", "text"), checkpoint.outputKeysByStep["read_clipboard"])
         assertEquals(listOf("shareText"), checkpoint.outputKeysByStep["summarize_clipboard"])
-        assertNull(checkpoint.validationErrorFor(plan))
+        assertEquals(
+            "skill checkpoint pending payload cannot be restored: share_text binding target(s) text are not pending-allowlisted",
+            checkpoint.validationErrorFor(plan),
+        )
         assertFalse(serialized.contains(rawClipboardText))
         assertFalse(serialized.contains(summaryText))
         assertFalse(serialized.contains("已读取剪贴板文本"))
+    }
+
+    @Test
+    fun valueFreeCheckpointAllowsPendingBindingTargetsDeclaredPersistableByToolSpec() {
+        val plan = reminderCancelSkillPlan()
+        val cancelStep = plan.steps[1] as SkillStep.ToolStep
+        val checkpoint = requireNotNull(
+            plan.valueFreeCheckpointForPendingTool(
+                runId = "run-allowlisted-payload",
+                pendingRequest = cancelStep.request.copy(arguments = mapOf("taskId" to "task-1")),
+            ),
+        )
+
+        assertNull(checkpoint.validationErrorFor(plan))
+        assertEquals(listOf("schedule_reminder"), checkpoint.completedStepIds)
+        assertEquals(MobileActionFunctions.CANCEL_REMINDER, checkpoint.pendingToolName)
     }
 
     @Test
@@ -711,6 +730,60 @@ class SkillRunExecutorTest {
 
         assertEquals(SkillRunState.Failed, result.state)
         assertEquals("skill step limit exceeded", result.error)
+    }
+
+    private fun reminderCancelSkillPlan(): SkillPlan {
+        val scheduleStep = SkillStep.ToolStep(
+            id = "schedule_reminder",
+            request = ToolRequest(
+                id = "request-schedule-reminder",
+                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                arguments = mapOf("title" to "喝水", "delayMinutes" to "15"),
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.SCHEDULE_REMINDER,
+                title = "创建提醒",
+                summary = "15 分钟后提醒喝水。",
+                parameters = mapOf("title" to "喝水", "delayMinutes" to "15"),
+            ),
+        )
+        val cancelStep = SkillStep.ToolStep(
+            id = "cancel_reminder",
+            dependsOn = listOf(scheduleStep.id),
+            request = ToolRequest(
+                id = "request-cancel-reminder",
+                toolName = MobileActionFunctions.CANCEL_REMINDER,
+            ),
+            draft = ActionDraft(
+                functionName = MobileActionFunctions.CANCEL_REMINDER,
+                title = "取消提醒",
+                summary = "取消刚创建的提醒。",
+                parameters = emptyMap(),
+            ),
+            argumentBindings = mapOf("taskId" to "${scheduleStep.id}.taskId"),
+        )
+        return SkillPlan(
+            request = SkillRequest(
+                id = "request-reminder-cancel-skill",
+                skillId = "test.reminder_cancel",
+                arguments = emptyMap(),
+                reason = "test",
+            ),
+            manifest = SkillManifest(
+                id = "test.reminder_cancel",
+                version = 1,
+                title = "Reminder cancel",
+                description = "test",
+                triggerExamples = emptyList(),
+                requiredTools = listOf(
+                    MobileActionFunctions.SCHEDULE_REMINDER,
+                    MobileActionFunctions.CANCEL_REMINDER,
+                ),
+                inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
+                riskLevel = RiskLevel.MediumDraftOrNavigation,
+            ),
+            steps = listOf(scheduleStep, cancelStep),
+        )
     }
 
     private fun clipboardSuccess(text: String): Map<String, String> =

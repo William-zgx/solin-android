@@ -62,6 +62,27 @@ class SessionRepositoryTest {
         assertTrue(activeMessages.remoteEligibleMessages().isEmpty())
     }
 
+    @Test
+    fun deletingOnlySessionClearsMessagesAndCreatesNewEmptySession() {
+        val dao = FakeSessionDao()
+        val activeSessionStore = FakeActiveSessionStore("session-1")
+        val repository = SessionRepository(dao, activeSessionStore)
+        repository.replaceActiveSessionMessages(
+            listOf(ChatMessage(MessageRole.User, "需要删除的聊天记录")),
+            persistNow = true,
+        )
+
+        val messages = repository.deleteActiveSession()
+
+        assertEquals(emptyList<ChatMessage>(), messages)
+        assertTrue(repository.activeSessionId != "session-1")
+        assertEquals(repository.activeSessionId, activeSessionStore.activeSessionId())
+        assertEquals(null, dao.session("session-1"))
+        assertEquals(emptyList<ChatMessageEntity>(), dao.messagesForSession("session-1"))
+        assertEquals(1, repository.summaries().size)
+        assertEquals(0, repository.summaries().single().messageCount)
+    }
+
     private class FakeActiveSessionStore(
         private var activeSessionId: String?,
     ) : ActiveSessionStore {

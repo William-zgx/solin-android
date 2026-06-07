@@ -14,7 +14,7 @@ import org.junit.Test
 
 class ToolAuditRepositoryTest {
     @Test
-    fun recordPersistsSanitizedSummaryAndSortedPermissions() {
+    fun recordPersistsGenericObservedSummaryAndSortedPermissions() {
         val dao = FakeToolAuditDao()
         val repository = ToolAuditRepository(dao)
         val apiKey = "sk-" + "a".repeat(32)
@@ -37,10 +37,12 @@ class ToolAuditRepositoryTest {
 
         val stored = dao.events.single()
         assertEquals("ReadsClipboard,ReadsDeviceContext", stored.permissionsCsv)
+        assertEquals(ToolStatus.Succeeded.name, stored.status)
+        assertEquals(RiskLevel.LowReadOnly.name, stored.riskLevel)
+        assertEquals(2_000L, stored.createdAtMillis)
+        assertEquals("Tool observation recorded.", stored.summary)
         assertFalse(stored.summary.contains(apiKey))
         assertFalse(stored.summary.contains("alice@example.com"))
-        assertTrue(stored.summary.contains("sk-[redacted]"))
-        assertTrue(stored.summary.contains("[email]"))
         assertFalse(stored.summary.contains("\n"))
     }
 
@@ -122,6 +124,44 @@ class ToolAuditRepositoryTest {
         val stored = dao.events.single()
         assertFalse(stored.summary.contains("private query"))
         assertEquals("Tool request planned.", stored.summary)
+    }
+
+    @Test
+    fun recordDoesNotPersistWebSearchObservationSummary() {
+        val dao = FakeToolAuditDao()
+        val repository = ToolAuditRepository(dao)
+        val privateQuery = "private medical query"
+        val thirdPartySnippet = "third party returned private-looking snippet"
+
+        repository.record(
+            ToolAuditEvent(
+                id = "web-search-observed",
+                runId = "run-search",
+                requestId = "request-search",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                skillId = null,
+                eventType = ToolAuditEventType.ToolObserved,
+                status = ToolStatus.Succeeded,
+                riskLevel = RiskLevel.LowReadOnly,
+                permissions = emptySet(),
+                summary = "已完成 Web 搜索：$privateQuery；$thirdPartySnippet",
+                createdAtMillis = 3_000L,
+            ),
+        )
+
+        val stored = dao.events.single()
+        assertEquals(MobileActionFunctions.WEB_SEARCH, stored.toolName)
+        assertEquals(ToolStatus.Succeeded.name, stored.status)
+        assertEquals(RiskLevel.LowReadOnly.name, stored.riskLevel)
+        assertEquals(3_000L, stored.createdAtMillis)
+        assertEquals("Tool observation recorded.", stored.summary)
+        assertFalse(stored.summary.contains(privateQuery))
+        assertFalse(stored.summary.contains(thirdPartySnippet))
+
+        val record = repository.recentAuditEvents(limit = 1).single()
+        assertEquals("工具执行成功，结果详情不在审计视图中展示。", record.summary)
+        assertFalse(record.summary.contains(privateQuery))
+        assertFalse(record.summary.contains(thirdPartySnippet))
     }
 
     @Test
@@ -232,8 +272,42 @@ class ToolAuditRepositoryTest {
         assertFalse(record.summary.contains("body="))
     }
 
+    @Test
+    fun recordPrunesOldAuditEventsToRetentionLimit() {
+        val dao = FakeToolAuditDao()
+        val repository = ToolAuditRepository(dao, maxStoredEvents = 2)
+
+        listOf(
+            "oldest" to 1_000L,
+            "middle" to 2_000L,
+            "newest" to 3_000L,
+        ).forEach { (id, createdAtMillis) ->
+            repository.record(
+                ToolAuditEvent(
+                    id = id,
+                    runId = "run-$id",
+                    requestId = "request-$id",
+                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    skillId = null,
+                    eventType = ToolAuditEventType.ToolPlanned,
+                    summary = "planned $id",
+                    createdAtMillis = createdAtMillis,
+                ),
+            )
+        }
+
+        assertEquals(listOf("middle", "newest"), dao.events.map { event -> event.id }.sorted())
+        assertEquals(listOf("newest", "middle"), repository.recentAuditEvents(limit = 10).map { record -> record.id })
+        assertEquals(3, dao.pruneCallCount)
+        assertEquals(2, dao.lastPruneLimit)
+    }
+
     private class FakeToolAuditDao : ToolAuditDao {
         private val mutableEvents = linkedMapOf<String, ToolAuditEventEntity>()
+        var pruneCallCount = 0
+            private set
+        var lastPruneLimit: Int? = null
+            private set
 
         val events: List<ToolAuditEventEntity>
             get() = mutableEvents.values.toList()
@@ -245,6 +319,18 @@ class ToolAuditRepositoryTest {
 
         override fun insert(event: ToolAuditEventEntity) {
             mutableEvents[event.id] = event
+        }
+
+        override fun pruneToMostRecent(maxRecords: Int): Int {
+            pruneCallCount += 1
+            lastPruneLimit = maxRecords
+            val keptIds = mutableEvents.values
+                .sortedByDescending { it.createdAtMillis }
+                .take(maxRecords)
+                .mapTo(linkedSetOf()) { it.id }
+            val removedIds = mutableEvents.keys.filterNot { id -> id in keptIds }
+            removedIds.forEach(mutableEvents::remove)
+            return removedIds.size
         }
     }
 

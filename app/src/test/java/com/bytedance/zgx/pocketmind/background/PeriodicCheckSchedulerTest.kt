@@ -70,6 +70,45 @@ class PeriodicCheckSchedulerTest {
     }
 
     @Test
+    fun schedulerRejectsInvalidRegisteredBackgroundSpecBeforeEnqueue() {
+        val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 10_000L })
+        val workClient = FakePeriodicCheckWorkClient()
+        val scheduler = PeriodicCheckScheduler(
+            repository = repository,
+            workClient = workClient,
+            backgroundSkillSpec = RegisteredBackgroundSkillSpecs.PeriodicLocalReminderPatrol.copy(
+                userConfigured = false,
+            ),
+        )
+
+        val result = scheduler.setPeriodicCheck(PeriodicCheckScheduleRequest())
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("Invalid background skill"))
+        assertEquals(ScheduledTaskStatus.Failed, repository.periodicCheck()?.status)
+        assertTrue(workClient.enqueuedRequests.isEmpty())
+    }
+
+    @Test
+    fun setPeriodicCheckPolicyClosesInvalidBackgroundSpecAsFailedPolicy() {
+        val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 10_000L })
+        val workClient = FakePeriodicCheckWorkClient()
+        val scheduler = PeriodicCheckScheduler(
+            repository = repository,
+            workClient = workClient,
+            backgroundSkillSpec = RegisteredBackgroundSkillSpecs.PeriodicLocalReminderPatrol.copy(
+                localOnly = false,
+            ),
+        )
+
+        val result = scheduler.setPeriodicCheckPolicy(PeriodicCheckScheduleRequest())
+
+        assertTrue(result.isFailure)
+        assertEquals(ScheduledTaskStatus.Failed, repository.periodicCheckPolicy().taskStatus)
+        assertTrue(workClient.enqueuedRequests.isEmpty())
+    }
+
+    @Test
     fun reconcileStartupReenqueuesEnabledScheduledPolicy() {
         val repository = ScheduledTaskRepository(FakeScheduledTaskDao(), clockMillis = { 10_000L })
         val workClient = FakePeriodicCheckWorkClient()

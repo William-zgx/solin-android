@@ -7,6 +7,8 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
+import com.bytedance.zgx.pocketmind.tool.ToolSpec
 import java.util.concurrent.TimeUnit
 
 interface PeriodicCheckWorkClient {
@@ -17,6 +19,8 @@ interface PeriodicCheckWorkClient {
 class PeriodicCheckScheduler(
     private val repository: ScheduledTaskRepository,
     private val workClient: PeriodicCheckWorkClient,
+    private val backgroundSkillSpec: BackgroundSkillSpec = RegisteredBackgroundSkillSpecs.PeriodicLocalReminderPatrol,
+    private val toolSpecs: Map<String, ToolSpec> = ToolRegistry().specs().associateBy { spec -> spec.name },
 ) {
     fun periodicCheckPolicy(): PeriodicCheckPolicySummary =
         repository.periodicCheckPolicy()
@@ -48,6 +52,11 @@ class PeriodicCheckScheduler(
                 cancelPeriodicWork().getOrThrow()
                 return@runCatching task
             }
+            validateRegisteredBackgroundSpec().getOrElse { throwable ->
+                val task = repository.createOrUpdatePeriodicCheck(normalized)
+                repository.markScheduledFailed(task.id)
+                throw throwable
+            }
 
             val task = repository.createOrUpdatePeriodicCheck(normalized)
             workClient.enqueue(normalized)
@@ -66,6 +75,20 @@ class PeriodicCheckScheduler(
 
     fun cancelPeriodicWork(): Result<Unit> =
         workClient.cancel()
+
+    private fun validateRegisteredBackgroundSpec(): Result<Unit> {
+        val validation = backgroundSkillSpec.validate(toolSpecs)
+        return if (validation.isValid) {
+            Result.success(Unit)
+        } else {
+            Result.failure(
+                IllegalStateException(
+                    "Invalid background skill ${backgroundSkillSpec.id}: " +
+                        validation.errors.joinToString(separator = "; "),
+                ),
+            )
+        }
+    }
 }
 
 class WorkManagerPeriodicCheckClient(

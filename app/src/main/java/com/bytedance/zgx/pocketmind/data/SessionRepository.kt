@@ -62,8 +62,6 @@ class SessionRepository(
     }
 
     override fun deleteActiveSession(): List<ChatMessage>? {
-        val sessions = sessionDao.sessions()
-        if (sessions.size <= 1) return null
         sessionDao.deleteMessages(activeSessionId)
         sessionDao.deleteSession(activeSessionId)
         activeSessionId = resolveActiveSessionId()
@@ -152,10 +150,18 @@ class SessionRepository(
 object SessionTitleRules {
     fun deriveTitle(messages: List<ChatMessage>): String =
         messages
-            .firstOrNull { it.role == MessageRole.User && it.text.isNotBlank() }
+            .firstOrNull {
+                it.role == MessageRole.User &&
+                    it.privacy != MessagePrivacy.LocalOnly &&
+                    it.text.isNotBlank()
+            }
             ?.text
             ?.trim()
             ?.replace(Regex("\\s+"), " ")
             ?.take(28)
-            ?: "新会话"
+            ?: if (messages.any { it.role == MessageRole.User && it.privacy == MessagePrivacy.LocalOnly }) {
+                "本地内容"
+            } else {
+                "新会话"
+            }
 }

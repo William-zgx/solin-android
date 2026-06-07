@@ -70,6 +70,8 @@ interface RemoteModelStore {
     fun saveMode(mode: InferenceMode): InferenceMode
     fun loadConfig(): RemoteModelConfig
     fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig>
+    fun saveConfigWithoutApiKey(config: RemoteModelConfig): Result<RemoteModelConfig> =
+        saveConfig(config.copy(apiKey = ""))
 }
 
 interface SettingsStore {

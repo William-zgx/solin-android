@@ -47,6 +47,19 @@ class SkillCatalog(
     definitions: List<SkillDefinition>,
 ) {
     val definitions: List<SkillDefinition> = definitions.toList()
+    init {
+        val duplicateManifestIds = definitions.map { definition -> definition.manifest.id }.duplicates()
+        require(duplicateManifestIds.isEmpty()) {
+            "Duplicate skill manifest id(s): ${duplicateManifestIds.joinToString()}"
+        }
+        val duplicateDirectToolNames = definitions
+            .flatMap { definition -> definition.directToolNames }
+            .duplicates()
+        require(duplicateDirectToolNames.isEmpty()) {
+            "Duplicate skill direct tool name(s): ${duplicateDirectToolNames.joinToString()}"
+        }
+    }
+
     val manifestsById: Map<String, SkillManifest> = definitions
         .map { definition -> definition.manifest }
         .associateBy { manifest -> manifest.id }
@@ -62,6 +75,13 @@ class SkillCatalog(
     fun manifests(): List<SkillManifest> =
         definitions.map { definition -> definition.manifest }
 }
+
+private fun List<String>.duplicates(): List<String> =
+    groupingBy { value -> value }
+        .eachCount()
+        .filterValues { count -> count > 1 }
+        .keys
+        .sorted()
 
 fun SkillManifest.authorizationContractHash(): String {
     val identity = buildString {

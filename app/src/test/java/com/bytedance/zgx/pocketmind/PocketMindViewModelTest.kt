@@ -1,5 +1,7 @@
 package com.bytedance.zgx.pocketmind
 
+import android.Manifest
+import android.app.DownloadManager
 import android.net.Uri
 import android.provider.Settings
 import com.bytedance.zgx.pocketmind.action.ActionDraft
@@ -30,15 +32,19 @@ import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.data.RemoteModelStore
 import com.bytedance.zgx.pocketmind.data.SessionStore
 import com.bytedance.zgx.pocketmind.data.TransferProgress
+import com.bytedance.zgx.pocketmind.device.DeviceContextAuthorizationSnapshot
+import com.bytedance.zgx.pocketmind.device.DeviceContextToolReadinessState
 import com.bytedance.zgx.pocketmind.download.DownloadInfo
 import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.memory.EmbeddingRuntime
+import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryRecallMode
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordStore
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.memory.PersistedMemoryRecord
 import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
+import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceRecordId
 import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachment
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachmentKind
@@ -53,6 +59,7 @@ import com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentPlan
 import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.pocketmind.orchestration.AgentRun
+import com.bytedance.zgx.pocketmind.orchestration.AgentRunOptions
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.orchestration.AgentTraceRunSummary
 import com.bytedance.zgx.pocketmind.orchestration.AgentTraceStepSummary
@@ -60,7 +67,11 @@ import com.bytedance.zgx.pocketmind.orchestration.AssistantRoute
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRouter
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.pocketmind.orchestration.InMemoryAgentTraceStore
+import com.bytedance.zgx.pocketmind.orchestration.InitialPlanningMode
 import com.bytedance.zgx.pocketmind.orchestration.PendingExternalOutcomeSnapshot
+import com.bytedance.zgx.pocketmind.orchestration.RemoteToolScope
+import com.bytedance.zgx.pocketmind.orchestration.RunDataDestination
+import com.bytedance.zgx.pocketmind.orchestration.RunDataReceipt
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
@@ -78,13 +89,16 @@ import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
 import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import java.io.File
+import java.io.IOException
 import java.util.Collections
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -135,6 +149,706 @@ class PocketMindViewModelTest {
             sessionStore.messages.map { it.privacy },
         )
         assertTrue(sessionStore.messages.first().text.contains("私密输入"))
+    }
+
+    @Test
+    fun remoteSendDisclosureBlocksRuntimeUntilConfirmed() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(RemoteSendDisclosureKind.CurrentInput, disclosure.kind)
+        assertEquals("普通远程问题", disclosure.prompt)
+        assertEquals(MessagePrivacy.RemoteEligible, disclosure.messagePrivacy)
+        assertEquals("api.example.com", disclosure.remoteHost)
+        assertEquals("model-a", disclosure.remoteModelName)
+        assertEquals(0, disclosure.remoteHistoryCount)
+        assertEquals(0, disclosure.imageAttachmentCount)
+        assertTrue(remoteRuntime.calls.isEmpty())
+
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+    }
+
+    @Test
+    fun remoteModePlansCalendarAvailabilityLocallyAfterSendDisclosure() = runTest(dispatcher) {
+        val traceStore = InMemoryAgentTraceStore()
+        val orchestrator = AssistantOrchestrator(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = traceStore,
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = orchestrator,
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z")
+        advanceUntilIdle()
+
+        val disclosureState = viewModel.uiState.value
+        assertTrue(
+            "Expected remote send disclosure before local calendar planning, " +
+                "status=${disclosureState.statusText}, " +
+                "isReady=${disclosureState.isReady}, " +
+                "pendingAction=${disclosureState.pendingConfirmation?.draft?.functionName}, " +
+                "remoteCalls=${remoteRuntime.calls.size}",
+            disclosureState.pendingRemoteSendDisclosure != null,
+        )
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals("远程发送待确认", disclosureState.statusText)
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        val confirmedState = viewModel.uiState.value
+        val confirmation = requireNotNull(confirmedState.pendingConfirmation)
+        assertEquals(MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY, confirmation.draft.functionName)
+        assertEquals(
+            MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+            confirmation.toolRequest?.toolName,
+        )
+        assertEquals(
+            listOf(Manifest.permission.READ_CALENDAR),
+            confirmation.runtimePermissionRequirementsFor().flatMap { it.permissions },
+        )
+        assertEquals("动作草稿待确认 · 规则回退", confirmedState.statusText)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(
+            AgentRunState.AwaitingUserConfirmation,
+            orchestrator.recentTraceRuns(limit = 1).single().run.state,
+        )
+    }
+
+    @Test
+    fun remoteSendDisclosureCancelKeepsRuntimeIdle() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.pendingRemoteSendDisclosure != null)
+
+        viewModel.dismissRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals("已取消远程发送", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun remoteModeDoesNotEnableMemoryContextOrReceiptForRemoteSend() = runTest(dispatcher) {
+        val memoryRepository = MemoryRepository(recordStore = FakeMemoryRecordStore())
+        memoryRepository.indexPreference("pref-1", "I prefer concise answers")
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-memory-boundary",
+                promptForModel = "ordinary remote question",
+                memoryHits = emptyList(),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            memoryRepository = memoryRepository,
+            assistantRouter = assistantRouter,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("ordinary remote question")
+        advanceUntilIdle()
+
+        assertEquals(false, assistantRouter.lastRouteMemoryEnabled)
+        assertEquals(null, assistantRouter.lastRouteDeviceContext)
+        val receipt = requireNotNull(assistantRouter.lastRecordedRunDataReceipt)
+        assertEquals("run-remote-memory-boundary", assistantRouter.lastRecordedRunDataReceiptRunId)
+        assertEquals(RunDataDestination.Remote, receipt.destination)
+        assertEquals(MessagePrivacy.RemoteEligible.name, receipt.currentPromptPrivacy)
+        assertEquals(false, receipt.memoryContextIncluded)
+        assertEquals(false, receipt.deviceContextIncluded)
+        assertTrue(receipt.protectedContentTypes.contains("本地记忆"))
+        assertTrue(receipt.protectedContentTypes.contains("设备上下文"))
+        val call = remoteRuntime.calls.single()
+        assertEquals("ordinary remote question", call.prompt)
+        assertTrue(call.history.isEmpty())
+        assertFalse(call.prompt.contains("I prefer concise answers"))
+        assertFalse(call.history.toString().contains("I prefer concise answers"))
+    }
+
+    @Test
+    fun remoteImageDisclosureKeepsAttachmentForConfirmedVisionSend() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.stageSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Image,
+                        mimeType = "image/png",
+                        displayName = "screen.png",
+                        sizeBytes = 12L,
+                        imageAttachment = ChatImageAttachment(
+                            mimeType = "image/png",
+                            dataUrl = "data:image/png;base64,AA==",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        viewModel.sendPendingSharedInput("描述这张图")
+        advanceUntilIdle()
+
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(1, disclosure.imageAttachmentCount)
+        assertEquals("data:image/png;base64,AA==", disclosure.imageAttachments.single().dataUrl)
+        assertTrue(remoteRuntime.calls.isEmpty())
+
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        val call = remoteRuntime.calls.single()
+        assertTrue(call.prompt.contains("描述这张图"))
+        assertEquals("data:image/png;base64,AA==", call.imageAttachments.single().dataUrl)
+    }
+
+    @Test
+    fun startupShowsSetupOnFreshInstallWhenNoLocalOrRemoteModelIsAvailable() = runTest(dispatcher) {
+        val viewModel = createViewModel(
+            modelRepository = FakeModelRepository(activeModelPath = null),
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Local,
+                config = RemoteModelConfig(),
+            ),
+            firstRunStore = FakeFirstRunSetupStore(setupDismissed = false),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.showFirstRunSetup)
+        assertFalse(viewModel.uiState.value.isReady)
+        assertEquals(
+            NO_MODEL_READY_STATUS_TEXT,
+            viewModel.uiState.value.statusText,
+        )
+    }
+
+    @Test
+    fun startupKeepsSetupDismissedWhenNoLocalOrRemoteModelIsAvailable() = runTest(dispatcher) {
+        val viewModel = createViewModel(
+            modelRepository = FakeModelRepository(activeModelPath = null),
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Local,
+                config = RemoteModelConfig(),
+            ),
+            firstRunStore = FakeFirstRunSetupStore(setupDismissed = true),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.showFirstRunSetup)
+        assertFalse(viewModel.uiState.value.isReady)
+        assertEquals(
+            NO_MODEL_READY_STATUS_TEXT,
+            viewModel.uiState.value.statusText,
+        )
+    }
+
+    @Test
+    fun startupDoesNotReopenSetupWhenRemoteModelIsConfigured() = runTest(dispatcher) {
+        val viewModel = createViewModel(
+            modelRepository = FakeModelRepository(activeModelPath = null),
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            firstRunStore = FakeFirstRunSetupStore(setupDismissed = false),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.showFirstRunSetup)
+        assertTrue(viewModel.uiState.value.isReady)
+        assertEquals("远程模型已就绪", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun savingRemoteConfigDismissesFreshSetup() = runTest(dispatcher) {
+        val firstRunStore = FakeFirstRunSetupStore(setupDismissed = false)
+        val viewModel = createViewModel(
+            modelRepository = FakeModelRepository(activeModelPath = null),
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Local,
+                config = RemoteModelConfig(),
+            ),
+            firstRunStore = firstRunStore,
+        )
+
+        assertTrue(viewModel.uiState.value.showFirstRunSetup)
+
+        viewModel.updateRemoteModelConfig(configuredRemoteModel())
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.showFirstRunSetup)
+        assertTrue(firstRunStore.isSetupDismissed())
+    }
+
+    @Test
+    fun startModelDownloadReportsUnavailableDirectoryWithoutEnqueueing() = runTest(dispatcher) {
+        val modelRepository = FakeModelRepository(downloadedModelFileProvider = { null })
+        val downloadClient = FakeModelDownloadClient()
+        val viewModel = createViewModel(
+            modelRepository = modelRepository,
+            downloadClient = downloadClient,
+        )
+
+        viewModel.startModelDownload()
+        advanceUntilIdle()
+
+        assertEquals("下载目录不可用，请导入已有模型", viewModel.uiState.value.statusText)
+        assertFalse(viewModel.uiState.value.isDownloading)
+        assertTrue(downloadClient.enqueuedDownloads.isEmpty())
+        assertTrue(modelRepository.savedPendingDownloads.isEmpty())
+    }
+
+    @Test
+    fun startSetupModelDownloadKeepsFirstRunOpenWhenPreflightFails() = runTest(dispatcher) {
+        val firstRunStore = FakeFirstRunSetupStore(setupDismissed = false)
+        val modelRepository = FakeModelRepository(
+            activeModelPath = null,
+            downloadedModelFileProvider = { null },
+        )
+        val downloadClient = FakeModelDownloadClient()
+        val viewModel = createViewModel(
+            modelRepository = modelRepository,
+            firstRunStore = firstRunStore,
+            downloadClient = downloadClient,
+        )
+
+        assertTrue(viewModel.uiState.value.showFirstRunSetup)
+
+        viewModel.startSetupModelDownload()
+        advanceUntilIdle()
+
+        assertEquals("下载目录不可用，请导入已有模型", viewModel.uiState.value.statusText)
+        assertTrue(viewModel.uiState.value.showFirstRunSetup)
+        assertFalse(firstRunStore.isSetupDismissed())
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertFalse(viewModel.uiState.value.isDownloading)
+        assertTrue(downloadClient.enqueuedDownloads.isEmpty())
+        assertTrue(modelRepository.savedPendingDownloads.isEmpty())
+    }
+
+    @Test
+    fun startCustomModelDownloadRejectsInvalidUrlWithoutEnqueueing() = runTest(dispatcher) {
+        val modelRepository = FakeModelRepository(customDownloadSource = null)
+        val downloadClient = FakeModelDownloadClient()
+        val viewModel = createViewModel(
+            modelRepository = modelRepository,
+            downloadClient = downloadClient,
+        )
+
+        viewModel.startCustomModelDownload("https://models.example.com/model.bin")
+        advanceUntilIdle()
+
+        assertEquals(
+            "请输入有效的 HTTPS .litertlm 模型下载链接；HTTP 仅支持本地调试地址",
+            viewModel.uiState.value.statusText,
+        )
+        assertFalse(viewModel.uiState.value.isDownloading)
+        assertTrue(downloadClient.enqueuedDownloads.isEmpty())
+        assertTrue(modelRepository.savedPendingDownloads.isEmpty())
+    }
+
+    @Test
+    fun monitorDownloadFailureClearsPendingDeletesTargetAndShowsReason() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val modelRepository = FakeModelRepository(downloadedModelFileProvider = { target })
+            val downloadClient = FakeModelDownloadClient(
+                queryResults = mutableListOf(
+                    DownloadInfo(
+                        status = DownloadManager.STATUS_FAILED,
+                        reason = DownloadManager.ERROR_INSUFFICIENT_SPACE,
+                        downloadedBytes = 0L,
+                        totalBytes = 100L,
+                    ),
+                ),
+                onEnqueue = { _, file -> file.writeText("partial", Charsets.UTF_8) },
+            )
+            val viewModel = createViewModel(
+                modelRepository = modelRepository,
+                downloadClient = downloadClient,
+            )
+
+            viewModel.startModelDownload()
+            advanceUntilIdle()
+
+            assertEquals("下载失败：存储空间不足", viewModel.uiState.value.statusText)
+            assertFalse(viewModel.uiState.value.isBusy)
+            assertFalse(viewModel.uiState.value.isDownloading)
+            assertEquals(0L, viewModel.uiState.value.downloadedBytes)
+            assertEquals(0L, viewModel.uiState.value.totalBytes)
+            assertFalse(target.exists())
+            assertEquals(1, modelRepository.clearPendingDownloadCount)
+            assertTrue(modelRepository.registeredModels.isEmpty())
+        }
+    }
+
+    @Test
+    fun setupModelDownloadFailureAfterEnqueueRestoresFirstRunRecovery() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val firstRunStore = FakeFirstRunSetupStore(setupDismissed = false)
+            val modelRepository = FakeModelRepository(
+                activeModelPath = null,
+                downloadedModelFileProvider = { target },
+            )
+            val downloadClient = FakeModelDownloadClient(
+                queryResults = mutableListOf(
+                    DownloadInfo(
+                        status = DownloadManager.STATUS_FAILED,
+                        reason = DownloadManager.ERROR_INSUFFICIENT_SPACE,
+                        downloadedBytes = 0L,
+                        totalBytes = 100L,
+                    ),
+                ),
+                onEnqueue = { _, file -> file.writeText("partial", Charsets.UTF_8) },
+            )
+            val viewModel = createViewModel(
+                modelRepository = modelRepository,
+                firstRunStore = firstRunStore,
+                downloadClient = downloadClient,
+            )
+
+            assertTrue(viewModel.uiState.value.showFirstRunSetup)
+
+            viewModel.startSetupModelDownload()
+            advanceUntilIdle()
+
+            assertEquals("下载失败：存储空间不足", viewModel.uiState.value.statusText)
+            assertTrue(viewModel.uiState.value.showFirstRunSetup)
+            assertFalse(firstRunStore.isSetupDismissed())
+            assertFalse(viewModel.uiState.value.isBusy)
+            assertFalse(viewModel.uiState.value.isDownloading)
+            assertEquals(0L, viewModel.uiState.value.downloadedBytes)
+            assertEquals(0L, viewModel.uiState.value.totalBytes)
+            assertFalse(target.exists())
+            assertEquals(1, modelRepository.clearPendingDownloadCount)
+            assertEquals(1, modelRepository.savedPendingDownloads.size)
+            assertTrue(modelRepository.registeredModels.isEmpty())
+        }
+    }
+
+    @Test
+    fun monitorDownloadShaFailureDeletesFileClearsPendingAndStopsDownloading() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val source = ModelDownloadSource(
+                title = "自定义模型",
+                fileName = target.name,
+                downloadUrl = "https://models.example.com/custom.litertlm",
+                expectedBytes = 5L,
+                expectedSha256 = "0".repeat(64),
+                modelId = null,
+            )
+            val modelRepository = FakeModelRepository(
+                customDownloadSource = source,
+                downloadedModelFileProvider = { target },
+            )
+            val downloadClient = FakeModelDownloadClient(
+                queryResults = mutableListOf(
+                    DownloadInfo(
+                        status = DownloadManager.STATUS_SUCCESSFUL,
+                        reason = 0,
+                        downloadedBytes = 5L,
+                        totalBytes = 5L,
+                    ),
+                ),
+                onEnqueue = { _, file -> file.writeText("model", Charsets.UTF_8) },
+            )
+            val viewModel = createViewModel(
+                modelRepository = modelRepository,
+                downloadClient = downloadClient,
+            )
+
+            viewModel.startCustomModelDownload(source.downloadUrl)
+            advanceUntilIdle()
+
+            assertEquals("模型校验失败，请重新下载", viewModel.uiState.value.statusText)
+            assertFalse(viewModel.uiState.value.isBusy)
+            assertFalse(viewModel.uiState.value.isDownloading)
+            assertFalse(target.exists())
+            assertEquals(1, modelRepository.clearPendingDownloadCount)
+            assertTrue(modelRepository.registeredModels.isEmpty())
+        }
+    }
+
+    @Test
+    fun restoreStartupStateClearsPendingDownloadWhenDownloadTaskMissing() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val source = ModelDownloadSource(
+                title = "自定义模型",
+                fileName = target.name,
+                downloadUrl = "https://models.example.com/custom.litertlm",
+                expectedBytes = null,
+                expectedSha256 = null,
+                modelId = null,
+            )
+            val modelRepository = FakeModelRepository(
+                activeModelPath = null,
+                downloadedModelFileProvider = { target },
+                pendingDownloadId = 42L,
+                pendingDownloadSource = source,
+            )
+            val downloadClient = FakeModelDownloadClient()
+            val viewModel = createViewModel(
+                modelRepository = modelRepository,
+                downloadClient = downloadClient,
+            )
+
+            viewModel.restoreStartupState()
+            advanceUntilIdle()
+
+            assertEquals("下载任务不存在", viewModel.uiState.value.statusText)
+            assertFalse(viewModel.uiState.value.isDownloading)
+            assertEquals(1, modelRepository.clearPendingDownloadCount)
+            assertEquals(listOf(42L), downloadClient.queriedDownloadIds)
+        }
+    }
+
+    @Test
+    fun remoteModeProtectsSensitiveDirectPromptBeforeCallingRemoteRuntime() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val assistantRouter = FakeAssistantRouter()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        listOf(
+            "我的手机号是 13800138000，帮我总结一下",
+            "AWS key AKIA1234567890ABCDEF 帮我分析",
+            "client_secret = superSecret123 帮我检查",
+        ).forEach { sensitivePrompt ->
+            viewModel.sendMessage(sensitivePrompt)
+            advanceUntilIdle()
+
+            assertTrue(remoteRuntime.calls.isEmpty())
+            assertEquals(0, assistantRouter.routeCallCount)
+            assertEquals("已保护敏感内容", viewModel.uiState.value.statusText)
+            assertTrue(viewModel.uiState.value.messages.last().text.contains("疑似包含个人信息或密钥"))
+        }
+        assertTrue(sessionStore.messages.all { message -> message.privacy == MessagePrivacy.LocalOnly })
+    }
+
+    @Test
+    fun remoteModeUnconfiguredSendAttemptShowsLocalNoticeWithoutCallingRuntime() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val assistantRouter = FakeAssistantRouter()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = RemoteModelConfig(),
+            ),
+            assistantRouter = assistantRouter,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(0, assistantRouter.routeCallCount)
+        assertEquals("请配置远程模型", viewModel.uiState.value.statusText)
+        assertEquals(ModelHealthState.LoadFailed, viewModel.uiState.value.modelHealth.state)
+        assertEquals("远程模型未配置", viewModel.uiState.value.modelHealth.failureReason)
+        val notice = sessionStore.messages.single()
+        assertEquals(MessageRole.Assistant, notice.role)
+        assertEquals(MessagePrivacy.LocalOnly, notice.privacy)
+        assertTrue(notice.text.contains("配置远程模型地址和模型名"))
+        assertTrue(notice.text.contains("还没有发送"))
+        assertFalse(notice.text.contains("普通远程问题"))
+    }
+
+    @Test
+    fun clearingRemoteConfigWhileInRemoteModeBlocksRemoteSend() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val assistantRouter = FakeAssistantRouter()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isReady)
+        assertEquals(InferenceMode.Remote, viewModel.uiState.value.inferenceMode)
+
+        viewModel.updateRemoteModelConfig(RemoteModelConfig())
+        advanceUntilIdle()
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(0, assistantRouter.routeCallCount)
+        assertEquals("请配置远程模型", viewModel.uiState.value.statusText)
+        assertEquals(ModelHealthState.LoadFailed, viewModel.uiState.value.modelHealth.state)
+        assertEquals("远程模型未配置", viewModel.uiState.value.modelHealth.failureReason)
+        val notice = sessionStore.messages.single()
+        assertEquals(MessageRole.Assistant, notice.role)
+        assertEquals(MessagePrivacy.LocalOnly, notice.privacy)
+        assertTrue(notice.text.contains("配置远程模型地址和模型名"))
+        assertTrue(notice.text.contains("还没有发送"))
+        assertFalse(notice.text.contains("普通远程问题"))
+    }
+
+    @Test
+    fun remoteModeUnconfiguredSharedImageSignalShowsConfigNoticeWithoutReadingOrSending() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val assistantRouter = FakeAssistantRouter()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = RemoteModelConfig(),
+            ),
+            assistantRouter = assistantRouter,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.ingestSharedInput(
+            SharedInput(
+                text = "",
+                attachments = emptyList(),
+                protectedSourceCount = 1,
+                protectedImageSourceCount = 1,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(0, assistantRouter.routeCallCount)
+        assertEquals(null, viewModel.uiState.value.pendingSharedInputDraft)
+        assertEquals("请配置远程模型", viewModel.uiState.value.statusText)
+        assertEquals(ModelHealthState.LoadFailed, viewModel.uiState.value.modelHealth.state)
+        assertEquals("远程模型未配置", viewModel.uiState.value.modelHealth.failureReason)
+        val notice = sessionStore.messages.single()
+        assertEquals(MessageRole.Assistant, notice.role)
+        assertEquals(MessagePrivacy.LocalOnly, notice.privacy)
+        assertTrue(notice.text.contains("配置远程模型地址和模型名"))
+        assertTrue(notice.text.contains("没有读取、OCR 或发送"))
+        assertTrue(notice.text.contains("确认发送"))
+        assertFalse(notice.text.contains("1"))
+        assertFalse(notice.text.contains("data:image"))
+    }
+
+    @Test
+    fun remoteModeFiltersSensitiveRemoteEligibleHistoryBeforeCallingRemoteRuntime() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore(
+            initialSessions = mapOf(
+                "session-1" to listOf(
+                    ChatMessage(
+                        role = MessageRole.User,
+                        text = "公开上下文：我在比较城市天气",
+                        privacy = MessagePrivacy.RemoteEligible,
+                    ),
+                    ChatMessage(
+                        role = MessageRole.User,
+                        text = "历史误标内容：我的手机号是 13800138000",
+                        privacy = MessagePrivacy.RemoteEligible,
+                    ),
+                ),
+            ),
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val historyText = remoteRuntime.calls.single().history.joinToString("\n") { it.text }
+        assertTrue(historyText.contains("公开上下文"))
+        assertFalse(historyText.contains("13800138000"))
+        assertFalse(historyText.contains("历史误标内容"))
     }
 
     @Test
@@ -378,6 +1092,213 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun remoteModeSendsSharedImageAttachmentToVisionRuntime() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.stageSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Image,
+                        mimeType = "image/png",
+                        displayName = "screen.png",
+                        sizeBytes = 12L,
+                        imageAttachment = ChatImageAttachment(
+                            mimeType = "image/png",
+                            dataUrl = "data:image/png;base64,AA==",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        val draft = requireNotNull(viewModel.uiState.value.pendingSharedInputDraft)
+        assertEquals("screen.png · 图片", draft.summary)
+        assertEquals(MessagePrivacy.RemoteEligible, draft.privacy)
+        assertEquals("data:image/png;base64,AA==", draft.imageAttachments.single().dataUrl)
+
+        viewModel.sendPendingSharedInput("描述这张图")
+        advanceUntilIdle()
+
+        val call = remoteRuntime.calls.single()
+        assertTrue(call.prompt.contains("描述这张图"))
+        assertTrue(call.prompt.contains("已附加 1 张图片"))
+        assertTrue(call.prompt.contains("不支持图片输入"))
+        assertFalse(call.prompt.contains("screen.png"))
+        assertFalse(call.prompt.contains("image/png"))
+        assertFalse(call.prompt.contains("12"))
+        assertEquals("data:image/png;base64,AA==", call.imageAttachments.single().dataUrl)
+        assertFalse(sessionStore.messages.first().text.contains("screen.png"))
+        assertFalse(sessionStore.messages.first().text.contains("image/png"))
+        assertFalse(sessionStore.messages.first().text.contains("12"))
+        assertEquals(
+            listOf(MessagePrivacy.RemoteEligible, MessagePrivacy.RemoteEligible),
+            sessionStore.messages.map { it.privacy },
+        )
+    }
+
+    @Test
+    fun remoteImageDraftWhenRemoteIsNotReadyDoesNotEnterLaterRemoteHistory() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.stageSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Image,
+                        mimeType = "image/png",
+                        displayName = "screen.png",
+                        sizeBytes = 12L,
+                        imageAttachment = ChatImageAttachment(
+                            mimeType = "image/png",
+                            dataUrl = "data:image/png;base64,AA==",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(MessagePrivacy.RemoteEligible, viewModel.uiState.value.pendingSharedInputDraft?.privacy)
+        viewModel.updateRemoteModelConfig(RemoteModelConfig())
+        advanceUntilIdle()
+
+        viewModel.sendPendingSharedInput("描述这张图")
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(
+            listOf(MessagePrivacy.LocalOnly),
+            sessionStore.messages.map { it.privacy },
+        )
+        assertEquals(MessageRole.Assistant, sessionStore.messages.single().role)
+        assertTrue(sessionStore.messages.single().text.contains("配置远程模型地址和模型名"))
+        assertTrue(sessionStore.messages.single().text.contains("没有发送这次分享内容"))
+        assertTrue(sessionStore.messages.single().text.contains("不会被自动 OCR"))
+        assertFalse(sessionStore.messages.single().text.contains("screen.png"))
+        assertFalse(sessionStore.messages.single().text.contains("image/png"))
+        assertFalse(sessionStore.messages.single().text.contains("12"))
+        assertEquals("请配置远程模型", viewModel.uiState.value.statusText)
+
+        viewModel.updateRemoteModelConfig(configuredRemoteModel())
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val call = remoteRuntime.calls.single()
+        assertFalse(call.history.toString().contains("screen.png"))
+        assertFalse(call.history.toString().contains("data:image/png"))
+    }
+
+    @Test
+    fun remoteModeRejectsSharedImageAttachmentWhenVisionIsDisabled() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel().copy(supportsVisionInput = false),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.stageSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Image,
+                        mimeType = "image/png",
+                        displayName = "screen.png",
+                        sizeBytes = 12L,
+                        imageAttachment = ChatImageAttachment(
+                            mimeType = "image/png",
+                            dataUrl = "data:image/png;base64,AA==",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingSharedInputDraft)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(1, sessionStore.messages.size)
+        val message = sessionStore.messages.single()
+        assertEquals(MessageRole.Assistant, message.role)
+        assertEquals(MessagePrivacy.LocalOnly, message.privacy)
+        assertTrue(message.text.contains("未启用图片输入能力"))
+        assertTrue(message.text.contains("未读取、OCR 或发送图片"))
+        assertFalse(message.text.contains("screen.png"))
+        assertFalse(message.text.contains("data:image/png"))
+        assertEquals("当前远程模型不支持图片输入", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun remoteModeRejectsProtectedImageSignalWhenVisionIsDisabled() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel().copy(supportsVisionInput = false),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.ingestSharedInput(
+            SharedInput(
+                text = "",
+                attachments = emptyList(),
+                protectedSourceCount = 1,
+                protectedImageSourceCount = 1,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingSharedInputDraft)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(1, sessionStore.messages.size)
+        val message = sessionStore.messages.single()
+        assertEquals(MessageRole.Assistant, message.role)
+        assertEquals(MessagePrivacy.LocalOnly, message.privacy)
+        assertTrue(message.text.contains("未启用图片输入能力"))
+        assertTrue(message.text.contains("其他内容也未读取或发送"))
+        assertFalse(message.text.contains("1"))
+        assertEquals("当前远程模型不支持图片输入", viewModel.uiState.value.statusText)
+    }
+
+    @Test
     fun remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()
@@ -578,6 +1499,14 @@ class PocketMindViewModelTest {
         )
         advanceUntilIdle()
 
+        assertEquals("已接收分享内容", viewModel.uiState.value.statusText)
+        assertEquals("文本", viewModel.uiState.value.pendingSharedInputDraft?.summary)
+        assertTrue(sessionStore.messages.isEmpty())
+        assertTrue(localRuntime.prompts.isEmpty())
+
+        viewModel.sendPendingSharedInput()
+        advanceUntilIdle()
+
         assertEquals(
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
             sessionStore.messages.map { it.privacy },
@@ -591,6 +1520,42 @@ class PocketMindViewModelTest {
         val call = remoteRuntime.calls.single()
         assertFalse(call.history.toString().contains("私密分享内容"))
         assertFalse(call.history.toString().contains("本地回复：私密分享摘要"))
+        assertEquals("普通远程问题", sessionStore.messages.dropLast(1).last().text)
+    }
+
+    @Test
+    fun localModePromptDoesNotEnterLaterRemoteHistoryByDefault() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val localRuntime = FakeLiteRtRuntime(localResponse = "本地回复：普通本地回答")
+        val remoteStore = FakeRemoteModelStore(mode = InferenceMode.Local)
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            runtime = localRuntime,
+            remoteRuntime = remoteRuntime,
+            remoteStore = remoteStore,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("本地普通问题")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
+            sessionStore.messages.map { it.privacy },
+        )
+        assertTrue(sessionStore.messages.last().text.contains("本地回复：普通本地回答"))
+
+        viewModel.updateRemoteModelConfig(configuredRemoteModel())
+        viewModel.selectInferenceMode(InferenceMode.Remote)
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val call = remoteRuntime.calls.single()
+        assertFalse(call.history.toString().contains("本地普通问题"))
+        assertFalse(call.history.toString().contains("本地回复：普通本地回答"))
         assertEquals("普通远程问题", sessionStore.messages.dropLast(1).last().text)
     }
 
@@ -671,7 +1636,7 @@ class PocketMindViewModelTest {
         )
         advanceUntilIdle()
 
-        assertEquals("photo.jpg · 无 OCR", viewModel.uiState.value.pendingSharedInputDraft?.summary)
+        assertEquals("photo.jpg · 不支持视觉", viewModel.uiState.value.pendingSharedInputDraft?.summary)
 
         viewModel.sendPendingSharedInput("这张图里有什么")
         advanceUntilIdle()
@@ -679,8 +1644,8 @@ class PocketMindViewModelTest {
         val prompt = runtime.prompts.single()
         assertTrue(prompt.contains("这张图里有什么"))
         assertTrue(prompt.contains("photo.jpg"))
-        assertTrue(prompt.contains("图片视觉内容未读取"))
-        assertTrue(prompt.contains("无法看到照片/画面内容"))
+        assertTrue(prompt.contains("当前模型不支持视觉输入"))
+        assertTrue(prompt.contains("不会自动 OCR"))
     }
 
     @Test
@@ -765,6 +1730,68 @@ class PocketMindViewModelTest {
         assertEquals(9, loudSamples.size)
         assertTrue(quietSamples != initialSamples)
         assertTrue((loudSamples.maxOrNull() ?: 0f) > (quietSamples.maxOrNull() ?: 0f))
+    }
+
+    @Test
+    fun voiceCaptureStaysVisibleWhileTranscribingAfterSpeechEnds() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+
+        viewModel.startVoiceInputCapture()
+        viewModel.updateVoiceInputPartialTranscript("第一段")
+        viewModel.finishVoiceInputCapture()
+        advanceUntilIdle()
+
+        val transcribing = viewModel.uiState.value.voiceCapture
+        assertFalse(transcribing.isListening)
+        assertTrue(transcribing.isTranscribing)
+        assertTrue(transcribing.isActive)
+        assertEquals("第一段", transcribing.partialText)
+        assertEquals("正在转写", viewModel.uiState.value.statusText)
+
+        viewModel.updateVoiceInputPartialTranscript("第一段 第二句")
+        advanceUntilIdle()
+
+        assertEquals("第一段 第二句", viewModel.uiState.value.voiceCapture.partialText)
+
+        viewModel.acceptVoiceTranscript("第一段 第二句")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.voiceCapture.isActive)
+        assertEquals("第一段 第二句", viewModel.uiState.value.voiceInputDraft?.text)
+    }
+
+    @Test
+    fun voicePermissionFailureClearsCaptureAndCanRecoverWithoutSending() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val executor = RecordingToolExecutor()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            actionExecutor = executor,
+        )
+
+        viewModel.startVoiceInputCapture()
+        viewModel.updateVoiceInputPartialTranscript("临时语音")
+        viewModel.reportVoiceInputUnavailable("未授权麦克风权限")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.voiceCapture.isActive)
+        assertEquals("未授权麦克风权限", viewModel.uiState.value.statusText)
+        assertEquals(null, viewModel.uiState.value.voiceInputDraft)
+        assertTrue(sessionStore.messages.isEmpty())
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertTrue(executor.executedRequests.isEmpty())
+
+        viewModel.startVoiceInputCapture()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.voiceCapture.isListening)
+        assertEquals("正在收音", viewModel.uiState.value.statusText)
+        assertEquals(null, viewModel.uiState.value.voiceInputDraft)
+        assertTrue(sessionStore.messages.isEmpty())
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertTrue(executor.executedRequests.isEmpty())
     }
 
     @Test
@@ -1003,6 +2030,85 @@ class PocketMindViewModelTest {
         assertTrue(remoteRuntime.calls.isEmpty())
         assertEquals(AgentRunState.Failed, viewModel.uiState.value.agentTraceRuns.single().state)
         assertTrue(sessionStore.messages.last().text.contains("local model crashed"))
+        assertEquals(ModelHealthState.LoadFailed, viewModel.uiState.value.modelHealth.state)
+        assertTrue(viewModel.uiState.value.modelHealth.failureReason.orEmpty().contains("local model crashed"))
+    }
+
+    @Test
+    fun localGenerationFailureUpdatesModelHealth() = runTest(dispatcher) {
+        val localRuntime = FakeLiteRtRuntime(failure = IllegalStateException("local model crashed"))
+        val viewModel = createViewModel(
+            runtime = localRuntime,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        assertEquals(ModelHealthState.Loaded, viewModel.uiState.value.modelHealth.state)
+
+        viewModel.sendMessage("普通问题")
+        advanceUntilIdle()
+
+        assertEquals("生成失败，建议重新加载", viewModel.uiState.value.statusText)
+        assertEquals(ModelHealthState.LoadFailed, viewModel.uiState.value.modelHealth.state)
+        assertEquals(BackendChoice.CPU, viewModel.uiState.value.modelHealth.backend)
+        assertTrue(viewModel.uiState.value.modelHealth.failureReason.orEmpty().contains("local model crashed"))
+    }
+
+    @Test
+    fun loadModelFallsBackToCpuWhenGpuInitializationFails() = runTest(dispatcher) {
+        val generationStore = FakeGenerationParametersStore().apply {
+            saveBackend(BackendChoice.GPU)
+        }
+        val runtime = FakeLiteRtRuntime(
+            loadFailures = mapOf(BackendChoice.GPU to IllegalStateException("gpu unavailable")),
+        )
+        val viewModel = createViewModel(
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            generationStore = generationStore,
+            runtime = runtime,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+
+        viewModel.loadModel()
+        advanceUntilIdle()
+
+        assertEquals(listOf(BackendChoice.GPU, BackendChoice.CPU), runtime.loadCalls)
+        assertEquals(BackendChoice.CPU, viewModel.uiState.value.backend)
+        assertTrue(viewModel.uiState.value.isReady)
+        assertEquals(ModelHealthState.FallbackActive, viewModel.uiState.value.modelHealth.state)
+        assertEquals(BackendChoice.CPU, viewModel.uiState.value.modelHealth.backend)
+        assertEquals(BackendChoice.CPU, viewModel.uiState.value.modelHealth.fallbackBackend)
+        assertTrue(viewModel.uiState.value.modelHealth.failureReason.orEmpty().contains("gpu unavailable"))
+    }
+
+    @Test
+    fun loadModelRecordsBothGpuAndCpuFailureReasonsWhenFallbackFails() = runTest(dispatcher) {
+        val generationStore = FakeGenerationParametersStore().apply {
+            saveBackend(BackendChoice.GPU)
+        }
+        val runtime = FakeLiteRtRuntime(
+            loadFailures = mapOf(
+                BackendChoice.GPU to IllegalStateException("gpu unavailable"),
+                BackendChoice.CPU to IllegalStateException("cpu unavailable"),
+            ),
+        )
+        val viewModel = createViewModel(
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            generationStore = generationStore,
+            runtime = runtime,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+
+        viewModel.loadModel()
+        advanceUntilIdle()
+
+        assertEquals(listOf(BackendChoice.GPU, BackendChoice.CPU), runtime.loadCalls)
+        assertFalse(viewModel.uiState.value.isReady)
+        assertEquals(ModelHealthState.LoadFailed, viewModel.uiState.value.modelHealth.state)
+        assertTrue(viewModel.uiState.value.statusText.contains("GPU: gpu unavailable"))
+        assertTrue(viewModel.uiState.value.statusText.contains("CPU: cpu unavailable"))
+        assertTrue(viewModel.uiState.value.modelHealth.failureReason.orEmpty().contains("CPU: cpu unavailable"))
     }
 
     @Test
@@ -1826,6 +2932,95 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun selectingSessionRestoresLocalConversationWithoutGlobalBusy() = runTest {
+        val ioDispatcher = StandardTestDispatcher(testScheduler)
+        val selectedMessage = ChatMessage(MessageRole.User, "切换后的会话")
+        val runtime = FakeLiteRtRuntime().apply { isLoaded = true }
+        val sessionStore = FakeSessionStore(
+            initialSessions = linkedMapOf(
+                "session-1" to listOf(ChatMessage(MessageRole.User, "旧会话")),
+                "session-2" to listOf(selectedMessage),
+            ),
+            initialActiveSessionId = "session-1",
+        )
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            runtime = runtime,
+            ioDispatcher = ioDispatcher,
+        )
+
+        viewModel.selectSession("session-2")
+
+        assertEquals("session-2", viewModel.uiState.value.activeSessionId)
+        assertEquals(listOf(selectedMessage), viewModel.uiState.value.messages)
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertFalse(viewModel.uiState.value.isReady)
+        assertEquals("正在恢复会话", viewModel.uiState.value.statusText)
+        assertEquals(0, runtime.recreateCallCount)
+
+        advanceUntilIdle()
+
+        assertEquals(1, runtime.recreateCallCount)
+        assertEquals(listOf(selectedMessage), runtime.recreatedHistories.single())
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertTrue(viewModel.uiState.value.isReady)
+        assertEquals("已恢复会话 · CPU", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun localDeviceContextToolReadinessUsesLatestAuthorizationSnapshot() = runTest(dispatcher) {
+        val assistantRouter = FakeAssistantRouter()
+        val viewModel = createViewModel(
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+        viewModel.updateDeviceContextAuthorizationSnapshot(
+            DeviceContextAuthorizationSnapshot(
+                grantedRuntimePermissions = setOf(
+                    Manifest.permission.READ_CONTACTS,
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.READ_MEDIA_IMAGES,
+                    Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                ),
+                grantedSpecialAccessIds = setOf(SPECIAL_ACCESS_USAGE_STATS),
+            ),
+        )
+
+        viewModel.sendMessage("检查设备上下文")
+        advanceUntilIdle()
+
+        val readiness = requireNotNull(assistantRouter.lastRouteDeviceContext)
+            .toolReadiness
+            .associateBy { it.toolName }
+        assertEquals(
+            DeviceContextToolReadinessState.Available,
+            readiness[MobileActionFunctions.QUERY_CONTACTS]?.state,
+        )
+        assertEquals(
+            DeviceContextToolReadinessState.Available,
+            readiness[MobileActionFunctions.QUERY_FOREGROUND_APP]?.state,
+        )
+        assertEquals(
+            DeviceContextToolReadinessState.Available,
+            readiness[MobileActionFunctions.QUERY_RECENT_FILES]?.state,
+        )
+        assertEquals(
+            DeviceContextToolReadinessState.Available,
+            readiness[MobileActionFunctions.READ_RECENT_IMAGE_OCR]?.state,
+        )
+        assertEquals(
+            DeviceContextToolReadinessState.RequiresRuntimePermission,
+            readiness[MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY]?.state,
+        )
+        assertEquals(
+            DeviceContextToolReadinessState.RequiresSpecialAccess,
+            readiness[MobileActionFunctions.READ_CURRENT_SCREEN_TEXT]?.state,
+        )
+    }
+
+    @Test
     fun deleteActiveSessionClearsSessionAgentTraceAndPendingConfirmation() = runTest(dispatcher) {
         val sessionStore = FakeSessionStore(
             initialSessions = linkedMapOf(
@@ -1871,6 +3066,36 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun deleteOnlyActiveSessionClearsMessagesAndPendingSharedDraft() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore(
+            initialSessions = linkedMapOf(
+                "session-only" to listOf(ChatMessage(MessageRole.User, "要清掉的聊天记录")),
+            ),
+            initialActiveSessionId = "session-only",
+        )
+        val assistantRouter = FakeAssistantRouter()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            assistantRouter = assistantRouter,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.stageSharedInput(SharedInput(text = "待发送附件内容", attachments = emptyList()))
+        advanceUntilIdle()
+        requireNotNull(viewModel.uiState.value.pendingSharedInputDraft)
+
+        viewModel.deleteActiveSession()
+        advanceUntilIdle()
+
+        assertEquals(listOf("session-only"), assistantRouter.deletedTraceSessionIds)
+        assertEquals("session-2", viewModel.uiState.value.activeSessionId)
+        assertTrue(viewModel.uiState.value.messages.isEmpty())
+        assertEquals(null, viewModel.uiState.value.pendingSharedInputDraft)
+        assertEquals(1, viewModel.uiState.value.sessions.size)
+        assertEquals(0, viewModel.uiState.value.sessions.single().messageCount)
+    }
+
+    @Test
     fun duplicatePendingConfirmationExecutesOnlyOnce() = runTest(dispatcher) {
         val request = ToolRequest(toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS)
         val executor = RecordingToolExecutor()
@@ -1910,6 +3135,57 @@ class PocketMindViewModelTest {
         assertEquals(1, executor.executedRequests.size)
         assertEquals(request.id, executor.executedRequests.single().id)
         assertEquals(1, assistantRouter.confirmCallCount)
+    }
+
+    @Test
+    fun tamperedPendingConfirmationToolArgumentsDoNotExecute() = runTest(dispatcher) {
+        val request = ToolRequest(
+            id = "share-request",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "original share text"),
+            reason = "分享文本",
+        )
+        val executor = RecordingToolExecutor()
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-share",
+                toolRequest = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.SHARE_TEXT,
+                    title = "系统分享",
+                    summary = "分享文本",
+                    parameters = request.arguments,
+                ),
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.SHARE_TEXT_SKILL,
+            ),
+            confirmedRun = AgentRun("run-share", "分享文本", AgentRunState.ExecutingTool, 1L, 2L),
+        )
+        val viewModel = createViewModel(
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("分享这段文字：original share text")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+        val tampered = confirmation.copy(
+            toolRequest = request.copy(arguments = mapOf("text" to "tampered share text")),
+            draft = confirmation.draft.copy(parameters = request.arguments),
+        )
+
+        viewModel.confirmAgentConfirmation(tampered)
+        advanceUntilIdle()
+
+        assertEquals(0, assistantRouter.confirmCallCount)
+        assertTrue(executor.executedRequests.isEmpty())
+        assertEquals(confirmation, viewModel.uiState.value.pendingConfirmation)
+        assertEquals("工具确认已处理", viewModel.uiState.value.statusText)
     }
 
     @Test
@@ -2146,6 +3422,7 @@ class PocketMindViewModelTest {
         viewModel.sendMessage("普通问题")
 
         assertTrue(viewModel.uiState.value.isGenerating)
+        assertEquals(listOf("本地生成 prompt"), localRuntime.preparedForSendPrompts)
         assertEquals(listOf("本地生成 prompt"), localRuntime.prompts)
 
         viewModel.stopGeneration()
@@ -2158,6 +3435,47 @@ class PocketMindViewModelTest {
         assertFalse(viewModel.uiState.value.isGenerating)
         assertFalse(viewModel.uiState.value.isBusy)
         assertEquals(listOf("run-stop"), viewModel.uiState.value.agentTraceRuns.map { it.id })
+        assertEquals(AgentRunState.Cancelled, viewModel.uiState.value.agentTraceRuns.single().state)
+    }
+
+    @Test
+    fun stopGenerationCancelsActiveAgentRunForRemoteChat() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime(hangDuringSend = true)
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-stop",
+                promptForModel = "远程生成 prompt",
+                memoryHits = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("远程生成 prompt")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isGenerating)
+        assertEquals("远程生成 prompt", remoteRuntime.calls.single().prompt)
+
+        viewModel.stopGeneration()
+        advanceUntilIdle()
+
+        assertEquals(1, remoteRuntime.stopCallCount)
+        assertEquals(1, assistantRouter.cancelRunCallCount)
+        assertEquals("run-remote-stop", assistantRouter.lastCancelledRunId)
+        assertTrue(assistantRouter.lastCancelledRunReason.orEmpty().contains("stopped"))
+        assertFalse(viewModel.uiState.value.isGenerating)
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertEquals(listOf("run-remote-stop"), viewModel.uiState.value.agentTraceRuns.map { it.id })
         assertEquals(AgentRunState.Cancelled, viewModel.uiState.value.agentTraceRuns.single().state)
     }
 
@@ -2233,6 +3551,124 @@ class PocketMindViewModelTest {
         assertEquals(MessagePrivacy.LocalOnly, toolStatusMessage.privacy)
         assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.last().privacy)
         assertEquals("executed", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun remoteModeUsesModelFirstPlanningAndExposesSafePlanningToolsToRemoteRuntime() = runTest(dispatcher) {
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-filter",
+                promptForModel = "北京天气怎么样？",
+                memoryHits = emptyList(),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("北京天气怎么样？")
+        advanceUntilIdle()
+
+        val tools = remoteRuntime.calls.single().tools
+        assertEquals(InitialPlanningMode.ModelFirstRemoteTools, assistantRouter.lastRouteOptions?.initialPlanningMode)
+        assertEquals(RemoteToolScope.ModelPlanning, assistantRouter.lastRouteOptions?.remoteToolScope)
+        assertTrue(tools.isNotEmpty())
+        assertTrue(tools.any { spec -> spec.name == MobileActionFunctions.WEB_SEARCH })
+        assertTrue(tools.any { spec -> spec.name == MobileActionFunctions.COMPOSE_EMAIL })
+        assertTrue(tools.any { spec -> spec.name == MobileActionFunctions.SEARCH_MAPS })
+        assertTrue(tools.any { spec -> spec.name == MobileActionFunctions.SHARE_TEXT })
+        assertTrue(tools.none { spec -> spec.privateOutputKeys.isNotEmpty() })
+        assertFalse(tools.any { spec -> spec.name == MobileActionFunctions.READ_CLIPBOARD })
+        assertFalse(tools.any { spec -> spec.name == MobileActionFunctions.QUERY_CONTACTS })
+        assertFalse(tools.any { spec -> spec.name == MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR })
+    }
+
+    @Test
+    fun remoteModeFailsClosedWhenRouteIncludesMemoryContext() = runTest(dispatcher) {
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-memory-boundary",
+                promptForModel = "普通远程问题",
+                memoryHits = listOf(
+                    MemoryHit(
+                        id = "pref-secret",
+                        text = "用户偏好：secret local preference",
+                        score = 1f,
+                    ),
+                ),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(1, assistantRouter.failModelGenerationCallCount)
+        assertEquals("run-remote-memory-boundary", assistantRouter.lastFailedModelRunId)
+        assertEquals("已阻止远程发送", viewModel.uiState.value.statusText)
+        assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.first().privacy)
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
+        assertTrue(sessionStore.messages.last().text.contains("本地记忆上下文"))
+        assertTrue(sessionStore.messages.none { message -> message.text.contains("secret local preference") })
+    }
+
+    @Test
+    fun remoteModeFailsClosedWhenRouteRewritesPrompt() = runTest(dispatcher) {
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-prompt-boundary",
+                promptForModel = "本地记忆：secret\n\n普通远程问题",
+                memoryHits = emptyList(),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(1, assistantRouter.failModelGenerationCallCount)
+        assertEquals("run-remote-prompt-boundary", assistantRouter.lastFailedModelRunId)
+        assertEquals("已阻止远程发送", viewModel.uiState.value.statusText)
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
+        assertTrue(sessionStore.messages.last().text.contains("修改了远程 prompt"))
+        assertTrue(sessionStore.messages.none { message -> message.text.contains("本地记忆：secret") })
     }
 
     @Test
@@ -2322,11 +3758,27 @@ class PocketMindViewModelTest {
             assistantRouter = assistantRouter,
             actionExecutor = executor,
             modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
         viewModel.sendMessage("北京和上海今天温差多少？")
+        advanceUntilIdle()
+
+        assertEquals("远程发送待确认", viewModel.uiState.value.statusText)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals("远程续写待确认", viewModel.uiState.value.statusText)
+        assertEquals(
+            RemoteSendDisclosureKind.ToolResultContinuation,
+            requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure).kind,
+        )
+        assertEquals(1, remoteRuntime.calls.size)
+        assertEquals("北京和上海今天温差多少？", remoteRuntime.calls.single().prompt)
+        viewModel.confirmRemoteSendDisclosure()
         advanceUntilIdle()
 
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
@@ -2340,11 +3792,248 @@ class PocketMindViewModelTest {
         assertEquals(0, assistantRouter.observeToolCallCount)
         assertEquals(2, remoteRuntime.calls.size)
         assertEquals("请综合北京和上海的天气结果计算温差。", remoteRuntime.calls.last().prompt)
+        assertEquals(false, assistantRouter.lastObserveModelResultAllowInlineToolCalls)
+        val continuationTools = remoteRuntime.calls.last().tools
+        assertTrue(continuationTools.any { tool -> tool.name == MobileActionFunctions.WEB_SEARCH })
+        assertFalse(continuationTools.any { tool -> tool.name == MobileActionFunctions.COMPOSE_EMAIL })
+        assertFalse(continuationTools.any { tool -> tool.name == MobileActionFunctions.SEARCH_MAPS })
+        assertFalse(continuationTools.any { tool -> tool.name == MobileActionFunctions.SHARE_TEXT })
         assertTrue(sessionStore.messages.any { message -> message.text.contains("正在并行使用工具：Web 搜索 x2") })
         assertTrue(sessionStore.messages.any { message -> message.text.contains("已完成 2 个公开只读工具调用") })
         assertEquals("北京和上海今天温差约 3 度。", sessionStore.messages.last().text)
         assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.last().privacy)
         assertEquals("就绪 · 远程", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun remoteContinuationDisclosureCancelFailsRunWithoutSecondRemoteCall() = runTest(dispatcher) {
+        val requests = listOf(
+            ToolRequest(
+                id = "call-beijing",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "北京 今天 天气"),
+                reason = "remote tool call",
+            ),
+            ToolRequest(
+                id = "call-shanghai",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "上海 今天 天气"),
+                reason = "remote tool call",
+            ),
+        )
+        val plans = requests.map { request ->
+            AgentPlan.UseTool(
+                request = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.WEB_SEARCH,
+                    title = "Web 搜索",
+                    summary = "将使用 Web 搜索工具查询并整理结果：${request.arguments["query"]}",
+                    parameters = request.arguments,
+                ),
+                plannedByModel = true,
+                fallbackReason = "remote tool batch",
+                safetyDecision = SafetyDecision(
+                    outcome = SafetyOutcome.Allow,
+                    reason = "Read-only web search can execute without confirmation.",
+                ),
+            )
+        }
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-tool-batch-cancel",
+                promptForModel = "北京和上海今天温差多少？",
+                memoryHits = emptyList(),
+            ),
+            modelToolBatchObservation = AgentModelObservationResult(
+                run = AgentRun(
+                    "run-remote-tool-batch-cancel",
+                    "北京和上海今天温差多少？",
+                    AgentRunState.ExecutingTool,
+                    1L,
+                    2L,
+                ),
+                decision = AgentObservationDecision.PlanToolBatch(
+                    plans = plans,
+                    reason = "Remote model requested 2 parallel public evidence tool calls.",
+                ),
+                steps = emptyList(),
+            ),
+            toolBatchObservation = AgentObservationResult(
+                run = AgentRun(
+                    "run-remote-tool-batch-cancel",
+                    "北京和上海今天温差多少？",
+                    AgentRunState.GeneratingAnswer,
+                    1L,
+                    3L,
+                ),
+                result = ToolResult(
+                    requestId = "public-evidence-batch",
+                    status = ToolStatus.Succeeded,
+                    summary = "工具执行结果：已完成 2 个公开只读工具调用。",
+                    data = mapOf("toolName" to "public_evidence_batch", "toolCount" to "2"),
+                ),
+                assistantMessage = "工具执行结果：已完成 2 个公开只读工具调用。",
+                decision = AgentObservationDecision.ContinueWithModel(
+                    requiresLocalModel = false,
+                    reason = "Parallel public evidence tools completed.",
+                ),
+                continuationPromptForModel = "请综合北京和上海的天气结果计算温差。",
+                steps = emptyList(),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime(
+            eventBatches = listOf(
+                listOf(RemoteChatEvent.ToolCalls(requests)),
+                listOf(RemoteChatEvent.TextDelta("不应发起第二次远程续写。")),
+            ),
+        )
+        val executor = RecordingToolExecutor()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("北京和上海今天温差多少？")
+        advanceUntilIdle()
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals("远程续写待确认", viewModel.uiState.value.statusText)
+        assertEquals(
+            RemoteSendDisclosureKind.ToolResultContinuation,
+            requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure).kind,
+        )
+        assertEquals(1, remoteRuntime.calls.size)
+
+        viewModel.dismissRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals(1, remoteRuntime.calls.size)
+        assertEquals(1, assistantRouter.failModelGenerationCallCount)
+        assertEquals("run-remote-tool-batch-cancel", assistantRouter.lastFailedModelRunId)
+        assertTrue(assistantRouter.lastFailedModelReason.orEmpty().contains("用户取消远程工具结果续写"))
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertFalse(viewModel.uiState.value.isGenerating)
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertEquals("已取消远程发送", viewModel.uiState.value.statusText)
+        assertTrue(sessionStore.messages.last().text.contains("工具结果未发送到远程模型"))
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
+    }
+
+    @Test
+    fun remotePublicEvidenceToolCallBatchRetriesOnlyRetryableFailures() = runTest(dispatcher) {
+        val requests = listOf(
+            ToolRequest(
+                id = "call-beijing",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "北京 今天 天气"),
+                reason = "remote tool call",
+            ),
+            ToolRequest(
+                id = "call-shanghai",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "上海 今天 天气"),
+                reason = "remote tool call",
+            ),
+        )
+        val plans = requests.map { request ->
+            AgentPlan.UseTool(
+                request = request,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.WEB_SEARCH,
+                    title = "Web 搜索",
+                    summary = "将使用 Web 搜索工具查询并整理结果：${request.arguments["query"]}",
+                    parameters = request.arguments,
+                ),
+                plannedByModel = true,
+                fallbackReason = "remote tool batch",
+                safetyDecision = SafetyDecision(
+                    outcome = SafetyOutcome.Allow,
+                    reason = "Read-only web search can execute without confirmation.",
+                ),
+            )
+        }
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-tool-batch-retry",
+                promptForModel = "北京和上海今天温差多少？",
+                memoryHits = emptyList(),
+            ),
+            modelToolBatchObservation = AgentModelObservationResult(
+                run = AgentRun("run-remote-tool-batch-retry", "北京和上海今天温差多少？", AgentRunState.ExecutingTool, 1L, 2L),
+                decision = AgentObservationDecision.PlanToolBatch(
+                    plans = plans,
+                    reason = "Remote model requested 2 parallel public evidence tool calls.",
+                ),
+                steps = emptyList(),
+            ),
+            toolBatchObservation = AgentObservationResult(
+                run = AgentRun("run-remote-tool-batch-retry", "北京和上海今天温差多少？", AgentRunState.GeneratingAnswer, 1L, 3L),
+                result = ToolResult(
+                    requestId = "public-evidence-batch",
+                    status = ToolStatus.Succeeded,
+                    summary = "工具执行结果：已完成 2 个公开只读工具调用。",
+                    data = mapOf("toolName" to "public_evidence_batch", "toolCount" to "2"),
+                ),
+                assistantMessage = "工具执行结果：已完成 2 个公开只读工具调用。",
+                decision = AgentObservationDecision.ContinueWithModel(
+                    requiresLocalModel = false,
+                    reason = "Parallel public evidence tools completed.",
+                ),
+                continuationPromptForModel = "请综合北京和上海的天气结果计算温差。",
+                steps = emptyList(),
+            ),
+            modelObservation = AgentModelObservationResult(
+                run = AgentRun("run-remote-tool-batch-retry", "北京和上海今天温差多少？", AgentRunState.Completed, 1L, 4L),
+                decision = AgentObservationDecision.Complete,
+                steps = emptyList(),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime(
+            eventBatches = listOf(
+                listOf(RemoteChatEvent.ToolCalls(requests)),
+                listOf(RemoteChatEvent.TextDelta("已综合两地天气。")),
+            ),
+        )
+        val executor = RetryableFailureThenSuccessToolExecutor(failOnceRequestId = "call-shanghai")
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            actionExecutor = executor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("北京和上海今天温差多少？")
+        advanceUntilIdle()
+
+        assertEquals(3, executor.executedRequests.size)
+        assertEquals(1, executor.executedRequests.count { request -> request.id == "call-beijing" })
+        assertEquals(2, executor.executedRequests.count { request -> request.id == "call-shanghai" })
+        assertEquals(1, assistantRouter.observeToolBatchCallCount)
+        assertEquals(
+            setOf(ToolStatus.Succeeded),
+            assistantRouter.lastObservedResults.map { result -> result.status }.toSet(),
+        )
+        assertEquals("已综合两地天气。", sessionStore.messages.last().text)
     }
 
     @Test
@@ -2536,11 +4225,17 @@ class PocketMindViewModelTest {
             assistantRouter = assistantRouter,
             actionExecutor = executor,
             modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            requireRemoteSendDisclosure = true,
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
         viewModel.sendMessage("执行远程工具")
+        advanceUntilIdle()
+
+        assertEquals("远程发送待确认", viewModel.uiState.value.statusText)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        viewModel.confirmRemoteSendDisclosure()
         advanceUntilIdle()
 
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
@@ -2557,6 +4252,76 @@ class PocketMindViewModelTest {
         assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.last().privacy)
         assertTrue(sessionStore.messages.last().text.contains(parseError))
         assertFalse(sessionStore.messages.last().text.contains("动作草稿"))
+        assertEquals(ModelHealthState.LoadFailed, viewModel.uiState.value.modelHealth.state)
+        assertTrue(viewModel.uiState.value.modelHealth.failureReason.orEmpty().contains(parseError))
+    }
+
+    @Test
+    fun remoteNetworkFailureShowsReadableFailureAndFailsTrace() = runTest(dispatcher) {
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-network-failure",
+                promptForModel = "普通远程问题",
+                memoryHits = emptyList(),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime(failure = IOException())
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertEquals("远程发送待确认", viewModel.uiState.value.statusText)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        val readableFailure = "远程模型网络连接失败，请检查网络或远程模型配置后重试"
+        assertEquals("远程生成失败", viewModel.uiState.value.statusText)
+        assertEquals(1, remoteRuntime.calls.size)
+        assertEquals(1, assistantRouter.failModelGenerationCallCount)
+        assertEquals("run-remote-network-failure", assistantRouter.lastFailedModelRunId)
+        assertEquals(readableFailure, assistantRouter.lastFailedModelReason)
+        assertEquals(AgentRunState.Failed, viewModel.uiState.value.agentTraceRuns.single().state)
+        assertTrue(viewModel.uiState.value.agentTraceRuns.single().steps.single().summary.contains(readableFailure))
+        assertTrue(sessionStore.messages.last().text.contains(readableFailure))
+        assertFalse(sessionStore.messages.last().text.contains("IOException"))
+        assertEquals(ModelHealthState.LoadFailed, viewModel.uiState.value.modelHealth.state)
+        assertEquals(readableFailure, viewModel.uiState.value.modelHealth.failureReason)
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertFalse(viewModel.uiState.value.isGenerating)
+        assertTrue(viewModel.uiState.value.isReady)
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+
+        remoteRuntime.failure = null
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertEquals("远程发送待确认", viewModel.uiState.value.statusText)
+        assertEquals(1, remoteRuntime.calls.size)
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals(2, remoteRuntime.calls.size)
+        assertEquals("普通远程问题", remoteRuntime.calls.last().prompt)
+        assertEquals("就绪 · 远程", viewModel.uiState.value.statusText)
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertFalse(viewModel.uiState.value.isGenerating)
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertTrue(sessionStore.messages.last().text.contains("远程回复"))
+        assertEquals(1, assistantRouter.failModelGenerationCallCount)
     }
 
     @Test
@@ -3804,6 +5569,54 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun memoryDisabledDoesNotIndexScheduledTaskStateOnStartupRefreshOrSend() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val taskMemoryId = taskStateMemoryRecordId("task-1")
+        memoryRepository.indexTaskState(taskMemoryId, "旧的后台任务状态")
+        memoryRepository.indexPreference("pref-1", "回答尽量简洁")
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask(
+                    id = "task-1",
+                    type = ScheduledTaskType.Reminder,
+                    status = ScheduledTaskStatus.Scheduled,
+                    title = "喝水",
+                ),
+            ),
+        )
+        val viewModel = createViewModel(
+            firstRunStore = FakeFirstRunSetupStore(memoryEnabled = false),
+            memoryRepository = memoryRepository,
+            backgroundTaskScheduler = scheduler,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.memoryEnabled)
+        assertTrue(store.records().none { it.type == MemoryRecordType.TaskState })
+        assertEquals(listOf("pref-1"), viewModel.uiState.value.longTermMemories.map { it.id })
+
+        viewModel.refreshBackgroundTasks()
+        advanceUntilIdle()
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+        assertTrue(store.records().none { it.type == MemoryRecordType.TaskState })
+        assertEquals(listOf("pref-1"), viewModel.uiState.value.longTermMemories.map { it.id })
+        assertTrue(memoryRepository.search("后台任务").isEmpty())
+        assertTrue(memoryRepository.search("简洁回答").isEmpty())
+    }
+
+    @Test
     fun restoreStartupStateReschedulesReminderAlarmsBeforeLoadingBackgroundTasks() = runTest(dispatcher) {
         val scheduler = FakeBackgroundTaskScheduler(
             scheduledTasks = listOf(
@@ -3908,6 +5721,55 @@ class PocketMindViewModelTest {
         assertFalse(call.prompt.contains("不要进入远程的提醒正文"))
         assertFalse(call.history.toString().contains("喝水"))
         assertFalse(call.history.toString().contains("不要进入远程的提醒正文"))
+    }
+
+    @Test
+    fun updateMemoryDisabledRemovesActiveTaskStateMemoryAndPreventsResync() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val taskMemoryId = taskStateMemoryRecordId("task-1")
+        memoryRepository.indexPreference("pref-1", "回答尽量简洁")
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val scheduler = FakeBackgroundTaskScheduler(
+            scheduledTasks = listOf(
+                scheduledTask(
+                    id = "task-1",
+                    type = ScheduledTaskType.Reminder,
+                    status = ScheduledTaskStatus.Scheduled,
+                    title = "喝水",
+                ),
+            ),
+        )
+        val viewModel = createViewModel(
+            memoryRepository = memoryRepository,
+            backgroundTaskScheduler = scheduler,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        assertTrue(store.hasRecord(taskMemoryId, MemoryRecordType.TaskState))
+
+        viewModel.updateMemoryEnabled(false)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.memoryEnabled)
+        assertTrue(store.records().none { it.id == taskMemoryId && it.type == MemoryRecordType.TaskState })
+        assertEquals(listOf("pref-1"), viewModel.uiState.value.longTermMemories.map { it.id })
+
+        viewModel.refreshBackgroundTasks()
+        advanceUntilIdle()
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+        assertTrue(store.records().none { it.id == taskMemoryId && it.type == MemoryRecordType.TaskState })
+        assertEquals(listOf("pref-1"), viewModel.uiState.value.longTermMemories.map { it.id })
+        assertTrue(memoryRepository.search("后台任务").isEmpty())
+        assertTrue(memoryRepository.search("简洁回答").isEmpty())
     }
 
     @Test
@@ -4173,6 +6035,68 @@ class PocketMindViewModelTest {
         assertEquals(listOf(record.id), viewModel.uiState.value.longTermMemories.map { it.id })
         assertTrue(viewModel.uiState.value.messages.last().text.contains("已记住这条本地事实"))
         assertEquals("长期记忆已更新", viewModel.uiState.value.statusText)
+        assertTrue(remoteRuntime.calls.isEmpty())
+    }
+
+    @Test
+    fun rememberCommandDoesNotPersistWhenMemoryDisabled() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            firstRunStore = FakeFirstRunSetupStore(memoryEnabled = false),
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("记住：我喜欢简洁回答")
+        advanceUntilIdle()
+        viewModel.sendMessage("remember that my rcode is xb83")
+        advanceUntilIdle()
+
+        assertTrue(store.records().isEmpty())
+        assertTrue(viewModel.uiState.value.longTermMemories.isEmpty())
+        assertTrue(memoryRepository.search("简洁回答").isEmpty())
+        assertEquals("本地记忆已关闭", viewModel.uiState.value.statusText)
+        assertTrue(viewModel.uiState.value.messages.last().text.contains("本地记忆已关闭"))
+        assertEquals(
+            List(4) { MessagePrivacy.LocalOnly },
+            viewModel.uiState.value.messages.map { it.privacy },
+        )
+        assertTrue(remoteRuntime.calls.isEmpty())
+    }
+
+    @Test
+    fun forgetCommandStillDeletesMemoryWhenMemoryDisabled() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        memoryRepository.indexPreference(explicitUserPreferenceRecordId("我喜欢简洁回答"), "我喜欢简洁回答")
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            firstRunStore = FakeFirstRunSetupStore(memoryEnabled = false),
+            memoryRepository = memoryRepository,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.sendMessage("忘记：我喜欢简洁回答")
+        advanceUntilIdle()
+
+        assertTrue(store.records().isEmpty())
+        assertTrue(viewModel.uiState.value.longTermMemories.isEmpty())
+        assertEquals("长期记忆已更新", viewModel.uiState.value.statusText)
+        assertTrue(viewModel.uiState.value.messages.last().text.contains("已遗忘这条本地记忆"))
         assertTrue(remoteRuntime.calls.isEmpty())
     }
 
@@ -4499,6 +6423,40 @@ class PocketMindViewModelTest {
         assertEquals(listOf("task-1"), viewModel.uiState.value.longTermMemories.map { it.id })
         assertTrue(memoryRepository.search("简洁回答").isEmpty())
         assertEquals("已遗忘这条记忆", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun memoryDisabledKeepsSavedRecordsVisibleAndClearable() = runTest(dispatcher) {
+        val store = FakeMemoryRecordStore()
+        val memoryRepository = MemoryRepository(recordStore = store)
+        memoryRepository.indexPreference("pref-1", "回答尽量简洁")
+        memoryRepository.indexUserFact("fact-1", "我的项目是 PocketMind")
+        val viewModel = createViewModel(
+            firstRunStore = FakeFirstRunSetupStore(memoryEnabled = false),
+            memoryRepository = memoryRepository,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.memoryEnabled)
+        assertEquals(
+            listOf("pref-1", "fact-1"),
+            viewModel.uiState.value.longTermMemories.map { it.id },
+        )
+        assertTrue(memoryRepository.search("PocketMind").isEmpty())
+
+        viewModel.forgetLongTermMemory("pref-1")
+        advanceUntilIdle()
+
+        assertEquals(listOf("fact-1"), viewModel.uiState.value.longTermMemories.map { it.id })
+        assertTrue(store.records().none { it.id == "pref-1" })
+
+        viewModel.clearLongTermMemory()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.longTermMemories.isEmpty())
+        assertTrue(store.records().isEmpty())
+        assertEquals("长期记忆已清空", viewModel.uiState.value.statusText)
     }
 
     @Test
@@ -4945,6 +6903,8 @@ class PocketMindViewModelTest {
         backgroundTaskScheduler: BackgroundTaskScheduler = FakeBackgroundTaskScheduler(),
         toolAuditLog: ToolAuditLog = FakeToolAuditLog(),
         assistantRouter: AssistantRouter = FakeAssistantRouter(),
+        ioDispatcher: CoroutineDispatcher = dispatcher,
+        requireRemoteSendDisclosure: Boolean = false,
         actionExecutor: ToolExecutor = object : ToolExecutor {
             override fun execute(request: ToolRequest): ToolResult =
                 ToolResult(
@@ -4970,7 +6930,8 @@ class PocketMindViewModelTest {
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantRouter,
             isArm64DeviceProvider = { true },
-            ioDispatcher = dispatcher,
+            ioDispatcher = ioDispatcher,
+            requireRemoteSendDisclosure = requireRemoteSendDisclosure,
         )
 
     private fun assertRemoteProtectedSharedInput(
@@ -5006,6 +6967,7 @@ class PocketMindViewModelTest {
         val prompt: String,
         val history: List<ChatMessage>,
         val tools: List<ToolSpec> = emptyList(),
+        val imageAttachments: List<ChatImageAttachment> = emptyList(),
     )
 
     private fun agentTraceRunSummary(
@@ -5046,16 +7008,27 @@ class PocketMindViewModelTest {
     private class RecordingRemoteChatRuntime(
         private val events: List<RemoteChatEvent> = listOf(RemoteChatEvent.TextDelta("远程回复")),
         private val eventBatches: List<List<RemoteChatEvent>> = emptyList(),
+        var failure: Throwable? = null,
+        private val hangDuringSend: Boolean = false,
     ) : RemoteChatRuntime {
         val calls = mutableListOf<RemoteCall>()
+        var stopCallCount: Int = 0
+            private set
 
         override fun send(
             prompt: String,
             history: List<ChatMessage>,
             parameters: GenerationParameters,
             config: RemoteModelConfig,
+            imageAttachments: List<ChatImageAttachment>,
         ): Flow<String> {
-            calls += RemoteCall(prompt, history)
+            calls += RemoteCall(prompt, history, imageAttachments = imageAttachments)
+            failure?.let { throwable ->
+                return flow { throw throwable }
+            }
+            if (hangDuringSend) {
+                return flow { awaitCancellation() }
+            }
             return flowOf("远程回复")
         }
 
@@ -5065,14 +7038,23 @@ class PocketMindViewModelTest {
             parameters: GenerationParameters,
             config: RemoteModelConfig,
             tools: List<ToolSpec>,
+            imageAttachments: List<ChatImageAttachment>,
         ): Flow<RemoteChatEvent> {
             val callIndex = calls.size
-            calls += RemoteCall(prompt, history, tools)
+            calls += RemoteCall(prompt, history, tools, imageAttachments)
+            failure?.let { throwable ->
+                return flow { throw throwable }
+            }
+            if (hangDuringSend) {
+                return flow { awaitCancellation() }
+            }
             val eventsForCall = eventBatches.getOrNull(callIndex) ?: events
             return flowOf(*eventsForCall.toTypedArray())
         }
 
-        override fun stop() = Unit
+        override fun stop() {
+            stopCallCount += 1
+        }
     }
 
     private class RecordingToolExecutor : ToolExecutor {
@@ -5088,6 +7070,36 @@ class PocketMindViewModelTest {
         }
     }
 
+    private class RetryableFailureThenSuccessToolExecutor(
+        private val failOnceRequestId: String,
+    ) : ToolExecutor {
+        val executedRequests: MutableList<ToolRequest> = Collections.synchronizedList(mutableListOf())
+        private val attemptsByRequestId = mutableMapOf<String, Int>()
+
+        override fun execute(request: ToolRequest): ToolResult {
+            executedRequests += request
+            val attempt = synchronized(attemptsByRequestId) {
+                val nextAttempt = attemptsByRequestId.getOrDefault(request.id, 0) + 1
+                attemptsByRequestId[request.id] = nextAttempt
+                nextAttempt
+            }
+            return if (request.id == failOnceRequestId && attempt == 1) {
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Failed,
+                    summary = "temporary network unavailable",
+                    retryable = true,
+                )
+            } else {
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "executed",
+                )
+            }
+        }
+    }
+
     private class ThrowingToolExecutor(
         private val throwable: Throwable,
     ) : ToolExecutor {
@@ -5100,9 +7112,15 @@ class PocketMindViewModelTest {
         private val localResponse: String = "本地回复",
         private val failure: Throwable? = null,
         private val hangDuringSend: Boolean = false,
+        private val loadFailures: Map<BackendChoice, Throwable> = emptyMap(),
     ) : LiteRtRuntime {
         val prompts = mutableListOf<String>()
+        val recreatedHistories = mutableListOf<List<ChatMessage>>()
+        val preparedForSendPrompts = mutableListOf<String>()
+        val loadCalls = mutableListOf<BackendChoice>()
         var stopCallCount: Int = 0
+            private set
+        var recreateCallCount: Int = 0
             private set
         override var isLoaded: Boolean = false
 
@@ -5112,6 +7130,11 @@ class PocketMindViewModelTest {
             history: List<ChatMessage>,
             parameters: GenerationParameters,
         ) {
+            loadCalls += backend
+            loadFailures[backend]?.let { throwable ->
+                isLoaded = false
+                throw throwable
+            }
             isLoaded = true
         }
 
@@ -5119,7 +7142,18 @@ class PocketMindViewModelTest {
             history: List<ChatMessage>,
             parameters: GenerationParameters,
         ) {
+            recreateCallCount += 1
+            recreatedHistories += history
             isLoaded = true
+        }
+
+        override fun recreateConversationForSend(
+            history: List<ChatMessage>,
+            prompt: String,
+            parameters: GenerationParameters,
+        ) {
+            preparedForSendPrompts += prompt
+            recreateConversation(history, parameters)
         }
 
         override fun send(prompt: String): Flow<String> {
@@ -5211,11 +7245,27 @@ class PocketMindViewModelTest {
             private set
         var lastRouteSessionId: String? = null
             private set
+        var lastRouteMemoryEnabled: Boolean? = null
+            private set
+        var lastRouteOptions: AgentRunOptions? = null
+            private set
+        var lastRouteDeviceContext: com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot? = null
+            private set
+        var lastRecordedRunDataReceiptRunId: String? = null
+            private set
+        var lastRecordedRunDataReceipt: RunDataReceipt? = null
+            private set
         var lastRecoverySessionId: String? = null
             private set
         var lastRestorePendingSessionId: String? = null
             private set
         var lastRestorePendingExternalOutcomeSessionId: String? = null
+            private set
+        var lastObserveModelResultAllowInlineToolCalls: Boolean? = null
+            private set
+        var lastRemoteToolsExposedScope: RemoteToolScope? = null
+            private set
+        var lastRemoteToolsExposedNames: Set<String> = emptySet()
             private set
         private val knownRunStates = linkedMapOf<String, AgentRunState>()
         private var failedModelTraceRun: AgentTraceRunSummary? = null
@@ -5229,9 +7279,13 @@ class PocketMindViewModelTest {
             actionModelPath: String?,
             deviceContext: com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot?,
             sessionId: String?,
+            options: AgentRunOptions,
         ): AssistantRoute {
             routeCallCount += 1
             lastRouteSessionId = sessionId
+            lastRouteMemoryEnabled = memoryEnabled
+            lastRouteOptions = options
+            lastRouteDeviceContext = deviceContext
             routeFailure?.let { throw it }
             val route = routeResult ?:
                 AssistantRoute.Chat(
@@ -5375,8 +7429,28 @@ class PocketMindViewModelTest {
             }
         }
 
-        override fun observeModelResult(runId: String, text: String): AgentModelObservationResult? =
-            modelObservation.also { observation -> recordRun(observation?.run) }
+        override fun observeModelResult(
+            runId: String,
+            text: String,
+            allowInlineToolCalls: Boolean,
+        ): AgentModelObservationResult? {
+            lastObserveModelResultAllowInlineToolCalls = allowInlineToolCalls
+            return modelObservation.also { observation -> recordRun(observation?.run) }
+        }
+
+        override fun recordRemoteToolsExposed(
+            runId: String,
+            scope: RemoteToolScope,
+            toolNames: Set<String>,
+        ) {
+            lastRemoteToolsExposedScope = scope
+            lastRemoteToolsExposedNames = toolNames
+        }
+
+        override fun recordRunDataReceipt(runId: String, receipt: RunDataReceipt) {
+            lastRecordedRunDataReceiptRunId = runId
+            lastRecordedRunDataReceipt = receipt
+        }
 
         override fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? {
             observeModelToolCallCount += 1
@@ -5486,8 +7560,10 @@ class PocketMindViewModelTest {
         }
 
         override fun deleteActiveSession(): List<ChatMessage>? {
-            if (sessionsById.size <= 1) return null
             sessionsById.remove(activeSessionId)
+            if (sessionsById.isEmpty()) {
+                sessionsById["session-${nextSessionId++}"] = emptyList()
+            }
             activeSessionId = sessionsById.keys.first()
             return messages
         }
@@ -5723,7 +7799,15 @@ class PocketMindViewModelTest {
     private class FakeModelRepository(
         activeModelPath: String? = null,
         private var memoryEmbeddingModelPath: String? = null,
+        private val customDownloadSource: ModelDownloadSource? = null,
+        private val downloadedModelFileProvider: ((String) -> File?)? = null,
+        private var pendingDownloadId: Long = -1L,
+        private var pendingDownloadSource: ModelDownloadSource? = null,
     ) : ModelRepositoryFacade {
+        val registeredModels = mutableListOf<InstalledModelSummary>()
+        val savedPendingDownloads = mutableListOf<Pair<Long, ModelDownloadSource>>()
+        var clearPendingDownloadCount = 0
+
         private var state = ModelSelectionState(
             selectedModelId = DEFAULT_CHAT_MODEL_ID,
             activeInstalledModelId = null,
@@ -5759,6 +7843,7 @@ class PocketMindViewModelTest {
                 verifiedSha256 = verifiedSha256,
                 verificationStatus = verificationStatus,
             )
+            registeredModels += summary
             state = state.copy(
                 activeInstalledModelId = summary.id,
                 activeModelPath = path,
@@ -5767,9 +7852,14 @@ class PocketMindViewModelTest {
             return summary
         }
 
-        override fun createCustomDownloadSource(downloadUrl: String): ModelDownloadSource? = null
+        override fun createCustomDownloadSource(downloadUrl: String): ModelDownloadSource? = customDownloadSource
 
-        override fun downloadedModelFile(fileName: String): File? = File("/tmp/$fileName")
+        override fun downloadedModelFile(fileName: String): File? =
+            if (downloadedModelFileProvider != null) {
+                downloadedModelFileProvider.invoke(fileName)
+            } else {
+                File("/tmp/$fileName")
+            }
 
         override fun resolveModelStorageBytes(): Long = 1024L * 1024L * 1024L
 
@@ -5782,13 +7872,21 @@ class PocketMindViewModelTest {
         override fun importModel(uri: Uri, onProgress: (TransferProgress) -> Unit): String =
             "/tmp/imported.litertlm"
 
-        override fun pendingDownloadId(): Long = -1L
+        override fun pendingDownloadId(): Long = pendingDownloadId
 
-        override fun savePendingDownload(downloadId: Long, source: ModelDownloadSource) = Unit
+        override fun savePendingDownload(downloadId: Long, source: ModelDownloadSource) {
+            pendingDownloadId = downloadId
+            pendingDownloadSource = source
+            savedPendingDownloads += downloadId to source
+        }
 
-        override fun clearPendingDownload() = Unit
+        override fun clearPendingDownload() {
+            clearPendingDownloadCount += 1
+            pendingDownloadId = -1L
+            pendingDownloadSource = null
+        }
 
-        override fun loadPendingDownloadSource(): ModelDownloadSource? = null
+        override fun loadPendingDownloadSource(): ModelDownloadSource? = pendingDownloadSource
     }
 
     private class FakeGenerationParametersStore : GenerationParametersStore {
@@ -5833,23 +7931,56 @@ class PocketMindViewModelTest {
         }
     }
 
-    private class FakeFirstRunSetupStore : FirstRunSetupStore {
-        override fun isSetupDismissed(): Boolean = true
+    private class FakeFirstRunSetupStore(
+        private var memoryEnabled: Boolean = true,
+        private var setupDismissed: Boolean = true,
+    ) : FirstRunSetupStore {
+        override fun isSetupDismissed(): Boolean = setupDismissed
 
-        override fun markSetupDismissed() = Unit
+        override fun markSetupDismissed() {
+            setupDismissed = true
+        }
 
-        override fun isMemoryEnabled(): Boolean = true
+        override fun isMemoryEnabled(): Boolean = memoryEnabled
 
-        override fun setMemoryEnabled(enabled: Boolean) = Unit
+        override fun setMemoryEnabled(enabled: Boolean) {
+            memoryEnabled = enabled
+        }
     }
 
-    private class FakeModelDownloadClient : ModelDownloadClient {
-        override fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long> =
-            Result.success(1L)
+    private class FakeModelDownloadClient(
+        private val enqueueResult: Result<Long> = Result.success(1L),
+        private val queryResults: MutableList<DownloadInfo?> = mutableListOf(),
+        private val onEnqueue: (ModelDownloadSource, File) -> Unit = { _, _ -> },
+    ) : ModelDownloadClient {
+        val enqueuedDownloads = mutableListOf<Pair<ModelDownloadSource, File>>()
+        val queriedDownloadIds = mutableListOf<Long>()
+        val cancelledDownloadIds = mutableListOf<Long>()
 
-        override fun cancel(downloadId: Long) = Unit
+        override fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long> {
+            enqueuedDownloads += source to targetFile
+            onEnqueue(source, targetFile)
+            return enqueueResult
+        }
 
-        override fun query(downloadId: Long): DownloadInfo? = null
+        override fun cancel(downloadId: Long) {
+            cancelledDownloadIds += downloadId
+        }
+
+        override fun query(downloadId: Long): DownloadInfo? {
+            queriedDownloadIds += downloadId
+            return if (queryResults.isEmpty()) null else queryResults.removeAt(0)
+        }
+    }
+
+    private fun withTempDownloadTarget(block: (File) -> Unit) {
+        val file = File.createTempFile("pocketmind-download", ".litertlm")
+        file.delete()
+        try {
+            block(file)
+        } finally {
+            file.delete()
+        }
     }
 
     private fun scheduledTask(

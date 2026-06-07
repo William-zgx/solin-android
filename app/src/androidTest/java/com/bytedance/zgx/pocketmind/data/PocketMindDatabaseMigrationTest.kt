@@ -5,12 +5,13 @@ import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PocketMindDatabaseMigrationTest {
     @Test
-    fun migration3To4AddsPrivacyDefaultAndRoomCanOpen() {
+    fun migration3ToCurrentAddsPrivacyDefaultAndRoomCanOpen() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.deleteDatabase(TEST_DB_NAME)
         val dbFile = context.getDatabasePath(TEST_DB_NAME)
@@ -46,6 +47,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_8_9,
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
+                PocketMindDatabase.MIGRATION_11_12,
             )
             .allowMainThreadQueries()
             .build()
@@ -53,7 +55,7 @@ class PocketMindDatabaseMigrationTest {
         try {
             val restored = database.sessionDao().messagesForSession("session-1").single()
             assertEquals(MessagePrivacy.LocalOnly.name, restored.privacy)
-            assertTrue(database.chatMessagesPrivacyColumnHasDefault())
+            assertTrue(database.chatMessagesPrivacyColumnDefaultsTo(MessagePrivacy.LocalOnly.name))
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
@@ -109,6 +111,55 @@ class PocketMindDatabaseMigrationTest {
     }
 
     @Test
+    fun legacyPrefsMigratorDerivesUntitledLegacyMessagesAsLocalOnlyTitle() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("pocketmind", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .clear()
+            .putString(
+                "sessions_json",
+                """
+                [
+                  {
+                    "id": "legacy-private-title-session",
+                    "createdAtMillis": 1,
+                    "updatedAtMillis": 2,
+                    "messages": [
+                      {"role": "User", "text": "分享文本：secret-title-token"}
+                    ]
+                  }
+                ]
+                """.trimIndent(),
+            )
+            .putString("active_session_id", "legacy-private-title-session")
+            .apply()
+        val database = Room.inMemoryDatabaseBuilder(context, PocketMindDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val settingsStore = PreferenceSettingsStore(context)
+        settingsStore.setMigrationVersion(0)
+
+        try {
+            LegacyPrefsMigrator(
+                context = context,
+                database = database,
+                settingsStore = settingsStore,
+                secretStore = NoOpSecretStore,
+            ).migrateIfNeeded()
+
+            val session = database.sessionDao().session("legacy-private-title-session")
+            val restored = database.sessionDao().messagesForSession("legacy-private-title-session").single()
+            assertEquals("本地内容", session?.title)
+            assertFalse(session?.title.orEmpty().contains("secret-title-token"))
+            assertEquals(MessagePrivacy.LocalOnly.name, restored.privacy)
+        } finally {
+            database.close()
+            prefs.edit().clear().apply()
+            settingsStore.setMigrationVersion(0)
+        }
+    }
+
+    @Test
     fun migration4To5CreatesMemoryRecordsTableAndRoomCanOpen() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.deleteDatabase(TEST_DB_NAME)
@@ -132,6 +183,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_8_9,
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
+                PocketMindDatabase.MIGRATION_11_12,
             )
             .allowMainThreadQueries()
             .build()
@@ -176,6 +228,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_8_9,
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
+                PocketMindDatabase.MIGRATION_11_12,
             )
             .allowMainThreadQueries()
             .build()
@@ -232,6 +285,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_8_9,
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
+                PocketMindDatabase.MIGRATION_11_12,
             )
             .allowMainThreadQueries()
             .build()
@@ -342,6 +396,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_8_9,
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
+                PocketMindDatabase.MIGRATION_11_12,
             )
             .allowMainThreadQueries()
             .build()
@@ -377,6 +432,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_8_9,
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
+                PocketMindDatabase.MIGRATION_11_12,
             )
             .allowMainThreadQueries()
             .build()
@@ -434,7 +490,11 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_9_10, PocketMindDatabase.MIGRATION_10_11)
+            .addMigrations(
+                PocketMindDatabase.MIGRATION_9_10,
+                PocketMindDatabase.MIGRATION_10_11,
+                PocketMindDatabase.MIGRATION_11_12,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -510,7 +570,10 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_10_11)
+            .addMigrations(
+                PocketMindDatabase.MIGRATION_10_11,
+                PocketMindDatabase.MIGRATION_11_12,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -525,14 +588,72 @@ class PocketMindDatabaseMigrationTest {
         }
     }
 
-    private fun PocketMindDatabase.chatMessagesPrivacyColumnHasDefault(): Boolean {
+    @Test
+    fun migration11To12ChangesChatMessagePrivacyDefaultToLocalOnly() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB_NAME)
+        val dbFile = context.getDatabasePath(TEST_DB_NAME)
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createVersion11Schema(db)
+            db.execSQL(
+                """
+                INSERT INTO chat_messages(sessionId, position, role, text, tokenCount, tokensPerSecond, privacy)
+                VALUES('session-remote', 0, 'User', '用户明确远端消息', NULL, NULL, '${MessagePrivacy.RemoteEligible.name}')
+                """.trimIndent(),
+            )
+            db.execSQL(
+                """
+                INSERT INTO chat_messages(sessionId, position, role, text, tokenCount, tokensPerSecond, privacy)
+                VALUES('session-local', 0, 'User', '本地消息', NULL, NULL, '${MessagePrivacy.LocalOnly.name}')
+                """.trimIndent(),
+            )
+            db.version = 11
+        }
+
+        val database = Room.databaseBuilder(
+            context,
+            PocketMindDatabase::class.java,
+            TEST_DB_NAME,
+        )
+            .addMigrations(PocketMindDatabase.MIGRATION_11_12)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            assertTrue(database.chatMessagesPrivacyColumnDefaultsTo(MessagePrivacy.LocalOnly.name))
+            assertEquals(
+                MessagePrivacy.RemoteEligible.name,
+                database.sessionDao().messagesForSession("session-remote").single().privacy,
+            )
+            assertEquals(
+                MessagePrivacy.LocalOnly.name,
+                database.sessionDao().messagesForSession("session-local").single().privacy,
+            )
+            database.openHelper.writableDatabase.execSQL(
+                """
+                INSERT INTO chat_messages(sessionId, position, role, text, tokenCount, tokensPerSecond)
+                VALUES('session-default', 0, 'User', '省略 privacy 的新消息', NULL, NULL)
+                """.trimIndent(),
+            )
+            assertEquals(
+                MessagePrivacy.LocalOnly.name,
+                database.sessionDao().messagesForSession("session-default").single().privacy,
+            )
+        } finally {
+            database.close()
+            context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
+    private fun PocketMindDatabase.chatMessagesPrivacyColumnDefaultsTo(expectedDefault: String): Boolean {
         openHelper.writableDatabase.query("PRAGMA table_info(`chat_messages`)").use { cursor ->
             while (cursor.moveToNext()) {
                 val name = cursor.getString(cursor.getColumnIndexOrThrow("name"))
                 if (name != "privacy") continue
                 val notNull = cursor.getInt(cursor.getColumnIndexOrThrow("notnull"))
                 val defaultValue = cursor.getString(cursor.getColumnIndexOrThrow("dflt_value"))
-                return notNull == 1 && defaultValue == "'${MessagePrivacy.RemoteEligible.name}'"
+                return notNull == 1 && defaultValue == "'$expectedDefault'"
             }
         }
         return false
@@ -740,6 +861,13 @@ class PocketMindDatabaseMigrationTest {
     private fun createVersion10Schema(db: SQLiteDatabase) {
         createVersion9Schema(db)
         db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `sessionId` TEXT")
+    }
+
+    private fun createVersion11Schema(db: SQLiteDatabase) {
+        createVersion10Schema(db)
+        db.execSQL(
+            "ALTER TABLE `pending_agent_confirmations` ADD COLUMN `continuationCursorJson` TEXT",
+        )
     }
 
     private fun PocketMindDatabase.agentTraceTablesExist(): Boolean {

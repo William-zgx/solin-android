@@ -6,7 +6,9 @@ import android.app.AppOpsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
@@ -18,13 +20,14 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
-import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.device.DeviceContextAuthorizationSnapshot
 import com.bytedance.zgx.pocketmind.device.PocketMindAccessibilityService
 import com.bytedance.zgx.pocketmind.multimodal.SharedInputReadMode
 import com.bytedance.zgx.pocketmind.multimodal.ShareIntentReader
@@ -53,8 +56,13 @@ class MainActivity : ComponentActivity() {
     private val runtimePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grantResults ->
-        val confirmation = pendingRuntimePermissionConfirmation ?: return@registerForActivityResult
+        val confirmation = pendingRuntimePermissionConfirmationForResult(grantResults.keys)
         pendingRuntimePermissionConfirmation = null
+        syncDeviceContextAuthorizationSnapshot()
+        if (confirmation == null) {
+            rejectCurrentRuntimePermissionPendingAfterUnmatchedResult(grantResults.keys)
+            return@registerForActivityResult
+        }
         val deniedPermissions = confirmation.deniedRuntimePermissionsAfterGrantResult(
             grantResults = grantResults,
             hasRuntimePermission = ::hasRuntimePermission,
@@ -73,6 +81,7 @@ class MainActivity : ComponentActivity() {
     ) {
         val requirement = pendingSpecialAccessRequirement ?: return@registerForActivityResult
         pendingSpecialAccessRequirement = null
+        syncDeviceContextAuthorizationSnapshot()
         viewModel.reportSpecialAccessResult(
             requirement = requirement,
             granted = hasSpecialAccess(requirement),
@@ -95,11 +104,24 @@ class MainActivity : ComponentActivity() {
     private val currentScreenshotOcrLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        val confirmation = pendingMediaProjectionConfirmation ?: return@registerForActivityResult
+        val confirmation = pendingMediaProjectionConfirmationForResult()
         pendingMediaProjectionConfirmation = null
+        if (confirmation == null) {
+            rejectCurrentMediaProjectionPendingAfterUnmatchedResult()
+            return@registerForActivityResult
+        }
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            appContainer.currentScreenshotOcrProvider.setOneShotConsent(result.resultCode, result.data)
-            viewModel.confirmAgentConfirmation(confirmation)
+            val requestId = confirmation.toolRequest?.id
+            if (requestId == null) {
+                viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
+            } else {
+                appContainer.currentScreenshotOcrProvider.setOneShotConsent(
+                    requestId = requestId,
+                    resultCode = result.resultCode,
+                    data = result.data,
+                )
+                viewModel.confirmAgentConfirmation(confirmation)
+            }
         } else {
             viewModel.rejectAgentConfirmationForMediaProjectionDenial(confirmation)
         }
@@ -107,13 +129,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(
+                scrim = Color.TRANSPARENT,
+                darkScrim = Color.TRANSPARENT,
+            ),
+            navigationBarStyle = SystemBarStyle.light(
+                scrim = Color.TRANSPARENT,
+                darkScrim = Color.TRANSPARENT,
+            ),
+        )
         val skipStartupModelRuntimeWork =
             intent.getBooleanExtra(EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, false) ||
                 isRunningUnderAndroidTest()
         viewModel.restoreStartupState(
             skipModelRuntimeWork = skipStartupModelRuntimeWork,
         )
+        configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent)
         restorePendingSpecialAccessRequirement(savedInstanceState)
         handleSharedIntent(intent)
 
@@ -162,6 +194,8 @@ class MainActivity : ComponentActivity() {
                     onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
                     onRecordExternalOutcome = viewModel::recordExternalOutcome,
                     onOpenRecoveryAction = viewModel::requestRecoveryActionConfirmation,
+                    onConfirmRemoteSendDisclosure = viewModel::confirmRemoteSendDisclosure,
+                    onDismissRemoteSendDisclosure = viewModel::dismissRemoteSendDisclosure,
                     onSendMessage = viewModel::sendMessage,
                     onSendPendingSharedInput = viewModel::sendPendingSharedInput,
                     onClearPendingSharedInput = viewModel::clearPendingSharedInputDraft,
@@ -181,7 +215,13 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        configureDebugRemoteModelForScreenshotEvidenceIfPresent(intent)
         handleSharedIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        syncDeviceContextAuthorizationSnapshot()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -244,11 +284,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun sharedInputReadMode(): SharedInputReadMode =
-        if (viewModel.uiState.value.inferenceMode == InferenceMode.Remote) {
-            SharedInputReadMode.ProtectedSignal
-        } else {
-            SharedInputReadMode.LocalPrompt
-        }
+        sharedInputReadModeFor(
+            inferenceMode = viewModel.uiState.value.inferenceMode,
+            remoteConfigured = viewModel.uiState.value.remoteModelConfig.isConfigured,
+            remoteSupportsVisionInput = viewModel.uiState.value.remoteModelConfig.modelProfile().supportsVisionInput,
+        )
 
     private fun startVoiceInput() {
         if (!hasRuntimePermission(Manifest.permission.RECORD_AUDIO)) {
@@ -343,6 +383,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun confirmAgentConfirmationWithPermissions(confirmation: PendingAgentConfirmation) {
+        syncDeviceContextAuthorizationSnapshot()
         if (pendingRuntimePermissionConfirmation != null || pendingMediaProjectionConfirmation != null) return
         val missingPermissions = confirmation.runtimePermissionsFor()
             .filterNot(::hasRuntimePermission)
@@ -393,11 +434,78 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun hasSpecialAccess(requirement: SpecialAccessRequirement): Boolean =
-        when (requirement.id) {
+        hasSpecialAccess(requirement.id)
+
+    private fun hasSpecialAccess(id: String): Boolean =
+        when (id) {
             SPECIAL_ACCESS_USAGE_STATS -> hasUsageStatsAccess()
             SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT -> hasAccessibilityScreenTextAccess()
             else -> false
         }
+
+    private fun pendingRuntimePermissionConfirmationForResult(
+        resultPermissions: Set<String>,
+    ): PendingAgentConfirmation? {
+        val current = viewModel.uiState.value.pendingConfirmation
+        val remembered = pendingRuntimePermissionConfirmation
+        if (current != null &&
+            current.requiresRuntimePermissionResult(resultPermissions)
+        ) {
+            return current
+        }
+        return remembered?.takeIf { pending ->
+            current == null && pending.requiresRuntimePermissionResult(resultPermissions)
+        }
+    }
+
+    private fun rejectCurrentRuntimePermissionPendingAfterUnmatchedResult(
+        resultPermissions: Set<String>,
+    ) {
+        val current = viewModel.uiState.value.pendingConfirmation
+            ?.takeIf { pending ->
+                pending.requiresRuntimePermissionResult(resultPermissions) ||
+                    pending.runtimePermissionsFor().isNotEmpty()
+            }
+            ?: return
+        val deniedPermissions = current.runtimePermissionsFor()
+            .filterNot(::hasRuntimePermission)
+            .ifEmpty { current.runtimePermissionsFor() }
+        viewModel.rejectAgentConfirmationForRuntimePermissionDenial(
+            confirmation = current,
+            deniedPermissions = deniedPermissions,
+        )
+    }
+
+    private fun pendingMediaProjectionConfirmationForResult(): PendingAgentConfirmation? {
+        val current = viewModel.uiState.value.pendingConfirmation
+        val remembered = pendingMediaProjectionConfirmation
+        if (current != null && current.requiresCurrentScreenshotOcrConsent()) {
+            return current
+        }
+        return remembered?.takeIf { pending ->
+            current == null && pending.requiresCurrentScreenshotOcrConsent()
+        }
+    }
+
+    private fun rejectCurrentMediaProjectionPendingAfterUnmatchedResult() {
+        val current = viewModel.uiState.value.pendingConfirmation
+            ?.takeIf { it.requiresCurrentScreenshotOcrConsent() }
+            ?: return
+        viewModel.rejectAgentConfirmationForMediaProjectionDenial(current)
+    }
+
+    private fun syncDeviceContextAuthorizationSnapshot() {
+        viewModel.updateDeviceContextAuthorizationSnapshot(
+            DeviceContextAuthorizationSnapshot(
+                grantedRuntimePermissions = DEVICE_CONTEXT_RUNTIME_PERMISSIONS
+                    .filter(::hasRuntimePermission)
+                    .toSet(),
+                grantedSpecialAccessIds = DEVICE_CONTEXT_SPECIAL_ACCESS_IDS
+                    .filter(::hasSpecialAccess)
+                    .toSet(),
+            ),
+        )
+    }
 
     private fun hasUsageStatsAccess(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return false
@@ -435,14 +543,15 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    private fun PendingAgentConfirmation.requiresCurrentScreenshotOcrConsent(): Boolean {
-        val toolName = toolRequest?.toolName ?: draft.functionName
-        return toolName == MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR
-    }
-
     companion object {
         const val EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK =
             "com.bytedance.zgx.pocketmind.extra.SKIP_STARTUP_MODEL_RUNTIME_WORK"
+        const val EXTRA_DEBUG_SCREENSHOT_REMOTE_BASE_URL =
+            "com.bytedance.zgx.pocketmind.extra.DEBUG_SCREENSHOT_REMOTE_BASE_URL"
+        const val EXTRA_DEBUG_SCREENSHOT_REMOTE_MODEL_NAME =
+            "com.bytedance.zgx.pocketmind.extra.DEBUG_SCREENSHOT_REMOTE_MODEL_NAME"
+        const val EXTRA_DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT =
+            "com.bytedance.zgx.pocketmind.extra.DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT"
         private const val KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID =
             "com.bytedance.zgx.pocketmind.state.PENDING_SPECIAL_ACCESS_REQUIREMENT_ID"
         private val SHARED_ATTACHMENT_MIME_TYPES = arrayOf(
@@ -463,6 +572,23 @@ class MainActivity : ComponentActivity() {
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         )
+        private val DEVICE_CONTEXT_RUNTIME_PERMISSIONS = buildList {
+            add(Manifest.permission.READ_CONTACTS)
+            add(Manifest.permission.READ_CALENDAR)
+            add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.READ_MEDIA_IMAGES)
+                add(Manifest.permission.READ_MEDIA_VIDEO)
+                add(Manifest.permission.READ_MEDIA_AUDIO)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+            }
+        }
+        private val DEVICE_CONTEXT_SPECIAL_ACCESS_IDS = listOf(
+            SPECIAL_ACCESS_USAGE_STATS,
+            SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
+        )
 
         private fun isRunningUnderAndroidTest(): Boolean =
             runCatching {
@@ -471,6 +597,17 @@ class MainActivity : ComponentActivity() {
             }.getOrDefault(false)
     }
 }
+
+internal fun sharedInputReadModeFor(
+    inferenceMode: InferenceMode,
+    remoteConfigured: Boolean,
+    remoteSupportsVisionInput: Boolean,
+): SharedInputReadMode =
+    when {
+        inferenceMode != InferenceMode.Remote -> SharedInputReadMode.LocalPrompt
+        remoteConfigured && remoteSupportsVisionInput -> SharedInputReadMode.RemoteVision
+        else -> SharedInputReadMode.RemoteVisionUnsupportedSignal
+    }
 
 private fun Bundle.recognizedSpeechText(): String? =
     getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)

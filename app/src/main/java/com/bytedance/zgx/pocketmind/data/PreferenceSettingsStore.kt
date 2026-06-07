@@ -26,6 +26,10 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         writeBoolean(Keys.FIRST_RUN_DISMISSED, true)
     }
 
+    fun setSetupDismissedForTesting(dismissed: Boolean) {
+        writeBoolean(Keys.FIRST_RUN_DISMISSED, dismissed)
+    }
+
     override fun isMemoryEnabled(): Boolean =
         readBoolean(Keys.MEMORY_ENABLED, true)
 
@@ -106,6 +110,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
             dataStore.edit { prefs ->
                 prefs[Keys.REMOTE_BASE_URL] = normalized.baseUrl
                 prefs[Keys.REMOTE_MODEL_NAME] = normalized.modelName
+                prefs[Keys.REMOTE_SUPPORTS_VISION_INPUT] = normalized.supportsVisionInput
             }
         }
         return normalized
@@ -153,6 +158,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         val BACKEND = stringPreferencesKey("backend")
         val REMOTE_BASE_URL = stringPreferencesKey("remote_model_base_url")
         val REMOTE_MODEL_NAME = stringPreferencesKey("remote_model_name")
+        val REMOTE_SUPPORTS_VISION_INPUT = booleanPreferencesKey("remote_model_supports_vision_input")
         val ACTIVE_SESSION_ID = stringPreferencesKey("active_session_id")
         val SELECTED_MODEL_ID = stringPreferencesKey("selected_model_id")
         val ACTIVE_INSTALLED_MODEL_ID = stringPreferencesKey("active_installed_model_id")

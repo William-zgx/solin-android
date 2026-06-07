@@ -95,6 +95,12 @@ data class SkillRunCheckpoint(
         if (privateOutputRefs != expectedPrivateOutputRefs) {
             return "skill checkpoint private output refs changed"
         }
+        val unpersistableBindingTargets = pendingStep.unpersistablePendingBindingTargets(toolRegistry)
+        if (unpersistableBindingTargets.isNotEmpty()) {
+            return "skill checkpoint pending payload cannot be restored: " +
+                "${pendingStep.request.toolName} binding target(s) " +
+                "${unpersistableBindingTargets.joinToString()} are not pending-allowlisted"
+        }
         return listOf(
             runId,
             skillId,
@@ -242,6 +248,14 @@ private fun SkillStep.knownValueFreeOutputKeys(toolRegistry: ToolRegistry): List
             .distinct()
             .sorted()
     }
+
+private fun SkillStep.ToolStep.unpersistablePendingBindingTargets(toolRegistry: ToolRegistry): List<String> {
+    if (argumentBindings.isEmpty()) return emptyList()
+    val persistableTargets = toolRegistry.pendingArgumentAllowlistFor(request.toolName)
+    return argumentBindings.keys
+        .filter { target -> target !in persistableTargets }
+        .sorted()
+}
 
 private fun StringBuilder.appendLengthPrefixed(value: String) {
     append(value.length)

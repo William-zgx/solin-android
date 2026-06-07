@@ -259,6 +259,7 @@ class LegacyPrefsMigrator(
             com.bytedance.zgx.pocketmind.ChatMessage(
                 role = runCatching { MessageRole.valueOf(role) }.getOrDefault(MessageRole.Assistant),
                 text = text,
+                privacy = MessagePrivacy.LocalOnly,
             )
     }
 }

@@ -24,4 +24,39 @@ class SessionTitleRulesTest {
             SessionTitleRules.deriveTitle(listOf(ChatMessage(MessageRole.Assistant, "hello"))),
         )
     }
+
+    @Test
+    fun deriveTitle_skipsLocalOnlyUserText() {
+        val title = SessionTitleRules.deriveTitle(
+            listOf(
+                ChatMessage(
+                    role = MessageRole.User,
+                    text = "私密 OCR 摘录 starboat-secret",
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+                ChatMessage(
+                    role = MessageRole.User,
+                    text = "普通远程问题",
+                    privacy = MessagePrivacy.RemoteEligible,
+                ),
+            ),
+        )
+
+        assertEquals("普通远程问题", title)
+    }
+
+    @Test
+    fun deriveTitle_usesGenericTitleForOnlyLocalOnlyUserText() {
+        val title = SessionTitleRules.deriveTitle(
+            listOf(
+                ChatMessage(
+                    role = MessageRole.User,
+                    text = "私密 OCR 摘录 starboat-secret",
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+            ),
+        )
+
+        assertEquals("本地内容", title)
+    }
 }

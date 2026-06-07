@@ -32,8 +32,8 @@ data class ChatMessageEntity(
     val text: String,
     val tokenCount: Int?,
     val tokensPerSecond: Double?,
-    @ColumnInfo(defaultValue = "'RemoteEligible'")
-    val privacy: String = MessagePrivacy.RemoteEligible.name,
+    @ColumnInfo(defaultValue = "'LocalOnly'")
+    val privacy: String = MessagePrivacy.LocalOnly.name,
 )
 
 @Entity(tableName = "installed_models")
@@ -215,6 +215,18 @@ interface ToolAuditDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insert(event: ToolAuditEventEntity)
+
+    @Query(
+        """
+        DELETE FROM tool_audit_events
+        WHERE id NOT IN (
+            SELECT id FROM tool_audit_events
+            ORDER BY createdAtMillis DESC
+            LIMIT :maxRecords
+        )
+        """,
+    )
+    fun pruneToMostRecent(maxRecords: Int): Int
 }
 
 @Dao
@@ -512,7 +524,7 @@ interface AgentTraceDao {
         PendingAgentConfirmationEntity::class,
         AgentSkillRunCheckpointEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 abstract class PocketMindDatabase : RoomDatabase() {
@@ -708,6 +720,49 @@ abstract class PocketMindDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `chat_messages` RENAME TO `chat_messages_legacy_default`")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `chat_messages` (
+                        `sessionId` TEXT NOT NULL,
+                        `position` INTEGER NOT NULL,
+                        `role` TEXT NOT NULL,
+                        `text` TEXT NOT NULL,
+                        `tokenCount` INTEGER,
+                        `tokensPerSecond` REAL,
+                        `privacy` TEXT NOT NULL DEFAULT '${MessagePrivacy.LocalOnly.name}',
+                        PRIMARY KEY(`sessionId`, `position`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `chat_messages` (
+                        `sessionId`,
+                        `position`,
+                        `role`,
+                        `text`,
+                        `tokenCount`,
+                        `tokensPerSecond`,
+                        `privacy`
+                    )
+                    SELECT
+                        `sessionId`,
+                        `position`,
+                        `role`,
+                        `text`,
+                        `tokenCount`,
+                        `tokensPerSecond`,
+                        `privacy`
+                    FROM `chat_messages_legacy_default`
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE `chat_messages_legacy_default`")
+            }
+        }
+
         fun get(context: Context): PocketMindDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -726,6 +781,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
                         MIGRATION_8_9,
                         MIGRATION_9_10,
                         MIGRATION_10_11,
+                        MIGRATION_11_12,
                     )
                     .allowMainThreadQueries()
                     .build()

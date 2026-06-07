@@ -10,9 +10,13 @@ import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREF
 
 class ToolAuditRepository(
     private val dao: ToolAuditDao,
+    private val maxStoredEvents: Int = DEFAULT_MAX_STORED_EVENTS,
 ) : ToolAuditSink, ToolAuditLog {
     override fun record(event: ToolAuditEvent) {
         dao.insert(event.toEntity())
+        if (maxStoredEvents > 0) {
+            dao.pruneToMostRecent(maxStoredEvents)
+        }
     }
 
     override fun recentAuditEvents(limit: Int): List<ToolAuditRecord> =
@@ -48,6 +52,23 @@ class ToolAuditRepository(
                 status == ToolStatus.Succeeded &&
                 toolName.isReminderAuditTool() ->
                 reminderMetadataFor(summary, toolName).joinToString(separator = "; ")
+
+            eventType == ToolAuditEventType.ToolObserved &&
+                summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX) ->
+                UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
+
+            eventType == ToolAuditEventType.ToolObserved &&
+                summary.startsWith(EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX) ->
+                EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
+
+            eventType == ToolAuditEventType.ToolObserved ->
+                TOOL_OBSERVATION_AUDIT_SUMMARY
+
+            eventType == ToolAuditEventType.ExternalOutcomeConfirmed ->
+                EXTERNAL_OUTCOME_CONFIRMED_SUMMARY_PREFIX
+
+            eventType == ToolAuditEventType.ToolRetryScheduled ->
+                "Tool retry scheduled."
 
             else -> sanitizedSummary()
         }
@@ -163,5 +184,7 @@ class ToolAuditRepository(
             "recoveryTaskId",
         )
         val CANCEL_REMINDER_AUDIT_METADATA_KEYS = listOf("taskId", "taskStatus")
+        const val TOOL_OBSERVATION_AUDIT_SUMMARY = "Tool observation recorded."
+        const val DEFAULT_MAX_STORED_EVENTS = 500
     }
 }

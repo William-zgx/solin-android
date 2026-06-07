@@ -14,6 +14,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Storage
@@ -70,6 +72,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -88,6 +91,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -115,22 +120,29 @@ import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.GenerationStats
 import com.bytedance.zgx.pocketmind.InferenceMode
 import com.bytedance.zgx.pocketmind.InstalledModelSummary
+import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
 import com.bytedance.zgx.pocketmind.LongTermMemorySummary
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.ModelHealthState
 import com.bytedance.zgx.pocketmind.PendingAgentConfirmation
 import com.bytedance.zgx.pocketmind.PendingExternalOutcomeConfirmation
+import com.bytedance.zgx.pocketmind.PendingRemoteSendDisclosure
 import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
+import com.bytedance.zgx.pocketmind.RemoteSendDisclosureKind
+import com.bytedance.zgx.pocketmind.RunDataReceiptUiSummary
 import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.SpecialAccessRequirement
 import com.bytedance.zgx.pocketmind.runtimePermissionRequirementsFor
 import com.bytedance.zgx.pocketmind.specialAccessRequirementsFor
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckConstraints
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
+import com.bytedance.zgx.pocketmind.capability.CapabilityMatrix
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.pocketmind.isUsable
@@ -140,9 +152,14 @@ import com.bytedance.zgx.pocketmind.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.ui.theme.LocalPocketMindColors
+import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private const val MODEL_MANAGER_CURRENT_TAB_INDEX = 0
+private const val MODEL_MANAGER_REMOTE_TAB_INDEX = 2
+private const val MODEL_MANAGER_PRIVACY_TAB_INDEX = 4
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -181,6 +198,8 @@ fun PocketMindScreen(
     onDismissAgentConfirmation: (PendingAgentConfirmation?) -> Unit,
     onRecordExternalOutcome: (PendingExternalOutcomeConfirmation, AgentExternalOutcome) -> Unit,
     onOpenRecoveryAction: (AgentRecoveryAction) -> Unit,
+    onConfirmRemoteSendDisclosure: () -> Unit,
+    onDismissRemoteSendDisclosure: () -> Unit,
     onSendMessage: (String) -> Unit,
     onSendPendingSharedInput: (String) -> Unit,
     onClearPendingSharedInput: (Long) -> Unit,
@@ -198,6 +217,7 @@ fun PocketMindScreen(
     var input by rememberSaveable { mutableStateOf("") }
     var customModelUrl by rememberSaveable { mutableStateOf("") }
     var showModelManager by rememberSaveable { mutableStateOf(false) }
+    var modelManagerInitialTab by rememberSaveable { mutableStateOf(MODEL_MANAGER_CURRENT_TAB_INDEX) }
     var showSessions by rememberSaveable { mutableStateOf(false) }
     var showBackgroundTasks by rememberSaveable { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -221,7 +241,7 @@ fun PocketMindScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(PocketMindBackgroundBrush()),
+                .pocketMindTechBackdrop(),
         ) {
             Column(
                 modifier = Modifier
@@ -230,7 +250,14 @@ fun PocketMindScreen(
             ) {
                 ChatTopBar(
                     state = state,
-                    onOpenModelManager = { showModelManager = true },
+                    onOpenModelManager = {
+                        modelManagerInitialTab = MODEL_MANAGER_CURRENT_TAB_INDEX
+                        showModelManager = true
+                    },
+                    onOpenPrivacyNotice = {
+                        modelManagerInitialTab = MODEL_MANAGER_PRIVACY_TAB_INDEX
+                        showModelManager = true
+                    },
                     onOpenSessions = { showSessions = true },
                     onOpenBackgroundTasks = {
                         onRefreshBackgroundTasks()
@@ -248,11 +275,24 @@ fun PocketMindScreen(
                     if (state.messages.isEmpty()) {
                         ChatEmptyState(
                             state = state,
-                            onOpenModelManager = { showModelManager = true },
+                            onOpenModelManager = {
+                                modelManagerInitialTab = MODEL_MANAGER_CURRENT_TAB_INDEX
+                                showModelManager = true
+                            },
+                            onOpenPrivacyNotice = {
+                                modelManagerInitialTab = MODEL_MANAGER_PRIVACY_TAB_INDEX
+                                showModelManager = true
+                            },
+                            onOpenRemoteModelConfig = {
+                                modelManagerInitialTab = MODEL_MANAGER_REMOTE_TAB_INDEX
+                                showModelManager = true
+                            },
                             onPickModel = { pickModel.launch(arrayOf("*/*")) },
                             onDownloadModel = onDownloadModel,
                             onCancelDownload = onCancelDownload,
-                            onRecommendedModelSelected = onRecommendedModelSelected,
+                            onSetupModelToggled = onSetupModelToggled,
+                            onDownloadSetupModels = onDownloadSetupModels,
+                            onSkipFirstRunSetup = onSkipFirstRunSetup,
                             onSendPrompt = onSendMessage,
                         )
                     } else {
@@ -303,7 +343,10 @@ fun PocketMindScreen(
                     state = state,
                     input = input,
                     onInputChanged = { input = it },
-                    onOpenModelManager = { showModelManager = true },
+                    onOpenModelManager = {
+                        modelManagerInitialTab = MODEL_MANAGER_CURRENT_TAB_INDEX
+                        showModelManager = true
+                    },
                     onStartVoiceInput = onStartVoiceInput,
                     onCancelVoiceInput = onCancelVoiceInput,
                     onFinishVoiceInput = onFinishVoiceInput,
@@ -329,6 +372,7 @@ fun PocketMindScreen(
                 ) {
                     ModelManagerSheet(
                         state = state,
+                        initialSelectedTab = modelManagerInitialTab,
                         customModelUrl = customModelUrl,
                         onCustomModelUrlChanged = { customModelUrl = it },
                         onPickModel = { pickModel.launch(arrayOf("*/*")) },
@@ -390,16 +434,15 @@ fun PocketMindScreen(
                 }
             }
 
-            if (state.showFirstRunSetup) {
+            state.pendingRemoteSendDisclosure?.let { disclosure ->
                 ModalBottomSheet(
                     sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                    onDismissRequest = onSkipFirstRunSetup,
+                    onDismissRequest = onDismissRemoteSendDisclosure,
                 ) {
-                    FirstRunSetupSheet(
-                        state = state,
-                        onSetupModelToggled = onSetupModelToggled,
-                        onDownloadSetupModels = onDownloadSetupModels,
-                        onSkip = onSkipFirstRunSetup,
+                    RemoteSendDisclosureSheet(
+                        disclosure = disclosure,
+                        onConfirm = onConfirmRemoteSendDisclosure,
+                        onDismiss = onDismissRemoteSendDisclosure,
                     )
                 }
             }
@@ -444,27 +487,76 @@ private fun appendComposerInput(current: String, addition: String): String {
 }
 
 @Composable
-private fun PocketMindBackgroundBrush(): Brush =
-    Brush.verticalGradient(
-        colors = listOf(
-            MaterialTheme.colorScheme.surfaceContainerLowest,
-            MaterialTheme.colorScheme.background,
-            MaterialTheme.colorScheme.surfaceContainerLowest,
-        ),
-    )
+private fun Modifier.pocketMindTechBackdrop(): Modifier {
+    val base = MaterialTheme.colorScheme.background
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)
+    return background(base).drawBehind {
+        val maxDimension = size.width.coerceAtLeast(size.height)
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(primary.copy(alpha = 0.24f), Color.Transparent),
+                center = Offset(size.width * 0.08f, size.height * 0.05f),
+                radius = maxDimension * 0.78f,
+            ),
+        )
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(secondary.copy(alpha = 0.13f), Color.Transparent),
+                center = Offset(size.width * 0.92f, size.height * 0.72f),
+                radius = maxDimension * 0.58f,
+            ),
+        )
+        val gridStep = 32.dp.toPx()
+        val stroke = 0.45.dp.toPx()
+        var x = 0f
+        while (x <= size.width) {
+            drawLine(
+                color = gridColor,
+                start = Offset(x, 0f),
+                end = Offset(x, size.height),
+                strokeWidth = stroke,
+            )
+            x += gridStep
+        }
+        var y = 0f
+        while (y <= size.height) {
+            drawLine(
+                color = gridColor,
+                start = Offset(0f, y),
+                end = Offset(size.width, y),
+                strokeWidth = stroke,
+            )
+            y += gridStep
+        }
+    }
+}
 
 @Composable
 private fun ChatTopBar(
     state: ChatUiState,
     onOpenModelManager: () -> Unit,
+    onOpenPrivacyNotice: () -> Unit,
     onOpenSessions: () -> Unit,
     onOpenBackgroundTasks: () -> Unit,
     onCreateSession: () -> Unit,
 ) {
+    val topEdgeColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)
+    val modelStatus = currentModelStatus(state)
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.88f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                drawLine(
+                    color = topEdgeColor,
+                    start = Offset(0f, size.height),
+                    end = Offset(size.width, size.height),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            },
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.82f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.44f)),
         shadowElevation = 0.dp,
     ) {
         Column(
@@ -479,6 +571,20 @@ private fun ChatTopBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Box(
+                    modifier = Modifier
+                        .width(5.dp)
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.secondary,
+                                ),
+                            ),
+                        ),
+                )
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(1.dp),
@@ -492,13 +598,21 @@ private fun ChatTopBar(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = currentModelStatus(state),
+                        modifier = Modifier.testTag("app_positioning_subtitle"),
+                        text = PRODUCT_POSITIONING_SHORT_TEXT,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 TopActionButton(
                     modifier = Modifier.testTag("top_create_session_button"),
                     icon = Icons.Filled.Add,
@@ -511,6 +625,12 @@ private fun ChatTopBar(
                     icon = Icons.Filled.Tune,
                     label = "模型管理",
                     onClick = onOpenModelManager,
+                )
+                TopActionButton(
+                    modifier = Modifier.testTag("top_privacy_button"),
+                    icon = Icons.Filled.Security,
+                    label = "隐私说明",
+                    onClick = onOpenPrivacyNotice,
                 )
                 TopActionButton(
                     modifier = Modifier.testTag("top_background_tasks_button"),
@@ -526,6 +646,16 @@ private fun ChatTopBar(
                 )
             }
 
+            Text(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 13.dp),
+                text = modelStatus,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
             RuntimeStatusBadge(state)
         }
     }
@@ -542,13 +672,19 @@ private fun TopActionButton(
     IconButton(
         modifier = modifier
             .size(48.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f),
+                shape = MaterialTheme.shapes.medium,
+            )
             .semantics {
                 contentDescription = label
             },
         onClick = onClick,
         enabled = enabled,
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.68f),
             contentColor = MaterialTheme.colorScheme.primary,
             disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.36f),
             disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
@@ -618,17 +754,21 @@ private fun RuntimeStatusBadge(state: ChatUiState) {
 private fun ChatEmptyState(
     state: ChatUiState,
     onOpenModelManager: () -> Unit,
+    onOpenPrivacyNotice: () -> Unit,
+    onOpenRemoteModelConfig: () -> Unit,
     onPickModel: () -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
-    onRecommendedModelSelected: (String) -> Unit,
+    onSetupModelToggled: (String, Boolean) -> Unit,
+    onDownloadSetupModels: () -> Unit,
+    onSkipFirstRunSetup: () -> Unit,
     onSendPrompt: (String) -> Unit,
 ) {
     val semanticColors = LocalPocketMindColors.current
     val readyTitle = when {
         state.inferenceMode == InferenceMode.Remote && state.isReady -> "远程模型已就绪"
         state.isReady -> "本机模型已就绪"
-        else -> "准备你的随身模型"
+        else -> PRODUCT_HOME_TITLE_TEXT
     }
     val readyDescription = when {
         state.inferenceMode == InferenceMode.Remote && state.isReady ->
@@ -636,7 +776,7 @@ private fun ChatEmptyState(
         state.isReady ->
             "当前会话为空，选择一个开场问题，或在底部直接输入。问答和历史记录会保留在本机。"
         else ->
-            "先下载推荐模型或导入已有 .litertlm 文件；加载成功后即可离线问答。"
+            PRODUCT_HOME_DESCRIPTION_TEXT
     }
     Column(
         modifier = Modifier
@@ -648,11 +788,11 @@ private fun ChatEmptyState(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
+            color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.86f),
             border = BorderStroke(
                 width = 1.dp,
                 color = if (state.isReady) {
-                    semanticColors.accentLine.copy(alpha = 0.86f)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.82f)
                 } else {
                     MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
                 },
@@ -673,6 +813,20 @@ private fun ChatEmptyState(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                HomePositioningPanel()
+                OutlinedButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("home_privacy_notice_button"),
+                    onClick = onOpenPrivacyNotice,
+                    enabled = !state.isBusy,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Security,
+                        contentDescription = null,
+                    )
+                    Text(" 隐私说明")
+                }
                 if (state.isReady) {
                     StatusSummaryRow(state)
                     PromptSuggestionList(
@@ -680,16 +834,26 @@ private fun ChatEmptyState(
                         onSendPrompt = onSendPrompt,
                     )
                 } else {
+                    HomeCapabilityPills()
                     QuickModelSetup(
                         state = state,
                         onOpenModelManager = onOpenModelManager,
+                        onOpenRemoteModelConfig = onOpenRemoteModelConfig,
                         onPickModel = onPickModel,
                         onDownloadModel = onDownloadModel,
                         onCancelDownload = onCancelDownload,
-                        onRecommendedModelSelected = onRecommendedModelSelected,
                     )
                 }
             }
+        }
+
+        if (state.showFirstRunSetup && !state.isReady) {
+            FirstRunSetupPanel(
+                state = state,
+                onSetupModelToggled = onSetupModelToggled,
+                onDownloadSetupModels = onDownloadSetupModels,
+                onSkip = onSkipFirstRunSetup,
+            )
         }
 
         if (!state.isReady) {
@@ -697,6 +861,152 @@ private fun ChatEmptyState(
                 state = state,
                 requiredBytes = state.pendingSelectedChatDownloadBytes(),
             )
+        }
+    }
+}
+
+@Composable
+private fun HomePositioningPanel() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("home_positioning_panel"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        SectionTitle(
+            text = "为什么装它",
+            subtitle = PRODUCT_POSITIONING_TEXT,
+        )
+        HOME_VALUE_PROPOSITIONS.forEach { proposition ->
+            TrustBoundaryRow(
+                icon = homeValueIcon(proposition.kind),
+                title = proposition.title,
+                body = proposition.body,
+            )
+        }
+    }
+}
+
+private fun homeValueIcon(kind: HomeValueKind): ImageVector =
+    when (kind) {
+        HomeValueKind.Local -> Icons.Filled.Storage
+        HomeValueKind.Remote -> Icons.Filled.Cloud
+        HomeValueKind.Action -> Icons.Filled.Settings
+    }
+
+@Composable
+private fun HomeCapabilityPills() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .testTag("home_capability_pills"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        HOME_CAPABILITY_PILLS.forEach { label ->
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.58f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.22f)),
+            ) {
+                Text(
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FirstRunSetupPanel(
+    state: ChatUiState,
+    onSetupModelToggled: (String, Boolean) -> Unit,
+    onDownloadSetupModels: () -> Unit,
+    onSkip: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.9f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SectionTitle(
+                text = LOCAL_SETUP_PANEL_TITLE,
+                subtitle = LOCAL_SETUP_PANEL_DESCRIPTION,
+            )
+            state.basicSetupModels.forEach { model ->
+                val selected = model.id in state.setupSelectedModelIds
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        modifier = Modifier.testTag("first_run_model_${model.id}"),
+                        checked = selected,
+                        enabled = !state.isBusy && !state.isModelInstalled(model.id),
+                        onCheckedChange = { onSetupModelToggled(model.id, it) },
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = model.shortName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = "${capabilityLabel(model.capability)} · ${ModelCatalog.formatBytes(model.byteSize)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (state.isModelInstalled(model.id)) {
+                        Text(
+                            text = "已安装",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = onSkip,
+                    enabled = !state.isBusy,
+                ) {
+                    Text("先跳过")
+                }
+                Button(
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("first_run_download_button"),
+                    onClick = onDownloadSetupModels,
+                    enabled = !state.isBusy && state.setupSelectedModelIds.isNotEmpty(),
+                ) {
+                    Text("下载选中的模型")
+                }
+            }
         }
     }
 }
@@ -730,65 +1040,96 @@ private fun StatusSummaryRow(state: ChatUiState) {
 private fun QuickModelSetup(
     state: ChatUiState,
     onOpenModelManager: () -> Unit,
+    onOpenRemoteModelConfig: () -> Unit,
     onPickModel: () -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
-    onRecommendedModelSelected: (String) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("model_startup_banner"),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.32f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            state.recommendedModels.forEach { model ->
-                FilterChip(
-                    selected = model.id == state.selectedModelId,
-                    enabled = !state.isBusy,
-                    onClick = { onRecommendedModelSelected(model.id) },
-                    label = { Text(model.shortName) },
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RuntimeStatusBadge(state)
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = MODEL_STARTUP_BANNER_TITLE,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-        }
-        Text(
-            text = "${state.selectedRecommendedModel.shortName} · " +
-                "${ModelCatalog.formatBytes(state.selectedRecommendedModel.byteSize)} · " +
-                state.selectedRecommendedModel.deviceHint,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (state.isDownloading || state.downloadProgressPercent != null || state.totalBytes > 0L) {
-            ProgressBlock(state)
-        }
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = onDownloadModel,
-            enabled = !state.isBusy && !state.isDownloading,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Download,
-                contentDescription = null,
+            Text(
+                text = MODEL_STARTUP_BANNER_DESCRIPTION,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(" 下载 ${state.selectedRecommendedModel.shortName}")
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedButton(
-                modifier = Modifier.weight(1f),
-                onClick = onPickModel,
+            Text(
+                text = "本地推荐：${state.selectedRecommendedModel.shortName} · " +
+                    ModelCatalog.formatBytes(state.selectedRecommendedModel.byteSize),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (state.isDownloading || state.downloadProgressPercent != null || state.totalBytes > 0L) {
+                ProgressBlock(state)
+            }
+            FilledTonalButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("quick_remote_config_button"),
+                onClick = onOpenRemoteModelConfig,
                 enabled = !state.isBusy,
             ) {
                 Icon(
-                    imageVector = Icons.Filled.FolderOpen,
+                    imageVector = Icons.Filled.Cloud,
                     contentDescription = null,
                 )
-                Text(" 导入")
+                Text(" 配置远程模型，立即试用")
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = onDownloadModel,
+                    enabled = !state.isBusy && !state.isDownloading,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Download,
+                        contentDescription = null,
+                    )
+                    Text(" 下载模型")
+                }
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = onPickModel,
+                    enabled = !state.isBusy,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.FolderOpen,
+                        contentDescription = null,
+                    )
+                    Text(" 导入模型")
+                }
             }
             OutlinedButton(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 onClick = onOpenModelManager,
                 enabled = !state.isBusy,
             ) {
@@ -796,108 +1137,117 @@ private fun QuickModelSetup(
                     imageVector = Icons.Filled.Tune,
                     contentDescription = null,
                 )
-                Text(" 更多")
+                Text(" 模型管理")
             }
-        }
-        if (state.isDownloading) {
-            TextButton(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onCancelDownload,
-            ) {
-                Text("取消下载")
+            if (state.isDownloading) {
+                TextButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onCancelDownload,
+                ) {
+                    Text("取消下载")
+                }
             }
         }
     }
 }
 
 @Composable
-private fun FirstRunSetupSheet(
-    state: ChatUiState,
-    onSetupModelToggled: (String, Boolean) -> Unit,
-    onDownloadSetupModels: () -> Unit,
-    onSkip: () -> Unit,
+private fun RemoteSendDisclosureSheet(
+    disclosure: PendingRemoteSendDisclosure,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .testTag("remote_send_disclosure_sheet"),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         SectionTitle(
-            text = "准备基础能力包",
-            subtitle = "默认只安装对话模型；记忆和动作当前是本地轻量助手，可稍后补装实验模型资产。",
+            text = "即将发送到远程模型",
+            subtitle = "确认后才会把本次内容交给远程模型；API Key 只作为请求凭据使用，不在界面显示。",
         )
-        state.basicSetupModels.forEach { model ->
-            val selected = model.id in state.setupSelectedModelIds
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (selected) 0.72f else 0.34f),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(
-                        modifier = Modifier.testTag("first_run_model_${model.id}"),
-                        checked = selected,
-                        enabled = !state.isBusy && !state.isModelInstalled(model.id),
-                        onCheckedChange = { onSetupModelToggled(model.id, it) },
-                    )
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        Text(
-                            text = model.shortName,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = "${capabilityLabel(model.capability)} · ${ModelCatalog.formatBytes(model.byteSize)} · ${model.deviceHint}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    if (state.isModelInstalled(model.id)) {
-                        Text(
-                            text = "已安装",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-            }
-        }
-        DeviceCheck(
-            state = state,
-            requiredBytes = state.pendingSetupDownloadBytes(),
-        )
+        RemoteSendDisclosureRows(disclosure)
         Button(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("first_run_download_button"),
-            onClick = onDownloadSetupModels,
-            enabled = !state.isBusy && state.setupSelectedModelIds.isNotEmpty(),
+                .testTag("remote_send_confirm_button"),
+            onClick = onConfirm,
         ) {
-            Text("下载选中的模型")
+            Icon(
+                imageVector = Icons.Filled.Cloud,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("确认发送")
         }
-        TextButton(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = onSkip,
-            enabled = !state.isBusy,
+        OutlinedButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("remote_send_dismiss_button"),
+            onClick = onDismiss,
         ) {
-            Text("先跳过")
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("取消")
         }
     }
+}
+
+@Composable
+private fun RemoteSendDisclosureRows(disclosure: PendingRemoteSendDisclosure) {
+    val rows = remoteSendDisclosureDisplayRows(disclosure)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("remote_send_disclosure_rows"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        rows.forEach { row ->
+            Text(
+                text = row,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+internal fun remoteSendDisclosureDisplayRows(disclosure: PendingRemoteSendDisclosure): List<String> {
+    val sendSummary = when (disclosure.kind) {
+        RemoteSendDisclosureKind.CurrentInput ->
+            "本次会发送：当前输入、可远程发送历史 ${disclosure.remoteHistoryCount} 条"
+
+        RemoteSendDisclosureKind.ToolResultContinuation ->
+            "本次会发送：工具结果续写提示、可远程发送历史 ${disclosure.remoteHistoryCount} 条"
+    }.let { summary ->
+        if (disclosure.imageAttachmentCount > 0) {
+            "$summary、图片 ${disclosure.imageAttachmentCount} 张；图片字节会发往该远程地址"
+        } else {
+            "$summary；本次没有图片字节发送"
+        }
+    }
+    val retentionNotice = if (disclosure.imageAttachmentCount > 0) {
+        "远程服务方可能按其政策记录或保留请求、图片和响应；请只发送你愿意交给该服务处理的内容。"
+    } else {
+        "远程服务方可能按其政策记录或保留请求和响应；请只发送你愿意交给该服务处理的内容。"
+    }
+    return listOf(
+        "远程地址：${disclosure.remoteHost}",
+        "模型：${disclosure.remoteModelName}",
+        sendSummary,
+        "不会发送：LocalOnly 历史 ${disclosure.localOnlyHistoryFilteredCount} 条、本地记忆、设备上下文、非图片附件",
+        retentionNotice,
+        "凭据状态：${if (disclosure.apiKeyConfigured) "已配置 API Key" else "未配置 API Key"}",
+    )
 }
 
 @Composable
@@ -914,6 +1264,7 @@ private fun ActionDraftSheet(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -922,18 +1273,25 @@ private fun ActionDraftSheet(
             subtitle = "动作只会在你确认后读取上下文、创建草稿或调起系统能力。",
         )
         Text(
-            text = draft.summary,
-            style = MaterialTheme.typography.bodyLarge,
+            text = "参数只用于本次确认动作。链接优先显示域名，长文本会折叠显示长度。",
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        ExpandableActionText(
+            text = draft.summary,
+            collapsedMaxChars = ACTION_SUMMARY_COLLAPSE_CHARS,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            testTag = "action_summary_text",
+        )
+        ActionDataBoundary(functionName = draft.functionName)
         if (draft.parameters.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(
+                modifier = Modifier.testTag("action_parameters"),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 draft.parameters.forEach { (key, value) ->
-                    Text(
-                        text = "$key: $value",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    ActionParameterRows(key = key, value = value)
                 }
             }
         }
@@ -1015,6 +1373,106 @@ private fun ActionDraftSheet(
 }
 
 @Composable
+private fun ActionDataBoundary(functionName: String) {
+    val rows = remember(functionName) { actionDataBoundaryDisplayRows(functionName) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("action_data_boundary"),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "数据去向",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold,
+        )
+        rows.forEach { row ->
+            Text(
+                text = row,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionParameterRows(
+    key: String,
+    value: String,
+) {
+    val rows = remember(key, value) { actionParameterDisplayRows(key, value) }
+    rows.forEachIndexed { index, row ->
+        ExpandableActionText(
+            label = row.label,
+            text = row.value,
+            collapsedMaxChars = if (row.preferCompact) {
+                ACTION_PARAMETER_COMPACT_CHARS
+            } else {
+                ACTION_PARAMETER_COLLAPSE_CHARS
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            testTag = "action_parameter_${key.safeTestTagPart()}_$index",
+        )
+    }
+}
+
+@Composable
+private fun ExpandableActionText(
+    text: String,
+    collapsedMaxChars: Int,
+    style: androidx.compose.ui.text.TextStyle,
+    color: Color,
+    testTag: String,
+    label: String? = null,
+) {
+    var expanded by rememberSaveable(text) { mutableStateOf(false) }
+    val display = remember(text, collapsedMaxChars, expanded) {
+        actionTextDisplay(
+            text = text,
+            collapsedMaxChars = collapsedMaxChars,
+            expanded = expanded,
+        )
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        if (label != null) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Text(
+            modifier = Modifier.testTag(testTag),
+            text = display.text,
+            style = style,
+            color = color,
+        )
+        if (display.canToggle) {
+            TextButton(
+                modifier = Modifier.testTag("${testTag}_toggle"),
+                onClick = { expanded = !expanded },
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+            ) {
+                Text(
+                    text = if (expanded) {
+                        "收起"
+                    } else {
+                        "显示全部（${display.totalChars} 字）"
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ExternalOutcomeSheet(
     pending: PendingExternalOutcomeConfirmation,
     onRecord: (AgentExternalOutcome) -> Unit,
@@ -1080,13 +1538,8 @@ private fun PromptSuggestionList(
     enabled: Boolean,
     onSendPrompt: (String) -> Unit,
 ) {
-    val prompts = listOf(
-        "用三句话解释端侧大模型",
-        "帮我整理一个今日待办清单",
-        "写一段简洁的中文自我介绍",
-    )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        prompts.forEach { prompt ->
+        PRODUCT_PROMPT_SUGGESTIONS.forEach { prompt ->
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
@@ -1126,6 +1579,7 @@ private fun PromptSuggestionList(
 @Composable
 private fun ModelManagerSheet(
     state: ChatUiState,
+    initialSelectedTab: Int,
     customModelUrl: String,
     onCustomModelUrlChanged: (String) -> Unit,
     onPickModel: () -> Unit,
@@ -1147,8 +1601,8 @@ private fun ModelManagerSheet(
     onOpenModelPage: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var selectedTab by rememberSaveable { mutableStateOf(0) }
-    val tabs = listOf("当前", "模型", "远程", "高级")
+    var selectedTab by rememberSaveable(initialSelectedTab) { mutableStateOf(initialSelectedTab) }
+    val tabs = listOf("当前", "模型", "远程", "高级", "隐私")
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1163,11 +1617,21 @@ private fun ModelManagerSheet(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "模型管理",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = "模型管理",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = MODEL_MANAGER_POSITIONING_TEXT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1227,7 +1691,7 @@ private fun ModelManagerSheet(
                 onRemoteModelConfigChanged = onRemoteModelConfigChanged,
             )
 
-            else -> AdvancedModelPanel(
+            3 -> AdvancedModelPanel(
                 state = state,
                 onGenerationParametersChanged = onGenerationParametersChanged,
                 onResetGenerationParameters = onResetGenerationParameters,
@@ -1235,6 +1699,8 @@ private fun ModelManagerSheet(
                 onForgetLongTermMemory = onForgetLongTermMemory,
                 onClearLongTermMemory = onClearLongTermMemory,
             )
+
+            else -> TrustBoundaryPanel(state = state)
         }
 
         if (state.isDownloading || state.downloadProgressPercent != null || state.totalBytes > 0L) {
@@ -1256,7 +1722,8 @@ private fun labelToTabTag(label: String): String =
         "当前" -> "current"
         "模型" -> "models"
         "远程" -> "remote"
-        else -> "advanced"
+        "高级" -> "advanced"
+        else -> "privacy"
     }
 
 @Composable
@@ -1300,7 +1767,10 @@ private fun ModelInventoryPanel(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionTitle(
                 text = "推荐模型",
-                subtitle = "缺少或文件不完整时，可在这里单独补装对应能力。",
+                subtitle = MODEL_DOWNLOAD_RATIONALE_TEXT,
+            )
+            ModelPathGuidance(
+                selectedModel = state.selectedRecommendedModel,
             )
             state.basicSetupModels.forEach { model ->
                 RecommendedModelCard(
@@ -1357,7 +1827,7 @@ private fun AddModelPanel(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionTitle(
             text = "添加模型",
-            subtitle = "自定义链接或本地文件都必须是 .litertlm 模型。",
+            subtitle = "自定义链接必须是 HTTPS；HTTP 仅用于本地调试地址。本地文件必须是 .litertlm 模型。",
         )
         OutlinedTextField(
             modifier = Modifier
@@ -1403,7 +1873,8 @@ private fun EmptyPanelText(text: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+        color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.58f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.46f)),
     ) {
         Text(
             modifier = Modifier.padding(14.dp),
@@ -1413,6 +1884,64 @@ private fun EmptyPanelText(text: String) {
         )
     }
 }
+
+@Composable
+private fun ModelPathGuidance(
+    selectedModel: RecommendedModel,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("model_path_guidance"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        modelPathGuidanceRows(selectedModel).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    text = row.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = row.body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+internal class ModelPathGuidanceRow(
+    label: String,
+    body: String,
+) {
+    val label: String = label
+    val body: String = body
+}
+
+internal fun modelPathGuidanceRows(selectedModel: RecommendedModel): List<ModelPathGuidanceRow> =
+    listOf(
+        ModelPathGuidanceRow(
+            label = "本地",
+            body = "下载或导入 ${selectedModel.shortName}（约 ${ModelCatalog.formatBytes(selectedModel.byteSize)}）后可离线问答；下载中断、校验失败或加载失败都可以重新下载，空间不足时先释放存储。",
+        ),
+        ModelPathGuidanceRow(
+            label = "远程",
+            body = "不下载本地对话模型也能开始；配置 HTTPS 兼容接口后，每次发送前都会展示远程内容预览，图片只在你主动附加且模型支持时发送。",
+        ),
+        ModelPathGuidanceRow(
+            label = "轻量",
+            body = "当前没有更小的官方推荐聊天模型；记忆/动作小模型不是聊天替代。可先用远程模型，或导入你信任的 .litertlm。",
+        ),
+    )
 
 @Composable
 private fun AdvancedModelPanel(
@@ -1444,13 +1973,23 @@ private fun AdvancedModelPanel(
 
 @Composable
 private fun PanelSurface(content: @Composable () -> Unit) {
+    val panelEdge = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                drawLine(
+                    color = panelEdge,
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, 0f),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            },
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.86f),
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.58f),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f),
         ),
         tonalElevation = 0.dp,
     ) {
@@ -1490,6 +2029,12 @@ private fun CurrentModelPanel(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            Text(
+                modifier = Modifier.testTag("model_health_summary"),
+                text = modelHealthDisplayText(state),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BackendChip(
                     modifier = Modifier.testTag("inference_local_chip"),
@@ -1507,6 +2052,7 @@ private fun CurrentModelPanel(
                 )
             }
             if (!usingRemote) {
+                LocalTokenLimitBlock(state.localMaxTotalTokens)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     BackendChip(
                         modifier = Modifier.testTag("backend_gpu_chip"),
@@ -1558,12 +2104,13 @@ private fun RemoteModelPanel(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SectionTitle(
+                    modifier = Modifier.weight(1f),
                     text = "远程模型",
-                    subtitle = "兼容 /v1/chat/completions；远程模式会发送当前对话上下文。",
+                    subtitle = REMOTE_MODE_DISCLOSURE_TEXT,
                 )
                 Switch(
                     modifier = Modifier.testTag("remote_mode_switch"),
@@ -1616,14 +2163,52 @@ private fun RemoteModelPanel(
                 label = { Text("API Key") },
                 visualTransformation = PasswordVisualTransformation(),
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_vision_input_row"),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = "图片输入",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Switch(
+                    checked = config.supportsVisionInput,
+                    enabled = !state.isBusy,
+                    onCheckedChange = {
+                        onRemoteModelConfigChanged(config.copy(supportsVisionInput = it))
+                    },
+                )
+            }
             Text(
                 text = remoteConfigStatusText(config),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            OutlinedButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_config_clear_button"),
+                onClick = { onRemoteModelConfigChanged(RemoteModelConfig()) },
+                enabled = !state.isBusy && config.hasAnySavedValue(),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(" 清除远程配置")
+            }
         }
     }
 }
+
+private fun RemoteModelConfig.hasAnySavedValue(): Boolean =
+    baseUrl.isNotBlank() || modelName.isNotBlank() || apiKey.isNotBlank() || !supportsVisionInput
 
 private fun remoteConfigStatusText(config: RemoteModelConfig): String =
     when {
@@ -1638,6 +2223,153 @@ private fun remoteConfigStatusText(config: RemoteModelConfig): String =
 
         else ->
             "填写 HTTPS 服务地址和模型名后可切换远程模型"
+    }
+
+@Composable
+private fun TrustBoundaryPanel(state: ChatUiState) {
+    val sensitiveDisclosureRows = sensitiveCapabilityDisclosureDisplayRows()
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        PanelSurface {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle(
+                    text = "为什么装它",
+                    subtitle = PRODUCT_POSITIONING_TEXT,
+                )
+                TrustBoundaryRow(
+                    icon = Icons.Filled.Storage,
+                    title = "本地可用",
+                    body = PRODUCT_LOCAL_VALUE_TEXT,
+                )
+                TrustBoundaryRow(
+                    icon = Icons.Filled.Cloud,
+                    title = "远程多模态可选",
+                    body = PRODUCT_REMOTE_VALUE_TEXT,
+                )
+                TrustBoundaryRow(
+                    icon = Icons.Filled.Settings,
+                    title = "动作确认执行",
+                    body = PRODUCT_ACTION_VALUE_TEXT,
+                )
+            }
+        }
+        PanelSurface {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle(
+                    text = "隐私说明",
+                    subtitle = PRIVACY_POLICY_ENTRY_TEXT,
+                )
+                TrustBoundaryRow(
+                    icon = Icons.Filled.Storage,
+                    title = "本地优先",
+                    body = TRUST_LOCAL_BOUNDARY_TEXT,
+                )
+                TrustBoundaryRow(
+                    icon = Icons.Filled.Cloud,
+                    title = "远程模型",
+                    body = TRUST_REMOTE_BOUNDARY_TEXT,
+                )
+                TrustBoundaryRow(
+                    icon = Icons.Filled.Settings,
+                    title = "敏感权限",
+                    body = TRUST_PERMISSION_BOUNDARY_TEXT,
+                )
+                TrustBoundaryRow(
+                    icon = Icons.Filled.Delete,
+                    title = "用户控制",
+                    body = trustDeletionBoundaryText(state),
+                )
+            }
+        }
+        PanelSurface {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle(
+                    text = "敏感能力披露",
+                    subtitle = SENSITIVE_CAPABILITY_DISCLOSURE_TEXT,
+                )
+                sensitiveDisclosureRows.forEach { row ->
+                    TrustBoundaryRow(
+                        icon = Icons.Filled.Security,
+                        title = row.title,
+                        body = row.body,
+                    )
+                }
+            }
+        }
+        PanelSurface {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionTitle(
+                    text = "发布前仍需人工完成",
+                    subtitle = "这些不是 App 代码能自动替代的事项。",
+                )
+                ProductReadinessBullet("使用生产签名或 Play App Signing，不使用本地 debug keystore 发布。")
+                ProductReadinessBullet("准备公开隐私政策 URL，并与 Play Console Data safety 表单保持一致。")
+                ProductReadinessBullet("接入 crash/ANR 监控，并完成真机矩阵、无障碍和大字体验收。")
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrustBoundaryRow(
+    icon: ImageVector,
+    title: String,
+    body: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(
+            modifier = Modifier.size(20.dp),
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProductReadinessBullet(text: String) {
+    Text(
+        text = "• $text",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+internal fun trustDeletionBoundaryText(state: ChatUiState): String =
+    "可清空长期记忆、删除当前会话、取消后台任务，并可一键清除远程服务地址、模型名和 API Key。当前已保存长期记忆 ${state.longTermMemories.size} 条。"
+
+internal data class SensitiveCapabilityDisclosureDisplayRow(
+    val title: String,
+    val body: String,
+)
+
+internal fun sensitiveCapabilityDisclosureDisplayRows(): List<SensitiveCapabilityDisclosureDisplayRow> =
+    CapabilityMatrix.sensitiveCapabilityDisclosures.map { disclosure ->
+        SensitiveCapabilityDisclosureDisplayRow(
+            title = disclosure.displayName,
+            body = "数据：${disclosure.dataAccessed}\n" +
+                "同意：${disclosure.consentBoundary}\n" +
+                "远程：${disclosure.remoteBoundary}\n" +
+                "撤销/清除：${disclosure.revokeOrClearControl}",
+        )
     }
 
 @Composable
@@ -1668,6 +2400,9 @@ private fun MemoryTogglePanel(
                     )
                     Text(
                         text = when {
+                            !state.memoryEnabled ->
+                                "本地记忆已关闭；已有记录仍可查看和清除，不会参与召回，也不会自动发送到远程模型。"
+
                             state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.Active ->
                                 "语义记忆运行时已启用；记忆仍只在本机检索，不会自动发送到远程模型。"
 
@@ -1807,7 +2542,7 @@ private fun LongTermMemoryRow(
             ) {
                 Icon(
                     imageVector = Icons.Filled.Delete,
-                    contentDescription = "遗忘这条记忆",
+                    contentDescription = "遗忘这条记忆：${memory.text}",
                 )
             }
         }
@@ -1879,16 +2614,14 @@ private fun SessionManagerSheet(
                 onClick = { onSessionSelected(session.id) },
             )
         }
-        if (state.sessions.size > 1) {
-            OutlinedButton(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("session_delete_button"),
-                onClick = onDeleteSession,
-                enabled = !state.isBusy,
-            ) {
-                Text("删除当前会话")
-            }
+        OutlinedButton(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("session_delete_button"),
+            onClick = onDeleteSession,
+            enabled = !state.isBusy,
+        ) {
+            Text("删除当前会话")
         }
     }
 }
@@ -2064,16 +2797,54 @@ private fun AgentTraceRunRow(run: AgentTraceRunUiSummary) {
                     maxLines = 1,
                 )
             }
-            run.steps.takeLast(4).forEach { step ->
-                Text(
-                    text = "${step.type} · ${step.summary}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            run.runDataReceipt?.let { receipt ->
+                RunDataReceiptSummary(receipt)
+            }
+            run.steps
+                .filter { step -> step.runDataReceipt == null }
+                .takeLast(4)
+                .forEach { step ->
+                AgentTraceStepRow(step)
             }
         }
+    }
+}
+
+@Composable
+private fun AgentTraceStepRow(step: com.bytedance.zgx.pocketmind.AgentTraceStepUiSummary) {
+    val receipt = step.runDataReceipt
+    if (receipt == null) {
+        Text(
+            text = "${step.type} · ${step.summary}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        return
+    }
+    RunDataReceiptSummary(receipt)
+}
+
+@Composable
+private fun RunDataReceiptSummary(receipt: RunDataReceiptUiSummary) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("run_data_receipt_summary"),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "本次数据回执",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = runDataReceiptDisplayText(receipt),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -2327,6 +3098,270 @@ private fun AuditEventRow(event: AuditEventSummary) {
 private fun AuditEventSummary.auditTimeLabel(): String =
     SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(createdAtMillis))
 
+internal const val REMOTE_ATTACHMENT_PROTECTION_NOTICE =
+    "远程模型模式下，主动选择的图片会直接发送给远程视觉模型；其他附件和分享文本不会读取正文、文本摘录或 OCR 摘录。若模型或接口不支持图片，会直接提示不支持。"
+
+internal const val PRODUCT_POSITIONING_TEXT =
+    "隐私优先的随身 AI 助手：本地可用，远程多模态可选，设备动作必须确认执行。"
+
+internal const val PRODUCT_POSITIONING_SHORT_TEXT =
+    "隐私优先的随身 AI 助手"
+
+internal const val PRODUCT_HOME_TITLE_TEXT =
+    "隐私优先的随身 AI 助手"
+
+internal const val PRODUCT_HOME_DESCRIPTION_TEXT =
+    "本地可用，远程多模态可选，设备动作必须确认执行。没有模型时只展示启动选项，不读取本地数据，也不会自动发送远程请求。"
+
+internal enum class HomeValueKind {
+    Local,
+    Remote,
+    Action,
+}
+
+internal data class HomeValueProposition(
+    val kind: HomeValueKind,
+    val title: String,
+    val body: String,
+)
+
+internal val HOME_VALUE_PROPOSITIONS = listOf(
+    HomeValueProposition(
+        kind = HomeValueKind.Local,
+        title = "本地可用",
+        body = "基础问答、会话和显式记忆优先留在本机；离线模型可稍后下载或导入。",
+    ),
+    HomeValueProposition(
+        kind = HomeValueKind.Remote,
+        title = "远程多模态可选",
+        body = "远程模型只在你配置并切换后使用；发送文字或图片前都会先确认。",
+    ),
+    HomeValueProposition(
+        kind = HomeValueKind.Action,
+        title = "动作确认执行",
+        body = "联系人、日历、分享、提醒和系统相关动作先说明权限与风险，再由你确认。",
+    ),
+)
+
+internal const val MODEL_STARTUP_BANNER_TITLE =
+    "模型未就绪"
+
+internal const val MODEL_STARTUP_BANNER_DESCRIPTION =
+    "配置远程模型可立即试用；下载或导入本地模型后可离线问答。远程发送和设备动作仍会先让你确认。"
+
+internal val HOME_CAPABILITY_PILLS = listOf(
+    "离线问答",
+    "显式记忆",
+    "图片/文件",
+    "确认动作",
+)
+
+internal const val LOCAL_SETUP_PANEL_TITLE =
+    "离线基础问答可选下载"
+
+internal const val LOCAL_SETUP_PANEL_DESCRIPTION =
+    "下载后基础问答和历史默认留在本机；也可以先跳过，稍后配置远程模型或导入可信 .litertlm。"
+
+internal const val MODEL_MANAGER_POSITIONING_TEXT =
+    "本地可用，可离线使用；远程多模态可选。远程发送和设备动作仍会先确认。"
+
+internal val PRODUCT_PROMPT_SUGGESTIONS = listOf(
+    "告诉我哪些内容会留在本机",
+    "帮我整理一个只保存在本机的待办清单",
+    "远程图片发送前会确认什么？",
+)
+
+internal const val PRODUCT_LOCAL_VALUE_TEXT =
+    "下载或导入本地模型后，基础问答可在手机上运行；会话、记忆和本地工具结果默认留在本机。"
+
+internal const val PRODUCT_REMOTE_VALUE_TEXT =
+    "远程模型只在你配置并切换后使用；主动选择的图片可发送给远程视觉模型，不支持图片时直接提示不支持。"
+
+internal const val PRODUCT_ACTION_VALUE_TEXT =
+    "联系人、日历、系统页面、分享、提醒和屏幕相关能力都先展示用途、权限和风险，再由你确认或取消。"
+
+internal const val PRIVACY_POLICY_ENTRY_TEXT =
+    "说明哪些内容留在本机、什么时候会发送到远程，以及哪些设备能力必须你确认后才执行。"
+
+internal const val REMOTE_MODE_DISCLOSURE_TEXT =
+    "兼容 /v1/chat/completions；远程模式只发送可远程发送的对话上下文，每次发送前都会确认，主动选择的图片会随请求发送。"
+
+internal const val MODEL_DOWNLOAD_RATIONALE_TEXT =
+    "本地模型让基础问答离线可用；基础对话模型约 2.4 GB，缺少、下载失败或文件不完整时可在这里补装，也可以先配置远程模型。"
+
+internal const val VOICE_INPUT_PRIVACY_DESCRIPTION =
+    "语音输入；使用系统语音转写，结果只进入输入框，不自动发送，不读取本地音频文件；开启前会先确认"
+
+internal const val VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE =
+    "开启语音输入"
+
+internal const val VOICE_INPUT_PERMISSION_DISCLOSURE_BODY =
+    "语音会交由 Android 系统语音识别服务处理；PocketMind 不保存音频文件，转写结果只进入输入框，不会自动发送。确认后才会请求麦克风权限或开始收音。"
+
+internal const val TRUST_LOCAL_BOUNDARY_TEXT =
+    "会话、长期记忆、设备上下文和本地工具结果默认留在本机；切到远程模型时，本地隐私消息和 LocalOnly 工具结果不会进入远程历史。"
+
+internal const val TRUST_REMOTE_BOUNDARY_TEXT =
+    "远程模型会收到当前可远程发送的对话上下文；你主动附加的图片会随请求发送，非图片附件、分享文本、OCR 摘录和本地工具私密结果不会自动发送。"
+
+internal const val TRUST_PERMISSION_BOUNDARY_TEXT =
+    "联系人、日历、媒体、通知、当前屏幕、Accessibility 文本和截图 OCR 都需要运行时权限、系统特殊授权或前台一次性确认；动作工具仍需用户确认后执行。"
+
+internal const val SENSITIVE_CAPABILITY_DISCLOSURE_TEXT =
+    "麦克风、媒体、联系人/日历、Usage Stats、Accessibility、截图、远程图片发送和设备动作都有数据范围、同意边界，以及取消、撤销或清除路径。"
+
+internal const val ACTION_SUMMARY_COLLAPSE_CHARS = 160
+internal const val ACTION_PARAMETER_COLLAPSE_CHARS = 120
+internal const val ACTION_PARAMETER_COMPACT_CHARS = 80
+
+internal data class ActionTextDisplay(
+    val text: String,
+    val totalChars: Int,
+    val canToggle: Boolean,
+)
+
+internal data class ActionParameterDisplayRow(
+    val label: String,
+    val value: String,
+    val preferCompact: Boolean = false,
+)
+
+internal fun actionTextDisplay(
+    text: String,
+    collapsedMaxChars: Int,
+    expanded: Boolean,
+): ActionTextDisplay {
+    val normalized = text.trim()
+    val canToggle = normalized.length > collapsedMaxChars
+    return ActionTextDisplay(
+        text = if (!canToggle || expanded) {
+            normalized
+        } else {
+            normalized.take((collapsedMaxChars - 3).coerceAtLeast(1)).trimEnd() + "..."
+        },
+        totalChars = normalized.length,
+        canToggle = canToggle,
+    )
+}
+
+internal fun actionParameterDisplayRows(
+    key: String,
+    value: String,
+): List<ActionParameterDisplayRow> {
+    val trimmedValue = value.trim()
+    val normalizedKey = key.trim()
+    val keyForMatching = normalizedKey.lowercase(Locale.US)
+    val domain = if (keyForMatching in linkParameterKeys) {
+        actionLinkDomain(trimmedValue)
+    } else {
+        null
+    }
+    return when {
+        domain != null -> listOf(
+            ActionParameterDisplayRow(
+                label = "链接域名",
+                value = domain,
+                preferCompact = true,
+            ),
+            ActionParameterDisplayRow(
+                label = "完整链接",
+                value = trimmedValue,
+            ),
+        )
+
+        keyForMatching == "packagename" -> listOf(
+            ActionParameterDisplayRow(
+                label = "目标包",
+                value = trimmedValue,
+                preferCompact = true,
+            ),
+        )
+
+        keyForMatching == "targetid" -> listOf(
+            ActionParameterDisplayRow(
+                label = "目标类型",
+                value = trimmedValue,
+                preferCompact = true,
+            ),
+        )
+
+        else -> listOf(
+            ActionParameterDisplayRow(
+                label = normalizedKey.ifBlank { "参数" },
+                value = trimmedValue,
+            ),
+        )
+    }
+}
+
+internal fun actionDataBoundaryDisplayRows(functionName: String): List<String> =
+    when (functionName) {
+        MobileActionFunctions.COMPOSE_EMAIL,
+        MobileActionFunctions.CREATE_CALENDAR_EVENT,
+        MobileActionFunctions.CREATE_CONTACT_DRAFT,
+        MobileActionFunctions.SHARE_TEXT,
+        -> listOf(
+            "确认后会把草稿或分享内容交给外部 App；目标 App 的后续处理由你继续确认。",
+            "PocketMind 只能记录外部界面已打开，不能在未确认结果前宣称已完成。",
+        )
+
+        MobileActionFunctions.OPEN_WIFI_SETTINGS,
+        MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+        MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+        MobileActionFunctions.OPEN_DEEP_LINK,
+        MobileActionFunctions.OPEN_APP_INTENT,
+        MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+        MobileActionFunctions.SEARCH_MAPS,
+        -> listOf(
+            "确认后会打开系统设置、链接、地图或目标 App；不会自动完成外部页面里的操作。",
+            "如果外部界面需要继续处理，返回后由你确认结果。",
+        )
+
+        MobileActionFunctions.QUERY_CONTACTS,
+        MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY,
+        MobileActionFunctions.QUERY_RECENT_FILES,
+        MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+        MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+        MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+        MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+        MobileActionFunctions.QUERY_FOREGROUND_APP,
+        MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS,
+        MobileActionFunctions.READ_CLIPBOARD,
+        -> listOf(
+            "确认后只读取本次动作需要的本机内容或权限范围内摘要。",
+            "读取结果默认 LocalOnly，不会自动发送给远程模型。",
+        )
+
+        MobileActionFunctions.SCHEDULE_REMINDER,
+        MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+        MobileActionFunctions.CANCEL_REMINDER,
+        MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+        -> listOf(
+            "确认后只在本机创建、修改、取消或查询提醒与后台任务。",
+            "提醒正文和后台任务状态默认留在本机。",
+        )
+
+        else -> listOf(
+            "确认后只按本次动作使用必要参数；取消不会执行。",
+            "如需外部 App 或系统继续处理，会在结果页让你确认完成状态。",
+        )
+    }
+
+internal fun actionLinkDomain(rawValue: String): String? {
+    val host = runCatching { URI(rawValue.trim()).host }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
+        ?: return null
+    return host.lowercase(Locale.US)
+}
+
+private val linkParameterKeys = setOf("uri", "url", "link")
+
+private fun String.safeTestTagPart(): String =
+    replace(Regex("""[^A-Za-z0-9_]+"""), "_")
+        .trim('_')
+        .ifBlank { "parameter" }
+
 private val periodicCheckIntervalOptions = listOf(
     PeriodicCheckScheduleRequest.MIN_INTERVAL_MINUTES to "1 小时",
     PeriodicCheckScheduleRequest.DEFAULT_INTERVAL_MINUTES to "6 小时",
@@ -2464,6 +3499,29 @@ private fun AgentRunState.label(): String =
         AgentRunState.Failed -> "失败"
     }
 
+internal fun runDataReceiptDisplayText(receipt: RunDataReceiptUiSummary): String {
+    val destination = when (receipt.destination) {
+        "Remote" -> "远端"
+        "Local" -> "本机"
+        else -> receipt.destination.ifBlank { "未知" }
+    }
+    val protectedTypes = receipt.protectedContentTypes
+        .takeIf { it.isNotEmpty() }
+        ?.joinToString(separator = "、")
+        ?: "无额外保护项"
+    val deletableRecords = receipt.deletableRecordTypes
+        .takeIf { it.isNotEmpty() }
+        ?.joinToString(separator = "、")
+        ?: "无"
+    val rawPersisted = if (receipt.rawContentPersisted) "是" else "否"
+    val memoryUsage = if (receipt.memoryContextIncluded) "已使用" else "未带出"
+    val deviceUsage = if (receipt.deviceContextIncluded) "已使用" else "未带出"
+    return "去向：$destination；隐私：${receipt.currentPromptPrivacy}；远端历史：${receipt.remoteHistoryCount}；" +
+        "过滤 LocalOnly：${receipt.localOnlyHistoryFilteredCount}；记忆：$memoryUsage/${receipt.memoryHitCount}；" +
+        "设备上下文：$deviceUsage；图片：${receipt.imageAttachmentCount}；受保护源：${receipt.protectedSourceCount}；" +
+        "保护：$protectedTypes；可删除：$deletableRecords；原文持久化：$rawPersisted"
+}
+
 @Composable
 private fun RecommendedModelCard(
     model: RecommendedModel,
@@ -2489,14 +3547,14 @@ private fun RecommendedModelCard(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.94f),
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.86f),
         tonalElevation = 0.dp,
         border = BorderStroke(
             width = 1.dp,
             color = if (isSelectedChat) {
-                accent.copy(alpha = 0.8f)
+                accent.copy(alpha = 0.9f)
             } else {
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.58f)
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f)
             },
         ),
     ) {
@@ -2700,7 +3758,7 @@ private fun SectionTitle(
     }
 }
 
-private fun currentModelStatus(state: ChatUiState): String {
+internal fun currentModelStatus(state: ChatUiState): String {
     if (state.inferenceMode == InferenceMode.Remote) {
         val modelName = state.remoteModelConfig.modelName.ifBlank { "远程模型" }
         val ready = when {
@@ -2719,7 +3777,53 @@ private fun currentModelStatus(state: ChatUiState): String {
         state.modelPath != null -> "待加载"
         else -> state.statusText
     }
-    return "$modelName · ${state.backend.name} · $ready"
+    return "$modelName · ${state.backend.name} · " +
+        "${LocalModelTokenLimits.compactDisplayText(state.localMaxTotalTokens)} · $ready"
+}
+
+internal fun modelHealthDisplayText(state: ChatUiState): String {
+    val health = state.modelHealth
+    val parts = mutableListOf("健康：${health.state.label()}")
+    health.backend?.let { backend -> parts += "backend=${backend.label()}" }
+    health.fallbackBackend?.let { fallback -> parts += "fallback=${fallback.label()}" }
+    health.loadMs?.let { loadMs -> parts += "load=${loadMs}ms" }
+    health.firstTokenMs?.let { firstTokenMs -> parts += "first=${firstTokenMs}ms" }
+    health.tokenCount?.let { tokens -> parts += "tokens=$tokens" }
+    health.tokensPerSecond?.takeIf { it > 0.0 }?.let { value ->
+        parts += "speed=${String.format(Locale.US, "%.1f", value)} tok/s"
+    }
+    health.failureReason
+        ?.takeIf { it.isNotBlank() }
+        ?.let { reason -> parts += "reason=${reason.take(80)}" }
+    return parts.joinToString(separator = " · ")
+}
+
+private fun ModelHealthState.label(): String =
+    when (this) {
+        ModelHealthState.NotInstalled -> "未安装"
+        ModelHealthState.InstalledUnverified -> "待校验"
+        ModelHealthState.Verified -> "已校验"
+        ModelHealthState.Loading -> "加载中"
+        ModelHealthState.Loaded -> "已加载"
+        ModelHealthState.LoadFailed -> "加载失败"
+        ModelHealthState.FallbackActive -> "Fallback"
+    }
+
+@Composable
+private fun LocalTokenLimitBlock(maxTotalTokens: Int) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = LocalModelTokenLimits.totalDisplayText(maxTotalTokens),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = LocalModelTokenLimits.inputDisplayText() +
+                " · ${LocalModelTokenLimits.outputDisplayText()}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 private fun capabilityLabel(capability: ModelCapability): String =
@@ -2744,11 +3848,6 @@ private fun ChatUiState.pendingSelectedChatDownloadBytes(): Long =
     } else {
         selectedRecommendedModel.byteSize
     }
-
-private fun ChatUiState.pendingSetupDownloadBytes(): Long =
-    basicSetupModels
-        .filter { it.id in setupSelectedModelIds && !isModelInstalled(it.id) }
-        .sumOf { it.byteSize }
 
 private fun ChatUiState.pendingBasicDownloadBytes(): Long =
     basicSetupModels
@@ -2805,7 +3904,7 @@ private fun DeviceCheck(
                 )
             } else if (!hasEnoughSpace) {
                 Text(
-                    text = "建议至少预留 ${ModelCatalog.formatBytes(requiredBytes)}，再多留一些空间给加载缓存。",
+                    text = "建议至少预留 ${ModelCatalog.formatBytes(requiredBytes)}，再多留一些空间给加载缓存；也可以先配置远程模型，或导入你信任的更小 .litertlm。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -3123,9 +4222,9 @@ private fun MessageBubble(
     val isUser = message.role == MessageRole.User
     val semanticColors = LocalPocketMindColors.current
     val bubbleColor = if (isUser) {
-        semanticColors.localContainer.copy(alpha = 0.92f)
+        semanticColors.localContainer.copy(alpha = 0.88f)
     } else {
-        MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.96f)
+        MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.90f)
     }
     val textColor = if (isUser) {
         semanticColors.onLocalContainer
@@ -3134,9 +4233,9 @@ private fun MessageBubble(
     }
     val alignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
     val shape = if (isUser) {
-        RoundedCornerShape(18.dp, 6.dp, 18.dp, 18.dp)
+        RoundedCornerShape(10.dp, 3.dp, 10.dp, 10.dp)
     } else {
-        RoundedCornerShape(6.dp, 18.dp, 18.dp, 18.dp)
+        RoundedCornerShape(3.dp, 10.dp, 10.dp, 10.dp)
     }
 
     Box(
@@ -3149,10 +4248,11 @@ private fun MessageBubble(
             shape = shape,
             color = bubbleColor,
             border = if (isUser) {
-                BorderStroke(1.dp, semanticColors.local.copy(alpha = 0.24f))
+                BorderStroke(1.dp, semanticColors.local.copy(alpha = 0.48f))
             } else {
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.58f))
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f))
             },
+            shadowElevation = if (isUser) 1.dp else 0.dp,
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
@@ -3165,7 +4265,7 @@ private fun MessageBubble(
                         else -> "PocketMind"
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = textColor.copy(alpha = 0.62f),
+                    color = textColor.copy(alpha = 0.72f),
                     fontWeight = FontWeight.SemiBold,
                 )
                 if (isStreaming && message.text.isBlank()) {
@@ -3195,7 +4295,13 @@ private fun MessageBubble(
 }
 
 private fun formatGenerationStats(stats: GenerationStats): String =
-    "${stats.tokenCount} tokens · ${String.format(Locale.US, "%.1f", stats.tokensPerSecond)} tokens/s"
+    buildList {
+        stats.backend?.let { backend -> add(backend.label()) }
+        stats.firstTokenMs?.let { firstTokenMs -> add("首 token ${firstTokenMs}ms") }
+        stats.loadMs?.let { loadMs -> add("加载 ${loadMs}ms") }
+        add("${stats.tokenCount} tokens")
+        add("${String.format(Locale.US, "%.1f", stats.tokensPerSecond)} tokens/s")
+    }.joinToString(separator = " · ")
 
 @Composable
 private fun MessageContent(
@@ -3318,36 +4424,49 @@ private fun Composer(
 ) {
     val inputEnabled = state.isReady && !state.isBusy
     val attachmentEnabled = !state.isBusy
-    val voiceEnabled = !state.isBusy && !state.voiceCapture.isListening
+    val voiceEnabled = !state.isBusy && !state.voiceCapture.isActive
+    var showVoicePermissionDisclosure by rememberSaveable { mutableStateOf(false) }
     val actionIsStop = state.isGenerating
-    val semanticColors = LocalPocketMindColors.current
+    val composerEdge = MaterialTheme.colorScheme.primary.copy(alpha = 0.36f)
     val hasPendingSharedInput = state.pendingSharedInputDraft != null
     val canSend = inputEnabled && (input.isNotBlank() || hasPendingSharedInput)
     val placeholder = when {
         state.isBusy -> state.statusText
-        !state.isReady -> "先准备模型，再开始提问"
+        !state.isReady -> "配置远程或下载本地后提问"
         hasPendingSharedInput -> "补充说明"
         else -> "输入问题"
     }
-    val showCompactStatus = !state.isReady || state.isBusy || state.statusText.isVoiceStatusText()
+    val showCompactStatus = !state.isReady ||
+        state.isBusy ||
+        state.statusText.isVoiceStatusText() ||
+        state.statusText.isAgentExecutionOutcomeStatusText()
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.96f),
-                        MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.98f),
+                        MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.88f),
+                        MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.94f),
                     ),
                 ),
             )
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f))
+            .drawBehind {
+                drawLine(
+                    color = composerEdge,
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, 0f),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            }
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.44f))
             .navigationBarsPadding()
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        if (state.voiceCapture.isListening) {
+        if (state.voiceCapture.isActive) {
             VoiceCaptureBar(
+                isTranscribing = state.voiceCapture.isTranscribing,
                 level = state.voiceCapture.level,
                 waveformLevels = state.voiceCapture.waveformLevels,
                 partialText = state.voiceCapture.partialText,
@@ -3355,6 +4474,10 @@ private fun Composer(
                 onFinish = onFinishVoiceInput,
             )
         }
+        if (state.inferenceMode == InferenceMode.Remote) {
+            RemoteAttachmentProtectionNotice()
+        }
+        VoiceInputPrivacyNotice()
         state.pendingSharedInputDraft?.let { draft ->
             PendingSharedInputStrip(
                 summary = draft.summary,
@@ -3363,7 +4486,9 @@ private fun Composer(
         }
         if (showCompactStatus) {
             Text(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("app_status_text"),
                 text = state.statusText,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -3371,105 +4496,316 @@ private fun Composer(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            ComposerIconButton(
-                modifier = Modifier
-                    .testTag("composer_attachment_button")
-                    .semantics {
-                        contentDescription = "选择附件"
-                    },
-                enabled = attachmentEnabled,
-                onClick = onPickSharedAttachment,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.AttachFile,
-                    contentDescription = null,
-                )
-            }
-
-            OutlinedTextField(
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 52.dp)
-                    .testTag("composer_input"),
-                value = input,
-                onValueChange = onInputChanged,
-                enabled = inputEnabled,
-                minLines = 1,
-                maxLines = 5,
-                placeholder = { Text(placeholder) },
-            )
-
-            ComposerIconButton(
-                modifier = Modifier
-                    .testTag("composer_voice_button")
-                    .semantics {
-                        contentDescription = "语音输入"
-                    },
-                onClick = onStartVoiceInput,
-                enabled = voiceEnabled,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Mic,
-                    contentDescription = null,
-                )
-            }
-
-            ComposerIconButton(
-                modifier = Modifier
-                    .testTag("composer_model_button")
-                    .semantics {
-                        contentDescription = "模型管理"
-                    },
-                onClick = onOpenModelManager,
-                enabled = !state.isBusy,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Tune,
-                    contentDescription = null,
-                )
-            }
-
-            IconButton(
-                modifier = Modifier
-                    .height(52.dp)
-                    .width(52.dp)
-                    .testTag("composer_send_button")
-                    .semantics {
-                        contentDescription = if (actionIsStop) "停止生成" else "发送"
-                    },
-                onClick = when {
-                    actionIsStop -> onStopGeneration
-                    else -> onSend
-                },
-                enabled = when {
-                    actionIsStop -> true
-                    else -> canSend
-                },
-                colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = when {
-                        actionIsStop -> semanticColors.busy
-                        canSend -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.surfaceVariant
-                    },
-                    contentColor = when {
-                        actionIsStop -> semanticColors.onBusy
-                        canSend -> MaterialTheme.colorScheme.onPrimary
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.52f)
-                    },
-                ),
-            ) {
-                Icon(
-                    imageVector = if (actionIsStop) Icons.Filled.Stop else Icons.AutoMirrored.Filled.Send,
-                    contentDescription = null,
-                )
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val compactControls = maxWidth < 360.dp
+            if (compactControls) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        ComposerAttachmentButton(
+                            remoteMode = state.inferenceMode == InferenceMode.Remote,
+                            enabled = attachmentEnabled,
+                            onClick = onPickSharedAttachment,
+                        )
+                        ComposerTextInput(
+                            modifier = Modifier.weight(1f),
+                            input = input,
+                            onInputChanged = onInputChanged,
+                            inputEnabled = inputEnabled,
+                            placeholder = placeholder,
+                        )
+                        ComposerSendButton(
+                            actionIsStop = actionIsStop,
+                            canSend = canSend,
+                            onStopGeneration = onStopGeneration,
+                            onSend = onSend,
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ComposerVoiceButton(
+                            enabled = voiceEnabled,
+                            onClick = { showVoicePermissionDisclosure = true },
+                        )
+                        ComposerModelButton(
+                            enabled = !state.isBusy,
+                            onClick = onOpenModelManager,
+                        )
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    ComposerAttachmentButton(
+                        remoteMode = state.inferenceMode == InferenceMode.Remote,
+                        enabled = attachmentEnabled,
+                        onClick = onPickSharedAttachment,
+                    )
+                    ComposerTextInput(
+                        modifier = Modifier.weight(1f),
+                        input = input,
+                        onInputChanged = onInputChanged,
+                        inputEnabled = inputEnabled,
+                        placeholder = placeholder,
+                    )
+                    ComposerVoiceButton(
+                        enabled = voiceEnabled,
+                        onClick = { showVoicePermissionDisclosure = true },
+                    )
+                    ComposerModelButton(
+                        enabled = !state.isBusy,
+                        onClick = onOpenModelManager,
+                    )
+                    ComposerSendButton(
+                        actionIsStop = actionIsStop,
+                        canSend = canSend,
+                        onStopGeneration = onStopGeneration,
+                        onSend = onSend,
+                    )
+                }
             }
         }
     }
+    if (showVoicePermissionDisclosure) {
+        VoiceInputPermissionDisclosureDialog(
+            enabled = voiceEnabled,
+            onConfirm = {
+                showVoicePermissionDisclosure = false
+                onStartVoiceInput()
+            },
+            onDismiss = {
+                showVoicePermissionDisclosure = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun VoiceInputPermissionDisclosureDialog(
+    enabled: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        modifier = Modifier.testTag("voice_permission_disclosure_dialog"),
+        onDismissRequest = onDismiss,
+        title = { Text(VOICE_INPUT_PERMISSION_DISCLOSURE_TITLE) },
+        text = { Text(VOICE_INPUT_PERMISSION_DISCLOSURE_BODY) },
+        confirmButton = {
+            TextButton(
+                modifier = Modifier.testTag("voice_permission_consent_button"),
+                enabled = enabled,
+                onClick = onConfirm,
+            ) {
+                Text("同意并开启语音输入")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                modifier = Modifier.testTag("voice_permission_cancel_button"),
+                onClick = onDismiss,
+            ) {
+                Text("取消")
+            }
+        },
+    )
+}
+
+@Composable
+private fun ComposerAttachmentButton(
+    remoteMode: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    ComposerIconButton(
+        modifier = Modifier
+            .testTag("composer_attachment_button")
+            .semantics {
+                contentDescription = if (remoteMode) {
+                    "选择附件；远程模式会发送图片，其他附件不读取正文或 OCR"
+                } else {
+                    "选择附件"
+                }
+            },
+        enabled = enabled,
+        onClick = onClick,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.AttachFile,
+            contentDescription = null,
+        )
+    }
+}
+
+@Composable
+private fun ComposerTextInput(
+    input: String,
+    onInputChanged: (String) -> Unit,
+    inputEnabled: Boolean,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        modifier = modifier
+            .heightIn(min = 52.dp)
+            .testTag("composer_input"),
+        value = input,
+        onValueChange = onInputChanged,
+        enabled = inputEnabled,
+        minLines = 1,
+        maxLines = 5,
+        placeholder = { Text(placeholder) },
+        shape = MaterialTheme.shapes.medium,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.76f),
+            disabledBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.34f),
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.74f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.58f),
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.32f),
+            cursorColor = MaterialTheme.colorScheme.primary,
+        ),
+    )
+}
+
+@Composable
+private fun ComposerVoiceButton(
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    ComposerIconButton(
+        modifier = Modifier
+            .testTag("composer_voice_button")
+            .semantics {
+                contentDescription = VOICE_INPUT_PRIVACY_DESCRIPTION
+            },
+        onClick = onClick,
+        enabled = enabled,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Mic,
+            contentDescription = null,
+        )
+    }
+}
+
+@Composable
+private fun ComposerModelButton(
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    ComposerIconButton(
+        modifier = Modifier
+            .testTag("composer_model_button")
+            .semantics {
+                contentDescription = "模型管理"
+            },
+        onClick = onClick,
+        enabled = enabled,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Tune,
+            contentDescription = null,
+        )
+    }
+}
+
+@Composable
+private fun ComposerSendButton(
+    actionIsStop: Boolean,
+    canSend: Boolean,
+    onStopGeneration: () -> Unit,
+    onSend: () -> Unit,
+) {
+    val semanticColors = LocalPocketMindColors.current
+    IconButton(
+        modifier = Modifier
+            .height(52.dp)
+            .width(52.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .border(
+                width = 1.dp,
+                color = if (canSend || actionIsStop) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f)
+                },
+                shape = MaterialTheme.shapes.medium,
+            )
+            .testTag("composer_send_button")
+            .semantics {
+                contentDescription = if (actionIsStop) "停止生成" else "发送"
+            },
+        onClick = when {
+            actionIsStop -> onStopGeneration
+            else -> onSend
+        },
+        enabled = when {
+            actionIsStop -> true
+            else -> canSend
+        },
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = when {
+                actionIsStop -> semanticColors.busy
+                canSend -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            },
+            contentColor = when {
+                actionIsStop -> semanticColors.onBusy
+                canSend -> MaterialTheme.colorScheme.onPrimary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.52f)
+            },
+        ),
+    ) {
+        Icon(
+            imageVector = if (actionIsStop) Icons.Filled.Stop else Icons.AutoMirrored.Filled.Send,
+            contentDescription = null,
+        )
+    }
+}
+
+@Composable
+private fun RemoteAttachmentProtectionNotice() {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("remote_attachment_protection_notice"),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.46f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.32f)),
+    ) {
+        Text(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            text = REMOTE_ATTACHMENT_PROTECTION_NOTICE,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onTertiaryContainer,
+        )
+    }
+}
+
+@Composable
+private fun VoiceInputPrivacyNotice() {
+    Text(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("voice_privacy_notice"),
+        text = VOICE_INPUT_PRIVACY_DESCRIPTION,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 @Composable
@@ -3483,16 +4819,17 @@ private fun ComposerIconButton(
         modifier = modifier
             .height(52.dp)
             .width(46.dp)
+            .clip(MaterialTheme.shapes.medium)
             .border(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
-                shape = CircleShape,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.76f),
+                shape = MaterialTheme.shapes.medium,
             ),
         onClick = onClick,
         enabled = enabled,
         colors = IconButtonDefaults.iconButtonColors(
             contentColor = MaterialTheme.colorScheme.primary,
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.58f),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.64f),
             disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.34f),
             disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
         ),
@@ -3511,8 +4848,8 @@ private fun PendingSharedInputStrip(
             .fillMaxWidth()
             .testTag("pending_shared_input_strip"),
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.46f)),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.58f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.34f)),
     ) {
         Row(
             modifier = Modifier.padding(start = 10.dp, top = 6.dp, end = 4.dp, bottom = 6.dp),
@@ -3550,6 +4887,7 @@ private fun PendingSharedInputStrip(
 
 @Composable
 private fun VoiceCaptureBar(
+    isTranscribing: Boolean,
     level: Float,
     waveformLevels: List<Float>,
     partialText: String,
@@ -3571,8 +4909,8 @@ private fun VoiceCaptureBar(
             .fillMaxWidth()
             .testTag("voice_capture_bar"),
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.78f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.66f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
@@ -3586,7 +4924,7 @@ private fun VoiceCaptureBar(
             )
             Text(
                 modifier = Modifier.weight(1f),
-                text = partialText.ifBlank { "正在收音" },
+                text = partialText.ifBlank { if (isTranscribing) "正在转写" else "正在收音" },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 maxLines = 1,
@@ -3603,16 +4941,18 @@ private fun VoiceCaptureBar(
                     contentDescription = null,
                 )
             }
-            IconButton(
-                modifier = Modifier
-                    .size(38.dp)
-                    .semantics { contentDescription = "结束语音输入" },
-                onClick = onFinish,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.CheckCircle,
-                    contentDescription = null,
-                )
+            if (!isTranscribing) {
+                IconButton(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .semantics { contentDescription = "结束语音输入" },
+                    onClick = onFinish,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                    )
+                }
             }
         }
     }
@@ -3649,6 +4989,10 @@ private fun VoiceWaveform(
 
 private fun String.isVoiceStatusText(): Boolean =
     listOf("语音", "麦克风", "收音", "转写", "识别", "声音")
+        .any { marker -> marker in this }
+
+private fun String.isAgentExecutionOutcomeStatusText(): Boolean =
+    listOf("工具未执行", "权限被拒", "特殊权限未开启", "屏幕截图同意已取消")
         .any { marker -> marker in this }
 
 private val VOICE_WAVEFORM_FALLBACK_BARS =

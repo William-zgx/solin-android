@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.background
 
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.tool.ConfirmationPolicy
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
@@ -48,6 +49,9 @@ data class BackgroundSkillSpec(
 
     private fun validateToolBoundary(toolName: String, spec: ToolSpec): List<String> {
         val errors = mutableListOf<String>()
+        if (toolName !in BACKGROUND_ALLOWED_TOOL_NAMES) {
+            errors += "background tool $toolName is not in the approved background tool allowlist"
+        }
         if (spec.riskLevel.ordinal > RiskLevel.MediumDraftOrNavigation.ordinal) {
             errors += "background tool $toolName cannot exceed medium risk"
         }
@@ -72,6 +76,10 @@ data class BackgroundSkillSpec(
         const val MIN_INTERVAL_MINUTES = PeriodicCheckScheduleRequest.MIN_INTERVAL_MINUTES
         val BACKGROUND_ALLOWED_WORK: Set<BackgroundSkillWork> =
             setOf(BackgroundSkillWork.ReadOnlyLocalState, BackgroundSkillWork.PostLocalNotification)
+        val BACKGROUND_ALLOWED_TOOL_NAMES: Set<String> = setOf(
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+            MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+        )
         private val FOREGROUND_ONLY_PERMISSIONS = setOf(
             ToolPermission.StartsExternalActivity,
             ToolPermission.SendsTextToExternalApp,
@@ -90,4 +98,23 @@ enum class BackgroundSkillWork {
     PostLocalNotification,
     OutboundNetwork,
     ExecuteExternalAction,
+}
+
+object RegisteredBackgroundSkillSpecs {
+    val PeriodicLocalReminderPatrol = BackgroundSkillSpec(
+        id = "periodic_local_reminder_patrol",
+        requiredTools = listOf(
+            MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+            MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+        ),
+        userConfigured = true,
+        minimumIntervalMinutes = BackgroundSkillSpec.MIN_INTERVAL_MINUTES,
+        localOnly = true,
+        allowedWork = setOf(
+            BackgroundSkillWork.ReadOnlyLocalState,
+            BackgroundSkillWork.PostLocalNotification,
+        ),
+    )
+
+    val all: List<BackgroundSkillSpec> = listOf(PeriodicLocalReminderPatrol)
 }
