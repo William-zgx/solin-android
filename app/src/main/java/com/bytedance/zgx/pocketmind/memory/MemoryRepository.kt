@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.memory
 
 import com.bytedance.zgx.pocketmind.ChatMessage
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.data.MemoryRecordDao
 import com.bytedance.zgx.pocketmind.data.MemoryRecordEntity
@@ -170,23 +171,18 @@ class MemoryRepository(
             )
         }
         messages.forEach { message ->
+            if (message.role != MessageRole.User) return@forEach
             if (
-                message.role == MessageRole.User &&
-                (
-                    explicitUserPreferenceFrom(message.text) != null ||
-                        explicitUserFactFrom(message.text) != null ||
-                        explicitUserPreferenceForgetFrom(message.text) != null
-                    )
+                explicitUserPreferenceFrom(message.text) != null ||
+                    explicitUserFactFrom(message.text) != null ||
+                    explicitUserPreferenceForgetFrom(message.text) != null
             ) {
                 return@forEach
             }
-            val rolePrefix = when (message.role) {
-                MessageRole.User -> "用户"
-                MessageRole.Assistant -> "助手"
-            }
+            if (message.privacy == MessagePrivacy.LocalOnly) return@forEach
             index(
                 id = message.id.toString(),
-                text = "$rolePrefix：${message.text}",
+                text = "用户：${message.text}",
             )
         }
     }

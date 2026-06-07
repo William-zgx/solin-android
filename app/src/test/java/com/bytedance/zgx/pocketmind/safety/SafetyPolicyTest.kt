@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.safety
 
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.tool.ConfirmationPolicy
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolCapability
@@ -8,6 +9,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolSpec
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -133,6 +135,134 @@ class SafetyPolicyTest {
             assertEquals(spec.name, ConfirmationPolicy.Required, spec.confirmationPolicy)
             assertEquals(spec.name, SafetyOutcome.RequireConfirmation, beforeConfirmation.outcome)
             assertEquals(spec.name, SafetyOutcome.Allow, afterConfirmation.outcome)
+        }
+    }
+
+    @Test
+    fun publicWebSearchQueryCanRunWithoutConfirmation() {
+        val spec = ToolRegistry().specFor(MobileActionFunctions.WEB_SEARCH)
+        requireNotNull(spec)
+
+        val decision = policy.evaluate(
+            spec = spec,
+            request = ToolRequest(
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "北京天气怎么样"),
+            ),
+            context = SafetyContext(userConfirmed = false),
+        )
+
+        assertEquals(SafetyOutcome.Allow, decision.outcome)
+    }
+
+    @Test
+    fun sensitiveWebSearchQueryRequiresConfirmationBeforeNetworkAccess() {
+        val spec = ToolRegistry().specFor(MobileActionFunctions.WEB_SEARCH)
+        requireNotNull(spec)
+        val sensitiveQueries = listOf(
+            "搜索我的手机号 13800138000 有没有泄露",
+            "look up my email alex@example.com",
+            "帮我查我的地址附近有什么",
+            "搜一下我的银行卡 6222020202020202020 有没有风险",
+            "check my employee id E123456 incident history",
+            "搜索我的 HIV 检测结果应该怎么办",
+            "查一下附近心理咨询",
+            "附近孕检在哪里",
+            "附近艾滋检测中心",
+            "find bankruptcy lawyer near me",
+            "HIV testing near me",
+            "pregnancy test near me",
+            "depression help near me",
+            "search my credit card debt options",
+            "look up my child's insurance claim",
+            "search " + "sk-" + "1234567890abcdef1234567890abcdef",
+            "search AKIA1234567890ABCDEF",
+        )
+
+        sensitiveQueries.forEach { query ->
+            val beforeConfirmation = policy.evaluate(
+                spec = spec,
+                request = ToolRequest(
+                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    arguments = mapOf("query" to query),
+                ),
+                context = SafetyContext(userConfirmed = false),
+            )
+            val afterConfirmation = policy.evaluate(
+                spec = spec,
+                request = ToolRequest(
+                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    arguments = mapOf("query" to query),
+                ),
+                context = SafetyContext(userConfirmed = true),
+            )
+
+            assertEquals(query, SafetyOutcome.RequireConfirmation, beforeConfirmation.outcome)
+            assertEquals(query, SafetyOutcome.Allow, afterConfirmation.outcome)
+        }
+    }
+
+    @Test
+    fun sensitiveRemotePromptContentIsDetectedForOutboundGate() {
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("我的手机号是 13800138000，帮我总结"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("please explain my email alex@example.com"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("我的银行卡 6222020202020202020 是否安全"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("my employee id E123456 needs a report"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("我的怀孕检查结果怎么解读"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("nearby therapist near me"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("HIV testing near me"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("pregnancy test near me"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("附近孕检在哪里"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("my bankruptcy lawyer options"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("check " + "sk-" + "1234567890abcdef1234567890abcdef"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("AWS key AKIA1234567890ABCDEF"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("Google key AIzaSyA123456789012345678901234567890123"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("Slack token xoxb-123456789012-abcdefabcdef"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("-----BEGIN PRIVATE KEY-----"))
+        assertTrue(policy.containsSensitivePersonalOrSecretContent("client_secret = superSecret123"))
+    }
+
+    @Test
+    fun isoToolTimeWindowsAreNotTreatedAsPhoneNumbersByOutboundGate() {
+        assertFalse(
+            policy.containsSensitivePersonalOrSecretContent(
+                "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z",
+            ),
+        )
+        assertFalse(
+            policy.containsSensitivePersonalOrSecretContent(
+                "calendar availability 2026-06-01T09:00:00Z to 2026-06-01T10:00:00Z",
+            ),
+        )
+    }
+
+    @Test
+    fun commonNonSensitiveNumberListsDoNotTriggerOutboundConfirmation() {
+        // Space-separated number lists (year comparisons, short groups) and short codes/prices
+        // are common, non-sensitive queries that must not be misread as phone numbers.
+        val nonSensitive = listOf(
+            "2020 2021 2022 销量对比",
+            "compare revenue 2019 2020 2021 2022",
+            "这款手机 1299 元值得买吗",
+            "验证码 123456 多久过期",
+            "比一下 123 456 789 三组数据",
+            "room 101 102 103 availability",
+        )
+        nonSensitive.forEach { query ->
+            assertFalse(query, policy.containsSensitivePersonalOrSecretContent(query))
+        }
+    }
+
+    @Test
+    fun realPhoneNumbersStillTriggerOutboundConfirmation() {
+        // Recall guard: tightening the phone heuristic must not drop genuine phone numbers.
+        val sensitive = listOf(
+            "我的手机号是 13800138000，帮我总结",
+            "电话 010-1234-5678 是谁的",
+            "call +1 415 555 2671 back",
+        )
+        sensitive.forEach { query ->
+            assertTrue(query, policy.containsSensitivePersonalOrSecretContent(query))
         }
     }
 

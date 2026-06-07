@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.memory
 
 import com.bytedance.zgx.pocketmind.ChatMessage
+import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.runtime.LiteRtEmbeddingRuntimeFactory
 import org.junit.Assert.assertEquals
@@ -42,6 +43,60 @@ class MemoryRepositoryTest {
         val hits = repository.search("project codename starboat")
 
         assertTrue(hits.isEmpty())
+    }
+
+    @Test
+    fun rebuildDoesNotIndexLocalOnlyConversationMessages() {
+        val repository = MemoryRepository()
+
+        repository.rebuild(
+            listOf(
+                ChatMessage(
+                    role = MessageRole.User,
+                    text = "私密 OCR 摘录 starboat-secret",
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+                ChatMessage(
+                    role = MessageRole.Assistant,
+                    text = "本地摘要 starboat-summary",
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+                ChatMessage(
+                    role = MessageRole.User,
+                    text = "公开远程问题 Kotlin 协程",
+                    privacy = MessagePrivacy.RemoteEligible,
+                ),
+            ),
+        )
+
+        assertTrue(repository.search("starboat-secret").isEmpty())
+        assertTrue(repository.search("starboat-summary").isEmpty())
+        assertEquals(listOf("公开远程问题 Kotlin 协程"), repository.search("Kotlin 协程").map { it.text.removePrefix("用户：") })
+    }
+
+    @Test
+    fun rebuildDoesNotIndexAssistantConversationMessagesEvenWhenRemoteEligible() {
+        val repository = MemoryRepository()
+
+        repository.rebuild(
+            listOf(
+                ChatMessage(
+                    role = MessageRole.Assistant,
+                    text = "远程助手输出包含 transient-answer-73",
+                    privacy = MessagePrivacy.RemoteEligible,
+                    id = 73L,
+                ),
+                ChatMessage(
+                    role = MessageRole.User,
+                    text = "公开用户问题 edge-memory-recall",
+                    privacy = MessagePrivacy.RemoteEligible,
+                    id = 74L,
+                ),
+            ),
+        )
+
+        assertTrue(repository.search("transient-answer-73").isEmpty())
+        assertEquals(listOf("74"), repository.search("edge-memory-recall").map { it.id })
     }
 
     @Test
