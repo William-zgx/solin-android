@@ -152,21 +152,21 @@ private val PocketMindTypography = Typography(
     ),
     titleLarge = TextStyle(
         fontWeight = FontWeight.SemiBold,
-        fontSize = 24.sp,
-        lineHeight = 30.sp,
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
         letterSpacing = 0.sp,
     ),
     titleMedium = TextStyle(
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 18.sp,
+        fontWeight = FontWeight.Medium,
+        fontSize = 17.sp,
         lineHeight = 24.sp,
         letterSpacing = 0.sp,
     ),
     titleSmall = TextStyle(
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Medium,
         fontSize = 15.sp,
         lineHeight = 21.sp,
-        letterSpacing = 0.sp,
+        letterSpacing = 0.1.sp,
     ),
     bodyLarge = TextStyle(
         fontWeight = FontWeight.Normal,
@@ -207,11 +207,11 @@ private val PocketMindTypography = Typography(
 )
 
 private val PocketMindShapes = Shapes(
-    extraSmall = RoundedCornerShape(3.dp),
-    small = RoundedCornerShape(5.dp),
-    medium = RoundedCornerShape(8.dp),
-    large = RoundedCornerShape(10.dp),
-    extraLarge = RoundedCornerShape(12.dp),
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
 @Composable

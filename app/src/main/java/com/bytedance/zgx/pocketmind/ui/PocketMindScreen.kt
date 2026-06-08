@@ -490,46 +490,17 @@ private fun appendComposerInput(current: String, addition: String): String {
 private fun Modifier.pocketMindTechBackdrop(): Modifier {
     val base = MaterialTheme.colorScheme.background
     val primary = MaterialTheme.colorScheme.primary
-    val secondary = MaterialTheme.colorScheme.secondary
-    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)
     return background(base).drawBehind {
         val maxDimension = size.width.coerceAtLeast(size.height)
+        // A single, soft ambient wash from the top — calm and unobtrusive,
+        // replacing the previous grid + dual-glow "tech" treatment.
         drawRect(
             brush = Brush.radialGradient(
-                colors = listOf(primary.copy(alpha = 0.24f), Color.Transparent),
-                center = Offset(size.width * 0.08f, size.height * 0.05f),
-                radius = maxDimension * 0.78f,
+                colors = listOf(primary.copy(alpha = 0.10f), Color.Transparent),
+                center = Offset(size.width * 0.5f, size.height * -0.05f),
+                radius = maxDimension * 0.9f,
             ),
         )
-        drawRect(
-            brush = Brush.radialGradient(
-                colors = listOf(secondary.copy(alpha = 0.13f), Color.Transparent),
-                center = Offset(size.width * 0.92f, size.height * 0.72f),
-                radius = maxDimension * 0.58f,
-            ),
-        )
-        val gridStep = 32.dp.toPx()
-        val stroke = 0.45.dp.toPx()
-        var x = 0f
-        while (x <= size.width) {
-            drawLine(
-                color = gridColor,
-                start = Offset(x, 0f),
-                end = Offset(x, size.height),
-                strokeWidth = stroke,
-            )
-            x += gridStep
-        }
-        var y = 0f
-        while (y <= size.height) {
-            drawLine(
-                color = gridColor,
-                start = Offset(0f, y),
-                end = Offset(size.width, y),
-                strokeWidth = stroke,
-            )
-            y += gridStep
-        }
     }
 }
 
@@ -542,7 +513,7 @@ private fun ChatTopBar(
     onOpenBackgroundTasks: () -> Unit,
     onCreateSession: () -> Unit,
 ) {
-    val topEdgeColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)
+    val topEdgeColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     val modelStatus = currentModelStatus(state)
     Surface(
         modifier = Modifier
@@ -555,8 +526,7 @@ private fun ChatTopBar(
                     strokeWidth = 1.dp.toPx(),
                 )
             },
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.82f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.44f)),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         shadowElevation = 0.dp,
     ) {
         Column(
@@ -671,23 +641,18 @@ private fun TopActionButton(
 ) {
     IconButton(
         modifier = modifier
-            .size(48.dp)
+            .size(44.dp)
             .clip(MaterialTheme.shapes.medium)
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f),
-                shape = MaterialTheme.shapes.medium,
-            )
             .semantics {
                 contentDescription = label
             },
         onClick = onClick,
         enabled = enabled,
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.68f),
-            contentColor = MaterialTheme.colorScheme.primary,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.36f),
-            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            disabledContainerColor = Color.Transparent,
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f),
         ),
     ) {
         Icon(
@@ -931,7 +896,7 @@ private fun FirstRunSetupPanel(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.9f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f)),
     ) {
@@ -1049,7 +1014,7 @@ private fun QuickModelSetup(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("model_startup_banner"),
-        shape = RoundedCornerShape(8.dp),
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.32f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
     ) {
@@ -4233,9 +4198,9 @@ private fun MessageBubble(
     }
     val alignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
     val shape = if (isUser) {
-        RoundedCornerShape(10.dp, 3.dp, 10.dp, 10.dp)
+        RoundedCornerShape(18.dp, 6.dp, 18.dp, 18.dp)
     } else {
-        RoundedCornerShape(3.dp, 10.dp, 10.dp, 10.dp)
+        RoundedCornerShape(6.dp, 18.dp, 18.dp, 18.dp)
     }
 
     Box(
@@ -4252,10 +4217,10 @@ private fun MessageBubble(
             } else {
                 BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f))
             },
-            shadowElevation = if (isUser) 1.dp else 0.dp,
+            shadowElevation = 0.dp,
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
@@ -4427,7 +4392,7 @@ private fun Composer(
     val voiceEnabled = !state.isBusy && !state.voiceCapture.isActive
     var showVoicePermissionDisclosure by rememberSaveable { mutableStateOf(false) }
     val actionIsStop = state.isGenerating
-    val composerEdge = MaterialTheme.colorScheme.primary.copy(alpha = 0.36f)
+    val composerEdge = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     val hasPendingSharedInput = state.pendingSharedInputDraft != null
     val canSend = inputEnabled && (input.isNotBlank() || hasPendingSharedInput)
     val placeholder = when {
@@ -4443,14 +4408,7 @@ private fun Composer(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.88f),
-                        MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.94f),
-                    ),
-                ),
-            )
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
             .drawBehind {
                 drawLine(
                     color = composerEdge,
@@ -4459,10 +4417,9 @@ private fun Composer(
                     strokeWidth = 1.dp.toPx(),
                 )
             }
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.44f))
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 9.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (state.voiceCapture.isActive) {
             VoiceCaptureBar(
@@ -4781,7 +4738,7 @@ private fun RemoteAttachmentProtectionNotice() {
         modifier = Modifier
             .fillMaxWidth()
             .testTag("remote_attachment_protection_notice"),
-        shape = RoundedCornerShape(8.dp),
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.46f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.32f)),
     ) {
@@ -4847,7 +4804,7 @@ private fun PendingSharedInputStrip(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("pending_shared_input_strip"),
-        shape = RoundedCornerShape(8.dp),
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.58f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.34f)),
     ) {
@@ -4908,7 +4865,7 @@ private fun VoiceCaptureBar(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("voice_capture_bar"),
-        shape = RoundedCornerShape(8.dp),
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.66f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)),
     ) {
