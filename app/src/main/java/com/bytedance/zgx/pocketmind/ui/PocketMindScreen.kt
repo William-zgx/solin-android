@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -202,7 +203,7 @@ fun PocketMindScreen(
     onDismissAgentConfirmation: (PendingAgentConfirmation?) -> Unit,
     onRecordExternalOutcome: (PendingExternalOutcomeConfirmation, AgentExternalOutcome) -> Unit,
     onOpenRecoveryAction: (AgentRecoveryAction) -> Unit,
-    onConfirmRemoteSendDisclosure: () -> Unit,
+    onConfirmRemoteSendDisclosure: (Boolean) -> Unit,
     onDismissRemoteSendDisclosure: () -> Unit,
     onSendMessage: (String) -> Unit,
     onSendPendingSharedInput: (String) -> Unit,
@@ -1204,9 +1205,12 @@ private fun QuickModelSetup(
 @Composable
 private fun RemoteSendDisclosureSheet(
     disclosure: PendingRemoteSendDisclosure,
-    onConfirm: () -> Unit,
+    onConfirm: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // Sensitive/image disclosures are forced and can never be silenced for the session.
+    val canSuppressForSession = !disclosure.forcedBySensitiveOrImage
+    var suppressForSession by rememberSaveable(disclosure) { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1221,11 +1225,32 @@ private fun RemoteSendDisclosureSheet(
             subtitle = "确认后才会把本次内容交给远程模型；API Key 只作为请求凭据使用，不在界面显示。",
         )
         RemoteSendDisclosureRows(disclosure)
+        if (canSuppressForSession) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { suppressForSession = !suppressForSession }
+                    .testTag("remote_send_suppress_session_row"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = suppressForSession,
+                    onCheckedChange = { suppressForSession = it },
+                    modifier = Modifier.testTag("remote_send_suppress_session_checkbox"),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "本次会话不再提示（含敏感内容或图片时仍会提示）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         Button(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("remote_send_confirm_button"),
-            onClick = onConfirm,
+            onClick = { onConfirm(canSuppressForSession && suppressForSession) },
         ) {
             Icon(
                 imageVector = Icons.Filled.Cloud,

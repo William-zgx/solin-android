@@ -154,6 +154,14 @@ class PocketMindViewModel(
     private var nextVoiceInputDraftId = 0L
     private var nextSharedInputDraftId = 0L
     private var pendingRemoteContinuation: PendingRemoteContinuation? = null
+    /**
+     * Session-scoped suppression of the remote-send disclosure sheet. Set when the user picks
+     * "don't ask again this session" on a quiet (non-sensitive, image-free) confirmation. Reset
+     * whenever the trust boundary changes: session switch, inference-mode change, or remote
+     * config change. A sensitive payload or image attachment always re-forces confirmation
+     * regardless of this flag (fail-closed).
+     */
+    private var remoteSendDisclosureSuppressedForSession: Boolean = false
     private var deviceContextAuthorizationSnapshot = DeviceContextAuthorizationSnapshot()
     private val toolRegistry = ToolRegistry()
     private val outboundSafetyPolicy = SafetyPolicy()
@@ -770,6 +778,9 @@ class PocketMindViewModel(
     fun selectInferenceMode(mode: InferenceMode) {
         if (_uiState.value.isBusy || _uiState.value.inferenceMode == mode) return
         pendingRemoteContinuation = null
+        // Trust boundary changed (inference mode switch): a prior session-scoped
+        // "don't ask again" must not silently carry into the new destination.
+        resetRemoteSendDisclosureSuppression()
         remoteModelRepository.saveMode(mode)
         if (mode == InferenceMode.Remote) {
             runtime.close()
@@ -809,6 +820,9 @@ class PocketMindViewModel(
     fun updateRemoteModelConfig(config: RemoteModelConfig) {
         if (_uiState.value.isBusy) return
         pendingRemoteContinuation = null
+        // Trust boundary changed (remote destination/credential): never let a prior
+        // session-scoped "don't ask again" carry over to a new remote endpoint.
+        resetRemoteSendDisclosureSuppression()
         remoteModelRepository.saveConfig(config)
             .fold(
                 onSuccess = { normalized ->
@@ -988,6 +1002,8 @@ class PocketMindViewModel(
     fun createNewSession() {
         if (_uiState.value.isBusy) return
         pendingRemoteContinuation = null
+        // New session is a fresh trust context; drop any session-scoped disclosure suppression.
+        resetRemoteSendDisclosureSuppression()
         val messages = sessionRepository.createNewSession()
         val activeSessionId = sessionRepository.activeSessionId
         val restoreGeneration = nextSessionRestoreGeneration()
@@ -1021,6 +1037,8 @@ class PocketMindViewModel(
     fun selectSession(sessionId: String) {
         if (_uiState.value.isBusy || _uiState.value.activeSessionId == sessionId) return
         pendingRemoteContinuation = null
+        // Switching sessions is a trust-context change; drop session-scoped disclosure suppression.
+        resetRemoteSendDisclosureSuppression()
         val messages = sessionRepository.selectSession(sessionId) ?: return
         val activeSessionId = sessionRepository.activeSessionId
         val restoreGeneration = nextSessionRestoreGeneration()
@@ -1210,8 +1228,8 @@ class PocketMindViewModel(
         if (useRemoteModel &&
             effectiveMessagePrivacy == MessagePrivacy.RemoteEligible &&
             remoteConfig.isConfigured &&
-            requireRemoteSendDisclosure &&
-            !remoteSendConfirmed
+            !remoteSendConfirmed &&
+            shouldRequireRemoteSendDisclosure(hasImageAttachment = imageAttachments.isNotEmpty())
         ) {
             _uiState.update {
                 it.copy(
@@ -1728,8 +1746,13 @@ class PocketMindViewModel(
         }
     }
 
-    fun confirmRemoteSendDisclosure() {
+    fun confirmRemoteSendDisclosure(suppressForSession: Boolean = false) {
         val pending = _uiState.value.pendingRemoteSendDisclosure ?: return
+        // Only honor "don't ask again this session" for non-forced sends. Sensitive/image
+        // disclosures must never be silenced — they re-prompt every time regardless.
+        if (suppressForSession && !pending.forcedBySensitiveOrImage) {
+            remoteSendDisclosureSuppressedForSession = true
+        }
         val continuation = pendingRemoteContinuation
         _uiState.update {
             if (it.pendingRemoteSendDisclosure == pending) {
@@ -2804,8 +2827,8 @@ class PocketMindViewModel(
         if (useRemoteModel &&
             responsePrivacy == MessagePrivacy.RemoteEligible &&
             remoteConfig.isConfigured &&
-            requireRemoteSendDisclosure &&
-            !remoteSendConfirmed
+            !remoteSendConfirmed &&
+            shouldRequireRemoteSendDisclosure(hasImageAttachment = false)
         ) {
             pendingRemoteContinuation = PendingRemoteContinuation(
                 runId = runId,
@@ -3135,6 +3158,50 @@ class PocketMindViewModel(
                 outboundSafetyPolicy.containsSensitivePersonalOrSecretContent(message.text)
             }
 
+    /**
+     * Decides whether the remote-send disclosure sheet must be shown before this send.
+     *
+     * Fail-closed rules, in order:
+     * 1. If disclosure is globally disabled (test/debug), never show.
+     * 2. If the send carries an image attachment, ALWAYS show (force) — image bytes leave the
+     *    device and the policy/suppression never silences this.
+     * 3. Otherwise apply the active [RemoteSendDisclosurePolicy]:
+     *    - [RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage]: text-only sends are silent
+     *      (sensitive payloads are already blocked earlier in [sendMessageInternal], so any
+     *      text reaching here is non-sensitive).
+     *    - [RemoteSendDisclosurePolicy.OncePerSession]: silent once the session has been
+     *      confirmed and suppressed.
+     *    - [RemoteSendDisclosurePolicy.EveryMessage]: always show.
+     */
+    private fun shouldRequireRemoteSendDisclosure(
+        hasImageAttachment: Boolean,
+    ): Boolean {
+        if (!requireRemoteSendDisclosure) return false
+        if (hasImageAttachment) return true
+        return when (_uiState.value.remoteSendDisclosurePolicy) {
+            RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage -> false
+            RemoteSendDisclosurePolicy.OncePerSession ->
+                !remoteSendDisclosureSuppressedForSession
+            RemoteSendDisclosurePolicy.EveryMessage -> true
+        }
+    }
+
+    /**
+     * Resets the session-scoped disclosure suppression. Called whenever the remote trust
+     * boundary changes (session switch, inference-mode change, remote config change) so a
+     * previously granted "don't ask again this session" never silently carries over to a
+     * different destination or context.
+     */
+    private fun resetRemoteSendDisclosureSuppression() {
+        remoteSendDisclosureSuppressedForSession = false
+    }
+
+    /** Updates the remote-send disclosure cadence policy and clears any session suppression. */
+    fun setRemoteSendDisclosurePolicy(policy: RemoteSendDisclosurePolicy) {
+        resetRemoteSendDisclosureSuppression()
+        _uiState.update { it.copy(remoteSendDisclosurePolicy = policy) }
+    }
+
     private fun buildPendingRemoteSendDisclosure(
         kind: RemoteSendDisclosureKind,
         prompt: String,
@@ -3146,6 +3213,7 @@ class PocketMindViewModel(
     ): PendingRemoteSendDisclosure =
         PendingRemoteSendDisclosure(
             kind = kind,
+            forcedBySensitiveOrImage = imageAttachments.isNotEmpty(),
             prompt = prompt,
             messagePrivacy = messagePrivacy,
             remoteHost = remoteConfig.destinationHostLabel(),

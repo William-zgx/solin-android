@@ -186,6 +186,152 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun remoteSendDisclosureOncePerSessionGoesSilentAfterSuppressThenForcesOnImage() =
+        runTest(dispatcher) {
+            val remoteRuntime = RecordingRemoteChatRuntime()
+            val viewModel = createViewModel(
+                remoteRuntime = remoteRuntime,
+                remoteStore = FakeRemoteModelStore(
+                    mode = InferenceMode.Remote,
+                    config = configuredRemoteModel(),
+                ),
+                requireRemoteSendDisclosure = true,
+            )
+            viewModel.restoreStartupState(skipModelRuntimeWork = true)
+            advanceUntilIdle()
+
+            viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.OncePerSession)
+
+            // First text send still requires confirmation.
+            viewModel.sendMessage("第一条远程问题")
+            advanceUntilIdle()
+            val first = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+            assertFalse(first.forcedBySensitiveOrImage)
+            assertTrue(remoteRuntime.calls.isEmpty())
+
+            // Confirm with "don't ask again this session".
+            viewModel.confirmRemoteSendDisclosure(suppressForSession = true)
+            advanceUntilIdle()
+            assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+            assertEquals(1, remoteRuntime.calls.size)
+
+            // Second text send is now silent — no disclosure, goes straight through.
+            viewModel.sendMessage("第二条远程问题")
+            advanceUntilIdle()
+            assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+            assertEquals(2, remoteRuntime.calls.size)
+            assertEquals("第二条远程问题", remoteRuntime.calls.last().prompt)
+
+            // An image send ALWAYS forces disclosure, even when suppressed for the session.
+            viewModel.stageSharedInput(
+                SharedInput(
+                    text = "",
+                    attachments = listOf(
+                        SharedAttachment(
+                            kind = SharedAttachmentKind.Image,
+                            mimeType = "image/png",
+                            displayName = "screen.png",
+                            sizeBytes = 12L,
+                            imageAttachment = ChatImageAttachment(
+                                mimeType = "image/png",
+                                dataUrl = "data:image/png;base64,AA==",
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            advanceUntilIdle()
+            viewModel.sendPendingSharedInput("描述这张图")
+            advanceUntilIdle()
+
+            val forced = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+            assertTrue(forced.forcedBySensitiveOrImage)
+            assertEquals(1, forced.imageAttachmentCount)
+            assertEquals(2, remoteRuntime.calls.size)
+        }
+
+    @Test
+    fun remoteSendDisclosureOnlyWhenSensitiveOrImageSendsTextSilentlyButForcesImage() =
+        runTest(dispatcher) {
+            val remoteRuntime = RecordingRemoteChatRuntime()
+            val viewModel = createViewModel(
+                remoteRuntime = remoteRuntime,
+                remoteStore = FakeRemoteModelStore(
+                    mode = InferenceMode.Remote,
+                    config = configuredRemoteModel(),
+                ),
+                requireRemoteSendDisclosure = true,
+            )
+            viewModel.restoreStartupState(skipModelRuntimeWork = true)
+            advanceUntilIdle()
+
+            viewModel.setRemoteSendDisclosurePolicy(
+                RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage,
+            )
+
+            // Non-sensitive text send goes through silently (no disclosure).
+            viewModel.sendMessage("普通远程问题")
+            advanceUntilIdle()
+            assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+            assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+
+            // An image send still forces disclosure.
+            viewModel.stageSharedInput(
+                SharedInput(
+                    text = "",
+                    attachments = listOf(
+                        SharedAttachment(
+                            kind = SharedAttachmentKind.Image,
+                            mimeType = "image/png",
+                            displayName = "screen.png",
+                            sizeBytes = 12L,
+                            imageAttachment = ChatImageAttachment(
+                                mimeType = "image/png",
+                                dataUrl = "data:image/png;base64,AA==",
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            advanceUntilIdle()
+            viewModel.sendPendingSharedInput("描述这张图")
+            advanceUntilIdle()
+
+            val forced = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+            assertTrue(forced.forcedBySensitiveOrImage)
+            assertEquals(1, remoteRuntime.calls.size)
+        }
+
+    @Test
+    fun setRemoteSendDisclosurePolicyResetsSessionSuppression() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.OncePerSession)
+        viewModel.sendMessage("第一条")
+        advanceUntilIdle()
+        viewModel.confirmRemoteSendDisclosure(suppressForSession = true)
+        advanceUntilIdle()
+        assertEquals(1, remoteRuntime.calls.size)
+
+        // Re-applying the policy clears the session suppression, so the next send re-confirms.
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.OncePerSession)
+        viewModel.sendMessage("第二条")
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.pendingRemoteSendDisclosure != null)
+        assertEquals(1, remoteRuntime.calls.size)
+    }
+
+    @Test
     fun remoteModePlansCalendarAvailabilityLocallyAfterSendDisclosure() = runTest(dispatcher) {
         val traceStore = InMemoryAgentTraceStore()
         val orchestrator = AssistantOrchestrator(

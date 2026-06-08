@@ -183,6 +183,26 @@ enum class RemoteSendDisclosureKind {
     ToolResultContinuation,
 }
 
+/**
+ * Controls how often the remote-send disclosure sheet is shown before sending content to a
+ * remote model.
+ *
+ * - [EveryMessage]: confirm before every remote send (the safe, verbose default).
+ * - [OncePerSession]: confirm once per session; subsequent quiet sends are silent, but a
+ *   sensitive hit or image attachment always re-forces confirmation.
+ * - [OnlyWhenSensitiveOrImage]: stay silent for ordinary text, only confirm when the send
+ *   carries an image attachment or a flagged-sensitive payload.
+ *
+ * Note: regardless of policy, a send that carries an image attachment or is flagged as
+ * sensitive is ALWAYS confirmed (fail-closed). The policy only relaxes the quiet,
+ * text-only path.
+ */
+enum class RemoteSendDisclosurePolicy {
+    EveryMessage,
+    OncePerSession,
+    OnlyWhenSensitiveOrImage,
+}
+
 data class PendingRemoteSendDisclosure(
     val kind: RemoteSendDisclosureKind = RemoteSendDisclosureKind.CurrentInput,
     val prompt: String,
@@ -195,6 +215,12 @@ data class PendingRemoteSendDisclosure(
     val protectedSourceCount: Int,
     val apiKeyConfigured: Boolean,
     val imageAttachments: List<ChatImageAttachment> = emptyList(),
+    /**
+     * True when this confirmation was force-shown despite a relaxed policy because the send
+     * carries an image attachment or sensitive payload. When true the UI must NOT offer the
+     * "don't ask again this session" affordance — these sends always require explicit consent.
+     */
+    val forcedBySensitiveOrImage: Boolean = false,
 )
 
 data class PendingExternalOutcomeConfirmation(
@@ -248,6 +274,8 @@ data class ChatUiState(
     val agentTraceRuns: List<AgentTraceRunUiSummary> = emptyList(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
     val pendingRemoteSendDisclosure: PendingRemoteSendDisclosure? = null,
+    val remoteSendDisclosurePolicy: RemoteSendDisclosurePolicy =
+        RemoteSendDisclosurePolicy.EveryMessage,
     val pendingExternalOutcome: PendingExternalOutcomeConfirmation? = null,
     val latestRecoveryAction: AgentRecoveryAction? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,
