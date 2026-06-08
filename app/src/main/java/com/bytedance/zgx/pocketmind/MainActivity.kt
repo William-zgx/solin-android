@@ -195,6 +195,8 @@ class MainActivity : ComponentActivity() {
                     onRecordExternalOutcome = viewModel::recordExternalOutcome,
                     onOpenRecoveryAction = viewModel::requestRecoveryActionConfirmation,
                     onConfirmRemoteSendDisclosure = viewModel::confirmRemoteSendDisclosure,
+                    onConfirmRemoteSendWithMasking = viewModel::confirmRemoteSendWithMasking,
+                    onConfirmRemoteSendDespiteSensitive = viewModel::confirmRemoteSendDespiteSensitive,
                     onDismissRemoteSendDisclosure = viewModel::dismissRemoteSendDisclosure,
                     onSendMessage = viewModel::sendMessage,
                     onSendPendingSharedInput = viewModel::sendPendingSharedInput,

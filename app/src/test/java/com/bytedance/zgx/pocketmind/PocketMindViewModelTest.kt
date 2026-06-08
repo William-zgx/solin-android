@@ -107,6 +107,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -829,6 +830,9 @@ class PocketMindViewModelTest {
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
 
+        // Tiered handling (P1): a configured-remote sensitive send no longer hard-rejects;
+        // it surfaces a forced disclosure offering graded choices, and never calls the runtime
+        // until the user explicitly chooses.
         listOf(
             "我的手机号是 13800138000，帮我总结一下",
             "AWS key AKIA1234567890ABCDEF 帮我分析",
@@ -839,10 +843,86 @@ class PocketMindViewModelTest {
 
             assertTrue(remoteRuntime.calls.isEmpty())
             assertEquals(0, assistantRouter.routeCallCount)
-            assertEquals("已保护敏感内容", viewModel.uiState.value.statusText)
-            assertTrue(viewModel.uiState.value.messages.last().text.contains("疑似包含个人信息或密钥"))
+            assertEquals("敏感内容待确认", viewModel.uiState.value.statusText)
+            val disclosure = viewModel.uiState.value.pendingRemoteSendDisclosure
+            assertNotNull(disclosure)
+            // Sensitive disclosures are forced (can never be silenced) and offer graded handling.
+            assertTrue(disclosure!!.forcedBySensitiveOrImage)
+            assertTrue(disclosure.allowMaskedSend)
+            assertTrue(disclosure.sensitiveHitCategories.isNotEmpty())
+
+            viewModel.dismissRemoteSendDisclosure()
+            advanceUntilIdle()
         }
-        assertTrue(sessionStore.messages.all { message -> message.privacy == MessagePrivacy.LocalOnly })
+    }
+
+    @Test
+    fun confirmRemoteSendWithMaskingSendsRedactedPromptAndRecordsAudit() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("我的手机号是 13800138000，帮我总结一下")
+        advanceUntilIdle()
+        val disclosure = viewModel.uiState.value.pendingRemoteSendDisclosure
+        assertNotNull(disclosure)
+        assertTrue(disclosure!!.allowMaskedSend)
+
+        viewModel.confirmRemoteSendWithMasking()
+        advanceUntilIdle()
+
+        // The prompt actually sent to the remote runtime is the masked form, not the raw number.
+        assertEquals(1, remoteRuntime.calls.size)
+        val sentPrompt = remoteRuntime.calls.single().prompt
+        assertFalse(sentPrompt.contains("13800138000"))
+        // An audit note recording the masked egress was persisted as LocalOnly.
+        assertTrue(
+            sessionStore.messages.any { message ->
+                message.privacy == MessagePrivacy.LocalOnly && message.text.contains("打码后发送")
+            },
+        )
+    }
+
+    @Test
+    fun confirmRemoteSendDespiteSensitiveSendsRawPromptAndRecordsAudit() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("我的手机号是 13800138000，帮我总结一下")
+        advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+
+        viewModel.confirmRemoteSendDespiteSensitive()
+        advanceUntilIdle()
+
+        // "Send anyway" transmits the original prompt unchanged.
+        assertEquals(1, remoteRuntime.calls.size)
+        assertTrue(remoteRuntime.calls.single().prompt.contains("13800138000"))
+        // The override decision is audited as LocalOnly.
+        assertTrue(
+            sessionStore.messages.any { message ->
+                message.privacy == MessagePrivacy.LocalOnly && message.text.contains("仍原样发送")
+            },
+        )
     }
 
     @Test

@@ -39,6 +39,17 @@ enum class SafetyCategory(val label: String) {
     SensitiveDomain("疑似敏感领域信息"),
 }
 
+/**
+ * Result of [SafetyPolicy.maskSensitiveContent]: the redacted text plus the categories that were
+ * actually masked. [maskedCategories] is empty iff nothing was changed.
+ */
+data class SensitiveMaskResult(
+    val maskedText: String,
+    val maskedCategories: List<SafetyCategory>,
+) {
+    val didMask: Boolean get() = maskedCategories.isNotEmpty()
+}
+
 class SafetyPolicy {
     fun containsSensitivePersonalOrSecretContent(text: String): Boolean =
         text.containsSensitiveNetworkSearchContent()
@@ -73,6 +84,51 @@ class SafetyPolicy {
                 add(SafetyCategory.SensitiveDomain)
             }
         }
+    }
+
+    /**
+     * Masks the sensitive spans detected in [text] so the redacted form can still be sent to a
+     * remote model when the user explicitly chooses "mask & send" (P1 tiered handling). The
+     * masking is deterministic and preserves enough shape for the model to remain useful
+     * (e.g. an email keeps its first char and TLD; a phone keeps its last 4 digits) while no
+     * longer leaking the raw identifier. Returns the masked text together with the categories
+     * that were actually masked, so the disclosure UI / audit log can report what changed.
+     *
+     * Masking is applied highest-entropy-first (private key blocks, then secrets, then
+     * structured PII) so a later pattern never re-matches an already-masked span.
+     */
+    fun maskSensitiveContent(text: String): SensitiveMaskResult {
+        if (text.isBlank()) return SensitiveMaskResult(text, emptyList())
+        val maskedCategories = linkedSetOf<SafetyCategory>()
+        var result = text
+
+        fun maskWith(category: SafetyCategory, pattern: Regex, replacement: (MatchResult) -> String) {
+            if (!pattern.containsMatchIn(result)) return
+            maskedCategories += category
+            result = pattern.replace(result) { match -> replacement(match) }
+        }
+
+        // 1. Whole-block / high-entropy secrets first.
+        maskWith(SafetyCategory.PrivateKey, privateKeyBlockPattern) { "-----BEGIN [REDACTED] PRIVATE KEY-----" }
+        maskWith(SafetyCategory.CloudSecret, cloudSecretPattern) { maskToken(it.value) }
+        maskWith(SafetyCategory.SecretToken, secretTokenPattern) { maskToken(it.value) }
+        maskWith(SafetyCategory.SecretAssignment, secretAssignmentPattern) { match ->
+            // Keep the "label:" / "label=" prefix, redact the value.
+            val raw = match.value
+            val separatorIndex = raw.indexOfFirst { it == ':' || it == '=' }
+            if (separatorIndex < 0) "[REDACTED]" else raw.substring(0, separatorIndex + 1) + " [REDACTED]"
+        }
+
+        // 2. Structured PII.
+        maskWith(SafetyCategory.Email, emailPattern) { maskEmail(it.value) }
+        maskWith(SafetyCategory.ChineseId, chineseIdPattern) { maskTail(it.value, keep = 4) }
+        // Phone: avoid masking ISO date/time windows, mirroring detection.
+        if (phonePattern.containsMatchIn(isoDateOrDateTimePattern.replace(result, " "))) {
+            maskedCategories += SafetyCategory.Phone
+            result = maskPhonesPreservingIsoWindows(result)
+        }
+
+        return SensitiveMaskResult(result, maskedCategories.toList())
     }
 
     fun evaluate(
@@ -142,6 +198,43 @@ class SafetyPolicy {
     }
 
     private companion object {
+        /** Replaces all but the first 2 and last 2 chars of a token with asterisks. */
+        fun maskToken(token: String): String {
+            if (token.length <= 6) return "*".repeat(token.length)
+            return token.take(2) + "*".repeat(token.length - 4) + token.takeLast(2)
+        }
+
+        /** a***@***.com — keeps first local char and the TLD only. */
+        fun maskEmail(email: String): String {
+            val at = email.indexOf('@')
+            if (at <= 0) return "***"
+            val local = email.substring(0, at)
+            val domain = email.substring(at + 1)
+            val tld = domain.substringAfterLast('.', missingDelimiterValue = "")
+            val maskedLocal = local.first() + "***"
+            return if (tld.isNotEmpty()) "$maskedLocal@***.$tld" else "$maskedLocal@***"
+        }
+
+        /** Keeps only the last [keep] characters, masking the rest with asterisks. */
+        fun maskTail(value: String, keep: Int): String {
+            if (value.length <= keep) return "*".repeat(value.length)
+            return "*".repeat(value.length - keep) + value.takeLast(keep)
+        }
+
+        /**
+         * Masks phone-like spans while leaving ISO date/time windows untouched (parity with the
+         * detection path). Keeps the last 4 digits so the model can still disambiguate references.
+         */
+        fun maskPhonesPreservingIsoWindows(text: String): String {
+            val isoSpans = isoDateOrDateTimePattern.findAll(text).map { it.range }.toList()
+            return phonePattern.replace(text) { match ->
+                val inIsoWindow = isoSpans.any { span ->
+                    match.range.first >= span.first && match.range.last <= span.last
+                }
+                if (inIsoWindow) match.value else maskTail(match.value.filter { it.isDigit() || it == '+' }, keep = 4)
+            }
+        }
+
         val confirmationRequiredPermissions = setOf(
             ToolPermission.StartsExternalActivity,
             ToolPermission.SendsTextToExternalApp,

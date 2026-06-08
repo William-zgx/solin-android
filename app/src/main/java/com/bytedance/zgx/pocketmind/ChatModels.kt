@@ -233,6 +233,23 @@ data class PendingRemoteSendDisclosure(
      * flagged" explanation in the disclosure sheet.
      */
     val sensitiveHitCategories: List<String> = emptyList(),
+    /**
+     * True when this disclosure was triggered by a sensitive-content hit and therefore offers
+     * graded handling (mask & send / send anyway) instead of a plain confirm. When false the
+     * sheet shows only the ordinary confirm + cancel actions. Tiered handling (P1) replaces the
+     * old hard-reject of sensitive sends with an explicit, audited user choice.
+     */
+    val allowMaskedSend: Boolean = false,
+    /**
+     * Preview of the prompt after sensitive spans are masked, shown next to the raw preview so
+     * the user can see exactly what "mask & send" will transmit. Empty when [allowMaskedSend]
+     * is false or nothing could be masked.
+     */
+    val maskedPromptPreview: String = "",
+    /**
+     * The prompt actually sent if the user chooses "mask & send". Empty unless [allowMaskedSend].
+     */
+    val maskedPrompt: String = "",
 )
 
 data class PendingExternalOutcomeConfirmation(

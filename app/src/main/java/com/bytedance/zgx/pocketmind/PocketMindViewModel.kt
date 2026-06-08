@@ -1205,8 +1205,38 @@ class PocketMindViewModel(
         }
         if (useRemoteModel &&
             effectiveMessagePrivacy == MessagePrivacy.RemoteEligible &&
+            !remoteSendConfirmed &&
+            remoteConfig.isConfigured &&
             outboundSafetyPolicy.containsSensitivePersonalOrSecretContent(trimmed)
         ) {
+            // Tiered handling (P1): instead of hard-rejecting sensitive content, surface a
+            // forced disclosure that offers graded choices — mask & send, send anyway
+            // (audited), or cancel. This is always force-shown (fail-closed) and can never be
+            // silenced by the session-suppression flag.
+            _uiState.update {
+                it.copy(
+                    pendingRemoteSendDisclosure = buildSensitiveRemoteSendDisclosure(
+                        prompt = trimmed,
+                        messagePrivacy = effectiveMessagePrivacy,
+                        remoteConfig = remoteConfig,
+                        remoteHistory = remoteHistory,
+                        imageAttachments = imageAttachments,
+                        stateBeforeSend = stateBeforeSend,
+                    ),
+                    pendingExternalOutcome = null,
+                    latestRecoveryAction = null,
+                    statusText = "敏感内容待确认",
+                )
+            }
+            return
+        }
+        if (useRemoteModel &&
+            effectiveMessagePrivacy == MessagePrivacy.RemoteEligible &&
+            !remoteConfig.isConfigured &&
+            outboundSafetyPolicy.containsSensitivePersonalOrSecretContent(trimmed)
+        ) {
+            // Remote not configured: keep the original protect-and-explain behavior since there
+            // is no destination to send to anyway.
             val userMessage = ChatMessage(
                 role = MessageRole.User,
                 text = trimmed,
@@ -1781,6 +1811,76 @@ class PocketMindViewModel(
             explicitMessagePrivacy = pending.messagePrivacy,
             imageAttachments = pending.imageAttachments,
             remoteSendConfirmed = true,
+        )
+    }
+
+    /**
+     * "Mask & send": redacts the detected sensitive spans and sends the masked prompt to the
+     * remote model. Records a LocalOnly audit note of what was masked so the egress is traceable.
+     * Only valid for a sensitive disclosure that produced a non-empty masked form.
+     */
+    fun confirmRemoteSendWithMasking() {
+        val pending = _uiState.value.pendingRemoteSendDisclosure ?: return
+        if (!pending.allowMaskedSend || pending.maskedPrompt.isBlank()) return
+        // Masked sends are never applicable to tool-result continuations (no user prompt).
+        if (pendingRemoteContinuation != null) return
+        val maskedCategories = pending.sensitiveHitCategories.joinToString("、")
+        appendRemoteSendAuditNote(
+            "已对疑似敏感内容打码后发送到远程模型" +
+                if (maskedCategories.isNotBlank()) "（$maskedCategories）。" else "。",
+        )
+        _uiState.update {
+            if (it.pendingRemoteSendDisclosure == pending) {
+                it.copy(pendingRemoteSendDisclosure = null, statusText = "处理中")
+            } else {
+                it
+            }
+        }
+        sendMessageInternal(
+            prompt = pending.maskedPrompt,
+            explicitMessagePrivacy = pending.messagePrivacy,
+            imageAttachments = pending.imageAttachments,
+            remoteSendConfirmed = true,
+        )
+    }
+
+    /**
+     * "Send anyway (audited)": sends the raw sensitive prompt unchanged after explicit consent.
+     * Records a LocalOnly audit note flagging the override so the decision is traceable.
+     */
+    fun confirmRemoteSendDespiteSensitive() {
+        val pending = _uiState.value.pendingRemoteSendDisclosure ?: return
+        if (!pending.allowMaskedSend) return
+        if (pendingRemoteContinuation != null) return
+        val hitCategories = pending.sensitiveHitCategories.joinToString("、")
+        appendRemoteSendAuditNote(
+            "用户确认在含疑似敏感内容的情况下仍原样发送到远程模型" +
+                if (hitCategories.isNotBlank()) "（$hitCategories）。" else "。",
+        )
+        _uiState.update {
+            if (it.pendingRemoteSendDisclosure == pending) {
+                it.copy(pendingRemoteSendDisclosure = null, statusText = "处理中")
+            } else {
+                it
+            }
+        }
+        sendMessageInternal(
+            prompt = pending.prompt,
+            explicitMessagePrivacy = pending.messagePrivacy,
+            imageAttachments = pending.imageAttachments,
+            remoteSendConfirmed = true,
+        )
+    }
+
+    /** Appends a LocalOnly assistant note recording a remote-send privacy decision (never sent). */
+    private fun appendRemoteSendAuditNote(note: String) {
+        replaceActiveSessionMessages(
+            _uiState.value.messages + ChatMessage(
+                role = MessageRole.Assistant,
+                text = note,
+                privacy = MessagePrivacy.LocalOnly,
+            ),
+            persistNow = true,
         )
     }
 
@@ -3234,6 +3334,41 @@ class PocketMindViewModel(
                 .detectSensitiveCategories(prompt)
                 .map { it.label },
         )
+
+    /**
+     * Builds a forced disclosure for a sensitive send that offers graded handling (mask & send /
+     * send anyway). Always [forcedBySensitiveOrImage] so it can never be silenced, and carries
+     * the masked preview so the user sees exactly what "mask & send" would transmit.
+     */
+    private fun buildSensitiveRemoteSendDisclosure(
+        prompt: String,
+        messagePrivacy: MessagePrivacy,
+        remoteConfig: RemoteModelConfig,
+        remoteHistory: List<ChatMessage>,
+        imageAttachments: List<ChatImageAttachment>,
+        stateBeforeSend: ChatUiState,
+    ): PendingRemoteSendDisclosure {
+        val base = buildPendingRemoteSendDisclosure(
+            kind = RemoteSendDisclosureKind.CurrentInput,
+            prompt = prompt,
+            messagePrivacy = messagePrivacy,
+            remoteConfig = remoteConfig,
+            remoteHistory = remoteHistory,
+            imageAttachments = imageAttachments,
+            stateBeforeSend = stateBeforeSend,
+        )
+        val maskResult = outboundSafetyPolicy.maskSensitiveContent(prompt)
+        return base.copy(
+            forcedBySensitiveOrImage = true,
+            allowMaskedSend = maskResult.didMask,
+            maskedPrompt = if (maskResult.didMask) maskResult.maskedText else "",
+            maskedPromptPreview = if (maskResult.didMask) {
+                maskResult.maskedText.toRemoteSendPromptPreview()
+            } else {
+                ""
+            },
+        )
+    }
 
     private fun String.toRemoteSendPromptPreview(): String {
         val collapsed = trim().replace(Regex("""\s+"""), " ")

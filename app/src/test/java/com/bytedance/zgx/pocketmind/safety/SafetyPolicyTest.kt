@@ -297,6 +297,42 @@ class SafetyPolicyTest {
         assertTrue(policy.detectSensitiveCategories(benign).isEmpty())
     }
 
+    @Test
+    fun maskSensitiveContentRedactsEmailPhoneAndSecretsButKeepsDidMask() {
+        val result = policy.maskSensitiveContent(
+            "邮箱 a@b.com 手机 13800138000 密钥 AKIA1234567890ABCDEF",
+        )
+        assertTrue(result.didMask)
+        assertFalse(result.maskedText.contains("a@b.com"))
+        assertFalse(result.maskedText.contains("13800138000"))
+        assertFalse(result.maskedText.contains("AKIA1234567890ABCDEF"))
+        assertTrue(result.maskedCategories.isNotEmpty())
+    }
+
+    @Test
+    fun maskSensitiveContentPreservesPhoneTailDigits() {
+        val result = policy.maskSensitiveContent("我的手机号是 13800138000")
+        assertTrue(result.didMask)
+        // The trailing 4 digits are preserved so the user can still recognize the value.
+        assertTrue(result.maskedText.contains("8000"))
+        assertFalse(result.maskedText.contains("13800138000"))
+    }
+
+    @Test
+    fun maskSensitiveContentDoesNotMaskOrdinaryTextOrIsoTimeWindows() {
+        val benign = policy.maskSensitiveContent("会议安排在 2026-06-08T23:30:00 开始")
+        assertFalse(benign.didMask)
+        assertEquals("会议安排在 2026-06-08T23:30:00 开始", benign.maskedText)
+        assertTrue(benign.maskedCategories.isEmpty())
+    }
+
+    @Test
+    fun maskSensitiveContentReturnsBlankInputUnchanged() {
+        val result = policy.maskSensitiveContent("   ")
+        assertFalse(result.didMask)
+        assertTrue(result.maskedCategories.isEmpty())
+    }
+
     private fun toolSpec(
         riskLevel: RiskLevel,
         confirmationPolicy: ConfirmationPolicy,

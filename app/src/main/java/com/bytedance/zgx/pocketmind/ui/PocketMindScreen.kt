@@ -204,6 +204,8 @@ fun PocketMindScreen(
     onRecordExternalOutcome: (PendingExternalOutcomeConfirmation, AgentExternalOutcome) -> Unit,
     onOpenRecoveryAction: (AgentRecoveryAction) -> Unit,
     onConfirmRemoteSendDisclosure: (Boolean) -> Unit,
+    onConfirmRemoteSendWithMasking: () -> Unit,
+    onConfirmRemoteSendDespiteSensitive: () -> Unit,
     onDismissRemoteSendDisclosure: () -> Unit,
     onSendMessage: (String) -> Unit,
     onSendPendingSharedInput: (String) -> Unit,
@@ -447,6 +449,8 @@ fun PocketMindScreen(
                     RemoteSendDisclosureSheet(
                         disclosure = disclosure,
                         onConfirm = onConfirmRemoteSendDisclosure,
+                        onMaskAndSend = onConfirmRemoteSendWithMasking,
+                        onSendAnyway = onConfirmRemoteSendDespiteSensitive,
                         onDismiss = onDismissRemoteSendDisclosure,
                     )
                 }
@@ -1206,6 +1210,8 @@ private fun QuickModelSetup(
 private fun RemoteSendDisclosureSheet(
     disclosure: PendingRemoteSendDisclosure,
     onConfirm: (Boolean) -> Unit,
+    onMaskAndSend: () -> Unit,
+    onSendAnyway: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     // Sensitive/image disclosures are forced and can never be silenced for the session.
@@ -1259,6 +1265,44 @@ private fun RemoteSendDisclosureSheet(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text("确认发送")
+        }
+        if (disclosure.allowMaskedSend) {
+            if (disclosure.maskedPromptPreview.isNotBlank()) {
+                Text(
+                    modifier = Modifier.testTag("remote_send_masked_preview"),
+                    text = "打码后将发送：${disclosure.maskedPromptPreview}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            FilledTonalButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_send_mask_button"),
+                onClick = onMaskAndSend,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Security,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("打码后发送")
+            }
+            OutlinedButton(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_send_anyway_button"),
+                onClick = onSendAnyway,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Cloud,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("仍然发送（已记录）")
+            }
         }
         OutlinedButton(
             modifier = Modifier
