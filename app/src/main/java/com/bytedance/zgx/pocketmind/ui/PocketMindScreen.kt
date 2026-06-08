@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -60,6 +62,8 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
@@ -514,7 +518,7 @@ private fun ChatTopBar(
     onCreateSession: () -> Unit,
 ) {
     val topEdgeColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-    val modelStatus = currentModelStatus(state)
+    var menuExpanded by rememberSaveable { mutableStateOf(false) }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -529,106 +533,187 @@ private fun ChatTopBar(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         shadowElevation = 0.dp,
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
+                .padding(horizontal = 14.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(5.dp)
-                        .height(42.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.colorScheme.secondary,
-                                ),
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(34.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.secondary,
                             ),
                         ),
+                    ),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                Text(
+                    modifier = Modifier.testTag("app_title"),
+                    text = "PocketMind",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(1.dp),
+                Text(
+                    modifier = Modifier.testTag("app_positioning_subtitle"),
+                    text = PRODUCT_POSITIONING_SHORT_TEXT,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            CompactModelStatusChip(
+                modifier = Modifier.widthIn(min = 102.dp, max = 156.dp),
+                state = state,
+                onClick = onOpenModelManager,
+            )
+            TopActionButton(
+                modifier = Modifier.testTag("top_session_button"),
+                icon = Icons.Filled.Hub,
+                label = "会话",
+                onClick = onOpenSessions,
+            )
+            Box {
+                TopActionButton(
+                    modifier = Modifier.testTag("top_more_button"),
+                    icon = Icons.Filled.MoreVert,
+                    label = "更多",
+                    onClick = { menuExpanded = true },
+                )
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
                 ) {
-                    Text(
-                        modifier = Modifier.testTag("app_title"),
-                        text = "PocketMind",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    TopMenuItem(
+                        modifier = Modifier.testTag("top_create_session_button"),
+                        icon = Icons.Filled.Add,
+                        label = "新建会话",
+                        enabled = !state.isBusy,
+                        onClick = {
+                            menuExpanded = false
+                            onCreateSession()
+                        },
                     )
-                    Text(
-                        modifier = Modifier.testTag("app_positioning_subtitle"),
-                        text = PRODUCT_POSITIONING_SHORT_TEXT,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    TopMenuItem(
+                        modifier = Modifier.testTag("top_model_menu_button"),
+                        icon = Icons.Filled.Tune,
+                        label = "模型管理",
+                        onClick = {
+                            menuExpanded = false
+                            onOpenModelManager()
+                        },
+                    )
+                    TopMenuItem(
+                        modifier = Modifier.testTag("top_privacy_button"),
+                        icon = Icons.Filled.Security,
+                        label = "隐私说明",
+                        onClick = {
+                            menuExpanded = false
+                            onOpenPrivacyNotice()
+                        },
+                    )
+                    TopMenuItem(
+                        modifier = Modifier.testTag("top_background_tasks_button"),
+                        icon = Icons.Filled.Notifications,
+                        label = "后台任务",
+                        onClick = {
+                            menuExpanded = false
+                            onOpenBackgroundTasks()
+                        },
                     )
                 }
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TopActionButton(
-                    modifier = Modifier.testTag("top_create_session_button"),
-                    icon = Icons.Filled.Add,
-                    label = "新建会话",
-                    onClick = onCreateSession,
-                    enabled = !state.isBusy,
-                )
-                TopActionButton(
-                    modifier = Modifier.testTag("top_model_button"),
-                    icon = Icons.Filled.Tune,
-                    label = "模型管理",
-                    onClick = onOpenModelManager,
-                )
-                TopActionButton(
-                    modifier = Modifier.testTag("top_privacy_button"),
-                    icon = Icons.Filled.Security,
-                    label = "隐私说明",
-                    onClick = onOpenPrivacyNotice,
-                )
-                TopActionButton(
-                    modifier = Modifier.testTag("top_background_tasks_button"),
-                    icon = Icons.Filled.Notifications,
-                    label = "后台任务",
-                    onClick = onOpenBackgroundTasks,
-                )
-                TopActionButton(
-                    modifier = Modifier.testTag("top_session_button"),
-                    icon = Icons.Filled.Hub,
-                    label = "会话",
-                    onClick = onOpenSessions,
-                )
-            }
-
-            Text(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 13.dp),
-                text = modelStatus,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            RuntimeStatusBadge(state)
         }
     }
+}
+
+@Composable
+private fun CompactModelStatusChip(
+    state: ChatUiState,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val active = state.isReady && !state.isBusy
+    val semanticColors = LocalPocketMindColors.current
+    val container = when {
+        active && state.inferenceMode == InferenceMode.Remote -> semanticColors.remoteContainer
+        active -> semanticColors.localContainer
+        state.isBusy || state.isDownloading -> semanticColors.busyContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val content = when {
+        active && state.inferenceMode == InferenceMode.Remote -> semanticColors.onRemoteContainer
+        active -> semanticColors.onLocalContainer
+        state.isBusy || state.isDownloading -> semanticColors.onBusyContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .testTag("top_model_button")
+            .semantics { contentDescription = "模型管理" },
+        shape = CircleShape,
+        color = container,
+        border = BorderStroke(1.dp, content.copy(alpha = 0.18f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(content),
+            )
+            Text(
+                text = compactModelStatus(state),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = content,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TopMenuItem(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    DropdownMenuItem(
+        modifier = modifier.semantics { contentDescription = label },
+        text = { Text(label) },
+        leadingIcon = {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+            )
+        },
+        enabled = enabled,
+        onClick = onClick,
+    )
 }
 
 @Composable
@@ -641,7 +726,7 @@ private fun TopActionButton(
 ) {
     IconButton(
         modifier = modifier
-            .size(44.dp)
+            .size(40.dp)
             .clip(MaterialTheme.shapes.medium)
             .semantics {
                 contentDescription = label
@@ -3746,6 +3831,24 @@ internal fun currentModelStatus(state: ChatUiState): String {
         "${LocalModelTokenLimits.compactDisplayText(state.localMaxTotalTokens)} · $ready"
 }
 
+private fun compactModelStatus(state: ChatUiState): String {
+    val ready = when {
+        state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
+        state.isBusy -> state.statusText
+        state.isReady -> "可用"
+        state.inferenceMode == InferenceMode.Remote -> "待配置"
+        state.modelPath != null -> "待加载"
+        else -> "待准备"
+    }
+    if (state.inferenceMode == InferenceMode.Remote) {
+        val modelName = state.remoteModelConfig.modelName.ifBlank { "远程模型" }
+        return "$modelName · $ready"
+    }
+    val modelName = state.installedModels.firstOrNull { it.id == state.activeInstalledModelId }?.displayName
+        ?: state.selectedRecommendedModel.shortName
+    return "$modelName · ${state.backend.name} · $ready"
+}
+
 internal fun modelHealthDisplayText(state: ChatUiState): String {
     val health = state.modelHealth
     val parts = mutableListOf("健康：${health.state.label()}")
@@ -4430,11 +4533,11 @@ private fun Composer(
                 onCancel = onCancelVoiceInput,
                 onFinish = onFinishVoiceInput,
             )
+            VoiceInputPrivacyNotice()
         }
         if (state.inferenceMode == InferenceMode.Remote) {
             RemoteAttachmentProtectionNotice()
         }
-        VoiceInputPrivacyNotice()
         state.pendingSharedInputDraft?.let { draft ->
             PendingSharedInputStrip(
                 summary = draft.summary,

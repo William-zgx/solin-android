@@ -30,7 +30,8 @@ MAIN_COPY_TEXT="${MAIN_COPY_TEXT:-隐私优先的随身 AI 助手}"
 FORBIDDEN_FIRST_RUN_TEXT="${FORBIDDEN_FIRST_RUN_TEXT:-离线基础问答可选下载}"
 FIRST_RUN_SKIP_LABEL="${FIRST_RUN_SKIP_LABEL:-先跳过}"
 MODEL_MANAGER_BUTTON_LABEL="${MODEL_MANAGER_BUTTON_LABEL:-模型管理}"
-MODEL_MANAGER_EXPECTED_TEXT="${MODEL_MANAGER_EXPECTED_TEXT:-本地离线可用；远程多模态可选。远程发送和设备动作仍会先确认。}"
+MODEL_MANAGER_EXPECTED_TEXT="${MODEL_MANAGER_EXPECTED_TEXT:-本地可用，可离线使用；远程多模态可选。远程发送和设备动作仍会先确认。}"
+TOP_MORE_BUTTON_LABEL="${TOP_MORE_BUTTON_LABEL:-更多}"
 SELECTED_SERIAL=""
 API_LEVEL=""
 ABI_LIST=""
@@ -42,6 +43,7 @@ STARTED_EMULATOR=0
 FIRST_RUN_SETUP_VISIBLE=""
 FIRST_RUN_SETUP_SKIPPED=""
 MAIN_SHELL_COPY_VISIBLE=""
+TOP_MORE_BUTTON_VISIBLE=""
 MODEL_MANAGER_CLICK_OPENED=""
 
 write_report() {
@@ -69,6 +71,7 @@ write_report() {
     echo "first_run_setup_visible=${FIRST_RUN_SETUP_VISIBLE:-}"
     echo "first_run_setup_skipped=${FIRST_RUN_SETUP_SKIPPED:-}"
     echo "main_shell_copy_visible=${MAIN_SHELL_COPY_VISIBLE:-}"
+    echo "top_more_button_visible=${TOP_MORE_BUTTON_VISIBLE:-}"
     echo "model_manager_click_opened=${MODEL_MANAGER_CLICK_OPENED:-}"
   } > "$REPORT_FILE"
   echo "Fresh start main shell report: $REPORT_FILE"
@@ -290,6 +293,11 @@ if ! grep -Fq "$MAIN_COPY_TEXT" "$WINDOW_DUMP_FILE"; then
   fail ui main-shell-copy-missing "Fresh start UI dump is missing $MAIN_COPY_TEXT."
 fi
 MAIN_SHELL_COPY_VISIBLE="true"
+if ! grep -Fq "$TOP_MORE_BUTTON_LABEL" "$WINDOW_DUMP_FILE"; then
+  TOP_MORE_BUTTON_VISIBLE="false"
+  fail ui top-more-button-missing "Fresh start UI dump is missing the compact top menu button."
+fi
+TOP_MORE_BUTTON_VISIBLE="true"
 
 MODEL_MANAGER_CLICK_OPENED="false"
 tap_clickable_node_by_label "$MODEL_MANAGER_BUTTON_LABEL" "$WINDOW_DUMP_FILE"

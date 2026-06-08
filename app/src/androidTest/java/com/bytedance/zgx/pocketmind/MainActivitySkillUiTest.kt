@@ -71,7 +71,7 @@ class MainActivitySkillUiTest {
         composeRule.onNodeWithTag("action_dismiss_button").performClick()
         composeRule.waitForTagGone("action_confirm_button")
 
-        composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+        composeRule.openTopMenuItem("top_background_tasks_button")
         composeRule.waitForTag("background_task_manager_title")
         composeRule.assertToolCancellationEvidence("read_clipboard")
     }
@@ -94,7 +94,7 @@ class MainActivitySkillUiTest {
         composeRule.onNodeWithTag("action_dismiss_button").performClick()
         composeRule.waitForTagGone("action_confirm_button")
 
-        composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+        composeRule.openTopMenuItem("top_background_tasks_button")
         composeRule.waitForTag("background_task_manager_title")
         composeRule.assertToolCancellationEvidence("read_current_screen_text")
     }
@@ -119,7 +119,7 @@ class MainActivitySkillUiTest {
         composeRule.onNodeWithTag("action_dismiss_button").performClick()
         composeRule.waitForTagGone("action_confirm_button")
 
-        composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+        composeRule.openTopMenuItem("top_background_tasks_button")
         composeRule.waitForTag("background_task_manager_title")
         composeRule.assertToolCancellationEvidence("capture_current_screenshot_ocr")
     }
@@ -150,6 +150,12 @@ class MainActivitySkillUiTest {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    private fun ComposeTestRule.openTopMenuItem(tag: String) {
+        onNodeWithTag("top_more_button").performClick()
+        waitForTag(tag)
+        onNodeWithTag(tag).performClick()
     }
 
     private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {

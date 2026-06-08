@@ -27,9 +27,19 @@ class PocketMindVoiceInputConsentUiTest {
     @Test
     fun voiceButtonRequiresAppConsentBeforeStartingVoiceInput() {
         var startVoiceInputCount = 0
+        var screenState by mutableStateOf(ChatUiState(isReady = true))
 
         setPocketMindScreen(
-            onStartVoiceInput = { startVoiceInputCount += 1 },
+            state = { screenState },
+            onStartVoiceInput = {
+                startVoiceInputCount += 1
+                screenState = screenState.copy(
+                    voiceCapture = VoiceCaptureUiState(
+                        isListening = true,
+                        partialText = "正在听写",
+                    ),
+                )
+            },
         )
 
         composeRule.onNodeWithTag("composer_voice_button").performClick()
@@ -49,6 +59,7 @@ class PocketMindVoiceInputConsentUiTest {
 
         composeRule.waitForTagGone("voice_permission_disclosure_dialog")
         assertEquals(1, startVoiceInputCount)
+        composeRule.onNodeWithTag("voice_capture_bar").assertIsDisplayed()
         composeRule.onNodeWithText(VOICE_INPUT_PRIVACY_DESCRIPTION).assertIsDisplayed()
     }
 

@@ -95,7 +95,7 @@ class MainActivitySmokeTest {
     fun privacyButtonOpensAppPrivacyNotice() {
         composeRule.waitForTag("app_title")
 
-        composeRule.onNodeWithTag("top_privacy_button").performClick()
+        composeRule.openTopMenuItem("top_privacy_button")
         composeRule.waitForTag("model_manager_sheet")
 
         composeRule.onNodeWithText("隐私说明").assertIsDisplayed()
@@ -141,7 +141,7 @@ class MainActivitySmokeTest {
     fun backgroundTaskManagerShowsEmptyState() {
         composeRule.waitForTag("app_title")
 
-        composeRule.onNodeWithTag("top_background_tasks_button").performClick()
+        composeRule.openTopMenuItem("top_background_tasks_button")
         composeRule.waitForTag("background_task_manager_title")
 
         composeRule.onNodeWithText("后台任务").assertIsDisplayed()
@@ -162,5 +162,11 @@ class MainActivitySmokeTest {
         waitUntil(timeoutMillis = 5_000) {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.openTopMenuItem(tag: String) {
+        onNodeWithTag("top_more_button").performClick()
+        waitForTag(tag)
+        onNodeWithTag(tag).performClick()
     }
 }

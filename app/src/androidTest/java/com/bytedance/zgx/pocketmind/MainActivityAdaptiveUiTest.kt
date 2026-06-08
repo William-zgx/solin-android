@@ -69,17 +69,14 @@ class MainActivityAdaptiveUiTest {
         ActivityScenario.launch<MainActivity>(skipStartupIntent(ReadyRemoteModelConfig)).use {
             composeRule.waitForTag("app_title")
 
-            composeRule.assertLabeledAction("top_create_session_button", "新建会话")
             composeRule.assertLabeledAction("top_model_button", "模型管理")
-            composeRule.assertLabeledAction("top_privacy_button", "隐私说明")
-            composeRule.assertLabeledAction("top_background_tasks_button", "后台任务")
             composeRule.assertLabeledAction("top_session_button", "会话")
+            composeRule.assertLabeledAction("top_more_button", "更多")
             composeRule.assertLabeledAction(
                 "composer_attachment_button",
                 "选择附件；远程模式会发送图片，其他附件不读取正文或 OCR",
             )
             composeRule.assertLabeledAction("composer_voice_button", VOICE_INPUT_PRIVACY_DESCRIPTION)
-            composeRule.onNodeWithTag("voice_privacy_notice").assertIsDisplayed()
             composeRule.onNodeWithTag("remote_attachment_protection_notice").assertIsDisplayed()
             composeRule.onNodeWithText(REMOTE_ATTACHMENT_PROTECTION_NOTICE).assertIsDisplayed()
             composeRule.assertLabeledAction("composer_model_button", "模型管理")
@@ -87,6 +84,11 @@ class MainActivityAdaptiveUiTest {
             composeRule.waitForReadyComposer()
             composeRule.onNodeWithTag("composer_input").performTextInput("你好")
             composeRule.assertLabeledAction("composer_send_button", "发送")
+
+            composeRule.onNodeWithTag("top_more_button").performClick()
+            composeRule.assertLabeledAction("top_create_session_button", "新建会话")
+            composeRule.assertLabeledAction("top_privacy_button", "隐私说明")
+            composeRule.assertLabeledAction("top_background_tasks_button", "后台任务")
         }
     }
 
