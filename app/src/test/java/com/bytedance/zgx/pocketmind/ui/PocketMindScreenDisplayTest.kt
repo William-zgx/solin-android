@@ -372,6 +372,74 @@ class PocketMindScreenDisplayTest {
     }
 
     @Test
+    fun remoteSendDisclosureRowsShowPromptPreviewWhenPresent() {
+        val text = remoteSendDisclosureDisplayRows(
+            PendingRemoteSendDisclosure(
+                kind = RemoteSendDisclosureKind.CurrentInput,
+                prompt = "帮我总结这段会议纪要",
+                messagePrivacy = MessagePrivacy.RemoteEligible,
+                remoteHost = "api.example.com",
+                remoteModelName = "model-a",
+                remoteHistoryCount = 0,
+                localOnlyHistoryFilteredCount = 0,
+                imageAttachmentCount = 0,
+                protectedSourceCount = 0,
+                apiKeyConfigured = true,
+                promptPreview = "帮我总结这段会议纪要",
+            ),
+        ).joinToString("\n")
+
+        assertTrue(text.contains("将发送内容预览：帮我总结这段会议纪要"))
+        assertTrue(!text.contains("检测到疑似敏感内容"))
+    }
+
+    @Test
+    fun remoteSendDisclosureRowsExplainSensitiveHitCategories() {
+        val text = remoteSendDisclosureDisplayRows(
+            PendingRemoteSendDisclosure(
+                kind = RemoteSendDisclosureKind.CurrentInput,
+                prompt = "我的手机号是 13800001111",
+                messagePrivacy = MessagePrivacy.RemoteEligible,
+                remoteHost = "api.example.com",
+                remoteModelName = "model-a",
+                remoteHistoryCount = 0,
+                localOnlyHistoryFilteredCount = 0,
+                imageAttachmentCount = 0,
+                protectedSourceCount = 0,
+                apiKeyConfigured = true,
+                forcedBySensitiveOrImage = true,
+                promptPreview = "我的手机号是 13800001111",
+                sensitiveHitCategories = listOf("疑似手机号/电话", "疑似个人身份信息"),
+            ),
+        ).joinToString("\n")
+
+        assertTrue(text.contains("检测到疑似敏感内容"))
+        assertTrue(text.contains("疑似手机号/电话"))
+        assertTrue(text.contains("疑似个人身份信息"))
+    }
+
+    @Test
+    fun remoteSendDisclosureRowsOmitPreviewAndSensitiveRowsWhenAbsent() {
+        val text = remoteSendDisclosureDisplayRows(
+            PendingRemoteSendDisclosure(
+                kind = RemoteSendDisclosureKind.ToolResultContinuation,
+                prompt = "工具续写",
+                messagePrivacy = MessagePrivacy.RemoteEligible,
+                remoteHost = "api.example.com",
+                remoteModelName = "model-a",
+                remoteHistoryCount = 0,
+                localOnlyHistoryFilteredCount = 0,
+                imageAttachmentCount = 0,
+                protectedSourceCount = 0,
+                apiKeyConfigured = true,
+            ),
+        ).joinToString("\n")
+
+        assertTrue(!text.contains("将发送内容预览"))
+        assertTrue(!text.contains("检测到疑似敏感内容"))
+    }
+
+    @Test
     fun modelHealthDisplayShowsStructuredFallbackAndTimingMetrics() {
         val text = modelHealthDisplayText(
             ChatUiState(

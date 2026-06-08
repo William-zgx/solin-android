@@ -221,6 +221,18 @@ data class PendingRemoteSendDisclosure(
      * "don't ask again this session" affordance — these sends always require explicit consent.
      */
     val forcedBySensitiveOrImage: Boolean = false,
+    /**
+     * A truncated preview of the actual prompt text that will be sent to the remote model, so
+     * the user can verify what they are approving (P1 explainability). Empty for tool-result
+     * continuations where there is no user-authored prompt.
+     */
+    val promptPreview: String = "",
+    /**
+     * Human-readable labels of the sensitive categories detected in this send (e.g.
+     * "疑似手机号/电话"). Empty when nothing sensitive was flagged. Drives the "why this was
+     * flagged" explanation in the disclosure sheet.
+     */
+    val sensitiveHitCategories: List<String> = emptyList(),
 )
 
 data class PendingExternalOutcomeConfirmation(

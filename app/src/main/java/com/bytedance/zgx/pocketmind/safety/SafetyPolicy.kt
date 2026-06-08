@@ -22,9 +22,58 @@ enum class SafetyOutcome {
     Reject,
 }
 
+/**
+ * Categories of sensitive content that can be flagged before a remote send. Exposed so the
+ * disclosure UI can explain *why* a payload was flagged (P1 explainability) instead of an
+ * opaque "blocked" state.
+ */
+enum class SafetyCategory(val label: String) {
+    Email("疑似邮箱"),
+    Phone("疑似手机号/电话"),
+    ChineseId("疑似身份证号"),
+    SecretToken("疑似密钥/令牌"),
+    CloudSecret("疑似云厂商密钥"),
+    PrivateKey("疑似私钥"),
+    SecretAssignment("疑似密码/密钥赋值"),
+    PersonalIdentity("疑似个人身份信息"),
+    SensitiveDomain("疑似敏感领域信息"),
+}
+
 class SafetyPolicy {
     fun containsSensitivePersonalOrSecretContent(text: String): Boolean =
         text.containsSensitiveNetworkSearchContent()
+
+    /**
+     * Returns the distinct [SafetyCategory] values matched in [text], in declaration order.
+     * Empty when nothing sensitive is detected. Used by the remote-send disclosure to show the
+     * user which kinds of sensitive content triggered the confirmation.
+     */
+    fun detectSensitiveCategories(text: String): List<SafetyCategory> {
+        if (text.isBlank()) return emptyList()
+        val normalized = text.lowercase()
+        val withoutIsoTimeWindows = isoDateOrDateTimePattern.replace(text, " ")
+        return buildList {
+            if (emailPattern.containsMatchIn(text)) add(SafetyCategory.Email)
+            if (phonePattern.containsMatchIn(withoutIsoTimeWindows)) add(SafetyCategory.Phone)
+            if (chineseIdPattern.containsMatchIn(text)) add(SafetyCategory.ChineseId)
+            if (secretTokenPattern.containsMatchIn(text)) add(SafetyCategory.SecretToken)
+            if (cloudSecretPattern.containsMatchIn(text)) add(SafetyCategory.CloudSecret)
+            if (privateKeyBlockPattern.containsMatchIn(text)) add(SafetyCategory.PrivateKey)
+            if (secretAssignmentPattern.containsMatchIn(text)) add(SafetyCategory.SecretAssignment)
+            if (personalChineseKeywordPattern.containsMatchIn(text) ||
+                personalEnglishKeywordPattern.containsMatchIn(normalized)
+            ) {
+                add(SafetyCategory.PersonalIdentity)
+            }
+            if (sensitiveChineseDomainPattern.containsMatchIn(text) ||
+                sensitiveChineseLocationPattern.containsMatchIn(text) ||
+                sensitiveEnglishDomainPattern.containsMatchIn(normalized) ||
+                sensitiveEnglishLocationPattern.containsMatchIn(normalized)
+            ) {
+                add(SafetyCategory.SensitiveDomain)
+            }
+        }
+    }
 
     fun evaluate(
         spec: ToolSpec,

@@ -108,6 +108,7 @@ private const val STALE_AGENT_RUN_STARTUP_REASON =
 private const val USER_STOPPED_AGENT_RUN_REASON =
     "User stopped this Agent run."
 private const val PUBLIC_EVIDENCE_BATCH_TOOL_NAME = "public_evidence_batch"
+private const val REMOTE_SEND_PROMPT_PREVIEW_MAX_CHARS = 240
 internal const val NO_MODEL_READY_STATUS_TEXT =
     "选择远程模型或下载本地模型后即可开始"
 private val VOICE_WAVEFORM_MULTIPLIERS =
@@ -3228,7 +3229,20 @@ class PocketMindViewModel(
             },
             apiKeyConfigured = remoteConfig.apiKey.isNotBlank(),
             imageAttachments = imageAttachments,
+            promptPreview = prompt.toRemoteSendPromptPreview(),
+            sensitiveHitCategories = outboundSafetyPolicy
+                .detectSensitiveCategories(prompt)
+                .map { it.label },
         )
+
+    private fun String.toRemoteSendPromptPreview(): String {
+        val collapsed = trim().replace(Regex("""\s+"""), " ")
+        return if (collapsed.length <= REMOTE_SEND_PROMPT_PREVIEW_MAX_CHARS) {
+            collapsed
+        } else {
+            collapsed.take(REMOTE_SEND_PROMPT_PREVIEW_MAX_CHARS).trimEnd() + "…"
+        }
+    }
 
     private fun AgentObservationResult?.privacyForObservation(
         fallbackToolName: String? = null,

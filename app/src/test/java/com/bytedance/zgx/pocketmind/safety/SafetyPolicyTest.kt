@@ -266,6 +266,37 @@ class SafetyPolicyTest {
         }
     }
 
+    @Test
+    fun detectSensitiveCategoriesReturnsEmptyForOrdinaryText() {
+        assertTrue(policy.detectSensitiveCategories("今天天气怎么样").isEmpty())
+        assertTrue(policy.detectSensitiveCategories("   ").isEmpty())
+    }
+
+    @Test
+    fun detectSensitiveCategoriesFlagsPhoneAndPersonalIdentity() {
+        val categories = policy.detectSensitiveCategories("我的手机号是 13800001111")
+        assertTrue(categories.contains(SafetyCategory.Phone))
+        assertTrue(categories.contains(SafetyCategory.PersonalIdentity))
+    }
+
+    @Test
+    fun detectSensitiveCategoriesFlagsEmailAndSecret() {
+        val email = policy.detectSensitiveCategories("contact a@b.com please")
+        assertTrue(email.contains(SafetyCategory.Email))
+        val secret = policy.detectSensitiveCategories("password=hunter2abc")
+        assertTrue(secret.contains(SafetyCategory.SecretAssignment))
+    }
+
+    @Test
+    fun detectSensitiveCategoriesAgreesWithBooleanContract() {
+        val sensitive = "我的邮箱是 a@b.com"
+        assertTrue(policy.containsSensitivePersonalOrSecretContent(sensitive))
+        assertTrue(policy.detectSensitiveCategories(sensitive).isNotEmpty())
+        val benign = "推荐几本科幻小说"
+        assertFalse(policy.containsSensitivePersonalOrSecretContent(benign))
+        assertTrue(policy.detectSensitiveCategories(benign).isEmpty())
+    }
+
     private fun toolSpec(
         riskLevel: RiskLevel,
         confirmationPolicy: ConfirmationPolicy,

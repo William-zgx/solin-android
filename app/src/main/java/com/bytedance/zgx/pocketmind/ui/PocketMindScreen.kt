@@ -1322,7 +1322,14 @@ internal fun remoteSendDisclosureDisplayRows(disclosure: PendingRemoteSendDisclo
         "不会发送：LocalOnly 历史 ${disclosure.localOnlyHistoryFilteredCount} 条、本地记忆、设备上下文、非图片附件",
         retentionNotice,
         "凭据状态：${if (disclosure.apiKeyConfigured) "已配置 API Key" else "未配置 API Key"}",
-    )
+    ) + buildList {
+        if (disclosure.promptPreview.isNotBlank()) {
+            add("将发送内容预览：${disclosure.promptPreview}")
+        }
+        if (disclosure.sensitiveHitCategories.isNotEmpty()) {
+            add("⚠ 检测到疑似敏感内容（${disclosure.sensitiveHitCategories.joinToString("、")}）；请确认是否仍要发送")
+        }
+    }
 }
 
 @Composable
