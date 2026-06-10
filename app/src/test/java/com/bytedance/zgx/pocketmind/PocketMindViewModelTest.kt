@@ -73,6 +73,7 @@ import com.bytedance.zgx.pocketmind.orchestration.RemoteToolScope
 import com.bytedance.zgx.pocketmind.orchestration.RunDataDestination
 import com.bytedance.zgx.pocketmind.orchestration.RunDataReceipt
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
+import com.bytedance.zgx.pocketmind.runtime.RemoteModelConnectivityProbe
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
@@ -302,6 +303,77 @@ class PocketMindViewModelTest {
             assertTrue(forced.forcedBySensitiveOrImage)
             assertEquals(1, remoteRuntime.calls.size)
         }
+
+    @Test
+    fun remoteConnectivityPreflightUpdatesConfigStatus() = runTest(dispatcher) {
+        val probe = FakeRemoteModelConnectivityProbe(RemoteModelConnectivityStatus.AuthenticationFailed)
+        val viewModel = createViewModel(
+            remoteConnectivityProbe = probe,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.testRemoteModelConnectivity()
+        advanceUntilIdle()
+
+        assertEquals(RemoteModelConnectivityStatus.AuthenticationFailed, viewModel.uiState.value.remoteModelConfig.connectivityStatus)
+        assertEquals(listOf(configuredRemoteModel()), probe.checkedConfigs)
+        assertTrue(viewModel.uiState.value.statusText.contains("鉴权失败"))
+    }
+
+    @Test
+    fun knownRemoteConnectivityFailureBlocksSendBeforeRuntime() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel().copy(
+                    connectivityStatus = RemoteModelConnectivityStatus.AuthenticationFailed,
+                ),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals("远程连接不可用", viewModel.uiState.value.statusText)
+        val audit = viewModel.uiState.value.remoteSendAuditEvents.single()
+        assertEquals("已拦截，未发送", audit.decisionLabel)
+        assertEquals("model-a", audit.modelName)
+    }
+
+    @Test
+    fun silentRemoteTextSendRecordsAuditEvent() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage)
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+        val audit = viewModel.uiState.value.remoteSendAuditEvents.single()
+        assertEquals("已确认发送", audit.decisionLabel)
+        assertEquals("model-a", audit.modelName)
+    }
 
     @Test
     fun setRemoteSendDisclosurePolicyResetsSessionSuppression() = runTest(dispatcher) {
@@ -7131,6 +7203,7 @@ class PocketMindViewModelTest {
         assistantRouter: AssistantRouter = FakeAssistantRouter(),
         ioDispatcher: CoroutineDispatcher = dispatcher,
         requireRemoteSendDisclosure: Boolean = false,
+        remoteConnectivityProbe: RemoteModelConnectivityProbe = FakeRemoteModelConnectivityProbe(),
         actionExecutor: ToolExecutor = object : ToolExecutor {
             override fun execute(request: ToolRequest): ToolResult =
                 ToolResult(
@@ -7158,6 +7231,7 @@ class PocketMindViewModelTest {
             isArm64DeviceProvider = { true },
             ioDispatcher = ioDispatcher,
             requireRemoteSendDisclosure = requireRemoteSendDisclosure,
+            remoteConnectivityProbe = remoteConnectivityProbe,
         )
 
     private fun assertRemoteProtectedSharedInput(
@@ -7195,6 +7269,17 @@ class PocketMindViewModelTest {
         val tools: List<ToolSpec> = emptyList(),
         val imageAttachments: List<ChatImageAttachment> = emptyList(),
     )
+
+    private class FakeRemoteModelConnectivityProbe(
+        private val status: RemoteModelConnectivityStatus = RemoteModelConnectivityStatus.Reachable,
+    ) : RemoteModelConnectivityProbe {
+        val checkedConfigs = mutableListOf<RemoteModelConfig>()
+
+        override suspend fun check(config: RemoteModelConfig): RemoteModelConnectivityStatus {
+            checkedConfigs += config.normalized()
+            return status
+        }
+    }
 
     private fun agentTraceRunSummary(
         runId: String,

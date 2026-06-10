@@ -10,6 +10,7 @@ import com.bytedance.zgx.pocketmind.ModelHealthState
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.PendingRemoteSendDisclosure
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
+import com.bytedance.zgx.pocketmind.RemoteModelConnectivityStatus
 import com.bytedance.zgx.pocketmind.RemoteSendDisclosureKind
 import com.bytedance.zgx.pocketmind.RunDataReceiptUiSummary
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
@@ -303,6 +304,7 @@ class PocketMindScreenDisplayTest {
                 imageAttachmentCount = 1,
                 protectedSourceCount = 3,
                 apiKeyConfigured = true,
+                connectivityStatus = RemoteModelConnectivityStatus.Reachable,
             ),
         ).joinToString("\n")
 
@@ -317,6 +319,7 @@ class PocketMindScreenDisplayTest {
         assertTrue(text.contains("记录或保留请求"))
         assertTrue(text.contains("图片和响应"))
         assertTrue(text.contains("已配置 API Key"))
+        assertTrue(text.contains("连接状态：可达"))
         assertTrue(!text.contains("不要展示密钥"))
     }
 
@@ -410,12 +413,14 @@ class PocketMindScreenDisplayTest {
                 forcedBySensitiveOrImage = true,
                 promptPreview = "我的手机号是 13800001111",
                 sensitiveHitCategories = listOf("疑似手机号/电话", "疑似个人身份信息"),
+                sensitiveHitSnippets = listOf("13800001111"),
             ),
         ).joinToString("\n")
 
         assertTrue(text.contains("检测到疑似敏感内容"))
         assertTrue(text.contains("疑似手机号/电话"))
         assertTrue(text.contains("疑似个人身份信息"))
+        assertTrue(text.contains("命中片段：13800001111"))
     }
 
     @Test

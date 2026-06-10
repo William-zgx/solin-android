@@ -115,6 +115,18 @@ data class AuditEventSummary(
     val createdAtMillis: Long,
 )
 
+/**
+ * One row of the user-reviewable remote-send (egress) audit list. Carries only redacted,
+ * already-aggregated fields — never raw prompt text — so it is safe to render in the privacy UI.
+ */
+data class RemoteSendAuditSummary(
+    val id: String,
+    val decisionLabel: String,
+    val modelName: String?,
+    val summary: String,
+    val createdAtMillis: Long,
+)
+
 data class AgentTraceStepUiSummary(
     val type: String,
     val summary: String,
@@ -214,6 +226,7 @@ data class PendingRemoteSendDisclosure(
     val imageAttachmentCount: Int,
     val protectedSourceCount: Int,
     val apiKeyConfigured: Boolean,
+    val connectivityStatus: RemoteModelConnectivityStatus = RemoteModelConnectivityStatus.Unknown,
     val imageAttachments: List<ChatImageAttachment> = emptyList(),
     /**
      * True when this confirmation was force-shown despite a relaxed policy because the send
@@ -233,6 +246,7 @@ data class PendingRemoteSendDisclosure(
      * flagged" explanation in the disclosure sheet.
      */
     val sensitiveHitCategories: List<String> = emptyList(),
+    val sensitiveHitSnippets: List<String> = emptyList(),
     /**
      * True when this disclosure was triggered by a sensitive-content hit and therefore offers
      * graded handling (mask & send / send anyway) instead of a plain confirm. When false the
@@ -300,6 +314,7 @@ data class ChatUiState(
     val backgroundTaskHistory: List<BackgroundTaskSummary> = emptyList(),
     val periodicCheckPolicy: PeriodicCheckPolicySummary = PeriodicCheckPolicySummary.disabled(),
     val auditEvents: List<AuditEventSummary> = emptyList(),
+    val remoteSendAuditEvents: List<RemoteSendAuditSummary> = emptyList(),
     val agentTraceRuns: List<AgentTraceRunUiSummary> = emptyList(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
     val pendingRemoteSendDisclosure: PendingRemoteSendDisclosure? = null,

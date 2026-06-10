@@ -86,6 +86,40 @@ class SafetyPolicy {
         }
     }
 
+    fun detectSensitiveSnippets(text: String, maxSnippets: Int = 4): List<String> {
+        if (text.isBlank() || maxSnippets <= 0) return emptyList()
+        val snippets = linkedSetOf<String>()
+        val isoSpans = isoDateOrDateTimePattern.findAll(text).map { it.range }.toList()
+
+        fun addMatches(pattern: Regex) {
+            pattern.findAll(text).forEach { match ->
+                if (snippets.size >= maxSnippets) return
+                snippets += match.value.toDisclosureSnippet()
+            }
+        }
+
+        addMatches(emailPattern)
+        phonePattern.findAll(text).forEach { match ->
+            if (snippets.size >= maxSnippets) return@forEach
+            val inIsoWindow = isoSpans.any { span ->
+                match.range.first >= span.first && match.range.last <= span.last
+            }
+            if (!inIsoWindow) snippets += match.value.toDisclosureSnippet()
+        }
+        addMatches(chineseIdPattern)
+        addMatches(secretTokenPattern)
+        addMatches(cloudSecretPattern)
+        addMatches(privateKeyBlockPattern)
+        addMatches(secretAssignmentPattern)
+        addMatches(personalChineseKeywordPattern)
+        addMatches(personalEnglishKeywordPattern)
+        addMatches(sensitiveChineseDomainPattern)
+        addMatches(sensitiveChineseLocationPattern)
+        addMatches(sensitiveEnglishDomainPattern)
+        addMatches(sensitiveEnglishLocationPattern)
+        return snippets.take(maxSnippets)
+    }
+
     /**
      * Masks the sensitive spans detected in [text] so the redacted form can still be sent to a
      * remote model when the user explicitly chooses "mask & send" (P1 tiered handling). The
@@ -235,6 +269,15 @@ class SafetyPolicy {
             }
         }
 
+        fun String.toDisclosureSnippet(maxLength: Int = 80): String {
+            val collapsed = trim().replace(Regex("""\s+"""), " ")
+            return if (collapsed.length <= maxLength) {
+                collapsed
+            } else {
+                collapsed.take(maxLength).trimEnd() + "…"
+            }
+        }
+
         val confirmationRequiredPermissions = setOf(
             ToolPermission.StartsExternalActivity,
             ToolPermission.SendsTextToExternalApp,
@@ -254,11 +297,13 @@ class SafetyPolicy {
             """\b\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?\b""",
         )
         // Tightened to reduce false positives on space-separated number lists (e.g. "2020 2021
-        // 2022" year comparisons) and short ids, while keeping recall on real phone numbers and
-        // long sensitive identifiers. Matches: international "+" prefixed numbers, CN mobile,
-        // grouped phone numbers (NNN-NNN(N)-NNNN), or a contiguous run of >=9 digits.
+        // 2022" year comparisons) and medium-length ids (e.g. 9-10 digit order/tracking numbers),
+        // while keeping recall on real phone numbers and long sensitive identifiers. Matches:
+        // international "+" prefixed numbers, CN mobile, grouped phone numbers (NNN-NNN(N)-NNNN),
+        // or a contiguous run of >=11 digits (covers phone-length and longer card/account ids,
+        // but no longer mis-flags 9-10 digit order numbers).
         val phonePattern = Regex(
-            """(?<!\d)(?:\+\d[\d -]{6,}\d|1[3-9]\d{9}|\d{3}[- ]\d{3,4}[- ]\d{4}|\d{9,})(?!\d)""",
+            """(?<!\d)(?:\+\d[\d -]{6,}\d|1[3-9]\d{9}|\d{3}[- ]\d{3,4}[- ]\d{4}|\d{11,})(?!\d)""",
         )
         val chineseIdPattern = Regex("""(?<!\d)\d{17}[0-9Xx](?!\d)""")
         val secretTokenPattern = Regex("""\b(?:sk-[A-Za-z0-9_-]{16,}|[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})\b""")

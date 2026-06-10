@@ -9,6 +9,11 @@ import androidx.lifecycle.viewModelScope
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionExecutor
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.audit.RemoteSendAuditFactory
+import com.bytedance.zgx.pocketmind.audit.RemoteSendAuditLog
+import com.bytedance.zgx.pocketmind.audit.RemoteSendAuditSink
+import com.bytedance.zgx.pocketmind.audit.RemoteSendDecision
+import com.bytedance.zgx.pocketmind.audit.InMemoryRemoteSendAuditStore
 import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
@@ -66,8 +71,10 @@ import com.bytedance.zgx.pocketmind.orchestration.RemoteToolScope
 import com.bytedance.zgx.pocketmind.orchestration.RunDataDestination
 import com.bytedance.zgx.pocketmind.orchestration.RunDataReceipt
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
+import com.bytedance.zgx.pocketmind.runtime.OkHttpRemoteModelConnectivityProbe
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
+import com.bytedance.zgx.pocketmind.runtime.RemoteModelConnectivityProbe
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.safety.SafetyPolicy
 import com.bytedance.zgx.pocketmind.tool.TimeoutToolExecutionBoundary
@@ -141,6 +148,11 @@ class PocketMindViewModel(
     private val isArm64DeviceProvider: () -> Boolean,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val requireRemoteSendDisclosure: Boolean = true,
+    private val remoteConnectivityProbe: RemoteModelConnectivityProbe =
+        OkHttpRemoteModelConnectivityProbe(ioDispatcher = ioDispatcher),
+    remoteSendAuditStore: InMemoryRemoteSendAuditStore = InMemoryRemoteSendAuditStore(),
+    private val remoteSendAuditSink: RemoteSendAuditSink = remoteSendAuditStore,
+    private val remoteSendAuditLog: RemoteSendAuditLog = remoteSendAuditStore,
 ) : ViewModel() {
     private val runtimeLock = Mutex()
     private var generationJob: Job? = null
@@ -155,6 +167,7 @@ class PocketMindViewModel(
     private var nextVoiceInputDraftId = 0L
     private var nextSharedInputDraftId = 0L
     private var pendingRemoteContinuation: PendingRemoteContinuation? = null
+    private var remoteConnectivityProbeJob: Job? = null
     /**
      * Session-scoped suppression of the remote-send disclosure sheet. Set when the user picks
      * "don't ask again this session" on a quiet (non-sensitive, image-free) confirmation. Reset
@@ -821,10 +834,20 @@ class PocketMindViewModel(
     fun updateRemoteModelConfig(config: RemoteModelConfig) {
         if (_uiState.value.isBusy) return
         pendingRemoteContinuation = null
+        remoteConnectivityProbeJob?.cancel()
         // Trust boundary changed (remote destination/credential): never let a prior
         // session-scoped "don't ask again" carry over to a new remote endpoint.
         resetRemoteSendDisclosureSuppression()
-        remoteModelRepository.saveConfig(config)
+        val previousConfig = _uiState.value.remoteModelConfig
+        val requestedConfig = config.normalized()
+        val configToSave = requestedConfig.copy(
+            connectivityStatus = if (requestedConfig.hasSameConnectivityTarget(previousConfig)) {
+                requestedConfig.connectivityStatus
+            } else {
+                RemoteModelConnectivityStatus.Unknown
+            },
+        )
+        remoteModelRepository.saveConfig(configToSave)
             .fold(
                 onSuccess = { normalized ->
                     _uiState.update {
@@ -847,6 +870,50 @@ class PocketMindViewModel(
                     }
                 },
             )
+    }
+
+    fun testRemoteModelConnectivity() {
+        if (_uiState.value.isBusy) return
+        val config = _uiState.value.remoteModelConfig.normalized()
+        if (!config.isConfigured) {
+            _uiState.update {
+                it.copy(
+                    remoteModelConfig = config.copy(connectivityStatus = RemoteModelConnectivityStatus.Unknown),
+                    statusText = "请先填写有效远程配置",
+                )
+            }
+            return
+        }
+        remoteConnectivityProbeJob?.cancel()
+        val checkingConfig = config.copy(connectivityStatus = RemoteModelConnectivityStatus.Checking)
+        _uiState.update {
+            it.copy(
+                remoteModelConfig = checkingConfig,
+                statusText = "正在测试远程连接",
+            )
+        }
+        remoteConnectivityProbeJob = viewModelScope.launch(ioDispatcher) {
+            val status = remoteConnectivityProbe.check(config)
+            val currentConfig = _uiState.value.remoteModelConfig
+            if (!currentConfig.hasSameConnectivityTarget(config)) return@launch
+            val updatedConfig = currentConfig.copy(connectivityStatus = status)
+            remoteModelRepository.saveConfig(updatedConfig)
+                .fold(
+                    onSuccess = { normalized ->
+                        _uiState.update {
+                            it.copy(
+                                remoteModelConfig = normalized,
+                                statusText = "远程连接${status.label}",
+                            )
+                        }
+                    },
+                    onFailure = { throwable ->
+                        _uiState.update {
+                            it.copy(statusText = "远程连接状态保存失败：${throwable.cleanMessage()}")
+                        }
+                    },
+                )
+        }
     }
 
     fun selectRecommendedModel(modelId: String) {
@@ -1205,6 +1272,38 @@ class PocketMindViewModel(
         }
         if (useRemoteModel &&
             effectiveMessagePrivacy == MessagePrivacy.RemoteEligible &&
+            remoteConfig.isConfigured &&
+            remoteConfig.hasKnownConnectivityFailure
+        ) {
+            val userMessage = ChatMessage(
+                role = MessageRole.User,
+                text = trimmed,
+                privacy = MessagePrivacy.RemoteEligible,
+            )
+            recordRemoteSendAuditEvent(
+                decision = RemoteSendDecision.Blocked,
+                modelName = remoteConfig.normalized().modelName,
+                prompt = trimmed,
+                imageCount = imageAttachments.size,
+                remoteHistoryCount = remoteHistory.size,
+            )
+            replaceActiveSessionMessages(
+                stateBeforeSend.messages + userMessage + ChatMessage(
+                    role = MessageRole.Assistant,
+                    text = "远程连接状态为${remoteConfig.connectivityStatus.label}，本次没有发送。请在模型管理中测试连接或更新远程配置。",
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+                persistNow = true,
+            )
+            persistExplicitPreferenceMemory(userMessage)
+            rebuildMemoryIndex()
+            _uiState.update {
+                it.copy(statusText = "远程连接不可用")
+            }
+            return
+        }
+        if (useRemoteModel &&
+            effectiveMessagePrivacy == MessagePrivacy.RemoteEligible &&
             !remoteSendConfirmed &&
             remoteConfig.isConfigured &&
             outboundSafetyPolicy.containsSensitivePersonalOrSecretContent(trimmed)
@@ -1527,6 +1626,13 @@ class PocketMindViewModel(
                                 activeModelRunId?.let { runId ->
                                     assistantOrchestrator.failModelGeneration(runId, boundaryFailure)
                                 }
+                                recordRemoteSendAuditEvent(
+                                    decision = RemoteSendDecision.Blocked,
+                                    modelName = remoteConfig.normalized().modelName,
+                                    prompt = route.promptForModel,
+                                    imageCount = imageAttachments.size,
+                                    remoteHistoryCount = remoteHistory.size,
+                                )
                                 _uiState.updateLastAssistantLocalOnly(boundaryFailure)
                                 persistActiveSessionFromUi()
                                 _uiState.update {
@@ -1553,6 +1659,15 @@ class PocketMindViewModel(
                                     runId = runId,
                                     scope = agentRunOptions.remoteToolScope,
                                     toolNames = remoteTools.mapTo(linkedSetOf()) { tool -> tool.name },
+                                )
+                            }
+                            if (!remoteSendConfirmed) {
+                                recordRemoteSendAuditEvent(
+                                    decision = RemoteSendDecision.Confirmed,
+                                    modelName = remoteConfig.normalized().modelName,
+                                    prompt = route.promptForModel,
+                                    imageCount = imageAttachments.size,
+                                    remoteHistoryCount = remoteHistory.size,
                                 )
                             }
                             remoteRuntime.sendWithTools(
@@ -1784,6 +1899,7 @@ class PocketMindViewModel(
         if (suppressForSession && !pending.forcedBySensitiveOrImage) {
             remoteSendDisclosureSuppressedForSession = true
         }
+        recordRemoteSendDecision(RemoteSendDecision.Confirmed, pending)
         val continuation = pendingRemoteContinuation
         _uiState.update {
             if (it.pendingRemoteSendDisclosure == pending) {
@@ -1829,6 +1945,7 @@ class PocketMindViewModel(
             "已对疑似敏感内容打码后发送到远程模型" +
                 if (maskedCategories.isNotBlank()) "（$maskedCategories）。" else "。",
         )
+        recordRemoteSendDecision(RemoteSendDecision.MaskedSend, pending)
         _uiState.update {
             if (it.pendingRemoteSendDisclosure == pending) {
                 it.copy(pendingRemoteSendDisclosure = null, statusText = "处理中")
@@ -1857,6 +1974,7 @@ class PocketMindViewModel(
             "用户确认在含疑似敏感内容的情况下仍原样发送到远程模型" +
                 if (hitCategories.isNotBlank()) "（$hitCategories）。" else "。",
         )
+        recordRemoteSendDecision(RemoteSendDecision.SentAnyway, pending)
         _uiState.update {
             if (it.pendingRemoteSendDisclosure == pending) {
                 it.copy(pendingRemoteSendDisclosure = null, statusText = "处理中")
@@ -1884,7 +2002,64 @@ class PocketMindViewModel(
         )
     }
 
+    /**
+     * Records a structured, redacted egress event for a remote-send [decision] derived from the
+     * [pending] disclosure. Feeds the user-reviewable "远程发送记录" list (P2 egress audit). Pure
+     * counts/categories only — no raw prompt text is ever written to the audit store.
+     */
+    private fun recordRemoteSendDecision(
+        decision: RemoteSendDecision,
+        pending: PendingRemoteSendDisclosure,
+    ) {
+        recordRemoteSendAuditEvent(
+            decision = decision,
+            modelName = pending.remoteModelName,
+            prompt = pending.prompt,
+            imageCount = pending.imageAttachmentCount,
+            remoteHistoryCount = pending.remoteHistoryCount,
+        )
+    }
+
+    private fun recordRemoteSendAuditEvent(
+        decision: RemoteSendDecision,
+        modelName: String?,
+        prompt: String,
+        imageCount: Int,
+        remoteHistoryCount: Int,
+    ) {
+        remoteSendAuditSink.record(
+            RemoteSendAuditFactory.build(
+                decision = decision,
+                modelName = modelName,
+                sensitiveCategories = outboundSafetyPolicy.detectSensitiveCategories(prompt),
+                imageCount = imageCount,
+                remoteHistoryCount = remoteHistoryCount,
+            ),
+        )
+        _uiState.update { it.copy(remoteSendAuditEvents = loadRemoteSendAuditEvents()) }
+    }
+
+    /** Read-only egress audit view surfaced to the privacy/settings UI (most-recent-first). */
+    private fun loadRemoteSendAuditEvents(): List<RemoteSendAuditSummary> =
+        remoteSendAuditLog.recentRemoteSends().map { event ->
+            RemoteSendAuditSummary(
+                id = event.id,
+                decisionLabel = event.decision.label,
+                modelName = event.modelName,
+                summary = event.summary,
+                createdAtMillis = event.createdAtMillis,
+            )
+        }
+
+    /** Refreshes the egress audit list in UI state. Call when the privacy/egress panel opens. */
+    fun refreshRemoteSendAuditEvents() {
+        _uiState.update { it.copy(remoteSendAuditEvents = loadRemoteSendAuditEvents()) }
+    }
+
     fun dismissRemoteSendDisclosure() {
+        _uiState.value.pendingRemoteSendDisclosure?.let { pending ->
+            recordRemoteSendDecision(RemoteSendDecision.Cancelled, pending)
+        }
         val continuation = pendingRemoteContinuation
         pendingRemoteContinuation = null
         if (continuation != null) {
@@ -2928,6 +3103,38 @@ class PocketMindViewModel(
         if (useRemoteModel &&
             responsePrivacy == MessagePrivacy.RemoteEligible &&
             remoteConfig.isConfigured &&
+            remoteConfig.hasKnownConnectivityFailure
+        ) {
+            runId?.let { id ->
+                assistantOrchestrator.failModelGeneration(id, "远程连接状态为${remoteConfig.connectivityStatus.label}")
+            }
+            recordRemoteSendAuditEvent(
+                decision = RemoteSendDecision.Blocked,
+                modelName = remoteConfig.normalized().modelName,
+                prompt = promptForModel,
+                imageCount = 0,
+                remoteHistoryCount = remoteHistory.size,
+            )
+            _uiState.updateLastAssistantLocalOnly(
+                "远程连接状态为${remoteConfig.connectivityStatus.label}，工具结果续写没有发送。请在模型管理中测试连接或更新远程配置。",
+            )
+            persistActiveSessionFromUi()
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    isGenerating = false,
+                    isReady = true,
+                    pendingConfirmation = null,
+                    pendingRemoteSendDisclosure = null,
+                    agentTraceRuns = loadAgentTraceRuns(),
+                    statusText = "远程连接不可用",
+                )
+            }
+            return
+        }
+        if (useRemoteModel &&
+            responsePrivacy == MessagePrivacy.RemoteEligible &&
+            remoteConfig.isConfigured &&
             !remoteSendConfirmed &&
             shouldRequireRemoteSendDisclosure(hasImageAttachment = false)
         ) {
@@ -3049,6 +3256,15 @@ class PocketMindViewModel(
                                 ),
                                 deletableRecordTypes = listOf("对话消息", "Agent 轨迹"),
                             ),
+                        )
+                    }
+                    if (!remoteSendConfirmed) {
+                        recordRemoteSendAuditEvent(
+                            decision = RemoteSendDecision.Confirmed,
+                            modelName = remoteConfig.normalized().modelName,
+                            prompt = promptForModel,
+                            imageCount = 0,
+                            remoteHistoryCount = remoteHistory.size,
                         )
                     }
                     remoteRuntime.sendWithTools(
@@ -3328,11 +3544,13 @@ class PocketMindViewModel(
                 message.privacy == MessagePrivacy.LocalOnly
             },
             apiKeyConfigured = remoteConfig.apiKey.isNotBlank(),
+            connectivityStatus = remoteConfig.connectivityStatus,
             imageAttachments = imageAttachments,
             promptPreview = prompt.toRemoteSendPromptPreview(),
             sensitiveHitCategories = outboundSafetyPolicy
                 .detectSensitiveCategories(prompt)
                 .map { it.label },
+            sensitiveHitSnippets = outboundSafetyPolicy.detectSensitiveSnippets(prompt),
         )
 
     /**
@@ -3878,6 +4096,7 @@ class PocketMindViewModel(
             backgroundTaskHistory = loadBackgroundTaskHistory(),
             periodicCheckPolicy = loadPeriodicCheckPolicy(),
             auditEvents = loadAuditEvents(),
+            remoteSendAuditEvents = loadRemoteSendAuditEvents(),
             agentTraceRuns = loadAgentTraceRuns(),
             generationParameters = generationParametersRepository.load(),
             sessions = sessionRepository.summaries(),
@@ -4833,6 +5052,14 @@ private fun RemoteModelConfig.destinationHostLabel(): String {
         ?: normalized.baseUrl.ifBlank { "未配置" }
     val port = uri?.port?.takeIf { it >= 0 }?.let { ":$it" }.orEmpty()
     return "$host$port"
+}
+
+private fun RemoteModelConfig.hasSameConnectivityTarget(other: RemoteModelConfig): Boolean {
+    val left = normalized()
+    val right = other.normalized()
+    return left.baseUrl == right.baseUrl &&
+        left.modelName == right.modelName &&
+        left.apiKey == right.apiKey
 }
 
 private fun ModelSelectionState.modelHealthForCurrentSelection(backend: BackendChoice): ModelHealth {

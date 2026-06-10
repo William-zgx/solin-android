@@ -135,7 +135,10 @@ import com.bytedance.zgx.pocketmind.PendingExternalOutcomeConfirmation
 import com.bytedance.zgx.pocketmind.PendingRemoteSendDisclosure
 import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
+import com.bytedance.zgx.pocketmind.RemoteModelConnectivityStatus
+import com.bytedance.zgx.pocketmind.RemoteSendAuditSummary
 import com.bytedance.zgx.pocketmind.RemoteSendDisclosureKind
+import com.bytedance.zgx.pocketmind.RemoteSendDisclosurePolicy
 import com.bytedance.zgx.pocketmind.RunDataReceiptUiSummary
 import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.SpecialAccessRequirement
@@ -180,6 +183,7 @@ fun PocketMindScreen(
     onInstalledModelSelected: (String) -> Unit,
     onInferenceModeSelected: (InferenceMode) -> Unit,
     onRemoteModelConfigChanged: (RemoteModelConfig) -> Unit,
+    onTestRemoteModelConnectivity: () -> Unit,
     onBackendSelected: (BackendChoice) -> Unit,
     onGenerationParametersChanged: (GenerationParameters) -> Unit,
     onResetGenerationParameters: () -> Unit,
@@ -207,6 +211,7 @@ fun PocketMindScreen(
     onConfirmRemoteSendWithMasking: () -> Unit,
     onConfirmRemoteSendDespiteSensitive: () -> Unit,
     onDismissRemoteSendDisclosure: () -> Unit,
+    onRemoteSendDisclosurePolicySelected: (RemoteSendDisclosurePolicy) -> Unit,
     onSendMessage: (String) -> Unit,
     onSendPendingSharedInput: (String) -> Unit,
     onClearPendingSharedInput: (Long) -> Unit,
@@ -392,12 +397,14 @@ fun PocketMindScreen(
                         onInstalledModelSelected = onInstalledModelSelected,
                         onInferenceModeSelected = onInferenceModeSelected,
                         onRemoteModelConfigChanged = onRemoteModelConfigChanged,
+                        onTestRemoteModelConnectivity = onTestRemoteModelConnectivity,
                         onBackendSelected = onBackendSelected,
                         onGenerationParametersChanged = onGenerationParametersChanged,
                         onResetGenerationParameters = onResetGenerationParameters,
                         onMemoryEnabledChanged = onMemoryEnabledChanged,
                         onForgetLongTermMemory = onForgetLongTermMemory,
                         onClearLongTermMemory = onClearLongTermMemory,
+                        onRemoteSendDisclosurePolicySelected = onRemoteSendDisclosurePolicySelected,
                         onOpenModelPage = onOpenModelPage,
                         onDismiss = { showModelManager = false },
                     )
@@ -1366,12 +1373,16 @@ internal fun remoteSendDisclosureDisplayRows(disclosure: PendingRemoteSendDisclo
         "不会发送：LocalOnly 历史 ${disclosure.localOnlyHistoryFilteredCount} 条、本地记忆、设备上下文、非图片附件",
         retentionNotice,
         "凭据状态：${if (disclosure.apiKeyConfigured) "已配置 API Key" else "未配置 API Key"}",
+        "连接状态：${disclosure.connectivityStatus.label}",
     ) + buildList {
         if (disclosure.promptPreview.isNotBlank()) {
             add("将发送内容预览：${disclosure.promptPreview}")
         }
         if (disclosure.sensitiveHitCategories.isNotEmpty()) {
             add("⚠ 检测到疑似敏感内容（${disclosure.sensitiveHitCategories.joinToString("、")}）；请确认是否仍要发送")
+        }
+        if (disclosure.sensitiveHitSnippets.isNotEmpty()) {
+            add("命中片段：${disclosure.sensitiveHitSnippets.joinToString("、")}")
         }
     }
 }
@@ -1718,12 +1729,14 @@ private fun ModelManagerSheet(
     onInstalledModelSelected: (String) -> Unit,
     onInferenceModeSelected: (InferenceMode) -> Unit,
     onRemoteModelConfigChanged: (RemoteModelConfig) -> Unit,
+    onTestRemoteModelConnectivity: () -> Unit,
     onBackendSelected: (BackendChoice) -> Unit,
     onGenerationParametersChanged: (GenerationParameters) -> Unit,
     onResetGenerationParameters: () -> Unit,
     onMemoryEnabledChanged: (Boolean) -> Unit,
     onForgetLongTermMemory: (String) -> Unit,
     onClearLongTermMemory: () -> Unit,
+    onRemoteSendDisclosurePolicySelected: (RemoteSendDisclosurePolicy) -> Unit,
     onOpenModelPage: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1815,6 +1828,7 @@ private fun ModelManagerSheet(
                 state = state,
                 onInferenceModeSelected = onInferenceModeSelected,
                 onRemoteModelConfigChanged = onRemoteModelConfigChanged,
+                onTestRemoteModelConnectivity = onTestRemoteModelConnectivity,
             )
 
             3 -> AdvancedModelPanel(
@@ -1826,7 +1840,10 @@ private fun ModelManagerSheet(
                 onClearLongTermMemory = onClearLongTermMemory,
             )
 
-            else -> TrustBoundaryPanel(state = state)
+            else -> TrustBoundaryPanel(
+                state = state,
+                onRemoteSendDisclosurePolicySelected = onRemoteSendDisclosurePolicySelected,
+            )
         }
 
         if (state.isDownloading || state.downloadProgressPercent != null || state.totalBytes > 0L) {
@@ -2222,6 +2239,7 @@ private fun RemoteModelPanel(
     state: ChatUiState,
     onInferenceModeSelected: (InferenceMode) -> Unit,
     onRemoteModelConfigChanged: (RemoteModelConfig) -> Unit,
+    onTestRemoteModelConnectivity: () -> Unit,
 ) {
     val config = state.remoteModelConfig
     PanelSurface {
@@ -2318,6 +2336,28 @@ private fun RemoteModelPanel(
             OutlinedButton(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .testTag("remote_connectivity_test_button"),
+                onClick = onTestRemoteModelConnectivity,
+                enabled = !state.isBusy &&
+                    config.isConfigured &&
+                    config.connectivityStatus != RemoteModelConnectivityStatus.Checking,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    if (config.connectivityStatus == RemoteModelConnectivityStatus.Checking) {
+                        " 测试中"
+                    } else {
+                        " 测试连接"
+                    },
+                )
+            }
+            OutlinedButton(
+                modifier = Modifier
+                    .fillMaxWidth()
                     .testTag("remote_config_clear_button"),
                 onClick = { onRemoteModelConfigChanged(RemoteModelConfig()) },
                 enabled = !state.isBusy && config.hasAnySavedValue(),
@@ -2334,25 +2374,32 @@ private fun RemoteModelPanel(
 }
 
 private fun RemoteModelConfig.hasAnySavedValue(): Boolean =
-    baseUrl.isNotBlank() || modelName.isNotBlank() || apiKey.isNotBlank() || !supportsVisionInput
+    baseUrl.isNotBlank() ||
+        modelName.isNotBlank() ||
+        apiKey.isNotBlank() ||
+        supportsVisionInput ||
+        connectivityStatus != RemoteModelConnectivityStatus.Unknown
 
 private fun remoteConfigStatusText(config: RemoteModelConfig): String =
     when {
         config.isConfigured && config.usesLocalInsecureTransport ->
-            "远程配置已保存；HTTP 仅允许本机调试地址，API Key 会加密保存在本机。"
+            "远程配置已保存；HTTP 仅允许本机调试地址，API Key 会加密保存在本机；连接状态：${config.connectivityStatus.label}。"
 
         config.isConfigured ->
-            "远程配置已保存；API Key 会加密保存在本机。"
+            "远程配置已保存；API Key 会加密保存在本机；连接状态：${config.connectivityStatus.label}。"
 
         config.baseUrl.startsWith("http://") ->
-            "非本机 HTTP 地址不可用；请使用 HTTPS 或本机调试地址。"
+            "非本机 HTTP 地址不可用；请使用 HTTPS 或本机调试地址；连接状态：${config.connectivityStatus.label}。"
 
         else ->
-            "填写 HTTPS 服务地址和模型名后可切换远程模型"
+            "填写 HTTPS 服务地址和模型名后可切换远程模型；连接状态：${config.connectivityStatus.label}。"
     }
 
 @Composable
-private fun TrustBoundaryPanel(state: ChatUiState) {
+private fun TrustBoundaryPanel(
+    state: ChatUiState,
+    onRemoteSendDisclosurePolicySelected: (RemoteSendDisclosurePolicy) -> Unit,
+) {
     val sensitiveDisclosureRows = sensitiveCapabilityDisclosureDisplayRows()
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PanelSurface {
@@ -2409,6 +2456,28 @@ private fun TrustBoundaryPanel(state: ChatUiState) {
         PanelSurface {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionTitle(
+                    text = "远程发送确认",
+                    subtitle = "普通文本可以降低打扰；敏感内容和图片发送始终需要确认。",
+                )
+                RemoteSendDisclosurePolicySelector(
+                    selectedPolicy = state.remoteSendDisclosurePolicy,
+                    enabled = !state.isBusy,
+                    onSelected = onRemoteSendDisclosurePolicySelected,
+                )
+            }
+        }
+        PanelSurface {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle(
+                    text = "远程发送记录",
+                    subtitle = "只记录决策、模型和类别，不保存原始 prompt。",
+                )
+                RemoteSendAuditList(events = state.remoteSendAuditEvents)
+            }
+        }
+        PanelSurface {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle(
                     text = "敏感能力披露",
                     subtitle = SENSITIVE_CAPABILITY_DISCLOSURE_TEXT,
                 )
@@ -2434,6 +2503,116 @@ private fun TrustBoundaryPanel(state: ChatUiState) {
         }
     }
 }
+
+@Composable
+private fun RemoteSendDisclosurePolicySelector(
+    selectedPolicy: RemoteSendDisclosurePolicy,
+    enabled: Boolean,
+    onSelected: (RemoteSendDisclosurePolicy) -> Unit,
+) {
+    Column(
+        modifier = Modifier.testTag("remote_send_disclosure_policy_selector"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RemoteSendDisclosurePolicy.values().forEach { policy ->
+            FilterChip(
+                modifier = Modifier.testTag("remote_send_policy_${policy.name}"),
+                selected = selectedPolicy == policy,
+                onClick = { onSelected(policy) },
+                label = { Text(policy.remoteSendPolicyLabel()) },
+                enabled = enabled,
+            )
+            if (selectedPolicy == policy) {
+                Text(
+                    text = policy.remoteSendPolicyDescription(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteSendAuditList(events: List<RemoteSendAuditSummary>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("remote_send_audit_list"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (events.isEmpty()) {
+            Text(
+                text = "暂无远程发送记录",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@Column
+        }
+        events.take(12).forEachIndexed { index, event ->
+            RemoteSendAuditRow(event)
+            if (index < events.take(12).lastIndex) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteSendAuditRow(event: RemoteSendAuditSummary) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("remote_send_audit_${event.id}"),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Text(
+                modifier = Modifier.weight(1f),
+                text = event.decisionLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = event.remoteSendAuditTimeLabel(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        Text(
+            text = listOfNotNull(event.modelName?.takeIf { it.isNotBlank() }, event.summary)
+                .joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+private fun RemoteSendDisclosurePolicy.remoteSendPolicyLabel(): String =
+    when (this) {
+        RemoteSendDisclosurePolicy.EveryMessage -> "每次都确认"
+        RemoteSendDisclosurePolicy.OncePerSession -> "每会话一次"
+        RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage -> "仅敏感或图片"
+    }
+
+private fun RemoteSendDisclosurePolicy.remoteSendPolicyDescription(): String =
+    when (this) {
+        RemoteSendDisclosurePolicy.EveryMessage -> "所有远程发送都会弹出确认。"
+        RemoteSendDisclosurePolicy.OncePerSession -> "普通文本确认一次后本会话内静默，敏感内容和图片仍会弹窗。"
+        RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage -> "普通文本直接发送；疑似敏感内容或图片发送仍会强制确认。"
+    }
+
+private fun RemoteSendAuditSummary.remoteSendAuditTimeLabel(): String =
+    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(createdAtMillis))
 
 @Composable
 private fun TrustBoundaryRow(

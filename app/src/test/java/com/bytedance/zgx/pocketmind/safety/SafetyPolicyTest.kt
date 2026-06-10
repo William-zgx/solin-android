@@ -298,6 +298,16 @@ class SafetyPolicyTest {
     }
 
     @Test
+    fun detectSensitiveSnippetsShowsMatchedSpansButSkipsIsoTimeWindows() {
+        val snippets = policy.detectSensitiveSnippets(
+            "我的手机号是 13800001111，会议安排在 2026-06-08T23:30:00",
+        )
+
+        assertTrue(snippets.contains("13800001111"))
+        assertFalse(snippets.contains("2026-06-08T23:30:00"))
+    }
+
+    @Test
     fun maskSensitiveContentRedactsEmailPhoneAndSecretsButKeepsDidMask() {
         val result = policy.maskSensitiveContent(
             "邮箱 a@b.com 手机 13800138000 密钥 AKIA1234567890ABCDEF",

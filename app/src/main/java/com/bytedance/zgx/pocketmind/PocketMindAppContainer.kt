@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.bytedance.zgx.pocketmind.action.ActionExecutor
 import com.bytedance.zgx.pocketmind.action.HybridActionPlanningRuntime
+import com.bytedance.zgx.pocketmind.audit.RemoteSendAuditRepository
 import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
 import com.bytedance.zgx.pocketmind.audit.ToolAuditRepository
 import com.bytedance.zgx.pocketmind.background.AndroidBackgroundTaskScheduler
@@ -63,6 +64,7 @@ class PocketMindAppContainer(context: Context) {
     private val remoteRuntime: OkHttpRemoteChatRuntime
     private val memoryRepository: MemoryRepository
     private val toolAuditRepository: ToolAuditRepository
+    private val remoteSendAuditRepository: RemoteSendAuditRepository
     private val scheduledTaskRepository: ScheduledTaskRepository
     private val backgroundTaskSchedulerInternal: AndroidBackgroundTaskScheduler
     private val reminderNotificationHelper: ReminderNotificationHelper
@@ -93,6 +95,7 @@ class PocketMindAppContainer(context: Context) {
             recordStore = RoomMemoryRecordStore(database.memoryRecordDao()),
         )
         toolAuditRepository = ToolAuditRepository(database.toolAuditDao())
+        remoteSendAuditRepository = RemoteSendAuditRepository(database.remoteSendAuditDao())
         scheduledTaskRepository = ScheduledTaskRepository(database.scheduledTaskDao())
         backgroundTaskSchedulerInternal = AndroidBackgroundTaskScheduler(appContext, scheduledTaskRepository)
         reminderNotificationHelper = ReminderNotificationHelper(appContext)
@@ -150,6 +153,7 @@ class PocketMindAppContainer(context: Context) {
             longTermMemoryControls = memoryRepository,
             backgroundTaskScheduler = backgroundTaskSchedulerInternal,
             toolAuditLog = toolAuditRepository,
+            remoteSendAuditRepository = remoteSendAuditRepository,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = {
@@ -177,6 +181,7 @@ private class PocketMindViewModelFactory(
     private val longTermMemoryControls: LongTermMemoryControls,
     private val backgroundTaskScheduler: AndroidBackgroundTaskScheduler,
     private val toolAuditLog: ToolAuditLog,
+    private val remoteSendAuditRepository: RemoteSendAuditRepository,
     private val actionExecutor: ToolExecutor,
     private val assistantOrchestrator: AssistantOrchestrator,
     private val isArm64DeviceProvider: () -> Boolean,
@@ -199,6 +204,8 @@ private class PocketMindViewModelFactory(
             longTermMemoryControls = longTermMemoryControls,
             backgroundTaskScheduler = backgroundTaskScheduler,
             toolAuditLog = toolAuditLog,
+            remoteSendAuditSink = remoteSendAuditRepository,
+            remoteSendAuditLog = remoteSendAuditRepository,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = isArm64DeviceProvider,

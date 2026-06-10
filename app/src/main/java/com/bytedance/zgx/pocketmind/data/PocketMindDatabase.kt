@@ -71,6 +71,18 @@ data class ToolAuditEventEntity(
     val createdAtMillis: Long,
 )
 
+@Entity(tableName = "remote_send_audit_events")
+data class RemoteSendAuditEventEntity(
+    @PrimaryKey val id: String,
+    val decision: String,
+    val modelName: String?,
+    val sensitiveCategoriesCsv: String,
+    val imageCount: Int,
+    val remoteHistoryCount: Int,
+    val summary: String,
+    val createdAtMillis: Long,
+)
+
 @Entity(tableName = "scheduled_tasks")
 data class ScheduledTaskEntity(
     @PrimaryKey val id: String,
@@ -221,6 +233,27 @@ interface ToolAuditDao {
         DELETE FROM tool_audit_events
         WHERE id NOT IN (
             SELECT id FROM tool_audit_events
+            ORDER BY createdAtMillis DESC
+            LIMIT :maxRecords
+        )
+        """,
+    )
+    fun pruneToMostRecent(maxRecords: Int): Int
+}
+
+@Dao
+interface RemoteSendAuditDao {
+    @Query("SELECT * FROM remote_send_audit_events ORDER BY createdAtMillis DESC LIMIT :limit")
+    fun recent(limit: Int): List<RemoteSendAuditEventEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insert(event: RemoteSendAuditEventEntity)
+
+    @Query(
+        """
+        DELETE FROM remote_send_audit_events
+        WHERE id NOT IN (
+            SELECT id FROM remote_send_audit_events
             ORDER BY createdAtMillis DESC
             LIMIT :maxRecords
         )
@@ -517,6 +550,7 @@ interface AgentTraceDao {
         InstalledModelEntity::class,
         DownloadRecordEntity::class,
         ToolAuditEventEntity::class,
+        RemoteSendAuditEventEntity::class,
         ScheduledTaskEntity::class,
         MemoryRecordEntity::class,
         AgentRunEntity::class,
@@ -524,7 +558,7 @@ interface AgentTraceDao {
         PendingAgentConfirmationEntity::class,
         AgentSkillRunCheckpointEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = false,
 )
 abstract class PocketMindDatabase : RoomDatabase() {
@@ -532,6 +566,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
     abstract fun modelDao(): ModelDao
     abstract fun downloadRecordDao(): DownloadRecordDao
     abstract fun toolAuditDao(): ToolAuditDao
+    abstract fun remoteSendAuditDao(): RemoteSendAuditDao
     abstract fun scheduledTaskDao(): ScheduledTaskDao
     abstract fun memoryRecordDao(): MemoryRecordDao
     abstract fun agentTraceDao(): AgentTraceDao
@@ -763,6 +798,26 @@ abstract class PocketMindDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `remote_send_audit_events` (
+                        `id` TEXT NOT NULL,
+                        `decision` TEXT NOT NULL,
+                        `modelName` TEXT,
+                        `sensitiveCategoriesCsv` TEXT NOT NULL,
+                        `imageCount` INTEGER NOT NULL,
+                        `remoteHistoryCount` INTEGER NOT NULL,
+                        `summary` TEXT NOT NULL,
+                        `createdAtMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun get(context: Context): PocketMindDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -782,6 +837,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
                         MIGRATION_9_10,
                         MIGRATION_10_11,
                         MIGRATION_11_12,
+                        MIGRATION_12_13,
                     )
                     .allowMainThreadQueries()
                     .build()

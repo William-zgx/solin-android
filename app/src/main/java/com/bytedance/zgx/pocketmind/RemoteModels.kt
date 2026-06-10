@@ -7,6 +7,14 @@ enum class InferenceMode {
     Remote,
 }
 
+enum class RemoteModelConnectivityStatus(val label: String) {
+    Unknown("未测试"),
+    Checking("测试中"),
+    Reachable("可达"),
+    AuthenticationFailed("鉴权失败"),
+    Unreachable("不可达"),
+}
+
 data class RemoteModelConfig(
     val baseUrl: String = "",
     val modelName: String = "",
@@ -14,9 +22,14 @@ data class RemoteModelConfig(
     // Fail-closed: only enable vision when the model is explicitly declared vision-capable.
     // Defaulting to false prevents sending images to a remote model whose capability is unknown.
     val supportsVisionInput: Boolean = false,
+    val connectivityStatus: RemoteModelConnectivityStatus = RemoteModelConnectivityStatus.Unknown,
 ) {
     val isConfigured: Boolean
         get() = modelName.isNotBlank() && hasAllowedTransport()
+
+    val hasKnownConnectivityFailure: Boolean
+        get() = connectivityStatus == RemoteModelConnectivityStatus.AuthenticationFailed ||
+            connectivityStatus == RemoteModelConnectivityStatus.Unreachable
 
     val usesLocalInsecureTransport: Boolean
         get() = parsedUri()?.let { uri ->
@@ -29,6 +42,11 @@ data class RemoteModelConfig(
             modelName = modelName.trim(),
             apiKey = apiKey.trim(),
             supportsVisionInput = supportsVisionInput,
+            connectivityStatus = if (connectivityStatus == RemoteModelConnectivityStatus.Checking) {
+                RemoteModelConnectivityStatus.Unknown
+            } else {
+                connectivityStatus
+            },
         )
 
     private fun hasAllowedTransport(): Boolean {

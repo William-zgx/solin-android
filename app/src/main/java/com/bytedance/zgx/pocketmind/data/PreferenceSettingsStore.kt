@@ -11,6 +11,7 @@ import com.bytedance.zgx.pocketmind.BackendChoice
 import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.InferenceMode
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
+import com.bytedance.zgx.pocketmind.RemoteModelConnectivityStatus
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
@@ -102,6 +103,11 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
             modelName = readString(Keys.REMOTE_MODEL_NAME, ""),
             apiKey = apiKey,
             supportsVisionInput = readBoolean(Keys.REMOTE_SUPPORTS_VISION_INPUT, false),
+            connectivityStatus = runCatching {
+                RemoteModelConnectivityStatus.valueOf(
+                    readString(Keys.REMOTE_CONNECTIVITY_STATUS, RemoteModelConnectivityStatus.Unknown.name),
+                )
+            }.getOrDefault(RemoteModelConnectivityStatus.Unknown),
         ).normalized()
 
     override fun saveRemoteConfig(config: RemoteModelConfig): RemoteModelConfig {
@@ -111,6 +117,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
                 prefs[Keys.REMOTE_BASE_URL] = normalized.baseUrl
                 prefs[Keys.REMOTE_MODEL_NAME] = normalized.modelName
                 prefs[Keys.REMOTE_SUPPORTS_VISION_INPUT] = normalized.supportsVisionInput
+                prefs[Keys.REMOTE_CONNECTIVITY_STATUS] = normalized.connectivityStatus.name
             }
         }
         return normalized
@@ -159,6 +166,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         val REMOTE_BASE_URL = stringPreferencesKey("remote_model_base_url")
         val REMOTE_MODEL_NAME = stringPreferencesKey("remote_model_name")
         val REMOTE_SUPPORTS_VISION_INPUT = booleanPreferencesKey("remote_model_supports_vision_input")
+        val REMOTE_CONNECTIVITY_STATUS = stringPreferencesKey("remote_model_connectivity_status")
         val ACTIVE_SESSION_ID = stringPreferencesKey("active_session_id")
         val SELECTED_MODEL_ID = stringPreferencesKey("selected_model_id")
         val ACTIVE_INSTALLED_MODEL_ID = stringPreferencesKey("active_installed_model_id")

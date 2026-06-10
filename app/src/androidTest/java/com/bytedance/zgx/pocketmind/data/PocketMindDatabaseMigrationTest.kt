@@ -48,6 +48,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
+                PocketMindDatabase.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -184,6 +185,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
+                PocketMindDatabase.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -229,6 +231,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
+                PocketMindDatabase.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -286,6 +289,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
+                PocketMindDatabase.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -397,6 +401,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
+                PocketMindDatabase.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -433,6 +438,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
+                PocketMindDatabase.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -494,6 +500,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_9_10,
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
+                PocketMindDatabase.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -616,7 +623,10 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_11_12)
+            .addMigrations(
+                PocketMindDatabase.MIGRATION_11_12,
+                PocketMindDatabase.MIGRATION_12_13,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -640,6 +650,7 @@ class PocketMindDatabaseMigrationTest {
                 MessagePrivacy.LocalOnly.name,
                 database.sessionDao().messagesForSession("session-default").single().privacy,
             )
+            assertTrue(database.remoteSendAuditTableExists())
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
@@ -657,6 +668,14 @@ class PocketMindDatabaseMigrationTest {
             }
         }
         return false
+    }
+
+    private fun PocketMindDatabase.remoteSendAuditTableExists(): Boolean {
+        openHelper.writableDatabase.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'remote_send_audit_events'",
+        ).use { cursor ->
+            return cursor.moveToNext()
+        }
     }
 
     private fun createVersion3Schema(db: SQLiteDatabase) {

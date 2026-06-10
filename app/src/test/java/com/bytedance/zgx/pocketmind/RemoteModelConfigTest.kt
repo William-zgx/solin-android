@@ -33,6 +33,49 @@ class RemoteModelConfigTest {
     }
 
     @Test
+    fun normalizedDoesNotPersistTransientCheckingConnectivity() {
+        val config = RemoteModelConfig(
+            baseUrl = "https://api.example.com/v1",
+            modelName = "model-a",
+            connectivityStatus = RemoteModelConnectivityStatus.Checking,
+        ).normalized()
+
+        assertEquals(RemoteModelConnectivityStatus.Unknown, config.connectivityStatus)
+    }
+
+    @Test
+    fun knownConnectivityFailureOnlyCoversFailedProbeResults() {
+        assertTrue(
+            RemoteModelConfig(
+                "https://api.example.com/v1",
+                "model-a",
+                connectivityStatus = RemoteModelConnectivityStatus.AuthenticationFailed,
+            ).hasKnownConnectivityFailure,
+        )
+        assertTrue(
+            RemoteModelConfig(
+                "https://api.example.com/v1",
+                "model-a",
+                connectivityStatus = RemoteModelConnectivityStatus.Unreachable,
+            ).hasKnownConnectivityFailure,
+        )
+        assertFalse(
+            RemoteModelConfig(
+                "https://api.example.com/v1",
+                "model-a",
+                connectivityStatus = RemoteModelConnectivityStatus.Unknown,
+            ).hasKnownConnectivityFailure,
+        )
+        assertFalse(
+            RemoteModelConfig(
+                "https://api.example.com/v1",
+                "model-a",
+                connectivityStatus = RemoteModelConnectivityStatus.Reachable,
+            ).hasKnownConnectivityFailure,
+        )
+    }
+
+    @Test
     fun isConfiguredRequiresHttpUrlAndModelName() {
         assertTrue(RemoteModelConfig("https://api.example.com/v1", "model-a").isConfigured)
         assertTrue(RemoteModelConfig("http://10.0.2.2:8000/v1", "model-a").isConfigured)
