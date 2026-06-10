@@ -21,6 +21,21 @@ class LiteRtRuntimeConfigTest {
         assertEquals(LocalModelTokenLimits.MAX_TOTAL_TOKENS, config.maxNumTokens)
         assertEquals("/tmp/model.litertlm", config.modelPath)
         assertEquals("/tmp/cache", config.cacheDir)
+        assertEquals(null, config.visionBackend)
+        assertEquals(null, config.maxNumImages)
+    }
+
+    @Test
+    fun engineConfigEnablesVisionBackendOnlyForVisionCapableLocalModel() {
+        val config = defaultEngineConfig(
+            modelPath = "/tmp/model.litertlm",
+            backend = BackendChoice.GPU,
+            cacheDir = File("/tmp/cache"),
+            supportsVisionInput = true,
+        )
+
+        assertTrue(config.visionBackend != null)
+        assertEquals(5, config.maxNumImages)
     }
 
     @Test

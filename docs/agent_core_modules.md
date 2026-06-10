@@ -1676,7 +1676,7 @@ Responsibilities:
 - Accept user-initiated shared text, bounded `text/*` plus JSON/XML/YAML
   text-like application document excerpts, bounded RTF/PDF and Office Open XML
   text-layer excerpts, bounded local PDF scanned-page OCR fallback, bounded
-  local OCR text excerpts for user-provided `image/*` attachments, and
+  local image bytes for verified vision-capable local chat models, and
   attachment metadata from Android share targets and the in-app picker.
 - Classify attachments by MIME type, with display-name extension fallback when
   Android providers return no type or only `application/octet-stream`; keep
@@ -1703,11 +1703,13 @@ Current status:
   documents and JSON/XML/YAML text-like application MIME types, bounded
   text-layer excerpts for user-provided RTF, PDF text layers, and Office Open
   XML `.docx` / `.xlsx` / `.pptx` files, bounded local scanned-page OCR fallback
-  for PDFs with no readable text layer, and bounded local OCR text excerpts for
-  user-provided `image/*` attachments. Excerpts are user-visible and limited to
-  the local shared-input prompt. Generic text-like excerpts require strict
-  UTF-8; malformed UTF-8 binary content stays metadata-only instead of being
-  decoded with replacement characters.
+  for PDFs with no readable text layer, and bounded local image bytes for
+  verified vision-capable local chat models. Text excerpts are user-visible and
+  limited to the local shared-input prompt; image bytes are sent as LiteRT image
+  content parts and are not serialized into prompts, history, audit, or
+  receipts. Generic text-like excerpts require strict UTF-8; malformed UTF-8
+  binary content stays metadata-only instead of being decoded with replacement
+  characters.
 - Audio, video, legacy Office binary formats, binary, malformed PDF, and other
   unsupported attachments stay metadata-only; the app does not parse or embed
   their bytes into prompts.
@@ -1739,12 +1741,13 @@ Current status:
   `truncated` / included flags. It does not persist pixels, URIs, paths, window
   titles, or visual descriptions. Screen semantic
   understanding, PDF layout parsing, legacy Office parsing, full rich-text
-  fidelity, image semantic understanding, and media content understanding are
-  pending. RTF, PDF text layer, and Office Open XML extraction are not complete
-  document parsing. OCR is limited to user-provided PDF scanned-page fallback,
-  user-provided `image/*` attachments, user-confirmed recent screenshot/image
-  OCR tools, or user-confirmed current screenshot OCR, and produces text
-  excerpts only.
+  fidelity, and media content understanding are pending. User-provided image
+  understanding is limited to verified local vision chat models or explicitly
+  confirmed remote vision sends. RTF, PDF text layer, and Office Open XML
+  extraction are not complete document parsing. OCR is limited to
+  user-provided PDF scanned-page fallback, user-confirmed recent
+  screenshot/image OCR tools, or user-confirmed current screenshot OCR, and
+  produces text excerpts only.
 
 Tests:
 

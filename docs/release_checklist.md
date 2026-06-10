@@ -17,8 +17,8 @@ release ticket or PR.
   distribution.
 - [ ] Known unsupported capabilities are called out, especially screenshot
   capture, semantic screen understanding, full PDF parsing, legacy Office
-  parsing, local image semantic understanding without a configured remote
-  vision model, and arbitrary media OCR.
+  parsing, local image semantic understanding for unverified or non-vision
+  local models, and arbitrary media OCR.
 - [ ] Agent/tool behavior changes are summarized, including remote
   OpenAI-style `tool_calls`, public evidence batch execution, all-or-nothing
   mixed-batch rejection, and the privacy boundary for LocalOnly tool results.

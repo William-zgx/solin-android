@@ -52,7 +52,7 @@ data class ModelDownloadSource(
         }
 
     fun installedDisplayName(file: File): String =
-        modelId?.let { ModelCatalog.recommendedModelById(it).shortName }
+        modelId?.let { ModelCatalog.recommendedModelOrNull(it)?.shortName }
             ?: file.nameWithoutExtension
 }
 
@@ -215,11 +215,12 @@ class ModelRepository(
         verificationStatus: ModelVerificationStatus,
     ): InstalledModelSummary {
         val file = File(path)
-        val model = recommendedModelId?.let { ModelCatalog.recommendedModelById(it) }
+        val model = recommendedModelId?.let { ModelCatalog.recommendedModelOrNull(it) }
         val status = when {
             recommendedModelId == null -> ModelVerificationStatus.UnverifiedCustom
+            model == null -> ModelVerificationStatus.FailedVerification
             verificationStatus == ModelVerificationStatus.FailedVerification -> verificationStatus
-            verifiedSha256 != null && model != null && verifiedSha256.equals(model.sha256Hex, ignoreCase = true) ->
+            verifiedSha256 != null && verifiedSha256.equals(model.sha256Hex, ignoreCase = true) ->
                 ModelVerificationStatus.VerifiedRecommended
             verificationStatus == ModelVerificationStatus.LegacyUnverified -> verificationStatus
             else -> ModelVerificationStatus.FailedVerification
@@ -533,7 +534,7 @@ class ModelRepository(
         if (recommendedModelId == null) {
             true
         } else {
-            ModelCatalog.recommendedModelById(recommendedModelId).capability == ModelCapability.Chat &&
+            catalogRecommendedModel(recommendedModelId)?.capability == ModelCapability.Chat &&
                 verificationStatus == ModelVerificationStatus.VerifiedRecommended.name
         }
 

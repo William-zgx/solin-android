@@ -18,7 +18,7 @@
     "unsupportedCapabilities": [
       "Full PDF parsing",
       "Legacy Office parsing",
-      "Local image semantic understanding without a configured vision model",
+      "Local image semantic understanding for unverified or non-vision local models",
       "Arbitrary media OCR",
       "Semantic screen understanding"
     ],

@@ -53,7 +53,7 @@ data class SensitiveCapabilityDisclosure(
 
 object CapabilityMatrix {
     const val productPositioning: String =
-        "隐私优先的随身 AI 助手：本地可用，远程多模态可选，设备动作必须确认执行。"
+        "隐私优先的随身 AI 助手：本地对话和本地视觉可用，远程多模态可选，设备动作必须确认执行。"
     const val targetUserJob: String =
         "在手机上处理私人日常问答、记忆、图片/文件输入和受确认保护的设备动作，同时默认把本地上下文留在本机。"
 
@@ -97,8 +97,26 @@ object CapabilityMatrix {
                 requiresLocalModel = false,
                 remoteEligible = false,
                 confirmationPolicy = ConfirmationPolicy.NotRequired,
-                failureBehavior = "远程模式保护分享文本和非图片附件；本地模式只读取受限文本、PDF 扫描页 OCR 或元数据，图片不自动 OCR。",
+                failureBehavior = "远程模式保护分享文本和非图片附件；本地模式读取受限文本、PDF 扫描页 OCR 或元数据；已验证视觉本地模型可读取受限图片字节，不支持视觉时不自动 OCR。",
                 requiredTests = listOf("SharedInputTest", "PocketMindViewModelTest", "MainActivitySharedIntentTest"),
+                ownerAgent = CapabilityOwnerAgent.Multimodal,
+            ),
+            CapabilityDescriptor(
+                capabilityId = "local_vision_image_input",
+                entrypoint = "share_or_attachment_image",
+                toolName = null,
+                modelCapability = ModelCapability.Chat,
+                privacyLevel = CapabilityPrivacyLevel.UserProvided,
+                requiresLocalModel = true,
+                remoteEligible = false,
+                confirmationPolicy = ConfirmationPolicy.NotRequired,
+                failureBehavior = "仅已验证且声明支持视觉的本地模型可接收图片字节；每张图片限 8 MB，不写入 prompt、历史或审计；不支持或校验失败时直接提示不支持，不强制 OCR。",
+                requiredTests = listOf(
+                    "PocketMindViewModelTest",
+                    "MainActivitySharedInputModeTest",
+                    "SharedInputTest",
+                    "LiteRtRuntimeConfigTest",
+                ),
                 ownerAgent = CapabilityOwnerAgent.Multimodal,
             ),
             CapabilityDescriptor(
@@ -237,9 +255,9 @@ object CapabilityMatrix {
             SensitiveCapabilityDisclosure(
                 capabilityId = "share_and_file_picker_input",
                 displayName = "分享和文件选择",
-                dataAccessed = "用户通过分享入口或系统文件选择器主动提供的文本、文件元数据和受限文本摘录。",
-                consentBoundary = "仅处理用户主动分享或通过系统文件选择器确认的内容；本地模式才读取受支持文本/PDF/OCR 摘录，图片不自动 OCR。",
-                remoteBoundary = "远程模式保护分享文本、非图片附件、文本摘录和 OCR 摘录；仅在远程模式、视觉开启且用户确认发送后，图片才走远程视觉路径。",
+                dataAccessed = "用户通过分享入口或系统文件选择器主动提供的文本、文件元数据、受限文本摘录，以及已验证本地视觉模型可使用的受限图片字节。",
+                consentBoundary = "仅处理用户主动分享或通过系统文件选择器确认的内容；本地模式才读取受支持文本/PDF/OCR 摘录；已验证本地视觉模型可在发送时读取受限图片字节，不支持视觉时不自动 OCR。",
+                remoteBoundary = "远程模式保护分享文本、非图片附件、文本摘录和 OCR 摘录；图片只有在远程模式、视觉开启且用户确认发送后才走远程视觉路径；本地视觉图片字节不进入远程请求。",
                 revokeOrClearControl = "可取消草稿、删除当前会话，并通过系统 picker/分享入口重新选择范围。",
                 requiredTests = listOf(
                     "SharedInputTest",

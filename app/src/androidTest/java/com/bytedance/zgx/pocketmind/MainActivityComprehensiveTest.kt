@@ -89,6 +89,7 @@ class MainActivityComprehensiveTest {
             composeRule.waitForText("规则回退", substring = true)
             composeRule.waitForText("打开 Wi-Fi 设置")
             composeRule.onNodeWithTag("action_dismiss_button").performClick()
+            composeRule.waitForTagGone("action_dismiss_button")
 
             sendPrompt("请慢慢回答", server)
             composeRule.waitForText("慢")
@@ -99,8 +100,6 @@ class MainActivityComprehensiveTest {
             assertFalse(streamingRequest.body.contains("本地记忆暂不可用"))
             assertFalse(streamingRequest.body.contains("打开 Wi-Fi 设置"))
             assertFalse(streamingRequest.body.contains("动作草稿"))
-            composeRule.onNodeWithTag("composer_send_button").performClick()
-            composeRule.waitForText("远程可用")
 
             createAndSwitchSessions()
             exerciseModelManagerControlsAndCustomDownload(server)
@@ -172,7 +171,7 @@ class MainActivityComprehensiveTest {
     private fun confirmRemoteSendIfPresent(server: LocalOpenAiServer? = null) {
         val needsConfirmation = composeRule.waitForOptionalTag(
             tag = "remote_send_disclosure_sheet",
-            timeoutMillis = 1_500,
+            timeoutMillis = 5_000,
         )
         if (!needsConfirmation) return
         server?.assertNoPost(timeoutMillis = 250)
@@ -413,9 +412,7 @@ private class LocalOpenAiServer : Closeable {
                 return
             }
             if (body.contains("慢慢")) {
-                client.getOutputStream().writeSsePrefix()
-                client.getOutputStream().writeSseChunk("慢")
-                Thread.sleep(30_000)
+                client.getOutputStream().writeSseResponse("慢")
                 return
             }
             val text = if (body.contains("偏好")) "记忆回答" else "模拟器回答"

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import com.bytedance.zgx.pocketmind.ChatImageAttachment
+import com.bytedance.zgx.pocketmind.LocalImageAttachment
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.Base64
@@ -27,12 +28,13 @@ class ShareIntentReader(
             return intent.protectedSharedInput(action)
         }
 
-        val text = if (mode == SharedInputReadMode.LocalPrompt) {
+        val canReadLocalContent = mode.canReadLocalContent
+        val text = if (canReadLocalContent) {
             intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
         } else {
             ""
         }
-        val protectedTextSourceCount = if (mode != SharedInputReadMode.LocalPrompt &&
+        val protectedTextSourceCount = if (!canReadLocalContent &&
             intent.hasExtra(Intent.EXTRA_TEXT)
         ) {
             1
@@ -147,7 +149,7 @@ class ShareIntentReader(
             intentMimeType = intentMimeType,
         )
         val kind = sharedAttachmentKindFor(resolvedMimeType)
-        val textPreview = if (mode == SharedInputReadMode.LocalPrompt) {
+        val textPreview = if (mode.canReadLocalContent) {
             readSharedAttachmentTextPreview(
                 mimeType = resolvedMimeType,
                 kind = kind,
@@ -162,6 +164,11 @@ class ShareIntentReader(
         } else {
             null
         }
+        val localImageAttachment = if (mode == SharedInputReadMode.LocalVision && kind == SharedAttachmentKind.Image) {
+            toLocalImageAttachment(resolvedMimeType, metadata.sizeBytes)
+        } else {
+            null
+        }
         return SharedAttachment(
             kind = kind,
             mimeType = resolvedMimeType,
@@ -169,6 +176,7 @@ class ShareIntentReader(
             sizeBytes = metadata.sizeBytes,
             textPreview = textPreview,
             imageAttachment = imageAttachment,
+            localImageAttachment = localImageAttachment,
         )
     }
 
@@ -235,6 +243,28 @@ class ShareIntentReader(
         )
     }
 
+    private fun Uri.toLocalImageAttachment(mimeType: String?, sizeBytes: Long?): LocalImageAttachment? {
+        val normalizedMimeType = mimeType
+            ?.substringBefore(';')
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { mediaType -> mediaType.startsWith("image/") }
+            ?: return null
+        if (sizeBytes != null && sizeBytes > MAX_LOCAL_IMAGE_BYTES) return null
+        val bytes = runCatching {
+            context.contentResolver.openInputStream(this)?.use { input ->
+                input.readBoundedImageBytes(maxBytes = MAX_LOCAL_IMAGE_BYTES)
+            }
+        }.getOrNull() ?: return null
+        if (bytes.isEmpty()) return null
+        if (!remoteImageBytesMatchDeclaredMimeType(normalizedMimeType, bytes)) return null
+        return LocalImageAttachment(
+            mimeType = normalizedMimeType,
+            bytes = bytes,
+            sizeBytes = sizeBytes ?: bytes.size.toLong(),
+        )
+    }
+
     private fun queryMetadata(uri: Uri): AttachmentMetadata {
         var displayName: String? = null
         var sizeBytes: Long? = null
@@ -269,6 +299,7 @@ class ShareIntentReader(
     private companion object {
         const val MAX_SHARED_ATTACHMENTS = 5
         const val MAX_REMOTE_IMAGE_BYTES = 8 * 1024 * 1024
+        const val MAX_LOCAL_IMAGE_BYTES = 8 * 1024 * 1024
     }
 }
 
@@ -280,7 +311,7 @@ internal fun readSharedAttachmentTextPreview(
     mode: SharedInputReadMode = SharedInputReadMode.LocalPrompt,
 ): SharedTextPreview? =
     when {
-        mode != SharedInputReadMode.LocalPrompt -> null
+        !mode.canReadLocalContent -> null
 
         kind == SharedAttachmentKind.Document && canReadTextPreviewFor(mimeType) ->
             readSharedAttachmentTextPreviewFromStream(openInputStream) { input ->
@@ -307,10 +338,14 @@ internal fun readSharedAttachmentTextPreview(
 
 enum class SharedInputReadMode {
     LocalPrompt,
+    LocalVision,
     ProtectedSignal,
     RemoteVision,
     RemoteVisionUnsupportedSignal,
 }
+
+private val SharedInputReadMode.canReadLocalContent: Boolean
+    get() = this == SharedInputReadMode.LocalPrompt || this == SharedInputReadMode.LocalVision
 
 internal fun isProtectedRemoteImageSource(
     resolverMimeType: String?,
@@ -326,7 +361,10 @@ internal fun isProtectedRemoteImageSource(
     return sharedAttachmentKindFor(resolvedMimeType) == SharedAttachmentKind.Image
 }
 
-private fun InputStream.readRemoteImageBytes(maxBytes: Int): ByteArray? {
+private fun InputStream.readRemoteImageBytes(maxBytes: Int): ByteArray? =
+    readBoundedImageBytes(maxBytes)
+
+private fun InputStream.readBoundedImageBytes(maxBytes: Int): ByteArray? {
     val output = ByteArrayOutputStream()
     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
     var total = 0

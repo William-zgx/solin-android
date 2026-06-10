@@ -120,9 +120,10 @@ System speech recognition inserts a transcript into the compose box only.
 Sending remains explicit. Audio/video/legacy Office/binary attachments are
 metadata-only in the current app; supported strict UTF-8 text, RTF, PDF text
 layers, PDF scanned-page OCR fallback, and Office Open XML attachments may
-produce bounded local excerpts. User-provided image attachments are not
-automatically OCRed or visually read unless they are sent to a supported remote
-vision model; explicit confirmed OCR tools remain separate. Malformed PDFs remain
+produce bounded local excerpts. User-provided image attachments are read only
+when the active local model is a verified vision-capable profile or when the
+user confirms sending them to a supported remote vision model; explicit
+confirmed OCR tools remain separate. Malformed PDFs remain
 metadata-only. If Android does not provide a useful MIME type for a
 user-provided attachment, PocketMind may infer common supported types from the
 display-name extension before deciding whether a bounded local excerpt is

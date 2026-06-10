@@ -72,6 +72,7 @@ import com.bytedance.zgx.pocketmind.orchestration.PendingExternalOutcomeSnapshot
 import com.bytedance.zgx.pocketmind.orchestration.RemoteToolScope
 import com.bytedance.zgx.pocketmind.orchestration.RunDataDestination
 import com.bytedance.zgx.pocketmind.orchestration.RunDataReceipt
+import com.bytedance.zgx.pocketmind.runtime.LocalModelRequest
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.RemoteModelConnectivityProbe
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
@@ -1944,6 +1945,74 @@ class PocketMindViewModelTest {
         assertTrue(prompt.contains("photo.jpg"))
         assertTrue(prompt.contains("当前模型不支持视觉输入"))
         assertTrue(prompt.contains("不会自动 OCR"))
+        assertFalse(prompt.contains("data:image"))
+        assertFalse(prompt.contains("base64"))
+    }
+
+    @Test
+    fun localVisionSharedImageIsSentToLocalRuntimeAndStaysLocalOnly() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val runtime = FakeLiteRtRuntime(localResponse = "本地回复：图片里有收据")
+        val modelRepository = FakeModelRepository().apply {
+            registerInstalledModel(
+                path = "/tmp/gemma-4-E2B-it.litertlm",
+                displayName = DEFAULT_CHAT_MODEL.shortName,
+                recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+                verifiedSha256 = DEFAULT_CHAT_MODEL.sha256Hex,
+                verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            )
+        }
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            runtime = runtime,
+            modelRepository = modelRepository,
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.stageSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Image,
+                        mimeType = "image/png",
+                        displayName = "receipt.png",
+                        sizeBytes = 4L,
+                        localImageAttachment = LocalImageAttachment(
+                            mimeType = "image/png",
+                            bytes = byteArrayOf(1, 2, 3, 4),
+                            sizeBytes = 4L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals("receipt.png · 图片", viewModel.uiState.value.pendingSharedInputDraft?.summary)
+
+        viewModel.sendPendingSharedInput("这张图里有什么")
+        advanceUntilIdle()
+
+        val request = runtime.localRequests.single()
+        assertEquals(1, request.imageAttachments.size)
+        assertEquals("image/png", request.imageAttachments.single().mimeType)
+        assertTrue(request.prompt.contains("这张图里有什么"))
+        assertTrue(request.prompt.contains("已附加 1 张图片"))
+        assertFalse(request.prompt.contains("data:image"))
+        assertFalse(request.prompt.contains("base64"))
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(
+            listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
+            sessionStore.messages.map { it.privacy },
+        )
+        val persistedText = sessionStore.messages.joinToString(separator = "\n") { it.text }
+        assertFalse(persistedText.contains("data:image"))
+        assertFalse(persistedText.contains("base64"))
+        assertTrue(persistedText.contains("这张图里有什么"))
     }
 
     @Test
@@ -7426,6 +7495,7 @@ class PocketMindViewModelTest {
         private val loadFailures: Map<BackendChoice, Throwable> = emptyMap(),
     ) : LiteRtRuntime {
         val prompts = mutableListOf<String>()
+        val localRequests = mutableListOf<LocalModelRequest>()
         val recreatedHistories = mutableListOf<List<ChatMessage>>()
         val preparedForSendPrompts = mutableListOf<String>()
         val loadCalls = mutableListOf<BackendChoice>()
@@ -7474,6 +7544,11 @@ class PocketMindViewModelTest {
                 return flow { awaitCancellation() }
             }
             return flowOf(localResponse)
+        }
+
+        override fun send(request: LocalModelRequest): Flow<String> {
+            localRequests += request
+            return send(request.prompt)
         }
 
         override fun lastGenerationStats(): GenerationStats? = null

@@ -3407,7 +3407,7 @@ internal const val REMOTE_ATTACHMENT_PROTECTION_NOTICE =
     "远程模型模式下，主动选择的图片会直接发送给远程视觉模型；其他附件和分享文本不会读取正文、文本摘录或 OCR 摘录。若模型或接口不支持图片，会直接提示不支持。"
 
 internal const val PRODUCT_POSITIONING_TEXT =
-    "隐私优先的随身 AI 助手：本地可用，远程多模态可选，设备动作必须确认执行。"
+    "隐私优先的随身 AI 助手：本地对话和本地视觉可用，远程多模态可选，设备动作必须确认执行。"
 
 internal const val PRODUCT_POSITIONING_SHORT_TEXT =
     "隐私优先的随身 AI 助手"
@@ -3416,7 +3416,7 @@ internal const val PRODUCT_HOME_TITLE_TEXT =
     "隐私优先的随身 AI 助手"
 
 internal const val PRODUCT_HOME_DESCRIPTION_TEXT =
-    "本地可用，远程多模态可选，设备动作必须确认执行。没有模型时只展示启动选项，不读取本地数据，也不会自动发送远程请求。"
+    "本地对话和本地视觉可用，远程多模态可选，设备动作必须确认执行。没有模型时只展示启动选项，不读取本地数据，也不会自动发送远程请求。"
 
 internal enum class HomeValueKind {
     Local,
@@ -3434,7 +3434,7 @@ internal val HOME_VALUE_PROPOSITIONS = listOf(
     HomeValueProposition(
         kind = HomeValueKind.Local,
         title = "本地可用",
-        body = "基础问答、会话和显式记忆优先留在本机；离线模型可稍后下载或导入。",
+        body = "基础问答、图片输入、会话和显式记忆优先留在本机；离线模型可稍后下载或导入。",
     ),
     HomeValueProposition(
         kind = HomeValueKind.Remote,
@@ -3468,7 +3468,7 @@ internal const val LOCAL_SETUP_PANEL_DESCRIPTION =
     "下载后基础问答和历史默认留在本机；也可以先跳过，稍后配置远程模型或导入可信 .litertlm。"
 
 internal const val MODEL_MANAGER_POSITIONING_TEXT =
-    "本地可用，可离线使用；远程多模态可选。远程发送和设备动作仍会先确认。"
+    "本地对话和本地视觉可用，可离线使用；远程多模态可选。远程发送和设备动作仍会先确认。"
 
 internal val PRODUCT_PROMPT_SUGGESTIONS = listOf(
     "告诉我哪些内容会留在本机",
@@ -3477,7 +3477,7 @@ internal val PRODUCT_PROMPT_SUGGESTIONS = listOf(
 )
 
 internal const val PRODUCT_LOCAL_VALUE_TEXT =
-    "下载或导入本地模型后，基础问答可在手机上运行；会话、记忆和本地工具结果默认留在本机。"
+    "下载或导入已验证本地模型后，基础问答和支持的图片输入可在手机上运行；会话、记忆和本地工具结果默认留在本机。"
 
 internal const val PRODUCT_REMOTE_VALUE_TEXT =
     "远程模型只在你配置并切换后使用；主动选择的图片可发送给远程视觉模型，不支持图片时直接提示不支持。"

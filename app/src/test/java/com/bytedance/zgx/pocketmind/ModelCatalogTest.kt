@@ -64,22 +64,33 @@ class ModelCatalogTest {
             basicModels.map { it.capability }.toSet(),
         )
         assertEquals(setOf(DEFAULT_CHAT_MODEL_ID), ModelCatalog.defaultSetupModelIds())
+        assertNull(ModelCatalog.recommendedModelOrNull("unknown-model-id"))
     }
 
     @Test
     fun modelProfilesSeparateAssetCapabilityFromInputModality() {
         val chatProfile = ModelCatalog.profileForModelId(DEFAULT_CHAT_MODEL_ID)
         val memoryProfile = ModelCatalog.profileForModelId(MEMORY_EMBEDDING_MODEL_ID)
+        val textOnlyChatProfile = ModelCatalog.profileFor(
+            ModelCatalog.recommendedModelById(DEFAULT_CHAT_MODEL_ID).copy(id = "chat-text-only-test"),
+        )
         val remoteVisionProfile =
             RemoteModelConfig(modelName = "vision-model", supportsVisionInput = true).modelProfile()
 
         assertEquals(ModelCapability.Chat, chatProfile.capability)
-        assertEquals(setOf(ModelInputModality.Text), chatProfile.inputModalities)
+        assertEquals(setOf(ModelInputModality.Text, ModelInputModality.Vision), chatProfile.inputModalities)
         assertTrue(ModelFeature.TextGeneration in chatProfile.features)
-        assertFalse(chatProfile.supportsVisionInput)
+        assertTrue(ModelFeature.VisionInput in chatProfile.features)
+        assertTrue(chatProfile.supportsVisionInput)
 
         assertEquals(ModelCapability.MemoryEmbedding, memoryProfile.capability)
         assertEquals(setOf(ModelFeature.MemoryEmbedding), memoryProfile.features)
+        assertFalse(memoryProfile.supportsVisionInput)
+
+        assertEquals(ModelCapability.Chat, textOnlyChatProfile.capability)
+        assertEquals(setOf(ModelInputModality.Text), textOnlyChatProfile.inputModalities)
+        assertFalse(textOnlyChatProfile.supportsVisionInput)
+        assertNull(ModelCatalog.profileForModelIdOrNull("unknown-model-id"))
 
         assertEquals(ModelCapability.Chat, remoteVisionProfile.capability)
         assertEquals(setOf(ModelInputModality.Text, ModelInputModality.Vision), remoteVisionProfile.inputModalities)

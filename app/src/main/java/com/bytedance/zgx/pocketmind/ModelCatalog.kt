@@ -95,6 +95,12 @@ data class RecommendedModel(
 const val DEFAULT_CHAT_MODEL_ID = "chat-e2b"
 const val MEMORY_EMBEDDING_MODEL_ID = "memory-embedding-300m"
 const val MOBILE_ACTION_MODEL_ID = "mobile-action-270m"
+private const val HIGH_QUALITY_CHAT_MODEL_ID = "chat-e4b"
+
+private val LOCAL_VISION_INPUT_MODEL_IDS = setOf(
+    DEFAULT_CHAT_MODEL_ID,
+    HIGH_QUALITY_CHAT_MODEL_ID,
+)
 
 val RECOMMENDED_MODELS = listOf(
     RecommendedModel(
@@ -140,7 +146,7 @@ val RECOMMENDED_MODELS = listOf(
         setupTier = SetupTier.BasicRecommended,
     ),
     RecommendedModel(
-        id = "chat-e4b",
+        id = HIGH_QUALITY_CHAT_MODEL_ID,
         displayName = "高质量对话模型 E4B",
         shortName = "高质量对话 E4B",
         fileName = "gemma-4-E4B-it.litertlm",
@@ -173,6 +179,9 @@ internal object ModelCatalog {
     fun recommendedModelById(modelId: String?): RecommendedModel =
         RECOMMENDED_MODELS.firstOrNull { it.id == modelId } ?: DEFAULT_CHAT_MODEL
 
+    fun recommendedModelOrNull(modelId: String?): RecommendedModel? =
+        modelId?.let { id -> RECOMMENDED_MODELS.firstOrNull { it.id == id } }
+
     fun recommendedChatModelById(modelId: String?): RecommendedModel =
         RECOMMENDED_MODELS.firstOrNull {
             it.id == modelId && it.capability == ModelCapability.Chat
@@ -187,8 +196,8 @@ internal object ModelCatalog {
             displayName = model.displayName,
             capability = model.capability,
             backendKind = ModelBackendKind.LocalLiteRt,
-            inputModalities = setOf(ModelInputModality.Text),
-            features = model.capability.defaultFeatures(),
+            inputModalities = model.inputModalities(),
+            features = model.features(),
             byteSize = model.byteSize,
             sha256Hex = model.sha256Hex,
             sourceRevision = model.sourceRevision,
@@ -205,6 +214,9 @@ internal object ModelCatalog {
 
     fun profileForModelId(modelId: String?): ModelProfile =
         profileFor(recommendedModelById(modelId))
+
+    fun profileForModelIdOrNull(modelId: String?): ModelProfile? =
+        recommendedModelOrNull(modelId)?.let(::profileFor)
 
     fun basicSetupModels(): List<RecommendedModel> =
         RECOMMENDED_MODELS.filter { it.setupTier == SetupTier.BasicRecommended }
@@ -323,4 +335,25 @@ private fun ModelCapability.defaultFeatures(): Set<ModelFeature> =
         ModelCapability.Chat -> setOf(ModelFeature.TextGeneration)
         ModelCapability.MemoryEmbedding -> setOf(ModelFeature.MemoryEmbedding)
         ModelCapability.MobileAction -> setOf(ModelFeature.MobileActionPlanning)
+    }
+
+private fun ModelCapability.defaultInputModalities(): Set<ModelInputModality> =
+    when (this) {
+        ModelCapability.Chat -> setOf(ModelInputModality.Text)
+        ModelCapability.MemoryEmbedding,
+        ModelCapability.MobileAction -> setOf(ModelInputModality.Text)
+    }
+
+private fun RecommendedModel.inputModalities(): Set<ModelInputModality> =
+    if (capability == ModelCapability.Chat && id in LOCAL_VISION_INPUT_MODEL_IDS) {
+        setOf(ModelInputModality.Text, ModelInputModality.Vision)
+    } else {
+        capability.defaultInputModalities()
+    }
+
+private fun RecommendedModel.features(): Set<ModelFeature> =
+    if (capability == ModelCapability.Chat && id in LOCAL_VISION_INPUT_MODEL_IDS) {
+        setOf(ModelFeature.TextGeneration, ModelFeature.VisionInput)
+    } else {
+        capability.defaultFeatures()
     }

@@ -70,6 +70,7 @@ import com.bytedance.zgx.pocketmind.orchestration.PendingExternalOutcomeSnapshot
 import com.bytedance.zgx.pocketmind.orchestration.RemoteToolScope
 import com.bytedance.zgx.pocketmind.orchestration.RunDataDestination
 import com.bytedance.zgx.pocketmind.orchestration.RunDataReceipt
+import com.bytedance.zgx.pocketmind.runtime.LocalModelRequest
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.OkHttpRemoteModelConnectivityProbe
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
@@ -971,8 +972,10 @@ class PocketMindViewModel(
         }
 
         viewModelScope.launch(ioDispatcher) {
+            val supportsVisionInput = _uiState.value.activeLocalModelSupportsVisionInput
             val result = runCatching {
                 runtimeLock.withLock {
+                    runtime.configureModelCapabilities(supportsVisionInput = supportsVisionInput)
                     runtime.load(
                         modelPath = path,
                         backend = backendChoice,
@@ -1006,6 +1009,7 @@ class PocketMindViewModel(
                     if (backendChoice == BackendChoice.GPU) {
                         val cpuResult = runCatching {
                             runtimeLock.withLock {
+                                runtime.configureModelCapabilities(supportsVisionInput = supportsVisionInput)
                                 runtime.load(
                                     modelPath = path,
                                     backend = BackendChoice.CPU,
@@ -1183,6 +1187,7 @@ class PocketMindViewModel(
         prompt: String,
         explicitMessagePrivacy: MessagePrivacy?,
         imageAttachments: List<ChatImageAttachment> = emptyList(),
+        localImageAttachments: List<LocalImageAttachment> = emptyList(),
         remoteSendConfirmed: Boolean = false,
     ) {
         val trimmed = prompt.trim()
@@ -1240,6 +1245,14 @@ class PocketMindViewModel(
             }
         val remoteConfig = stateBeforeSend.remoteModelConfig
         val remoteHistory = remoteHistoryForRemoteSend(stateBeforeSend.messages)
+        val localImageAttachmentCount = if (useRemoteModel) 0 else localImageAttachments.size
+        if (!useRemoteModel &&
+            localImageAttachments.isNotEmpty() &&
+            !stateBeforeSend.activeLocalModelSupportsVisionInput
+        ) {
+            rejectUnsupportedLocalVisionInput()
+            return
+        }
         val includePrivateLocalContext = !useRemoteModel
         val agentRunOptions = if (useRemoteModel) {
             AgentRunOptions(
@@ -1415,7 +1428,7 @@ class PocketMindViewModel(
                             destination = if (useRemoteModel) RunDataDestination.Remote else RunDataDestination.Local,
                             currentPromptPrivacy = effectiveMessagePrivacy,
                             remoteHistoryCount = remoteHistory.size,
-                            imageAttachmentCount = imageAttachments.size,
+                            imageAttachmentCount = imageAttachments.size + localImageAttachmentCount,
                         ),
                     )
                 }
@@ -1708,6 +1721,7 @@ class PocketMindViewModel(
                                 promptForModel = route.promptForModel,
                                 history = stateBeforeSend.messages,
                                 parameters = _uiState.value.generationParameters,
+                                imageAttachments = localImageAttachments,
                             ) { chunk ->
                                 partial.append(chunk)
                                 _uiState.updateLastAssistant(partial.toString())
@@ -2087,6 +2101,13 @@ class PocketMindViewModel(
 
     fun ingestSharedInput(sharedInput: SharedInput) {
         if (sharedInput.isEmpty) return
+        if (_uiState.value.inferenceMode == InferenceMode.Local &&
+            sharedInput.hasLocalImageAttachment() &&
+            !_uiState.value.activeLocalModelSupportsVisionInput
+        ) {
+            rejectUnsupportedLocalVisionInput()
+            return
+        }
         if (_uiState.value.inferenceMode == InferenceMode.Remote) {
             val remoteConfig = _uiState.value.remoteModelConfig
             if (!remoteConfig.isConfigured) {
@@ -2109,6 +2130,13 @@ class PocketMindViewModel(
     }
 
     fun stageSharedInput(sharedInput: SharedInput) {
+        if (_uiState.value.inferenceMode == InferenceMode.Local &&
+            sharedInput.hasLocalImageAttachment() &&
+            !_uiState.value.activeLocalModelSupportsVisionInput
+        ) {
+            rejectUnsupportedLocalVisionInput()
+            return
+        }
         if (_uiState.value.inferenceMode == InferenceMode.Remote) {
             val remoteConfig = _uiState.value.remoteModelConfig
             if (!remoteConfig.isConfigured) {
@@ -2137,8 +2165,18 @@ class PocketMindViewModel(
         } else {
             emptyList()
         }
+        val localImageAttachments = if (
+            _uiState.value.inferenceMode == InferenceMode.Local &&
+            _uiState.value.activeLocalModelSupportsVisionInput
+        ) {
+            sharedInput.localImageAttachments()
+        } else {
+            emptyList()
+        }
         val prompt = if (imageAttachments.isNotEmpty()) {
             sharedInput.toRemoteVisionPrompt()
+        } else if (localImageAttachments.isNotEmpty()) {
+            sharedInput.toLocalVisionPrompt()
         } else {
             sharedInput.toPrompt()
         }
@@ -2150,6 +2188,7 @@ class PocketMindViewModel(
                     prompt = prompt,
                     summary = sharedInput.composerSummary(),
                     imageAttachments = imageAttachments,
+                    localImageAttachments = localImageAttachments,
                     privacy = if (imageAttachments.isNotEmpty()) {
                         MessagePrivacy.RemoteEligible
                     } else {
@@ -2225,6 +2264,23 @@ class PocketMindViewModel(
             it.copy(
                 pendingSharedInputDraft = null,
                 statusText = "当前远程模型不支持图片输入",
+            )
+        }
+    }
+
+    private fun rejectUnsupportedLocalVisionInput() {
+        replaceActiveSessionMessages(
+            _uiState.value.messages + ChatMessage(
+                role = MessageRole.Assistant,
+                text = "当前本地模型不支持图片输入，未读取、OCR 或发送图片；请切换到已校验的本地视觉模型后重新选择图片。",
+                privacy = MessagePrivacy.LocalOnly,
+            ),
+            persistNow = true,
+        )
+        _uiState.update {
+            it.copy(
+                pendingSharedInputDraft = null,
+                statusText = "当前本地模型不支持图片输入",
             )
         }
     }
@@ -2313,6 +2369,13 @@ class PocketMindViewModel(
             rejectUnsupportedRemoteVisionInput()
             return
         }
+        if (draft.localImageAttachments.isNotEmpty() &&
+            state.inferenceMode == InferenceMode.Local &&
+            !state.activeLocalModelSupportsVisionInput
+        ) {
+            rejectUnsupportedLocalVisionInput()
+            return
+        }
 
         _uiState.update {
             if (it.pendingSharedInputDraft?.id == draft.id) {
@@ -2347,6 +2410,7 @@ class PocketMindViewModel(
             prompt = message,
             explicitMessagePrivacy = draft.privacy,
             imageAttachments = draft.imageAttachments,
+            localImageAttachments = draft.localImageAttachments,
         )
     }
 
@@ -3979,6 +4043,7 @@ class PocketMindViewModel(
         promptForModel: String,
         history: List<ChatMessage>,
         parameters: GenerationParameters,
+        imageAttachments: List<LocalImageAttachment> = emptyList(),
         onChunk: (String) -> Unit,
     ) {
         runtimeLock.withLock {
@@ -3987,7 +4052,12 @@ class PocketMindViewModel(
                 prompt = promptForModel,
                 parameters = parameters,
             )
-            runtime.send(promptForModel).collect { chunk ->
+            runtime.send(
+                LocalModelRequest(
+                    prompt = promptForModel,
+                    imageAttachments = imageAttachments,
+                ),
+            ).collect { chunk ->
                 onChunk(chunk)
             }
         }
@@ -5006,7 +5076,7 @@ private fun SharedInput.composerSummary(): String {
 private fun SharedAttachment.composerSummaryLabel(): String {
     val base = safeDisplayNameForPrompt() ?: kind.label
     return when {
-        kind == SharedAttachmentKind.Image && imageAttachment != null -> "$base · 图片"
+        kind == SharedAttachmentKind.Image && (imageAttachment != null || localImageAttachment != null) -> "$base · 图片"
         kind == SharedAttachmentKind.Image && textPreview == null -> "$base · 不支持视觉"
         kind == SharedAttachmentKind.Image -> "$base · OCR"
         else -> base
@@ -5016,8 +5086,14 @@ private fun SharedAttachment.composerSummaryLabel(): String {
 private fun SharedInput.remoteImageAttachments(): List<ChatImageAttachment> =
     attachments.mapNotNull { attachment -> attachment.imageAttachment }
 
+private fun SharedInput.localImageAttachments(): List<LocalImageAttachment> =
+    attachments.mapNotNull { attachment -> attachment.localImageAttachment }
+
 private fun SharedInput.hasRemoteImageAttachment(): Boolean =
     attachments.any { attachment -> attachment.imageAttachment != null }
+
+private fun SharedInput.hasLocalImageAttachment(): Boolean =
+    attachments.any { attachment -> attachment.localImageAttachment != null }
 
 private fun SharedInput.hasProtectedImageSource(): Boolean =
     protectedImageSourceCount > 0

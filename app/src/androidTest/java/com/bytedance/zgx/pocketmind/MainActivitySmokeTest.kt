@@ -38,7 +38,7 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("app_title").assertIsDisplayed()
         composeRule.onNodeWithTag("app_positioning_subtitle").assertIsDisplayed()
         composeRule.waitForText("隐私优先的随身 AI 助手")
-        composeRule.waitForText("本地可用，远程多模态可选，设备动作必须确认执行", substring = true)
+        composeRule.waitForText("本地对话和本地视觉可用，远程多模态可选，设备动作必须确认执行", substring = true)
         composeRule.waitForText("模型未就绪")
         composeRule.onNodeWithTag("home_positioning_panel").performScrollTo().assertIsDisplayed()
         composeRule.waitForText("为什么装它")
@@ -57,7 +57,7 @@ class MainActivitySmokeTest {
         composeRule.waitForTag("model_manager_sheet")
 
         composeRule.onNodeWithText("模型管理").assertIsDisplayed()
-        composeRule.waitForText("本地离线可用；远程多模态可选。远程发送和设备动作仍会先确认。")
+        composeRule.waitForText("本地对话和本地视觉可用，可离线使用；远程多模态可选。远程发送和设备动作仍会先确认。")
         composeRule.waitForText("当前模型")
         composeRule.onNodeWithTag("model_tab_advanced").performClick()
         composeRule.waitForText("生成参数")

@@ -6,7 +6,8 @@ model, and only executes device actions after explicit confirmation.
 
 The reason to install PocketMind is not "another chatbot". It is a phone-side
 assistant for private, everyday context: basic questions can work locally after
-a model is downloaded or imported, remote image/chat support is opt-in, and
+a model is downloaded or imported, verified local vision models can handle
+user-provided images on device, remote image/chat support is opt-in, and
 contacts, calendar, screen, media, reminders, sharing, and app-opening actions
 stay behind local permission and confirmation gates.
 
@@ -16,8 +17,9 @@ Google AI Edge LiteRT-LM.
 ## Product Contract
 
 - **Local by default:** basic questions can run from a downloaded or imported
-  local model, and chat history, memory, and local tool results stay on device
-  unless the user chooses a remote path.
+  local model, verified local vision models can process user-provided images on
+  device, and chat history, memory, and local tool results stay on device unless
+  the user chooses a remote path.
 - **Remote is optional:** remote chat and image understanding require an
   explicitly configured OpenAI-compatible endpoint; every remote send shows
   what can leave the phone before it is sent.
@@ -41,9 +43,13 @@ Google AI Edge LiteRT-LM.
 - Custom `.litertlm` download links and local file import.
 - Model manager for switching downloaded or imported models.
 - Configurable streaming remote chat backend for OpenAI-compatible `/v1/chat/completions` services.
-- Remote image sharing defaults to sending image attachments to a configured
-  vision-capable remote model. If that remote profile disables image input,
-  PocketMind records a LocalOnly notice and does not force OCR as a fallback.
+- Local image input sends bounded user-provided image bytes directly to a
+  verified local vision-capable LiteRT-LM chat model; the image bytes are not
+  serialized into the prompt, history, audit, or receipt.
+- Remote image sharing remains opt-in: image attachments are sent only to a
+  configured vision-capable remote model after the remote-send preview is
+  confirmed. If the local or remote profile disables image input, PocketMind
+  records a LocalOnly notice and does not force OCR as a fallback.
 - Lightweight local memory recall over previous conversation context.
 - Experimental local mobile action planning with deterministic rule fallback and explicit confirmation.
 - Schema-driven tool validation plus Agent run tracing for plan-confirm-observe execution, safety checks, read-only bounded retry, and persistent audit events.
@@ -127,9 +133,9 @@ Google AI Edge LiteRT-LM.
 - Android share-target and in-app attachment picker entries for bounded shared text,
   bounded local `text/*` plus JSON/XML/YAML text-like application excerpts,
   RTF/PDF text-layer, PDF scanned-page OCR fallback, and Office Open XML
-  excerpts, and bounded local OCR excerpts from user-provided `image/*`
-  attachments; audio, video, legacy Office, and binary attachments remain
-  metadata-only, plus confirmed outbound system sharing for text.
+  excerpts, plus bounded local image bytes for verified local vision models;
+  audio, video, legacy Office, and binary attachments remain metadata-only, plus
+  confirmed outbound system sharing for text.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
 - Local chat sessions with create, switch, and delete actions.
 - Stop button while a response is being generated.
@@ -359,9 +365,10 @@ through the in-app attachment picker, are staged as explicit composer drafts
 before any model call. PocketMind records bounded user-visible shared text, may produce
 bounded local text excerpts for `text/*` plus JSON/XML/YAML text-like
 application documents, bounded local text-layer excerpts for user-provided RTF,
-PDF text layers, and `.docx` / `.xlsx` / `.pptx` files, may produce bounded
-local OCR excerpts for user-provided `image/*` attachments, and may fall back to
-bounded scanned-page OCR for user-provided PDFs with no readable text layer.
+PDF text layers, and `.docx` / `.xlsx` / `.pptx` files, may pass bounded
+user-provided `image/*` bytes to a verified local vision model, and may fall
+back to bounded scanned-page OCR for user-provided PDFs with no readable text
+layer.
 When a provider returns no MIME type or only `application/octet-stream`,
 PocketMind uses the display-name extension to recover common image, text, PDF,
 RTF, and Office Open XML types before deciding whether a bounded local excerpt
@@ -369,15 +376,19 @@ is possible.
 It keeps attachment metadata for local processing. Binary, audio, video, legacy
 Office, and other unsupported attachments remain metadata-only. Automatically
 generated shared-input excerpts and metadata are
-marked `LocalOnly`. In remote mode, user-provided `image/*` attachments are
-read only after the provider identifies them as images, bounded to an 8 MB data
-URL, and sent directly to the remote vision model request without local OCR.
-If the remote model or API rejects image input, PocketMind reports that image
-input failed instead of falling back to OCR. Remote mode still protects shared
-text, non-image attachments, attachment text excerpts, and OCR excerpts at the
-reader boundary: it does not read or automatically send those contents before
-showing a local privacy notice. Local mode also requires the user to tap send
-before the staged shared-input prompt enters chat generation. LocalOnly
+marked `LocalOnly`. In local mode, user-provided `image/*` attachments are read
+only when the active installed model is a verified recommended profile that
+declares vision input; each image is bounded to 8 MB and sent to LiteRT-LM as an
+image content part, not as base64 or metadata in the prompt. In remote mode,
+user-provided `image/*` attachments are read only after the provider identifies
+them as images, bounded to an 8 MB data URL, and sent directly to the remote
+vision model request without local OCR. If the local or remote model/API rejects
+image input, PocketMind reports that image input failed instead of falling back
+to OCR. Remote mode still protects shared text, non-image attachments,
+attachment text excerpts, and OCR excerpts at the reader boundary: it does not
+read or automatically send those contents before showing a local privacy notice.
+Local mode also requires the user to tap send before the staged shared-input
+prompt enters chat generation. LocalOnly
 conversation text is excluded from automatic memory recall and from verbatim
 session-title derivation; explicit long-term facts/preferences still use their
 own memory controls.
@@ -412,7 +423,7 @@ confirmed clipboard/device-context reads, outbound text sharing, safe HTTPS
 deep-link navigation, package-level app launches, Android share intent and
 in-app picker text plus bounded `text/*` and JSON/XML/YAML document excerpt
 ingestion, bounded RTF/PDF text-layer, PDF scanned-page OCR fallback, and
-Office Open XML excerpts,
+Office Open XML excerpts, local vision image input for verified chat models,
 system speech-recognition input,
 confirmed recent screenshot/image OCR, confirmed one-shot current-screen
 screenshot OCR, and restart restoration for the latest pending tool confirmation
@@ -423,9 +434,10 @@ outcome recording before completion-dependent next-tool planning.
 Broad semantic screen understanding, arbitrary argument-bearing typed run recovery, complete
 document parsing, current-screen semantic understanding, continuous screen
 capture, PDF layout parsing, legacy Office parsing, full rich-text fidelity,
-image semantic understanding, arbitrary-media OCR beyond user-provided PDF/image
-attachments and confirmed recent/current-screen image reads, and media content
-understanding are tracked there as pending core modules.
+arbitrary-media OCR beyond user-provided PDF fallback and confirmed
+recent/current-screen image reads, and media content understanding are tracked
+there as pending core modules. Local image understanding is limited to
+user-provided images sent to verified local vision chat models.
 
 ## Recommended Models
 
@@ -439,10 +451,13 @@ models:
 - [高质量对话模型 E4B](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm)
 
 The downloaded files are large, and the recommended local chat path currently
-starts with the E2B model. Users who want to try the app before downloading a
-multi-GB local chat model can configure an OpenAI-compatible remote model, or
-import a trusted compatible `.litertlm` file. The smaller memory/action assets
-are not chat-model substitutes.
+starts with the E2B model. The verified E2B and E4B chat profiles are declared
+as local text+vision models and can receive bounded user-provided images on
+device. Users who want to try the app before downloading a multi-GB local chat
+model can configure an OpenAI-compatible remote model, or import a trusted
+compatible `.litertlm` file. Custom and unverified imports remain text-only
+until a catalog profile explicitly declares vision support. The smaller
+memory/action assets are not chat-model substitutes.
 
 | Capability | File | Size |
 | --- | --- | --- |
@@ -652,7 +667,7 @@ app/
     device/                  Minimal non-secret device context snapshots
     download/                DownloadManager boundary
     memory/                  Local memory indexing and search
-    multimodal/              Shared/picked text excerpts and attachment metadata ingestion
+    multimodal/              Shared/picked text, local image payloads, and attachment metadata ingestion
     orchestration/           Chat, memory, and action route selection
     runtime/                 LiteRT-LM runtime boundary
     safety/                  Tool safety policy and confirmation decisions

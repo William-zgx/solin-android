@@ -580,6 +580,7 @@ class PocketMindDatabaseMigrationTest {
             .addMigrations(
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
+                PocketMindDatabase.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()

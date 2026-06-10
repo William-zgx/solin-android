@@ -48,6 +48,7 @@ class CapabilityMatrixDocumentationTest {
                 "local_offline_chat",
                 "explicit_memory",
                 "shared_file_text_input",
+                "local_vision_image_input",
                 "remote_vision_image_input",
                 "voice_transcript_input",
                 "confirmed_device_tools",
@@ -58,6 +59,20 @@ class CapabilityMatrixDocumentationTest {
             ),
             documentedIds,
         )
+    }
+
+    @Test
+    fun localVisionImageInputRequiresLocalModelAndDoesNotForceOcr() {
+        val descriptor = CapabilityMatrix.productDescriptors.single {
+            it.capabilityId == "local_vision_image_input"
+        }
+
+        assertTrue(descriptor.requiresLocalModel)
+        assertFalse(descriptor.remoteEligible)
+        assertEquals(ConfirmationPolicy.NotRequired, descriptor.confirmationPolicy)
+        assertTrue(descriptor.failureBehavior.contains("已验证"))
+        assertTrue(descriptor.failureBehavior.contains("8 MB"))
+        assertTrue(descriptor.failureBehavior.contains("不强制 OCR"))
     }
 
     @Test

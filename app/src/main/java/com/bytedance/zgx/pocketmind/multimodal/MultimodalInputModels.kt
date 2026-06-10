@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.multimodal
 
 import com.bytedance.zgx.pocketmind.ChatImageAttachment
+import com.bytedance.zgx.pocketmind.LocalImageAttachment
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -23,7 +24,9 @@ data class SharedInput(
 
     fun toPrompt(): String {
         val sharedText = text.toBoundedSharedText()
-        val hasAttachedImages = attachments.any { attachment -> attachment.imageAttachment != null }
+        val hasAttachedImages = attachments.any { attachment ->
+            attachment.imageAttachment != null || attachment.localImageAttachment != null
+        }
         val attachmentBlock = attachments
             .take(MAX_ATTACHMENTS_IN_PROMPT)
             .mapIndexed { index, attachment ->
@@ -67,7 +70,7 @@ data class SharedInput(
             } else if (attachments.isNotEmpty()) {
                 if (isNotEmpty()) append("\n\n")
                 if (hasAttachedImages) {
-                    append("请根据我分享的图片和附件信息进行处理；图片已随本次请求发送给模型。如果当前模型或接口不支持图片输入，请直接说明不支持。")
+                    append("请根据我分享的图片和附件信息进行处理；图片已随本次请求提供给模型。如果当前模型不支持图片输入，请直接说明不支持。")
                 } else {
                     append("请根据我分享的附件信息和可用文字摘录进行处理；如果包含图片，请明确说明当前模型不支持视觉输入，且不会自动 OCR。")
                 }
@@ -76,7 +79,7 @@ data class SharedInput(
                 append("\n\n")
                 if (hasAttachedImages) {
                     append(
-                        "已分享附件（图片会随本次远程模型请求发送；分享文本、非图片附件、文本摘录和 OCR 均未发送）：\n",
+                        "已分享附件（图片会随本次模型请求提供；分享文本、非图片附件、文本摘录和 OCR 均未发送）：\n",
                     )
                 } else {
                     append(
@@ -84,6 +87,31 @@ data class SharedInput(
                     )
                 }
                 append(attachmentBlock)
+            }
+        }.trim()
+    }
+
+    fun toLocalVisionPrompt(): String {
+        val sharedText = text.toBoundedSharedText()
+        val localImageCount = attachments.count { attachment -> attachment.localImageAttachment != null }
+        return buildString {
+            if (localImageCount > 0) {
+                append("已附加 $localImageCount 张图片。请直接根据图片内容处理；图片只会在本机交给本地模型，不会发送远端。如果当前模型不支持图片输入，请明确说明不支持。")
+            }
+            if (sharedText.text.isNotBlank()) {
+                if (isNotEmpty()) append("\n\n")
+                if (sharedText.truncated) {
+                    append("分享文本（已截断）：\n")
+                }
+                append(sharedText.text)
+            }
+            if (protectedImageSourceCount > 0) {
+                if (isNotEmpty()) append("\n\n")
+                append("另有受保护图片未读取或发送。")
+            }
+            if (protectedSourceCount > 0) {
+                if (isNotEmpty()) append("\n\n")
+                append("另有 $protectedSourceCount 个非图片或分享来源已被保护，本次未读取其文本、附件元数据、文本摘录或 OCR。")
             }
         }.trim()
     }
@@ -113,7 +141,7 @@ data class SharedInput(
 private fun SharedAttachment.unavailablePreviewNotice(): String? =
     when (kind) {
         SharedAttachmentKind.Image ->
-            if (imageAttachment != null) {
+            if (imageAttachment != null || localImageAttachment != null) {
                 "图片已附加到本次模型请求；如果当前模型或接口不支持图片输入，请直接说明不支持。"
             } else {
                 "当前模型不支持视觉输入；未读取图片内容，也不会自动 OCR。需要文字识别时，请显式使用 OCR 工具。"
@@ -157,6 +185,7 @@ data class SharedAttachment(
     val sizeBytes: Long?,
     val textPreview: SharedTextPreview? = null,
     val imageAttachment: ChatImageAttachment? = null,
+    val localImageAttachment: LocalImageAttachment? = null,
 ) {
     fun safeDisplayNameForPrompt(): String? {
         val normalized = displayName

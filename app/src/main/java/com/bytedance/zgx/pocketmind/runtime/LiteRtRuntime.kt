@@ -5,6 +5,7 @@ import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.GenerationStats
 import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
+import com.bytedance.zgx.pocketmind.LocalImageAttachment
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.isUsable
 import com.google.ai.edge.litertlm.Backend
@@ -22,8 +23,17 @@ import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
+data class LocalModelRequest(
+    val prompt: String,
+    val imageAttachments: List<LocalImageAttachment> = emptyList(),
+)
+
 interface LocalChatRuntime {
     val isLoaded: Boolean
+
+    fun configureModelCapabilities(
+        supportsVisionInput: Boolean,
+    ) = Unit
 
     fun load(
         modelPath: String,
@@ -47,6 +57,9 @@ interface LocalChatRuntime {
 
     fun send(prompt: String): Flow<String>
 
+    fun send(request: LocalModelRequest): Flow<String> =
+        send(request.prompt)
+
     fun lastGenerationStats(): GenerationStats?
 
     fun stop()
@@ -64,9 +77,16 @@ class RealLiteRtRuntime(
     private var currentBackend: BackendChoice? = null
     private var lastLoadMs: Long? = null
     private var lastFirstTokenMs: Long? = null
+    private var supportsVisionInput: Boolean = false
 
     override val isLoaded: Boolean
         get() = engine != null && conversation != null
+
+    override fun configureModelCapabilities(
+        supportsVisionInput: Boolean,
+    ) {
+        this.supportsVisionInput = supportsVisionInput
+    }
 
     override fun load(
         modelPath: String,
@@ -76,7 +96,14 @@ class RealLiteRtRuntime(
     ) {
         close()
         val loadStartedAtNanos = System.nanoTime()
-        val createdEngine = Engine(defaultEngineConfig(modelPath = modelPath, backend = backend, cacheDir = cacheDir))
+        val createdEngine = Engine(
+            defaultEngineConfig(
+                modelPath = modelPath,
+                backend = backend,
+                cacheDir = cacheDir,
+                supportsVisionInput = supportsVisionInput,
+            ),
+        )
         try {
             createdEngine.initialize()
             engine = createdEngine
@@ -118,11 +145,22 @@ class RealLiteRtRuntime(
         conversation = currentEngine.createConversation(defaultConversationConfig(history, parameters, currentPrompt))
     }
 
-    override fun send(prompt: String): Flow<String> {
+    override fun send(prompt: String): Flow<String> =
+        send(LocalModelRequest(prompt = prompt))
+
+    override fun send(request: LocalModelRequest): Flow<String> {
         val activeConversation = conversation ?: error("模型尚未就绪")
+        if (request.imageAttachments.isNotEmpty() && !supportsVisionInput) {
+            error("当前本地模型不支持图片输入")
+        }
         val startedAtNanos = System.nanoTime()
         lastFirstTokenMs = null
-        return activeConversation.sendMessageAsync(prompt)
+        val responseFlow = if (request.imageAttachments.isEmpty()) {
+            activeConversation.sendMessageAsync(request.prompt)
+        } else {
+            activeConversation.sendMessageAsync(request.toLiteRtContents())
+        }
+        return responseFlow
             .map { chunk ->
                 val text = chunk.textContent().ifBlank { chunk.toString() }
                 if (text.isNotBlank() && lastFirstTokenMs == null) {
@@ -174,11 +212,14 @@ internal fun defaultEngineConfig(
     modelPath: String,
     backend: BackendChoice,
     cacheDir: File,
+    supportsVisionInput: Boolean = false,
 ): EngineConfig =
     EngineConfig(
         modelPath = modelPath,
         backend = backend.toLiteRtBackend(),
+        visionBackend = if (supportsVisionInput) backend.toLiteRtBackend() else null,
         maxNumTokens = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
+        maxNumImages = if (supportsVisionInput) MAX_LOCAL_MODEL_IMAGES else null,
         cacheDir = cacheDir.absolutePath,
     )
 
@@ -297,11 +338,22 @@ private fun BackendChoice.toLiteRtBackend(): Backend =
         BackendChoice.GPU -> Backend.GPU()
     }
 
+private fun LocalModelRequest.toLiteRtContents(): Contents =
+    Contents.of(
+        buildList {
+            if (prompt.isNotBlank()) add(Content.Text(prompt))
+            imageAttachments.take(MAX_LOCAL_MODEL_IMAGES).forEach { image ->
+                add(Content.ImageBytes(image.bytes))
+            }
+        },
+    )
+
 private fun com.google.ai.edge.litertlm.Message.textContent(): String =
     contents.contents
         .filterIsInstance<Content.Text>()
         .joinToString(separator = "") { it.text }
 
 private const val MESSAGE_TOKEN_OVERHEAD = 4
+private const val MAX_LOCAL_MODEL_IMAGES = 5
 private const val ASCII_CHARS_PER_TOKEN = 4
 private const val MIN_TRIMMED_MESSAGE_TOKENS = 64

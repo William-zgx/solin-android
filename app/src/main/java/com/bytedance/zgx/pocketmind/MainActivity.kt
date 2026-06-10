@@ -290,6 +290,7 @@ class MainActivity : ComponentActivity() {
     private fun sharedInputReadMode(): SharedInputReadMode =
         sharedInputReadModeFor(
             inferenceMode = viewModel.uiState.value.inferenceMode,
+            localSupportsVisionInput = viewModel.uiState.value.activeLocalModelSupportsVisionInput,
             remoteConfigured = viewModel.uiState.value.remoteModelConfig.isConfigured,
             remoteSupportsVisionInput = viewModel.uiState.value.remoteModelConfig.modelProfile().supportsVisionInput,
         )
@@ -604,10 +605,12 @@ class MainActivity : ComponentActivity() {
 
 internal fun sharedInputReadModeFor(
     inferenceMode: InferenceMode,
+    localSupportsVisionInput: Boolean = false,
     remoteConfigured: Boolean,
     remoteSupportsVisionInput: Boolean,
 ): SharedInputReadMode =
     when {
+        inferenceMode != InferenceMode.Remote && localSupportsVisionInput -> SharedInputReadMode.LocalVision
         inferenceMode != InferenceMode.Remote -> SharedInputReadMode.LocalPrompt
         remoteConfigured && remoteSupportsVisionInput -> SharedInputReadMode.RemoteVision
         else -> SharedInputReadMode.RemoteVisionUnsupportedSignal

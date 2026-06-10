@@ -120,6 +120,22 @@ class ModelRepositoryTest {
     }
 
     @Test
+    fun modelDownloadSourceUsesFileNameWhenRecommendedModelIdIsUnknown() {
+        withTempModelFile("model") { file ->
+            val source = ModelDownloadSource(
+                title = "未知模型",
+                fileName = file.name,
+                downloadUrl = "https://models.example.com/${file.name}",
+                expectedBytes = file.length(),
+                expectedSha256 = null,
+                modelId = "unknown-model-id",
+            )
+
+            assertEquals(file.nameWithoutExtension, source.installedDisplayName(file))
+        }
+    }
+
+    @Test
     fun importModelFileRejectsNonLiteRtLmDisplayNameBeforeCopy() {
         withTempModelDir { modelDir ->
             var copyCalled = false

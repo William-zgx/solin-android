@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.multimodal
 
 import com.bytedance.zgx.pocketmind.ChatImageAttachment
+import com.bytedance.zgx.pocketmind.LocalImageAttachment
 import java.io.ByteArrayOutputStream
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.ZipEntry
@@ -124,11 +125,45 @@ class SharedInputTest {
 
         val prompt = input.toPrompt()
 
-        assertTrue(prompt.contains("图片已随本次请求发送给模型"))
+        assertTrue(prompt.contains("图片已随本次请求"))
+        assertTrue(prompt.contains("提供给模型"))
         assertTrue(prompt.contains("不支持图片输入"))
-        assertTrue(prompt.contains("图片会随本次远程模型请求发送"))
+        assertTrue(prompt.contains("图片会随本次模型请求提供"))
         assertTrue(prompt.contains("screen.png"))
         assertFalse(prompt.contains("只支持图片 OCR"))
+    }
+
+    @Test
+    fun localVisionPromptOmitsAttachmentMetadataAndDoesNotClaimUnsupported() {
+        val input = SharedInput(
+            text = "用户附带说明",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = "image/png",
+                    displayName = "private-screen.png",
+                    sizeBytes = 120L,
+                    localImageAttachment = LocalImageAttachment(
+                        mimeType = "image/png",
+                        bytes = byteArrayOf(1, 2, 3),
+                        sizeBytes = 3L,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toLocalVisionPrompt()
+
+        assertTrue(prompt.contains("已附加 1 张图片"))
+        assertTrue(prompt.contains("本地模型"))
+        assertTrue(prompt.contains("不会发送远端"))
+        assertTrue(prompt.contains("用户附带说明"))
+        assertFalse(prompt.contains("private-screen.png"))
+        assertFalse(prompt.contains("image/png"))
+        assertFalse(prompt.contains("120"))
+        assertFalse(prompt.contains("不会自动 OCR"))
+        assertFalse(prompt.contains("data:image"))
+        assertFalse(prompt.contains("base64"))
     }
 
     @Test

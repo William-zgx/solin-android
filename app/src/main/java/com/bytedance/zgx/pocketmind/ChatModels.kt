@@ -63,6 +63,17 @@ data class ChatImageAttachment(
     val dataUrl: String,
 )
 
+data class LocalImageAttachment(
+    val mimeType: String,
+    val bytes: ByteArray,
+    val sizeBytes: Long? = null,
+) {
+    init {
+        require(mimeType.startsWith("image/")) { "Local image attachment must use an image MIME type" }
+        require(bytes.isNotEmpty()) { "Local image attachment cannot be empty" }
+    }
+}
+
 fun List<ChatMessage>.remoteEligibleMessages(): List<ChatMessage> =
     filter { it.privacy == MessagePrivacy.RemoteEligible }
 
@@ -178,6 +189,7 @@ data class SharedInputDraft(
     val prompt: String,
     val summary: String,
     val imageAttachments: List<ChatImageAttachment> = emptyList(),
+    val localImageAttachments: List<LocalImageAttachment> = emptyList(),
     val privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
 )
 
@@ -288,12 +300,13 @@ data class InstalledModelSummary(
 
     val capability: ModelCapability
         get() = recommendedModelId
-            ?.let { ModelCatalog.recommendedModelById(it).capability }
+            ?.let { ModelCatalog.recommendedModelOrNull(it)?.capability }
             ?: ModelCapability.Chat
 
     val isUsable: Boolean
         get() = recommendedModelId == null ||
-            verificationStatus == ModelVerificationStatus.VerifiedRecommended
+            (ModelCatalog.recommendedModelOrNull(recommendedModelId) != null &&
+                verificationStatus == ModelVerificationStatus.VerifiedRecommended)
 }
 
 data class ChatUiState(
@@ -359,6 +372,14 @@ data class ChatUiState(
 
     val optionalChatModels: List<RecommendedModel>
         get() = ModelCatalog.optionalChatModels()
+
+    val activeLocalModelSupportsVisionInput: Boolean
+        get() = installedModels
+            .firstOrNull { it.id == activeInstalledModelId }
+            ?.takeIf { it.isUsable }
+            ?.recommendedModelId
+            ?.let { ModelCatalog.profileForModelIdOrNull(it)?.supportsVisionInput }
+            ?: false
 
     val installedCapabilities: Set<ModelCapability>
         get() = installedModels

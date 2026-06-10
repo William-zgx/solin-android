@@ -25,6 +25,7 @@ class ChatUiStateModelVerificationTest {
     @Test
     fun unverifiedRecommendedModelsDoNotCountAsInstalledOrCapabilities() {
         val state = ChatUiState(
+            activeInstalledModelId = "legacy-chat",
             installedModels = listOf(
                 installedModel(
                     id = "legacy-chat",
@@ -41,6 +42,25 @@ class ChatUiStateModelVerificationTest {
 
         assertFalse(state.isModelInstalled(DEFAULT_CHAT_MODEL_ID))
         assertFalse(state.isModelInstalled(MEMORY_EMBEDDING_MODEL_ID))
+        assertFalse(state.activeLocalModelSupportsVisionInput)
+        assertTrue(state.installedCapabilities.isEmpty())
+    }
+
+    @Test
+    fun unknownRecommendedModelIdDoesNotCountAsInstalledOrCapabilities() {
+        val state = ChatUiState(
+            activeInstalledModelId = "unknown",
+            installedModels = listOf(
+                installedModel(
+                    id = "unknown",
+                    recommendedModelId = "unknown-model-id",
+                    verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+                ),
+            ),
+        )
+
+        assertFalse(state.isModelInstalled("unknown-model-id"))
+        assertFalse(state.activeLocalModelSupportsVisionInput)
         assertTrue(state.installedCapabilities.isEmpty())
     }
 

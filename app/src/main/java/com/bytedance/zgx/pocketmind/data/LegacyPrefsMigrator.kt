@@ -98,7 +98,7 @@ class LegacyPrefsMigrator(
                             ?: recommendedId
                             ?: "local-${Integer.toHexString(path.hashCode())}",
                         displayName = json.optString("displayName").takeIf { it.isNotBlank() }
-                            ?: recommendedId?.let { ModelCatalog.recommendedModelById(it).shortName }
+                            ?: recommendedId?.let { ModelCatalog.recommendedModelOrNull(it)?.shortName }
                             ?: file.nameWithoutExtension,
                         path = path,
                         recommendedModelId = recommendedId,
@@ -125,7 +125,7 @@ class LegacyPrefsMigrator(
         recommendedModelId: String?,
     ) {
         val file = File(path)
-        val model = recommendedModelId?.let { ModelCatalog.recommendedModelById(it) }
+        val model = recommendedModelId?.let { ModelCatalog.recommendedModelOrNull(it) }
         database.modelDao().upsert(
             InstalledModelEntity(
                 id = id,
