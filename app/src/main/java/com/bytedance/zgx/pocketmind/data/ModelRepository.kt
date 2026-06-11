@@ -207,6 +207,30 @@ class ModelRepository(
         return activateInstalledModel(installed)
     }
 
+    override fun deleteInstalledModel(modelId: String): Boolean {
+        val installed = modelDao.model(modelId) ?: return false
+        val wasActive = settingsStore.activeInstalledModelId() == installed.id
+        val file = File(installed.path)
+        if (!canDeleteInstalledModelFile(file, managedModelRoots())) return false
+        val fileDeleted = !file.exists() || file.delete()
+        if (!fileDeleted) return false
+        currentFileVerificationCache.keys
+            .filter { key -> key.startsWith("${installed.id}:") }
+            .forEach(currentFileVerificationCache::remove)
+        modelDao.delete(installed.id)
+        if (wasActive) {
+            val fallback = installedModels().firstOrNull { entity ->
+                File(entity.path).exists() && entity.canBecomeActiveChatModel()
+            }
+            if (fallback != null) {
+                activateInstalledModel(fallback)
+            } else {
+                settingsStore.saveActiveInstalledModelId(null)
+            }
+        }
+        return true
+    }
+
     override fun registerInstalledModel(
         path: String,
         displayName: String,
@@ -503,6 +527,12 @@ class ModelRepository(
         }?.forEach { it.delete() }
     }
 
+    private fun managedModelRoots(): List<File> =
+        listOfNotNull(
+            modelDir,
+            appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
+        )
+
     private fun ModelDownloadSource.toJson(): JSONObject =
         JSONObject()
             .put("title", title)
@@ -597,6 +627,19 @@ private fun currentFileMatchesVerifiedRecommendedModel(
     return file.exists() &&
         file.length() == model.byteSize &&
         ModelCatalog.matchesExpectedSha256(file, model.sha256Hex)
+}
+
+internal fun canDeleteInstalledModelFile(
+    file: File,
+    managedRoots: List<File>,
+): Boolean {
+    if (!ModelCatalog.isAcceptedModelName(file.name)) return false
+    val canonicalFile = runCatching { file.canonicalFile }.getOrNull() ?: return false
+    return managedRoots.any { root ->
+        val canonicalRoot = runCatching { root.canonicalFile }.getOrNull() ?: return@any false
+        canonicalFile.toPath().startsWith(canonicalRoot.toPath()) &&
+            canonicalFile != canonicalRoot
+    }
 }
 
 private data class CurrentFileVerification(

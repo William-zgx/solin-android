@@ -7,8 +7,11 @@ import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.ModelCatalog
 import com.bytedance.zgx.pocketmind.RecommendedModel
 import java.io.File
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ModelRepositoryPathTest {
@@ -172,6 +175,27 @@ class ModelRepositoryPathTest {
         }
     }
 
+    @Test
+    fun canDeleteInstalledModelFileAllowsOnlyManagedLiteRtLmFiles() {
+        withTempModelDir { internalRoot ->
+            withTempModelDir { externalRoot ->
+                withTempModelDir { outsideRoot ->
+                    val internalModel = File(internalRoot, "chat.litertlm").apply { writeText("model") }
+                    val externalModel = File(externalRoot, "downloaded.litertlm").apply { writeText("model") }
+                    val outsideModel = File(outsideRoot, "outside.litertlm").apply { writeText("model") }
+                    val nonModelFile = File(internalRoot, "notes.txt").apply { writeText("text") }
+                    val roots = listOf(internalRoot, externalRoot)
+
+                    assertTrue(canDeleteInstalledModelFile(internalModel, roots))
+                    assertTrue(canDeleteInstalledModelFile(externalModel, roots))
+                    assertFalse(canDeleteInstalledModelFile(outsideModel, roots))
+                    assertFalse(canDeleteInstalledModelFile(nonModelFile, roots))
+                    assertFalse(canDeleteInstalledModelFile(internalRoot, roots))
+                }
+            }
+        }
+    }
+
     private fun installedModel(
         id: String,
         path: String,
@@ -213,6 +237,15 @@ class ModelRepositoryPathTest {
             block(file)
         } finally {
             file.delete()
+        }
+    }
+
+    private fun withTempModelDir(block: (File) -> Unit) {
+        val dir = Files.createTempDirectory("pocketmind-model-root").toFile()
+        try {
+            block(dir)
+        } finally {
+            dir.deleteRecursively()
         }
     }
 }

@@ -31,6 +31,7 @@ interface ModelStore {
     fun selectedRecommendedModel(): com.bytedance.zgx.pocketmind.RecommendedModel
     fun selectRecommendedModel(modelId: String): ModelSelectionResult
     fun selectInstalledModel(modelId: String): com.bytedance.zgx.pocketmind.InstalledModelSummary?
+    fun deleteInstalledModel(modelId: String): Boolean
     fun registerInstalledModel(
         path: String,
         displayName: String,

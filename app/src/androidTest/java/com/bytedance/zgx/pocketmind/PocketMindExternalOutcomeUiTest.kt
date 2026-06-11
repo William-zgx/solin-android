@@ -67,6 +67,7 @@ class PocketMindExternalOutcomeUiTest {
                     onLoadModel = {},
                     onRecommendedModelSelected = {},
                     onInstalledModelSelected = {},
+                    onDeleteInstalledModel = {},
                     onInferenceModeSelected = {},
                     onRemoteModelConfigChanged = {},
                     onTestRemoteModelConnectivity = {},

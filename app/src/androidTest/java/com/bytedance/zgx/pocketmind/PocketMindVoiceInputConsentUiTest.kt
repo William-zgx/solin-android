@@ -120,6 +120,7 @@ class PocketMindVoiceInputConsentUiTest {
                     onLoadModel = {},
                     onRecommendedModelSelected = {},
                     onInstalledModelSelected = {},
+                    onDeleteInstalledModel = {},
                     onInferenceModeSelected = {},
                     onRemoteModelConfigChanged = {},
                     onTestRemoteModelConnectivity = {},

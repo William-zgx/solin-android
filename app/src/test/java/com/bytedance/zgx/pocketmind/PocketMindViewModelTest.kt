@@ -110,6 +110,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -663,6 +664,127 @@ class PocketMindViewModelTest {
 
         assertFalse(viewModel.uiState.value.showFirstRunSetup)
         assertTrue(firstRunStore.isSetupDismissed())
+    }
+
+    @Test
+    fun deleteActiveInstalledModelClosesRuntimeAndFallsBackToNextUsableModel() = runTest(dispatcher) {
+        val active = installedModelSummary(id = "active-chat", displayName = "当前对话", path = "/tmp/active.litertlm")
+        val fallback = installedModelSummary(id = "fallback-chat", displayName = "备用对话", path = "/tmp/fallback.litertlm")
+        val modelRepository = FakeModelRepository(
+            activeInstalledModelId = active.id,
+            initialInstalledModels = listOf(active, fallback),
+        )
+        val runtime = FakeLiteRtRuntime()
+        val viewModel = createViewModel(
+            modelRepository = modelRepository,
+            runtime = runtime,
+        )
+
+        viewModel.loadModel()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isReady)
+
+        viewModel.deleteInstalledModel(active.id)
+        advanceUntilIdle()
+
+        assertEquals(listOf(active.id), modelRepository.deletedModelIds)
+        assertEquals(1, runtime.closeCallCount)
+        assertEquals(fallback.id, viewModel.uiState.value.activeInstalledModelId)
+        assertEquals(fallback.path, viewModel.uiState.value.modelPath)
+        assertEquals(listOf(fallback.id), viewModel.uiState.value.installedModels.map { it.id })
+        assertFalse(viewModel.uiState.value.isReady)
+        assertTrue(viewModel.uiState.value.statusText.contains("已删除 当前对话"))
+        assertTrue(viewModel.uiState.value.statusText.contains("已切换到 备用对话"))
+    }
+
+    @Test
+    fun deleteInactiveInstalledModelKeepsActiveRuntimeReady() = runTest(dispatcher) {
+        val active = installedModelSummary(id = "active-chat", displayName = "当前对话", path = "/tmp/active.litertlm")
+        val extra = installedModelSummary(id = "extra-chat", displayName = "额外对话", path = "/tmp/extra.litertlm")
+        val modelRepository = FakeModelRepository(
+            activeInstalledModelId = active.id,
+            initialInstalledModels = listOf(active, extra),
+        )
+        val runtime = FakeLiteRtRuntime()
+        val viewModel = createViewModel(
+            modelRepository = modelRepository,
+            runtime = runtime,
+        )
+
+        viewModel.loadModel()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isReady)
+
+        viewModel.deleteInstalledModel(extra.id)
+        advanceUntilIdle()
+
+        assertEquals(listOf(extra.id), modelRepository.deletedModelIds)
+        assertEquals(0, runtime.closeCallCount)
+        assertEquals(active.id, viewModel.uiState.value.activeInstalledModelId)
+        assertEquals(active.path, viewModel.uiState.value.modelPath)
+        assertEquals(listOf(active.id), viewModel.uiState.value.installedModels.map { it.id })
+        assertTrue(viewModel.uiState.value.isReady)
+        assertEquals("已删除 额外对话", viewModel.uiState.value.statusText)
+    }
+
+    @Test
+    fun deleteActiveInstalledModelWithoutFallbackClearsLocalEndpoint() = runTest(dispatcher) {
+        val active = installedModelSummary(id = "active-chat", displayName = "当前对话", path = "/tmp/active.litertlm")
+        val modelRepository = FakeModelRepository(
+            activeInstalledModelId = active.id,
+            initialInstalledModels = listOf(active),
+        )
+        val runtime = FakeLiteRtRuntime()
+        val viewModel = createViewModel(
+            modelRepository = modelRepository,
+            runtime = runtime,
+        )
+
+        viewModel.loadModel()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isReady)
+
+        viewModel.deleteInstalledModel(active.id)
+        advanceUntilIdle()
+
+        assertEquals(listOf(active.id), modelRepository.deletedModelIds)
+        assertEquals(1, runtime.closeCallCount)
+        assertNull(viewModel.uiState.value.activeInstalledModelId)
+        assertNull(viewModel.uiState.value.modelPath)
+        assertTrue(viewModel.uiState.value.installedModels.isEmpty())
+        assertFalse(viewModel.uiState.value.isReady)
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertTrue(viewModel.uiState.value.statusText.contains("请下载或导入本地模型"))
+    }
+
+    @Test
+    fun deleteInstalledModelFailureClearsBusyAndKeepsInstalledRecord() = runTest(dispatcher) {
+        val active = installedModelSummary(id = "active-chat", displayName = "当前对话", path = "/tmp/active.litertlm")
+        val modelRepository = FakeModelRepository(
+            activeInstalledModelId = active.id,
+            initialInstalledModels = listOf(active),
+            deleteResult = false,
+        )
+        val runtime = FakeLiteRtRuntime()
+        val viewModel = createViewModel(
+            modelRepository = modelRepository,
+            runtime = runtime,
+        )
+
+        viewModel.loadModel()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isReady)
+
+        viewModel.deleteInstalledModel(active.id)
+        advanceUntilIdle()
+
+        assertEquals(listOf(active.id), modelRepository.deletedModelIds)
+        assertEquals(1, runtime.closeCallCount)
+        assertEquals(active.id, viewModel.uiState.value.activeInstalledModelId)
+        assertEquals(listOf(active.id), viewModel.uiState.value.installedModels.map { it.id })
+        assertFalse(viewModel.uiState.value.isReady)
+        assertFalse(viewModel.uiState.value.isBusy)
+        assertEquals("删除 当前对话 失败", viewModel.uiState.value.statusText)
     }
 
     @Test
@@ -7303,6 +7425,22 @@ class PocketMindViewModelTest {
             remoteConnectivityProbe = remoteConnectivityProbe,
         )
 
+    private fun installedModelSummary(
+        id: String,
+        displayName: String,
+        path: String,
+        recommendedModelId: String? = null,
+        verificationStatus: ModelVerificationStatus = ModelVerificationStatus.UnverifiedCustom,
+    ): InstalledModelSummary =
+        InstalledModelSummary(
+            id = id,
+            displayName = displayName,
+            path = path,
+            fileBytes = 1L,
+            recommendedModelId = recommendedModelId,
+            verificationStatus = verificationStatus,
+        )
+
     private fun assertRemoteProtectedSharedInput(
         remoteRuntime: RecordingRemoteChatRuntime,
         sessionStore: FakeSessionStore,
@@ -7501,6 +7639,8 @@ class PocketMindViewModelTest {
         val loadCalls = mutableListOf<BackendChoice>()
         var stopCallCount: Int = 0
             private set
+        var closeCallCount: Int = 0
+            private set
         var recreateCallCount: Int = 0
             private set
         override var isLoaded: Boolean = false
@@ -7558,6 +7698,7 @@ class PocketMindViewModelTest {
         }
 
         override fun close() {
+            closeCallCount += 1
             isLoaded = false
         }
     }
@@ -8184,21 +8325,27 @@ class PocketMindViewModelTest {
 
     private class FakeModelRepository(
         activeModelPath: String? = null,
+        activeInstalledModelId: String? = null,
+        initialInstalledModels: List<InstalledModelSummary> = emptyList(),
         private var memoryEmbeddingModelPath: String? = null,
         private val customDownloadSource: ModelDownloadSource? = null,
         private val downloadedModelFileProvider: ((String) -> File?)? = null,
         private var pendingDownloadId: Long = -1L,
         private var pendingDownloadSource: ModelDownloadSource? = null,
+        private val deleteResult: Boolean = true,
     ) : ModelRepositoryFacade {
         val registeredModels = mutableListOf<InstalledModelSummary>()
+        val deletedModelIds = mutableListOf<String>()
         val savedPendingDownloads = mutableListOf<Pair<Long, ModelDownloadSource>>()
         var clearPendingDownloadCount = 0
 
         private var state = ModelSelectionState(
             selectedModelId = DEFAULT_CHAT_MODEL_ID,
-            activeInstalledModelId = null,
-            activeModelPath = activeModelPath,
-            installedModels = emptyList(),
+            activeInstalledModelId = activeInstalledModelId,
+            activeModelPath = activeModelPath ?: initialInstalledModels
+                .firstOrNull { it.id == activeInstalledModelId }
+                ?.path,
+            installedModels = initialInstalledModels,
         )
 
         override fun currentState(): ModelSelectionState = state
@@ -8212,6 +8359,26 @@ class PocketMindViewModelTest {
         }
 
         override fun selectInstalledModel(modelId: String): InstalledModelSummary? = null
+
+        override fun deleteInstalledModel(modelId: String): Boolean {
+            deletedModelIds += modelId
+            if (!deleteResult) return false
+            val deleted = state.installedModels.firstOrNull { it.id == modelId } ?: return false
+            val remaining = state.installedModels.filterNot { it.id == modelId }
+            val fallback = if (state.activeInstalledModelId == deleted.id) {
+                remaining.firstOrNull { model ->
+                    model.capability == ModelCapability.Chat && model.isUsable
+                }
+            } else {
+                remaining.firstOrNull { it.id == state.activeInstalledModelId }
+            }
+            state = state.copy(
+                activeInstalledModelId = fallback?.id,
+                activeModelPath = fallback?.path,
+                installedModels = remaining,
+            )
+            return true
+        }
 
         override fun registerInstalledModel(
             path: String,

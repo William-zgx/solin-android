@@ -947,6 +947,55 @@ class PocketMindViewModel(
         }
     }
 
+    fun deleteInstalledModel(modelId: String) {
+        val stateBeforeDelete = _uiState.value
+        if (stateBeforeDelete.isBusy || stateBeforeDelete.isDownloading || stateBeforeDelete.isGenerating) return
+        val target = stateBeforeDelete.installedModels.firstOrNull { it.id == modelId } ?: return
+        val wasActive = target.id == stateBeforeDelete.activeInstalledModelId
+        _uiState.update {
+            it.copy(
+                isBusy = true,
+                statusText = "正在删除 ${target.displayName}",
+            )
+        }
+        viewModelScope.launch(ioDispatcher) {
+            if (wasActive) {
+                runtimeLock.withLock {
+                    runtime.close()
+                }
+            }
+            val deleted = modelRepository.deleteInstalledModel(modelId)
+            val modelState = modelRepository.currentState()
+            updateModelState(modelState)
+            _uiState.update { current ->
+                if (deleted) {
+                    val fallback = modelState.installedModels.firstOrNull {
+                        it.id == modelState.activeInstalledModelId
+                    }
+                    current.copy(
+                        isReady = if (wasActive) false else current.isReady,
+                        isBusy = false,
+                        isGenerating = false,
+                        statusText = if (wasActive) {
+                            fallback?.let { "已删除 ${target.displayName}，已切换到 ${it.displayName}，点击加载模型" }
+                                ?: "已删除 ${target.displayName}，请下载或导入本地模型"
+                        } else {
+                            "已删除 ${target.displayName}"
+                        },
+                    )
+                } else {
+                    current.copy(
+                        isBusy = false,
+                        isReady = if (wasActive) false else current.isReady,
+                        isGenerating = if (wasActive) false else current.isGenerating,
+                        statusText = "删除 ${target.displayName} 失败",
+                    )
+                }
+            }
+            refreshDeviceStatus()
+        }
+    }
+
     fun loadModel() {
         val path = _uiState.value.modelPath ?: return
         if (_uiState.value.isBusy) return

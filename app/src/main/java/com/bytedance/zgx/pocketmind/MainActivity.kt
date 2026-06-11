@@ -163,6 +163,7 @@ class MainActivity : ComponentActivity() {
                     onLoadModel = viewModel::loadModel,
                     onRecommendedModelSelected = viewModel::selectRecommendedModel,
                     onInstalledModelSelected = viewModel::selectInstalledModel,
+                    onDeleteInstalledModel = viewModel::deleteInstalledModel,
                     onInferenceModeSelected = viewModel::selectInferenceMode,
                     onRemoteModelConfigChanged = viewModel::updateRemoteModelConfig,
                     onTestRemoteModelConnectivity = viewModel::testRemoteModelConnectivity,

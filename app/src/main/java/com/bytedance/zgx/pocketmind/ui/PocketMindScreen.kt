@@ -181,6 +181,7 @@ fun PocketMindScreen(
     onLoadModel: () -> Unit,
     onRecommendedModelSelected: (String) -> Unit,
     onInstalledModelSelected: (String) -> Unit,
+    onDeleteInstalledModel: (String) -> Unit,
     onInferenceModeSelected: (InferenceMode) -> Unit,
     onRemoteModelConfigChanged: (RemoteModelConfig) -> Unit,
     onTestRemoteModelConnectivity: () -> Unit,
@@ -395,6 +396,7 @@ fun PocketMindScreen(
                         onLoadModel = onLoadModel,
                         onRecommendedModelSelected = onRecommendedModelSelected,
                         onInstalledModelSelected = onInstalledModelSelected,
+                        onDeleteInstalledModel = onDeleteInstalledModel,
                         onInferenceModeSelected = onInferenceModeSelected,
                         onRemoteModelConfigChanged = onRemoteModelConfigChanged,
                         onTestRemoteModelConnectivity = onTestRemoteModelConnectivity,
@@ -1727,6 +1729,7 @@ private fun ModelManagerSheet(
     onLoadModel: () -> Unit,
     onRecommendedModelSelected: (String) -> Unit,
     onInstalledModelSelected: (String) -> Unit,
+    onDeleteInstalledModel: (String) -> Unit,
     onInferenceModeSelected: (InferenceMode) -> Unit,
     onRemoteModelConfigChanged: (RemoteModelConfig) -> Unit,
     onTestRemoteModelConnectivity: () -> Unit,
@@ -1820,6 +1823,7 @@ private fun ModelManagerSheet(
                 onDownloadCustomModel = onDownloadCustomModel,
                 onRecommendedModelSelected = onRecommendedModelSelected,
                 onInstalledModelSelected = onInstalledModelSelected,
+                onDeleteInstalledModel = onDeleteInstalledModel,
                 onDownloadRecommendedModel = onDownloadRecommendedModel,
                 onOpenModelPage = onOpenModelPage,
             )
@@ -1878,9 +1882,36 @@ private fun ModelInventoryPanel(
     onDownloadCustomModel: (String) -> Unit,
     onRecommendedModelSelected: (String) -> Unit,
     onInstalledModelSelected: (String) -> Unit,
+    onDeleteInstalledModel: (String) -> Unit,
     onDownloadRecommendedModel: (String) -> Unit,
     onOpenModelPage: () -> Unit,
 ) {
+    var pendingDeleteModel by remember { mutableStateOf<InstalledModelSummary?>(null) }
+    pendingDeleteModel?.let { model ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteModel = null },
+            title = { Text("删除本地模型") },
+            text = {
+                Text("将从设备删除 ${model.displayName} 的模型文件，并从模型列表移除。这个操作不可撤销。")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingDeleteModel = null
+                        onDeleteInstalledModel(model.id)
+                    },
+                    enabled = !state.isBusy,
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteModel = null }) {
+                    Text("取消")
+                }
+            },
+        )
+    }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         DeviceCheck(
             state = state,
@@ -1902,6 +1933,9 @@ private fun ModelInventoryPanel(
                         selected = model.id == state.activeInstalledModelId,
                         enabled = !state.isBusy && model.capability == ModelCapability.Chat && model.isUsable,
                         onClick = { onInstalledModelSelected(model.id) },
+                        onDelete = { pendingDeleteModel = model },
+                        deleteEnabled = !state.isBusy && !state.isDownloading && !state.isGenerating,
+                        deleteButtonTag = "delete_installed_model_${model.id}",
                     )
                 }
             }
@@ -3951,6 +3985,9 @@ private fun ModelRow(
     selected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
+    onDelete: (() -> Unit)? = null,
+    deleteEnabled: Boolean = false,
+    deleteButtonTag: String = "",
 ) {
     val shape = MaterialTheme.shapes.medium
     Surface(
@@ -4006,6 +4043,22 @@ private fun ModelRow(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
                 )
+            }
+            if (onDelete != null) {
+                IconButton(
+                    modifier = Modifier.testTag(deleteButtonTag),
+                    onClick = onDelete,
+                    enabled = deleteEnabled,
+                    colors = IconButtonDefaults.iconButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                    ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "删除模型 $title",
+                    )
+                }
             }
         }
     }
