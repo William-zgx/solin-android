@@ -379,6 +379,9 @@ internal object ModelCatalog {
             DownloadManager.ERROR_TOO_MANY_REDIRECTS -> "下载重定向过多"
             DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "服务器响应异常"
             DownloadManager.ERROR_UNKNOWN -> "未知错误"
+            401 -> "授权无效"
+            403 -> "无权访问"
+            404 -> "文件不存在"
             else -> "代码 $reason"
         }
 }

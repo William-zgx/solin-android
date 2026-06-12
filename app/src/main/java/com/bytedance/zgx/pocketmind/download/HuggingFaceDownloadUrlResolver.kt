@@ -1,0 +1,90 @@
+package com.bytedance.zgx.pocketmind.download
+
+import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
+import okhttp3.Call
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+
+data class PreparedDownloadUrl(
+    val url: String,
+    val authorizationHeader: String?,
+)
+
+class HuggingFaceDownloadUrlResolver(
+    private val callFactory: Call.Factory = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build(),
+) {
+    fun prepare(
+        source: ModelDownloadSource,
+        authorizationHeaderProvider: () -> String?,
+    ): Result<PreparedDownloadUrl> =
+        runCatching {
+            if (!source.requiresHuggingFaceAuthorization) {
+                return@runCatching PreparedDownloadUrl(source.downloadUrl, authorizationHeader = null)
+            }
+            val authorizationHeader = authorizationHeaderProvider()
+                ?.takeIf { it.isNotBlank() }
+                ?: error("需要先完成 Hugging Face 授权")
+            val resolvedUrl = resolveAuthorizedUrl(source.downloadUrl, authorizationHeader)
+            PreparedDownloadUrl(
+                url = resolvedUrl,
+                authorizationHeader = authorizationHeader.takeIf { resolvedUrl == source.downloadUrl },
+            )
+        }
+
+    private fun resolveAuthorizedUrl(url: String, authorizationHeader: String): String {
+        val headResponse = executeProbe(url, authorizationHeader, method = ProbeMethod.Head)
+        headResponse.use { response ->
+            if (response.isSuccessful) return response.request.url.toString()
+            if (response.canRetryWithRangeGet(originalUrl = url)) {
+                val rangeResponse = executeProbe(url, authorizationHeader, method = ProbeMethod.RangeGet)
+                rangeResponse.use { ranged ->
+                    if (ranged.isSuccessful) return ranged.request.url.toString()
+                    throw IOException(ranged.huggingFaceFailureMessage())
+                }
+            }
+            throw IOException(response.huggingFaceFailureMessage())
+        }
+    }
+
+    private fun executeProbe(
+        url: String,
+        authorizationHeader: String,
+        method: ProbeMethod,
+    ): Response {
+        val builder = Request.Builder()
+            .url(url)
+            .header("Authorization", authorizationHeader)
+            .header("User-Agent", "PocketMind model downloader")
+        when (method) {
+            ProbeMethod.Head -> builder.head()
+            ProbeMethod.RangeGet -> builder.get().header("Range", "bytes=0-0")
+        }
+        return callFactory.newCall(builder.build()).execute()
+    }
+
+    private fun Response.canRetryWithRangeGet(originalUrl: String): Boolean =
+        code == 405 ||
+            code == 501 ||
+            request.url.host != Request.Builder().url(originalUrl).build().url.host
+
+    private fun Response.huggingFaceFailureMessage(): String =
+        when (code) {
+            401 -> "Hugging Face 授权无效：请清除旧 token，使用已接受模型许可账号的新 read token"
+            403 -> "Hugging Face 无权访问：请确认已接受模型许可，token 具备读取 gated 模型权限"
+            404 -> "Hugging Face 文件地址不可用：请更新应用内置模型地址或稍后重试"
+            else -> "Hugging Face 下载预检失败：HTTP $code"
+        }
+
+    private enum class ProbeMethod {
+        Head,
+        RangeGet,
+    }
+}

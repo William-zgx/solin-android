@@ -17,13 +17,18 @@ interface ModelDownloadClient {
 class ModelDownloadService(
     context: Context,
     private val huggingFaceAuthorizationHeaderProvider: () -> String? = { null },
+    private val huggingFaceDownloadUrlResolver: HuggingFaceDownloadUrlResolver = HuggingFaceDownloadUrlResolver(),
 ) : ModelDownloadClient {
     private val appContext = context.applicationContext
     private val downloadManager = appContext.getSystemService(DownloadManager::class.java)
 
     override fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long> =
         runCatching {
-            val request = DownloadManager.Request(Uri.parse(source.downloadUrl))
+            val preparedDownloadUrl = huggingFaceDownloadUrlResolver.prepare(
+                source = source,
+                authorizationHeaderProvider = huggingFaceAuthorizationHeaderProvider,
+            ).getOrThrow()
+            val request = DownloadManager.Request(Uri.parse(preparedDownloadUrl.url))
                 .setTitle(source.title)
                 .setDescription("正在下载本地模型")
                 .setMimeType("application/octet-stream")
@@ -36,10 +41,7 @@ class ModelDownloadService(
                     Environment.DIRECTORY_DOWNLOADS,
                     targetFile.name,
                 )
-            if (source.requiresHuggingFaceAuthorization) {
-                val authorizationHeader = huggingFaceAuthorizationHeaderProvider()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: error("需要先完成 Hugging Face 授权")
+            preparedDownloadUrl.authorizationHeader?.let { authorizationHeader ->
                 request.addRequestHeader("Authorization", authorizationHeader)
             }
             downloadManager.enqueue(request)

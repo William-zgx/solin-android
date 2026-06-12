@@ -3872,35 +3872,61 @@ class PocketMindViewModel(
             return false
         }
 
-        val downloadResult = downloadService.enqueue(source, target)
-        if (downloadResult.isFailure) {
-            val throwable = downloadResult.exceptionOrNull()
-            _uiState.update {
-                it.copy(statusText = "下载启动失败：${throwable?.cleanMessage() ?: "未知错误"}")
-            }
-            return false
-        }
-        val downloadId = downloadResult.getOrThrow()
-
         val isFirstRunSetupDownload = setupDownloadInProgress
         if (!isFirstRunSetupDownload) {
             firstRunSetupRepository.markSetupDismissed()
         }
-        activeDownloadId = downloadId
-        modelRepository.savePendingDownload(downloadId, source)
         _uiState.update {
             it.copy(
                 isBusy = true,
-                isDownloading = true,
+                isDownloading = false,
                 downloadProgressPercent = null,
                 downloadedBytes = 0L,
                 totalBytes = 0L,
-                statusText = "模型下载中",
+                statusText = if (source.requiresHuggingFaceAuthorization) {
+                    "正在验证 Hugging Face 授权"
+                } else {
+                    "正在准备模型下载"
+                },
                 isReady = false,
                 showFirstRunSetup = false,
             )
         }
-        monitorDownload(downloadId, target, source)
+        viewModelScope.launch(ioDispatcher) {
+            val downloadResult = downloadService.enqueue(source, target)
+            if (downloadResult.isFailure) {
+                val throwable = downloadResult.exceptionOrNull()
+                setupDownloadQueue.clear()
+                setupDownloadInProgress = false
+                _uiState.update {
+                    it.copy(
+                        isBusy = false,
+                        isDownloading = false,
+                        downloadProgressPercent = null,
+                        downloadedBytes = 0L,
+                        totalBytes = 0L,
+                        statusText = "下载启动失败：${throwable?.cleanMessage() ?: "未知错误"}",
+                    )
+                }
+                return@launch
+            }
+            val downloadId = downloadResult.getOrThrow()
+            activeDownloadId = downloadId
+            modelRepository.savePendingDownload(downloadId, source)
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    isDownloading = true,
+                    downloadProgressPercent = null,
+                    downloadedBytes = 0L,
+                    totalBytes = 0L,
+                    statusText = "模型下载中",
+                    isReady = false,
+                    showFirstRunSetup = false,
+                )
+            }
+            monitorDownload(downloadId, target, source)
+        }
         return true
     }
 
