@@ -215,8 +215,11 @@ for entry in metadata_models:
             failures.append(f"{model_id}-metadata-api-url-mismatch")
     if not non_empty_string(entry.get("modelSha")):
         failures.append(f"{model_id or 'unknown'}-metadata-model-sha-missing")
-    if entry.get("gated") is not False:
-        failures.append(f"{model_id or 'unknown'}-metadata-gated-not-false")
+    gated = entry.get("gated")
+    if not isinstance(gated, bool):
+        failures.append(f"{model_id or 'unknown'}-metadata-gated-invalid")
+    elif gated and entry.get("requiresUserAuthorization") is not True:
+        failures.append(f"{model_id or 'unknown'}-metadata-gated-without-user-authorization")
     license_values = []
     if non_empty_string(entry.get("cardLicense")):
         license_values.append(entry["cardLicense"])

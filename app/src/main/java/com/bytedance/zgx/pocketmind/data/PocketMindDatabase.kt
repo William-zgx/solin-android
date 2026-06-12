@@ -5,6 +5,8 @@ import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -101,6 +103,31 @@ data class MemoryRecordEntity(
     val type: String,
     val text: String,
     val createdAtMillis: Long,
+    val updatedAtMillis: Long,
+)
+
+@Entity(
+    tableName = "memory_embeddings",
+    primaryKeys = ["recordId", "modelId"],
+    foreignKeys = [
+        ForeignKey(
+            entity = MemoryRecordEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["recordId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [
+        Index("recordId"),
+        Index("modelId"),
+    ],
+)
+data class MemoryEmbeddingEntity(
+    val recordId: String,
+    val modelId: String,
+    val sourceHash: String,
+    val dimension: Int,
+    val vectorBlob: ByteArray,
     val updatedAtMillis: Long,
 )
 
@@ -440,6 +467,24 @@ interface MemoryRecordDao {
 }
 
 @Dao
+interface MemoryEmbeddingDao {
+    @Query("SELECT * FROM memory_embeddings WHERE recordId = :recordId AND modelId = :modelId LIMIT 1")
+    fun embedding(recordId: String, modelId: String): MemoryEmbeddingEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsert(embedding: MemoryEmbeddingEntity)
+
+    @Query("DELETE FROM memory_embeddings WHERE recordId = :recordId")
+    fun delete(recordId: String): Int
+
+    @Query("DELETE FROM memory_embeddings WHERE modelId = :modelId")
+    fun deleteForModel(modelId: String): Int
+
+    @Query("DELETE FROM memory_embeddings")
+    fun deleteAll()
+}
+
+@Dao
 interface AgentTraceDao {
     @Query("SELECT * FROM agent_runs WHERE id = :runId LIMIT 1")
     fun run(runId: String): AgentRunEntity?
@@ -553,12 +598,13 @@ interface AgentTraceDao {
         RemoteSendAuditEventEntity::class,
         ScheduledTaskEntity::class,
         MemoryRecordEntity::class,
+        MemoryEmbeddingEntity::class,
         AgentRunEntity::class,
         AgentStepEntity::class,
         PendingAgentConfirmationEntity::class,
         AgentSkillRunCheckpointEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 abstract class PocketMindDatabase : RoomDatabase() {
@@ -569,6 +615,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
     abstract fun remoteSendAuditDao(): RemoteSendAuditDao
     abstract fun scheduledTaskDao(): ScheduledTaskDao
     abstract fun memoryRecordDao(): MemoryRecordDao
+    abstract fun memoryEmbeddingDao(): MemoryEmbeddingDao
     abstract fun agentTraceDao(): AgentTraceDao
 
     companion object {
@@ -818,6 +865,27 @@ abstract class PocketMindDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_embeddings` (
+                        `recordId` TEXT NOT NULL,
+                        `modelId` TEXT NOT NULL,
+                        `sourceHash` TEXT NOT NULL,
+                        `dimension` INTEGER NOT NULL,
+                        `vectorBlob` BLOB NOT NULL,
+                        `updatedAtMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`recordId`, `modelId`),
+                        FOREIGN KEY(`recordId`) REFERENCES `memory_records`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_memory_embeddings_recordId` ON `memory_embeddings` (`recordId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_memory_embeddings_modelId` ON `memory_embeddings` (`modelId`)")
+            }
+        }
+
         fun get(context: Context): PocketMindDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -838,6 +906,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
                         MIGRATION_10_11,
                         MIGRATION_11_12,
                         MIGRATION_12_13,
+                        MIGRATION_13_14,
                     )
                     .allowMainThreadQueries()
                     .build()

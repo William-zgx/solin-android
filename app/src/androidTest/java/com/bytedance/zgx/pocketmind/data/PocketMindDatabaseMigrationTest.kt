@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -49,6 +50,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
+                PocketMindDatabase.MIGRATION_13_14,
             )
             .allowMainThreadQueries()
             .build()
@@ -186,6 +188,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
+                PocketMindDatabase.MIGRATION_13_14,
             )
             .allowMainThreadQueries()
             .build()
@@ -232,6 +235,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
+                PocketMindDatabase.MIGRATION_13_14,
             )
             .allowMainThreadQueries()
             .build()
@@ -290,6 +294,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
+                PocketMindDatabase.MIGRATION_13_14,
             )
             .allowMainThreadQueries()
             .build()
@@ -402,6 +407,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
+                PocketMindDatabase.MIGRATION_13_14,
             )
             .allowMainThreadQueries()
             .build()
@@ -439,6 +445,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
+                PocketMindDatabase.MIGRATION_13_14,
             )
             .allowMainThreadQueries()
             .build()
@@ -501,6 +508,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
+                PocketMindDatabase.MIGRATION_13_14,
             )
             .allowMainThreadQueries()
             .build()
@@ -581,6 +589,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_10_11,
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
+                PocketMindDatabase.MIGRATION_13_14,
             )
             .allowMainThreadQueries()
             .build()
@@ -627,6 +636,7 @@ class PocketMindDatabaseMigrationTest {
             .addMigrations(
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
+                PocketMindDatabase.MIGRATION_13_14,
             )
             .allowMainThreadQueries()
             .build()
@@ -658,6 +668,62 @@ class PocketMindDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migration13To14AddsMemoryEmbeddingsTable() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB_NAME)
+        val dbFile = context.getDatabasePath(TEST_DB_NAME)
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createVersion13Schema(db)
+            db.version = 13
+        }
+
+        val database = Room.databaseBuilder(
+            context,
+            PocketMindDatabase::class.java,
+            TEST_DB_NAME,
+        )
+            .addMigrations(PocketMindDatabase.MIGRATION_13_14)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            assertTrue(database.memoryEmbeddingsTableExists())
+            assertTrue(database.memoryEmbeddingsHasExpectedColumns())
+            database.memoryRecordDao().upsert(
+                MemoryRecordEntity(
+                    id = "pref-1",
+                    type = "Preference",
+                    text = "用户偏好：回复简洁",
+                    createdAtMillis = 1L,
+                    updatedAtMillis = 1L,
+                ),
+            )
+            database.memoryEmbeddingDao().upsert(
+                MemoryEmbeddingEntity(
+                    recordId = "pref-1",
+                    modelId = "memory-embedding-300m",
+                    sourceHash = "hash-1",
+                    dimension = 2,
+                    vectorBlob = byteArrayOf(0, 0, 0, 0, 0, 0, 0, 0),
+                    updatedAtMillis = 2L,
+                ),
+            )
+
+            val restored = database.memoryEmbeddingDao().embedding("pref-1", "memory-embedding-300m")
+            assertEquals("hash-1", restored?.sourceHash)
+            assertEquals(2, restored?.dimension)
+
+            database.memoryRecordDao().delete("pref-1")
+
+            assertNull(database.memoryEmbeddingDao().embedding("pref-1", "memory-embedding-300m"))
+        } finally {
+            database.close()
+            context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
     private fun PocketMindDatabase.chatMessagesPrivacyColumnDefaultsTo(expectedDefault: String): Boolean {
         openHelper.writableDatabase.query("PRAGMA table_info(`chat_messages`)").use { cursor ->
             while (cursor.moveToNext()) {
@@ -677,6 +743,31 @@ class PocketMindDatabaseMigrationTest {
         ).use { cursor ->
             return cursor.moveToNext()
         }
+    }
+
+    private fun PocketMindDatabase.memoryEmbeddingsTableExists(): Boolean {
+        openHelper.writableDatabase.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_embeddings'",
+        ).use { cursor ->
+            return cursor.moveToNext()
+        }
+    }
+
+    private fun PocketMindDatabase.memoryEmbeddingsHasExpectedColumns(): Boolean {
+        val columns = mutableSetOf<String>()
+        openHelper.writableDatabase.query("PRAGMA table_info(`memory_embeddings`)").use { cursor ->
+            while (cursor.moveToNext()) {
+                columns += cursor.getString(cursor.getColumnIndexOrThrow("name"))
+            }
+        }
+        return columns == setOf(
+            "recordId",
+            "modelId",
+            "sourceHash",
+            "dimension",
+            "vectorBlob",
+            "updatedAtMillis",
+        )
     }
 
     private fun createVersion3Schema(db: SQLiteDatabase) {
@@ -887,6 +978,67 @@ class PocketMindDatabaseMigrationTest {
         createVersion10Schema(db)
         db.execSQL(
             "ALTER TABLE `pending_agent_confirmations` ADD COLUMN `continuationCursorJson` TEXT",
+        )
+    }
+
+    private fun createVersion12Schema(db: SQLiteDatabase) {
+        createVersion11Schema(db)
+        db.execSQL("ALTER TABLE `chat_messages` RENAME TO `chat_messages_legacy_default`")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `chat_messages` (
+                `sessionId` TEXT NOT NULL,
+                `position` INTEGER NOT NULL,
+                `role` TEXT NOT NULL,
+                `text` TEXT NOT NULL,
+                `tokenCount` INTEGER,
+                `tokensPerSecond` REAL,
+                `privacy` TEXT NOT NULL DEFAULT '${MessagePrivacy.LocalOnly.name}',
+                PRIMARY KEY(`sessionId`, `position`)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            INSERT INTO `chat_messages` (
+                `sessionId`,
+                `position`,
+                `role`,
+                `text`,
+                `tokenCount`,
+                `tokensPerSecond`,
+                `privacy`
+            )
+            SELECT
+                `sessionId`,
+                `position`,
+                `role`,
+                `text`,
+                `tokenCount`,
+                `tokensPerSecond`,
+                `privacy`
+            FROM `chat_messages_legacy_default`
+            """.trimIndent(),
+        )
+        db.execSQL("DROP TABLE `chat_messages_legacy_default`")
+    }
+
+    private fun createVersion13Schema(db: SQLiteDatabase) {
+        createVersion12Schema(db)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `remote_send_audit_events` (
+                `id` TEXT NOT NULL,
+                `decision` TEXT NOT NULL,
+                `modelName` TEXT,
+                `sensitiveCategoriesCsv` TEXT NOT NULL,
+                `imageCount` INTEGER NOT NULL,
+                `remoteHistoryCount` INTEGER NOT NULL,
+                `summary` TEXT NOT NULL,
+                `createdAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent(),
         )
     }
 

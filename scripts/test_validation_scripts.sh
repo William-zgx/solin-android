@@ -3948,6 +3948,7 @@ cat > "$MODEL_LICENSE_METADATA" <<'MODEL_LICENSE_METADATA_JSON'
       "apiUrl": "https://huggingface.co/api/models/example/chat-e2b",
       "modelSha": "chat-current-api-sha",
       "gated": false,
+      "requiresUserAuthorization": false,
       "licenseTags": ["apache-2.0"],
       "cardLicense": "apache-2.0",
       "metadataOnly": true
@@ -3959,6 +3960,7 @@ cat > "$MODEL_LICENSE_METADATA" <<'MODEL_LICENSE_METADATA_JSON'
       "apiUrl": "https://huggingface.co/api/models/example/memory-embedding-300m",
       "modelSha": "memory-current-api-sha",
       "gated": false,
+      "requiresUserAuthorization": false,
       "licenseTags": ["apache-2.0"],
       "cardLicense": "apache-2.0",
       "metadataOnly": true

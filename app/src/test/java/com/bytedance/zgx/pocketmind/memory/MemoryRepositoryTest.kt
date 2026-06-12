@@ -3,7 +3,6 @@ package com.bytedance.zgx.pocketmind.memory
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
-import com.bytedance.zgx.pocketmind.runtime.LiteRtEmbeddingRuntimeFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -209,9 +208,9 @@ class MemoryRepositoryTest {
     @Test
     fun semanticRuntimeCanRecallWithoutTokenOverlap() {
         val repository = MemoryRepository(embeddingRuntime = ConceptEmbeddingRuntime())
-        repository.index("pref", "I prefer concise answers")
+        repository.indexPreference("pref", "I prefer concise answers")
 
-        val hits = repository.search("brief replies")
+        val hits = repository.search("compressed responses")
 
         assertEquals(listOf("pref"), hits.map { it.id })
         assertEquals(MemoryRecallMode.Semantic, hits.first().recallMode)
@@ -220,11 +219,27 @@ class MemoryRepositoryTest {
     @Test
     fun semanticRuntimeHonorsScoreThresholdWithoutTokenOverlap() {
         val repository = MemoryRepository(embeddingRuntime = ConceptEmbeddingRuntime())
-        repository.index("pref", "I prefer concise answers")
+        repository.indexPreference("pref", "I prefer concise answers")
 
         val hits = repository.search("nearby replies")
 
         assertTrue(hits.isEmpty())
+    }
+
+    @Test
+    fun conversationRecordsDoNotEnterSemanticLongTermIndex() {
+        val repository = MemoryRepository(
+            semanticRuntimeFactory = { ConceptEmbeddingRuntime() },
+        )
+        repository.index("conv", "I prefer concise answers")
+
+        repository.useMemoryModel("/verified/memory.tflite")
+
+        assertTrue(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.Active, repository.semanticMemoryRuntimeStatus)
+        assertTrue(repository.search("compressed responses").isEmpty())
+        assertEquals(MemoryRecallMode.Lexical, repository.search("concise answers").single().recallMode)
+        assertEquals(0, repository.semanticMemoryIndexedRecordCount)
     }
 
     @Test
@@ -235,18 +250,18 @@ class MemoryRepositoryTest {
                 ConceptEmbeddingRuntime()
             },
         )
-        repository.index("pref", "I prefer concise answers")
+        repository.indexPreference("pref", "I prefer concise answers")
 
         assertFalse(repository.semanticMemoryEnabled)
         assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, repository.semanticMemoryRuntimeStatus)
-        assertTrue(repository.search("brief replies").isEmpty())
+        assertTrue(repository.search("compressed responses").isEmpty())
 
         repository.useMemoryModel("/verified/memory.litertlm")
 
         assertTrue(repository.semanticMemoryEnabled)
         assertEquals(SemanticMemoryRuntimeStatus.Active, repository.semanticMemoryRuntimeStatus)
         assertEquals("/verified/memory.litertlm", repository.activeMemoryModelPath)
-        val semanticHits = repository.search("brief replies")
+        val semanticHits = repository.search("compressed responses")
         assertEquals(listOf("pref"), semanticHits.map { it.id })
         assertEquals(MemoryRecallMode.Semantic, semanticHits.first().recallMode)
 
@@ -255,7 +270,7 @@ class MemoryRepositoryTest {
         assertFalse(repository.semanticMemoryEnabled)
         assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
-        assertTrue(repository.search("brief replies").isEmpty())
+        assertTrue(repository.search("compressed responses").isEmpty())
     }
 
     @Test
@@ -285,17 +300,17 @@ class MemoryRepositoryTest {
                 }
             },
         )
-        repository.index("pref", "I prefer concise answers")
+        repository.indexPreference("pref", "I prefer concise answers")
         repository.useMemoryModel("/ok")
 
-        assertEquals(listOf("pref"), repository.search("brief replies").map { it.id })
+        assertEquals(listOf("pref"), repository.search("compressed responses").map { it.id })
 
         repository.useMemoryModel("/missing")
 
         assertFalse(repository.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeUnavailable, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
-        assertTrue(repository.search("brief replies").isEmpty())
+        assertTrue(repository.search("compressed responses").isEmpty())
         assertEquals(listOf("pref"), repository.search("concise answers").map { it.id })
 
         repository.useMemoryModel(null)
@@ -313,16 +328,16 @@ class MemoryRepositoryTest {
                 ConceptEmbeddingRuntime()
             },
         )
-        repository.index("pref", "I prefer concise answers")
+        repository.indexPreference("pref", "I prefer concise answers")
         repository.useMemoryModel("/ok")
 
         repository.useMemoryModel("/broken")
 
         assertEquals(listOf("/ok", "/broken"), requestedPaths)
         assertFalse(repository.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeUnavailable, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
-        assertTrue(repository.search("brief replies").isEmpty())
+        assertTrue(repository.search("compressed responses").isEmpty())
     }
 
     @Test
@@ -333,12 +348,12 @@ class MemoryRepositoryTest {
                 if (failRuntimeLoad) null else ConceptEmbeddingRuntime()
             },
         )
-        repository.index("pref", "I prefer concise answers")
+        repository.indexPreference("pref", "I prefer concise answers")
 
         repository.useMemoryModel("/verified/memory.litertlm")
 
         assertFalse(repository.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeUnavailable, repository.semanticMemoryRuntimeStatus)
 
         failRuntimeLoad = false
         repository.useMemoryModel("/verified/memory.litertlm")
@@ -346,7 +361,7 @@ class MemoryRepositoryTest {
         assertTrue(repository.semanticMemoryEnabled)
         assertEquals(SemanticMemoryRuntimeStatus.Active, repository.semanticMemoryRuntimeStatus)
         assertEquals("/verified/memory.litertlm", repository.activeMemoryModelPath)
-        assertEquals(listOf("pref"), repository.search("brief replies").map { it.id })
+        assertEquals(listOf("pref"), repository.search("compressed responses").map { it.id })
     }
 
     @Test
@@ -354,14 +369,14 @@ class MemoryRepositoryTest {
         val repository = MemoryRepository(
             semanticRuntimeFactory = { FailingOnConciseEmbeddingRuntime() },
         )
-        repository.index("pref", "I prefer concise answers")
+        repository.indexPreference("pref", "I prefer concise answers")
 
         repository.useMemoryModel("/broken")
 
         assertFalse(repository.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
+        assertEquals(SemanticMemoryRuntimeStatus.DegradedLexical, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
-        assertTrue(repository.search("brief replies").isEmpty())
+        assertTrue(repository.search("compressed responses").isEmpty())
         assertEquals(listOf("pref"), repository.search("concise answers").map { it.id })
     }
 
@@ -370,22 +385,22 @@ class MemoryRepositoryTest {
         val repository = MemoryRepository(
             semanticRuntimeFactory = { path ->
                 when (path) {
-                    "/model-a" -> AliasEmbeddingRuntime(queryAlias = "brief")
+                    "/model-a" -> AliasEmbeddingRuntime(queryAlias = "compressed")
                     "/model-b" -> AliasEmbeddingRuntime(queryAlias = "laconic")
                     else -> null
                 }
             },
         )
-        repository.index("pref", "I prefer concise answers")
+        repository.indexPreference("pref", "I prefer concise answers")
 
         repository.useMemoryModel("/model-a")
 
-        assertEquals(listOf("pref"), repository.search("brief replies").map { it.id })
+        assertEquals(listOf("pref"), repository.search("compressed responses").map { it.id })
         assertTrue(repository.search("laconic replies").isEmpty())
 
         repository.useMemoryModel("/model-b")
 
-        assertTrue(repository.search("brief replies").isEmpty())
+        assertTrue(repository.search("compressed responses").isEmpty())
         val hits = repository.search("laconic replies")
         assertEquals(listOf("pref"), hits.map { it.id })
         assertEquals(MemoryRecallMode.Semantic, hits.first().recallMode)
@@ -401,7 +416,7 @@ class MemoryRepositoryTest {
             recordStore = store,
             semanticRuntimeFactory = { path ->
                 when (path) {
-                    "/model-a" -> AliasEmbeddingRuntime(queryAlias = "brief")
+                    "/model-a" -> AliasEmbeddingRuntime(queryAlias = "compressed")
                     "/model-b" -> AliasEmbeddingRuntime(queryAlias = "laconic")
                     else -> null
                 }
@@ -411,12 +426,80 @@ class MemoryRepositoryTest {
 
         restored.useMemoryModel("/model-a")
 
-        assertEquals(listOf("pref-1", "task-1"), restored.search("brief replies").map { it.id })
+        assertEquals(listOf("pref-1", "task-1"), restored.search("compressed responses").map { it.id })
 
         restored.useMemoryModel("/model-b")
 
-        assertTrue(restored.search("brief replies").isEmpty())
+        assertTrue(restored.search("compressed responses").isEmpty())
         assertEquals(listOf("pref-1", "task-1"), restored.search("laconic replies").map { it.id })
+    }
+
+    @Test
+    fun semanticVectorCacheIsCreatedReusedAndInvalidated() {
+        val recordStore = FakeMemoryRecordStore()
+        val embeddingStore = FakeMemoryEmbeddingStore()
+        val writerRuntime = RecordingConceptEmbeddingRuntime(modelId = "model-a")
+        val writer = MemoryRepository(
+            recordStore = recordStore,
+            embeddingStore = embeddingStore,
+            semanticRuntimeFactory = { writerRuntime },
+            clockMillis = { 100L },
+        )
+        writer.indexPreference("pref", "I prefer concise answers")
+
+        writer.useMemoryModel("/model-a")
+
+        assertEquals(1, embeddingStore.entries.size)
+        assertEquals(1, embeddingStore.upsertCount)
+        assertEquals(1, writer.semanticMemoryIndexedRecordCount)
+
+        val restoredRuntime = RecordingConceptEmbeddingRuntime(modelId = "model-a")
+        val restored = MemoryRepository(
+            recordStore = recordStore,
+            embeddingStore = embeddingStore,
+            semanticRuntimeFactory = { restoredRuntime },
+            clockMillis = { 200L },
+        )
+        restored.rebuild(emptyList())
+        restored.useMemoryModel("/model-a")
+
+        assertEquals(listOf("semantic memory runtime probe"), restoredRuntime.embeddedTexts)
+        assertEquals(listOf("pref"), restored.search("compressed responses").map { it.id })
+
+        restored.indexPreference("pref", "I prefer compact answers")
+
+        assertEquals(2, embeddingStore.upsertCount)
+        assertTrue(restoredRuntime.embeddedTexts.any { "compact answers" in it })
+
+        assertTrue(restored.forget("pref"))
+        assertTrue(embeddingStore.entries.isEmpty())
+        assertEquals(0, restored.semanticMemoryIndexedRecordCount)
+    }
+
+    @Test
+    fun deletingSemanticMemoryModelClearsVectorCacheButKeepsLongTermText() {
+        val recordStore = FakeMemoryRecordStore()
+        val embeddingStore = FakeMemoryEmbeddingStore()
+        val repository = MemoryRepository(
+            recordStore = recordStore,
+            embeddingStore = embeddingStore,
+            semanticRuntimeFactory = { ConceptEmbeddingRuntime() },
+        )
+        repository.indexPreference("pref", "I prefer concise answers")
+        repository.useMemoryModel("/model-a")
+        assertEquals(listOf("pref"), repository.search("compressed responses").map { it.id })
+        assertEquals(1, embeddingStore.entries.size)
+
+        repository.clearSemanticMemoryForModel("concept-test")
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, repository.semanticMemoryRuntimeStatus)
+        assertTrue(embeddingStore.entries.isEmpty())
+        assertEquals(listOf("pref"), repository.savedRecords().map { it.id })
+        assertTrue(repository.search("compressed responses").isEmpty())
+        val lexicalHits = repository.search("concise answers")
+        assertEquals(listOf("pref"), lexicalHits.map { it.id })
+        assertEquals(MemoryRecallMode.Lexical, lexicalHits.single().recallMode)
     }
 
     @Test
@@ -436,17 +519,17 @@ class MemoryRepositoryTest {
     }
 
     @Test
-    fun productionLiteRtEmbeddingFactoryFailsClosedToLexicalRecall() {
+    fun missingProductionEmbeddingRuntimeFailsClosedToLexicalRecall() {
         val repository = MemoryRepository(
-            semanticRuntimeFactory = LiteRtEmbeddingRuntimeFactory::create,
+            semanticRuntimeFactory = { null },
         )
         repository.indexPreference("pref", "I prefer concise answers")
 
-        repository.useMemoryModel("/verified/memory.litertlm")
+        repository.useMemoryModel("/verified/memory.tflite")
 
         assertTrue(repository.canLoadSemanticMemoryRuntime)
         assertFalse(repository.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
+        assertEquals(SemanticMemoryRuntimeStatus.RuntimeUnavailable, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
         assertTrue(repository.search("laconic replies").isEmpty())
         val aliasHits = repository.search("brief replies")
@@ -466,7 +549,7 @@ class MemoryRepositoryTest {
         val hits = repository.search("brief replies")
 
         assertFalse(repository.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
+        assertEquals(SemanticMemoryRuntimeStatus.DegradedLexical, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
         assertEquals(listOf("pref"), hits.map { it.id })
         assertEquals(MemoryRecallMode.Lexical, hits.single().recallMode)
@@ -485,7 +568,7 @@ class MemoryRepositoryTest {
         repository.indexPreference("pref", "I prefer concise answers")
 
         assertFalse(repository.semanticMemoryEnabled)
-        assertEquals(SemanticMemoryRuntimeStatus.RuntimeLoadFailed, repository.semanticMemoryRuntimeStatus)
+        assertEquals(SemanticMemoryRuntimeStatus.DegradedLexical, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
         assertEquals(listOf("pref"), repository.savedRecords().map { it.id })
         val hits = repository.search("brief replies")
@@ -860,6 +943,20 @@ class MemoryRepositoryTest {
         assertTrue(repository.search("green tea").isEmpty())
     }
 
+    companion object {
+        private fun conceptVectorFor(text: String): FloatArray {
+            val lower = text.lowercase()
+            return when {
+                "concise" in lower -> floatArrayOf(1f, 0f)
+                "compact" in lower -> floatArrayOf(1f, 0f)
+                "brief" in lower -> floatArrayOf(1f, 0f)
+                "compressed" in lower -> floatArrayOf(1f, 0f)
+                "nearby" in lower -> floatArrayOf(0.8f, 0.6f)
+                else -> floatArrayOf(0f, 1f)
+            }
+        }
+    }
+
     private class FakeMemoryRecordStore : MemoryRecordStore {
         private val records = linkedMapOf<String, PersistedMemoryRecord>()
 
@@ -878,24 +975,61 @@ class MemoryRepositoryTest {
         }
     }
 
-    private class ConceptEmbeddingRuntime : EmbeddingRuntime {
+    private class FakeMemoryEmbeddingStore : MemoryEmbeddingStore {
+        val entries = linkedMapOf<Pair<String, String>, PersistedMemoryEmbedding>()
+        var upsertCount: Int = 0
+
+        override fun embedding(recordId: String, modelId: String): PersistedMemoryEmbedding? =
+            entries[recordId to modelId]
+
+        override fun upsert(embedding: PersistedMemoryEmbedding) {
+            upsertCount += 1
+            entries[embedding.recordId to embedding.modelId] = embedding
+        }
+
+        override fun delete(recordId: String) {
+            entries.keys.filter { it.first == recordId }.forEach(entries::remove)
+        }
+
+        override fun deleteForModel(modelId: String) {
+            entries.keys.filter { it.second == modelId }.forEach(entries::remove)
+        }
+
+        override fun clear() {
+            entries.clear()
+        }
+    }
+
+    private class RecordingConceptEmbeddingRuntime(
+        override val modelId: String,
+    ) : EmbeddingRuntime {
+        val embeddedTexts = mutableListOf<String>()
+        override val dimension: Int = 2
         override val supportsSemanticRecall: Boolean = true
         override val semanticScoreThreshold: Float = 0.9f
 
         override fun embed(text: String): FloatArray {
-            val lower = text.lowercase()
-            return when {
-                "concise" in lower -> floatArrayOf(1f, 0f)
-                "brief" in lower -> floatArrayOf(1f, 0f)
-                "nearby" in lower -> floatArrayOf(0.8f, 0f)
-                else -> floatArrayOf(0f, 1f)
-            }
+            embeddedTexts += text
+            return conceptVectorFor(text)
+        }
+    }
+
+    private class ConceptEmbeddingRuntime : EmbeddingRuntime {
+        override val modelId: String = "concept-test"
+        override val dimension: Int = 2
+        override val supportsSemanticRecall: Boolean = true
+        override val semanticScoreThreshold: Float = 0.9f
+
+        override fun embed(text: String): FloatArray {
+            return conceptVectorFor(text)
         }
     }
 
     private class AliasEmbeddingRuntime(
         private val queryAlias: String,
     ) : EmbeddingRuntime {
+        override val modelId: String = "alias-test-$queryAlias"
+        override val dimension: Int = 2
         override val supportsSemanticRecall: Boolean = true
         override val semanticScoreThreshold: Float = 0.9f
 
@@ -910,6 +1044,8 @@ class MemoryRepositoryTest {
     }
 
     private class FailingOnConciseEmbeddingRuntime : EmbeddingRuntime {
+        override val modelId: String = "failing-concise-test"
+        override val dimension: Int = 2
         override val supportsSemanticRecall: Boolean = true
 
         override fun embed(text: String): FloatArray {
@@ -919,6 +1055,8 @@ class MemoryRepositoryTest {
     }
 
     private class FailingOnBriefQueryEmbeddingRuntime : EmbeddingRuntime {
+        override val modelId: String = "failing-brief-test"
+        override val dimension: Int = 2
         override val supportsSemanticRecall: Boolean = true
         override val semanticScoreThreshold: Float = 0.9f
 

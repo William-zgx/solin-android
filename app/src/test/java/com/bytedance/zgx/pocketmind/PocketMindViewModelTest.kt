@@ -24,6 +24,7 @@ import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupStore
 import com.bytedance.zgx.pocketmind.data.GenerationParametersStore
+import com.bytedance.zgx.pocketmind.data.HuggingFaceAuthStore
 import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
 import com.bytedance.zgx.pocketmind.data.ModelRepositoryFacade
 import com.bytedance.zgx.pocketmind.data.ModelSelectionResult
@@ -929,6 +930,49 @@ class PocketMindViewModelTest {
             assertEquals(1, modelRepository.clearPendingDownloadCount)
             assertEquals(1, modelRepository.savedPendingDownloads.size)
             assertTrue(modelRepository.registeredModels.isEmpty())
+        }
+    }
+
+    @Test
+    fun memoryModelDownloadRequiresHuggingFaceAuthorizationBeforeEnqueue() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val modelRepository = FakeModelRepository(downloadedModelFileProvider = { target })
+            val downloadClient = FakeModelDownloadClient()
+            val viewModel = createViewModel(
+                modelRepository = modelRepository,
+                downloadClient = downloadClient,
+                huggingFaceAuthStore = FakeHuggingFaceAuthStore(),
+            )
+
+            viewModel.startRecommendedModelDownload(MEMORY_EMBEDDING_MODEL_ID)
+
+            assertTrue(viewModel.uiState.value.statusText.contains("需要先登录 Hugging Face"))
+            assertEquals(MEMORY_EMBEDDING_MODEL_ID, viewModel.uiState.value.pendingHuggingFaceAuthorizationModelId)
+            assertFalse(viewModel.uiState.value.isDownloading)
+            assertTrue(downloadClient.enqueuedDownloads.isEmpty())
+            assertFalse(target.exists())
+        }
+    }
+
+    @Test
+    fun savingHuggingFaceTokenAllowsMemoryModelDownloadToStart() = runTest(dispatcher) {
+        withTempDownloadTarget { target ->
+            val modelRepository = FakeModelRepository(downloadedModelFileProvider = { target })
+            val downloadClient = FakeModelDownloadClient()
+            val authStore = FakeHuggingFaceAuthStore()
+            val viewModel = createViewModel(
+                modelRepository = modelRepository,
+                downloadClient = downloadClient,
+                huggingFaceAuthStore = authStore,
+            )
+
+            viewModel.saveHuggingFaceAccessToken("Bearer hf_test_read_token")
+            viewModel.startRecommendedModelDownload(MEMORY_EMBEDDING_MODEL_ID)
+
+            assertTrue(viewModel.uiState.value.huggingFaceAccessTokenConfigured)
+            assertEquals("Bearer hf_test_read_token", authStore.authorizationHeader())
+            assertEquals(1, downloadClient.enqueuedDownloads.size)
+            assertTrue(downloadClient.enqueuedDownloads.single().first.requiresHuggingFaceAuthorization)
         }
     }
 
@@ -5821,7 +5865,7 @@ class PocketMindViewModelTest {
         assertEquals(SemanticMemoryRuntimeStatus.Active, memoryRepository.semanticMemoryRuntimeStatus)
         assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
         assertEquals("/verified/memory.litertlm", memoryRepository.activeMemoryModelPath)
-        val hits = memoryRepository.search("brief replies")
+        val hits = memoryRepository.search("compressed responses")
         assertEquals(listOf("pref-1"), hits.map { it.id })
         assertEquals(MemoryRecallMode.Semantic, hits.first().recallMode)
     }
@@ -5888,7 +5932,7 @@ class PocketMindViewModelTest {
 
         viewModel.restoreStartupState()
         advanceUntilIdle()
-        viewModel.sendMessage("brief replies")
+        viewModel.sendMessage("compressed responses")
         advanceUntilIdle()
 
         assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
@@ -5934,7 +5978,7 @@ class PocketMindViewModelTest {
 
         viewModel.restoreStartupState()
         advanceUntilIdle()
-        viewModel.sendMessage("brief replies")
+        viewModel.sendMessage("compressed responses")
         advanceUntilIdle()
 
         assertEquals(
@@ -5950,7 +5994,7 @@ class PocketMindViewModelTest {
         val call = remoteRuntime.calls.single()
         assertEquals("ordinary remote question", call.prompt)
         assertTrue(call.history.isEmpty())
-        assertFalse(call.history.toString().contains("brief replies"))
+        assertFalse(call.history.toString().contains("compressed responses"))
         assertFalse(call.history.toString().contains("I prefer concise answers"))
         assertFalse(call.history.toString().contains("本地回复"))
     }
@@ -5983,14 +6027,14 @@ class PocketMindViewModelTest {
 
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
-        viewModel.sendMessage("brief replies")
+        viewModel.sendMessage("compressed responses")
         advanceUntilIdle()
 
         assertTrue(viewModel.uiState.value.semanticMemoryEnabled)
         assertEquals(SemanticMemoryRuntimeStatus.Active, viewModel.uiState.value.semanticMemoryRuntimeStatus)
         assertTrue(viewModel.uiState.value.memoryHits.isEmpty())
         val call = remoteRuntime.calls.single()
-        assertEquals("brief replies", call.prompt)
+        assertEquals("compressed responses", call.prompt)
         assertFalse(call.prompt.contains("本地记忆"))
         assertFalse(call.prompt.contains("I prefer concise answers"))
         assertFalse(call.prompt.contains("用户偏好"))
@@ -7395,6 +7439,7 @@ class PocketMindViewModelTest {
         ioDispatcher: CoroutineDispatcher = dispatcher,
         requireRemoteSendDisclosure: Boolean = false,
         remoteConnectivityProbe: RemoteModelConnectivityProbe = FakeRemoteModelConnectivityProbe(),
+        huggingFaceAuthStore: HuggingFaceAuthStore = FakeHuggingFaceAuthStore(),
         actionExecutor: ToolExecutor = object : ToolExecutor {
             override fun execute(request: ToolRequest): ToolResult =
                 ToolResult(
@@ -7409,6 +7454,7 @@ class PocketMindViewModelTest {
             sessionRepository = sessionStore,
             generationParametersRepository = generationStore,
             remoteModelRepository = remoteStore,
+            huggingFaceAuthStore = huggingFaceAuthStore,
             firstRunSetupRepository = firstRunStore,
             downloadService = downloadClient,
             runtime = runtime,
@@ -8148,6 +8194,8 @@ class PocketMindViewModelTest {
     }
 
     private class ConciseSemanticRuntime : EmbeddingRuntime {
+        override val modelId: String = "concise-test"
+        override val dimension: Int = 2
         override val supportsSemanticRecall: Boolean = true
         override val semanticScoreThreshold: Float = 0.9f
 
@@ -8156,6 +8204,7 @@ class PocketMindViewModelTest {
             return when {
                 "concise" in lower -> floatArrayOf(1f, 0f)
                 "brief" in lower -> floatArrayOf(1f, 0f)
+                "compressed" in lower -> floatArrayOf(1f, 0f)
                 else -> floatArrayOf(0f, 1f)
             }
         }
@@ -8523,6 +8572,25 @@ class PocketMindViewModelTest {
         override fun query(downloadId: Long): DownloadInfo? {
             queriedDownloadIds += downloadId
             return if (queryResults.isEmpty()) null else queryResults.removeAt(0)
+        }
+    }
+
+    private class FakeHuggingFaceAuthStore(
+        private var token: String = "",
+    ) : HuggingFaceAuthStore {
+        override fun hasAccessToken(): Boolean = token.isNotBlank()
+
+        override fun authorizationHeader(): String? =
+            token.takeIf { it.isNotBlank() }?.let { "Bearer $it" }
+
+        override fun saveAccessToken(token: String): Result<Unit> {
+            this.token = token.trim().removePrefix("Bearer ").removePrefix("bearer ").trim()
+            return Result.success(Unit)
+        }
+
+        override fun clearAccessToken(): Result<Unit> {
+            token = ""
+            return Result.success(Unit)
         }
     }
 

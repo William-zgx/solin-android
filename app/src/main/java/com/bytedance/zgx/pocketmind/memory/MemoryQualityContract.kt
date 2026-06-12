@@ -9,7 +9,6 @@ object MemoryQualityContract {
             MemoryRecordType.Preference,
             MemoryRecordType.UserFact,
             MemoryRecordType.TaskState,
-            MemoryRecordType.Conversation,
         )
 
     fun validateRunBoundary(

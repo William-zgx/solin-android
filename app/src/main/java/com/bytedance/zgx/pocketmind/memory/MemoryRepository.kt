@@ -3,8 +3,12 @@ package com.bytedance.zgx.pocketmind.memory
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
+import com.bytedance.zgx.pocketmind.data.MemoryEmbeddingDao
+import com.bytedance.zgx.pocketmind.data.MemoryEmbeddingEntity
 import com.bytedance.zgx.pocketmind.data.MemoryRecordDao
 import com.bytedance.zgx.pocketmind.data.MemoryRecordEntity
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.Locale
 import kotlin.math.sqrt
@@ -31,12 +35,27 @@ enum class MemoryRecordType {
 
 enum class SemanticMemoryRuntimeStatus {
     NoVerifiedModel,
+    AssetMissing,
     RuntimeUnavailable,
-    RuntimeLoadFailed,
+    ProbeFailed,
+    BuildingIndex,
     Active,
+    DegradedLexical,
 }
 
 interface EmbeddingRuntime {
+    val runtimeId: String
+        get() = this::class.java.name
+
+    val modelId: String
+        get() = runtimeId
+
+    val dimension: Int
+        get() = -1
+
+    val backend: String
+        get() = "unknown"
+
     val supportsSemanticRecall: Boolean
         get() = false
 
@@ -44,6 +63,11 @@ interface EmbeddingRuntime {
         get() = 0.72f
 
     fun embed(text: String): FloatArray
+
+    fun embedBatch(texts: List<String>): List<FloatArray> =
+        texts.map(::embed)
+
+    fun close() = Unit
 }
 
 interface MemoryIndex {
@@ -72,14 +96,22 @@ interface SemanticMemoryRuntimeController {
     val activeMemoryModelPath: String?
     val semanticMemoryEnabled: Boolean
     val semanticMemoryRuntimeStatus: SemanticMemoryRuntimeStatus
+    val semanticMemoryIndexedRecordCount: Int
+    val semanticMemoryLastRebuiltAtMillis: Long?
     val canLoadSemanticMemoryRuntime: Boolean
         get() = true
     fun useMemoryModel(path: String?)
+    fun clearSemanticMemoryForModel(modelId: String)
 }
 
 class HashingEmbeddingRuntime(
     private val dimensions: Int = 256,
 ) : EmbeddingRuntime {
+    override val runtimeId: String = "hashing-lexical"
+    override val modelId: String = "hashing-lexical"
+    override val dimension: Int = dimensions
+    override val backend: String = "hash"
+
     override fun embed(text: String): FloatArray {
         val vector = FloatArray(dimensions)
         tokenize(text).forEach { token ->
@@ -100,6 +132,8 @@ class MemoryRepository(
     embeddingRuntime: EmbeddingRuntime = HashingEmbeddingRuntime(),
     private val semanticRuntimeFactory: ((String) -> EmbeddingRuntime?)? = null,
     private val recordStore: MemoryRecordStore = NoOpMemoryRecordStore,
+    private val embeddingStore: MemoryEmbeddingStore = NoOpMemoryEmbeddingStore,
+    private val clockMillis: () -> Long = { System.currentTimeMillis() },
 ) : MemoryIndex, LongTermMemoryControls, SemanticMemoryRuntimeController {
     private val entries = linkedMapOf<String, MemoryEntry>()
     private val defaultEmbeddingRuntime = embeddingRuntime
@@ -109,10 +143,25 @@ class MemoryRepository(
     override var semanticMemoryRuntimeStatus: SemanticMemoryRuntimeStatus =
         SemanticMemoryRuntimeStatus.NoVerifiedModel
         private set
+    override var semanticMemoryIndexedRecordCount: Int = 0
+        private set
+    override var semanticMemoryLastRebuiltAtMillis: Long? = null
+        private set
     override val semanticMemoryEnabled: Boolean
         get() = semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.Active
     override val canLoadSemanticMemoryRuntime: Boolean
         get() = semanticRuntimeFactory != null
+
+    override fun clearSemanticMemoryForModel(modelId: String) {
+        embeddingStore.deleteForModel(modelId)
+        if (activeEmbeddingRuntime.modelId == modelId) {
+            activeEmbeddingRuntime.close()
+            activeMemoryModelPath = null
+            activeEmbeddingRuntime = defaultEmbeddingRuntime
+            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.NoVerifiedModel
+            reembedEntries()
+        }
+    }
     override var enabled: Boolean = true
 
     override fun useMemoryModel(path: String?) {
@@ -120,10 +169,12 @@ class MemoryRepository(
         if (normalizedPath == activeMemoryModelPath && semanticMemoryEnabled) return
         if (normalizedPath == null && activeMemoryModelPath == null && activeEmbeddingRuntime === defaultEmbeddingRuntime) {
             semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.NoVerifiedModel
+            refreshSemanticIndexStats()
             return
         }
         if (normalizedPath == null) {
             activeMemoryModelPath = null
+            activeEmbeddingRuntime.close()
             activeEmbeddingRuntime = defaultEmbeddingRuntime
             semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.NoVerifiedModel
             reembedEntries()
@@ -132,31 +183,43 @@ class MemoryRepository(
         val runtimeFactory = semanticRuntimeFactory
         if (runtimeFactory == null) {
             activeMemoryModelPath = null
+            activeEmbeddingRuntime.close()
             activeEmbeddingRuntime = defaultEmbeddingRuntime
             semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.RuntimeUnavailable
             reembedEntries()
             return
         }
-        val semanticRuntime = normalizedPath
-            .let { modelPath -> runCatching { runtimeFactory(modelPath) }.getOrNull() }
-            ?.takeIf { runtime ->
-                runtime.supportsSemanticRecall &&
-                    runCatching { runtime.embed(SEMANTIC_RUNTIME_PROBE_TEXT) }.isSuccess
-            }
+        val semanticRuntime = runCatching { runtimeFactory(normalizedPath) }.getOrNull()
         if (semanticRuntime == null) {
             activeMemoryModelPath = null
+            activeEmbeddingRuntime.close()
             activeEmbeddingRuntime = defaultEmbeddingRuntime
-            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.RuntimeLoadFailed
+            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.RuntimeUnavailable
         } else {
-            activeMemoryModelPath = normalizedPath
-            activeEmbeddingRuntime = semanticRuntime
-            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.Active
+            val probeSucceeded = semanticRuntime.supportsSemanticRecall &&
+                runCatching { semanticRuntime.probeSemanticVector() }.getOrDefault(false)
+            if (!probeSucceeded) {
+                semanticRuntime.close()
+                activeMemoryModelPath = null
+                activeEmbeddingRuntime.close()
+                activeEmbeddingRuntime = defaultEmbeddingRuntime
+                semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.ProbeFailed
+            } else {
+                activeMemoryModelPath = normalizedPath
+                activeEmbeddingRuntime.close()
+                activeEmbeddingRuntime = semanticRuntime
+                semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.BuildingIndex
+            }
         }
         runCatching { reembedEntries() }.onFailure {
             activeMemoryModelPath = null
+            activeEmbeddingRuntime.close()
             activeEmbeddingRuntime = defaultEmbeddingRuntime
-            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.RuntimeLoadFailed
+            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.DegradedLexical
             reembedEntries()
+        }
+        if (semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.BuildingIndex) {
+            semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.Active
         }
     }
 
@@ -215,6 +278,8 @@ class MemoryRepository(
         if (!id.startsWith(TASK_STATE_MEMORY_RECORD_PREFIX)) return
         entries.remove(id)
         recordStore.delete(id)
+        embeddingStore.delete(id)
+        refreshSemanticIndexStats()
         recordStore.upsert(
             PersistedMemoryRecord(
                 id = suppressedTaskStateMemoryRecordId(id),
@@ -237,6 +302,8 @@ class MemoryRepository(
     override fun forget(id: String): Boolean {
         val removedInMemory = entries.remove(id) != null
         val removedPersisted = recordStore.delete(id)
+        embeddingStore.delete(id)
+        refreshSemanticIndexStats()
         return removedInMemory || removedPersisted
     }
 
@@ -287,6 +354,8 @@ class MemoryRepository(
     override fun clear() {
         entries.clear()
         recordStore.clear()
+        embeddingStore.clear()
+        refreshSemanticIndexStats()
     }
 
     private fun visibleRecords(): List<PersistedMemoryRecord> =
@@ -315,7 +384,12 @@ class MemoryRepository(
             originalTokens = originalTokens,
             tokens = tokens,
             searchText = searchText,
-            embedding = embedEntry(normalized, searchText),
+            lexicalEmbedding = defaultEmbeddingRuntime.embed(searchText),
+            semanticEmbedding = semanticEmbeddingFor(
+                id = id,
+                text = normalized,
+                type = type,
+            ),
         )
         if (persist && type != MemoryRecordType.Conversation) {
             recordStore.upsert(
@@ -326,6 +400,7 @@ class MemoryRepository(
                 ),
             )
         }
+        refreshSemanticIndexStats()
     }
 
     override fun search(query: String, topK: Int): List<MemoryHit> {
@@ -334,84 +409,134 @@ class MemoryRepository(
         if (queryTokens.isEmpty()) return emptyList()
         val normalizedQuery = query.lowercase(Locale.ROOT)
         val requiredOverlapTokens = queryTokens.filter { it.length > 1 }.ifEmpty { queryTokens }
-        val queryEmbedding = embedQuery(query) ?: return emptyList()
         val supportsSemanticRecall = activeEmbeddingRuntime.supportsSemanticRecall
         val semanticScoreThreshold = activeEmbeddingRuntime.semanticScoreThreshold
+        val lexicalQueryEmbedding = defaultEmbeddingRuntime.embed(query)
+        val semanticQueryEmbedding = if (supportsSemanticRecall) embedSemanticQuery(query) else null
         return entries.values
             .mapNotNull { entry ->
                 if (entry.shouldSuppressTaskStateHitFor(normalizedQuery)) return@mapNotNull null
                 val hasLexicalOverlap = entry.tokens.any { it in requiredOverlapTokens }
-                if (!hasLexicalOverlap && !supportsSemanticRecall) return@mapNotNull null
-                val score = cosine(queryEmbedding, entry.embedding)
-                if (score <= 0f) return@mapNotNull null
-                val hasOriginalLexicalOverlap = entry.originalTokens.any { it in requiredOverlapTokens }
-                val recallMode = if (!supportsSemanticRecall || hasOriginalLexicalOverlap) {
-                    MemoryRecallMode.Lexical
-                } else {
-                    MemoryRecallMode.Semantic
+                if (hasLexicalOverlap) {
+                    val score = cosine(lexicalQueryEmbedding, entry.lexicalEmbedding)
+                    if (score <= 0f) return@mapNotNull null
+                    return@mapNotNull MemoryHit(
+                        id = entry.id,
+                        text = entry.text,
+                        score = score,
+                        recallMode = MemoryRecallMode.Lexical,
+                    )
                 }
-                if (recallMode == MemoryRecallMode.Semantic && score < semanticScoreThreshold) {
+                val semanticEmbedding = entry.semanticEmbedding
+                val queryEmbedding = semanticQueryEmbedding
+                if (
+                    semanticEmbedding == null ||
+                    queryEmbedding == null ||
+                    !entry.type.isSemanticRecallEligible()
+                ) {
+                    return@mapNotNull null
+                }
+                val score = cosine(queryEmbedding, semanticEmbedding)
+                if (score <= 0f || score < semanticScoreThreshold) {
                     return@mapNotNull null
                 }
                 MemoryHit(
                     id = entry.id,
                     text = entry.text,
                     score = score,
-                    recallMode = recallMode,
+                    recallMode = MemoryRecallMode.Semantic,
                 )
             }
-            .sortedByDescending { it.score }
+            .sortedWith(
+                compareByDescending<MemoryHit> { it.score }
+                    .thenBy { if (it.recallMode == MemoryRecallMode.Semantic) 0 else 1 },
+            )
             .take(topK)
     }
 
     override fun buildContext(hits: List<MemoryHit>): String =
         hits.joinToString(separator = "\n") { "- ${it.text}" }
 
+    private fun semanticEmbeddingFor(
+        id: String,
+        text: String,
+        type: MemoryRecordType,
+    ): FloatArray? {
+        val runtime = activeEmbeddingRuntime
+        if (!runtime.supportsSemanticRecall || !type.isSemanticRecallEligible()) return null
+        val modelId = runtime.modelId
+        val dimension = runtime.dimension
+        if (modelId.isBlank() || dimension <= 0) return null
+        val sourceHash = semanticSourceHash(text)
+        val cached = embeddingStore.embedding(id, modelId)
+        if (
+            cached != null &&
+            cached.sourceHash == sourceHash &&
+            cached.dimension == dimension &&
+            cached.vector.size == dimension
+        ) {
+            return cached.vector
+        }
+        val vector = runCatching { runtime.embed(text).normalizedVector(dimension) }.getOrElse {
+            failActiveSemanticRuntime()
+            return null
+        }
+        embeddingStore.upsert(
+            PersistedMemoryEmbedding(
+                recordId = id,
+                modelId = modelId,
+                sourceHash = sourceHash,
+                dimension = dimension,
+                vector = vector,
+                updatedAtMillis = clockMillis(),
+            ),
+        )
+        return vector
+    }
+
+    private fun embedSemanticQuery(query: String): FloatArray? {
+        val runtime = activeEmbeddingRuntime
+        if (!runtime.supportsSemanticRecall || runtime.dimension <= 0) return null
+        return runCatching { runtime.embed(query).normalizedVector(runtime.dimension) }.getOrElse {
+            failActiveSemanticRuntime()
+            null
+        }
+    }
+
     private fun reembedEntries() {
         entries.keys.toList().forEach { id ->
             entries[id]?.let { entry ->
                 entries[id] = entry.copy(
-                    embedding = activeEmbeddingRuntime.embed(embeddingTextFor(entry)),
+                    lexicalEmbedding = defaultEmbeddingRuntime.embed(entry.searchText),
+                    semanticEmbedding = semanticEmbeddingFor(
+                        id = entry.id,
+                        text = entry.text,
+                        type = entry.type,
+                    ),
                 )
             }
         }
+        refreshSemanticIndexStats()
     }
 
-    private fun embedEntry(text: String, searchText: String): FloatArray {
-        val runtime = activeEmbeddingRuntime
-        val embeddingText = embeddingTextFor(text, searchText, runtime)
-        return runCatching { runtime.embed(embeddingText) }.getOrElse { throwable ->
-            if (runtime === defaultEmbeddingRuntime) throw throwable
-            failActiveSemanticRuntime()
-            defaultEmbeddingRuntime.embed(embeddingTextFor(text, searchText, defaultEmbeddingRuntime))
+    private fun refreshSemanticIndexStats() {
+        semanticMemoryIndexedRecordCount = entries.values.count { entry ->
+            entry.type.isSemanticRecallEligible() && entry.semanticEmbedding != null
         }
-    }
-
-    private fun embedQuery(query: String): FloatArray? {
-        val runtime = activeEmbeddingRuntime
-        return runCatching { runtime.embed(query) }.getOrElse {
-            if (runtime === defaultEmbeddingRuntime) return null
-            failActiveSemanticRuntime()
-            runCatching { defaultEmbeddingRuntime.embed(query) }.getOrNull()
+        semanticMemoryLastRebuiltAtMillis = if (semanticMemoryIndexedRecordCount > 0) {
+            clockMillis()
+        } else {
+            null
         }
     }
 
     private fun failActiveSemanticRuntime() {
         activeMemoryModelPath = null
+        activeEmbeddingRuntime.close()
         activeEmbeddingRuntime = defaultEmbeddingRuntime
-        semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.RuntimeLoadFailed
+        semanticMemoryRuntimeStatus = SemanticMemoryRuntimeStatus.DegradedLexical
         reembedEntries()
     }
-
-    private fun embeddingTextFor(entry: MemoryEntry): String =
-        embeddingTextFor(entry.text, entry.searchText, activeEmbeddingRuntime)
-
-    private fun embeddingTextFor(
-        text: String,
-        searchText: String,
-        runtime: EmbeddingRuntime,
-    ): String =
-        if (runtime.supportsSemanticRecall) text else searchText
 
     private fun forgetConflictingPreferences(id: String, text: String) {
         val conflictKeys = explicitPreferenceConflictKeys(text)
@@ -435,7 +560,9 @@ class MemoryRepository(
             .forEach { conflictId ->
                 entries.remove(conflictId)
                 recordStore.delete(conflictId)
+                embeddingStore.delete(conflictId)
             }
+        refreshSemanticIndexStats()
     }
 
     private fun forgetConflictingUserFacts(id: String, text: String) {
@@ -459,7 +586,9 @@ class MemoryRepository(
             .forEach { conflictId ->
                 entries.remove(conflictId)
                 recordStore.delete(conflictId)
+                embeddingStore.delete(conflictId)
             }
+        refreshSemanticIndexStats()
     }
 
     private fun cosine(left: FloatArray, right: FloatArray): Float {
@@ -647,10 +776,35 @@ interface MemoryRecordStore {
     fun clear()
 }
 
+data class PersistedMemoryEmbedding(
+    val recordId: String,
+    val modelId: String,
+    val sourceHash: String,
+    val dimension: Int,
+    val vector: FloatArray,
+    val updatedAtMillis: Long,
+)
+
+interface MemoryEmbeddingStore {
+    fun embedding(recordId: String, modelId: String): PersistedMemoryEmbedding?
+    fun upsert(embedding: PersistedMemoryEmbedding)
+    fun delete(recordId: String)
+    fun deleteForModel(modelId: String)
+    fun clear()
+}
+
 object NoOpMemoryRecordStore : MemoryRecordStore {
     override fun records(): List<PersistedMemoryRecord> = emptyList()
     override fun upsert(record: PersistedMemoryRecord) = Unit
     override fun delete(id: String): Boolean = false
+    override fun clear() = Unit
+}
+
+object NoOpMemoryEmbeddingStore : MemoryEmbeddingStore {
+    override fun embedding(recordId: String, modelId: String): PersistedMemoryEmbedding? = null
+    override fun upsert(embedding: PersistedMemoryEmbedding) = Unit
+    override fun delete(recordId: String) = Unit
+    override fun deleteForModel(modelId: String) = Unit
     override fun clear() = Unit
 }
 
@@ -691,6 +845,63 @@ class RoomMemoryRecordStore(
     }
 }
 
+class RoomMemoryEmbeddingStore(
+    private val dao: MemoryEmbeddingDao,
+) : MemoryEmbeddingStore {
+    override fun embedding(recordId: String, modelId: String): PersistedMemoryEmbedding? =
+        dao.embedding(recordId, modelId)?.toPersisted()
+
+    override fun upsert(embedding: PersistedMemoryEmbedding) {
+        dao.upsert(embedding.toEntity())
+    }
+
+    override fun delete(recordId: String) {
+        dao.delete(recordId)
+    }
+
+    override fun deleteForModel(modelId: String) {
+        dao.deleteForModel(modelId)
+    }
+
+    override fun clear() {
+        dao.deleteAll()
+    }
+
+    private fun MemoryEmbeddingEntity.toPersisted(): PersistedMemoryEmbedding? {
+        val vector = vectorBlob.decodeFloatVector(dimension) ?: return null
+        return PersistedMemoryEmbedding(
+            recordId = recordId,
+            modelId = modelId,
+            sourceHash = sourceHash,
+            dimension = dimension,
+            vector = vector,
+            updatedAtMillis = updatedAtMillis,
+        )
+    }
+
+    private fun PersistedMemoryEmbedding.toEntity(): MemoryEmbeddingEntity =
+        MemoryEmbeddingEntity(
+            recordId = recordId,
+            modelId = modelId,
+            sourceHash = sourceHash,
+            dimension = dimension,
+            vectorBlob = vector.encodeFloatVector(),
+            updatedAtMillis = updatedAtMillis,
+        )
+
+    private fun FloatArray.encodeFloatVector(): ByteArray {
+        val buffer = ByteBuffer.allocate(size * java.lang.Float.BYTES).order(ByteOrder.LITTLE_ENDIAN)
+        forEach(buffer::putFloat)
+        return buffer.array()
+    }
+
+    private fun ByteArray.decodeFloatVector(dimension: Int): FloatArray? {
+        if (dimension <= 0 || size != dimension * java.lang.Float.BYTES) return null
+        val buffer = ByteBuffer.wrap(this).order(ByteOrder.LITTLE_ENDIAN)
+        return FloatArray(dimension) { buffer.float }
+    }
+}
+
 private data class MemoryEntry(
     val id: String,
     val text: String,
@@ -698,8 +909,44 @@ private data class MemoryEntry(
     val originalTokens: Set<String>,
     val tokens: Set<String>,
     val searchText: String,
-    val embedding: FloatArray,
+    val lexicalEmbedding: FloatArray,
+    val semanticEmbedding: FloatArray?,
 )
+
+private fun MemoryRecordType.isSemanticRecallEligible(): Boolean =
+    this == MemoryRecordType.Preference ||
+        this == MemoryRecordType.UserFact ||
+        this == MemoryRecordType.TaskState
+
+private fun EmbeddingRuntime.probeSemanticVector(): Boolean {
+    val expectedDimension = dimension
+    if (expectedDimension <= 0) return false
+    val vector = embed(SEMANTIC_RUNTIME_PROBE_TEXT)
+    if (vector.size != expectedDimension) return false
+    if (vector.any { value -> value.isNaN() || value.isInfinite() }) return false
+    val normSquared = vector.sumOf { value -> (value * value).toDouble() }
+    return normSquared > 0.0 && kotlin.math.abs(kotlin.math.sqrt(normSquared) - 1.0) <= 0.05
+}
+
+private fun FloatArray.normalizedVector(expectedDimension: Int): FloatArray {
+    require(size == expectedDimension) {
+        "Embedding dimension mismatch: expected $expectedDimension, got $size"
+    }
+    val norm = sqrt(sumOf { value -> (value * value).toDouble() }).toFloat()
+    require(norm > 0f && !norm.isNaN() && !norm.isInfinite()) {
+        "Embedding vector has invalid norm"
+    }
+    return FloatArray(size) { index -> this[index] / norm }
+}
+
+private fun semanticSourceHash(text: String): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val normalized = text.trim().replace(Regex("""\s+"""), " ")
+    digest.update(normalized.toByteArray(Charsets.UTF_8))
+    return digest.digest().joinToString(separator = "") { byte ->
+        "%02x".format(byte.toInt() and 0xff)
+    }
+}
 
 private fun searchTextFor(type: MemoryRecordType, text: String): String {
     val aliases = memorySearchAliases(type, text)

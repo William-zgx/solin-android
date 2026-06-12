@@ -140,6 +140,7 @@ for model in parse_manifest(manifest_path):
     ]
     card_data = metadata.get("cardData") or {}
     card_license = card_data.get("license") if isinstance(card_data, dict) else None
+    gated = bool(metadata.get("gated", False))
     records.append({
         "id": model["id"],
         "repository": repo_id,
@@ -147,7 +148,8 @@ for model in parse_manifest(manifest_path):
         "apiUrl": api_url,
         "modelSha": metadata.get("sha", ""),
         "lastModified": metadata.get("lastModified", ""),
-        "gated": bool(metadata.get("gated", False)),
+        "gated": gated,
+        "requiresUserAuthorization": gated,
         "licenseTags": license_tags,
         "cardLicense": card_license or "",
         "licenseSourceCandidates": license_source_candidates(repo_id, model["manifestRevision"], metadata),

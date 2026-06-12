@@ -141,7 +141,7 @@ class MainActivityComprehensiveTest {
         val setupVisible = composeRule.waitForOptionalText("离线基础问答可选下载", timeoutMillis = 3_000)
         if (!setupVisible) return
         composeRule.onNodeWithTag("first_run_model_chat-e2b").performScrollTo().assertIsOn()
-        composeRule.onNodeWithTag("first_run_model_memory-embedding-300m").performScrollTo().assertIsOff()
+        composeRule.onNodeWithTag("first_run_model_$MEMORY_EMBEDDING_MODEL_ID").performScrollTo().assertIsOff()
         composeRule.onNodeWithTag("first_run_model_mobile-action-270m").performScrollTo().assertIsOff()
         composeRule.onNodeWithText("先跳过").performScrollTo().performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {

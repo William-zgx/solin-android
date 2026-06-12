@@ -1266,7 +1266,8 @@ private fun AgentStep.traceSummary(): String =
             "Exposed ${toolNames.size} remote tool(s) in ${scope.name} scope."
         is AgentStep.RunDataReceiptRecorded ->
             "Data receipt ${receipt.destination.name}: remoteHistory=${receipt.remoteHistoryCount}, " +
-                "memoryHitCount=${receipt.memoryHitCount}, images=${receipt.imageAttachmentCount}."
+                "memoryHitCount=${receipt.memoryHitCount}, semantic=${receipt.semanticMemoryHitCount}, " +
+                "lexical=${receipt.lexicalMemoryHitCount}, images=${receipt.imageAttachmentCount}."
         is AgentStep.ToolRequested -> "Requested tool ${request.toolName}."
         is AgentStep.SkillPlanned -> "Planned skill ${request.skillId} with ${plan?.steps?.size ?: 0} step(s)."
         is AgentStep.SafetyChecked -> "Safety ${decision.outcome}: ${decision.reason.shortTraceText()}"
@@ -1327,6 +1328,8 @@ private fun AgentStep.traceJson(type: String): JSONObject {
             .put("remoteHistoryCount", receipt.remoteHistoryCount)
             .put("localOnlyHistoryFilteredCount", receipt.localOnlyHistoryFilteredCount)
             .put("memoryHitCount", receipt.memoryHitCount)
+            .put("semanticMemoryHitCount", receipt.semanticMemoryHitCount)
+            .put("lexicalMemoryHitCount", receipt.lexicalMemoryHitCount)
             .put("memoryContextIncluded", receipt.memoryContextIncluded)
             .put("deviceContextIncluded", receipt.deviceContextIncluded)
             .put("imageAttachmentCount", receipt.imageAttachmentCount)

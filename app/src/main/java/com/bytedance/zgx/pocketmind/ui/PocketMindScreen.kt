@@ -120,6 +120,7 @@ import com.bytedance.zgx.pocketmind.BackgroundTaskSummary
 import com.bytedance.zgx.pocketmind.AgentTraceRunUiSummary
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.ChatUiState
+import com.bytedance.zgx.pocketmind.HUGGING_FACE_TOKEN_SETTINGS_URL
 import com.bytedance.zgx.pocketmind.ModelCatalog
 import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.GenerationStats
@@ -177,6 +178,8 @@ fun PocketMindScreen(
     onDownloadModel: () -> Unit,
     onDownloadRecommendedModel: (String) -> Unit,
     onDownloadCustomModel: (String) -> Unit,
+    onSaveHuggingFaceAccessToken: (String) -> Unit,
+    onClearHuggingFaceAccessToken: () -> Unit,
     onCancelDownload: () -> Unit,
     onLoadModel: () -> Unit,
     onRecommendedModelSelected: (String) -> Unit,
@@ -191,7 +194,7 @@ fun PocketMindScreen(
     onCreateSession: () -> Unit,
     onSessionSelected: (String) -> Unit,
     onDeleteSession: () -> Unit,
-    onOpenModelPage: () -> Unit,
+    onOpenModelPage: (String) -> Unit,
     onSetupModelToggled: (String, Boolean) -> Unit,
     onDownloadSetupModels: () -> Unit,
     onSkipFirstRunSetup: () -> Unit,
@@ -229,6 +232,7 @@ fun PocketMindScreen(
     val listState = rememberLazyListState()
     var input by rememberSaveable { mutableStateOf("") }
     var customModelUrl by rememberSaveable { mutableStateOf("") }
+    var huggingFaceAccessTokenInput by rememberSaveable { mutableStateOf("") }
     var showModelManager by rememberSaveable { mutableStateOf(false) }
     var modelManagerInitialTab by rememberSaveable { mutableStateOf(MODEL_MANAGER_CURRENT_TAB_INDEX) }
     var showSessions by rememberSaveable { mutableStateOf(false) }
@@ -392,6 +396,13 @@ fun PocketMindScreen(
                         onDownloadModel = onDownloadModel,
                         onDownloadRecommendedModel = onDownloadRecommendedModel,
                         onDownloadCustomModel = onDownloadCustomModel,
+                        huggingFaceAccessTokenInput = huggingFaceAccessTokenInput,
+                        onHuggingFaceAccessTokenInputChanged = { huggingFaceAccessTokenInput = it },
+                        onSaveHuggingFaceAccessToken = {
+                            onSaveHuggingFaceAccessToken(huggingFaceAccessTokenInput)
+                            huggingFaceAccessTokenInput = ""
+                        },
+                        onClearHuggingFaceAccessToken = onClearHuggingFaceAccessToken,
                         onCancelDownload = onCancelDownload,
                         onLoadModel = onLoadModel,
                         onRecommendedModelSelected = onRecommendedModelSelected,
@@ -1725,6 +1736,10 @@ private fun ModelManagerSheet(
     onDownloadModel: () -> Unit,
     onDownloadRecommendedModel: (String) -> Unit,
     onDownloadCustomModel: (String) -> Unit,
+    huggingFaceAccessTokenInput: String,
+    onHuggingFaceAccessTokenInputChanged: (String) -> Unit,
+    onSaveHuggingFaceAccessToken: () -> Unit,
+    onClearHuggingFaceAccessToken: () -> Unit,
     onCancelDownload: () -> Unit,
     onLoadModel: () -> Unit,
     onRecommendedModelSelected: (String) -> Unit,
@@ -1740,7 +1755,7 @@ private fun ModelManagerSheet(
     onForgetLongTermMemory: (String) -> Unit,
     onClearLongTermMemory: () -> Unit,
     onRemoteSendDisclosurePolicySelected: (RemoteSendDisclosurePolicy) -> Unit,
-    onOpenModelPage: () -> Unit,
+    onOpenModelPage: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var selectedTab by rememberSaveable(initialSelectedTab) { mutableStateOf(initialSelectedTab) }
@@ -1825,6 +1840,10 @@ private fun ModelManagerSheet(
                 onInstalledModelSelected = onInstalledModelSelected,
                 onDeleteInstalledModel = onDeleteInstalledModel,
                 onDownloadRecommendedModel = onDownloadRecommendedModel,
+                huggingFaceAccessTokenInput = huggingFaceAccessTokenInput,
+                onHuggingFaceAccessTokenInputChanged = onHuggingFaceAccessTokenInputChanged,
+                onSaveHuggingFaceAccessToken = onSaveHuggingFaceAccessToken,
+                onClearHuggingFaceAccessToken = onClearHuggingFaceAccessToken,
                 onOpenModelPage = onOpenModelPage,
             )
 
@@ -1884,15 +1903,26 @@ private fun ModelInventoryPanel(
     onInstalledModelSelected: (String) -> Unit,
     onDeleteInstalledModel: (String) -> Unit,
     onDownloadRecommendedModel: (String) -> Unit,
-    onOpenModelPage: () -> Unit,
+    huggingFaceAccessTokenInput: String,
+    onHuggingFaceAccessTokenInputChanged: (String) -> Unit,
+    onSaveHuggingFaceAccessToken: () -> Unit,
+    onClearHuggingFaceAccessToken: () -> Unit,
+    onOpenModelPage: (String) -> Unit,
 ) {
     var pendingDeleteModel by remember { mutableStateOf<InstalledModelSummary?>(null) }
+    val firstHuggingFaceModel = state.recommendedModels.firstOrNull { it.requiresHuggingFaceAccessToken() }
     pendingDeleteModel?.let { model ->
         AlertDialog(
             onDismissRequest = { pendingDeleteModel = null },
             title = { Text("删除本地模型") },
             text = {
-                Text("将从设备删除 ${model.displayName} 的模型文件，并从模型列表移除。这个操作不可撤销。")
+                Text(
+                    if (model.capability == ModelCapability.MemoryEmbedding) {
+                        "将删除 ${model.displayName} 的模型文件，并清除该模型生成的语义向量缓存；不会删除长期记忆文本，已有记忆仍可用轻量索引检索。"
+                    } else {
+                        "将从设备删除 ${model.displayName} 的模型文件，并从模型列表移除。这个操作不可撤销。"
+                    },
+                )
             },
             confirmButton = {
                 Button(
@@ -1946,6 +1976,22 @@ private fun ModelInventoryPanel(
                 text = "推荐模型",
                 subtitle = MODEL_DOWNLOAD_RATIONALE_TEXT,
             )
+            if (firstHuggingFaceModel != null) {
+                HuggingFaceAuthorizationPanel(
+                    tokenConfigured = state.huggingFaceAccessTokenConfigured,
+                    pendingAuthorization = state.pendingHuggingFaceAuthorizationModelId != null,
+                    tokenInput = huggingFaceAccessTokenInput,
+                    onTokenInputChanged = onHuggingFaceAccessTokenInputChanged,
+                    onSaveToken = onSaveHuggingFaceAccessToken,
+                    onClearToken = onClearHuggingFaceAccessToken,
+                    onOpenModelAuthorization = {
+                        onOpenModelPage(firstHuggingFaceModel.repositoryUrl)
+                    },
+                    onOpenTokenSettings = {
+                        onOpenModelPage(HUGGING_FACE_TOKEN_SETTINGS_URL)
+                    },
+                )
+            }
             ModelPathGuidance(
                 selectedModel = state.selectedRecommendedModel,
             )
@@ -1959,7 +2005,7 @@ private fun ModelInventoryPanel(
             }
             TextButton(
                 modifier = Modifier.fillMaxWidth(),
-                onClick = onOpenModelPage,
+                onClick = { onOpenModelPage(state.selectedRecommendedModel.repositoryUrl) },
                 enabled = !state.isBusy,
             ) {
                 Text("查看推荐模型来源")
@@ -1990,6 +2036,127 @@ private fun ModelInventoryPanel(
             onDownloadCustomModel = onDownloadCustomModel,
             enabled = !state.isBusy,
         )
+    }
+}
+
+@Composable
+private fun HuggingFaceAuthorizationPanel(
+    tokenConfigured: Boolean,
+    pendingAuthorization: Boolean,
+    tokenInput: String,
+    onTokenInputChanged: (String) -> Unit,
+    onSaveToken: () -> Unit,
+    onClearToken: () -> Unit,
+    onOpenModelAuthorization: () -> Unit,
+    onOpenTokenSettings: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("hugging_face_authorization_panel"),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.88f),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (pendingAuthorization) 0.9f else 0.58f),
+        ),
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CapabilityMark(
+                    icon = Icons.Filled.Security,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = "Hugging Face 授权",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = if (tokenConfigured) {
+                            "read token 已保存在本机加密区，下载 gated 模型时会临时使用。"
+                        } else {
+                            "先登录并接受模型许可，再保存 read token 才能下载原始记忆模型。"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    text = if (tokenConfigured) "已保存" else "待授权",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (tokenConfigured) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenModelAuthorization,
+                ) {
+                    Text("模型授权页", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenTokenSettings,
+                ) {
+                    Text("Token 页面", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            OutlinedTextField(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("hugging_face_token_input"),
+                value = tokenInput,
+                onValueChange = onTokenInputChanged,
+                enabled = !tokenConfigured,
+                maxLines = 1,
+                placeholder = { Text("粘贴 Hugging Face read token") },
+                visualTransformation = PasswordVisualTransformation(),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("hugging_face_token_save_button"),
+                    onClick = onSaveToken,
+                    enabled = !tokenConfigured && tokenInput.isNotBlank(),
+                ) {
+                    Text("保存授权", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                OutlinedButton(
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("hugging_face_token_clear_button"),
+                    onClick = onClearToken,
+                    enabled = tokenConfigured,
+                ) {
+                    Text("清除", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
     }
 }
 
@@ -2695,6 +2862,18 @@ private fun ProductReadinessBullet(text: String) {
 internal fun trustDeletionBoundaryText(state: ChatUiState): String =
     "可清空长期记忆、删除当前会话、取消后台任务，并可一键清除远程服务地址、模型名和 API Key。当前已保存长期记忆 ${state.longTermMemories.size} 条。"
 
+internal fun semanticMemoryIndexStatusText(state: ChatUiState): String {
+    val mode = if (state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.Active) {
+        "语义记忆"
+    } else {
+        "轻量索引"
+    }
+    val rebuilt = state.semanticMemoryLastRebuiltAtMillis
+        ?.let { millis -> SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(millis)) }
+        ?: "尚未建立"
+    return "召回模式：$mode；索引：${state.semanticMemoryIndexedRecordCount} 条长期记忆；最近重建：$rebuilt"
+}
+
 internal data class SensitiveCapabilityDisclosureDisplayRow(
     val title: String,
     val body: String,
@@ -2745,18 +2924,26 @@ private fun MemoryTogglePanel(
                             state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.Active ->
                                 "语义记忆运行时已启用；记忆仍只在本机检索，不会自动发送到远程模型。"
 
+                            state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.BuildingIndex ->
+                                "正在建立语义记忆索引；完成前仍可使用轻量索引。"
+
+                            state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.ProbeFailed ||
+                                state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.DegradedLexical ->
+                                "记忆模型已安装但语义运行时未通过探测，已回退轻量索引。"
+
                             state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.RuntimeUnavailable &&
                                 memoryModelInstalled ->
                                 "记忆模型资产已安装；当前没有可用 embedding runtime，语义运行时未启用。"
-
-                            state.semanticMemoryRuntimeStatus == SemanticMemoryRuntimeStatus.RuntimeLoadFailed &&
-                                memoryModelInstalled ->
-                                "记忆模型资产已安装；语义运行时加载或探测失败，已回退轻量索引。"
 
                             else ->
                                 "当前使用本地轻量索引；可补装记忆模型资产。"
                         },
                         style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = semanticMemoryIndexStatusText(state),
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -3854,10 +4041,15 @@ internal fun runDataReceiptDisplayText(receipt: RunDataReceiptUiSummary): String
         ?: "无"
     val rawPersisted = if (receipt.rawContentPersisted) "是" else "否"
     val memoryUsage = if (receipt.memoryContextIncluded) "已使用" else "未带出"
+    val memoryRecall = if (receipt.memoryHitCount > 0) {
+        "Semantic ${receipt.semanticMemoryHitCount} / Lexical ${receipt.lexicalMemoryHitCount}"
+    } else {
+        "未使用"
+    }
     val deviceUsage = if (receipt.deviceContextIncluded) "已使用" else "未带出"
     return "去向：$destination；隐私：${receipt.currentPromptPrivacy}；远端历史：${receipt.remoteHistoryCount}；" +
         "过滤 LocalOnly：${receipt.localOnlyHistoryFilteredCount}；记忆：$memoryUsage/${receipt.memoryHitCount}；" +
-        "设备上下文：$deviceUsage；图片：${receipt.imageAttachmentCount}；受保护源：${receipt.protectedSourceCount}；" +
+        "召回：$memoryRecall；设备上下文：$deviceUsage；图片：${receipt.imageAttachmentCount}；受保护源：${receipt.protectedSourceCount}；" +
         "保护：$protectedTypes；可删除：$deletableRecords；原文持久化：$rawPersisted"
 }
 
@@ -3877,7 +4069,12 @@ private fun RecommendedModelCard(
         ModelCapability.MobileAction -> semanticColors.busy
     }
     val statusText = when {
-        installed && model.capability == ModelCapability.MemoryEmbedding -> "资产已安装"
+        model.requiresHuggingFaceAccessToken() && !state.huggingFaceAccessTokenConfigured && !installed ->
+            "需 HF 授权"
+
+        model.capability == ModelCapability.MemoryEmbedding ->
+            memoryModelStatusText(installed, state.semanticMemoryRuntimeStatus)
+
         installed && model.capability == ModelCapability.MobileAction -> "实验资产已安装"
         installed -> "已安装"
         model.setupTier == SetupTier.BasicRecommended -> "基础包"
@@ -3968,7 +4165,13 @@ private fun RecommendedModelCard(
                         contentDescription = null,
                     )
                     Text(
-                        text = if (installed) " 重新下载" else " 下载",
+                        text = when {
+                            installed -> " 重新下载"
+                            model.requiresHuggingFaceAccessToken() && !state.huggingFaceAccessTokenConfigured ->
+                                " 授权下载"
+
+                            else -> " 下载"
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -3977,6 +4180,24 @@ private fun RecommendedModelCard(
         }
     }
 }
+
+private fun RecommendedModel.requiresHuggingFaceAccessToken(): Boolean =
+    requiresHuggingFaceAuthorization ||
+        companionFiles.any { companion -> companion.requiresHuggingFaceAuthorization }
+
+private fun memoryModelStatusText(
+    installed: Boolean,
+    status: SemanticMemoryRuntimeStatus,
+): String =
+    when {
+        !installed -> "未安装"
+        status == SemanticMemoryRuntimeStatus.BuildingIndex -> "正在建立索引"
+        status == SemanticMemoryRuntimeStatus.Active -> "语义记忆可用"
+        status == SemanticMemoryRuntimeStatus.ProbeFailed ||
+            status == SemanticMemoryRuntimeStatus.DegradedLexical -> "已回退轻量索引"
+
+        else -> "已安装待探测"
+    }
 
 @Composable
 private fun ModelRow(

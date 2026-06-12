@@ -17,12 +17,12 @@
       "reviewEvidenceSha256": ""
     },
     {
-      "id": "memory-embedding-300m",
-      "repository": "kontextdev/embeddinggemma-300m-litertlm",
-      "upstreamRevision": "96fa469293abd2da72b46aeeafea3bb571468dfe",
+      "id": "memory-embedding-gemma-300m",
+      "repository": "litert-community/embeddinggemma-300m",
+      "upstreamRevision": "870cbe05ef460385363c6b574c851ae5d8989ce3",
       "status": "pending_manual_review",
-      "licenseName": "Apache-2.0",
-      "licenseUrl": "https://huggingface.co/kontextdev/embeddinggemma-300m-litertlm/blob/96fa469293abd2da72b46aeeafea3bb571468dfe/README.md",
+      "licenseName": "Gemma",
+      "licenseUrl": "https://huggingface.co/litert-community/embeddinggemma-300m/blob/870cbe05ef460385363c6b574c851ae5d8989ce3/README.md",
       "redistributionDecision": "not_approved",
       "attributionNotice": "",
       "reviewer": "",

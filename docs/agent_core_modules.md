@@ -1395,7 +1395,9 @@ Current status:
   the lightweight index.
 - `MemoryRepository` has a semantic runtime extension point: an injected runtime
   with `supportsSemanticRecall=true` can return semantic hits without the
-  lightweight term-overlap gate.
+  lightweight term-overlap gate. V1 semantic indexing is limited to explicit
+  long-term `Preference`, `UserFact`, and `TaskState` records; ordinary
+  conversation recall remains on the existing lightweight path.
 - `ModelRepository` now exposes a verified memory-embedding model path only
   for existing `MemoryEmbedding` assets that passed recommended-model
   verification with stored catalog size, revision, and SHA-256 evidence plus a
@@ -1404,28 +1406,32 @@ Current status:
   switching happens at model verification boundaries.
 - `MemoryRepository` implements the semantic runtime controller and can switch
   between the default hash runtime and an injected semantic runtime, re-embedding
-  current entries on switch. It also fails closed if an active semantic runtime
-  later throws during indexing or query embedding: the controller clears the
-  active model path, marks `RuntimeLoadFailed`, re-embeds entries with the
-  default hash runtime, and only returns lexical fallback hits.
+  current eligible entries on switch. It persists semantic vectors in
+  `memory_embeddings` keyed by `recordId + modelId`, invalidates them on record
+  update/forget/clear/model delete, and only treats semantic recall as available
+  after runtime probe returns a finite normalized vector with a stable dimension.
+  If an active semantic runtime later throws during indexing or query embedding,
+  the controller clears the active model path, marks `DegradedLexical`,
+  re-embeds entries with the default hash runtime, and only returns lexical
+  fallback hits.
 - The controller reports explicit runtime status:
-  `NoVerifiedModel`, `RuntimeUnavailable`, `RuntimeLoadFailed`, or `Active`.
-  ViewModel/UI state uses this status so a verified memory asset without an
-  embedding runtime is not presented as enabled semantic recall.
-- The production app container now passes `LiteRtEmbeddingRuntimeFactory` into
-  `MemoryRepository`. The factory is intentionally fail-closed because the
-  current LiteRT-LM SDK exposes chat/generation APIs but no public embedding
-  vector API, so a verified `MemoryEmbedding` asset results in hash fallback and
-  `RuntimeLoadFailed` rather than semantic retrieval.
-- The LiteRT embedding adapter is still waiting on a real vector-producing SDK
-  surface; a downloaded memory model asset alone does not mean embedding
-  semantics are participating.
+  `NoVerifiedModel`, `AssetMissing`, `RuntimeUnavailable`, `ProbeFailed`,
+  `BuildingIndex`, `Active`, or `DegradedLexical`. ViewModel/UI state uses this
+  status so a verified memory asset without a successful runtime probe is not
+  presented as enabled semantic recall.
+- The production app container now passes `TfliteTextEmbeddingRuntimeFactory`
+  into `MemoryRepository`. The factory loads the recommended EmbeddingGemma
+  LiteRT `.tflite` file plus `sentencepiece.model` through the Google AI Edge
+  Local Agents Gemma embedding runtime on CPU. The legacy
+  `LiteRtEmbeddingRuntimeFactory` remains only as an explicit fail-closed
+  compatibility explanation for old `.litertlm` embedding assets.
 - UI state separates an installed memory asset from an active semantic runtime,
   and local turns produced with memory context are kept local-only so later
   remote chats do not inherit that private context through history.
-- Recommended model cards use asset-oriented labels for memory/action models
-  (`资产已安装`, `实验资产已安装`) so installation is not presented as active
-  semantic recall or production action autonomy.
+- Recommended model cards report memory runtime states such as
+  `已安装待探测`, `正在建立索引`, `语义记忆可用`, and `已回退轻量索引` so
+  installation is not presented as active semantic recall until probe/index
+  succeeds.
 
 Tests:
 

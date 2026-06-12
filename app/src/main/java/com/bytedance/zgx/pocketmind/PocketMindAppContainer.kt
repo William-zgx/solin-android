@@ -15,6 +15,7 @@ import com.bytedance.zgx.pocketmind.background.ScheduledTaskRepository
 import com.bytedance.zgx.pocketmind.data.EncryptedSecretStore
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupRepository
 import com.bytedance.zgx.pocketmind.data.GenerationParametersRepository
+import com.bytedance.zgx.pocketmind.data.HuggingFaceAuthRepository
 import com.bytedance.zgx.pocketmind.data.LegacyPrefsMigrator
 import com.bytedance.zgx.pocketmind.data.ModelRepository
 import com.bytedance.zgx.pocketmind.data.PocketMindDatabase
@@ -31,6 +32,7 @@ import com.bytedance.zgx.pocketmind.device.AndroidRecentFileProvider
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
+import com.bytedance.zgx.pocketmind.memory.RoomMemoryEmbeddingStore
 import com.bytedance.zgx.pocketmind.memory.RoomMemoryRecordStore
 import com.bytedance.zgx.pocketmind.multimodal.AndroidCurrentScreenshotOcrProvider
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrProvider
@@ -39,9 +41,9 @@ import com.bytedance.zgx.pocketmind.orchestration.CompositeAgentObservationRepla
 import com.bytedance.zgx.pocketmind.orchestration.ModelObservationReplanner
 import com.bytedance.zgx.pocketmind.orchestration.RoomAgentTraceStore
 import com.bytedance.zgx.pocketmind.orchestration.SequentialActionObservationReplanner
-import com.bytedance.zgx.pocketmind.runtime.LiteRtEmbeddingRuntimeFactory
 import com.bytedance.zgx.pocketmind.runtime.OkHttpRemoteChatRuntime
 import com.bytedance.zgx.pocketmind.runtime.RealLiteRtRuntime
+import com.bytedance.zgx.pocketmind.runtime.TfliteTextEmbeddingRuntimeFactory
 import com.bytedance.zgx.pocketmind.tool.ValidatingToolExecutor
 import com.bytedance.zgx.pocketmind.tool.RoutingToolExecutor
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
@@ -58,6 +60,7 @@ class PocketMindAppContainer(context: Context) {
     private val sessionRepository: SessionRepository
     private val generationParametersRepository: GenerationParametersRepository
     private val remoteModelRepository: RemoteModelRepository
+    private val huggingFaceAuthRepository: HuggingFaceAuthRepository
     private val firstRunSetupRepository: FirstRunSetupRepository
     private val downloadService: ModelDownloadService
     private val localRuntime: RealLiteRtRuntime
@@ -85,14 +88,21 @@ class PocketMindAppContainer(context: Context) {
         sessionRepository = SessionRepository(database.sessionDao(), settingsStore)
         generationParametersRepository = GenerationParametersRepository(settingsStore)
         remoteModelRepository = RemoteModelRepository(settingsStore, secretStore, appContext)
+        huggingFaceAuthRepository = HuggingFaceAuthRepository(secretStore)
         firstRunSetupRepository = FirstRunSetupRepository(settingsStore)
-        downloadService = ModelDownloadService(appContext)
+        downloadService = ModelDownloadService(
+            appContext,
+            huggingFaceAuthRepository::authorizationHeader,
+        )
         RealLiteRtRuntime.configureNativeLogging()
         localRuntime = RealLiteRtRuntime(appContext.cacheDir)
         remoteRuntime = OkHttpRemoteChatRuntime()
         memoryRepository = MemoryRepository(
-            semanticRuntimeFactory = LiteRtEmbeddingRuntimeFactory::create,
+            semanticRuntimeFactory = { modelPath ->
+                TfliteTextEmbeddingRuntimeFactory.create(appContext, modelPath)
+            },
             recordStore = RoomMemoryRecordStore(database.memoryRecordDao()),
+            embeddingStore = RoomMemoryEmbeddingStore(database.memoryEmbeddingDao()),
         )
         toolAuditRepository = ToolAuditRepository(database.toolAuditDao())
         remoteSendAuditRepository = RemoteSendAuditRepository(database.remoteSendAuditDao())
@@ -145,6 +155,7 @@ class PocketMindAppContainer(context: Context) {
             sessionRepository = sessionRepository,
             generationParametersRepository = generationParametersRepository,
             remoteModelRepository = remoteModelRepository,
+            huggingFaceAuthRepository = huggingFaceAuthRepository,
             firstRunSetupRepository = firstRunSetupRepository,
             downloadService = downloadService,
             runtime = localRuntime,
@@ -173,6 +184,7 @@ private class PocketMindViewModelFactory(
     private val sessionRepository: SessionRepository,
     private val generationParametersRepository: GenerationParametersRepository,
     private val remoteModelRepository: RemoteModelRepository,
+    private val huggingFaceAuthRepository: HuggingFaceAuthRepository,
     private val firstRunSetupRepository: FirstRunSetupRepository,
     private val downloadService: ModelDownloadService,
     private val runtime: RealLiteRtRuntime,
@@ -196,6 +208,7 @@ private class PocketMindViewModelFactory(
             sessionRepository = sessionRepository,
             generationParametersRepository = generationParametersRepository,
             remoteModelRepository = remoteModelRepository,
+            huggingFaceAuthStore = huggingFaceAuthRepository,
             firstRunSetupRepository = firstRunSetupRepository,
             downloadService = downloadService,
             runtime = runtime,

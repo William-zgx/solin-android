@@ -1,7 +1,10 @@
 package com.bytedance.zgx.pocketmind.data
 
+import com.bytedance.zgx.pocketmind.MEMORY_EMBEDDING_MODEL_ID
+import com.bytedance.zgx.pocketmind.ModelCatalog
 import java.io.File
 import java.io.IOException
+import java.io.RandomAccessFile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -133,6 +136,48 @@ class ModelRepositoryTest {
 
             assertEquals(file.nameWithoutExtension, source.installedDisplayName(file))
         }
+    }
+
+    @Test
+    fun recommendedMemoryModelExpandsToAuthenticatedEmbeddingGemmaBundleSources() {
+        val memoryModel = ModelCatalog.recommendedModelOrNull(MEMORY_EMBEDDING_MODEL_ID)
+        requireNotNull(memoryModel)
+
+        val sources = ModelDownloadSource.recommendedBundle(memoryModel)
+
+        assertEquals(2, sources.size)
+        assertEquals("embeddinggemma-300M_seq256_mixed-precision.tflite", sources[0].fileName)
+        assertEquals(true, sources[0].registerInstalledModel)
+        assertEquals(MEMORY_EMBEDDING_MODEL_ID, sources[0].modelId)
+        assertTrue(sources[0].requiresHuggingFaceAuthorization)
+        assertTrue(sources[0].downloadUrl.startsWith("https://huggingface.co/litert-community/embeddinggemma-300m/"))
+        assertEquals("sentencepiece.model", sources[1].fileName)
+        assertEquals(false, sources[1].registerInstalledModel)
+        assertEquals(MEMORY_EMBEDDING_MODEL_ID, sources[1].modelId)
+        assertTrue(sources[1].requiresHuggingFaceAuthorization)
+    }
+
+    @Test
+    fun recommendedMemoryModelRequiresTokenizerCompanionFile() {
+        val memoryModel = ModelCatalog.recommendedModelOrNull(MEMORY_EMBEDDING_MODEL_ID)
+        requireNotNull(memoryModel)
+        withTempModelDir { modelDir ->
+            val primary = File(modelDir, memoryModel.fileName).apply {
+                RandomAccessFile(this, "rw").use { file ->
+                    file.setLength(memoryModel.byteSize)
+                }
+            }
+
+            assertEquals(listOf("sentencepiece.model"), memoryModel.companionFiles.map { it.fileName })
+            assertFalse(ModelCatalog.hasCompleteCompanionFiles(primary, memoryModel))
+        }
+    }
+
+    @Test
+    fun acceptedModelNamesIncludeMemoryModelFilesButCustomDownloadsRemainLiteRtLmOnly() {
+        assertTrue(ModelCatalog.isAcceptedModelName("memory.tflite"))
+        assertTrue(ModelCatalog.isAcceptedModelName("chat.litertlm"))
+        assertNull(createCustomModelDownloadSource("https://models.example.com/memory.tflite"))
     }
 
     @Test

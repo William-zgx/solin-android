@@ -6,6 +6,13 @@ import java.security.MessageDigest
 import java.util.Locale
 
 internal const val MODEL_FILE_EXTENSION = ".litertlm"
+internal const val TFLITE_MODEL_FILE_EXTENSION = ".tflite"
+internal const val TOKENIZER_MODEL_FILE_EXTENSION = ".model"
+private val MODEL_FILE_EXTENSIONS = setOf(
+    MODEL_FILE_EXTENSION,
+    TFLITE_MODEL_FILE_EXTENSION,
+    TOKENIZER_MODEL_FILE_EXTENSION,
+)
 
 enum class ModelCapability {
     Chat,
@@ -90,11 +97,22 @@ data class RecommendedModel(
     val deviceHint: String,
     val capability: ModelCapability,
     val setupTier: SetupTier,
+    val requiresHuggingFaceAuthorization: Boolean = false,
+    val companionFiles: List<RecommendedModelCompanionFile> = emptyList(),
+)
+
+data class RecommendedModelCompanionFile(
+    val fileName: String,
+    val byteSize: Long,
+    val sha256Hex: String,
+    val downloadUrl: String,
+    val requiresHuggingFaceAuthorization: Boolean = false,
 )
 
 const val DEFAULT_CHAT_MODEL_ID = "chat-e2b"
-const val MEMORY_EMBEDDING_MODEL_ID = "memory-embedding-300m"
+const val MEMORY_EMBEDDING_MODEL_ID = "memory-embedding-gemma-300m"
 const val MOBILE_ACTION_MODEL_ID = "mobile-action-270m"
+const val HUGGING_FACE_TOKEN_SETTINGS_URL = "https://huggingface.co/settings/tokens"
 private const val HIGH_QUALITY_CHAT_MODEL_ID = "chat-e4b"
 
 private val LOCAL_VISION_INPUT_MODEL_IDS = setOf(
@@ -119,17 +137,27 @@ val RECOMMENDED_MODELS = listOf(
     ),
     RecommendedModel(
         id = MEMORY_EMBEDDING_MODEL_ID,
-        displayName = "本地记忆模型 300M",
+        displayName = "本地记忆模型 EmbeddingGemma 300M",
         shortName = "本地记忆模型",
-        fileName = "embeddinggemma-300m.litertlm",
-        byteSize = 179_159_040L,
-        sourceRevision = "96fa469293abd2da72b46aeeafea3bb571468dfe",
-        sha256Hex = "80e9596830fdd083cbc741dad666c0186439b0ba7b30112b552094650960b1cd",
-        repositoryUrl = "https://huggingface.co/kontextdev/embeddinggemma-300m-litertlm",
-        downloadUrl = "https://huggingface.co/kontextdev/embeddinggemma-300m-litertlm/resolve/96fa469293abd2da72b46aeeafea3bb571468dfe/embeddinggemma-300m.litertlm?download=true",
-        deviceHint = "实验资产；当前记忆使用本地轻量索引，下载约 171 MB",
+        fileName = "embeddinggemma-300M_seq256_mixed-precision.tflite",
+        byteSize = 179_131_736L,
+        sourceRevision = "870cbe05ef460385363c6b574c851ae5d8989ce3",
+        sha256Hex = "37115ef7bff76cd37dd86abe503ff511b1032bf85fc624a85c49c84899e92bc5",
+        repositoryUrl = "https://huggingface.co/litert-community/embeddinggemma-300m",
+        downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/870cbe05ef460385363c6b574c851ae5d8989ce3/embeddinggemma-300M_seq256_mixed-precision.tflite?download=true",
+        deviceHint = "真实端侧语义召回，需要 Hugging Face 授权，下载约 175 MB",
         capability = ModelCapability.MemoryEmbedding,
         setupTier = SetupTier.BasicRecommended,
+        requiresHuggingFaceAuthorization = true,
+        companionFiles = listOf(
+            RecommendedModelCompanionFile(
+                fileName = "sentencepiece.model",
+                byteSize = 4_683_319L,
+                sha256Hex = "d6daa52d93d7aad10e8388bd526c4e501d914b47177398d1d9621f1fe48438c7",
+                downloadUrl = "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/870cbe05ef460385363c6b574c851ae5d8989ce3/sentencepiece.model?download=true",
+                requiresHuggingFaceAuthorization = true,
+            ),
+        ),
     ),
     RecommendedModel(
         id = MOBILE_ACTION_MODEL_ID,
@@ -236,7 +264,9 @@ internal object ModelCatalog {
         modelId == null || recommendedModelById(modelId).capability == ModelCapability.Chat
 
     fun isAcceptedModelName(displayName: String): Boolean =
-        displayName.endsWith(MODEL_FILE_EXTENSION, ignoreCase = true)
+        MODEL_FILE_EXTENSIONS.any { extension ->
+            displayName.endsWith(extension, ignoreCase = true)
+        }
 
     fun sanitizeModelName(displayName: String): String {
         val safeName = displayName
@@ -257,6 +287,29 @@ internal object ModelCatalog {
         fileBytes: Long,
         model: RecommendedModel = DEFAULT_CHAT_MODEL,
     ): Boolean = fileBytes == model.byteSize
+
+    fun recommendedModelCompanionFile(
+        primaryFile: File,
+        companion: RecommendedModelCompanionFile,
+    ): File =
+        File(
+            primaryFile.parentFile
+                ?: primaryFile.absoluteFile.parentFile
+                ?: File("."),
+            companion.fileName,
+        )
+
+    fun hasCompleteCompanionFiles(primaryFile: File, model: RecommendedModel): Boolean =
+        model.companionFiles.all { companion ->
+            val file = recommendedModelCompanionFile(primaryFile, companion)
+            file.exists() &&
+                file.length() == companion.byteSize &&
+                matchesExpectedSha256(file, companion.sha256Hex)
+        }
+
+    fun hasCompleteRecommendedBundle(primaryFile: File, model: RecommendedModel): Boolean =
+        isVerifiedRecommendedModel(primaryFile, model) &&
+            hasCompleteCompanionFiles(primaryFile, model)
 
     fun isVerifiedRecommendedModel(
         file: File,

@@ -14,7 +14,10 @@ interface ModelDownloadClient {
     fun query(downloadId: Long): DownloadInfo?
 }
 
-class ModelDownloadService(context: Context) : ModelDownloadClient {
+class ModelDownloadService(
+    context: Context,
+    private val huggingFaceAuthorizationHeaderProvider: () -> String? = { null },
+) : ModelDownloadClient {
     private val appContext = context.applicationContext
     private val downloadManager = appContext.getSystemService(DownloadManager::class.java)
 
@@ -33,6 +36,12 @@ class ModelDownloadService(context: Context) : ModelDownloadClient {
                     Environment.DIRECTORY_DOWNLOADS,
                     targetFile.name,
                 )
+            if (source.requiresHuggingFaceAuthorization) {
+                val authorizationHeader = huggingFaceAuthorizationHeaderProvider()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: error("需要先完成 Hugging Face 授权")
+                request.addRequestHeader("Authorization", authorizationHeader)
+            }
             downloadManager.enqueue(request)
         }
 

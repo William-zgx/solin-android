@@ -26,6 +26,8 @@ data class ModelDownloadSource(
     val expectedBytes: Long?,
     val expectedSha256: String?,
     val modelId: String?,
+    val registerInstalledModel: Boolean = true,
+    val requiresHuggingFaceAuthorization: Boolean = false,
 ) {
     companion object {
         fun recommended(model: RecommendedModel): ModelDownloadSource =
@@ -36,7 +38,23 @@ data class ModelDownloadSource(
                 expectedBytes = model.byteSize,
                 expectedSha256 = model.sha256Hex,
                 modelId = model.id,
+                requiresHuggingFaceAuthorization = model.requiresHuggingFaceAuthorization,
             )
+
+        fun recommendedBundle(model: RecommendedModel): List<ModelDownloadSource> =
+            listOf(recommended(model)) +
+                model.companionFiles.map { companion ->
+                    ModelDownloadSource(
+                        title = "${model.shortName} tokenizer",
+                        fileName = companion.fileName,
+                        downloadUrl = companion.downloadUrl,
+                        expectedBytes = companion.byteSize,
+                        expectedSha256 = companion.sha256Hex,
+                        modelId = model.id,
+                        registerInstalledModel = false,
+                        requiresHuggingFaceAuthorization = companion.requiresHuggingFaceAuthorization,
+                    )
+                }
     }
 
     fun hasExpectedSize(fileBytes: Long): Boolean =
@@ -71,7 +89,7 @@ internal fun createCustomModelDownloadSource(downloadUrl: String): ModelDownload
         ?.substringAfterLast('/')
         ?.takeIf { it.isNotBlank() }
         ?: return null
-    if (!ModelCatalog.isAcceptedModelName(rawFileName)) return null
+    if (!rawFileName.endsWith(MODEL_FILE_EXTENSION, ignoreCase = true)) return null
     val fileName = ModelCatalog.sanitizeModelName(rawFileName)
     return ModelDownloadSource(
         title = "自定义模型",
@@ -214,6 +232,16 @@ class ModelRepository(
         if (!canDeleteInstalledModelFile(file, managedModelRoots())) return false
         val fileDeleted = !file.exists() || file.delete()
         if (!fileDeleted) return false
+        installed.recommendedModelId
+            ?.let { ModelCatalog.recommendedModelOrNull(it) }
+            ?.companionFiles
+            .orEmpty()
+            .forEach { companion ->
+                val companionFile = ModelCatalog.recommendedModelCompanionFile(file, companion)
+                if (canDeleteInstalledModelFile(companionFile, managedModelRoots())) {
+                    companionFile.delete()
+                }
+            }
         currentFileVerificationCache.keys
             .filter { key -> key.startsWith("${installed.id}:") }
             .forEach(currentFileVerificationCache::remove)
@@ -319,6 +347,8 @@ class ModelRepository(
                         expectedBytes = json.optLongOrNull("expectedBytes"),
                         expectedSha256 = json.optStringOrNull("expectedSha256"),
                         modelId = json.optStringOrNull("modelId"),
+                        registerInstalledModel = json.optBoolean("registerInstalledModel", true),
+                        requiresHuggingFaceAuthorization = json.optBoolean("requiresHuggingFaceAuthorization", false),
                     )
                 }.getOrNull()
             }
@@ -380,6 +410,9 @@ class ModelRepository(
                     )
                     changed = true
                 }
+                return@forEach
+            }
+            if (!ModelCatalog.hasCompleteCompanionFiles(file, model)) {
                 return@forEach
             }
             val verified = ModelCatalog.matchesExpectedSha256(file, model.sha256Hex)
@@ -541,6 +574,8 @@ class ModelRepository(
             .put("expectedBytes", expectedBytes ?: JSONObject.NULL)
             .put("expectedSha256", expectedSha256 ?: JSONObject.NULL)
             .put("modelId", modelId ?: JSONObject.NULL)
+            .put("registerInstalledModel", registerInstalledModel)
+            .put("requiresHuggingFaceAuthorization", requiresHuggingFaceAuthorization)
 
     private fun JSONObject.optLongOrNull(name: String): Long? =
         if (isNull(name)) null else optLong(name).takeIf { it > 0L }
@@ -574,6 +609,7 @@ class ModelRepository(
     ): Boolean {
         val file = File(entity.path)
         if (!file.exists() || file.length() != model.byteSize) return false
+        if (!ModelCatalog.hasCompleteCompanionFiles(file, model)) return false
         val cacheKey = "${entity.id}:${file.absolutePath}:${model.id}"
         val current = CurrentFileVerification(
             length = file.length(),
@@ -626,7 +662,8 @@ private fun currentFileMatchesVerifiedRecommendedModel(
     val file = File(entity.path)
     return file.exists() &&
         file.length() == model.byteSize &&
-        ModelCatalog.matchesExpectedSha256(file, model.sha256Hex)
+        ModelCatalog.matchesExpectedSha256(file, model.sha256Hex) &&
+        ModelCatalog.hasCompleteCompanionFiles(file, model)
 }
 
 internal fun canDeleteInstalledModelFile(

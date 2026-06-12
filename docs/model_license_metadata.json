@@ -1,7 +1,7 @@
 {
   "version": 1,
   "recordedAt": "2026-06-06T18:34:06Z",
-  "source": "Hugging Face model API",
+  "source": "Upstream model metadata",
   "policy": "Metadata collection is not legal approval; docs/model_license_review.json remains the release gate.",
   "models": [
     {
@@ -12,6 +12,7 @@
       "modelSha": "361a4010ad6d88fc5c86e148e333c0342b99763d",
       "lastModified": "2026-06-05T17:36:10.000Z",
       "gated": false,
+      "requiresUserAuthorization": false,
       "licenseTags": [
         "apache-2.0"
       ],
@@ -24,19 +25,20 @@
       "metadataOnly": true
     },
     {
-      "id": "memory-embedding-300m",
-      "repository": "kontextdev/embeddinggemma-300m-litertlm",
-      "manifestRevision": "96fa469293abd2da72b46aeeafea3bb571468dfe",
-      "apiUrl": "https://huggingface.co/api/models/kontextdev/embeddinggemma-300m-litertlm",
-      "modelSha": "96fa469293abd2da72b46aeeafea3bb571468dfe",
-      "lastModified": "2025-11-27T10:42:32.000Z",
-      "gated": false,
+      "id": "memory-embedding-gemma-300m",
+      "repository": "litert-community/embeddinggemma-300m",
+      "manifestRevision": "870cbe05ef460385363c6b574c851ae5d8989ce3",
+      "apiUrl": "https://huggingface.co/api/models/litert-community/embeddinggemma-300m",
+      "modelSha": "870cbe05ef460385363c6b574c851ae5d8989ce3",
+      "lastModified": "2026-06-03T05:08:48.000Z",
+      "gated": true,
+      "requiresUserAuthorization": true,
       "licenseTags": [
-        "apache-2.0"
+        "gemma"
       ],
-      "cardLicense": "apache-2.0",
+      "cardLicense": "gemma",
       "licenseSourceCandidates": [
-        "https://huggingface.co/kontextdev/embeddinggemma-300m-litertlm/blob/96fa469293abd2da72b46aeeafea3bb571468dfe/README.md"
+        "https://huggingface.co/litert-community/embeddinggemma-300m/blob/870cbe05ef460385363c6b574c851ae5d8989ce3/README.md"
       ],
       "manualReviewStatus": "pending_manual_review",
       "redistributionDecision": "not_approved",
@@ -50,6 +52,7 @@
       "modelSha": "82d0f654a6270c518d16c600edce3136221b3347",
       "lastModified": "2025-12-22T02:35:57.000Z",
       "gated": false,
+      "requiresUserAuthorization": false,
       "licenseTags": [
         "gemma"
       ],
@@ -69,6 +72,7 @@
       "modelSha": "f7ad3343bd6ebc9607f4dc3bc4f2398bd5749bc5",
       "lastModified": "2026-06-01T04:48:53.000Z",
       "gated": false,
+      "requiresUserAuthorization": false,
       "licenseTags": [
         "apache-2.0"
       ],

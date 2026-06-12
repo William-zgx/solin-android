@@ -24,6 +24,7 @@ import com.bytedance.zgx.pocketmind.data.FirstRunSetupRepository
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupStore
 import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
 import com.bytedance.zgx.pocketmind.data.GenerationParametersStore
+import com.bytedance.zgx.pocketmind.data.HuggingFaceAuthStore
 import com.bytedance.zgx.pocketmind.data.ModelRepositoryFacade
 import com.bytedance.zgx.pocketmind.data.ModelRepository
 import com.bytedance.zgx.pocketmind.data.ModelSelectionState
@@ -31,6 +32,7 @@ import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.data.RemoteModelStore
 import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
 import com.bytedance.zgx.pocketmind.data.SessionStore
+import com.bytedance.zgx.pocketmind.data.NoOpHuggingFaceAuthStore
 import com.bytedance.zgx.pocketmind.device.DeviceContextAuthorizationSnapshot
 import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
 import com.bytedance.zgx.pocketmind.device.DeviceContextToolReadiness
@@ -39,6 +41,7 @@ import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
+import com.bytedance.zgx.pocketmind.memory.MemoryRecallMode
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.memory.TASK_STATE_MEMORY_RECORD_PREFIX
 import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeController
@@ -134,6 +137,7 @@ class PocketMindViewModel(
     private val sessionRepository: SessionStore,
     private val generationParametersRepository: GenerationParametersStore,
     private val remoteModelRepository: RemoteModelStore,
+    private val huggingFaceAuthStore: HuggingFaceAuthStore = NoOpHuggingFaceAuthStore,
     private val firstRunSetupRepository: FirstRunSetupStore,
     private val downloadService: ModelDownloadClient,
     private val runtime: LiteRtRuntime,
@@ -299,7 +303,7 @@ class PocketMindViewModel(
     }
 
     fun startModelDownload() {
-        beginModelDownload(ModelDownloadSource.recommended(modelRepository.selectedRecommendedModel()))
+        beginRecommendedModelDownload(modelRepository.selectedRecommendedModel())
     }
 
     fun startRecommendedModelDownload(modelId: String) {
@@ -308,7 +312,42 @@ class PocketMindViewModel(
             val result = modelRepository.selectRecommendedModel(model.id)
             updateModelState(result.state)
         }
-        beginModelDownload(ModelDownloadSource.recommended(model))
+        beginRecommendedModelDownload(model)
+    }
+
+    fun saveHuggingFaceAccessToken(token: String) {
+        huggingFaceAuthStore.saveAccessToken(token)
+            .onSuccess {
+                _uiState.update {
+                    it.copy(
+                        huggingFaceAccessTokenConfigured = huggingFaceAuthStore.hasAccessToken(),
+                        pendingHuggingFaceAuthorizationModelId = null,
+                        statusText = "Hugging Face 授权已保存，可以下载原始记忆模型",
+                    )
+                }
+            }
+            .onFailure { throwable ->
+                _uiState.update {
+                    it.copy(statusText = "Hugging Face 授权保存失败：${throwable.cleanMessage()}")
+                }
+            }
+    }
+
+    fun clearHuggingFaceAccessToken() {
+        huggingFaceAuthStore.clearAccessToken()
+            .onSuccess {
+                _uiState.update {
+                    it.copy(
+                        huggingFaceAccessTokenConfigured = false,
+                        statusText = "Hugging Face 授权已清除",
+                    )
+                }
+            }
+            .onFailure { throwable ->
+                _uiState.update {
+                    it.copy(statusText = "Hugging Face 授权清除失败：${throwable.cleanMessage()}")
+                }
+            }
     }
 
     fun toggleSetupModel(modelId: String, selected: Boolean) {
@@ -337,13 +376,27 @@ class PocketMindViewModel(
             }
             return
         }
+        val selectedSources = selectedModels.flatMap { ModelDownloadSource.recommendedBundle(it) }
+        selectedSources.firstOrNull { source ->
+            source.requiresHuggingFaceAuthorization && !huggingFaceAuthStore.hasAccessToken()
+        }?.let { missingAuthSource ->
+            blockDownloadForMissingHuggingFaceAuthorization(missingAuthSource)
+            return
+        }
         setupDownloadQueue.clear()
-        selectedModels.drop(1).forEach { setupDownloadQueue.add(ModelDownloadSource.recommended(it)) }
+        selectedSources.drop(1).forEach(setupDownloadQueue::add)
         setupDownloadInProgress = true
-        if (!beginModelDownload(ModelDownloadSource.recommended(selectedModels.first()))) {
+        if (!beginModelDownload(selectedSources.first())) {
             setupDownloadQueue.clear()
             setupDownloadInProgress = false
         }
+    }
+
+    private fun beginRecommendedModelDownload(model: RecommendedModel): Boolean {
+        val sources = ModelDownloadSource.recommendedBundle(model)
+        setupDownloadQueue.clear()
+        sources.drop(1).forEach(setupDownloadQueue::add)
+        return beginModelDownload(sources.first())
     }
 
     fun skipFirstRunSetup() {
@@ -965,6 +1018,11 @@ class PocketMindViewModel(
                 }
             }
             val deleted = modelRepository.deleteInstalledModel(modelId)
+            if (deleted && target.capability == ModelCapability.MemoryEmbedding) {
+                target.recommendedModelId?.let { memoryModelId ->
+                    semanticMemoryRuntimeController?.clearSemanticMemoryForModel(memoryModelId)
+                }
+            }
             val modelState = modelRepository.currentState()
             updateModelState(modelState)
             _uiState.update { current ->
@@ -3773,6 +3831,7 @@ class PocketMindViewModel(
     private fun beginModelDownload(source: ModelDownloadSource): Boolean {
         refreshDeviceStatus()
         if (_uiState.value.isBusy || _uiState.value.isDownloading) return false
+        if (blockDownloadForMissingHuggingFaceAuthorization(source)) return false
         if (!isArm64Device()) {
             _uiState.update {
                 it.copy(statusText = "当前设备不是 64 位 ARM，无法运行此模型")
@@ -3842,6 +3901,20 @@ class PocketMindViewModel(
             )
         }
         monitorDownload(downloadId, target, source)
+        return true
+    }
+
+    private fun blockDownloadForMissingHuggingFaceAuthorization(source: ModelDownloadSource): Boolean {
+        if (!source.requiresHuggingFaceAuthorization || huggingFaceAuthStore.hasAccessToken()) return false
+        setupDownloadQueue.clear()
+        setupDownloadInProgress = false
+        _uiState.update {
+            it.copy(
+                pendingHuggingFaceAuthorizationModelId = source.modelId,
+                huggingFaceAccessTokenConfigured = false,
+                statusText = "需要先登录 Hugging Face、接受模型许可，并保存 read token 后再下载",
+            )
+        }
         return true
     }
 
@@ -3927,17 +4000,19 @@ class PocketMindViewModel(
                             return@launch
                         }
                         modelRepository.clearPendingDownload()
-                        modelRepository.registerInstalledModel(
-                            path = targetFile.absolutePath,
-                            displayName = source.installedDisplayName(targetFile),
-                            recommendedModelId = source.modelId,
-                            verifiedSha256 = verifiedSha256,
-                            verificationStatus = if (source.modelId == null) {
-                                ModelVerificationStatus.UnverifiedCustom
-                            } else {
-                                ModelVerificationStatus.VerifiedRecommended
-                            },
-                        )
+                        if (source.registerInstalledModel) {
+                            modelRepository.registerInstalledModel(
+                                path = targetFile.absolutePath,
+                                displayName = source.installedDisplayName(targetFile),
+                                recommendedModelId = source.modelId,
+                                verifiedSha256 = verifiedSha256,
+                                verificationStatus = if (source.modelId == null) {
+                                    ModelVerificationStatus.UnverifiedCustom
+                                } else {
+                                    ModelVerificationStatus.VerifiedRecommended
+                                },
+                            )
+                        }
                         updateModelState(modelRepository.currentState())
                         _uiState.update {
                             it.copy(
@@ -3967,7 +4042,7 @@ class PocketMindViewModel(
                                 downloadProgressPercent = null,
                                 downloadedBytes = 0L,
                                 totalBytes = 0L,
-                                statusText = "下载失败：${info.reasonText}",
+                                statusText = downloadFailureStatusText(info.reasonText, source),
                                 showFirstRunSetup = restoreFirstRunSetup,
                             )
                         }
@@ -4010,17 +4085,19 @@ class PocketMindViewModel(
                 }
                 return@launch
             }
-            modelRepository.registerInstalledModel(
-                path = targetFile.absolutePath,
-                displayName = source.installedDisplayName(targetFile),
-                recommendedModelId = source.modelId,
-                verifiedSha256 = verifiedSha256,
-                verificationStatus = if (source.modelId == null) {
-                    ModelVerificationStatus.UnverifiedCustom
-                } else {
-                    ModelVerificationStatus.VerifiedRecommended
-                },
-            )
+            if (source.registerInstalledModel) {
+                modelRepository.registerInstalledModel(
+                    path = targetFile.absolutePath,
+                    displayName = source.installedDisplayName(targetFile),
+                    recommendedModelId = source.modelId,
+                    verifiedSha256 = verifiedSha256,
+                    verificationStatus = if (source.modelId == null) {
+                        ModelVerificationStatus.UnverifiedCustom
+                    } else {
+                        ModelVerificationStatus.VerifiedRecommended
+                    },
+                )
+            }
             firstRunSetupRepository.markSetupDismissed()
             updateModelState(modelRepository.currentState())
             _uiState.update {
@@ -4210,6 +4287,9 @@ class PocketMindViewModel(
             memoryEnabled = memoryEnabled,
             semanticMemoryEnabled = currentSemanticMemoryEnabled(),
             semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
+            semanticMemoryIndexedRecordCount = currentSemanticMemoryIndexedRecordCount(),
+            semanticMemoryLastRebuiltAtMillis = currentSemanticMemoryLastRebuiltAtMillis(),
+            huggingFaceAccessTokenConfigured = huggingFaceAuthStore.hasAccessToken(),
             longTermMemories = loadLongTermMemories(),
             backgroundTasks = loadBackgroundTasks(),
             backgroundTaskHistory = loadBackgroundTaskHistory(),
@@ -4248,9 +4328,19 @@ class PocketMindViewModel(
                 modelHealth = modelState.modelHealthForCurrentSelection(it.backend),
                 semanticMemoryEnabled = currentSemanticMemoryEnabled(),
                 semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
+                semanticMemoryIndexedRecordCount = currentSemanticMemoryIndexedRecordCount(),
+                semanticMemoryLastRebuiltAtMillis = currentSemanticMemoryLastRebuiltAtMillis(),
+                huggingFaceAccessTokenConfigured = huggingFaceAuthStore.hasAccessToken(),
             )
         }
     }
+
+    private fun downloadFailureStatusText(reasonText: String, source: ModelDownloadSource): String =
+        if (source.requiresHuggingFaceAuthorization) {
+            "Hugging Face 下载失败：请确认已登录、已接受模型许可，且 read token 有效（$reasonText）"
+        } else {
+            "下载失败：$reasonText"
+        }
 
     private fun verifyLegacyModelsOnStartup(skipModelRuntimeWork: Boolean) {
         viewModelScope.launch(ioDispatcher) {
@@ -4317,6 +4407,8 @@ class PocketMindViewModel(
                 state.copy(
                     semanticMemoryEnabled = currentSemanticMemoryEnabled(),
                     semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
+                    semanticMemoryIndexedRecordCount = currentSemanticMemoryIndexedRecordCount(),
+                    semanticMemoryLastRebuiltAtMillis = currentSemanticMemoryLastRebuiltAtMillis(),
                 )
             }
         }.onFailure {
@@ -4324,6 +4416,8 @@ class PocketMindViewModel(
                 state.copy(
                     semanticMemoryEnabled = currentSemanticMemoryEnabled(),
                     semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
+                    semanticMemoryIndexedRecordCount = currentSemanticMemoryIndexedRecordCount(),
+                    semanticMemoryLastRebuiltAtMillis = currentSemanticMemoryLastRebuiltAtMillis(),
                     memoryHits = emptyList(),
                     longTermMemories = emptyList(),
                     statusText = "本地记忆暂不可用",
@@ -4343,6 +4437,12 @@ class PocketMindViewModel(
     private fun currentSemanticMemoryRuntimeStatus(): SemanticMemoryRuntimeStatus =
         semanticMemoryRuntimeController?.semanticMemoryRuntimeStatus
             ?: SemanticMemoryRuntimeStatus.RuntimeUnavailable
+
+    private fun currentSemanticMemoryIndexedRecordCount(): Int =
+        semanticMemoryRuntimeController?.semanticMemoryIndexedRecordCount ?: 0
+
+    private fun currentSemanticMemoryLastRebuiltAtMillis(): Long? =
+        semanticMemoryRuntimeController?.semanticMemoryLastRebuiltAtMillis
 
     private fun syncTaskStateMemories(memoryEnabled: Boolean = _uiState.value.memoryEnabled) {
         runCatching {
@@ -4645,6 +4745,8 @@ class PocketMindViewModel(
             remoteHistoryCount = json.optInt("remoteHistoryCount"),
             localOnlyHistoryFilteredCount = json.optInt("localOnlyHistoryFilteredCount"),
             memoryHitCount = json.optInt("memoryHitCount"),
+            semanticMemoryHitCount = json.optInt("semanticMemoryHitCount"),
+            lexicalMemoryHitCount = json.optInt("lexicalMemoryHitCount"),
             memoryContextIncluded = json.optBoolean("memoryContextIncluded"),
             deviceContextIncluded = json.optBoolean("deviceContextIncluded"),
             imageAttachmentCount = json.optInt("imageAttachmentCount"),
@@ -5234,12 +5336,16 @@ private fun AssistantRoute.runDataReceipt(
     }
     val memoryContextIncluded = !isRemote && memoryHits.isNotEmpty()
     val deviceContextIncluded = !isRemote && deviceContext != null
+    val semanticMemoryHitCount = memoryHits.count { hit -> hit.recallMode == MemoryRecallMode.Semantic }
+    val lexicalMemoryHitCount = memoryHits.count { hit -> hit.recallMode == MemoryRecallMode.Lexical }
     return RunDataReceipt(
         destination = destination,
         currentPromptPrivacy = currentPromptPrivacy.name,
         remoteHistoryCount = if (isRemote) remoteHistoryCount else 0,
         localOnlyHistoryFilteredCount = localOnlyHistoryFilteredCount,
         memoryHitCount = memoryHits.size,
+        semanticMemoryHitCount = semanticMemoryHitCount,
+        lexicalMemoryHitCount = lexicalMemoryHitCount,
         memoryContextIncluded = memoryContextIncluded,
         deviceContextIncluded = deviceContextIncluded,
         imageAttachmentCount = if (isRemote) imageAttachmentCount else 0,

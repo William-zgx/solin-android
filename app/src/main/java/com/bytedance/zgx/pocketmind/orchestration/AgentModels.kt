@@ -67,6 +67,8 @@ data class RunDataReceipt(
     val remoteHistoryCount: Int = 0,
     val localOnlyHistoryFilteredCount: Int = 0,
     val memoryHitCount: Int = 0,
+    val semanticMemoryHitCount: Int = 0,
+    val lexicalMemoryHitCount: Int = 0,
     val memoryContextIncluded: Boolean = false,
     val deviceContextIncluded: Boolean = false,
     val imageAttachmentCount: Int = 0,
@@ -79,6 +81,8 @@ data class RunDataReceipt(
         require(remoteHistoryCount >= 0) { "remoteHistoryCount must be >= 0" }
         require(localOnlyHistoryFilteredCount >= 0) { "localOnlyHistoryFilteredCount must be >= 0" }
         require(memoryHitCount >= 0) { "memoryHitCount must be >= 0" }
+        require(semanticMemoryHitCount >= 0) { "semanticMemoryHitCount must be >= 0" }
+        require(lexicalMemoryHitCount >= 0) { "lexicalMemoryHitCount must be >= 0" }
         require(imageAttachmentCount >= 0) { "imageAttachmentCount must be >= 0" }
         require(protectedSourceCount >= 0) { "protectedSourceCount must be >= 0" }
     }

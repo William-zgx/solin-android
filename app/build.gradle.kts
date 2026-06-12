@@ -1,5 +1,11 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+val huggingFaceOAuthClientId: String = providers
+    .gradleProperty("pocketmind.huggingFaceOAuthClientId")
+    .orElse(providers.environmentVariable("POCKETMIND_HF_OAUTH_CLIENT_ID"))
+    .orElse("")
+    .get()
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -17,6 +23,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "HUGGING_FACE_OAUTH_CLIENT_ID", "\"$huggingFaceOAuthClientId\"")
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -24,6 +31,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 
@@ -74,6 +82,7 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.litertlm.android)
+    implementation(libs.localagents.rag)
     implementation(libs.mlkit.text.recognition)
     implementation(libs.mlkit.text.recognition.chinese)
     implementation(libs.okhttp)

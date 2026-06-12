@@ -214,12 +214,13 @@ the same local-only command path without invoking the chat/action router or a
 remote model. For answer-style preferences, family targets such as "回答语言偏好"
 or "answer length preference" remove the matching response-language or
 response-length preference without deleting unrelated memories.
-The semantic-memory boundary can verify a downloaded MemoryEmbedding asset and
-production wires a fail-closed LiteRT embedding runtime factory. The current
-LiteRT-LM artifact exposes chat/generation APIs but no public embedding vector
-API, so installing the memory asset reports a runtime load failure and recall
-falls back to the lightweight index until a real embedding runtime reports
-active. Mobile actions can use the
+The semantic-memory boundary verifies the recommended self-contained
+MemoryEmbedding `.tflite` model and production wires a local MediaPipe Text
+Embedder runtime. Semantic recall is enabled only after runtime
+probe returns a non-empty normalized vector with a stable dimension; otherwise
+memory falls back to the lightweight local index. Only explicit long-term
+`Preference`, `UserFact`, and `TaskState` records enter the semantic index.
+Mobile actions can use the
 verified action model as an experimental planner; if it is missing or does not
 produce a supported
 `call:function {...}` draft, PocketMind falls back to deterministic local rules
@@ -441,12 +442,13 @@ user-provided images sent to verified local vision chat models.
 
 ## Recommended Models
 
-The app includes model-neutral capability presets. The current upstream files
-are hosted on Hugging Face and can be replaced by future compatible `.litertlm`
-models:
+The app includes model-neutral capability presets. Chat/action upstream files
+are hosted on Hugging Face as LiteRT-LM `.litertlm` assets; the memory model is
+the original gated EmbeddingGemma LiteRT bundle and requires user Hugging Face
+authorization before download:
 
 - [基础对话模型 E2B](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm)
-- [本地记忆模型 300M](https://huggingface.co/kontextdev/embeddinggemma-300m-litertlm)
+- [本地记忆模型 EmbeddingGemma 300M](https://huggingface.co/litert-community/embeddinggemma-300m)
 - [设备动作模型 270M](https://huggingface.co/litert-community/functiongemma-mobile-actions_q8_ekv1024.litertlm)
 - [高质量对话模型 E4B](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm)
 
@@ -462,14 +464,14 @@ memory/action assets are not chat-model substitutes.
 | Capability | File | Size |
 | --- | --- | --- |
 | 基础对话 E2B | upstream `.litertlm` chat model | about 2.59 GB |
-| 本地记忆模型 | upstream `.litertlm` embedding model | about 179 MB |
+| 本地记忆模型 | upstream gated EmbeddingGemma `.tflite` + tokenizer | about 184 MB |
 | 设备动作模型 | upstream `.litertlm` action model | about 284 MB |
 | 高质量对话 E4B | upstream `.litertlm` chat model | about 3.66 GB |
 
-The memory embedding model is currently a downloadable/verifiable asset for
-future semantic recall; production probes it through a fail-closed factory, but
-the current LiteRT-LM SDK surface cannot return embedding vectors, so retrieval
-continues to use the lightweight index.
+The memory embedding model is active only when the `.tflite` file is present,
+verified, and the runtime probe succeeds.
+Deleting the memory model removes the model files and semantic vector cache but
+does not delete long-term memory text.
 Use Wi-Fi and keep enough free device storage for the model and runtime cache.
 Model files are intentionally not committed to this repository and should not
 be bundled into the APK.

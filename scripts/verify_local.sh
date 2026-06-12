@@ -82,9 +82,14 @@ if [[ "${VERIFY_MODEL_URLS:-0}" == "1" ]]; then
     local url="$2"
     local expected_bytes="$3"
     local expected_sha256="$4"
+    local auth_token="${5:-}"
 
     : > "$HEADER_FILE"
-    curl -fsSIL "$url" -o "$HEADER_FILE"
+    if [[ -n "$auth_token" ]]; then
+      curl -fsSIL -H "Authorization: Bearer $auth_token" "$url" -o "$HEADER_FILE"
+    else
+      curl -fsSIL "$url" -o "$HEADER_FILE"
+    fi
 
     local content_length
     content_length="$(awk 'tolower($1) == "content-length:" {gsub("\r","",$2); value=$2} END{print value}' "$HEADER_FILE")"
@@ -101,17 +106,57 @@ if [[ "${VERIFY_MODEL_URLS:-0}" == "1" ]]; then
     fi
   }
 
+  check_small_model_download() {
+    local name="$1"
+    local url="$2"
+    local expected_bytes="$3"
+    local expected_sha256="$4"
+
+    local model_file
+    model_file="$(mktemp)"
+    curl -fsSL "$url" -o "$model_file"
+
+    local actual_bytes
+    actual_bytes="$(wc -c < "$model_file" | tr -d '[:space:]')"
+    if [[ "$actual_bytes" != "$expected_bytes" ]]; then
+      rm -f "$model_file"
+      echo "Unexpected $name byte size: ${actual_bytes:-missing}" >&2
+      exit 1
+    fi
+
+    local actual_sha256
+    actual_sha256="$(shasum -a 256 "$model_file" | awk '{print $1}')"
+    rm -f "$model_file"
+    if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+      echo "Unexpected $name sha256: ${actual_sha256:-missing}" >&2
+      exit 1
+    fi
+  }
+
   check_model_header \
     "E2B chat model" \
     "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/a4a831c060880f3733135ad22f10e0e9f758f45d/gemma-4-E2B-it.litertlm?download=true" \
     "2588147712" \
     "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c"
 
-  check_model_header \
-    "memory embedding model" \
-    "https://huggingface.co/kontextdev/embeddinggemma-300m-litertlm/resolve/96fa469293abd2da72b46aeeafea3bb571468dfe/embeddinggemma-300m.litertlm?download=true" \
-    "179159040" \
-    "80e9596830fdd083cbc741dad666c0186439b0ba7b30112b552094650960b1cd"
+  HF_MODEL_DOWNLOAD_TOKEN="${HUGGING_FACE_TOKEN:-${HF_TOKEN:-}}"
+  if [[ -n "$HF_MODEL_DOWNLOAD_TOKEN" ]]; then
+    check_model_header \
+      "memory embedding model" \
+      "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/870cbe05ef460385363c6b574c851ae5d8989ce3/embeddinggemma-300M_seq256_mixed-precision.tflite?download=true" \
+      "179131736" \
+      "37115ef7bff76cd37dd86abe503ff511b1032bf85fc624a85c49c84899e92bc5" \
+      "$HF_MODEL_DOWNLOAD_TOKEN"
+
+    check_model_header \
+      "memory embedding tokenizer" \
+      "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/870cbe05ef460385363c6b574c851ae5d8989ce3/sentencepiece.model?download=true" \
+      "4683319" \
+      "d6daa52d93d7aad10e8388bd526c4e501d914b47177398d1d9621f1fe48438c7" \
+      "$HF_MODEL_DOWNLOAD_TOKEN"
+  else
+    echo "Skipping gated memory embedding model URL verification; set HF_TOKEN or HUGGING_FACE_TOKEN to verify it." >&2
+  fi
 
   check_model_header \
     "mobile action model" \

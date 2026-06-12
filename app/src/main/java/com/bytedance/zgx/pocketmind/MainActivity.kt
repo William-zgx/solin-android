@@ -159,6 +159,8 @@ class MainActivity : ComponentActivity() {
                     onDownloadModel = viewModel::startModelDownload,
                     onDownloadRecommendedModel = viewModel::startRecommendedModelDownload,
                     onDownloadCustomModel = viewModel::startCustomModelDownload,
+                    onSaveHuggingFaceAccessToken = viewModel::saveHuggingFaceAccessToken,
+                    onClearHuggingFaceAccessToken = viewModel::clearHuggingFaceAccessToken,
                     onCancelDownload = viewModel::cancelModelDownload,
                     onLoadModel = viewModel::loadModel,
                     onRecommendedModelSelected = viewModel::selectRecommendedModel,
@@ -173,10 +175,10 @@ class MainActivity : ComponentActivity() {
                     onCreateSession = viewModel::createNewSession,
                     onSessionSelected = viewModel::selectSession,
                     onDeleteSession = viewModel::deleteActiveSession,
-                    onOpenModelPage = {
+                    onOpenModelPage = { url ->
                         if (!skipStartupModelRuntimeWork) {
                             context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(state.selectedRecommendedModel.repositoryUrl)),
+                                Intent(Intent.ACTION_VIEW, Uri.parse(url)),
                             )
                         }
                     },
