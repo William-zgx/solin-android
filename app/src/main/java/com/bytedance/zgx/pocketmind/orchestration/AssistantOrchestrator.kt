@@ -89,6 +89,8 @@ interface AssistantRouter : AutoCloseable {
 
     fun recordRunDataReceipt(runId: String, receipt: RunDataReceipt) = Unit
 
+    fun recordModelOutputQualityGuardTriggered(runId: String, trace: ModelOutputQualityTrace) = Unit
+
     fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult?
 
     fun observeModelToolRequests(runId: String, requests: List<ToolRequest>): AgentModelObservationResult? =
@@ -223,6 +225,10 @@ class AssistantOrchestrator(
 
     override fun recordRunDataReceipt(runId: String, receipt: RunDataReceipt) {
         agentLoopRuntime.recordRunDataReceipt(runId, receipt)
+    }
+
+    override fun recordModelOutputQualityGuardTriggered(runId: String, trace: ModelOutputQualityTrace) {
+        agentLoopRuntime.recordModelOutputQualityGuardTriggered(runId, trace)
     }
 
     override fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? =

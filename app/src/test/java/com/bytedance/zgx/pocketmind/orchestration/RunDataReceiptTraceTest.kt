@@ -67,4 +67,35 @@ class RunDataReceiptTraceTest {
         assertFalse(summary.steps.any { step -> step.type == "RunDataReceiptRecorded" })
         assertEquals("RunDataReceiptRecorded", summary.runDataReceiptStep?.type)
     }
+
+    @Test
+    fun traceStoresOutputQualityGuardWithoutRawOutput() {
+        val store = InMemoryAgentTraceStore(clockMillis = { 1L })
+        val run = store.createRun("raw prompt should not appear", sessionId = "session")
+        store.appendStep(
+            run.id,
+            AgentStep.ModelOutputQualityGuardTriggered(
+                ModelOutputQualityTrace(
+                    issue = "RepetitionLoop",
+                    severity = "Critical",
+                    triggeredRule = "same_character_run>=32",
+                    action = "StopAndKeepPrefix",
+                    rawOutputLength = 64,
+                    keptPrefix = true,
+                    modelId = "chat-e2b",
+                    backend = "CPU",
+                    runtimeKind = "Local",
+                ),
+            ),
+        )
+
+        val step = store.stepSummaries(run.id).single()
+        val json = JSONObject(step.json)
+
+        assertEquals("ModelOutputQualityGuardTriggered", step.type)
+        assertTrue(step.summary.contains("RepetitionLoop"))
+        assertEquals("same_character_run>=32", json.getString("triggeredRule"))
+        assertEquals(64, json.getInt("rawOutputLength"))
+        assertFalse(json.toString().contains("raw prompt"))
+    }
 }

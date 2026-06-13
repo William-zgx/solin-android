@@ -4061,11 +4061,20 @@ internal fun runDataReceiptDisplayText(receipt: RunDataReceiptUiSummary): String
     } else {
         "未使用"
     }
+    val outputQuality = if (receipt.outputQualityGuardTriggered) {
+        val issue = receipt.outputQualityIssue ?: "已触发"
+        val rule = receipt.outputQualityRule?.let { value -> "/$value" }.orEmpty()
+        val action = receipt.outputQualityAction?.let { value -> "，动作=$value" }.orEmpty()
+        val prefix = if (receipt.outputQualityKeptPrefix) "，已保留前缀" else ""
+        "触发 $issue$rule$action$prefix"
+    } else {
+        "未触发"
+    }
     val deviceUsage = if (receipt.deviceContextIncluded) "已使用" else "未带出"
     return "去向：$destination；隐私：${receipt.currentPromptPrivacy}；远端历史：${receipt.remoteHistoryCount}；" +
         "过滤 LocalOnly：${receipt.localOnlyHistoryFilteredCount}；记忆：$memoryUsage/${receipt.memoryHitCount}；" +
         "召回：$memoryRecall；设备上下文：$deviceUsage；图片：${receipt.imageAttachmentCount}；受保护源：${receipt.protectedSourceCount}；" +
-        "保护：$protectedTypes；可删除：$deletableRecords；原文持久化：$rawPersisted"
+        "输出保护：$outputQuality；保护：$protectedTypes；可删除：$deletableRecords；原文持久化：$rawPersisted"
 }
 
 @Composable
@@ -4407,6 +4416,15 @@ internal fun modelHealthDisplayText(state: ChatUiState): String {
     health.failureReason
         ?.takeIf { it.isNotBlank() }
         ?.let { reason -> parts += "reason=${reason.take(80)}" }
+    health.lastOutputQualityIssue
+        ?.takeIf { it.isNotBlank() }
+        ?.let { issue ->
+            val rule = health.lastOutputQualityRule
+                ?.takeIf { value -> value.isNotBlank() }
+                ?.let { value -> "/$value" }
+                .orEmpty()
+            parts += "quality=$issue$rule"
+        }
     return parts.joinToString(separator = " · ")
 }
 

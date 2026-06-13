@@ -69,12 +69,18 @@ import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRouter
 import com.bytedance.zgx.pocketmind.orchestration.AssistantRoute
 import com.bytedance.zgx.pocketmind.orchestration.InitialPlanningMode
+import com.bytedance.zgx.pocketmind.orchestration.ModelOutputQualityTrace
 import com.bytedance.zgx.pocketmind.orchestration.PendingExternalOutcomeSnapshot
 import com.bytedance.zgx.pocketmind.orchestration.RemoteToolScope
 import com.bytedance.zgx.pocketmind.orchestration.RunDataDestination
 import com.bytedance.zgx.pocketmind.orchestration.RunDataReceipt
+import com.bytedance.zgx.pocketmind.runtime.GenerationQualityDecision
+import com.bytedance.zgx.pocketmind.runtime.GenerationQualityIssue
+import com.bytedance.zgx.pocketmind.runtime.GenerationQualityReport
+import com.bytedance.zgx.pocketmind.runtime.GenerationRuntimeKind
 import com.bytedance.zgx.pocketmind.runtime.LocalModelRequest
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
+import com.bytedance.zgx.pocketmind.runtime.ModelOutputQualityGuard
 import com.bytedance.zgx.pocketmind.runtime.OkHttpRemoteModelConnectivityProbe
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatRuntime
@@ -155,6 +161,7 @@ class PocketMindViewModel(
     private val requireRemoteSendDisclosure: Boolean = true,
     private val remoteConnectivityProbe: RemoteModelConnectivityProbe =
         OkHttpRemoteModelConnectivityProbe(ioDispatcher = ioDispatcher),
+    private val outputQualityGuard: ModelOutputQualityGuard = ModelOutputQualityGuard(),
     remoteSendAuditStore: InMemoryRemoteSendAuditStore = InMemoryRemoteSendAuditStore(),
     private val remoteSendAuditSink: RemoteSendAuditSink = remoteSendAuditStore,
     private val remoteSendAuditLog: RemoteSendAuditLog = remoteSendAuditStore,
@@ -1532,16 +1539,17 @@ class PocketMindViewModel(
                     sessionId = stateBeforeSend.activeSessionId,
                     options = agentRunOptions,
                 )
+                val routeReceipt = route.runDataReceipt(
+                    stateBeforeSend = stateBeforeSend,
+                    destination = if (useRemoteModel) RunDataDestination.Remote else RunDataDestination.Local,
+                    currentPromptPrivacy = effectiveMessagePrivacy,
+                    remoteHistoryCount = remoteHistory.size,
+                    imageAttachmentCount = imageAttachments.size + localImageAttachmentCount,
+                )
                 route.runIdOrNull()?.let { runId ->
                     assistantOrchestrator.recordRunDataReceipt(
                         runId = runId,
-                        receipt = route.runDataReceipt(
-                            stateBeforeSend = stateBeforeSend,
-                            destination = if (useRemoteModel) RunDataDestination.Remote else RunDataDestination.Local,
-                            currentPromptPrivacy = effectiveMessagePrivacy,
-                            remoteHistoryCount = remoteHistory.size,
-                            imageAttachmentCount = imageAttachments.size + localImageAttachmentCount,
-                        ),
+                        receipt = routeReceipt,
                     )
                 }
                 when (route) {
@@ -1777,6 +1785,7 @@ class PocketMindViewModel(
 
                         val partial = StringBuilder()
                         var remoteToolObservation: AgentModelObservationResult? = null
+                        var outputQualityDecision: GenerationQualityDecision? = null
                         if (useRemoteModel) {
                             val remoteTools = assistantOrchestrator.availableRemoteToolSpecs(agentRunOptions.remoteToolScope)
                             route.runId?.let { runId ->
@@ -1803,11 +1812,22 @@ class PocketMindViewModel(
                                 tools = remoteTools,
                                 imageAttachments = imageAttachments,
                             ).collect { event ->
+                                if (outputQualityDecision != null) return@collect
                                 when (event) {
                                     is RemoteChatEvent.TextDelta -> {
                                         if (remoteToolObservation == null) {
-                                            partial.append(event.text)
-                                            _uiState.updateLastAssistant(partial.toString())
+                                            val decision = appendGuardedGenerationChunk(
+                                                partial = partial,
+                                                chunk = event.text,
+                                                runtimeKind = GenerationRuntimeKind.Remote,
+                                                modelId = remoteConfig.modelProfile().id,
+                                                backend = null,
+                                                parameters = _uiState.value.generationParameters,
+                                            )
+                                            if (decision !is GenerationQualityDecision.Continue) {
+                                                outputQualityDecision = decision
+                                                remoteRuntime.stop()
+                                            }
                                         }
                                     }
 
@@ -1825,7 +1845,18 @@ class PocketMindViewModel(
                                                 ?: error("远程批量工具调用无法进入执行流程")
                                     }
 
-                                    is RemoteChatEvent.ParseError -> error(event.summary)
+                                    is RemoteChatEvent.ParseError -> {
+                                        val decision = outputQualityGuard.failClosedForFormatViolation(
+                                            summary = event.summary,
+                                            accumulatedText = partial.toString(),
+                                            runtimeKind = GenerationRuntimeKind.Remote,
+                                            modelId = remoteConfig.modelProfile().id,
+                                            backend = null,
+                                        )
+                                        applyOutputQualityDecisionToAssistant(partial, decision)
+                                        outputQualityDecision = decision
+                                        remoteRuntime.stop()
+                                    }
                                 }
                             }
                         } else {
@@ -1835,9 +1866,46 @@ class PocketMindViewModel(
                                 parameters = _uiState.value.generationParameters,
                                 imageAttachments = localImageAttachments,
                             ) { chunk ->
-                                partial.append(chunk)
-                                _uiState.updateLastAssistant(partial.toString())
+                                if (outputQualityDecision == null) {
+                                    val decision = appendGuardedGenerationChunk(
+                                        partial = partial,
+                                        chunk = chunk,
+                                        runtimeKind = GenerationRuntimeKind.Local,
+                                        modelId = _uiState.value.activeModelProfileId(),
+                                        backend = _uiState.value.backend,
+                                        parameters = _uiState.value.generationParameters,
+                                    )
+                                    if (decision !is GenerationQualityDecision.Continue) {
+                                        outputQualityDecision = decision
+                                        runtime.stop()
+                                    }
+                                }
                             }
+                        }
+                        if (outputQualityDecision == null && remoteToolObservation == null) {
+                            val finalDecision = outputQualityGuard.evaluateCompleted(
+                                output = partial.toString(),
+                                runtimeKind = if (useRemoteModel) GenerationRuntimeKind.Remote else GenerationRuntimeKind.Local,
+                                modelId = if (useRemoteModel) {
+                                    remoteConfig.modelProfile().id
+                                } else {
+                                    _uiState.value.activeModelProfileId()
+                                },
+                                backend = if (useRemoteModel) null else _uiState.value.backend,
+                            )
+                            if (finalDecision !is GenerationQualityDecision.Continue) {
+                                applyOutputQualityDecisionToAssistant(partial, finalDecision)
+                                outputQualityDecision = finalDecision
+                            }
+                        }
+                        outputQualityDecision?.let { decision ->
+                            finishOutputQualityGuardedGeneration(
+                                runId = route.runId,
+                                decision = decision,
+                                receipt = routeReceipt,
+                                useRemoteModel = useRemoteModel,
+                            )
+                            return@launch
                         }
                         if (remoteToolObservation != null) {
                             val toolBatch =
@@ -3400,6 +3468,7 @@ class PocketMindViewModel(
 
                 val partial = StringBuilder()
                 var modelObservation: AgentModelObservationResult? = null
+                var outputQualityDecision: GenerationQualityDecision? = null
                 if (useRemoteModel) {
                     val remoteTools = assistantOrchestrator.availableRemoteToolSpecs(remoteToolScope)
                     runId?.let { id ->
@@ -3408,31 +3477,32 @@ class PocketMindViewModel(
                             scope = remoteToolScope,
                             toolNames = remoteTools.mapTo(linkedSetOf()) { tool -> tool.name },
                         )
+                        val continuationReceipt = RunDataReceipt(
+                            destination = RunDataDestination.Remote,
+                            currentPromptPrivacy = responsePrivacy.name,
+                            remoteHistoryCount = remoteHistory.size,
+                            localOnlyHistoryFilteredCount = stateAtStart.messages.count { message ->
+                                message.privacy == MessagePrivacy.LocalOnly
+                            },
+                            memoryHitCount = 0,
+                            memoryContextIncluded = false,
+                            deviceContextIncluded = false,
+                            imageAttachmentCount = 0,
+                            protectedSourceCount = stateAtStart.messages.count { message ->
+                                message.privacy == MessagePrivacy.LocalOnly
+                            },
+                            rawContentPersisted = false,
+                            protectedContentTypes = listOf(
+                                "本地记忆",
+                                "设备上下文",
+                                "LocalOnly 历史",
+                                "本地工具结果",
+                            ),
+                            deletableRecordTypes = listOf("对话消息", "Agent 轨迹"),
+                        )
                         assistantOrchestrator.recordRunDataReceipt(
                             runId = id,
-                            receipt = RunDataReceipt(
-                                destination = RunDataDestination.Remote,
-                                currentPromptPrivacy = responsePrivacy.name,
-                                remoteHistoryCount = remoteHistory.size,
-                                localOnlyHistoryFilteredCount = stateAtStart.messages.count { message ->
-                                    message.privacy == MessagePrivacy.LocalOnly
-                                },
-                                memoryHitCount = 0,
-                                memoryContextIncluded = false,
-                                deviceContextIncluded = false,
-                                imageAttachmentCount = 0,
-                                protectedSourceCount = stateAtStart.messages.count { message ->
-                                    message.privacy == MessagePrivacy.LocalOnly
-                                },
-                                rawContentPersisted = false,
-                                protectedContentTypes = listOf(
-                                    "本地记忆",
-                                    "设备上下文",
-                                    "LocalOnly 历史",
-                                    "本地工具结果",
-                                ),
-                                deletableRecordTypes = listOf("对话消息", "Agent 轨迹"),
-                            ),
+                            receipt = continuationReceipt,
                         )
                     }
                     if (!remoteSendConfirmed) {
@@ -3451,11 +3521,22 @@ class PocketMindViewModel(
                         config = remoteConfig,
                         tools = remoteTools,
                     ).collect { event ->
+                        if (outputQualityDecision != null) return@collect
                         when (event) {
                             is RemoteChatEvent.TextDelta -> {
                                 if (modelObservation == null) {
-                                    partial.append(event.text)
-                                    _uiState.updateLastAssistant(partial.toString())
+                                    val decision = appendGuardedGenerationChunk(
+                                        partial = partial,
+                                        chunk = event.text,
+                                        runtimeKind = GenerationRuntimeKind.Remote,
+                                        modelId = remoteConfig.modelProfile().id,
+                                        backend = null,
+                                        parameters = _uiState.value.generationParameters,
+                                    )
+                                    if (decision !is GenerationQualityDecision.Continue) {
+                                        outputQualityDecision = decision
+                                        remoteRuntime.stop()
+                                    }
                                 }
                             }
 
@@ -3473,7 +3554,18 @@ class PocketMindViewModel(
                                         ?: error("远程批量工具调用无法进入执行流程")
                             }
 
-                            is RemoteChatEvent.ParseError -> error(event.summary)
+                            is RemoteChatEvent.ParseError -> {
+                                val decision = outputQualityGuard.failClosedForFormatViolation(
+                                    summary = event.summary,
+                                    accumulatedText = partial.toString(),
+                                    runtimeKind = GenerationRuntimeKind.Remote,
+                                    modelId = remoteConfig.modelProfile().id,
+                                    backend = null,
+                                )
+                                applyOutputQualityDecisionToAssistant(partial, decision)
+                                outputQualityDecision = decision
+                                remoteRuntime.stop()
+                            }
                         }
                     }
                 } else {
@@ -3482,9 +3574,86 @@ class PocketMindViewModel(
                         history = stateAtStart.messages.dropLast(1),
                         parameters = _uiState.value.generationParameters,
                     ) { chunk ->
-                        partial.append(chunk)
-                        _uiState.updateLastAssistant(partial.toString())
+                        if (outputQualityDecision == null) {
+                            val decision = appendGuardedGenerationChunk(
+                                partial = partial,
+                                chunk = chunk,
+                                runtimeKind = GenerationRuntimeKind.Local,
+                                modelId = _uiState.value.activeModelProfileId(),
+                                backend = _uiState.value.backend,
+                                parameters = _uiState.value.generationParameters,
+                            )
+                            if (decision !is GenerationQualityDecision.Continue) {
+                                outputQualityDecision = decision
+                                runtime.stop()
+                            }
+                        }
                     }
+                }
+                if (outputQualityDecision == null && modelObservation == null) {
+                    val finalDecision = outputQualityGuard.evaluateCompleted(
+                        output = partial.toString(),
+                        runtimeKind = if (useRemoteModel) GenerationRuntimeKind.Remote else GenerationRuntimeKind.Local,
+                        modelId = if (useRemoteModel) {
+                            remoteConfig.modelProfile().id
+                        } else {
+                            _uiState.value.activeModelProfileId()
+                        },
+                        backend = if (useRemoteModel) null else _uiState.value.backend,
+                    )
+                    if (finalDecision !is GenerationQualityDecision.Continue) {
+                        applyOutputQualityDecisionToAssistant(partial, finalDecision)
+                        outputQualityDecision = finalDecision
+                    }
+                }
+                outputQualityDecision?.let { decision ->
+                    val continuationReceipt = if (useRemoteModel) {
+                        RunDataReceipt(
+                            destination = RunDataDestination.Remote,
+                            currentPromptPrivacy = responsePrivacy.name,
+                            remoteHistoryCount = remoteHistory.size,
+                            localOnlyHistoryFilteredCount = stateAtStart.messages.count { message ->
+                                message.privacy == MessagePrivacy.LocalOnly
+                            },
+                            memoryHitCount = 0,
+                            memoryContextIncluded = false,
+                            deviceContextIncluded = false,
+                            imageAttachmentCount = 0,
+                            protectedSourceCount = stateAtStart.messages.count { message ->
+                                message.privacy == MessagePrivacy.LocalOnly
+                            },
+                            rawContentPersisted = false,
+                            protectedContentTypes = listOf(
+                                "本地记忆",
+                                "设备上下文",
+                                "LocalOnly 历史",
+                                "本地工具结果",
+                            ),
+                            deletableRecordTypes = listOf("对话消息", "Agent 轨迹"),
+                        )
+                    } else {
+                        RunDataReceipt(
+                            destination = RunDataDestination.Local,
+                            currentPromptPrivacy = responsePrivacy.name,
+                            remoteHistoryCount = 0,
+                            localOnlyHistoryFilteredCount = 0,
+                            memoryHitCount = 0,
+                            memoryContextIncluded = false,
+                            deviceContextIncluded = false,
+                            imageAttachmentCount = 0,
+                            protectedSourceCount = 0,
+                            rawContentPersisted = false,
+                            protectedContentTypes = emptyList(),
+                            deletableRecordTypes = listOf("对话消息", "Agent 轨迹"),
+                        )
+                    }
+                    finishOutputQualityGuardedGeneration(
+                        runId = runId,
+                        decision = decision,
+                        receipt = continuationReceipt,
+                        useRemoteModel = useRemoteModel,
+                    )
+                    return@launch
                 }
                 if (modelObservation == null) {
                     if (partial.isBlank()) {
@@ -4235,6 +4404,103 @@ class PocketMindViewModel(
         }
     }
 
+    private fun appendGuardedGenerationChunk(
+        partial: StringBuilder,
+        chunk: String,
+        runtimeKind: GenerationRuntimeKind,
+        modelId: String?,
+        backend: BackendChoice?,
+        parameters: GenerationParameters,
+    ): GenerationQualityDecision {
+        val decision = outputQualityGuard.evaluate(
+            accumulatedText = partial.toString(),
+            latestChunk = chunk,
+            runtimeKind = runtimeKind,
+            modelId = modelId,
+            backend = backend,
+            parameters = parameters,
+        )
+        if (decision is GenerationQualityDecision.Continue) {
+            partial.append(chunk)
+            _uiState.updateLastAssistant(partial.toString())
+        } else {
+            applyOutputQualityDecisionToAssistant(partial, decision)
+        }
+        return decision
+    }
+
+    private fun applyOutputQualityDecisionToAssistant(
+        partial: StringBuilder,
+        decision: GenerationQualityDecision,
+    ) {
+        val report = decision.reportOrNull() ?: return
+        partial.clear()
+        partial.append(report.safePrefix)
+        _uiState.updateLastAssistantLocalOnly(report.visibleAssistantText())
+    }
+
+    private fun finishOutputQualityGuardedGeneration(
+        runId: String?,
+        decision: GenerationQualityDecision,
+        receipt: RunDataReceipt,
+        useRemoteModel: Boolean,
+    ) {
+        val report = decision.reportOrNull() ?: return
+        persistActiveSessionFromUi()
+        runId?.let { id ->
+            recordOutputQualityGuardTriggered(
+                runId = id,
+                decision = decision,
+                receipt = receipt,
+            )
+            if (decision is GenerationQualityDecision.FailClosed) {
+                assistantOrchestrator.failModelGeneration(id, report.visibleNotice)
+            } else {
+                assistantOrchestrator.cancelRun(id, report.visibleNotice)
+            }
+        }
+        val checkedAtMillis = System.currentTimeMillis()
+        _uiState.update {
+            it.copy(
+                isBusy = false,
+                isGenerating = false,
+                isReady = if (useRemoteModel) {
+                    it.remoteModelConfig.isConfigured
+                } else {
+                    runtime.isLoaded
+                },
+                pendingConfirmation = null,
+                agentTraceRuns = loadAgentTraceRuns(),
+                modelHealth = it.modelHealth.copy(
+                    profileId = report.modelId ?: if (useRemoteModel) {
+                        it.remoteModelConfig.modelProfile().id
+                    } else {
+                        it.activeModelProfileId()
+                    },
+                    backend = report.backend ?: it.modelHealth.backend,
+                    lastOutputQualityIssue = report.issue.name,
+                    lastOutputQualityRule = report.triggeredRule,
+                    lastOutputQualityAtMillis = checkedAtMillis,
+                ),
+                statusText = when (report.issue) {
+                    GenerationQualityIssue.EmptyOutput -> "模型没有生成内容"
+                    GenerationQualityIssue.FormatViolation -> "模型输出格式已拦截"
+                    else -> "模型输出已停止"
+                },
+            )
+        }
+    }
+
+    private fun recordOutputQualityGuardTriggered(
+        runId: String,
+        decision: GenerationQualityDecision,
+        receipt: RunDataReceipt,
+    ) {
+        val report = decision.reportOrNull() ?: return
+        assistantOrchestrator.recordRunDataReceipt(runId, receipt.withOutputQualityDecision(decision))
+        assistantOrchestrator.recordModelOutputQualityGuardTriggered(runId, report.toTrace(decision))
+    }
+
     private fun recreateConversationForMessages(
         successPrefix: String,
         sessionId: String,
@@ -4800,6 +5066,12 @@ class PocketMindViewModel(
             rawContentPersisted = json.optBoolean("rawContentPersisted"),
             protectedContentTypes = json.optJSONArray("protectedContentTypes").toStringList(),
             deletableRecordTypes = json.optJSONArray("deletableRecordTypes").toStringList(),
+            outputQualityGuardTriggered = json.optBoolean("outputQualityGuardTriggered"),
+            outputQualityIssue = json.optString("outputQualityIssue").takeIf { value -> value.isNotBlank() },
+            outputQualityRule = json.optString("outputQualityRule").takeIf { value -> value.isNotBlank() },
+            outputQualityAction = json.optString("outputQualityAction").takeIf { value -> value.isNotBlank() },
+            outputQualityStopped = json.optBoolean("outputQualityStopped"),
+            outputQualityKeptPrefix = json.optBoolean("outputQualityKeptPrefix"),
         )
     }
 
@@ -5325,6 +5597,56 @@ private fun RemoteModelConfig.destinationHostLabel(): String {
         ?: normalized.baseUrl.ifBlank { "未配置" }
     val port = uri?.port?.takeIf { it >= 0 }?.let { ":$it" }.orEmpty()
     return "$host$port"
+}
+
+private fun GenerationQualityDecision.reportOrNull(): GenerationQualityReport? =
+    when (this) {
+        GenerationQualityDecision.Continue -> null
+        is GenerationQualityDecision.StopAndKeepPrefix -> report
+        is GenerationQualityDecision.StopAndReplaceWithNotice -> report
+        is GenerationQualityDecision.RetrySuggested -> report
+        is GenerationQualityDecision.FailClosed -> report
+    }
+
+private fun GenerationQualityDecision.actionName(): String =
+    when (this) {
+        GenerationQualityDecision.Continue -> "Continue"
+        is GenerationQualityDecision.StopAndKeepPrefix -> "StopAndKeepPrefix"
+        is GenerationQualityDecision.StopAndReplaceWithNotice -> "StopAndReplaceWithNotice"
+        is GenerationQualityDecision.RetrySuggested -> "RetrySuggested"
+        is GenerationQualityDecision.FailClosed -> "FailClosed"
+    }
+
+private fun GenerationQualityReport.visibleAssistantText(): String =
+    if (safePrefix.isBlank()) {
+        visibleNotice
+    } else {
+        "$safePrefix\n\n（$visibleNotice）"
+    }
+
+private fun GenerationQualityReport.toTrace(decision: GenerationQualityDecision): ModelOutputQualityTrace =
+    ModelOutputQualityTrace(
+        issue = issue.name,
+        severity = severity.name,
+        triggeredRule = triggeredRule,
+        action = decision.actionName(),
+        rawOutputLength = rawOutputLength,
+        keptPrefix = safePrefix.isNotBlank(),
+        modelId = modelId,
+        backend = backend?.name,
+        runtimeKind = runtimeKind.name,
+    )
+
+private fun RunDataReceipt.withOutputQualityDecision(decision: GenerationQualityDecision): RunDataReceipt {
+    val report = decision.reportOrNull() ?: return this
+    return copy(
+        outputQualityGuardTriggered = true,
+        outputQualityIssue = report.issue.name,
+        outputQualityRule = report.triggeredRule,
+        outputQualityAction = decision.actionName(),
+        outputQualityStopped = decision !is GenerationQualityDecision.Continue,
+        outputQualityKeptPrefix = report.safePrefix.isNotBlank(),
+    )
 }
 
 private fun RemoteModelConfig.hasSameConnectivityTarget(other: RemoteModelConfig): Boolean {

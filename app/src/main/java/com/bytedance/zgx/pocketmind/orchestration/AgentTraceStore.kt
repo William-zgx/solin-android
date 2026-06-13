@@ -1237,6 +1237,7 @@ private fun AgentStep.traceType(): String =
         is AgentStep.ModelPlanned -> "ModelPlanned"
         is AgentStep.RemoteToolsExposed -> "RemoteToolsExposed"
         is AgentStep.RunDataReceiptRecorded -> "RunDataReceiptRecorded"
+        is AgentStep.ModelOutputQualityGuardTriggered -> "ModelOutputQualityGuardTriggered"
         is AgentStep.ToolRequested -> "ToolRequested"
         is AgentStep.SkillPlanned -> "SkillPlanned"
         is AgentStep.SafetyChecked -> "SafetyChecked"
@@ -1267,7 +1268,10 @@ private fun AgentStep.traceSummary(): String =
         is AgentStep.RunDataReceiptRecorded ->
             "Data receipt ${receipt.destination.name}: remoteHistory=${receipt.remoteHistoryCount}, " +
                 "memoryHitCount=${receipt.memoryHitCount}, semantic=${receipt.semanticMemoryHitCount}, " +
-                "lexical=${receipt.lexicalMemoryHitCount}, images=${receipt.imageAttachmentCount}."
+                "lexical=${receipt.lexicalMemoryHitCount}, images=${receipt.imageAttachmentCount}, " +
+                "qualityGuard=${receipt.outputQualityGuardTriggered}."
+        is AgentStep.ModelOutputQualityGuardTriggered ->
+            "Model output guard stopped ${trace.runtimeKind} generation: ${trace.issue} via ${trace.triggeredRule}."
         is AgentStep.ToolRequested -> "Requested tool ${request.toolName}."
         is AgentStep.SkillPlanned -> "Planned skill ${request.skillId} with ${plan?.steps?.size ?: 0} step(s)."
         is AgentStep.SafetyChecked -> "Safety ${decision.outcome}: ${decision.reason.shortTraceText()}"
@@ -1337,6 +1341,23 @@ private fun AgentStep.traceJson(type: String): JSONObject {
             .put("rawContentPersisted", receipt.rawContentPersisted)
             .put("protectedContentTypes", receipt.protectedContentTypes.toJsonArray())
             .put("deletableRecordTypes", receipt.deletableRecordTypes.toJsonArray())
+            .put("outputQualityGuardTriggered", receipt.outputQualityGuardTriggered)
+            .put("outputQualityIssue", receipt.outputQualityIssue)
+            .put("outputQualityRule", receipt.outputQualityRule)
+            .put("outputQualityAction", receipt.outputQualityAction)
+            .put("outputQualityStopped", receipt.outputQualityStopped)
+            .put("outputQualityKeptPrefix", receipt.outputQualityKeptPrefix)
+
+        is AgentStep.ModelOutputQualityGuardTriggered -> json
+            .put("issue", trace.issue)
+            .put("severity", trace.severity)
+            .put("triggeredRule", trace.triggeredRule)
+            .put("action", trace.action)
+            .put("rawOutputLength", trace.rawOutputLength)
+            .put("keptPrefix", trace.keptPrefix)
+            .put("modelId", trace.modelId)
+            .put("backend", trace.backend)
+            .put("runtimeKind", trace.runtimeKind)
 
         is AgentStep.ToolRequested -> json
             .put("requestId", request.id)

@@ -74,6 +74,9 @@ data class ModelHealth(
     val tokensPerSecond: Double? = null,
     val fallbackBackend: BackendChoice? = null,
     val failureReason: String? = null,
+    val lastOutputQualityIssue: String? = null,
+    val lastOutputQualityRule: String? = null,
+    val lastOutputQualityAtMillis: Long? = null,
 ) {
     val usedFallbackBackend: Boolean
         get() = fallbackBackend != null

@@ -76,6 +76,12 @@ data class RunDataReceipt(
     val rawContentPersisted: Boolean = false,
     val protectedContentTypes: List<String> = emptyList(),
     val deletableRecordTypes: List<String> = listOf("对话消息", "Agent 轨迹"),
+    val outputQualityGuardTriggered: Boolean = false,
+    val outputQualityIssue: String? = null,
+    val outputQualityRule: String? = null,
+    val outputQualityAction: String? = null,
+    val outputQualityStopped: Boolean = false,
+    val outputQualityKeptPrefix: Boolean = false,
 ) {
     init {
         require(remoteHistoryCount >= 0) { "remoteHistoryCount must be >= 0" }
@@ -87,6 +93,18 @@ data class RunDataReceipt(
         require(protectedSourceCount >= 0) { "protectedSourceCount must be >= 0" }
     }
 }
+
+data class ModelOutputQualityTrace(
+    val issue: String,
+    val severity: String,
+    val triggeredRule: String,
+    val action: String,
+    val rawOutputLength: Int,
+    val keptPrefix: Boolean,
+    val modelId: String?,
+    val backend: String?,
+    val runtimeKind: String,
+)
 
 data class AgentRun(
     val id: String,
@@ -145,6 +163,10 @@ sealed class AgentStep {
 
     data class RunDataReceiptRecorded(
         val receipt: RunDataReceipt,
+    ) : AgentStep()
+
+    data class ModelOutputQualityGuardTriggered(
+        val trace: ModelOutputQualityTrace,
     ) : AgentStep()
 
     data class ToolRequested(

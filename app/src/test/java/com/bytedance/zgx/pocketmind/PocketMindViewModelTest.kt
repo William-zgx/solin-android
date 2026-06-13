@@ -38,7 +38,9 @@ import com.bytedance.zgx.pocketmind.device.DeviceContextToolReadinessState
 import com.bytedance.zgx.pocketmind.download.DownloadInfo
 import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.memory.EmbeddingRuntime
+import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
+import com.bytedance.zgx.pocketmind.memory.MemoryIndex
 import com.bytedance.zgx.pocketmind.memory.MemoryRecallMode
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordStore
@@ -69,6 +71,7 @@ import com.bytedance.zgx.pocketmind.orchestration.AssistantRouter
 import com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestrator
 import com.bytedance.zgx.pocketmind.orchestration.InMemoryAgentTraceStore
 import com.bytedance.zgx.pocketmind.orchestration.InitialPlanningMode
+import com.bytedance.zgx.pocketmind.orchestration.ModelOutputQualityTrace
 import com.bytedance.zgx.pocketmind.orchestration.PendingExternalOutcomeSnapshot
 import com.bytedance.zgx.pocketmind.orchestration.RemoteToolScope
 import com.bytedance.zgx.pocketmind.orchestration.RunDataDestination
@@ -4925,21 +4928,129 @@ class PocketMindViewModelTest {
         advanceUntilIdle()
 
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
-        assertEquals("远程生成失败", viewModel.uiState.value.statusText)
+        assertEquals("模型输出格式已拦截", viewModel.uiState.value.statusText)
+        assertEquals(1, remoteRuntime.stopCallCount)
         assertEquals(1, assistantRouter.failModelGenerationCallCount)
         assertEquals("run-remote-malformed-tool", assistantRouter.lastFailedModelRunId)
-        assertEquals(parseError, assistantRouter.lastFailedModelReason)
+        assertTrue(assistantRouter.lastFailedModelReason.orEmpty().contains("工具调用格式无效"))
         assertEquals(0, assistantRouter.observeModelToolCallCount)
+        assertEquals(0, assistantRouter.observeModelResultCallCount)
         assertTrue(executor.executedRequests.isEmpty())
         assertEquals(AgentRunState.Failed, viewModel.uiState.value.agentTraceRuns.single().state)
-        assertTrue(viewModel.uiState.value.agentTraceRuns.single().steps.single().summary.contains(parseError))
+        assertTrue(viewModel.uiState.value.agentTraceRuns.single().steps.single().summary.contains("工具调用格式无效"))
         assertTrue(remoteRuntime.calls.single().tools.any { tool -> tool.name == MobileActionFunctions.WEB_SEARCH })
         assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.first().privacy)
-        assertEquals(MessagePrivacy.RemoteEligible, sessionStore.messages.last().privacy)
-        assertTrue(sessionStore.messages.last().text.contains(parseError))
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
+        assertTrue(sessionStore.messages.last().text.contains("工具调用格式无效"))
+        assertFalse(sessionStore.messages.last().text.contains(parseError))
         assertFalse(sessionStore.messages.last().text.contains("动作草稿"))
-        assertEquals(ModelHealthState.LoadFailed, viewModel.uiState.value.modelHealth.state)
-        assertTrue(viewModel.uiState.value.modelHealth.failureReason.orEmpty().contains(parseError))
+        assertEquals("FormatViolation", assistantRouter.lastOutputQualityTrace?.issue)
+        assertEquals("tool_protocol_parse_error", assistantRouter.lastOutputQualityTrace?.triggeredRule)
+        assertEquals(true, assistantRouter.lastRecordedRunDataReceipt?.outputQualityGuardTriggered)
+        assertEquals("FormatViolation", viewModel.uiState.value.modelHealth.lastOutputQualityIssue)
+        assertEquals("tool_protocol_parse_error", viewModel.uiState.value.modelHealth.lastOutputQualityRule)
+    }
+
+    @Test
+    fun localRepetitionLoopStopsRuntimeAndSkipsModelObservation() = runTest(dispatcher) {
+        val runtime = FakeLiteRtRuntime(
+            localChunks = listOf(
+                "正常开头。",
+                "好".repeat(32),
+                "不应继续出现",
+            ),
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-local-repetition",
+                promptForModel = "普通问题",
+                memoryHits = emptyList(),
+            ),
+        )
+        val memoryRepository = CountingMemoryRepository()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            runtime = runtime,
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            memoryIndex = memoryRepository,
+            longTermMemoryControls = memoryRepository,
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+        val rebuildsAfterStartup = memoryRepository.rebuildCallCount
+
+        viewModel.sendMessage("普通问题")
+        advanceUntilIdle()
+
+        val assistantText = sessionStore.messages.last().text
+        assertEquals("模型输出已停止", viewModel.uiState.value.statusText)
+        assertEquals(1, runtime.stopCallCount)
+        assertEquals(1, assistantRouter.cancelRunCallCount)
+        assertEquals(0, assistantRouter.observeModelResultCallCount)
+        assertEquals(rebuildsAfterStartup + 1, memoryRepository.rebuildCallCount)
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
+        assertTrue(assistantText.contains("正常开头。"))
+        assertTrue(assistantText.contains("模型输出出现重复"))
+        assertFalse(assistantText.contains("好".repeat(32)))
+        assertFalse(assistantText.contains("不应继续出现"))
+        assertEquals("RepetitionLoop", assistantRouter.lastOutputQualityTrace?.issue)
+        assertEquals("same_character_run>=32", assistantRouter.lastOutputQualityTrace?.triggeredRule)
+        assertEquals(true, assistantRouter.lastRecordedRunDataReceipt?.outputQualityGuardTriggered)
+        assertEquals("RepetitionLoop", viewModel.uiState.value.modelHealth.lastOutputQualityIssue)
+    }
+
+    @Test
+    fun remoteRepetitionLoopStopsRuntimeAndSkipsModelObservation() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime(
+            events = listOf(
+                RemoteChatEvent.TextDelta("远程正常开头。"),
+                RemoteChatEvent.TextDelta("0".repeat(32)),
+                RemoteChatEvent.TextDelta("不应继续出现"),
+            ),
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-remote-repetition",
+                promptForModel = "普通远程问题",
+                memoryHits = emptyList(),
+            ),
+        )
+        val memoryRepository = CountingMemoryRepository()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            memoryIndex = memoryRepository,
+            longTermMemoryControls = memoryRepository,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        val rebuildsAfterStartup = memoryRepository.rebuildCallCount
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val assistantText = sessionStore.messages.last().text
+        assertEquals("模型输出已停止", viewModel.uiState.value.statusText)
+        assertEquals(1, remoteRuntime.stopCallCount)
+        assertEquals(1, assistantRouter.cancelRunCallCount)
+        assertEquals(0, assistantRouter.observeModelResultCallCount)
+        assertEquals(rebuildsAfterStartup + 1, memoryRepository.rebuildCallCount)
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
+        assertTrue(assistantText.contains("远程正常开头。"))
+        assertTrue(assistantText.contains("模型输出出现重复"))
+        assertFalse(assistantText.contains("0".repeat(32)))
+        assertFalse(assistantText.contains("不应继续出现"))
+        assertEquals("RepetitionLoop", assistantRouter.lastOutputQualityTrace?.issue)
+        assertEquals(true, assistantRouter.lastRecordedRunDataReceipt?.outputQualityGuardTriggered)
+        assertEquals("RepetitionLoop", viewModel.uiState.value.modelHealth.lastOutputQualityIssue)
     }
 
     @Test
@@ -7586,6 +7697,8 @@ class PocketMindViewModelTest {
         runtime: FakeLiteRtRuntime = FakeLiteRtRuntime(),
         remoteRuntime: RecordingRemoteChatRuntime = RecordingRemoteChatRuntime(),
         memoryRepository: MemoryRepository = MemoryRepository(),
+        memoryIndex: MemoryIndex = memoryRepository,
+        longTermMemoryControls: LongTermMemoryControls = memoryRepository,
         backgroundTaskScheduler: BackgroundTaskScheduler = FakeBackgroundTaskScheduler(),
         toolAuditLog: ToolAuditLog = FakeToolAuditLog(),
         assistantRouter: AssistantRouter = FakeAssistantRouter(),
@@ -7612,8 +7725,8 @@ class PocketMindViewModelTest {
             downloadService = downloadClient,
             runtime = runtime,
             remoteRuntime = remoteRuntime,
-            memoryRepository = memoryRepository,
-            longTermMemoryControls = memoryRepository,
+            memoryRepository = memoryIndex,
+            longTermMemoryControls = longTermMemoryControls,
             backgroundTaskScheduler = backgroundTaskScheduler,
             toolAuditLog = toolAuditLog,
             actionExecutor = actionExecutor,
@@ -7827,6 +7940,7 @@ class PocketMindViewModelTest {
 
     private class FakeLiteRtRuntime(
         private val localResponse: String = "本地回复",
+        private val localChunks: List<String> = listOf(localResponse),
         private val failure: Throwable? = null,
         private val hangDuringSend: Boolean = false,
         private val loadFailures: Map<BackendChoice, Throwable> = emptyMap(),
@@ -7882,7 +7996,9 @@ class PocketMindViewModelTest {
             if (hangDuringSend) {
                 return flow { awaitCancellation() }
             }
-            return flowOf(localResponse)
+            return flow {
+                localChunks.forEach { chunk -> emit(chunk) }
+            }
         }
 
         override fun send(request: LocalModelRequest): Flow<String> {
@@ -7937,6 +8053,8 @@ class PocketMindViewModelTest {
             private set
         var observeModelToolBatchCallCount: Int = 0
             private set
+        var observeModelResultCallCount: Int = 0
+            private set
         var failModelGenerationCallCount: Int = 0
             private set
         var cancelRunCallCount: Int = 0
@@ -7980,6 +8098,10 @@ class PocketMindViewModelTest {
         var lastRecordedRunDataReceiptRunId: String? = null
             private set
         var lastRecordedRunDataReceipt: RunDataReceipt? = null
+            private set
+        var lastOutputQualityTraceRunId: String? = null
+            private set
+        var lastOutputQualityTrace: ModelOutputQualityTrace? = null
             private set
         var lastRecoverySessionId: String? = null
             private set
@@ -8160,6 +8282,7 @@ class PocketMindViewModelTest {
             text: String,
             allowInlineToolCalls: Boolean,
         ): AgentModelObservationResult? {
+            observeModelResultCallCount += 1
             lastObserveModelResultAllowInlineToolCalls = allowInlineToolCalls
             return modelObservation.also { observation -> recordRun(observation?.run) }
         }
@@ -8176,6 +8299,11 @@ class PocketMindViewModelTest {
         override fun recordRunDataReceipt(runId: String, receipt: RunDataReceipt) {
             lastRecordedRunDataReceiptRunId = runId
             lastRecordedRunDataReceipt = receipt
+        }
+
+        override fun recordModelOutputQualityGuardTriggered(runId: String, trace: ModelOutputQualityTrace) {
+            lastOutputQualityTraceRunId = runId
+            lastOutputQualityTrace = trace
         }
 
         override fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? {
@@ -8318,6 +8446,44 @@ class PocketMindViewModelTest {
 
         override fun parseModelToolOutput(output: String): ModelToolOutputParseResult =
             modelOutputResult
+    }
+
+    private class CountingMemoryRepository : MemoryIndex, LongTermMemoryControls {
+        override var enabled: Boolean = true
+        var rebuildCallCount: Int = 0
+            private set
+
+        override fun rebuild(messages: List<ChatMessage>) {
+            rebuildCallCount += 1
+        }
+
+        override fun index(id: String, text: String) = Unit
+
+        override fun search(query: String, topK: Int): List<MemoryHit> = emptyList()
+
+        override fun buildContext(hits: List<MemoryHit>): String = ""
+
+        override fun savedRecords(): List<PersistedMemoryRecord> = emptyList()
+
+        override fun indexPreference(id: String, text: String) = Unit
+
+        override fun indexUserFact(id: String, text: String) = Unit
+
+        override fun indexTaskState(id: String, text: String) = Unit
+
+        override fun suppressAutoManagedTaskState(id: String) = Unit
+
+        override fun unsuppressAutoManagedTaskState(id: String) = Unit
+
+        override fun isAutoManagedTaskStateSuppressed(id: String): Boolean = false
+
+        override fun forget(id: String): Boolean = false
+
+        override fun forgetPreference(target: String): Boolean = false
+
+        override fun forgetUserFact(target: String): Boolean = false
+
+        override fun clear() = Unit
     }
 
     private class FakeMemoryRecordStore(

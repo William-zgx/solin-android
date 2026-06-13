@@ -548,6 +548,12 @@ class AgentLoopRuntime(
         traceStore.appendStep(runId, AgentStep.RunDataReceiptRecorded(receipt))
     }
 
+    fun recordModelOutputQualityGuardTriggered(runId: String, trace: ModelOutputQualityTrace) {
+        val run = traceStore.run(runId) ?: return
+        if (run.state in terminalRunStates) return
+        traceStore.appendStep(runId, AgentStep.ModelOutputQualityGuardTriggered(trace))
+    }
+
     fun observeModelToolRequest(runId: String, request: ToolRequest): AgentModelObservationResult? {
         val run = traceStore.run(runId) ?: return null
         if (run.state != AgentRunState.GeneratingAnswer) return null

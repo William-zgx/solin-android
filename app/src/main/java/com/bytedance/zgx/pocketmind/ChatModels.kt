@@ -160,6 +160,12 @@ data class RunDataReceiptUiSummary(
     val rawContentPersisted: Boolean,
     val protectedContentTypes: List<String>,
     val deletableRecordTypes: List<String>,
+    val outputQualityGuardTriggered: Boolean = false,
+    val outputQualityIssue: String? = null,
+    val outputQualityRule: String? = null,
+    val outputQualityAction: String? = null,
+    val outputQualityStopped: Boolean = false,
+    val outputQualityKeptPrefix: Boolean = false,
 )
 
 data class AgentTraceRunUiSummary(
