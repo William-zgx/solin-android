@@ -31,6 +31,7 @@ FAILED_TARGET=""
 FAILURE_REASON=""
 PASSED_APIS=()
 FAILED_APIS=()
+SKIPPED_APIS=()
 API_STATUS_LINES=()
 
 usage() {
@@ -163,6 +164,7 @@ write_report() {
     printf 'readinessReportFile=%s\n' "$READINESS_REPORT_FILE"
     printf 'passedApis=%s\n' "$(join_array_csv PASSED_APIS)"
     printf 'failedApis=%s\n' "$(join_array_csv FAILED_APIS)"
+    printf 'skippedApis=%s\n' "$(join_array_csv SKIPPED_APIS)"
     if [[ "${#API_STATUS_LINES[@]}" -gt 0 ]]; then
       printf '%s\n' "${API_STATUS_LINES[@]}"
     fi
@@ -280,7 +282,17 @@ for api in $REQUIRED_APIS; do
     fail "api-$api-report" "api-$api-report-missing" \
       "Emulator regression report missing for API $api: $api_report_file."
   fi
-  if [[ "$(report_value "$api_report_file" status)" != "passed" ]]; then
+  child_status="$(report_value "$api_report_file" status)"
+  child_reason="$(report_value "$api_report_file" reason)"
+  if [[ "$child_status" == "skipped" && "${ALLOW_EMULATOR_INFRA_UNAVAILABLE:-0}" == "1" && "$child_reason" == "emulator-infra-hvf-unsupported" ]]; then
+    SKIPPED_APIS+=("$api")
+    API_STATUS_LINES+=("api${api}Status=skipped")
+    API_STATUS_LINES+=("api${api}Avd=$avd_name")
+    API_STATUS_LINES+=("api${api}ReportFile=$api_report_file")
+    API_STATUS_LINES+=("api${api}ReportSha256=$(sha256_for "$api_report_file")")
+    continue
+  fi
+  if [[ "$child_status" != "passed" ]]; then
     FAILED_APIS+=("$api")
     fail "api-$api-report" "api-$api-report-not-passed" \
       "Emulator regression report for API $api is not passed."
@@ -307,6 +319,14 @@ for api in $REQUIRED_APIS; do
   API_STATUS_LINES+=("api${api}ReportFile=$api_report_file")
   API_STATUS_LINES+=("api${api}ReportSha256=$(sha256_for "$api_report_file")")
 done
+
+if [[ "${#SKIPPED_APIS[@]}" -gt 0 ]]; then
+  FAILED_TARGET="emulator-infra"
+  FAILURE_REASON="emulator-infra-hvf-unsupported"
+  write_report skipped "$FAILURE_REASON"
+  echo "Emulator API matrix regression skipped for infra-limited APIs: $(join_array_csv SKIPPED_APIS)"
+  exit 0
+fi
 
 write_report passed ""
 echo "Emulator API matrix regression passed for APIs: $(join_array_csv PASSED_APIS)"

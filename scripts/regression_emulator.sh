@@ -21,6 +21,7 @@ EMULATOR_AVD=""
 DEVICE_INSTRUMENTATION_OUTPUT_FILE=""
 FAILED_TARGET=""
 FAILURE_REASON=""
+REPORT_STATUS_OVERRIDE=""
 
 count_android_tests() {
   find "$ANDROID_TEST_SOURCE_DIR" \( -name '*.kt' -o -name '*.java' \) -print0 |
@@ -40,6 +41,25 @@ fail() {
   shift 2
   echo "regression_emulator: $*" >&2
   exit 1
+}
+
+skip() {
+  FAILED_TARGET="$1"
+  FAILURE_REASON="$2"
+  REPORT_STATUS_OVERRIDE="skipped"
+  shift 2
+  echo "regression_emulator: $*" >&2
+  exit 0
+}
+
+is_allowed_hvf_infra_failure() {
+  local nested_reason="$1"
+  local emulator_log
+  [[ "${ALLOW_EMULATOR_INFRA_UNAVAILABLE:-0}" == "1" ]] || return 1
+  [[ "$nested_reason" == "no-single-authorized-emulator" || "$nested_reason" == "emulator-boot-timeout" ]] || return 1
+  emulator_log="$(report_value "$EMULATOR_REPORT_FILE" "emulator_log")"
+  [[ -n "$emulator_log" && -f "$emulator_log" ]] || return 1
+  grep -Eq 'HV_UNSUPPORTED|failed to initialize HVF' "$emulator_log"
 }
 
 require_report() {
@@ -89,8 +109,11 @@ harvest_reports() {
 
 write_regression_report() {
   local exit_code="$1"
-  local status_label="failed"
-  [[ "$exit_code" -eq 0 ]] && status_label="passed"
+  local status_label="$REPORT_STATUS_OVERRIDE"
+  if [[ -z "$status_label" ]]; then
+    status_label="failed"
+    [[ "$exit_code" -eq 0 ]] && status_label="passed"
+  fi
 
   mkdir -p "$(dirname "$REGRESSION_REPORT_FILE")"
   {
@@ -143,6 +166,10 @@ harvest_reports
 if [[ "$EMULATOR_VERIFY_STATUS" -ne 0 ]]; then
   nested_reason="$(report_value "$EMULATOR_REPORT_FILE" "reason")"
   [[ -n "$nested_reason" ]] || nested_reason="emulator-verification-failed"
+  if is_allowed_hvf_infra_failure "$nested_reason"; then
+    skip emulator-infra emulator-infra-hvf-unsupported \
+      "Hosted emulator infrastructure does not support HVF for this AVD; see $EMULATOR_REPORT_FILE."
+  fi
   fail emulator-verification "emulator-verification-$nested_reason" "Emulator verification failed; see $EMULATOR_REPORT_FILE and $DEVICE_REPORT_FILE."
 fi
 

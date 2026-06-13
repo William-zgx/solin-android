@@ -145,6 +145,7 @@ jobs:
       - name: Run connected emulator regression
         run: |
           AVD_NAME=pocketmind_ci_api36_arm64 \
+          ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }} \
           EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
           EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
           BOOT_TIMEOUT_SECONDS=900 \
@@ -202,6 +203,7 @@ jobs:
       - name: Run connected API matrix regression
         run: |
           REQUIRED_APIS="28 32 33 34 36" \
+          ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }} \
           EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
           EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
           BOOT_TIMEOUT_SECONDS=900 \

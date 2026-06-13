@@ -348,6 +348,9 @@ if [[ "${1:-}" == "-list-avds" ]]; then
   exit 0
 fi
 printf '%s\n' "$*" >> "${FAKE_EMULATOR_LOG:?}"
+if [[ -n "${FAKE_EMULATOR_OUTPUT:-}" ]]; then
+  printf '%s\n' "$FAKE_EMULATOR_OUTPUT"
+fi
 FAKE_EMULATOR
   chmod +x "$sdk/emulator/emulator"
 }
@@ -434,6 +437,18 @@ if [[ "$api" == "${FAKE_MATRIX_FAIL_API:-}" ]]; then
     echo "actual_android_test_count=${FAKE_MATRIX_TEST_COUNT:-1}"
   } > "$report"
   exit 1
+fi
+if [[ "$api" == "${FAKE_MATRIX_SKIP_API:-}" ]]; then
+  {
+    echo "status=skipped"
+    echo "target=regression-emulator"
+    echo "reason=emulator-infra-hvf-unsupported"
+    echo "api_level=$api"
+    echo "abi=arm64-v8a"
+    echo "avd=$AVD_NAME"
+    echo "actual_android_test_count=0"
+  } > "$report"
+  exit 0
 fi
 {
   echo "status=passed"
@@ -778,6 +793,7 @@ def job_block(name):
     return match.group("body")
 
 verify_block = job_block("verify")
+emulator_regression_block = job_block("emulator-regression")
 emulator_api_matrix_block = job_block("emulator-api-matrix")
 release_archive_block = job_block("release-artifact-archive")
 protected_signing_block = job_block("protected-signing")
@@ -785,8 +801,11 @@ final_release_gate_block = job_block("final-release-gate")
 
 if "workflow_dispatch" not in verify_block:
     fail("verify job must run on workflow_dispatch before release artifacts are archived")
+if "ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }}" not in emulator_regression_block:
+    fail("emulator-regression must only allow infra skips outside workflow_dispatch release gates")
 for required in (
     'REQUIRED_APIS="28 32 33 34 36"',
+    "ALLOW_EMULATOR_INFRA_UNAVAILABLE=${{ github.event_name != 'workflow_dispatch' && '1' || '0' }}",
     "scripts/prepare_emulator_api_matrix.sh",
     "scripts/regression_emulator_api_matrix.sh",
     "android-emulator-api-matrix-evidence",
@@ -3706,8 +3725,31 @@ assert_report_contains "$MATRIX_REPORT" "status=passed"
 assert_report_contains "$MATRIX_REPORT" "target=regression-emulator-api-matrix"
 assert_report_contains "$MATRIX_REPORT" "artifactDir=$MATRIX_ARTIFACT_DIR"
 assert_report_contains "$MATRIX_REPORT" "passedApis=28,36"
+assert_report_contains "$MATRIX_REPORT" "skippedApis="
 assert_report_contains "$MATRIX_REPORT" "api28Status=passed"
 assert_report_contains "$MATRIX_REPORT" "api36Status=passed"
+MATRIX_SKIPPED_ARTIFACT_DIR="$ARTIFACT_DIR/emulator-api-matrix-skipped"
+MATRIX_SKIPPED_REPORT="$ARTIFACT_DIR/regression-emulator-api-matrix-skipped.properties"
+expect_success \
+  "emulator api matrix regression records allowed infra skips without passing them" \
+  env ANDROID_HOME="$FAKE_SDK" SDKMANAGER_CMD="$FAKE_SDKMANAGER" \
+  FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
+  FAKE_MATRIX_SKIP_API=28 ALLOW_EMULATOR_INFRA_UNAVAILABLE=1 \
+  scripts/regression_emulator_api_matrix.sh \
+    --avd-root "$FAKE_AVD_ROOT" \
+    --required-apis "28 36" \
+    --check-script scripts/check_emulator_api_matrix.sh \
+    --regression-script "$FAKE_MATRIX_REGRESSION" \
+    --keep-emulators \
+    --artifact-dir "$MATRIX_SKIPPED_ARTIFACT_DIR" \
+    --report "$MATRIX_SKIPPED_REPORT"
+assert_report_contains "$MATRIX_SKIPPED_REPORT" "status=skipped"
+assert_report_contains "$MATRIX_SKIPPED_REPORT" "failedTarget=emulator-infra"
+assert_report_contains "$MATRIX_SKIPPED_REPORT" "reason=emulator-infra-hvf-unsupported"
+assert_report_contains "$MATRIX_SKIPPED_REPORT" "passedApis=36"
+assert_report_contains "$MATRIX_SKIPPED_REPORT" "skippedApis=28"
+assert_report_contains "$MATRIX_SKIPPED_REPORT" "api28Status=skipped"
+assert_report_contains "$MATRIX_SKIPPED_REPORT" "api36Status=passed"
 MATRIX_EXPLICIT_ENV_REPORT="$ARTIFACT_DIR/regression-emulator-api-matrix-explicit-env.properties"
 MATRIX_EXPLICIT_ENV_ARTIFACT_DIR="$ARTIFACT_DIR/emulator-api-matrix-explicit-env"
 expect_success \
@@ -5476,6 +5518,22 @@ assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=fa
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "target=regression-emulator"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "failedTarget=emulator-verification"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "reason=emulator-verification-emulator-binary-missing"
+
+reset_logs
+expect_success \
+  "regression emulator records hosted HVF infra failure as skipped when allowed" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES="" FAKE_EMULATOR_AVDS="test-avd" AVD_NAME="test-avd" \
+  FAKE_EMULATOR_OUTPUT=$'HVF error: HV_UNSUPPORTED\nqemu-system-aarch64-headless: failed to initialize HVF: Invalid argument' \
+  EMULATOR_SELECT_TIMEOUT_SECONDS=0 ALLOW_EMULATOR_INFRA_UNAVAILABLE=1 \
+  EXPECTED_ANDROID_TEST_COUNT="$SOURCE_ANDROID_TEST_COUNT" GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=skipped"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "failedTarget=emulator-infra"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "reason=emulator-infra-hvf-unsupported"
+assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "reason=no-single-authorized-emulator"
+grep -q "HV_UNSUPPORTED" "$ARTIFACT_DIR-emulator.log" ||
+  fail "Expected hosted HVF skip to preserve the emulator log evidence"
 
 reset_logs
 expect_failure \
