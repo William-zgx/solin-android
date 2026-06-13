@@ -41,6 +41,7 @@ AVD_LABEL=""
 FAILED_TARGET=""
 FAILURE_REASON=""
 STARTED_EMULATOR=0
+REPORT_WRITTEN=0
 ADB=()
 CAPTURED_SCREENSHOTS=()
 
@@ -87,6 +88,7 @@ write_report() {
       done
     fi
   } > "$REPORT_FILE"
+  REPORT_WRITTEN=1
   echo "Release screenshot report: $REPORT_FILE"
 }
 
@@ -98,6 +100,9 @@ fail() {
   if [[ -x "$EMULATOR_BIN" ]]; then
     echo "Available AVDs: $(available_avd_summary)" >&2
   fi
+  capture_failure_artifacts 1
+  clear_remote_config
+  write_report 1
   exit 1
 }
 
@@ -371,12 +376,15 @@ capture_failure_artifacts() {
 
 finish() {
   local status=$?
+  trap - EXIT
   capture_failure_artifacts "$status"
   clear_remote_config
   if [[ "$STARTED_EMULATOR" == "1" && "${STOP_EMULATOR_AFTER_CAPTURE:-1}" == "1" && -n "${SELECTED_SERIAL:-}" && -x "$ADB_BIN" ]]; then
     "$ADB_BIN" -s "$SELECTED_SERIAL" emu kill >/dev/null 2>&1 || true
   fi
-  write_report "$status"
+  if [[ "$REPORT_WRITTEN" != "1" ]]; then
+    write_report "$status"
+  fi
   exit "$status"
 }
 trap finish EXIT
