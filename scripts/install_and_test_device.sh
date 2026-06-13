@@ -31,6 +31,7 @@ LOGCAT_CAPTURED=0
 FAILED_TARGET=""
 FAILURE_REASON=""
 SCRIPT_COMPLETED=0
+REPORT_WRITTEN=0
 
 PACKAGE_NAME="com.bytedance.zgx.pocketmind"
 TEST_PACKAGE_NAME="${PACKAGE_NAME}.test"
@@ -72,6 +73,7 @@ write_verification_report() {
     echo "debug_apk=$DEBUG_APK"
     echo "android_test_apk=$ANDROID_TEST_APK"
   } > "$VERIFICATION_REPORT_FILE"
+  REPORT_WRITTEN=1
   echo "Device verification report: $VERIFICATION_REPORT_FILE"
 }
 
@@ -138,7 +140,9 @@ on_exit() {
       FAILURE_REASON="script-incomplete"
     fi
   fi
-  write_verification_report "$status"
+  if [[ "$REPORT_WRITTEN" != "1" ]]; then
+    write_verification_report "$status"
+  fi
   exit "$status"
 }
 
@@ -149,6 +153,9 @@ fail_with_reason() {
   FAILURE_REASON="$2"
   shift 2
   echo "$*" >&2
+  capture_logcat_artifact
+  cleanup_test_device_state
+  write_verification_report 1
   exit 1
 }
 
