@@ -208,20 +208,51 @@ class RealLiteRtRuntime(
 private fun elapsedMillisSince(startedAtNanos: Long): Long =
     ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
 
+internal data class LiteRtEngineConfigSpec(
+    val modelPath: String,
+    val backend: BackendChoice,
+    val visionBackend: BackendChoice?,
+    val maxNumTokens: Int,
+    val maxNumImages: Int?,
+    val cacheDir: String,
+)
+
+internal fun defaultEngineConfigSpec(
+    modelPath: String,
+    backend: BackendChoice,
+    cacheDir: File,
+    supportsVisionInput: Boolean = false,
+): LiteRtEngineConfigSpec =
+    LiteRtEngineConfigSpec(
+        modelPath = modelPath,
+        backend = backend,
+        visionBackend = if (supportsVisionInput) backend else null,
+        maxNumTokens = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
+        maxNumImages = if (supportsVisionInput) MAX_LOCAL_MODEL_IMAGES else null,
+        cacheDir = cacheDir.absolutePath,
+    )
+
 internal fun defaultEngineConfig(
     modelPath: String,
     backend: BackendChoice,
     cacheDir: File,
     supportsVisionInput: Boolean = false,
-): EngineConfig =
-    EngineConfig(
+): EngineConfig {
+    val spec = defaultEngineConfigSpec(
         modelPath = modelPath,
-        backend = backend.toLiteRtBackend(),
-        visionBackend = if (supportsVisionInput) backend.toLiteRtBackend() else null,
-        maxNumTokens = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
-        maxNumImages = if (supportsVisionInput) MAX_LOCAL_MODEL_IMAGES else null,
-        cacheDir = cacheDir.absolutePath,
+        backend = backend,
+        cacheDir = cacheDir,
+        supportsVisionInput = supportsVisionInput,
     )
+    return EngineConfig(
+        modelPath = spec.modelPath,
+        backend = spec.backend.toLiteRtBackend(),
+        visionBackend = spec.visionBackend?.toLiteRtBackend(),
+        maxNumTokens = spec.maxNumTokens,
+        maxNumImages = spec.maxNumImages,
+        cacheDir = spec.cacheDir,
+    )
+}
 
 private fun defaultConversationConfig(
     messages: List<ChatMessage>,

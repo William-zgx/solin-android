@@ -12,7 +12,7 @@ import org.junit.Test
 class LiteRtRuntimeConfigTest {
     @Test
     fun engineConfigUsesExplicitLocalContextWindow() {
-        val config = defaultEngineConfig(
+        val config = defaultEngineConfigSpec(
             modelPath = "/tmp/model.litertlm",
             backend = BackendChoice.GPU,
             cacheDir = File("/tmp/cache"),
@@ -27,7 +27,7 @@ class LiteRtRuntimeConfigTest {
 
     @Test
     fun engineConfigEnablesVisionBackendOnlyForVisionCapableLocalModel() {
-        val config = defaultEngineConfig(
+        val config = defaultEngineConfigSpec(
             modelPath = "/tmp/model.litertlm",
             backend = BackendChoice.GPU,
             cacheDir = File("/tmp/cache"),
