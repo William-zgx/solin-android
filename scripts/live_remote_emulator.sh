@@ -36,6 +36,7 @@ MODEL_SOURCE=""
 REMOTE_CONFIRMATION_HANDLED=""
 FAILED_TARGET=""
 FAILURE_REASON=""
+REPORT_WRITTEN=0
 
 write_report() {
   local exit_code="$1"
@@ -68,6 +69,7 @@ write_report() {
     echo "logcat_file=$LOGCAT_FILE"
     echo "remote_confirmation_handled=${REMOTE_CONFIRMATION_HANDLED:-}"
   } > "$REPORT_FILE"
+  REPORT_WRITTEN=1
   echo "Live remote $LIVE_REMOTE_TARGET report: $REPORT_FILE"
 }
 
@@ -76,6 +78,10 @@ fail() {
   FAILURE_REASON="$2"
   shift 2
   echo "live_remote_emulator: $*" >&2
+  capture_failure_evidence 1
+  sanitize_live_remote_artifacts
+  clear_remote_config
+  write_report 1
   exit 1
 }
 
@@ -257,7 +263,19 @@ PY
   "${ADB[@]}" shell input tap $point
 }
 
-trap 'status=$?; capture_failure_evidence "$status"; sanitize_live_remote_artifacts; clear_remote_config; write_report "$status"; exit "$status"' EXIT
+on_exit() {
+  local status="$?"
+  trap - EXIT
+  capture_failure_evidence "$status"
+  sanitize_live_remote_artifacts
+  clear_remote_config
+  if [[ "$REPORT_WRITTEN" != "1" ]]; then
+    write_report "$status"
+  fi
+  exit "$status"
+}
+
+trap on_exit EXIT
 
 [[ -x "$ADB_BIN" ]] || fail adb adb-missing "adb not found at $ADB_BIN."
 [[ -n "$LIVE_REMOTE_BASE_URL" ]] ||
