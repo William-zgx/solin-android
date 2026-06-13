@@ -1224,6 +1224,32 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun plainRemoteDisclosureConfirmCannotBypassSensitiveDisclosure() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("我的手机号是 13800138000，帮我总结一下")
+        advanceUntilIdle()
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertTrue(disclosure.requiresSensitiveConsent)
+
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(disclosure, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals("敏感内容待确认", viewModel.uiState.value.statusText)
+    }
+
+    @Test
     fun confirmRemoteSendDespiteSensitiveSendsRawPromptAndRecordsAudit() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()
@@ -1249,6 +1275,41 @@ class PocketMindViewModelTest {
         assertEquals(1, remoteRuntime.calls.size)
         assertTrue(remoteRuntime.calls.single().prompt.contains("13800138000"))
         // The override decision is audited as LocalOnly.
+        assertTrue(
+            sessionStore.messages.any { message ->
+                message.privacy == MessagePrivacy.LocalOnly && message.text.contains("仍原样发送")
+            },
+        )
+    }
+
+    @Test
+    fun confirmRemoteSendDespiteSensitiveWorksWhenSensitiveHitCannotBeMasked() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        val prompt = "my medical diagnosis is asthma, summarize the next steps"
+        viewModel.sendMessage(prompt)
+        advanceUntilIdle()
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertTrue(disclosure.requiresSensitiveConsent)
+        assertFalse(disclosure.allowMaskedSend)
+        assertTrue(disclosure.sensitiveHitCategories.contains("疑似敏感领域信息"))
+
+        viewModel.confirmRemoteSendDespiteSensitive()
+        advanceUntilIdle()
+
+        assertEquals(1, remoteRuntime.calls.size)
+        assertEquals(prompt, remoteRuntime.calls.single().prompt)
         assertTrue(
             sessionStore.messages.any { message ->
                 message.privacy == MessagePrivacy.LocalOnly && message.text.contains("仍原样发送")

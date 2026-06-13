@@ -1241,6 +1241,7 @@ private fun RemoteSendDisclosureSheet(
 ) {
     // Sensitive/image disclosures are forced and can never be silenced for the session.
     val canSuppressForSession = !disclosure.forcedBySensitiveOrImage
+    val requiresSensitiveConsent = disclosure.requiresSensitiveConsent
     var suppressForSession by rememberSaveable(disclosure) { mutableStateOf(false) }
     Column(
         modifier = Modifier
@@ -1277,21 +1278,23 @@ private fun RemoteSendDisclosureSheet(
                 )
             }
         }
-        Button(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("remote_send_confirm_button"),
-            onClick = { onConfirm(canSuppressForSession && suppressForSession) },
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Cloud,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("确认发送")
+        if (!requiresSensitiveConsent) {
+            Button(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("remote_send_confirm_button"),
+                onClick = { onConfirm(canSuppressForSession && suppressForSession) },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Cloud,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("确认发送")
+            }
         }
-        if (disclosure.allowMaskedSend) {
+        if (requiresSensitiveConsent) {
             if (disclosure.maskedPromptPreview.isNotBlank()) {
                 Text(
                     modifier = Modifier.testTag("remote_send_masked_preview"),
@@ -1300,19 +1303,21 @@ private fun RemoteSendDisclosureSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            FilledTonalButton(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("remote_send_mask_button"),
-                onClick = onMaskAndSend,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Security,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("打码后发送")
+            if (disclosure.allowMaskedSend) {
+                FilledTonalButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("remote_send_mask_button"),
+                    onClick = onMaskAndSend,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Security,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("打码后发送")
+                }
             }
             OutlinedButton(
                 modifier = Modifier

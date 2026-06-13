@@ -2020,6 +2020,7 @@ class PocketMindViewModel(
 
     fun confirmRemoteSendDisclosure(suppressForSession: Boolean = false) {
         val pending = _uiState.value.pendingRemoteSendDisclosure ?: return
+        if (pending.requiresSensitiveConsent) return
         // Only honor "don't ask again this session" for non-forced sends. Sensitive/image
         // disclosures must never be silenced — they re-prompt every time regardless.
         if (suppressForSession && !pending.forcedBySensitiveOrImage) {
@@ -2093,7 +2094,7 @@ class PocketMindViewModel(
      */
     fun confirmRemoteSendDespiteSensitive() {
         val pending = _uiState.value.pendingRemoteSendDisclosure ?: return
-        if (!pending.allowMaskedSend) return
+        if (!pending.requiresSensitiveConsent) return
         if (pendingRemoteContinuation != null) return
         val hitCategories = pending.sensitiveHitCategories.joinToString("、")
         appendRemoteSendAuditNote(

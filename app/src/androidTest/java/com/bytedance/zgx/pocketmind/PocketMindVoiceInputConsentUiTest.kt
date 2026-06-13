@@ -160,6 +160,8 @@ class PocketMindVoiceInputConsentUiTest {
                     onFinishVoiceInput = {},
                     onPickSharedAttachment = {},
                     onVoiceInputConsumed = onVoiceInputConsumed,
+                    onSaveHuggingFaceAccessToken = {},
+                    onClearHuggingFaceAccessToken = {},
                     onStopGeneration = {},
                 )
             }

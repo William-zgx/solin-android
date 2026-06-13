@@ -109,6 +109,8 @@ class PocketMindExternalOutcomeUiTest {
                     onFinishVoiceInput = {},
                     onPickSharedAttachment = {},
                     onVoiceInputConsumed = {},
+                    onSaveHuggingFaceAccessToken = {},
+                    onClearHuggingFaceAccessToken = {},
                     onStopGeneration = {},
                 )
             }
