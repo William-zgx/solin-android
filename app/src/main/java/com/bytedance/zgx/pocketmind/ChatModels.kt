@@ -355,6 +355,7 @@ data class ChatUiState(
     val availableModelStorageBytes: Long = 0L,
     val isBusy: Boolean = false,
     val isGenerating: Boolean = false,
+    val isPreparingDownload: Boolean = false,
     val isDownloading: Boolean = false,
     val downloadProgressPercent: Int? = null,
     val downloadedBytes: Long = 0L,

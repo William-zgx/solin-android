@@ -7,9 +7,11 @@ import android.os.Environment
 import com.bytedance.zgx.pocketmind.ModelCatalog
 import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
 import java.io.File
+import java.util.concurrent.CancellationException
 
 interface ModelDownloadClient {
     fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long>
+    fun cancelPreflight() = Unit
     fun cancel(downloadId: Long)
     fun query(downloadId: Long): DownloadInfo?
 }
@@ -21,13 +23,18 @@ class ModelDownloadService(
 ) : ModelDownloadClient {
     private val appContext = context.applicationContext
     private val downloadManager = appContext.getSystemService(DownloadManager::class.java)
+    @Volatile
+    private var preflightCancelled = false
 
     override fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long> =
         runCatching {
+            preflightCancelled = false
             val preparedDownloadUrl = huggingFaceDownloadUrlResolver.prepare(
                 source = source,
                 authorizationHeaderProvider = huggingFaceAuthorizationHeaderProvider,
+                shouldCancel = { preflightCancelled },
             ).getOrThrow()
+            if (preflightCancelled) throw CancellationException("下载已取消")
             val request = DownloadManager.Request(Uri.parse(preparedDownloadUrl.url))
                 .setTitle(source.title)
                 .setDescription("正在下载本地模型")
@@ -45,7 +52,14 @@ class ModelDownloadService(
                 request.addRequestHeader("Authorization", authorizationHeader)
             }
             downloadManager.enqueue(request)
+        }.also {
+            preflightCancelled = false
         }
+
+    override fun cancelPreflight() {
+        preflightCancelled = true
+        huggingFaceDownloadUrlResolver.cancelActiveProbe()
+    }
 
     override fun cancel(downloadId: Long) {
         if (downloadId > 0L) {

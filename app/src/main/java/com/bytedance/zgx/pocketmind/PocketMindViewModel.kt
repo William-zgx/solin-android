@@ -165,6 +165,7 @@ class PocketMindViewModel(
     private var sessionRestoreGeneration: Long = 0L
     private var activeGenerationRunId: String? = null
     private var downloadMonitorJob: Job? = null
+    private var downloadPreflightJob: Job? = null
     private var activeDownloadId: Long? = null
     private val setupDownloadQueue = ArrayDeque<ModelDownloadSource>()
     private var setupDownloadInProgress = false
@@ -723,16 +724,20 @@ class PocketMindViewModel(
 
     fun cancelModelDownload() {
         val downloadId = activeDownloadId ?: modelRepository.pendingDownloadId()
+        downloadPreflightJob?.cancel()
+        downloadPreflightJob = null
         downloadMonitorJob?.cancel()
         downloadMonitorJob = null
         activeDownloadId = null
         setupDownloadQueue.clear()
         setupDownloadInProgress = false
+        downloadService.cancelPreflight()
         downloadService.cancel(downloadId)
         modelRepository.clearPendingDownload()
         _uiState.update {
             it.copy(
                 isBusy = false,
+                isPreparingDownload = false,
                 isDownloading = false,
                 downloadProgressPercent = null,
                 downloadedBytes = 0L,
@@ -3879,6 +3884,7 @@ class PocketMindViewModel(
         _uiState.update {
             it.copy(
                 isBusy = true,
+                isPreparingDownload = true,
                 isDownloading = false,
                 downloadProgressPercent = null,
                 downloadedBytes = 0L,
@@ -3892,8 +3898,13 @@ class PocketMindViewModel(
                 showFirstRunSetup = false,
             )
         }
-        viewModelScope.launch(ioDispatcher) {
+        val preflightJob = viewModelScope.launch(ioDispatcher) {
             val downloadResult = downloadService.enqueue(source, target)
+            if (!isActive) {
+                downloadResult.getOrNull()?.let(downloadService::cancel)
+                return@launch
+            }
+            downloadPreflightJob = null
             if (downloadResult.isFailure) {
                 val throwable = downloadResult.exceptionOrNull()
                 setupDownloadQueue.clear()
@@ -3901,6 +3912,7 @@ class PocketMindViewModel(
                 _uiState.update {
                     it.copy(
                         isBusy = false,
+                        isPreparingDownload = false,
                         isDownloading = false,
                         downloadProgressPercent = null,
                         downloadedBytes = 0L,
@@ -3916,6 +3928,7 @@ class PocketMindViewModel(
             _uiState.update {
                 it.copy(
                     isBusy = true,
+                    isPreparingDownload = false,
                     isDownloading = true,
                     downloadProgressPercent = null,
                     downloadedBytes = 0L,
@@ -3926,6 +3939,12 @@ class PocketMindViewModel(
                 )
             }
             monitorDownload(downloadId, target, source)
+        }
+        downloadPreflightJob = preflightJob
+        preflightJob.invokeOnCompletion {
+            if (downloadPreflightJob == preflightJob) {
+                downloadPreflightJob = null
+            }
         }
         return true
     }

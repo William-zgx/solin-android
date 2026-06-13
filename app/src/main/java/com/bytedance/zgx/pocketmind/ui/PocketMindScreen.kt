@@ -232,7 +232,7 @@ fun PocketMindScreen(
     val listState = rememberLazyListState()
     var input by rememberSaveable { mutableStateOf("") }
     var customModelUrl by rememberSaveable { mutableStateOf("") }
-    var huggingFaceAccessTokenInput by rememberSaveable { mutableStateOf("") }
+    var huggingFaceAccessTokenInput by remember { mutableStateOf("") }
     var showModelManager by rememberSaveable { mutableStateOf(false) }
     var modelManagerInitialTab by rememberSaveable { mutableStateOf(MODEL_MANAGER_CURRENT_TAB_INDEX) }
     var showSessions by rememberSaveable { mutableStateOf(false) }
@@ -1160,7 +1160,12 @@ private fun QuickModelSetup(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (state.isDownloading || state.downloadProgressPercent != null || state.totalBytes > 0L) {
+            if (
+                state.isPreparingDownload ||
+                state.isDownloading ||
+                state.downloadProgressPercent != null ||
+                state.totalBytes > 0L
+            ) {
                 ProgressBlock(state)
             }
             FilledTonalButton(
@@ -1214,7 +1219,7 @@ private fun QuickModelSetup(
                 )
                 Text(" 模型管理")
             }
-            if (state.isDownloading) {
+            if (state.isPreparingDownload || state.isDownloading) {
                 TextButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onCancelDownload,
@@ -1869,9 +1874,14 @@ private fun ModelManagerSheet(
             )
         }
 
-        if (state.isDownloading || state.downloadProgressPercent != null || state.totalBytes > 0L) {
+        if (
+            state.isPreparingDownload ||
+            state.isDownloading ||
+            state.downloadProgressPercent != null ||
+            state.totalBytes > 0L
+        ) {
             ProgressBlock(state)
-            if (state.isDownloading) {
+            if (state.isPreparingDownload || state.isDownloading) {
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onCancelDownload,
@@ -4574,7 +4584,11 @@ private fun ProgressBlock(state: ChatUiState) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = progress?.let { "$it%" } ?: ModelCatalog.formatBytes(state.downloadedBytes),
+                text = when {
+                    progress != null -> "$progress%"
+                    state.isPreparingDownload -> "准备中"
+                    else -> ModelCatalog.formatBytes(state.downloadedBytes)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

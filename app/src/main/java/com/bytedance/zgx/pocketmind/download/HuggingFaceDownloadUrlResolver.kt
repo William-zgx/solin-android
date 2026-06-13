@@ -23,29 +23,44 @@ class HuggingFaceDownloadUrlResolver(
 ) {
     fun prepare(
         source: ModelDownloadSource,
+        shouldCancel: () -> Boolean = { false },
         authorizationHeaderProvider: () -> String?,
     ): Result<PreparedDownloadUrl> =
         runCatching {
             if (!source.requiresHuggingFaceAuthorization) {
+                if (shouldCancel()) throw IOException("下载已取消")
                 return@runCatching PreparedDownloadUrl(source.downloadUrl, authorizationHeader = null)
             }
             val authorizationHeader = authorizationHeaderProvider()
                 ?.takeIf { it.isNotBlank() }
                 ?: error("需要先完成 Hugging Face 授权")
-            val resolvedUrl = resolveAuthorizedUrl(source.downloadUrl, authorizationHeader)
+            val resolvedUrl = resolveAuthorizedUrl(source.downloadUrl, authorizationHeader, shouldCancel)
+            if (shouldCancel()) throw IOException("下载已取消")
             PreparedDownloadUrl(
                 url = resolvedUrl,
                 authorizationHeader = authorizationHeader.takeIf { resolvedUrl == source.downloadUrl },
             )
         }
 
-    private fun resolveAuthorizedUrl(url: String, authorizationHeader: String): String {
-        val headResponse = executeProbe(url, authorizationHeader, method = ProbeMethod.Head)
+    private fun resolveAuthorizedUrl(
+        url: String,
+        authorizationHeader: String,
+        shouldCancel: () -> Boolean,
+    ): String {
+        if (shouldCancel()) throw IOException("下载已取消")
+        val headResponse = executeProbe(url, authorizationHeader, method = ProbeMethod.Head, shouldCancel = shouldCancel)
         headResponse.use { response ->
+            if (shouldCancel()) throw IOException("下载已取消")
             if (response.isSuccessful) return response.request.url.toString()
             if (response.canRetryWithRangeGet(originalUrl = url)) {
-                val rangeResponse = executeProbe(url, authorizationHeader, method = ProbeMethod.RangeGet)
+                val rangeResponse = executeProbe(
+                    url,
+                    authorizationHeader,
+                    method = ProbeMethod.RangeGet,
+                    shouldCancel = shouldCancel,
+                )
                 rangeResponse.use { ranged ->
+                    if (shouldCancel()) throw IOException("下载已取消")
                     if (ranged.isSuccessful) return ranged.request.url.toString()
                     throw IOException(ranged.huggingFaceFailureMessage())
                 }
@@ -58,6 +73,7 @@ class HuggingFaceDownloadUrlResolver(
         url: String,
         authorizationHeader: String,
         method: ProbeMethod,
+        shouldCancel: () -> Boolean,
     ): Response {
         val builder = Request.Builder()
             .url(url)
@@ -67,7 +83,18 @@ class HuggingFaceDownloadUrlResolver(
             ProbeMethod.Head -> builder.head()
             ProbeMethod.RangeGet -> builder.get().header("Range", "bytes=0-0")
         }
-        return callFactory.newCall(builder.build()).execute()
+        val call = callFactory.newCall(builder.build())
+        activeProbeCall = call
+        if (shouldCancel()) call.cancel()
+        return try {
+            call.execute()
+        } finally {
+            if (activeProbeCall == call) activeProbeCall = null
+        }
+    }
+
+    fun cancelActiveProbe() {
+        activeProbeCall?.cancel()
     }
 
     private fun Response.canRetryWithRangeGet(originalUrl: String): Boolean =
@@ -87,4 +114,7 @@ class HuggingFaceDownloadUrlResolver(
         Head,
         RangeGet,
     }
+
+    @Volatile
+    private var activeProbeCall: Call? = null
 }

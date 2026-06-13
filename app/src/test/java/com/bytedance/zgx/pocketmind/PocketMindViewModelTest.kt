@@ -94,6 +94,10 @@ import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREF
 import java.io.File
 import java.io.IOException
 import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -973,6 +977,94 @@ class PocketMindViewModelTest {
             assertEquals("Bearer hf_test_read_token", authStore.authorizationHeader())
             assertEquals(1, downloadClient.enqueuedDownloads.size)
             assertTrue(downloadClient.enqueuedDownloads.single().first.requiresHuggingFaceAuthorization)
+        }
+    }
+
+    @Test
+    fun cancelModelDownloadDuringPreflightCancelsPreparingDownloadBeforeEnqueue() = runTest {
+        withTempDownloadTarget { target ->
+            val modelRepository = FakeModelRepository(downloadedModelFileProvider = { target })
+            val downloadClient = FakeModelDownloadClient()
+            val authStore = FakeHuggingFaceAuthStore("hf_test_read_token")
+            val downloadDispatcher = StandardTestDispatcher(testScheduler)
+            val viewModel = createViewModel(
+                modelRepository = modelRepository,
+                downloadClient = downloadClient,
+                huggingFaceAuthStore = authStore,
+                ioDispatcher = downloadDispatcher,
+            )
+
+            viewModel.startRecommendedModelDownload(MEMORY_EMBEDDING_MODEL_ID)
+
+            assertTrue(viewModel.uiState.value.isPreparingDownload)
+            assertTrue(viewModel.uiState.value.isBusy)
+            assertFalse(viewModel.uiState.value.isDownloading)
+
+            viewModel.cancelModelDownload()
+            advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.isPreparingDownload)
+            assertFalse(viewModel.uiState.value.isBusy)
+            assertFalse(viewModel.uiState.value.isDownloading)
+            assertEquals("下载已取消", viewModel.uiState.value.statusText)
+            assertEquals(1, downloadClient.preflightCancelCount)
+            assertTrue(downloadClient.enqueuedDownloads.isEmpty())
+            assertTrue(modelRepository.savedPendingDownloads.isEmpty())
+            assertEquals(1, modelRepository.clearPendingDownloadCount)
+        }
+    }
+
+    @Test
+    fun cancelModelDownloadDuringBlockingPreflightCancelsLateDownloadId() = runTest {
+        withTempDownloadTarget { target ->
+            val modelRepository = FakeModelRepository(downloadedModelFileProvider = { target })
+            val enteredPreflight = CountDownLatch(1)
+            val releasePreflight = CountDownLatch(1)
+            val lateDownloadCancelled = CountDownLatch(1)
+            val downloadClient = FakeModelDownloadClient(
+                onEnqueue = { _, _ ->
+                    enteredPreflight.countDown()
+                    assertTrue(releasePreflight.await(5, TimeUnit.SECONDS))
+                },
+                onCancel = { downloadId ->
+                    if (downloadId == 1L) lateDownloadCancelled.countDown()
+                },
+            )
+            val authStore = FakeHuggingFaceAuthStore("hf_test_read_token")
+            val downloadDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+            try {
+                val viewModel = createViewModel(
+                    modelRepository = modelRepository,
+                    downloadClient = downloadClient,
+                    huggingFaceAuthStore = authStore,
+                    ioDispatcher = downloadDispatcher,
+                )
+
+                viewModel.startRecommendedModelDownload(MEMORY_EMBEDDING_MODEL_ID)
+
+                assertTrue(enteredPreflight.await(5, TimeUnit.SECONDS))
+                assertTrue(viewModel.uiState.value.isPreparingDownload)
+                assertTrue(viewModel.uiState.value.isBusy)
+                assertFalse(viewModel.uiState.value.isDownloading)
+                assertEquals("正在验证 Hugging Face 授权", viewModel.uiState.value.statusText)
+
+                viewModel.cancelModelDownload()
+                releasePreflight.countDown()
+
+                assertTrue(lateDownloadCancelled.await(5, TimeUnit.SECONDS))
+                assertFalse(viewModel.uiState.value.isPreparingDownload)
+                assertFalse(viewModel.uiState.value.isBusy)
+                assertFalse(viewModel.uiState.value.isDownloading)
+                assertNull(viewModel.uiState.value.downloadProgressPercent)
+                assertEquals(0L, viewModel.uiState.value.downloadedBytes)
+                assertEquals(0L, viewModel.uiState.value.totalBytes)
+                assertEquals("下载已取消", viewModel.uiState.value.statusText)
+                assertEquals(1, downloadClient.preflightCancelCount)
+                assertTrue(modelRepository.savedPendingDownloads.isEmpty())
+            } finally {
+                releasePreflight.countDown()
+                downloadDispatcher.close()
+            }
         }
     }
 
@@ -8554,10 +8646,12 @@ class PocketMindViewModelTest {
         private val enqueueResult: Result<Long> = Result.success(1L),
         private val queryResults: MutableList<DownloadInfo?> = mutableListOf(),
         private val onEnqueue: (ModelDownloadSource, File) -> Unit = { _, _ -> },
+        private val onCancel: (Long) -> Unit = {},
     ) : ModelDownloadClient {
         val enqueuedDownloads = mutableListOf<Pair<ModelDownloadSource, File>>()
         val queriedDownloadIds = mutableListOf<Long>()
         val cancelledDownloadIds = mutableListOf<Long>()
+        var preflightCancelCount = 0
 
         override fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long> {
             enqueuedDownloads += source to targetFile
@@ -8565,8 +8659,13 @@ class PocketMindViewModelTest {
             return enqueueResult
         }
 
+        override fun cancelPreflight() {
+            preflightCancelCount += 1
+        }
+
         override fun cancel(downloadId: Long) {
             cancelledDownloadIds += downloadId
+            onCancel(downloadId)
         }
 
         override fun query(downloadId: Long): DownloadInfo? {
