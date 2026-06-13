@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -79,6 +81,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -106,6 +110,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -139,8 +145,9 @@ jobs:
       - name: Run connected emulator regression
         run: |
           AVD_NAME=pocketmind_ci_api36_arm64 \
-          EMULATOR_SELECT_TIMEOUT_SECONDS=180 \
-          BOOT_TIMEOUT_SECONDS=600 \
+          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
+          EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
+          BOOT_TIMEOUT_SECONDS=900 \
           ARTIFACT_DIR=build/verification/ci-emulator-regression \
           scripts/regression_emulator.sh
 
@@ -161,6 +168,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -193,8 +202,9 @@ jobs:
       - name: Run connected API matrix regression
         run: |
           REQUIRED_APIS="28 32 33 34 36" \
-          EMULATOR_SELECT_TIMEOUT_SECONDS=180 \
-          BOOT_TIMEOUT_SECONDS=600 \
+          EMULATOR_ARGS="-wipe-data -no-window -no-audio -no-snapshot-save -no-boot-anim -gpu swiftshader_indirect -no-metrics -accel off" \
+          EMULATOR_SELECT_TIMEOUT_SECONDS=600 \
+          BOOT_TIMEOUT_SECONDS=900 \
           ARTIFACT_DIR=build/verification/ci-emulator-api-matrix \
           scripts/regression_emulator_api_matrix.sh
 
@@ -216,6 +226,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -288,6 +300,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -361,6 +375,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@v4

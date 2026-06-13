@@ -269,6 +269,7 @@ FAKE_FRESH_START_FIRST_RUN_UI
   <node text="PocketMind" enabled="true" clickable="false" bounds="[76,150][303,223]" />
   <node text="隐私优先的随身 AI 助手" enabled="true" clickable="false" bounds="[76,226][303,275]" />
   <node content-desc="模型管理" enabled="true" clickable="true" bounds="[471,149][597,275]" />
+  <node content-desc="更多" enabled="true" clickable="true" bounds="[924,149][1004,275]" />
   <node text="为什么装它" enabled="true" clickable="false" bounds="[94,600][778,691]" />
 </hierarchy>
 FAKE_FRESH_START_AFTER_SKIP_UI
@@ -281,13 +282,14 @@ FAKE_FRESH_START_AFTER_SKIP_UI
   <node text="PocketMind" enabled="true" clickable="false" bounds="[76,150][303,223]" />
   <node text="隐私优先的随身 AI 助手" enabled="true" clickable="false" bounds="[76,226][303,275]" />
   <node content-desc="模型管理" enabled="true" clickable="true" bounds="[471,149][597,275]" />
+  <node content-desc="更多" enabled="true" clickable="true" bounds="[924,149][1004,275]" />
   <node text="为什么装它" enabled="true" clickable="false" bounds="[94,600][778,691]" />
 </hierarchy>
 FAKE_FRESH_START_UI
         fi
         ;;
       /sdcard/pocketmind-model-manager.xml)
-        printf '<hierarchy><node text="%s" /></hierarchy>\n' "${FAKE_MODEL_MANAGER_UI_TEXT:-本地离线可用；远程多模态可选。远程发送和设备动作仍会先确认。}" > "$destination"
+        printf '<hierarchy><node text="%s" /></hierarchy>\n' "${FAKE_MODEL_MANAGER_UI_TEXT:-本地对话和本地视觉可用，可离线使用；远程多模态可选。远程发送和设备动作仍会先确认。}" > "$destination"
         ;;
       /sdcard/pocketmind-release-*.xml)
         cat > "$destination" <<'FAKE_RELEASE_SCREENSHOT_UI'
@@ -4360,6 +4362,7 @@ expect_failure \
   scripts/verify_release_gate.sh
 assert_report_contains "$ARTIFACT_DIR/release-require-aab/android-artifact-scan.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/release-require-aab/release-gate.properties" "failedTarget=android-artifact-scan"
+rm -f app/build/outputs/bundle/release/app-release-signed.aab
 expect_failure \
   "release gate defaults signed aab path when signed aab is required" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-signed-default-aab" \

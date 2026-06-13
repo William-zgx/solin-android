@@ -6,8 +6,11 @@ cd "$ROOT_DIR"
 
 ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
-MAX_RELEASE_APK_BYTES=$((75 * 1024 * 1024))
-MAX_RELEASE_AAB_BYTES=$((75 * 1024 * 1024))
+# The release APK is a universal install artifact and includes arm64 native
+# runtimes for LiteRT, embedding/RAG, and OCR. Keep the Play-delivered AAB
+# budget tighter while giving the universal APK its own explicit gate.
+MAX_RELEASE_APK_BYTES="${MAX_RELEASE_APK_BYTES:-$((125 * 1024 * 1024))}"
+MAX_RELEASE_AAB_BYTES="${MAX_RELEASE_AAB_BYTES:-$((75 * 1024 * 1024))}"
 
 scripts/doctor.sh --local
 bash -n scripts/doctor.sh scripts/verify_local.sh scripts/install_and_test_device.sh scripts/install_review_device.sh scripts/verify_fresh_start_main_shell_emulator.sh scripts/verify_emulator.sh scripts/regression_emulator.sh scripts/check_emulator_api_matrix.sh scripts/prepare_emulator_api_matrix.sh scripts/regression_emulator_api_matrix.sh scripts/live_remote_emulator.sh scripts/capture_release_screenshots.sh scripts/collect_release_flow_matrix_evidence.sh scripts/collect_crash_anr_smoke_evidence.sh scripts/record_manual_acceptance_evidence.sh scripts/record_release_flow_evidence.sh scripts/verify_upgrade_install_emulator.sh scripts/test_validation_scripts.sh scripts/privacy_scan.sh scripts/scan_android_artifacts.sh scripts/verify_perf_baseline.sh scripts/verify_privacy_review.sh scripts/verify_release_record.sh scripts/verify_store_policy_record.sh scripts/verify_release_operations_record.sh scripts/verify_release_validation_record.sh scripts/verify_model_license_review.sh scripts/verify_release_mapping.sh scripts/verify_release_gate.sh scripts/collect_perf_baseline.sh scripts/collect_model_license_metadata.sh scripts/sign_release_artifacts.sh
