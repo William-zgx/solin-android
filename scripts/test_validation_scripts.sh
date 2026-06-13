@@ -464,7 +464,15 @@ assert_gradle_called() {
 assert_report_contains() {
   local file="$1"
   local expected="$2"
-  [[ -f "$file" ]] || fail "Expected verification report at $file"
+  if [[ ! -f "$file" ]]; then
+    {
+      printf 'Missing expected report: %s\n' "$file"
+      printf 'Last helper output:\n%s\n' "${LAST_OUTPUT:-}"
+      printf 'Report directory listing:\n'
+      ls -la "$(dirname "$file")" 2>&1 || true
+    } >&2
+    fail "Expected verification report at $file"
+  fi
   grep -qxF "$expected" "$file" ||
     fail "Expected $file to contain: $expected"
 }
@@ -608,8 +616,10 @@ CRASH_ANR_SMOKE_FIXTURE_PROPERTIES
 }
 
 reset_logs() {
+  unset ANDROID_SERIAL
   export VERIFICATION_REPORT_FILE="$ARTIFACT_DIR/device-verification.properties"
   export INSTRUMENTATION_OUTPUT_FILE="$ARTIFACT_DIR/instrumentation.txt"
+  export LOGCAT_FILE="$ARTIFACT_DIR/logcat.txt"
   : > "$FAKE_ADB_LOG"
   : > "$FAKE_EMULATOR_LOG"
   : > "$FAKE_GRADLE_LOG"
