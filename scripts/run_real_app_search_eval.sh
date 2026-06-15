@@ -9,12 +9,13 @@ export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_SDK}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 ADB_BIN="${ANDROID_SDK}/platform-tools/adb"
-ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/device-control-debug-eval-$(date +%Y%m%d-%H%M%S)}"
-REPORT_FILE="${REPORT_FILE:-${ARTIFACT_DIR}/device-control-debug-eval.properties}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/real-app-search-eval-$(date +%Y%m%d-%H%M%S)}"
+REPORT_FILE="${REPORT_FILE:-${ARTIFACT_DIR}/real-app-search-eval.properties}"
 LOGCAT_FILE="${LOGCAT_FILE:-${ARTIFACT_DIR}/logcat.txt}"
 DIAGNOSTICS_DIR="${DIAGNOSTICS_DIR:-${ARTIFACT_DIR}/diagnostics}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_INSTALL="${SKIP_INSTALL:-0}"
+FORCE_STOP_TARGET_APP="${FORCE_STOP_TARGET_APP:-1}"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 PACKAGE_NAME="com.bytedance.zgx.pocketmind"
@@ -29,7 +30,12 @@ POCKETMIND_ACCESSIBILITY_SERVICE="${PACKAGE_NAME}/${PACKAGE_NAME}.device.PocketM
 SELECTED_SERIAL=""
 STATUS="failed"
 FAILURE_REASON=""
-COMMAND_COUNT=0
+RUN_COUNT=0
+PASS_COUNT=0
+SKIP_COUNT=0
+FAIL_COUNT=0
+REQUEST_COUNT=0
+CONTROL_SESSION_ACTIVE=0
 
 mkdir -p "$ARTIFACT_DIR"
 
@@ -75,15 +81,7 @@ capture_failure_diagnostics() {
 
 write_report() {
   local exit_code="$1"
-  local command_count
   [[ "$exit_code" -eq 0 ]] && STATUS="passed"
-  command_count="$COMMAND_COUNT"
-  if [[ -d "$ARTIFACT_DIR" ]]; then
-    command_count="$(
-      find "$ARTIFACT_DIR" -maxdepth 1 -type f -name '*.properties' \
-        ! -name "$(basename "$REPORT_FILE")" | wc -l | tr -d ' '
-    )"
-  fi
   {
     echo "status=$STATUS"
     echo "exit_code=$exit_code"
@@ -93,22 +91,28 @@ write_report() {
     echo "serial=$SELECTED_SERIAL"
     echo "skip_build=$SKIP_BUILD"
     echo "skip_install=$SKIP_INSTALL"
-    echo "command_count=$command_count"
-    echo "runner=debug_broadcast"
+    echo "force_stop_target_app=$FORCE_STOP_TARGET_APP"
+    echo "run_count=$RUN_COUNT"
+    echo "pass_count=$PASS_COUNT"
+    echo "skip_count=$SKIP_COUNT"
+    echo "fail_count=$FAIL_COUNT"
     echo "debug_apk=$DEBUG_APK"
     echo "logcat_file=$LOGCAT_FILE"
     echo "diagnostics_dir=$DIAGNOSTICS_DIR"
     echo "result_file_pattern=${RESULT_FILE_PREFIX}<requestId>${RESULT_FILE_SUFFIX}"
-    echo "device_primitives=observe,tap,type_text,scroll,wait,press_back,node_not_found_recovery"
-    echo "app_search_profiles=taobao,pdd,gaode,browser"
+    echo "cases=taobao,pdd,gaode,chrome"
   } > "$REPORT_FILE"
-  echo "Device control debug eval report: $REPORT_FILE"
+  echo "Real app search eval report: $REPORT_FILE"
 }
 
 on_exit() {
   local status="$?"
   trap - EXIT
   if [[ -n "$SELECTED_SERIAL" && -x "$ADB_BIN" ]]; then
+    if [[ "$CONTROL_SESSION_ACTIVE" == "1" ]]; then
+      "$ADB_BIN" -s "$SELECTED_SERIAL" shell am broadcast -a "$ACTION_NAME" -n "$RECEIVER_NAME" \
+        --es command stop_control_session >/dev/null 2>&1 || true
+    fi
     "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t 500 > "$LOGCAT_FILE" 2>/dev/null || true
   fi
   write_report "$status"
@@ -203,13 +207,13 @@ broadcast_command() {
   local name="$1"
   local request_id output_file
   shift
-  COMMAND_COUNT=$((COMMAND_COUNT + 1))
-  request_id="${name}-${COMMAND_COUNT}-$$-$(date +%s)"
+  REQUEST_COUNT=$((REQUEST_COUNT + 1))
+  request_id="${name}-${REQUEST_COUNT}-$$-$(date +%s)"
   output_file="$(result_file_for "$name")"
   rm -f "$output_file"
   remove_device_result "$request_id"
   "${ADB[@]}" shell am broadcast -a "$ACTION_NAME" -n "$RECEIVER_NAME" --es requestId "$request_id" "$@" >/dev/null
-  for _ in {1..40}; do
+  for _ in {1..60}; do
     if read_result "$request_id" "$output_file"; then
       if grep -Fq "requestId=$request_id" "$output_file"; then
         echo "$output_file"
@@ -220,9 +224,8 @@ broadcast_command() {
   done
   echo "Timed out waiting for debug eval result: $request_id" >&2
   [[ -f "$output_file" ]] && cat "$output_file" >&2 || true
-  FAILURE_REASON="debug-eval-timeout:${request_id}"
   capture_failure_diagnostics "${name}-timeout" "timeout_waiting_for_request:${request_id}" || true
-  exit 1
+  return 1
 }
 
 assert_file_contains() {
@@ -231,139 +234,189 @@ assert_file_contains() {
   if ! grep -Fq "$expected" "$file"; then
     echo "Expected $file to contain: $expected" >&2
     cat "$file" >&2
-    FAILURE_REASON="assertion-failed"
     capture_failure_diagnostics "assert-$(basename "$file" .properties)" "missing_expected:${expected}" || true
-    exit 1
+    return 1
   fi
 }
 
-assert_file_not_contains() {
-  local file="$1"
-  local unexpected="$2"
-  if grep -Fq "$unexpected" "$file"; then
-    echo "Expected $file to not contain: $unexpected" >&2
-    cat "$file" >&2
-    FAILURE_REASON="assertion-failed"
-    capture_failure_diagnostics "assert-$(basename "$file" .properties)" "unexpected_present:${unexpected}" || true
-    exit 1
+case_broadcast_command() {
+  local output_var="$1"
+  local case_name="$2"
+  local failure_reason="$3"
+  local output_file
+  shift 3
+  if ! output_file="$(broadcast_command "$@")"; then
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$case_name" "failed" "$failure_reason"
+    return 1
   fi
+  printf -v "$output_var" '%s' "$output_file"
 }
 
-assert_file_contains_any() {
-  local file="$1"
-  shift
-  local expected
-  for expected in "$@"; do
-    if grep -Fq "$expected" "$file"; then
-      return
-    fi
-  done
-  echo "Expected $file to contain one of: $*" >&2
-  cat "$file" >&2
-  FAILURE_REASON="assertion-failed"
-  capture_failure_diagnostics "assert-$(basename "$file" .properties)" "missing_any_expected:$*" || true
-  exit 1
-}
-
-observe_file="$(broadcast_command observe --es command observe)"
-assert_file_contains "$observe_file" "resultType=available"
-assert_file_contains "$observe_file" "PocketMind Device Control Eval"
-assert_file_contains "$observe_file" "hasBounds=true"
-assert_file_contains "$observe_file" "hasClickable=true"
-assert_file_contains "$observe_file" "hasEditable=true"
-assert_file_contains "$observe_file" "hasScrollable=true"
-
-tap_file="$(broadcast_command tap --es command tap --es target EvalTapTarget --el timeoutMillis 1500)"
-assert_file_contains "$tap_file" "status=Succeeded"
-assert_file_contains "$tap_file" "after.textSummary="
-assert_file_contains "$tap_file" "Tap success"
-
-type_file="$(broadcast_command type --es command type_text --es target EvalInputField --es text typed_via_accessibility --el timeoutMillis 1500)"
-assert_file_contains "$type_file" "status=Succeeded"
-assert_file_contains "$type_file" "typed_via_accessibility"
-
-scroll_file=""
-for index in 1 2 3 4 5 6 7 8 9 10 11 12; do
-  scroll_file="$(broadcast_command "scroll-${index}" --es command scroll --es target EvalScrollContainer --es direction down --el timeoutMillis 1500)"
-  if grep -Fq "Scroll target item 35" "$scroll_file"; then
-    break
-  fi
-done
-assert_file_contains "$scroll_file" "status=Succeeded"
-assert_file_contains "$scroll_file" "Scroll target item 35"
-
-wait_file="$(broadcast_command wait --es command wait --el timeoutMillis 500)"
-assert_file_contains "$wait_file" "status=Succeeded"
-assert_file_contains "$wait_file" "afterObservationId="
-
-open_panel_file="$(broadcast_command open-panel --es command tap --es target OpenEvalPanel --el timeoutMillis 1500)"
-assert_file_contains "$open_panel_file" "status=Succeeded"
-assert_file_contains "$open_panel_file" "Eval panel open"
-
-back_file="$(broadcast_command back --es command back --el timeoutMillis 1500)"
-assert_file_contains "$back_file" "status=Succeeded"
-assert_file_not_contains "$back_file" "Eval panel open"
-
-missing_file="$(broadcast_command missing --es command tap --es target DefinitelyMissingEvalTarget --el timeoutMillis 500)"
-assert_file_contains "$missing_file" "status=Failed"
-assert_file_contains "$missing_file" "failureKind=NodeNotFound"
-assert_file_contains "$missing_file" "retryable=true"
-
-launch_eval_profile() {
-  local profile="$1"
-  "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" --es profile "$profile" >/dev/null
-  sleep 1
-}
-
-run_app_search_case() {
-  local profile="$1"
+start_control_session_for_case() {
+  local case_name="$1"
   local app_name="$2"
-  local query="$3"
-  local tap_target="$4"
-  local type_target="$5"
-  local title_text="$6"
-  local result_hint="$7"
-  local supports_filter="${8:-0}"
-  local observe_file tap_file type_file submit_file verify_file filter_file
+  local session_file
 
-  launch_eval_profile "$profile"
-
-  observe_file="$(broadcast_command "search-${profile}-observe" --es command observe)"
-  assert_file_contains "$observe_file" "resultType=available"
-  assert_file_contains "$observe_file" "$title_text"
-  assert_file_contains "$observe_file" "EvalSearchInput"
-
-  tap_file="$(broadcast_command "search-${profile}-tap" --es command tap --es target "$tap_target" --el timeoutMillis 1500)"
-  assert_file_contains "$tap_file" "status=Succeeded"
-  assert_file_contains "$tap_file" "EvalSearchInput"
-
-  type_file="$(broadcast_command "search-${profile}-type" --es command type_text --es target "$type_target" --es text "$query" --el timeoutMillis 1500)"
-  assert_file_contains "$type_file" "status=Succeeded"
-  assert_file_contains "$type_file" "$query"
-
-  submit_file="$(broadcast_command "search-${profile}-submit" --es command submit_search --el timeoutMillis 1500)"
-  assert_file_contains "$submit_file" "status=Succeeded"
-  assert_file_contains_any "$submit_file" "已提交当前搜索输入" "已点击搜索提交入口"
-  assert_file_contains "$submit_file" "$query"
-  assert_file_contains "$submit_file" "$result_hint"
-
-  verify_file="$(broadcast_command "search-${profile}-verify" --es command wait --es verifySearchQuery "$query" --es expectedAppName "$app_name" --el timeoutMillis 500)"
-  assert_file_contains "$verify_file" "status=Succeeded"
-  assert_file_contains "$verify_file" "searchVerificationStatus=verified"
-  assert_file_contains_any "$verify_file" \
-    "searchVerificationEvidence=query_visible_with_result_hint" \
-    "searchVerificationEvidence=result_hints_visible"
-
-  if [[ "$supports_filter" == "1" ]]; then
-    filter_file="$(broadcast_command "search-${profile}-filter" --es command tap --es target "筛选" --el timeoutMillis 1500)"
-    assert_file_contains "$filter_file" "status=Succeeded"
-    assert_file_contains "$filter_file" "Filter applied"
-  fi
+  "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null
+  sleep 0.5
+  case_broadcast_command session_file "$case_name" "control_session_timeout" \
+    "${case_name}-session" --es command start_control_session --es text "正在准备在${app_name}中搜索" || return 1
+  assert_file_contains "$session_file" "status=Succeeded" || return 1
+  CONTROL_SESSION_ACTIVE=1
 }
 
-run_app_search_case taobao "淘宝" "海河牛奶" "搜索入口" "搜索输入框" "PocketMind Device Control Eval - 淘宝" "综合" 1
-run_app_search_case pdd "拼多多" "纸巾" "搜索入口" "搜索输入框" "PocketMind Device Control Eval - 拼多多" "百亿补贴" 1
-run_app_search_case gaode "高德" "机场" "搜索入口" "搜索输入框" "PocketMind Device Control Eval - 高德地图" "路线" 0
-run_app_search_case browser "浏览器" "Kotlin协程" "地址栏" "地址栏" "PocketMind Device Control Eval - 浏览器" "搜索结果" 0
+stop_control_session() {
+  if [[ "$CONTROL_SESSION_ACTIVE" != "1" ]]; then
+    return 0
+  fi
+  "${ADB[@]}" shell am broadcast -a "$ACTION_NAME" -n "$RECEIVER_NAME" \
+    --es command stop_control_session >/dev/null 2>&1 || true
+  CONTROL_SESSION_ACTIVE=0
+}
 
-echo "Device control debug eval passed."
+write_case_result() {
+  local case_name="$1"
+  local status="$2"
+  local reason="$3"
+  local file="${ARTIFACT_DIR}/${case_name}.case.properties"
+  {
+    echo "case=$case_name"
+    echo "status=$status"
+    echo "reason=$reason"
+  } > "$file"
+}
+
+package_installed() {
+  local package_name="$1"
+  "${ADB[@]}" shell cmd package path "$package_name" >/dev/null 2>&1
+}
+
+launch_package() {
+  local package_name="$1"
+  local component
+  component="$("${ADB[@]}" shell cmd package resolve-activity --brief "$package_name" 2>/dev/null |
+    tr -d '\r' |
+    awk '/\// {line = $0} END {print line}')"
+  if [[ -n "$component" ]]; then
+    "${ADB[@]}" shell am start -W -n "$component" >/dev/null
+  else
+    "${ADB[@]}" shell monkey -p "$package_name" -c android.intent.category.LAUNCHER 1 >/dev/null
+  fi
+  sleep 2
+}
+
+force_stop_target_app() {
+  local package_name="$1"
+  if [[ "$FORCE_STOP_TARGET_APP" != "1" ]]; then
+    return 0
+  fi
+  echo "Force-stopping target app before case: $package_name"
+  "${ADB[@]}" shell am force-stop "$package_name" >/dev/null 2>&1 || true
+  sleep 0.5
+}
+
+run_case() {
+  local case_name="$1"
+  local package_name="$2"
+  local app_name="$3"
+  local query="$4"
+  local tap_target="$5"
+  local type_target="$6"
+  local required_hint="$7"
+  local observe_file tap_file type_file submit_file verify_file
+
+  if ! package_installed "$package_name"; then
+    echo "Skipping $case_name: package not installed ($package_name)"
+    SKIP_COUNT=$((SKIP_COUNT + 1))
+    write_case_result "$case_name" "skipped" "package_not_installed:$package_name"
+    return 0
+  fi
+
+  RUN_COUNT=$((RUN_COUNT + 1))
+  echo "Running $case_name on $package_name"
+  force_stop_target_app "$package_name"
+  if ! start_control_session_for_case "$case_name" "$app_name"; then
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$case_name" "failed" "control_session_failed"
+    return 1
+  fi
+  launch_package "$package_name"
+
+  case_broadcast_command observe_file "$case_name" "observe_timeout" \
+    "${case_name}-observe" --es command observe || return 1
+  assert_file_contains "$observe_file" "resultType=available" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$case_name" "failed" "observe_failed"
+    return 1
+  }
+  assert_file_contains "$observe_file" "packageName=$package_name" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$case_name" "failed" "app_not_foreground"
+    return 1
+  }
+
+  case_broadcast_command tap_file "$case_name" "tap_timeout" \
+    "${case_name}-tap" --es command tap --es target "$tap_target" --el timeoutMillis 2000 || return 1
+  assert_file_contains "$tap_file" "status=Succeeded" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$case_name" "failed" "search_entry_not_found"
+    return 1
+  }
+
+  case_broadcast_command type_file "$case_name" "type_timeout" \
+    "${case_name}-type" --es command type_text --es target "$type_target" --es text "$query" --el timeoutMillis 2000 || return 1
+  assert_file_contains "$type_file" "status=Succeeded" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$case_name" "failed" "editable_not_found"
+    return 1
+  }
+
+  case_broadcast_command submit_file "$case_name" "submit_timeout" \
+    "${case_name}-submit" --es command submit_search --el timeoutMillis 2000 || return 1
+  assert_file_contains "$submit_file" "status=Succeeded" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$case_name" "failed" "submit_not_found"
+    return 1
+  }
+
+  case_broadcast_command verify_file "$case_name" "verify_timeout" \
+    "${case_name}-verify" --es command wait --es verifySearchQuery "$query" --es expectedPackageName "$package_name" --es expectedAppName "$app_name" --el timeoutMillis 1000 || return 1
+  assert_file_contains "$verify_file" "status=Succeeded" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$case_name" "failed" "result_not_verified"
+    return 1
+  }
+  assert_file_contains "$verify_file" "searchVerificationStatus=verified" || {
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$case_name" "failed" "result_not_verified"
+    return 1
+  }
+  if [[ -n "$required_hint" ]]; then
+    assert_file_contains "$verify_file" "$required_hint" || {
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+      write_case_result "$case_name" "failed" "required_hint_missing"
+      return 1
+    }
+  fi
+
+  PASS_COUNT=$((PASS_COUNT + 1))
+  write_case_result "$case_name" "passed" ""
+  stop_control_session
+}
+
+overall_status=0
+run_case taobao com.taobao.taobao "淘宝" "海河牛奶" "搜索入口" "搜索输入框" "筛选" || overall_status=1
+run_case pdd com.xunmeng.pinduoduo "拼多多" "纸巾" "搜索入口" "搜索输入框" "筛选" || overall_status=1
+run_case gaode com.autonavi.minimap "高德" "机场" "搜索入口" "搜索输入框" "查看地图" || overall_status=1
+run_case chrome com.android.chrome "浏览器" "PocketMindAgentChrome" "地址栏" "地址栏" "PocketMindAgentChrome" || overall_status=1
+
+if [[ "$RUN_COUNT" -eq 0 ]]; then
+  fail_with_reason no-target-apps-installed "No target app packages were installed; all cases skipped."
+fi
+
+if [[ "$overall_status" -ne 0 ]]; then
+  fail_with_reason real-app-search-case-failed "At least one installed app search case failed."
+fi
+
+echo "Real app search eval passed for $PASS_COUNT installed app(s), skipped $SKIP_COUNT."

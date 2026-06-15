@@ -186,6 +186,7 @@ class MainActivity : ComponentActivity() {
                     onDownloadSetupModels = viewModel::startSetupModelDownload,
                     onSkipFirstRunSetup = viewModel::skipFirstRunSetup,
                     onMemoryEnabledChanged = viewModel::updateMemoryEnabled,
+                    onReduceDeviceActionConfirmationsChanged = viewModel::updateReduceDeviceActionConfirmations,
                     onForgetLongTermMemory = viewModel::forgetLongTermMemory,
                     onClearLongTermMemory = viewModel::clearLongTermMemory,
                     onRefreshBackgroundTasks = viewModel::refreshBackgroundTasks,

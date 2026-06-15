@@ -204,6 +204,7 @@ fun PocketMindScreen(
     onMemoryEnabledChanged: (Boolean) -> Unit,
     onForgetLongTermMemory: (String) -> Unit,
     onClearLongTermMemory: () -> Unit,
+    onReduceDeviceActionConfirmationsChanged: (Boolean) -> Unit,
     onRefreshBackgroundTasks: () -> Unit,
     onRefreshAuditEvents: () -> Unit,
     onCancelBackgroundTask: (String) -> Unit,
@@ -421,6 +422,7 @@ fun PocketMindScreen(
                         onMemoryEnabledChanged = onMemoryEnabledChanged,
                         onForgetLongTermMemory = onForgetLongTermMemory,
                         onClearLongTermMemory = onClearLongTermMemory,
+                        onReduceDeviceActionConfirmationsChanged = onReduceDeviceActionConfirmationsChanged,
                         onRemoteSendDisclosurePolicySelected = onRemoteSendDisclosurePolicySelected,
                         onOpenModelPage = onOpenModelPage,
                         onDismiss = { showModelManager = false },
@@ -1945,6 +1947,7 @@ private fun ModelManagerSheet(
     onMemoryEnabledChanged: (Boolean) -> Unit,
     onForgetLongTermMemory: (String) -> Unit,
     onClearLongTermMemory: () -> Unit,
+    onReduceDeviceActionConfirmationsChanged: (Boolean) -> Unit,
     onRemoteSendDisclosurePolicySelected: (RemoteSendDisclosurePolicy) -> Unit,
     onOpenModelPage: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -2053,6 +2056,7 @@ private fun ModelManagerSheet(
             else -> TrustBoundaryPanel(
                 state = state,
                 onRemoteSendDisclosurePolicySelected = onRemoteSendDisclosurePolicySelected,
+                onReduceDeviceActionConfirmationsChanged = onReduceDeviceActionConfirmationsChanged,
             )
         }
 
@@ -2792,6 +2796,7 @@ private fun remoteConfigStatusText(config: RemoteModelConfig): String =
 private fun TrustBoundaryPanel(
     state: ChatUiState,
     onRemoteSendDisclosurePolicySelected: (RemoteSendDisclosurePolicy) -> Unit,
+    onReduceDeviceActionConfirmationsChanged: (Boolean) -> Unit,
 ) {
     val sensitiveDisclosureRows = sensitiveCapabilityDisclosureDisplayRows()
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -2856,6 +2861,25 @@ private fun TrustBoundaryPanel(
                     selectedPolicy = state.remoteSendDisclosurePolicy,
                     enabled = !state.isBusy,
                     onSelected = onRemoteSendDisclosurePolicySelected,
+                )
+            }
+        }
+        PanelSurface {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SectionTitle(
+                    modifier = Modifier.weight(1f),
+                    text = "手机操作确认",
+                    subtitle = "开启后，低风险系统页、应用导航和屏幕点击滚动会减少弹窗；发送、删除、支付、发布、敏感输入和权限授权仍会确认。",
+                )
+                Switch(
+                    modifier = Modifier.testTag("reduce_device_action_confirmations_switch"),
+                    checked = state.reduceDeviceActionConfirmations,
+                    enabled = !state.isBusy,
+                    onCheckedChange = onReduceDeviceActionConfirmationsChanged,
                 )
             }
         }
@@ -4030,6 +4054,7 @@ internal fun actionDataBoundaryDisplayRows(functionName: String): List<String> =
         MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
         MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
         MobileActionFunctions.OPEN_DEEP_LINK,
+        MobileActionFunctions.OPEN_APP_BY_NAME,
         MobileActionFunctions.OPEN_APP_INTENT,
         MobileActionFunctions.OPEN_APP_DEEP_TARGET,
         MobileActionFunctions.SEARCH_MAPS,

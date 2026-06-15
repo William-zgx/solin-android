@@ -20,4 +20,11 @@ class FirstRunSetupRepository(
     override fun setMemoryEnabled(enabled: Boolean) {
         settingsStore.setMemoryEnabled(enabled)
     }
+
+    override fun reduceDeviceActionConfirmations(): Boolean =
+        settingsStore.reduceDeviceActionConfirmations()
+
+    override fun setReduceDeviceActionConfirmations(enabled: Boolean) {
+        settingsStore.setReduceDeviceActionConfirmations(enabled)
+    }
 }

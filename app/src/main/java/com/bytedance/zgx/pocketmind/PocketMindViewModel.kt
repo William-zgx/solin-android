@@ -439,6 +439,20 @@ class PocketMindViewModel(
         rebuildMemoryIndex()
     }
 
+    fun updateReduceDeviceActionConfirmations(enabled: Boolean) {
+        firstRunSetupRepository.setReduceDeviceActionConfirmations(enabled)
+        _uiState.update {
+            it.copy(
+                reduceDeviceActionConfirmations = enabled,
+                statusText = if (enabled) {
+                    "低风险手机操作将减少确认"
+                } else {
+                    "手机操作确认已恢复为保守模式"
+                },
+            )
+        }
+    }
+
     fun forgetLongTermMemory(memoryId: String) {
         if (_uiState.value.isBusy) return
         val removed = longTermMemoryControls.forget(memoryId)
@@ -1397,9 +1411,12 @@ class PocketMindViewModel(
             AgentRunOptions(
                 initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
                 remoteToolScope = RemoteToolScope.ModelPlanning,
+                reduceDeviceActionConfirmations = stateBeforeSend.reduceDeviceActionConfirmations,
             )
         } else {
-            AgentRunOptions()
+            AgentRunOptions(
+                reduceDeviceActionConfirmations = stateBeforeSend.reduceDeviceActionConfirmations,
+            )
         }
         if (useRemoteModel && effectiveMessagePrivacy == MessagePrivacy.LocalOnly) {
             val userMessage = ChatMessage(
@@ -3143,6 +3160,7 @@ class PocketMindViewModel(
         request: ToolRequest,
     ): PendingExternalOutcomeConfirmation? {
         if (!result.isUnverifiedExternalLaunch()) return null
+        if (run.state != AgentRunState.AwaitingExternalOutcome) return null
         val runId = confirmation.runId ?: return null
         return PendingExternalOutcomeConfirmation(
             runId = runId,
@@ -4620,6 +4638,7 @@ class PocketMindViewModel(
         val modelState = modelRepository.currentState()
         val backend = generationParametersRepository.loadBackend()
         val memoryEnabled = firstRunSetupRepository.isMemoryEnabled()
+        val reduceDeviceActionConfirmations = firstRunSetupRepository.reduceDeviceActionConfirmations()
         val inferenceMode = remoteModelRepository.loadMode()
         val remoteConfig = remoteModelRepository.loadConfig()
         val hasUsableEndpoint = hasStartupModelEndpoint(modelState, remoteConfig)
@@ -4638,6 +4657,7 @@ class PocketMindViewModel(
             modelHealth = modelState.modelHealthForCurrentSelection(backend),
             showFirstRunSetup = showFirstRunSetup,
             memoryEnabled = memoryEnabled,
+            reduceDeviceActionConfirmations = reduceDeviceActionConfirmations,
             semanticMemoryEnabled = currentSemanticMemoryEnabled(),
             semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
             semanticMemoryIndexedRecordCount = currentSemanticMemoryIndexedRecordCount(),

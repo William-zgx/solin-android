@@ -26,6 +26,7 @@ import com.bytedance.zgx.pocketmind.device.AndroidCalendarAvailabilityProvider
 import com.bytedance.zgx.pocketmind.device.AndroidContactSummaryProvider
 import com.bytedance.zgx.pocketmind.device.AndroidCurrentScreenControlProvider
 import com.bytedance.zgx.pocketmind.device.AndroidCurrentScreenTextProvider
+import com.bytedance.zgx.pocketmind.device.DeviceControlSessionService
 import com.bytedance.zgx.pocketmind.device.AndroidForegroundAppProvider
 import com.bytedance.zgx.pocketmind.device.AndroidNotificationSummaryProvider
 import com.bytedance.zgx.pocketmind.device.AndroidRecentImageTextProvider
@@ -148,6 +149,9 @@ class PocketMindAppContainer(context: Context) {
                 ),
                 SequentialActionObservationReplanner(actionPlanningRuntime),
             ),
+            deviceControlSessionFinisher = {
+                DeviceControlSessionService.stop(appContext)
+            },
         )
     }
 

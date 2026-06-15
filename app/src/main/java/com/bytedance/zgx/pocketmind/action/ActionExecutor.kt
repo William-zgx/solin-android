@@ -4,9 +4,12 @@ import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.provider.CalendarContract
 import android.provider.ContactsContract
+import android.provider.MediaStore
 import android.provider.Settings
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
@@ -14,6 +17,7 @@ import com.bytedance.zgx.pocketmind.background.PeriodicCheckConstraints
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
+import com.bytedance.zgx.pocketmind.device.DeviceControlSessionService
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
 import com.bytedance.zgx.pocketmind.tool.MAX_SHARE_TEXT_CHARS
@@ -32,6 +36,8 @@ class ActionExecutor(
     private val clipboardTextProvider: (() -> String?)? = null,
     private val activityStarter: ((Intent) -> Boolean)? = null,
     private val externalActivityStarter: ((ExternalActivityLaunch) -> Boolean)? = null,
+    private val appLauncherResolver: ((String) -> AppLaunchResolution)? = null,
+    private val deviceControlSessionStarter: ((String) -> Unit)? = null,
 ) : ToolExecutor {
     fun executeConfirmed(draft: ActionDraft): Boolean {
         val request = ToolRequest(
@@ -309,6 +315,9 @@ class ActionExecutor(
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS ->
                 listOf(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
 
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+                listOf(Intent(systemSettingsActionFor(request.arguments.getValue("target"))))
+
             MobileActionFunctions.SEARCH_MAPS ->
                 listOf(
                     Intent(
@@ -363,6 +372,12 @@ class ActionExecutor(
                         .withCategoryIfAvailable(Intent.CATEGORY_BROWSABLE),
                 )
 
+            MobileActionFunctions.OPEN_CAMERA ->
+                listOf(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
+
+            MobileActionFunctions.OPEN_APP_BY_NAME ->
+                appNameIntentCandidates(request)
+
             MobileActionFunctions.OPEN_APP_INTENT ->
                 appIntentCandidates(request)
 
@@ -372,10 +387,12 @@ class ActionExecutor(
             else -> null
         }
 
-    private fun successSummaryFor(toolName: String): String =
-        when (toolName) {
+    private fun successSummaryFor(request: ToolRequest): String =
+        when (val toolName = request.toolName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "已打开 Wi-Fi 设置页"
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "已打开使用情况访问权限设置页"
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+                "已打开${SystemSettingsTargets.pageLabel(request.arguments["target"].orEmpty())}"
             MobileActionFunctions.SEARCH_MAPS -> "已打开地图搜索"
             MobileActionFunctions.COMPOSE_EMAIL -> "已打开邮件草稿页"
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> "已打开日历新建事件页"
@@ -385,6 +402,8 @@ class ActionExecutor(
             MobileActionFunctions.READ_CLIPBOARD -> "已读取剪贴板"
             MobileActionFunctions.SHARE_TEXT -> "已打开系统分享面板"
             MobileActionFunctions.OPEN_DEEP_LINK -> "已打开深链"
+            MobileActionFunctions.OPEN_CAMERA -> "已打开相机"
+            MobileActionFunctions.OPEN_APP_BY_NAME -> "已打开应用"
             MobileActionFunctions.OPEN_APP_INTENT -> "已打开应用"
             MobileActionFunctions.OPEN_APP_DEEP_TARGET -> "已打开应用深层目标"
             else -> "工具已执行"
@@ -414,10 +433,43 @@ class ActionExecutor(
                 }
             }
 
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> validateSystemSettingsRequest(request)
+            MobileActionFunctions.OPEN_APP_BY_NAME -> validateOpenAppByNameRequest(request)
             MobileActionFunctions.OPEN_APP_INTENT -> validateOpenAppIntentRequest(request)
             MobileActionFunctions.OPEN_APP_DEEP_TARGET -> validateOpenAppDeepTargetRequest(request)
             MobileActionFunctions.SHARE_TEXT -> validateShareTextRequest(request)
+            MobileActionFunctions.OPEN_CAMERA -> validateEmptyArguments(request, "打开相机不接受参数")
             else -> null
+        }
+
+    private fun validateSystemSettingsRequest(request: ToolRequest): ToolResult? {
+        val target = request.arguments["target"].orEmpty()
+        val unknownArguments = request.arguments.keys - setOf("target")
+        val invalidReason = when {
+            unknownArguments.isNotEmpty() -> "打开系统设置仅支持 target 参数"
+            target !in SystemSettingsTargets.supported -> "系统设置 target 不在允许列表中"
+            else -> null
+        }
+        return invalidReason?.let { reason ->
+            request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = reason,
+                retryable = false,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+    }
+
+    private fun validateEmptyArguments(request: ToolRequest, summary: String): ToolResult? =
+        if (request.arguments.isEmpty()) {
+            null
+        } else {
+            request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = summary,
+                retryable = false,
+                data = mapOf("toolName" to request.toolName),
+            )
         }
 
     private fun validateShareTextRequest(request: ToolRequest): ToolResult? {
@@ -447,6 +499,26 @@ class ActionExecutor(
         val invalidReason = when {
             unknownArguments.isNotEmpty() -> "打开应用 Intent 仅支持 packageName 参数"
             !PACKAGE_NAME_PATTERN.matches(packageName) -> "应用包名无效"
+            else -> null
+        }
+        return invalidReason?.let { reason ->
+            request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = reason,
+                retryable = false,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+    }
+
+    private fun validateOpenAppByNameRequest(request: ToolRequest): ToolResult? {
+        val appName = request.arguments["appName"].orEmpty()
+        val unknownArguments = request.arguments.keys - setOf("appName")
+        val invalidReason = when {
+            unknownArguments.isNotEmpty() -> "按名称打开应用仅支持 appName 参数"
+            appName.isBlank() -> "应用名称不能为空"
+            appName.length > MAX_APP_NAME_CHARS -> "应用名称过长"
+            appName.any { it.code < 0x20 } -> "应用名称包含无效字符"
             else -> null
         }
         return invalidReason?.let { reason ->
@@ -498,16 +570,31 @@ class ActionExecutor(
         val launchIntent = context
             ?.packageManager
             ?.getLaunchIntentForPackage(packageName)
+            ?.withPackageIfAvailable(packageName)
         return listOfNotNull(launchIntent, packageLaunchIntent)
+    }
+
+    private fun appNameIntentCandidates(request: ToolRequest): List<Intent> {
+        val resolution = resolveLaunchableApp(request.arguments.getValue("appName"))
+        val packageName = when (resolution) {
+            is AppLaunchResolution.Resolved -> resolution.packageName
+            else -> return emptyList()
+        }
+        return appIntentCandidates(
+            request.copy(
+                arguments = mapOf("packageName" to packageName),
+            ),
+        )
     }
 
     private fun executeExternalActivityWithInjectedStarter(request: ToolRequest): ToolResult? {
         val starter = externalActivityStarter ?: return null
         val launch = externalActivityLaunchFor(request) ?: return null
         val metadata = launch.externalActivityMetadata()
+        request.startDeviceControlSessionIfNeeded()
         return when (val result = startInjectedExternalActivity(starter, launch)) {
             ExternalActivityStartResult.Started -> request.succeeded(
-                summary = successSummaryFor(request.toolName),
+                summary = successSummaryFor(request),
                 data = externalActivityData(request, metadata, COMPLETION_STATE_EXTERNAL_ACTIVITY_OPENED),
             )
 
@@ -528,6 +615,30 @@ class ActionExecutor(
                 toolName = request.toolName,
                 action = Settings.ACTION_USAGE_ACCESS_SETTINGS,
             )
+
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> {
+                val target = request.arguments.getValue("target")
+                ExternalActivityLaunch(
+                    toolName = request.toolName,
+                    action = systemSettingsActionFor(target),
+                    targetId = target,
+                )
+            }
+
+            MobileActionFunctions.OPEN_CAMERA -> ExternalActivityLaunch(
+                toolName = request.toolName,
+                action = MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA,
+            )
+
+            MobileActionFunctions.OPEN_APP_BY_NAME -> {
+                val resolution = resolveLaunchableApp(request.arguments.getValue("appName"))
+                val packageName = (resolution as? AppLaunchResolution.Resolved)?.packageName
+                ExternalActivityLaunch(
+                    toolName = request.toolName,
+                    action = Intent.ACTION_MAIN,
+                    packageName = packageName,
+                )
+            }
 
             MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityLaunch(
                 toolName = request.toolName,
@@ -595,9 +706,10 @@ class ActionExecutor(
         intents.forEach { intent ->
             val metadata = request.externalActivityMetadata(intent)
             lastMetadata = metadata
+            request.startDeviceControlSessionIfNeeded()
             when (val result = startActivity(intent)) {
                 ExternalActivityStartResult.Started -> return request.succeeded(
-                    summary = successSummaryFor(request.toolName),
+                    summary = successSummaryFor(request),
                     data = externalActivityData(request, metadata, COMPLETION_STATE_EXTERNAL_ACTIVITY_OPENED),
                 )
 
@@ -616,16 +728,47 @@ class ActionExecutor(
         )
     }
 
+    private fun ToolRequest.startDeviceControlSessionIfNeeded() {
+        if (toolName !in DEVICE_CONTROL_SESSION_TOOLS) return
+        val reason = deviceControlSessionReason()
+        runCatching {
+            deviceControlSessionStarter?.invoke(reason)
+                ?: context?.let { appContext -> DeviceControlSessionService.start(appContext, reason) }
+        }
+    }
+
+    private fun ToolRequest.deviceControlSessionReason(): String =
+        when (toolName) {
+            MobileActionFunctions.OPEN_APP_BY_NAME ->
+                "正在打开应用：${arguments["appName"].orEmpty().ifBlank { "目标应用" }}"
+            MobileActionFunctions.OPEN_APP_INTENT ->
+                "正在打开应用：${arguments["packageName"].orEmpty().ifBlank { "目标应用" }}"
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> "正在打开应用功能"
+            MobileActionFunctions.OPEN_CAMERA -> "正在打开相机"
+            MobileActionFunctions.OPEN_WIFI_SETTINGS -> "正在打开 Wi-Fi 设置"
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "正在打开使用情况访问权限设置"
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+                "正在打开${SystemSettingsTargets.pageLabel(arguments["target"].orEmpty())}"
+            MobileActionFunctions.SEARCH_MAPS -> "正在打开地图搜索"
+            else -> DeviceControlSessionService.DEFAULT_REASON
+        }
+
     private fun noActivityFoundResult(
         request: ToolRequest,
         metadata: ExternalActivityMetadata,
-    ): ToolResult =
-        request.failed(
+    ): ToolResult {
+        val appNameFailureSummary = if (request.toolName == MobileActionFunctions.OPEN_APP_BY_NAME) {
+            appNameResolutionFailureSummary(request)
+        } else {
+            null
+        }
+        return request.failed(
             code = ToolErrorCode.NoActivityFound,
-            summary = "没有找到可以执行 ${request.toolName} 的应用或系统页面",
+            summary = appNameFailureSummary ?: "没有找到可以执行 ${request.toolName} 的应用或系统页面",
             retryable = true,
             data = externalActivityData(request, metadata, COMPLETION_STATE_NOT_STARTED),
         )
+    }
 
     private fun activityExecutionFailedResult(
         request: ToolRequest,
@@ -686,6 +829,18 @@ class ActionExecutor(
                 ),
             )
 
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> {
+                val target = arguments["target"].orEmpty()
+                ExternalActivityMetadata(
+                    targetKind = "SystemSettings",
+                    intentAction = action,
+                    safeData = mapOf(
+                        "settingsAction" to action,
+                        "targetId" to target,
+                    ),
+                )
+            }
+
             MobileActionFunctions.SEARCH_MAPS -> ExternalActivityMetadata(
                 targetKind = "MapSearch",
                 intentAction = action,
@@ -726,6 +881,17 @@ class ActionExecutor(
                 targetKind = "HttpsUri",
                 intentAction = action,
                 safeData = intent.safeUriMetadata(),
+            )
+
+            MobileActionFunctions.OPEN_CAMERA -> ExternalActivityMetadata(
+                targetKind = "Camera",
+                intentAction = action,
+            )
+
+            MobileActionFunctions.OPEN_APP_BY_NAME -> ExternalActivityMetadata(
+                targetKind = "AndroidPackage",
+                intentAction = action,
+                safeData = mapOf("targetPackage" to intent?.`package`.orEmpty()),
             )
 
             MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityMetadata(
@@ -769,6 +935,26 @@ class ActionExecutor(
                     "settingsAction" to action,
                     "specialAccess" to "usage_stats",
                 ),
+            )
+
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> ExternalActivityMetadata(
+                targetKind = "SystemSettings",
+                intentAction = action,
+                safeData = mapOf(
+                    "settingsAction" to action,
+                    "targetId" to targetId.orEmpty(),
+                ),
+            )
+
+            MobileActionFunctions.OPEN_CAMERA -> ExternalActivityMetadata(
+                targetKind = "Camera",
+                intentAction = action,
+            )
+
+            MobileActionFunctions.OPEN_APP_BY_NAME -> ExternalActivityMetadata(
+                targetKind = "AndroidPackage",
+                intentAction = action,
+                safeData = mapOf("targetPackage" to packageName.orEmpty()),
             )
 
             MobileActionFunctions.OPEN_APP_INTENT -> ExternalActivityMetadata(
@@ -825,6 +1011,7 @@ class ActionExecutor(
         when (toolName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> Settings.ACTION_WIFI_SETTINGS
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> Settings.ACTION_USAGE_ACCESS_SETTINGS
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> Settings.ACTION_SETTINGS
             MobileActionFunctions.SEARCH_MAPS -> Intent.ACTION_VIEW
             MobileActionFunctions.COMPOSE_EMAIL -> Intent.ACTION_SENDTO
             MobileActionFunctions.CREATE_CALENDAR_EVENT -> Intent.ACTION_INSERT
@@ -832,10 +1019,27 @@ class ActionExecutor(
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> Settings.ACTION_SETTINGS
             MobileActionFunctions.SHARE_TEXT -> Intent.ACTION_CHOOSER
             MobileActionFunctions.OPEN_DEEP_LINK -> Intent.ACTION_VIEW
+            MobileActionFunctions.OPEN_CAMERA -> MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA
+            MobileActionFunctions.OPEN_APP_BY_NAME -> Intent.ACTION_MAIN
             MobileActionFunctions.OPEN_APP_INTENT -> Intent.ACTION_MAIN
             MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
                 AppDeepTargets.requireTarget(AppDeepTargets.APP_DETAILS_SETTINGS_ID).intentAction
             else -> ""
+        }
+
+    private fun systemSettingsActionFor(target: String): String =
+        when (target) {
+            SystemSettingsTargets.BLUETOOTH -> Settings.ACTION_BLUETOOTH_SETTINGS
+            SystemSettingsTargets.LOCATION -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
+            SystemSettingsTargets.NOTIFICATION -> "android.settings.NOTIFICATION_SETTINGS"
+            SystemSettingsTargets.DISPLAY -> Settings.ACTION_DISPLAY_SETTINGS
+            SystemSettingsTargets.SOUND -> Settings.ACTION_SOUND_SETTINGS
+            SystemSettingsTargets.BATTERY_SAVER -> Settings.ACTION_BATTERY_SAVER_SETTINGS
+            SystemSettingsTargets.NETWORK -> Settings.ACTION_WIRELESS_SETTINGS
+            SystemSettingsTargets.AIRPLANE_MODE -> Settings.ACTION_AIRPLANE_MODE_SETTINGS
+            SystemSettingsTargets.INPUT_METHOD -> Settings.ACTION_INPUT_METHOD_SETTINGS
+            SystemSettingsTargets.ACCESSIBILITY -> Settings.ACTION_ACCESSIBILITY_SETTINGS
+            else -> Settings.ACTION_SETTINGS
         }
 
     private fun appDeepTargetFor(request: ToolRequest): AppDeepTarget =
@@ -891,13 +1095,54 @@ class ActionExecutor(
         return clip.getItemAt(0).coerceToText(appContext)?.toString()
     }
 
+    private fun resolveLaunchableApp(rawAppName: String): AppLaunchResolution {
+        appLauncherResolver?.let { resolver -> return resolver(rawAppName) }
+        val packageManager = context?.packageManager ?: return AppLaunchResolution.NotFound
+        val query = rawAppName.trim()
+        if (query.isBlank()) return AppLaunchResolution.NotFound
+        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val entries = packageManager
+            .queryIntentActivities(launcherIntent, 0)
+            .mapNotNull { resolveInfo -> resolveInfo.toLaunchableAppEntry(packageManager) }
+            .distinctBy { it.packageName }
+        return matchLaunchableApp(query, entries)
+    }
+
+    private fun ResolveInfo.toLaunchableAppEntry(packageManager: PackageManager): LaunchableAppEntry? {
+        val activityInfo = activityInfo ?: return null
+        val packageName = activityInfo.packageName?.takeIf { it.isNotBlank() } ?: return null
+        val label = runCatching { loadLabel(packageManager).toString() }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: packageName
+        return LaunchableAppEntry(label = label, packageName = packageName)
+    }
+
+    private fun appNameResolutionFailureSummary(request: ToolRequest): String =
+        when (val resolution = resolveLaunchableApp(request.arguments["appName"].orEmpty())) {
+            AppLaunchResolution.Ambiguous -> "找到多个同名或相近应用，请换成更完整的应用名后重试。"
+            AppLaunchResolution.NotFound -> "没有找到匹配的可启动应用，请确认应用已安装或换成系统桌面显示的应用名。"
+            is AppLaunchResolution.Resolved -> "已找到应用 ${resolution.label}，但系统没有可打开的启动页。"
+        }
+
     private companion object {
         const val MAX_CLIPBOARD_RESULT_CHARS = 4_000
         const val MAX_DEEP_LINK_URI_CHARS = 2_048
+        const val MAX_APP_NAME_CHARS = 80
         const val COMPLETION_STATE_EXTERNAL_ACTIVITY_OPENED = "ExternalActivityOpened"
         const val COMPLETION_STATE_NOT_STARTED = "NotStarted"
         const val EXTERNAL_ACTIVITY_START_FAILED_SUMMARY = "外部应用或系统页面启动失败"
         val PACKAGE_NAME_PATTERN = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+$""")
+        val DEVICE_CONTROL_SESSION_TOOLS = setOf(
+            MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+            MobileActionFunctions.SEARCH_MAPS,
+            MobileActionFunctions.OPEN_CAMERA,
+            MobileActionFunctions.OPEN_APP_BY_NAME,
+            MobileActionFunctions.OPEN_APP_INTENT,
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+        )
     }
 }
 
@@ -927,3 +1172,110 @@ data class ExternalActivityLaunch(
     val packageName: String? = null,
     val targetId: String? = null,
 )
+
+sealed class AppLaunchResolution {
+    data class Resolved(
+        val label: String,
+        val packageName: String,
+    ) : AppLaunchResolution()
+
+    data object NotFound : AppLaunchResolution()
+    data object Ambiguous : AppLaunchResolution()
+}
+
+data class LaunchableAppEntry(
+    val label: String,
+    val packageName: String,
+)
+
+fun matchLaunchableApp(
+    appName: String,
+    entries: List<LaunchableAppEntry>,
+): AppLaunchResolution {
+    val normalizedQuery = appName.normalizedAppLookupKey()
+    if (normalizedQuery.isBlank()) return AppLaunchResolution.NotFound
+    val aliasedQuery = appLookupAliases[normalizedQuery] ?: normalizedQuery
+    val candidates = entries.map { entry ->
+        val labelKey = entry.label.normalizedAppLookupKey()
+        val packageKey = entry.packageName.normalizedAppLookupKey()
+        ResolvedAppCandidate(
+            entry = entry,
+            labelKey = labelKey,
+            packageKey = packageKey,
+            aliasKey = appLookupAliases[labelKey],
+        )
+    }
+
+    fun unique(matches: List<ResolvedAppCandidate>): AppLaunchResolution {
+        val distinct = matches.distinctBy { it.entry.packageName }
+        return when (distinct.size) {
+            0 -> AppLaunchResolution.NotFound
+            1 -> distinct.single().entry.toResolution()
+            else -> AppLaunchResolution.Ambiguous
+        }
+    }
+
+    unique(
+        candidates.filter { candidate ->
+            candidate.labelKey == normalizedQuery ||
+                candidate.packageKey == normalizedQuery ||
+                candidate.aliasKey == normalizedQuery ||
+                candidate.labelKey == aliasedQuery ||
+                candidate.packageKey == aliasedQuery
+        },
+    ).takeIf { it !is AppLaunchResolution.NotFound }?.let { return it }
+
+    unique(
+        candidates.filter { candidate ->
+            candidate.labelKey.startsWith(normalizedQuery) ||
+                candidate.packageKey.startsWith(normalizedQuery) ||
+                candidate.labelKey.startsWith(aliasedQuery) ||
+                candidate.packageKey.startsWith(aliasedQuery)
+        },
+    ).takeIf { it !is AppLaunchResolution.NotFound }?.let { return it }
+
+    return unique(
+        candidates.filter { candidate ->
+            candidate.labelKey.contains(normalizedQuery) ||
+                candidate.packageKey.contains(normalizedQuery) ||
+                candidate.labelKey.contains(aliasedQuery) ||
+                candidate.packageKey.contains(aliasedQuery)
+        },
+    )
+}
+
+private data class ResolvedAppCandidate(
+    val entry: LaunchableAppEntry,
+    val labelKey: String,
+    val packageKey: String,
+    val aliasKey: String?,
+)
+
+private fun LaunchableAppEntry.toResolution(): AppLaunchResolution.Resolved =
+    AppLaunchResolution.Resolved(label = label, packageName = packageName)
+
+private val appLookupAliases = mapOf(
+    "taobao" to "淘宝",
+    "tb" to "淘宝",
+    "pinduoduo" to "拼多多",
+    "pdd" to "拼多多",
+    "jd" to "京东",
+    "jingdong" to "京东",
+    "amap" to "高德地图",
+    "gaode" to "高德地图",
+    "autonavi" to "高德地图",
+    "wechat" to "微信",
+    "weixin" to "微信",
+    "douyin" to "抖音",
+    "tik tok" to "抖音",
+    "tiktok" to "抖音",
+    "xiaohongshu" to "小红书",
+    "rednote" to "小红书",
+    "bilibili" to "哔哩哔哩",
+    "b站" to "哔哩哔哩",
+)
+
+private fun String.normalizedAppLookupKey(): String =
+    lowercase()
+        .replace(Regex("""[\s_\-·.。:：]+"""), "")
+        .trim()

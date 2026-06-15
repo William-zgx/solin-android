@@ -151,6 +151,7 @@ internal fun actionPrompt(input: String): String =
     将用户请求转换成一个手机动作调用。支持函数：
     - open_wifi_settings {}
     - open_usage_access_settings {} 仅用于打开系统“使用情况访问权限”设置页
+    - open_system_settings {"target":"general|bluetooth|location|notification|display|sound|battery_saver|network|airplane_mode|input_method|accessibility"} 仅用于打开 allowlisted Android 系统设置页，不静默修改系统开关
     - search_maps {"query":"..."}
     - web_search {"query":"..."} query 必须是理解后的搜索关键词，不要直接复制用户原文；保留实体、主题、限定词和必要时效词
     - compose_email {"body":"..."}
@@ -162,6 +163,7 @@ internal fun actionPrompt(input: String): String =
     - read_clipboard {} 仅用于用户明确要求读取剪贴板
     - share_text {"text":"...","title":"..."} 仅打开系统分享面板，不直接发送
     - open_deep_link {"uri":"https://..."} 仅用于打开 https 外部链接
+    - open_app_by_name {"appName":"..."} 仅用于按本机 launcher 显示的应用名打开应用，不接受 URI、Activity、action 或 extras
     - open_app_intent {"packageName":"..."} 仅用于打开特定应用启动页
     - open_app_deep_target {"targetId":"android_app_details_settings","packageName":"..."} 仅用于打开允许列表中的固定应用目标
     - cancel_reminder {"taskId":"..."} 仅用于取消已安排的提醒任务
@@ -173,6 +175,14 @@ internal fun actionPrompt(input: String): String =
     - read_recent_screenshot_ocr {"maxCount":"1"} 仅用于用户明确要求识别最近截图文字时，本地读取最近 1 张截图并提取 OCR 摘录
     - read_recent_image_ocr {"maxCount":"1..3"} 仅用于用户明确要求识别最近图片/照片文字时，本地扫描最近图片并提取第一条 OCR 摘录
     - read_current_screen_text {"maxChars":"1..4000"} 仅用于用户明确要求读取或总结当前屏幕/当前界面的可访问文本；这是 Accessibility 文本快照，不读取截图、像素或 OCR
+    - open_camera {} 仅用于打开系统相机应用；不拍照、不录像、不读取照片
+    - observe_current_screen {"maxTextChars":"1..4000","maxNodes":"1..120"} 仅用于观察当前屏幕 Accessibility 节点与可见文本，本地处理
+    - ui_tap {"target":"...","timeoutMillis":"100..10000"} 仅用于点击当前屏幕上可见的文本、contentDescription 或短期节点 id
+    - ui_type_text {"text":"...","target":"...","timeoutMillis":"100..10000"} 仅用于向当前或指定输入框输入文本，不发送、不发布
+    - ui_submit_search {"timeoutMillis":"100..10000"} 仅用于提交当前搜索输入，不发送、不发布、不支付
+    - ui_scroll {"direction":"up|down|left|right|forward|backward","target":"...","timeoutMillis":"100..10000"} 仅用于滚动当前屏幕或指定滚动容器
+    - ui_press_back {"timeoutMillis":"100..10000"} 仅用于执行系统返回
+    - ui_wait {"timeoutMillis":"100..10000","verifySearchQuery":"..."} 仅用于等待屏幕稳定并重新观察；可用 verifySearchQuery 本地验证低风险搜索结果
 
     用户请求：$input
     """.trimIndent()

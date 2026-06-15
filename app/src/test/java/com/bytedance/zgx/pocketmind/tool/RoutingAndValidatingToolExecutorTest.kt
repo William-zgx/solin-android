@@ -1,7 +1,10 @@
 package com.bytedance.zgx.pocketmind.tool
 
+import android.provider.MediaStore
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL
+import com.bytedance.zgx.pocketmind.action.ActionExecutor
+import com.bytedance.zgx.pocketmind.action.ExternalActivityLaunch
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
@@ -36,6 +39,7 @@ import com.bytedance.zgx.pocketmind.device.ScreenNode
 import com.bytedance.zgx.pocketmind.device.ScreenStateReadResult
 import com.bytedance.zgx.pocketmind.device.ScreenStateSnapshot
 import com.bytedance.zgx.pocketmind.device.UiActionExecutionResult
+import com.bytedance.zgx.pocketmind.device.UiActionFailureKind
 import com.bytedance.zgx.pocketmind.device.UiActionReadResult
 import com.bytedance.zgx.pocketmind.device.UiActionStatus
 import com.bytedance.zgx.pocketmind.device.UiScrollDirection
@@ -129,6 +133,12 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf("target" to "n0_button", "timeoutMillis" to "500"),
                 reason = "test",
             ) to "afterNodesJson",
+            ToolRequest(
+                id = "ui-submit-search",
+                toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
+                arguments = mapOf("timeoutMillis" to "500"),
+                reason = "test",
+            ) to "afterNodesJson",
         )
 
         requests.forEach { (request, routedDataKey) ->
@@ -158,6 +168,42 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals(ToolStatus.Succeeded, result.status)
         assertEquals(listOf(request), delegate.requests)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, result.data["toolName"])
+    }
+
+    @Test
+    fun routingExecutorRoutesOpenCameraThroughActionExecutor() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val actionExecutor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+        val executor = ValidatingToolExecutor(
+            routingExecutor(delegate = actionExecutor),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "open-camera-routing",
+                toolName = MobileActionFunctions.OPEN_CAMERA,
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(MobileActionFunctions.OPEN_CAMERA, result.data["toolName"])
+        assertEquals("ExternalActivityOpened", result.data["completionState"])
+        assertEquals("false", result.data["completionVerified"])
+        assertEquals("Unknown", result.data["externalOutcome"])
+        assertEquals("Unknown", result.data["externalOutcomeSource"])
+        assertEquals(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA, result.data["intentAction"])
+        assertEquals("AllowlistedCompletionMetadata", result.data["metadataPolicy"])
+        assertEquals("false", result.data["rawPayloadIncluded"])
+        val launch = launches.single()
+        assertEquals(MobileActionFunctions.OPEN_CAMERA, launch.toolName)
+        assertEquals(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA, launch.action)
     }
 
     @Test
@@ -919,6 +965,145 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     @Test
+    fun submitSearchFailureKeepsRecoverableFailureKind() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(
+            routingExecutor(
+                delegate = delegate,
+                currentScreenControlProvider = StaticCurrentScreenControlProvider(
+                    actionResult = UiActionReadResult.Available(
+                        UiActionExecutionResult(
+                            status = UiActionStatus.Failed,
+                            before = staticSnapshot("before"),
+                            after = staticSnapshot("after"),
+                            summary = "未找到可提交搜索的输入法动作或按钮",
+                            retryable = true,
+                            failureKind = UiActionFailureKind.SubmitNotFound,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "submit-search-failed",
+                toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
+                arguments = mapOf("timeoutMillis" to "500"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
+        assertEquals("submit_search", result.data["actionType"])
+        assertEquals("failed", result.data["status"])
+        assertEquals("submit_not_found", result.data["failureKind"])
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals(true.toString(), result.data["requiresLocalModel"])
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
+    fun waitSearchVerificationKeepsLocalResultEvidence() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(
+            routingExecutor(
+                delegate = delegate,
+                currentScreenControlProvider = StaticCurrentScreenControlProvider(
+                    actionResult = UiActionReadResult.Available(
+                        UiActionExecutionResult(
+                            status = UiActionStatus.Succeeded,
+                            before = staticSnapshot(
+                                id = "before",
+                                packageName = "com.taobao.taobao",
+                                textSummary = "搜索商品",
+                            ),
+                            after = staticSnapshot(
+                                id = "after",
+                                packageName = "com.taobao.taobao",
+                                textSummary = "海河牛奶 综合 销量 筛选",
+                                nodes = listOf(
+                                    staticNode(id = "result", text = "海河牛奶旗舰店", clickable = true),
+                                    staticNode(id = "filter", text = "筛选", clickable = true),
+                                ),
+                            ),
+                            summary = "已等待屏幕稳定",
+                            retryable = false,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "wait-search-verified",
+                toolName = MobileActionFunctions.UI_WAIT,
+                arguments = mapOf(
+                    "timeoutMillis" to "500",
+                    "verifySearchQuery" to "海河牛奶",
+                    "expectedPackageName" to "com.taobao.taobao",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals("wait", result.data["actionType"])
+        assertEquals("verified", result.data["searchVerificationStatus"])
+        assertEquals("query_visible_after_change", result.data["searchVerificationEvidence"])
+        assertFalse(result.data.containsKey("failureKind"))
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
+    fun waitSearchVerificationFailureReturnsRecoverableResultNotVerified() {
+        val unchanged = staticSnapshot(
+            id = "same",
+            packageName = "com.taobao.taobao",
+            textSummary = "搜索商品",
+        )
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(
+            routingExecutor(
+                delegate = delegate,
+                currentScreenControlProvider = StaticCurrentScreenControlProvider(
+                    actionResult = UiActionReadResult.Available(
+                        UiActionExecutionResult(
+                            status = UiActionStatus.Succeeded,
+                            before = unchanged,
+                            after = unchanged,
+                            summary = "已等待屏幕稳定",
+                            retryable = false,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "wait-search-not-verified",
+                toolName = MobileActionFunctions.UI_WAIT,
+                arguments = mapOf(
+                    "timeoutMillis" to "500",
+                    "verifySearchQuery" to "海河牛奶",
+                    "expectedPackageName" to "com.taobao.taobao",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.ExecutionFailed, result.error?.code)
+        assertEquals("result_not_verified", result.data["failureKind"])
+        assertEquals("not_verified", result.data["searchVerificationStatus"])
+        assertEquals("page_not_changed", result.data["searchVerificationEvidence"])
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
     fun validatingExecutorDoesNotLetUnknownToolReachRoutingDelegate() {
         val delegate = RecordingDelegate()
         val executor = ValidatingToolExecutor(
@@ -1060,6 +1245,9 @@ class RoutingAndValidatingToolExecutorTest {
         override fun typeText(text: String, target: String?, timeoutMillis: Long): UiActionReadResult =
             actionResult
 
+        override fun submitSearch(timeoutMillis: Long): UiActionReadResult =
+            actionResult
+
         override fun scroll(direction: UiScrollDirection, target: String?, timeoutMillis: Long): UiActionReadResult =
             actionResult
 
@@ -1071,26 +1259,42 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     private companion object {
-        fun staticSnapshot(id: String): ScreenStateSnapshot =
+        fun staticSnapshot(
+            id: String,
+            packageName: String = "com.example.app",
+            textSummary: String = "Continue",
+            nodes: List<ScreenNode> = listOf(staticNode(id = "n0_button", text = "Continue", clickable = true)),
+        ): ScreenStateSnapshot =
             ScreenStateSnapshot(
                 id = "screen-$id",
-                packageName = "com.example.app",
+                packageName = packageName,
                 capturedAtMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
-                nodes = listOf(
-                    ScreenNode(
-                        id = "n0_button",
-                        text = "Continue",
-                        contentDescription = "",
-                        className = "android.widget.Button",
-                        bounds = ScreenBounds(0, 0, 100, 48),
-                        clickable = true,
-                        editable = false,
-                        scrollable = false,
-                        enabled = true,
-                    ),
-                ),
-                textSummary = "Continue",
+                nodes = nodes,
+                textSummary = textSummary,
                 truncated = false,
+            )
+
+        fun staticNode(
+            id: String,
+            text: String = "",
+            contentDescription: String = "",
+            className: String = "android.widget.Button",
+            bounds: ScreenBounds? = ScreenBounds(0, 0, 100, 48),
+            clickable: Boolean = false,
+            editable: Boolean = false,
+            scrollable: Boolean = false,
+            enabled: Boolean = true,
+        ): ScreenNode =
+            ScreenNode(
+                id = id,
+                text = text,
+                contentDescription = contentDescription,
+                className = className,
+                bounds = bounds,
+                clickable = clickable,
+                editable = editable,
+                scrollable = scrollable,
+                enabled = enabled,
             )
     }
 

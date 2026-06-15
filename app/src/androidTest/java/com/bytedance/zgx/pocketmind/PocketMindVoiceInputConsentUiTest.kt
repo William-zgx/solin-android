@@ -153,6 +153,7 @@ class PocketMindVoiceInputConsentUiTest {
                     onConfirmRemoteSendDespiteSensitive = {},
                     onDismissRemoteSendDisclosure = {},
                     onRemoteSendDisclosurePolicySelected = {},
+                    onReduceDeviceActionConfirmationsChanged = {},
                     onSendMessage = onSendMessage,
                     onSendPendingSharedInput = {},
                     onClearPendingSharedInput = {},

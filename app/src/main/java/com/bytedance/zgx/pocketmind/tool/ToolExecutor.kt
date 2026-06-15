@@ -29,6 +29,8 @@ import com.bytedance.zgx.pocketmind.device.RecentFileProvider
 import com.bytedance.zgx.pocketmind.device.RecentFileReadResult
 import com.bytedance.zgx.pocketmind.device.RecentImageTextProvider
 import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
+import com.bytedance.zgx.pocketmind.device.AppSearchResultVerifier
+import com.bytedance.zgx.pocketmind.device.SearchResultVerification
 import com.bytedance.zgx.pocketmind.device.ScreenBounds
 import com.bytedance.zgx.pocketmind.device.ScreenNode
 import com.bytedance.zgx.pocketmind.device.ScreenStateReadResult
@@ -133,6 +135,7 @@ class RoutingToolExecutor(
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
             MobileActionFunctions.UI_TAP,
             MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
             MobileActionFunctions.UI_SCROLL,
             MobileActionFunctions.UI_PRESS_BACK,
             MobileActionFunctions.UI_WAIT ->
@@ -787,6 +790,7 @@ class DeviceControlToolExecutor(
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN -> executeObserve(request, controlProvider)
             MobileActionFunctions.UI_TAP -> executeTap(request, controlProvider)
             MobileActionFunctions.UI_TYPE_TEXT -> executeTypeText(request, controlProvider)
+            MobileActionFunctions.UI_SUBMIT_SEARCH -> executeSubmitSearch(request, controlProvider)
             MobileActionFunctions.UI_SCROLL -> executeScroll(request, controlProvider)
             MobileActionFunctions.UI_PRESS_BACK -> executePressBack(request, controlProvider)
             MobileActionFunctions.UI_WAIT -> executeWait(request, controlProvider)
@@ -823,7 +827,7 @@ class DeviceControlToolExecutor(
                     summary = result.reason,
                     retryable = true,
                     data = request.deviceControlBaseData() + mapOf(
-                        "failureKind" to UiActionFailureKind.Unknown.schemaValue,
+                        "failureKind" to result.failureKind.schemaValue,
                     ),
                 )
         }
@@ -854,6 +858,19 @@ class DeviceControlToolExecutor(
             result = provider.typeText(
                 text = request.arguments["text"].orEmpty(),
                 target = request.arguments["target"],
+                timeoutMillis = request.timeoutMillis(),
+            ),
+        )
+
+    private fun executeSubmitSearch(
+        request: ToolRequest,
+        provider: CurrentScreenControlProvider,
+    ): ToolResult =
+        actionResult(
+            request = request,
+            actionType = "submit_search",
+            target = "",
+            result = provider.submitSearch(
                 timeoutMillis = request.timeoutMillis(),
             ),
         )
@@ -896,13 +913,17 @@ class DeviceControlToolExecutor(
     private fun executeWait(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
-    ): ToolResult =
-        actionResult(
+    ): ToolResult {
+        val result = provider.waitForScreen(timeoutMillis = request.timeoutMillis())
+        val verification = result.searchVerificationFor(request)
+        return actionResult(
             request = request,
             actionType = "wait",
             target = "",
-            result = provider.waitForScreen(timeoutMillis = request.timeoutMillis()),
+            result = result.withSearchVerification(verification),
+            extraData = verification.toData(),
         )
+    }
 
     private fun actionResult(
         request: ToolRequest,
@@ -968,6 +989,49 @@ class DeviceControlToolExecutor(
 
     private fun ToolRequest.timeoutMillis(): Long =
         arguments["timeoutMillis"]?.trim()?.toLongOrNull() ?: DEFAULT_UI_ACTION_TIMEOUT_MILLIS
+
+    private fun UiActionReadResult.searchVerificationFor(request: ToolRequest): SearchResultVerification? {
+        val query = request.arguments["verifySearchQuery"]?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val execution = (this as? UiActionReadResult.Available)?.result ?: return null
+        return AppSearchResultVerifier.verify(
+            before = execution.before,
+            after = execution.after,
+            query = query,
+            expectedPackageName = request.arguments["expectedPackageName"],
+            expectedAppName = request.arguments["expectedAppName"],
+        )
+    }
+
+    private fun UiActionReadResult.withSearchVerification(
+        verification: SearchResultVerification?,
+    ): UiActionReadResult {
+        verification ?: return this
+        if (this !is UiActionReadResult.Available) return this
+        if (result.status != UiActionStatus.Succeeded) return this
+        if (verification.verified) {
+            return copy(
+                result = result.copy(
+                    summary = verification.summary,
+                ),
+            )
+        }
+        return copy(
+            result = result.copy(
+                status = UiActionStatus.Failed,
+                summary = verification.summary,
+                retryable = true,
+                failureKind = verification.failureKind ?: UiActionFailureKind.ResultNotVerified,
+            ),
+        )
+    }
+
+    private fun SearchResultVerification?.toData(): Map<String, String> =
+        this?.let { verification ->
+            mapOf(
+                "searchVerificationStatus" to if (verification.verified) "verified" else "not_verified",
+                "searchVerificationEvidence" to verification.evidence,
+            )
+        }.orEmpty()
 
     private fun ToolRequest.deviceControlPermissionDenied(reason: String): ToolResult =
         failed(

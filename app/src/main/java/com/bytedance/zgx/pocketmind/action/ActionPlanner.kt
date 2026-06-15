@@ -89,6 +89,9 @@ class MobileActionPlanner : ActionPlanner {
             DeviceSettingsActionParser.matches(input) ->
                 DeviceSettingsActionParser.draft(input)
 
+            SystemSettingsActionParser.matches(input) ->
+                SystemSettingsActionParser.draft(input)
+
             MapSearchActionParser.matches(input) ->
                 MapSearchActionParser.draft(input)
 
@@ -97,6 +100,9 @@ class MobileActionPlanner : ActionPlanner {
 
             DeepLinkActionParser.matches(input) ->
                 DeepLinkActionParser.draft(input)
+
+            CameraActionParser.matches(input) ->
+                CameraActionParser.draft()
 
             AppNavigationActionParser.matches(input) ->
                 AppNavigationActionParser.draft(input)
@@ -172,6 +178,7 @@ class MobileActionPlanner : ActionPlanner {
         when (functionName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "打开 Wi-Fi 设置"
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "打开使用情况访问权限设置"
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS -> "打开系统设置页"
             MobileActionFunctions.SEARCH_MAPS -> "地图搜索"
             MobileActionFunctions.WEB_SEARCH -> "Web 搜索"
             MobileActionFunctions.COMPOSE_EMAIL -> "邮件草稿"
@@ -186,6 +193,8 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY -> "查询日历忙闲"
             MobileActionFunctions.CANCEL_REMINDER -> "取消提醒"
             MobileActionFunctions.OPEN_DEEP_LINK -> "打开深链"
+            MobileActionFunctions.OPEN_CAMERA -> "打开相机"
+            MobileActionFunctions.OPEN_APP_BY_NAME -> "打开应用"
             MobileActionFunctions.OPEN_APP_INTENT -> "打开应用"
             MobileActionFunctions.OPEN_APP_DEEP_TARGET -> "打开应用深层目标"
             MobileActionFunctions.QUERY_FOREGROUND_APP -> "查询当前前台应用"
@@ -203,6 +212,8 @@ class MobileActionPlanner : ActionPlanner {
         when (functionName) {
             MobileActionFunctions.OPEN_WIFI_SETTINGS -> "将打开系统 Wi-Fi 设置页。"
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS -> "将打开系统使用情况访问权限设置页，由你手动为 PocketMind 授权。"
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+                "将打开${SystemSettingsTargets.pageLabel(parameters["target"].orEmpty())}，由你手动完成后续操作。"
             MobileActionFunctions.SEARCH_MAPS -> "将在地图中搜索：${parameters["query"].orEmpty()}"
             MobileActionFunctions.WEB_SEARCH -> "将使用 Web 搜索工具查询并整理结果：${parameters["query"].orEmpty()}"
             MobileActionFunctions.COMPOSE_EMAIL -> "将打开邮件 App 并填入草稿内容。"
@@ -232,6 +243,10 @@ class MobileActionPlanner : ActionPlanner {
                 "将取消提醒任务：${parameters["taskId"].orEmpty()}"
             MobileActionFunctions.OPEN_DEEP_LINK ->
                 "将打开深度链接：${parameters["uri"].orEmpty()}"
+            MobileActionFunctions.OPEN_CAMERA ->
+                "将打开系统相机应用；不会拍照、录像或读取照片。"
+            MobileActionFunctions.OPEN_APP_BY_NAME ->
+                "将按本机应用名打开：${parameters["appName"].orEmpty()}"
             MobileActionFunctions.OPEN_APP_INTENT ->
                 "将打开应用启动页：${parameters["packageName"].orEmpty()}"
             MobileActionFunctions.OPEN_APP_DEEP_TARGET ->

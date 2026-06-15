@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.action
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.provider.MediaStore
 import android.provider.Settings
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
@@ -328,6 +329,84 @@ class ActionExecutorTest {
     }
 
     @Test
+    fun opensCameraAsSystemCameraIntent() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-open-camera",
+                toolName = MobileActionFunctions.OPEN_CAMERA,
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(MobileActionFunctions.OPEN_CAMERA, result.data["toolName"])
+        assertExternalActivityOpened(result.data, MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+        val launch = launches.single()
+        assertEquals(MobileActionFunctions.OPEN_CAMERA, launch.toolName)
+        assertEquals(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA, launch.action)
+        assertEquals(null, launch.uri)
+        assertEquals(null, launch.packageName)
+        assertEquals(null, launch.targetId)
+    }
+
+    @Test
+    fun opensAllowlistedSystemSettingsTargetAsSettingsIntent() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-open-bluetooth-settings",
+                toolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                arguments = mapOf("target" to SystemSettingsTargets.BLUETOOTH),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(MobileActionFunctions.OPEN_SYSTEM_SETTINGS, result.data["toolName"])
+        assertExternalActivityOpened(result.data, "SystemSettings", Settings.ACTION_BLUETOOTH_SETTINGS)
+        assertEquals(Settings.ACTION_BLUETOOTH_SETTINGS, result.data["settingsAction"])
+        assertEquals(SystemSettingsTargets.BLUETOOTH, result.data["targetId"])
+        val launch = launches.single()
+        assertEquals(MobileActionFunctions.OPEN_SYSTEM_SETTINGS, launch.toolName)
+        assertEquals(Settings.ACTION_BLUETOOTH_SETTINGS, launch.action)
+        assertEquals(SystemSettingsTargets.BLUETOOTH, launch.targetId)
+    }
+
+    @Test
+    fun rejectsUnknownSystemSettingsTarget() {
+        val executor = ActionExecutor(context = null)
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-open-unknown-settings",
+                toolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                arguments = mapOf("target" to "developer_options"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.InvalidRequest, result.error?.code)
+    }
+
+    @Test
     fun opensAllowedDeepLinkAsActionViewIntent() {
         val launches = mutableListOf<ExternalActivityLaunch>()
         val executor = ActionExecutor(
@@ -410,6 +489,84 @@ class ActionExecutorTest {
         assertEquals("com.example.app", launch.packageName)
         assertEquals(MobileActionFunctions.OPEN_APP_INTENT, launch.toolName)
         assertEquals(null, launch.uri)
+    }
+
+    @Test
+    fun opensAppByNameThroughResolvedLauncherPackage() {
+        val launches = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launches += launch
+                true
+            },
+            appLauncherResolver = { appName ->
+                assertEquals("淘宝", appName)
+                AppLaunchResolution.Resolved(label = "淘宝", packageName = "com.taobao.taobao")
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-app-by-name",
+                toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                arguments = mapOf("appName" to "淘宝"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertExternalActivityOpened(result.data, "AndroidPackage", Intent.ACTION_MAIN)
+        assertEquals("com.taobao.taobao", result.data["targetPackage"])
+        val launch = launches.single()
+        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, launch.toolName)
+        assertEquals(Intent.ACTION_MAIN, launch.action)
+        assertEquals("com.taobao.taobao", launch.packageName)
+        assertEquals(null, launch.uri)
+    }
+
+    @Test
+    fun reportsAppByNameResolutionFailureWithoutLeakingCandidates() {
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { false },
+            appLauncherResolver = { AppLaunchResolution.NotFound },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-app-by-name-missing",
+                toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                arguments = mapOf("appName" to "不存在的应用"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.NoActivityFound, result.error?.code)
+        assertTrue(result.summary.contains("没有找到匹配的可启动应用"))
+        assertExternalActivityNotStarted(result.data, "AndroidPackage", Intent.ACTION_MAIN)
+        assertTrue(!result.data.containsKey("appName"))
+    }
+
+    @Test
+    fun matchesLaunchableAppsByVisibleNameAliasesAndRejectsAmbiguity() {
+        val entries = listOf(
+            LaunchableAppEntry(label = "淘宝", packageName = "com.taobao.taobao"),
+            LaunchableAppEntry(label = "拼多多", packageName = "com.xunmeng.pinduoduo"),
+            LaunchableAppEntry(label = "拼多多商家版", packageName = "com.xunmeng.merchant"),
+        )
+
+        val taobao = matchLaunchableApp("taobao", entries)
+        require(taobao is AppLaunchResolution.Resolved)
+        assertEquals("com.taobao.taobao", taobao.packageName)
+
+        val pinduoduo = matchLaunchableApp("拼多多", entries)
+        require(pinduoduo is AppLaunchResolution.Resolved)
+        assertEquals("com.xunmeng.pinduoduo", pinduoduo.packageName)
+
+        assertEquals(AppLaunchResolution.Ambiguous, matchLaunchableApp("拼", entries))
+        assertEquals(AppLaunchResolution.NotFound, matchLaunchableApp("微信", entries))
     }
 
     @Test
@@ -699,6 +856,19 @@ class ActionExecutorTest {
         assertEquals("Unknown", data["externalOutcome"])
         assertEquals("Unknown", data["externalOutcomeSource"])
         assertEquals(targetKind, data["targetKind"])
+        assertEquals(intentAction, data["intentAction"])
+        assertEquals("AllowlistedCompletionMetadata", data["metadataPolicy"])
+        assertEquals("false", data["rawPayloadIncluded"])
+    }
+
+    private fun assertExternalActivityOpened(
+        data: Map<String, String>,
+        intentAction: String,
+    ) {
+        assertEquals("ExternalActivityOpened", data["completionState"])
+        assertEquals("false", data["completionVerified"])
+        assertEquals("Unknown", data["externalOutcome"])
+        assertEquals("Unknown", data["externalOutcomeSource"])
         assertEquals(intentAction, data["intentAction"])
         assertEquals("AllowlistedCompletionMetadata", data["metadataPolicy"])
         assertEquals("false", data["rawPayloadIncluded"])

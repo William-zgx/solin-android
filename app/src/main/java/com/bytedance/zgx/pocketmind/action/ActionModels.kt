@@ -38,6 +38,7 @@ data class ActionPlan(
 object MobileActionFunctions {
     const val OPEN_WIFI_SETTINGS = "open_wifi_settings"
     const val OPEN_USAGE_ACCESS_SETTINGS = "open_usage_access_settings"
+    const val OPEN_SYSTEM_SETTINGS = "open_system_settings"
     const val SEARCH_MAPS = "search_maps"
     const val WEB_SEARCH = "web_search"
     const val COMPOSE_EMAIL = "compose_email"
@@ -51,6 +52,8 @@ object MobileActionFunctions {
     const val READ_CLIPBOARD = "read_clipboard"
     const val SHARE_TEXT = "share_text"
     const val OPEN_DEEP_LINK = "open_deep_link"
+    const val OPEN_CAMERA = "open_camera"
+    const val OPEN_APP_BY_NAME = "open_app_by_name"
     const val OPEN_APP_INTENT = "open_app_intent"
     const val OPEN_APP_DEEP_TARGET = "open_app_deep_target"
     const val QUERY_CALENDAR_AVAILABILITY = "query_calendar_availability"
@@ -64,6 +67,7 @@ object MobileActionFunctions {
     const val OBSERVE_CURRENT_SCREEN = "observe_current_screen"
     const val UI_TAP = "ui_tap"
     const val UI_TYPE_TEXT = "ui_type_text"
+    const val UI_SUBMIT_SEARCH = "ui_submit_search"
     const val UI_SCROLL = "ui_scroll"
     const val UI_PRESS_BACK = "ui_press_back"
     const val UI_WAIT = "ui_wait"
@@ -72,6 +76,7 @@ object MobileActionFunctions {
     val supported: Set<String> = setOf(
         OPEN_WIFI_SETTINGS,
         OPEN_USAGE_ACCESS_SETTINGS,
+        OPEN_SYSTEM_SETTINGS,
         SEARCH_MAPS,
         WEB_SEARCH,
         COMPOSE_EMAIL,
@@ -86,6 +91,7 @@ object MobileActionFunctions {
         OBSERVE_CURRENT_SCREEN,
         UI_TAP,
         UI_TYPE_TEXT,
+        UI_SUBMIT_SEARCH,
         UI_SCROLL,
         UI_PRESS_BACK,
         UI_WAIT,
@@ -96,6 +102,8 @@ object MobileActionFunctions {
         READ_CLIPBOARD,
         SHARE_TEXT,
         OPEN_DEEP_LINK,
+        OPEN_CAMERA,
+        OPEN_APP_BY_NAME,
         OPEN_APP_INTENT,
         OPEN_APP_DEEP_TARGET,
         QUERY_CALENDAR_AVAILABILITY,
@@ -103,4 +111,50 @@ object MobileActionFunctions {
         QUERY_RECENT_NOTIFICATIONS,
         CANCEL_REMINDER,
     )
+}
+
+object SystemSettingsTargets {
+    const val GENERAL = "general"
+    const val BLUETOOTH = "bluetooth"
+    const val LOCATION = "location"
+    const val NOTIFICATION = "notification"
+    const val DISPLAY = "display"
+    const val SOUND = "sound"
+    const val BATTERY_SAVER = "battery_saver"
+    const val NETWORK = "network"
+    const val AIRPLANE_MODE = "airplane_mode"
+    const val INPUT_METHOD = "input_method"
+    const val ACCESSIBILITY = "accessibility"
+
+    val supported: Set<String> = setOf(
+        GENERAL,
+        BLUETOOTH,
+        LOCATION,
+        NOTIFICATION,
+        DISPLAY,
+        SOUND,
+        BATTERY_SAVER,
+        NETWORK,
+        AIRPLANE_MODE,
+        INPUT_METHOD,
+        ACCESSIBILITY,
+    )
+
+    val confirmationBypassEligible: Set<String> = supported - ACCESSIBILITY
+
+    fun pageLabel(target: String): String =
+        when (target) {
+            GENERAL -> "系统设置"
+            BLUETOOTH -> "蓝牙设置"
+            LOCATION -> "定位设置"
+            NOTIFICATION -> "通知设置"
+            DISPLAY -> "显示设置"
+            SOUND -> "声音设置"
+            BATTERY_SAVER -> "省电设置"
+            NETWORK -> "网络设置"
+            AIRPLANE_MODE -> "飞行模式设置"
+            INPUT_METHOD -> "输入法设置"
+            ACCESSIBILITY -> "无障碍设置"
+            else -> "系统设置"
+        }
 }

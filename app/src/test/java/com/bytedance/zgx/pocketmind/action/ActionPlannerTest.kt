@@ -250,6 +250,45 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun strictModelToolOutputParsesObserveAndUiToolCalls() {
+        val observe = planner.parseModelToolOutput(
+            """call:observe_current_screen{"maxTextChars":2000,"maxNodes":80}""",
+        )
+        val observeDraft = (observe as ModelToolOutputParseResult.Parsed).draft
+        assertEquals(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, observeDraft.functionName)
+        assertEquals("2000", observeDraft.parameters["maxTextChars"])
+        assertEquals("80", observeDraft.parameters["maxNodes"])
+        assertTrue(observeDraft.requiresConfirmation)
+
+        val tap = planner.parseModelToolOutput(
+            """call:ui_tap{"target":"Wi-Fi","timeoutMillis":1500}""",
+        )
+        val tapDraft = (tap as ModelToolOutputParseResult.Parsed).draft
+        assertEquals(MobileActionFunctions.UI_TAP, tapDraft.functionName)
+        assertEquals("Wi-Fi", tapDraft.parameters["target"])
+        assertEquals("1500", tapDraft.parameters["timeoutMillis"])
+        assertTrue(tapDraft.requiresConfirmation)
+
+        val typeText = planner.parseModelToolOutput(
+            """call:ui_type_text{"target":"搜索","text":"Kotlin 协程","timeoutMillis":1500}""",
+        )
+        val typeTextDraft = (typeText as ModelToolOutputParseResult.Parsed).draft
+        assertEquals(MobileActionFunctions.UI_TYPE_TEXT, typeTextDraft.functionName)
+        assertEquals("搜索", typeTextDraft.parameters["target"])
+        assertEquals("Kotlin 协程", typeTextDraft.parameters["text"])
+        assertEquals("1500", typeTextDraft.parameters["timeoutMillis"])
+        assertTrue(typeTextDraft.requiresConfirmation)
+
+        val submitSearch = planner.parseModelToolOutput(
+            """call:ui_submit_search{"timeoutMillis":1500}""",
+        )
+        val submitSearchDraft = (submitSearch as ModelToolOutputParseResult.Parsed).draft
+        assertEquals(MobileActionFunctions.UI_SUBMIT_SEARCH, submitSearchDraft.functionName)
+        assertEquals("1500", submitSearchDraft.parameters["timeoutMillis"])
+        assertTrue(submitSearchDraft.requiresConfirmation)
+    }
+
+    @Test
     fun rejectsUnsupportedFunctionCalls() {
         assertNull(planner.parseModelOutput("""call:delete_contact{"name":"A"}"""))
     }
@@ -331,6 +370,13 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wifiPlan.draft?.functionName)
         assertTrue(wifiPlan.draft?.parameters.orEmpty().isEmpty())
 
+        listOf("打开WiFi", "打开 WiFi", "打开 Wi-Fi").forEach { input ->
+            val plainWifiPlan = planner.plan(input)
+            assertEquals("$input should open the Wi-Fi settings draft", ActionPlanKind.Draft, plainWifiPlan.kind)
+            assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, plainWifiPlan.draft?.functionName)
+            assertTrue(plainWifiPlan.draft?.parameters.orEmpty().isEmpty())
+        }
+
         val wirelessPlan = planner.plan("进入无线设置")
         assertEquals(ActionPlanKind.Draft, wirelessPlan.kind)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, wirelessPlan.draft?.functionName)
@@ -370,6 +416,35 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("请勿打开 Wi-Fi 设置").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("不要设置 Wi-Fi").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("do not open usage access settings").kind)
+    }
+
+    @Test
+    fun infersAllowlistedSystemSettingsDraftsForCommonPhoneControls() {
+        mapOf(
+            "打开蓝牙" to SystemSettingsTargets.BLUETOOTH,
+            "进入定位设置" to SystemSettingsTargets.LOCATION,
+            "打开通知设置" to SystemSettingsTargets.NOTIFICATION,
+            "打开显示设置" to SystemSettingsTargets.DISPLAY,
+            "打开声音设置" to SystemSettingsTargets.SOUND,
+            "开启省电模式" to SystemSettingsTargets.BATTERY_SAVER,
+            "打开网络设置" to SystemSettingsTargets.NETWORK,
+            "打开飞行模式" to SystemSettingsTargets.AIRPLANE_MODE,
+            "打开输入法设置" to SystemSettingsTargets.INPUT_METHOD,
+            "打开无障碍设置" to SystemSettingsTargets.ACCESSIBILITY,
+            "open bluetooth settings" to SystemSettingsTargets.BLUETOOTH,
+        ).forEach { (input, target) ->
+            val plan = planner.plan(input)
+
+            assertEquals("$input should be planned as a system settings action", ActionPlanKind.Draft, plan.kind)
+            assertEquals(MobileActionFunctions.OPEN_SYSTEM_SETTINGS, plan.draft?.functionName)
+            assertEquals(target, plan.draft?.parameters?.get("target"))
+            assertTrue(plan.draft?.requiresConfirmation == true)
+        }
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("蓝牙是什么").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("定位设置页面怎么设计").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要打开蓝牙设置").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("notification settings API").kind)
     }
 
     @Test
@@ -966,17 +1041,52 @@ class ActionPlannerTest {
     }
 
     @Test
-    fun infersAppIntentDraftForKnownAppAlias() {
+    fun infersAppByNameDraftForNaturalAppName() {
         val plan = planner.plan("启动微信")
 
         assertEquals(ActionPlanKind.Draft, plan.kind)
-        assertEquals(MobileActionFunctions.OPEN_APP_INTENT, plan.draft?.functionName)
-        assertEquals("com.tencent.mm", plan.draft?.parameters?.get("packageName"))
+        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, plan.draft?.functionName)
+        assertEquals("微信", plan.draft?.parameters?.get("appName"))
+
+        val commonAppCases = mapOf(
+            "打开高德地图" to "高德地图",
+            "打开信息" to "信息",
+            "打开浏览器" to "浏览器",
+            "打开日历" to "日历",
+            "打开邮件" to "邮件",
+            "打开相册" to "相册",
+            "打开计算器" to "计算器",
+            "打开时钟" to "时钟",
+            "打开便签" to "便签",
+            "打开通讯录" to "通讯录",
+            "打开拼多多" to "拼多多",
+        )
+        commonAppCases.forEach { (input, appName) ->
+            val commonPlan = planner.plan(input)
+            assertEquals("$input should be planned as an app launch", ActionPlanKind.Draft, commonPlan.kind)
+            assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, commonPlan.draft?.functionName)
+            assertEquals(appName, commonPlan.draft?.parameters?.get("appName"))
+        }
 
         val packagePlan = planner.plan("打开 com.example.app")
         assertEquals(ActionPlanKind.Draft, packagePlan.kind)
         assertEquals(MobileActionFunctions.OPEN_APP_INTENT, packagePlan.draft?.functionName)
         assertEquals("com.example.app", packagePlan.draft?.parameters?.get("packageName"))
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开淘宝搜索海河牛奶").kind)
+    }
+
+    @Test
+    fun infersCameraLaunchDraftForNaturalCameraAliases() {
+        listOf("打开相机", "打开摄像头", "打开摄像机", "open camera").forEach { input ->
+            val plan = planner.plan(input)
+
+            assertEquals("$input should be planned as a camera launch action", ActionPlanKind.Draft, plan.kind)
+            assertCameraLaunchDraft(input, plan.draft)
+        }
+
+        assertEquals(ActionPlanKind.NoAction, planner.plan("相机 API 怎么实现").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要打开相机").kind)
     }
 
     @Test
@@ -1001,6 +1111,7 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("打开应用").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("启动 app").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("打开应用详情设置").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("打开应用信息").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("不要打开微信").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("别启动微信").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("不启动微信").kind)
@@ -1037,6 +1148,14 @@ class ActionPlannerTest {
         assertEquals(MobileActionFunctions.OPEN_APP_INTENT, draft.functionName)
         assertEquals("com.example.app", draft.parameters["packageName"])
         assertEquals(setOf("packageName"), draft.parameters.keys)
+
+        val byNameDraft = planner.parseModelOutput(
+            """call:open_app_by_name{"appName":"拼多多"}""",
+        )
+        requireNotNull(byNameDraft)
+        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, byNameDraft.functionName)
+        assertEquals("拼多多", byNameDraft.parameters["appName"])
+        assertEquals(setOf("appName"), byNameDraft.parameters.keys)
     }
 
     @Test
@@ -1057,5 +1176,13 @@ class ActionPlannerTest {
         val plan = planner.plan("分享一下你对端侧 Agent 的看法")
 
         assertEquals(ActionPlanKind.NoAction, plan.kind)
+    }
+
+    private fun assertCameraLaunchDraft(input: String, draft: ActionDraft?) {
+        requireNotNull(draft) { "$input should produce an action draft" }
+        assertEquals("$input should use the system camera tool", MobileActionFunctions.OPEN_CAMERA, draft.functionName)
+        assertTrue("$input should not pass camera arguments", draft.parameters.isEmpty())
+        assertTrue("$input should describe opening camera, got $draft", draft.title.contains("相机"))
+        assertTrue(draft.requiresConfirmation)
     }
 }

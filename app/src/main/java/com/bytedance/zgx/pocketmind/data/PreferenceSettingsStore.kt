@@ -38,6 +38,13 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         writeBoolean(Keys.MEMORY_ENABLED, enabled)
     }
 
+    override fun reduceDeviceActionConfirmations(): Boolean =
+        readBoolean(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, false)
+
+    override fun setReduceDeviceActionConfirmations(enabled: Boolean) {
+        writeBoolean(Keys.REDUCE_DEVICE_ACTION_CONFIRMATIONS, enabled)
+    }
+
     override fun loadGenerationParameters(): GenerationParameters =
         GenerationParameters(
             temperature = readFloat(Keys.TEMPERATURE, GenerationParameters.DEFAULT_TEMPERATURE),
@@ -158,6 +165,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         val MIGRATION_VERSION = intPreferencesKey("migration_version")
         val FIRST_RUN_DISMISSED = booleanPreferencesKey("first_run_setup_dismissed")
         val MEMORY_ENABLED = booleanPreferencesKey("memory_enabled")
+        val REDUCE_DEVICE_ACTION_CONFIRMATIONS = booleanPreferencesKey("reduce_device_action_confirmations")
         val TEMPERATURE = floatPreferencesKey("generation_temperature")
         val TOP_P = floatPreferencesKey("generation_top_p")
         val TOP_K = intPreferencesKey("generation_top_k")

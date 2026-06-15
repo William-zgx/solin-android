@@ -145,6 +145,24 @@ class PocketMindAccessibilityServiceDeviceControlTest {
             assertEquals(typed.result.summary, UiActionStatus.Succeeded, typed.result.status)
             assertTrue(typed.result.after?.textSummary.orEmpty().contains("typed via accessibility"))
 
+            val searchText = PocketMindAccessibilityService.performTypeText(
+                text = "emulator search query",
+                target = "EvalSearchInput",
+                timeoutMillis = 1_500,
+            ).requireAvailable()
+            assertEquals(searchText.result.summary, UiActionStatus.Succeeded, searchText.result.status)
+            assertTrue(searchText.result.after?.textSummary.orEmpty().contains("emulator search query"))
+
+            val submitSearch = PocketMindAccessibilityService.performSubmitSearch(
+                timeoutMillis = 1_500,
+            ).requireAvailable()
+            assertEquals(submitSearch.result.summary, UiActionStatus.Succeeded, submitSearch.result.status)
+            assertTrue(
+                submitSearch.result.after?.textSummary.orEmpty(),
+                submitSearch.result.after?.textSummary.orEmpty()
+                    .contains("Eval search result: emulator search query"),
+            )
+
             var latestScroll = PocketMindAccessibilityService.performScroll(
                 direction = UiScrollDirection.Down,
                 target = "EvalScrollContainer",
@@ -209,7 +227,7 @@ class PocketMindAccessibilityServiceDeviceControlTest {
             maxTextChars = 200,
             maxNodes = 10,
         )
-        assertTrue(
+        assumeTrue(
             manualEnableMessage(flattened, enabledServices),
             enabledServices.contains(flattened) || activeServiceResult is ScreenStateReadResult.Available,
         )
@@ -218,7 +236,7 @@ class PocketMindAccessibilityServiceDeviceControlTest {
             maxTextChars = 200,
             maxNodes = 10,
         )
-        assertTrue(
+        assumeTrue(
             manualEnableMessage(flattened, "accessibility_enabled=$accessibilityEnabled"),
             accessibilityEnabled == "1" || activeServiceAfterFlagCheck is ScreenStateReadResult.Available,
         )
@@ -273,10 +291,7 @@ class PocketMindAccessibilityServiceDeviceControlTest {
             }
 
     private fun accessibilitySafeUiAutomation(): UiAutomation =
-        instrumentation.getUiAutomation(
-            UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES or
-                UiAutomation.FLAG_DONT_USE_ACCESSIBILITY,
-        )
+        instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
 
     private fun UiActionReadResult.requireAvailable(): UiActionReadResult.Available =
         this as? UiActionReadResult.Available ?: error("Expected action result, got $this")

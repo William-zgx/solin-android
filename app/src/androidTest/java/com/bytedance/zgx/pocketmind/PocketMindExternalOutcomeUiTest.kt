@@ -102,6 +102,7 @@ class PocketMindExternalOutcomeUiTest {
                     onConfirmRemoteSendDespiteSensitive = {},
                     onDismissRemoteSendDisclosure = {},
                     onRemoteSendDisclosurePolicySelected = {},
+                    onReduceDeviceActionConfirmationsChanged = {},
                     onSendMessage = {},
                     onSendPendingSharedInput = {},
                     onClearPendingSharedInput = {},

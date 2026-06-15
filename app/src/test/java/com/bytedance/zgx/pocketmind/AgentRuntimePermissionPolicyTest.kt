@@ -333,6 +333,12 @@ class AgentRuntimePermissionPolicyTest {
         )
         assertTrue(
             confirmationFor(
+                toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                arguments = mapOf("appName" to "淘宝"),
+            ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty(),
+        )
+        assertTrue(
+            confirmationFor(
                 toolName = MobileActionFunctions.OPEN_APP_INTENT,
                 arguments = mapOf("packageName" to "com.example.app"),
             ).runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty(),
@@ -433,6 +439,7 @@ class AgentRuntimePermissionPolicyTest {
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
             MobileActionFunctions.UI_TAP,
             MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
             MobileActionFunctions.UI_SCROLL,
             MobileActionFunctions.UI_PRESS_BACK,
             MobileActionFunctions.UI_WAIT,

@@ -31,6 +31,7 @@ internal object MapSearchActionParser {
 
     private fun cleanedSearchQuery(input: String): String {
         val cleaned = cleanedObject(input)
+            .replace(Regex("""^(?:打开|启动|进入)?\s*(?:高德地图|高德|地图|maps?)\s*(?:搜索|搜一下|搜|查询|查找|查)\s*[:：]?\s*""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""^(地图)?\s*(搜索|搜|查)(一下|一查)?\s*地图?\s*[:：]?\s*"""), "")
             .replace(Regex("""^查(一下)?\s*(去|到)?\s*"""), "")
             .replace(Regex("""^导航(到|去)?\s*"""), "")
@@ -165,9 +166,14 @@ internal object DeviceSettingsActionParser {
         val referencesWifi = wifiPattern.containsMatchIn(normalized) || "无线" in this
         val referencesSettings = "设置" in this ||
             Regex("""\b(settings?|preferences?)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
-        return referencesWifi && referencesSettings && (
-            listOf("打开", "进入", "跳转", "前往", "去", "设置").any { it in this } ||
-                englishWifiSettingsPattern.containsMatchIn(normalized)
+        val hasChineseOpenTrigger = listOf("打开", "开启", "进入", "跳转", "前往", "去", "设置").any { it in this }
+        val hasEnglishOpenTrigger =
+            Regex("""\b(?:open|show|go\s+to|launch|enable|turn\s+on)\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(normalized)
+        return referencesWifi && (
+            (referencesSettings && (hasChineseOpenTrigger || englishWifiSettingsPattern.containsMatchIn(normalized))) ||
+                hasChineseOpenTrigger ||
+                hasEnglishOpenTrigger
             )
     }
 
@@ -196,6 +202,118 @@ internal object DeviceSettingsActionParser {
             listOf("打开", "进入", "跳转", "前往", "去", "设置", "开启", "授权").any { it in this } ||
                 englishUsageAccessPattern.containsMatchIn(normalized)
             )
+    }
+}
+
+internal object SystemSettingsActionParser {
+    private val englishOpenPattern =
+        Regex("""\b(?:open|show|go\s+to|launch|enable|turn\s+on)\b""", RegexOption.IGNORE_CASE)
+    private val englishSettingsPattern =
+        Regex("""\b(?:settings?|preferences?)\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean = targetFor(input) != null
+
+    fun draft(input: String): ActionDraft {
+        val target = targetFor(input) ?: SystemSettingsTargets.GENERAL
+        val label = SystemSettingsTargets.pageLabel(target)
+        return ActionDraft(
+            functionName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+            title = "打开 $label",
+            summary = "将打开$label，由你手动完成后续操作。",
+            parameters = mapOf("target" to target),
+            requiresConfirmation = true,
+        )
+    }
+
+    private fun targetFor(input: String): String? {
+        if (input.looksLikeDiscussion() || input.looksLikeDeviceSettingsNonAction()) return null
+        if (input.looksLikeAppScopedSystemSettings()) return null
+        val target = referencedTarget(input) ?: return null
+        return target.takeIf { input.hasSettingsOpenIntent() }
+    }
+
+    private fun referencedTarget(input: String): String? {
+        val normalized = input.lowercase()
+        return when {
+            listOf("蓝牙").any { it in input } ||
+                Regex("""\bbluetooth\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ->
+                SystemSettingsTargets.BLUETOOTH
+
+            listOf("定位", "位置信息", "位置服务", "gps", "GPS").any { it in input } ||
+                Regex("""\blocation\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ->
+                SystemSettingsTargets.LOCATION
+
+            listOf("通知设置", "通知权限", "系统通知").any { it in input } ||
+                Regex("""\bnotifications?\s+(?:settings?|preferences?|permissions?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?notifications?\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.NOTIFICATION
+
+            listOf("显示设置", "屏幕设置", "亮度", "屏幕亮度").any { it in input } ||
+                Regex("""\b(?:display|brightness)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:display|brightness)\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.DISPLAY
+
+            listOf("声音设置", "音量设置", "铃声设置").any { it in input } ||
+                Regex("""\b(?:sound|volume|ringtone)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:sound|volume|ringtone)\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.SOUND
+
+            listOf("省电", "省电模式", "电池设置", "电量设置").any { it in input } ||
+                Regex("""\b(?:battery|battery\s+saver|power\s+saver)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:battery|battery\s+saver|power\s+saver)\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.BATTERY_SAVER
+
+            listOf("网络设置", "移动网络", "蜂窝网络", "数据网络").any { it in input } ||
+                Regex("""\b(?:network|mobile\s+data|cellular)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:network|mobile\s+data|cellular)\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.NETWORK
+
+            listOf("飞行模式").any { it in input } ||
+                Regex("""\bairplane\s+mode\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ->
+                SystemSettingsTargets.AIRPLANE_MODE
+
+            listOf("输入法", "键盘设置").any { it in input } ||
+                Regex("""\b(?:input\s+method|keyboard)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:input\s+method|keyboard)\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.INPUT_METHOD
+
+            listOf("无障碍", "辅助功能").any { it in input } ||
+                Regex("""\baccessibility\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?accessibility\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.ACCESSIBILITY
+
+            listOf("系统设置", "手机设置", "设置页").any { it in input } ||
+                Regex("""\b(?:system|phone|android)\s+(?:settings?|preferences?)\b|\b(?:open|show|go\s+to|launch)\s+(?:the\s+)?settings?\b""", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(normalized) ->
+                SystemSettingsTargets.GENERAL
+
+            else -> null
+        }
+    }
+
+    private fun String.hasSettingsOpenIntent(): Boolean {
+        val normalized = lowercase()
+        return listOf("打开", "开启", "进入", "跳转", "前往", "去", "设置", "调出", "启动").any { it in this } ||
+            englishOpenPattern.containsMatchIn(normalized) ||
+            englishSettingsPattern.containsMatchIn(normalized)
+    }
+
+    private fun String.looksLikeAppScopedSystemSettings(): Boolean {
+        val normalized = lowercase()
+        val referencesAppScope = listOf(
+            "微信",
+            "wechat",
+            "支付宝",
+            "alipay",
+            "抖音",
+            "douyin",
+            "淘宝",
+            "taobao",
+            "应用",
+            "app",
+        ).any { it in normalized }
+        val referencesScopedSettings = listOf("通知设置", "权限", "应用设置", "app settings").any { it in normalized }
+        return referencesAppScope && referencesScopedSettings
     }
 }
 
@@ -779,36 +897,98 @@ internal object DeepLinkActionParser {
     private const val TRAILING_URI_PUNCTUATION = ".,;:!?)]}。！）；】"
 }
 
+internal object CameraActionParser {
+    private val englishPattern =
+        Regex("""\b(?:open|launch|start)\s+(?:the\s+)?camera\b|\b(?:take|capture)\s+(?:a\s+)?(?:photo|picture)\b""", RegexOption.IGNORE_CASE)
+
+    fun matches(input: String): Boolean {
+        if (input.looksLikeCameraNonAction()) return false
+        val normalized = input.lowercase()
+        val hasChineseTarget = listOf("相机", "摄像头", "摄像机", "拍照").any { it in input }
+        val hasChineseTrigger = listOf("打开", "启动", "开启", "拍").any { it in input }
+        return (hasChineseTarget && hasChineseTrigger) || englishPattern.containsMatchIn(normalized)
+    }
+
+    fun draft(): ActionDraft =
+        ActionDraft(
+            functionName = MobileActionFunctions.OPEN_CAMERA,
+            title = "打开相机",
+            summary = "将打开系统相机应用；不会拍照、录像或读取照片。",
+            parameters = emptyMap(),
+            requiresConfirmation = true,
+        )
+
+    private fun String.looksLikeCameraNonAction(): Boolean {
+        val normalized = lowercase()
+        return startsWithActionNegation() ||
+            listOf(
+                "不要打开",
+                "别打开",
+                "不要启动",
+                "别启动",
+                "不要开启",
+                "解释",
+                "说明",
+                "是什么",
+                "什么意思",
+                "怎么",
+                "如何",
+                "代码",
+                "组件",
+                "接口",
+                "权限",
+                "api",
+                "API",
+                "实现",
+                "设计",
+            ).any { it in this } ||
+            normalized.contains(Regex("""\b(do\s+not|don't|dont)\s+(?:open|launch|start|use)\s+(?:the\s+)?camera\b""")) ||
+            normalized.contains(Regex("""\b(?:what\s+is|explain|meaning|how\s+do\s+i|how\s+to|implement|design|api|sdk|code|schema|tests?|parser|docs?|architecture|permissions?)\b.*\bcamera\b"""))
+    }
+}
+
 internal object AppNavigationActionParser {
     private val packageNamePattern =
         Regex("""\b[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+\b""")
     private val uriSchemePattern =
         Regex("""\b[a-zA-Z][a-zA-Z0-9+.-]*://""")
     private val chineseLaunchPattern =
-        Regex("""(?:打开|打开并|启动|启动并)\s*(?:应用|app|应用程序)?""")
+        Regex("""(?:打开并|打开|启动并|启动)\s*(?:应用|app|应用程序)?""")
     private val englishLaunchPattern =
-        Regex("""\b(?:open|launch|start)\b""", RegexOption.IGNORE_CASE)
+        Regex("""^\s*(?:please\s+)?(?:open|launch|start)\b""", RegexOption.IGNORE_CASE)
 
     fun matches(input: String): Boolean = targetTool(input) != null
 
     fun draft(input: String): ActionDraft {
-        val packageName = packageNameFromInput(input).orEmpty()
         return when (targetTool(input)) {
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> ActionDraft(
-                functionName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
-                title = "打开应用深层目标",
-                summary = "将打开应用详情设置：$packageName",
-                parameters = mapOf(
-                    AppDeepTargets.TARGET_ID_ARGUMENT to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
-                    AppDeepTargets.PACKAGE_NAME_ARGUMENT to packageName,
-                ),
-                requiresConfirmation = true,
-            )
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET -> {
+                val packageName = packageNameFromInput(input).orEmpty()
+                ActionDraft(
+                    functionName = MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+                    title = "打开应用深层目标",
+                    summary = "将打开应用详情设置：$packageName",
+                    parameters = mapOf(
+                        AppDeepTargets.TARGET_ID_ARGUMENT to AppDeepTargets.APP_DETAILS_SETTINGS_ID,
+                        AppDeepTargets.PACKAGE_NAME_ARGUMENT to packageName,
+                    ),
+                    requiresConfirmation = true,
+                )
+            }
+            MobileActionFunctions.OPEN_APP_INTENT -> {
+                val packageName = packageNamePattern.find(input)?.value.orEmpty()
+                ActionDraft(
+                    functionName = MobileActionFunctions.OPEN_APP_INTENT,
+                    title = "打开应用",
+                    summary = "将打开应用启动页：$packageName",
+                    parameters = mapOf("packageName" to packageName),
+                    requiresConfirmation = true,
+                )
+            }
             else -> ActionDraft(
-                functionName = MobileActionFunctions.OPEN_APP_INTENT,
+                functionName = MobileActionFunctions.OPEN_APP_BY_NAME,
                 title = "打开应用",
-                summary = "将打开应用启动页：$packageName",
-                parameters = mapOf("packageName" to packageName),
+                summary = "将按本机应用名打开：${appNameFromInput(input).orEmpty()}",
+                parameters = mapOf("appName" to appNameFromInput(input).orEmpty()),
                 requiresConfirmation = true,
             )
         }
@@ -816,20 +996,42 @@ internal object AppNavigationActionParser {
 
     private fun targetTool(input: String): String? {
         if (input.looksLikeAppNavigationNonAction() || uriSchemePattern.containsMatchIn(input)) return null
+        if (input.looksLikeSystemFunctionRatherThanApp()) return null
+        if (input.looksLikeWebTargetRatherThanApp()) return null
         if (!input.hasAppLaunchTrigger()) return null
-        packageNameFromInput(input) ?: return null
         return if (input.isAppDetailsSettingsTarget()) {
+            packageNameFromInput(input) ?: return null
             MobileActionFunctions.OPEN_APP_DEEP_TARGET
-        } else {
+        } else if (packageNamePattern.containsMatchIn(input)) {
             MobileActionFunctions.OPEN_APP_INTENT
+        } else {
+            appNameFromInput(input) ?: return null
+            MobileActionFunctions.OPEN_APP_BY_NAME
         }
     }
 
     private fun packageNameFromInput(input: String): String? {
         val normalized = input.lowercase()
+        if (input.isBareAppInfoTarget()) return null
         return knownAppPackages.entries.firstNotNullOfOrNull { (alias, packageName) ->
             if (normalized.contains(alias.lowercase())) packageName else null
         } ?: packageNamePattern.find(input)?.value
+    }
+
+    private fun appNameFromInput(input: String): String? {
+        if (input.isBareAppInfoTarget() || packageNamePattern.containsMatchIn(input)) return null
+        val cleaned = cleanedObject(input)
+            .replace(chineseLaunchPattern, "")
+            .replace(Regex("""(?i)^\s*(?:open|launch|start)\s+(?:the\s+)?(?:app(?:lication)?\s+)?"""), "")
+            .replace(Regex("""^\s*(?:应用|app|应用程序)\s*""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\s*(?:应用|app|应用程序)\s*$""", RegexOption.IGNORE_CASE), "")
+            .trim()
+            .trimEnd('。', '.', '！', '!', '，', ',')
+        return cleaned.takeIf { candidate ->
+            candidate.length in 1..80 &&
+                candidate !in setOf("应用", "app", "应用程序", "软件") &&
+                !candidate.contains(Regex("""[/:\\]"""))
+        }
     }
 
     private fun String.hasAppLaunchTrigger(): Boolean =
@@ -845,6 +1047,15 @@ internal object AppNavigationActionParser {
             "application details",
             "application info",
         ).any { it in normalized }
+    }
+
+    private fun String.isBareAppInfoTarget(): Boolean {
+        if (!isAppDetailsSettingsTarget()) return false
+        val normalized = lowercase()
+        val hasConcreteAppAlias = knownAppPackages.keys
+            .filterNot { it in genericMessagingAliases }
+            .any { normalized.contains(it.lowercase()) }
+        return !hasConcreteAppAlias && !packageNamePattern.containsMatchIn(this)
     }
 
     private fun String.looksLikeAppNavigationNonAction(): Boolean {
@@ -871,6 +1082,10 @@ internal object AppNavigationActionParser {
             "接口",
             "小程序",
             "应用设置",
+            "搜索",
+            "搜一下",
+            "筛选",
+            "然后搜索",
             "支付",
             "收款码",
             "扫一扫",
@@ -893,6 +1108,24 @@ internal object AppNavigationActionParser {
             normalized.contains(Regex("""\b(what\s+is|explain|meaning|how\s+do\s+i|how\s+to|implement|design|api|sdk|code|schema|tests?|parser|docs?|architecture|activity|extras?|data\s+uri|intent|app\s+settings|then|after\s+that)\b"""))
     }
 
+    private fun String.looksLikeSystemFunctionRatherThanApp(): Boolean {
+        val normalized = lowercase()
+        val referencesExplicitApp = listOf("应用", "app", "应用程序").any { it in this } ||
+            Regex("""\bapp(?:lication)?\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        val referencesFlashlight = "手电筒" in this ||
+            Regex("""\b(?:flashlight|torch)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        return referencesFlashlight && !referencesExplicitApp
+    }
+
+    private fun String.looksLikeWebTargetRatherThanApp(): Boolean {
+        val normalized = lowercase()
+        val referencesExplicitApp = listOf("应用", "app", "应用程序").any { it in this } ||
+            Regex("""\bapp(?:lication)?\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        val referencesWebTarget = listOf("网页", "网站", "链接", "网址").any { it in this } ||
+            Regex("""\b(?:web\s*page|website|link|url)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        return referencesWebTarget && !referencesExplicitApp
+    }
+
     private val knownAppPackages = mapOf(
         "微信" to "com.tencent.mm",
         "wechat" to "com.tencent.mm",
@@ -904,8 +1137,67 @@ internal object AppNavigationActionParser {
         "bilibili" to "tv.danmaku.bili",
         "淘宝" to "com.taobao.taobao",
         "taobao" to "com.taobao.taobao",
+        "拼多多" to "com.xunmeng.pinduoduo",
+        "pinduoduo" to "com.xunmeng.pinduoduo",
+        "pdd" to "com.xunmeng.pinduoduo",
+        "京东" to "com.jingdong.app.mall",
+        "jd" to "com.jingdong.app.mall",
         "美团" to "com.sankuai.meituan",
         "meituan" to "com.sankuai.meituan",
+        "高德地图" to "com.autonavi.minimap",
+        "高德" to "com.autonavi.minimap",
+        "amap" to "com.autonavi.minimap",
+        "gaode" to "com.autonavi.minimap",
+        "autonavi" to "com.autonavi.minimap",
+        "谷歌地图" to "com.google.android.apps.maps",
+        "google maps" to "com.google.android.apps.maps",
+        "google map" to "com.google.android.apps.maps",
+        "maps" to "com.google.android.apps.maps",
+        "地图" to "com.autonavi.minimap",
+        "浏览器" to "com.android.browser",
+        "browser" to "com.android.browser",
+        "夸克" to "com.quark.browser",
+        "quark" to "com.quark.browser",
+        "日历" to "com.android.calendar",
+        "calendar" to "com.android.calendar",
+        "邮件" to "com.android.email",
+        "邮箱" to "com.android.email",
+        "email" to "com.android.email",
+        "mail" to "com.android.email",
+        "相册" to "com.miui.gallery",
+        "图库" to "com.miui.gallery",
+        "gallery" to "com.miui.gallery",
+        "photos" to "com.miui.gallery",
+        "计算器" to "com.miui.calculator",
+        "calculator" to "com.miui.calculator",
+        "时钟" to "com.android.deskclock",
+        "闹钟" to "com.android.deskclock",
+        "clock" to "com.android.deskclock",
+        "alarm" to "com.android.deskclock",
+        "便签" to "com.miui.notes",
+        "笔记" to "com.miui.notes",
+        "notes" to "com.miui.notes",
+        "note" to "com.miui.notes",
+        "通讯录" to "com.android.contacts",
+        "联系人" to "com.android.contacts",
+        "电话" to "com.android.contacts",
+        "拨号" to "com.android.contacts",
+        "contacts" to "com.android.contacts",
+        "dialer" to "com.android.contacts",
+        "phone" to "com.android.contacts",
+        "信息" to "com.android.mms",
+        "短信" to "com.android.mms",
+        "messages" to "com.android.mms",
+        "messaging" to "com.android.mms",
+        "sms" to "com.android.mms",
+    )
+
+    private val genericMessagingAliases = setOf(
+        "信息",
+        "短信",
+        "messages",
+        "messaging",
+        "sms",
     )
 }
 

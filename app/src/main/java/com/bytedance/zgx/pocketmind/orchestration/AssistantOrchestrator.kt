@@ -135,6 +135,7 @@ class AssistantOrchestrator(
         ),
         SequentialActionObservationReplanner(actionPlanningRuntime),
     ),
+    deviceControlSessionFinisher: () -> Unit = {},
 ) : AssistantRouter {
     private val agentLoopRuntime = AgentLoopRuntime(
         memoryIndex = memoryIndex,
@@ -143,6 +144,7 @@ class AssistantOrchestrator(
         auditSink = toolAuditSink,
         traceStore = traceStore,
         observationReplanner = observationReplanner,
+        deviceControlSessionFinisher = deviceControlSessionFinisher,
     )
 
     override fun route(

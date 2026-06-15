@@ -14,6 +14,7 @@ import com.bytedance.zgx.pocketmind.action.IntentCandidate
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
 import com.bytedance.zgx.pocketmind.action.ModelToolOutputParseResult
+import com.bytedance.zgx.pocketmind.action.SystemSettingsTargets
 import com.bytedance.zgx.pocketmind.audit.InMemoryToolAuditSink
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEventType
 import com.bytedance.zgx.pocketmind.data.AgentSkillRunCheckpointEntity
@@ -22,6 +23,8 @@ import com.bytedance.zgx.pocketmind.data.AgentStepEntity
 import com.bytedance.zgx.pocketmind.data.AgentTraceDao
 import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
 import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
+import com.bytedance.zgx.pocketmind.device.DEVICE_CONTROL_METADATA_POLICY
+import com.bytedance.zgx.pocketmind.device.DEVICE_CONTROL_SOURCE_ACCESSIBILITY
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
@@ -1546,6 +1549,249 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun reduceDeviceActionConfirmationsExecutesLowRiskDeviceNavigationWithoutConfirmation() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = wifiPlanningResult(),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+        )
+
+        assertEquals(AgentRunState.ExecutingTool, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, result.plan.request.toolName)
+        assertEquals(SafetyOutcome.Allow, result.plan.safetyDecision.outcome)
+        assertFalse(result.plan.draft.requiresConfirmation)
+        assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
+    fun reduceDeviceActionConfirmationsExecutesLowRiskUiTapWithoutConfirmation() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = uiTapPlanningResult("搜索"),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "点击搜索",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+        )
+
+        assertEquals(AgentRunState.ExecutingTool, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.UI_TAP, result.plan.request.toolName)
+        assertEquals(SafetyOutcome.Allow, result.plan.safetyDecision.outcome)
+        assertFalse(result.plan.draft.requiresConfirmation)
+    }
+
+    @Test
+    fun reduceDeviceActionConfirmationsKeepsHighRiskUiTapConfirmed() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = uiTapPlanningResult("确认支付"),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "点击确认支付",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.UI_TAP, result.plan.request.toolName)
+        assertEquals(SafetyOutcome.RequireConfirmation, result.plan.safetyDecision.outcome)
+        assertTrue(result.steps.any { it is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
+    fun reduceDeviceActionConfirmationsKeepsHighRiskUiTapContinuationConfirmed() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = HighRiskContinuationSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val planned = runtime.runOnce(
+            input = HighRiskContinuationSkillRuntime.INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+        )
+
+        assertEquals(AgentRunState.ExecutingTool, planned.run.state)
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, planned.plan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL, planned.plan.skillRequest?.skillId)
+        assertFalse(planned.plan.draft.requiresConfirmation)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = observeScreenResult(planned.plan.request),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        val nextPlan = observed.decision.plan
+        assertEquals(MobileActionFunctions.UI_TAP, nextPlan.request.toolName)
+        assertTrue(nextPlan.request.arguments["target"].orEmpty().contains("确认支付"))
+        assertTrue(nextPlan.draft.requiresConfirmation)
+        assertEquals(SafetyOutcome.RequireConfirmation, nextPlan.safetyDecision.outcome)
+        assertEquals(nextPlan.request.id, runtime.latestPendingConfirmation()?.request?.id)
+    }
+
+    @Test
+    fun reduceDeviceActionConfirmationsCompletesLowRiskExternalLaunchWithoutOutcomePopup() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = wifiPlanningResult(),
+        )
+        var deviceControlSessionFinishCount = 0
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            deviceControlSessionFinisher = { deviceControlSessionFinishCount += 1 },
+        )
+        val planned = runtime.runOnce(
+            input = "打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+        )
+        require(planned.plan is AgentPlan.UseTool)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开 Wi-Fi 设置页",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertEquals(AgentObservationDecision.Complete, observed.decision)
+        assertEquals(1, deviceControlSessionFinishCount)
+    }
+
+    @Test
+    fun reduceDeviceActionConfirmationsKeepsExternalTextDraftsConfirmed() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.COMPOSE_EMAIL,
+                        title = "邮件草稿",
+                        summary = "将打开邮件 App 并填入草稿内容。",
+                        parameters = mapOf("body" to "明天聊"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "帮我写邮件：明天聊",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.COMPOSE_EMAIL, result.plan.request.toolName)
+        assertEquals(SafetyOutcome.RequireConfirmation, result.plan.safetyDecision.outcome)
+        assertTrue(result.steps.any { it is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
+    fun reduceDeviceActionConfirmationsKeepsAccessibilitySettingsConfirmed() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                        title = "打开无障碍设置",
+                        summary = "将打开无障碍设置，由你手动完成后续操作。",
+                        parameters = mapOf("target" to SystemSettingsTargets.ACCESSIBILITY),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "打开无障碍设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_SYSTEM_SETTINGS, result.plan.request.toolName)
+        assertEquals(SystemSettingsTargets.ACCESSIBILITY, result.plan.request.arguments["target"])
+        assertEquals(SafetyOutcome.RequireConfirmation, result.plan.safetyDecision.outcome)
+    }
+
+    @Test
     fun reminderActionInputUsesReminderSkillAndRequestsConfirmation() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = true,
@@ -2066,6 +2312,29 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun naturalWifiCommandsPlanToolBeforeModelAnswer() {
+        listOf("打开WiFi", "打开 WiFi", "打开 Wi-Fi").forEach { input ->
+            val runtime = AgentLoopRuntime(
+                memoryIndex = MemoryRepository(),
+                actionPlanningRuntime = RuleOnlyActionRuntime(),
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            )
+
+            val result = runtime.runOnce(
+                input = input,
+                installedCapabilities = setOf(ModelCapability.Chat),
+                memoryEnabled = false,
+            )
+
+            assertEquals("$input should request tool confirmation before normal answer generation", AgentRunState.AwaitingUserConfirmation, result.run.state)
+            require(result.plan is AgentPlan.UseTool)
+            assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, result.plan.request.toolName)
+            assertTrue(result.plan.request.arguments.isEmpty())
+            assertTrue(result.plan.draft.requiresConfirmation)
+        }
+    }
+
+    @Test
     fun skillFirstWebSearchBypassesActionPlannerAndExecutesWithoutConfirmation() {
         val cases = listOf(
             "搜一下 Kotlin 协程" to "Kotlin 协程",
@@ -2243,8 +2512,10 @@ class AgentLoopRuntimeTest {
     @Test
     fun skillFirstAppNavigationBypassesActionPlannerAndRequestsConfirmation() {
         val cases = listOf(
-            "启动微信" to MobileActionFunctions.OPEN_APP_INTENT,
+            "启动微信" to MobileActionFunctions.OPEN_APP_BY_NAME,
             "打开微信应用详情设置" to MobileActionFunctions.OPEN_APP_DEEP_TARGET,
+            "打开高德地图" to MobileActionFunctions.OPEN_APP_BY_NAME,
+            "打开信息" to MobileActionFunctions.OPEN_APP_BY_NAME,
         )
 
         cases.forEach { (input, toolName) ->
@@ -2264,8 +2535,13 @@ class AgentLoopRuntimeTest {
             assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
             require(result.plan is AgentPlan.UseTool)
             assertEquals(toolName, result.plan.request.toolName)
-            if (toolName == MobileActionFunctions.OPEN_APP_INTENT) {
-                assertEquals("com.tencent.mm", result.plan.request.arguments["packageName"])
+            if (toolName == MobileActionFunctions.OPEN_APP_BY_NAME) {
+                val expectedAppName = when (input) {
+                    "打开高德地图" -> "高德地图"
+                    "打开信息" -> "信息"
+                    else -> "微信"
+                }
+                assertEquals(expectedAppName, result.plan.request.arguments["appName"])
             } else {
                 assertEquals(AppDeepTargets.APP_DETAILS_SETTINGS_ID, result.plan.request.arguments["targetId"])
                 assertEquals("com.tencent.mm", result.plan.request.arguments["packageName"])
@@ -2275,6 +2551,382 @@ class AgentLoopRuntimeTest {
             assertEquals(0, actionRuntime.isLikelyActionCallCount)
             assertEquals(0, actionRuntime.planCallCount)
             assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, runtime.latestPendingConfirmation()?.skillId)
+        }
+    }
+
+    @Test
+    fun skillFirstOpenAppSearchRequestsConfirmationForFirstStep() {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "打开淘宝搜索海河牛奶",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, result.plan.request.toolName)
+        assertEquals("淘宝", result.plan.request.arguments["appName"])
+        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, result.plan.skillRequest?.skillId)
+        assertEquals("skill-first", result.plan.fallbackReason)
+        assertEquals(0, actionRuntime.isLikelyActionCallCount)
+        assertEquals(0, actionRuntime.planCallCount)
+        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, runtime.latestPendingConfirmation()?.skillId)
+    }
+
+    @Test
+    fun openAppUiSearchUnverifiedOpenAppByNameContinuesCurrentSkillToWait() {
+        val actionRuntime = RecordingActionRuntime(likelyAction = false)
+        var replanCallCount = 0
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner {
+                replanCallCount += 1
+                null
+            },
+        )
+        val planned = runtime.runOnce(
+            input = "打开淘宝搜索海河牛奶",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开淘宝",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.ExecutingTool, observed.run.state)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(MobileActionFunctions.UI_WAIT, observed.decision.plan.request.toolName)
+        assertTrue(observed.decision.plan.request.reason.contains("等待淘宝前台界面稳定"))
+        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, observed.decision.plan.skillRequest?.skillId)
+        assertFalse(observed.decision.plan.draft.requiresConfirmation)
+        assertEquals(SafetyOutcome.Allow, observed.decision.plan.safetyDecision.outcome)
+        assertEquals(0, replanCallCount)
+        assertEquals(null, runtime.latestPendingConfirmation())
+    }
+
+    @Test
+    fun openAppUiSearchLocalOnlyUiResultsContinueSkillBeforeModelContinuation() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner { error("skill progression should not replan") },
+        )
+        val planned = runtime.runOnce(
+            input = "打开淘宝搜索海河牛奶",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val opened = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = ToolResult(
+                    requestId = planned.plan.request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开淘宝",
+                    data = externalActivityResultData(
+                        toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                        completionVerified = false,
+                        externalOutcome = "Unknown",
+                        externalOutcomeSource = "Unknown",
+                    ),
+                ),
+            ),
+        )
+        val waitPlan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
+
+        val observedAfterWait = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = uiActionResult(waitPlan.request, actionType = "wait"),
+            ),
+        )
+
+        assertEquals(AgentRunState.ExecutingTool, observedAfterWait.run.state)
+        val observePlan = observedAfterWait.requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
+        assertFalse(observePlan.draft.requiresConfirmation)
+        assertEquals(SafetyOutcome.Allow, observePlan.safetyDecision.outcome)
+        assertEquals(null, runtime.latestPendingConfirmation())
+    }
+
+    @Test
+    fun openAppUiSearchProgressesThroughLowRiskUiStepsUntilVerification() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner { error("skill progression should not replan") },
+        )
+        val planned = runtime.runOnce(
+            input = "打开淘宝搜索海河牛奶",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val opened = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = ToolResult(
+                    requestId = planned.plan.request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开淘宝",
+                    data = externalActivityResultData(
+                        toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                        completionVerified = false,
+                        externalOutcome = "Unknown",
+                        externalOutcomeSource = "Unknown",
+                    ),
+                ),
+            ),
+        )
+
+        var plan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
+            .requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
+        plan = runtime.observeToolResult(planned.run.id, observeScreenResult(plan.request))
+            .requireNextTool(MobileActionFunctions.UI_TAP)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "tap", target = "搜索入口"))
+            .requireNextTool(MobileActionFunctions.UI_WAIT)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
+            .requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "type_text", target = "搜索输入框"))
+            .requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "submit_search"))
+            .requireNextTool(MobileActionFunctions.UI_WAIT)
+
+        val verified = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = uiActionResult(
+                    request = plan.request,
+                    actionType = "wait",
+                    extraData = mapOf(
+                        "searchVerificationStatus" to "verified",
+                        "searchVerificationEvidence" to "query_visible_after_change",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(AgentRunState.GeneratingAnswer, verified.run.state)
+        require(verified.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(verified.decision.requiresLocalModel)
+        assertEquals(null, runtime.latestPendingConfirmation())
+    }
+
+    @Test
+    fun openAppUiSearchRuntimeFlowCoversCommonAppProfiles() {
+        listOf(
+            OpenAppUiSearchRuntimeCase(
+                input = "打开拼多多搜索纸巾",
+                appName = "拼多多",
+                query = "纸巾",
+                expectedPackageName = "com.xunmeng.pinduoduo",
+                resultSummary = "拼多多 纸巾 综合 销量 筛选 百亿补贴",
+            ),
+            OpenAppUiSearchRuntimeCase(
+                input = "打开高德地图搜索机场",
+                appName = "高德地图",
+                query = "机场",
+                expectedPackageName = "com.autonavi.minimap",
+                resultSummary = "高德地图 机场 路线 导航 到这去 地点列表",
+            ),
+            OpenAppUiSearchRuntimeCase(
+                input = "打开浏览器搜索 Kotlin 协程",
+                appName = "浏览器",
+                query = "Kotlin 协程",
+                expectedPackageName = "com.android.chrome",
+                resultSummary = "浏览器 Kotlin 协程 搜索结果 网页 相关搜索",
+            ),
+        ).forEach { searchCase ->
+            assertOpenAppUiSearchRuntimeFlow(searchCase)
+        }
+    }
+
+    @Test
+    fun appNavigationUnverifiedOpenAppByNameCompletesWithoutExternalOutcomePopup() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "打开微信",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, planned.plan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, planned.plan.skillRequest?.skillId)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开微信",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Completed, observed.run.state)
+        assertEquals(AgentObservationDecision.Complete, observed.decision)
+        assertNull(runtime.latestPendingExternalOutcome())
+        assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+            step.request.toolName == MobileActionFunctions.UI_WAIT ||
+                step.request.toolName == MobileActionFunctions.OBSERVE_CURRENT_SCREEN
+        })
+    }
+
+    @Test
+    fun lowRiskAppControlContinuationCheckpointsAfterFiveUiActionsEvenWhenReduced() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            skillRuntime = CheckpointingLowRiskTapSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val planned = runtime.runOnce(
+            input = CheckpointingLowRiskTapSkillRuntime.INPUT,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            options = AgentRunOptions(reduceDeviceActionConfirmations = true),
+        )
+
+        assertEquals(AgentRunState.ExecutingTool, planned.run.state)
+        val firstPlan = planned.plan
+        require(firstPlan is AgentPlan.UseTool)
+        assertEquals("tap_1", firstPlan.request.id)
+        assertFalse(firstPlan.draft.requiresConfirmation)
+
+        var plan: AgentPlan.UseTool = firstPlan
+        for (index in 2..5) {
+            plan = runtime.observeToolResult(
+                runId = planned.run.id,
+                result = uiActionResult(plan.request, actionType = "tap", target = "搜索${index - 1}"),
+            ).requireNextTool(MobileActionFunctions.UI_TAP)
+            assertEquals("tap_$index", plan.request.id)
+            assertFalse(plan.draft.requiresConfirmation)
+        }
+
+        val checkpoint = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = uiActionResult(plan.request, actionType = "tap", target = "搜索5"),
+        )
+
+        requireNotNull(checkpoint)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, checkpoint.run.state)
+        require(checkpoint.decision is AgentObservationDecision.PlanNextTool)
+        val checkpointPlan = checkpoint.decision.plan
+        assertEquals("tap_6", checkpointPlan.request.id)
+        assertEquals(MobileActionFunctions.UI_TAP, checkpointPlan.request.toolName)
+        assertTrue(checkpointPlan.draft.requiresConfirmation)
+        assertEquals(SafetyOutcome.RequireConfirmation, checkpointPlan.safetyDecision.outcome)
+        assertEquals("tap_6", runtime.latestPendingConfirmation()?.request?.id)
+    }
+
+    @Test
+    fun completedOpenAppUiSearchDoesNotRestoreInitialLaunchAsPendingExternalOutcome() {
+        val dao = FakeAgentTraceDao()
+        val traceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 1_000L },
+            runIdFactory = { "run-open-app-ui-search-restored" },
+        )
+        val initialRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = traceStore,
+        )
+        val planned = initialRuntime.runOnce(
+            input = "打开淘宝搜索海河牛奶",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            sessionId = "session-open-app-ui-search",
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val opened = initialRuntime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开淘宝",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
+            ),
+        )
+        requireNotNull(opened)
+        assertEquals(AgentRunState.ExecutingTool, opened.run.state)
+        traceStore.updateState(planned.run.id, AgentRunState.Completed)
+
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = RoomAgentTraceStore(traceDao = dao),
+        )
+
+        assertNull(restoredRuntime.latestPendingExternalOutcome("session-open-app-ui-search"))
+    }
+
+    @Test
+    fun cameraAliasesPlanToolBeforeModelAnswer() {
+        listOf("打开相机", "打开摄像头", "打开摄像机").forEach { input ->
+            val runtime = AgentLoopRuntime(
+                memoryIndex = MemoryRepository(),
+                actionPlanningRuntime = RuleOnlyActionRuntime(),
+                traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            )
+
+            val result = runtime.runOnce(
+                input = input,
+                installedCapabilities = setOf(ModelCapability.Chat),
+                memoryEnabled = false,
+            )
+
+            assertEquals("$input should request tool confirmation before normal answer generation", AgentRunState.AwaitingUserConfirmation, result.run.state)
+            require(result.plan is AgentPlan.UseTool)
+            assertCameraUseToolPlan(input, result.plan)
+            assertTrue(result.plan.draft.requiresConfirmation)
         }
     }
 
@@ -2719,6 +3371,7 @@ class AgentLoopRuntimeTest {
             "打开应用",
             "启动 app",
             "打开应用详情设置",
+            "打开应用信息",
             "不要打开微信",
             "别启动微信",
             "不启动微信",
@@ -6623,8 +7276,12 @@ class AgentLoopRuntimeTest {
         )
 
         requireNotNull(opened)
-        assertEquals(AgentRunState.AwaitingExternalOutcome, opened.run.state)
-        assertNull(dao.latestPendingConfirmation())
+        assertEquals(AgentRunState.AwaitingUserConfirmation, opened.run.state)
+        require(opened.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(
+            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
+            opened.decision.plan.request.toolName,
+        )
         val cursorStep = dao.steps(planned.run.id).lastOrNull { step ->
             step.type == "ContinuationCursorRecorded"
         }
@@ -6642,22 +7299,7 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(traceDao = dao),
             observationReplanner = SequentialActionObservationReplanner(actionRuntime),
         )
-        val pending = restoredRuntime.latestPendingExternalOutcome("session-restored-external")
-        requireNotNull(pending)
-
-        val confirmed = restoredRuntime.recordExternalOutcome(
-            runId = pending.runId,
-            requestId = pending.requestId,
-            outcome = AgentExternalOutcome.Completed,
-        )
-
-        requireNotNull(confirmed)
-        assertEquals(AgentRunState.AwaitingUserConfirmation, confirmed.run.state)
-        require(confirmed.decision is AgentObservationDecision.PlanNextTool)
-        assertEquals(
-            MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
-            confirmed.decision.plan.request.toolName,
-        )
+        assertNull(restoredRuntime.latestPendingExternalOutcome("session-restored-external"))
         val nextPending = dao.latestPendingConfirmation()
         requireNotNull(nextPending)
         assertEquals(MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS, nextPending.toolName)
@@ -6688,7 +7330,7 @@ class AgentLoopRuntimeTest {
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, planned.plan.request.toolName)
 
         initialRuntime.confirmToolRequest(planned.run.id, planned.plan.request.id)
-        initialRuntime.observeToolResult(
+        val opened = initialRuntime.observeToolResult(
             runId = planned.run.id,
             result = ToolResult(
                 requestId = planned.plan.request.id,
@@ -6702,6 +7344,9 @@ class AgentLoopRuntimeTest {
                 ),
             ),
         )
+        requireNotNull(opened)
+        assertEquals(AgentRunState.Completed, opened.run.state)
+        assertEquals(AgentObservationDecision.Complete, opened.decision)
         assertTrue(dao.steps(planned.run.id).none { step ->
             step.type == "ContinuationCursorRecorded"
         })
@@ -6712,18 +7357,7 @@ class AgentLoopRuntimeTest {
             traceStore = RoomAgentTraceStore(traceDao = dao),
             observationReplanner = SequentialActionObservationReplanner(actionRuntime),
         )
-        val pending = restoredRuntime.latestPendingExternalOutcome("session-restored-external-payload")
-        requireNotNull(pending)
-
-        val confirmed = restoredRuntime.recordExternalOutcome(
-            runId = pending.runId,
-            requestId = pending.requestId,
-            outcome = AgentExternalOutcome.Completed,
-        )
-
-        requireNotNull(confirmed)
-        assertEquals(AgentRunState.Completed, confirmed.run.state)
-        assertEquals(AgentObservationDecision.Complete, confirmed.decision)
+        assertNull(restoredRuntime.latestPendingExternalOutcome("session-restored-external-payload"))
         assertNull(dao.latestPendingConfirmation())
     }
 
@@ -7814,6 +8448,212 @@ class AgentLoopRuntimeTest {
         assertNull(runtime.latestPendingConfirmation())
     }
 
+    private fun AgentObservationResult?.requireNextTool(expectedToolName: String): AgentPlan.UseTool {
+        val observation = requireNotNull(this)
+        assertEquals(AgentRunState.ExecutingTool, observation.run.state)
+        require(observation.decision is AgentObservationDecision.PlanNextTool)
+        val plan = observation.decision.plan
+        assertEquals(expectedToolName, plan.request.toolName)
+        assertFalse(plan.draft.requiresConfirmation)
+        assertEquals(SafetyOutcome.Allow, plan.safetyDecision.outcome)
+        return plan
+    }
+
+    private fun assertOpenAppUiSearchRuntimeFlow(searchCase: OpenAppUiSearchRuntimeCase) {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner { error("skill progression should not replan") },
+        )
+        val planned = runtime.runOnce(
+            input = searchCase.input,
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        assertEquals(AgentRunState.AwaitingUserConfirmation, planned.run.state)
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, planned.plan.request.toolName)
+        assertEquals(searchCase.appName, planned.plan.request.arguments["appName"])
+        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, planned.plan.skillRequest?.skillId)
+
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val opened = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = ToolResult(
+                    requestId = planned.plan.request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开${searchCase.appName}",
+                    data = externalActivityResultData(
+                        toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                        completionVerified = false,
+                        externalOutcome = "Unknown",
+                        externalOutcomeSource = "Unknown",
+                    ),
+                ),
+            ),
+        )
+
+        var plan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
+        assertTrue(plan.request.reason.contains("等待${searchCase.appName}前台界面稳定"))
+        plan = runtime.observeToolResult(
+            planned.run.id,
+            uiActionResult(
+                request = plan.request,
+                actionType = "wait",
+                packageName = searchCase.expectedPackageName,
+                textSummary = searchCase.appName,
+            ),
+        ).requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
+        plan = runtime.observeToolResult(
+            planned.run.id,
+            observeScreenResult(
+                request = plan.request,
+                packageName = searchCase.expectedPackageName,
+                textSummary = "${searchCase.appName} 搜索入口",
+            ),
+        ).requireNextTool(MobileActionFunctions.UI_TAP)
+        assertEquals("搜索入口", plan.request.arguments["target"])
+        plan = runtime.observeToolResult(
+            planned.run.id,
+            uiActionResult(
+                request = plan.request,
+                actionType = "tap",
+                target = "搜索入口",
+                packageName = searchCase.expectedPackageName,
+                textSummary = "${searchCase.appName} 搜索输入框",
+            ),
+        ).requireNextTool(MobileActionFunctions.UI_WAIT)
+        plan = runtime.observeToolResult(
+            planned.run.id,
+            uiActionResult(
+                request = plan.request,
+                actionType = "wait",
+                packageName = searchCase.expectedPackageName,
+                textSummary = "${searchCase.appName} 搜索输入框",
+            ),
+        ).requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
+        assertEquals(searchCase.query, plan.request.arguments["text"])
+        assertEquals("搜索输入框", plan.request.arguments["target"])
+        plan = runtime.observeToolResult(
+            planned.run.id,
+            uiActionResult(
+                request = plan.request,
+                actionType = "type_text",
+                target = "搜索输入框",
+                packageName = searchCase.expectedPackageName,
+                textSummary = "${searchCase.appName} ${searchCase.query}",
+            ),
+        ).requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
+        plan = runtime.observeToolResult(
+            planned.run.id,
+            uiActionResult(
+                request = plan.request,
+                actionType = "submit_search",
+                packageName = searchCase.expectedPackageName,
+                textSummary = searchCase.resultSummary,
+            ),
+        ).requireNextTool(MobileActionFunctions.UI_WAIT)
+        assertEquals(searchCase.query, plan.request.arguments["verifySearchQuery"])
+        assertEquals(searchCase.expectedPackageName, plan.request.arguments["expectedPackageName"])
+        assertEquals(searchCase.appName, plan.request.arguments["expectedAppName"])
+
+        val verified = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = uiActionResult(
+                    request = plan.request,
+                    actionType = "wait",
+                    packageName = searchCase.expectedPackageName,
+                    textSummary = searchCase.resultSummary,
+                    extraData = mapOf(
+                        "searchVerificationStatus" to "verified",
+                        "searchVerificationEvidence" to "query_visible_with_result_hint",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(AgentRunState.GeneratingAnswer, verified.run.state)
+        require(verified.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(verified.decision.requiresLocalModel)
+        assertEquals(null, runtime.latestPendingConfirmation())
+    }
+
+    private data class OpenAppUiSearchRuntimeCase(
+        val input: String,
+        val appName: String,
+        val query: String,
+        val expectedPackageName: String,
+        val resultSummary: String,
+    )
+
+    private fun observeScreenResult(
+        request: ToolRequest,
+        packageName: String = "com.taobao.taobao",
+        textSummary: String = "淘宝 搜索商品 海河牛奶",
+    ): ToolResult =
+        ToolResult(
+            requestId = request.id,
+            status = ToolStatus.Succeeded,
+            summary = "已观察当前屏幕",
+            data = localDeviceControlData(request.toolName) + mapOf(
+                "observationId" to "screen-${request.id}",
+                "capturedAtMillis" to "1000",
+                "nodeCount" to "3",
+                "actionableNodeCount" to "2",
+                "textSummary" to textSummary,
+                "truncated" to "false",
+                "nodesJson" to "[]",
+                "maxTextChars" to "2000",
+                "maxNodes" to "50",
+                "packageName" to packageName,
+            ),
+        )
+
+    private fun uiActionResult(
+        request: ToolRequest,
+        actionType: String,
+        target: String = "",
+        packageName: String = "com.taobao.taobao",
+        textSummary: String = "淘宝 搜索商品 海河牛奶",
+        extraData: Map<String, String> = emptyMap(),
+    ): ToolResult =
+        ToolResult(
+            requestId = request.id,
+            status = ToolStatus.Succeeded,
+            summary = "已执行 UI 动作",
+            data = localDeviceControlData(request.toolName) +
+                mapOf(
+                    "actionType" to actionType,
+                    "status" to "succeeded",
+                    "retryable" to "false",
+                    "summary" to "已执行 UI 动作",
+                    "beforeObservationId" to "before-${request.id}",
+                    "afterObservationId" to "after-${request.id}",
+                    "verificationSummary" to "已观察当前屏幕：包名 $packageName，3 个节点，2 个可交互节点。",
+                    "afterPackageName" to packageName,
+                    "afterCapturedAtMillis" to "1000",
+                    "afterNodeCount" to "3",
+                    "afterActionableNodeCount" to "2",
+                    "afterTextSummary" to textSummary,
+                    "afterTruncated" to "false",
+                    "afterNodesJson" to "[]",
+                ) +
+                target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty() +
+                extraData,
+        )
+
+    private fun localDeviceControlData(toolName: String): Map<String, String> =
+        mapOf(
+            "toolName" to toolName,
+            "privacy" to MessagePrivacy.LocalOnly.name,
+            "requiresLocalModel" to "true",
+            "source" to DEVICE_CONTROL_SOURCE_ACCESSIBILITY,
+            "metadataPolicy" to DEVICE_CONTROL_METADATA_POLICY,
+        )
+
     private fun webSearchResultData(
         query: String = "Kotlin",
         summaryText: String = "Kotlin search summary",
@@ -8213,6 +9053,143 @@ class AgentLoopRuntimeTest {
             delegate.plan(input, draft, request)
     }
 
+    private class CheckpointingLowRiskTapSkillRuntime : SkillRuntime {
+        private val manifest = SkillManifest(
+            id = BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
+            version = 1,
+            title = "测试连续低风险点击",
+            description = "测试 app control 连续 UI 动作 checkpoint。",
+            triggerExamples = listOf(INPUT),
+            requiredTools = listOf(MobileActionFunctions.UI_TAP),
+            inputSchemaJson = """{"type":"object","properties":{"input":{"type":"string"}}}""",
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+        )
+
+        override fun manifests(): List<SkillManifest> = listOf(manifest)
+
+        override fun plan(input: String): SkillPlan? {
+            if (input != INPUT) return null
+            val steps = (1..6).map { index ->
+                val stepId = "tap_$index"
+                val target = "搜索$index"
+                val arguments = mapOf(
+                    "target" to target,
+                    "timeoutMillis" to "1500",
+                )
+                SkillStep.ToolStep(
+                    id = stepId,
+                    dependsOn = if (index == 1) emptyList() else listOf("tap_${index - 1}"),
+                    request = ToolRequest(
+                        id = stepId,
+                        toolName = MobileActionFunctions.UI_TAP,
+                        arguments = arguments,
+                        reason = "点击低风险目标：$target。",
+                    ),
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.UI_TAP,
+                        title = "点击屏幕元素",
+                        summary = "点击低风险目标：$target。",
+                        parameters = arguments,
+                    ),
+                )
+            }
+            return SkillPlan(
+                request = SkillRequest(
+                    id = "checkpoint-skill-request",
+                    skillId = manifest.id,
+                    arguments = mapOf("input" to input),
+                    reason = input,
+                ),
+                manifest = manifest,
+                steps = steps,
+            )
+        }
+
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+
+        companion object {
+            const val INPUT = "连续点击 6 个低风险目标"
+        }
+    }
+
+    private class HighRiskContinuationSkillRuntime : SkillRuntime {
+        private val manifest = SkillManifest(
+            id = BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
+            version = 1,
+            title = "测试高风险后续点击",
+            description = "测试 app control 后续高风险 UI 动作必须确认。",
+            triggerExamples = listOf(INPUT),
+            requiredTools = listOf(
+                MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                MobileActionFunctions.UI_TAP,
+            ),
+            inputSchemaJson = """{"type":"object","properties":{"input":{"type":"string"}}}""",
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+        )
+
+        override fun manifests(): List<SkillManifest> = listOf(manifest)
+
+        override fun plan(input: String): SkillPlan? {
+            if (input != INPUT) return null
+            val observeArguments = mapOf(
+                "maxTextChars" to "2000",
+                "maxNodes" to "80",
+            )
+            val tapArguments = mapOf(
+                "target" to "确认支付",
+                "timeoutMillis" to "1500",
+            )
+            return SkillPlan(
+                request = SkillRequest(
+                    id = "high-risk-continuation-skill-request",
+                    skillId = manifest.id,
+                    arguments = mapOf("input" to input),
+                    reason = input,
+                ),
+                manifest = manifest,
+                steps = listOf(
+                    SkillStep.ToolStep(
+                        id = "observe",
+                        request = ToolRequest(
+                            id = "observe",
+                            toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                            arguments = observeArguments,
+                            reason = "观察当前屏幕。",
+                        ),
+                        draft = ActionDraft(
+                            functionName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                            title = "观察当前屏幕",
+                            summary = "观察当前屏幕。",
+                            parameters = observeArguments,
+                        ),
+                    ),
+                    SkillStep.ToolStep(
+                        id = "tap_confirm_payment",
+                        dependsOn = listOf("observe"),
+                        request = ToolRequest(
+                            id = "tap_confirm_payment",
+                            toolName = MobileActionFunctions.UI_TAP,
+                            arguments = tapArguments,
+                            reason = "点击高风险目标：确认支付。",
+                        ),
+                        draft = ActionDraft(
+                            functionName = MobileActionFunctions.UI_TAP,
+                            title = "点击屏幕元素",
+                            summary = "点击高风险目标：确认支付。",
+                            parameters = tapArguments,
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+
+        companion object {
+            const val INPUT = "测试高风险后续点击"
+        }
+    }
+
     private class RecordingActionRuntime(
         private val likelyAction: Boolean,
         private val planningResult: ActionPlanningResult = ActionPlanningResult(
@@ -8245,8 +9222,34 @@ class AgentLoopRuntimeTest {
         }
     }
 
+    private class RuleOnlyActionRuntime : ActionPlanningRuntime {
+        private val planner = MobileActionPlanner()
+
+        override fun classifyIntent(input: String): IntentCandidate =
+            planner.classifyIntent(input)
+
+        override fun isLikelyAction(input: String): Boolean =
+            planner.isLikelyAction(input)
+
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult =
+            ActionPlanningResult(
+                plan = planner.plan(input),
+                usedModel = false,
+                fallbackReason = "rule-only test",
+            )
+
+        override fun parseModelToolOutput(output: String): ModelToolOutputParseResult =
+            planner.parseModelToolOutput(output)
+    }
+
     private fun modelToolOutputPlanningResult(output: String): ModelToolOutputParseResult =
         MobileActionPlanner().parseModelToolOutput(output)
+
+    private fun assertCameraUseToolPlan(input: String, plan: AgentPlan.UseTool) {
+        assertEquals("$input should use the system camera tool", MobileActionFunctions.OPEN_CAMERA, plan.request.toolName)
+        assertTrue("$input should not pass camera arguments", plan.request.arguments.isEmpty())
+        assertEquals(MobileActionFunctions.OPEN_CAMERA, plan.draft.functionName)
+    }
 
     private fun wifiPlanningResult(): ActionPlanningResult =
         ActionPlanningResult(
@@ -8257,6 +9260,22 @@ class AgentLoopRuntimeTest {
                     title = "打开 Wi-Fi 设置",
                     summary = "将打开系统 Wi-Fi 设置页。",
                     parameters = emptyMap(),
+                    requiresConfirmation = true,
+                ),
+            ),
+            usedModel = false,
+            fallbackReason = "test fallback",
+        )
+
+    private fun uiTapPlanningResult(target: String): ActionPlanningResult =
+        ActionPlanningResult(
+            plan = ActionPlan(
+                kind = ActionPlanKind.Draft,
+                draft = ActionDraft(
+                    functionName = MobileActionFunctions.UI_TAP,
+                    title = "点击当前屏幕元素",
+                    summary = "将点击当前屏幕上的 $target。",
+                    parameters = mapOf("target" to target),
                     requiresConfirmation = true,
                 ),
             ),

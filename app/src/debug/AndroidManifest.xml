@@ -3,7 +3,8 @@
     <application>
         <activity
             android:name=".debug.DeviceControlEvalActivity"
-            android:exported="true" />
+            android:exported="true"
+            android:launchMode="singleTop" />
         <receiver
             android:name=".debug.DeviceControlEvalReceiver"
             android:exported="true" />

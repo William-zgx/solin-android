@@ -64,6 +64,8 @@ interface FirstRunSetupStore {
     fun markSetupDismissed()
     fun isMemoryEnabled(): Boolean
     fun setMemoryEnabled(enabled: Boolean)
+    fun reduceDeviceActionConfirmations(): Boolean = false
+    fun setReduceDeviceActionConfirmations(enabled: Boolean) = Unit
 }
 
 interface RemoteModelStore {
@@ -80,6 +82,8 @@ interface SettingsStore {
     fun markSetupDismissed()
     fun isMemoryEnabled(): Boolean
     fun setMemoryEnabled(enabled: Boolean)
+    fun reduceDeviceActionConfirmations(): Boolean = false
+    fun setReduceDeviceActionConfirmations(enabled: Boolean) = Unit
     fun loadGenerationParameters(): GenerationParameters
     fun saveGenerationParameters(parameters: GenerationParameters): GenerationParameters
     fun loadBackend(): BackendChoice

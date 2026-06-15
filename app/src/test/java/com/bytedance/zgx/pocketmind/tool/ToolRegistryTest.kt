@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.tool
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.action.SystemSettingsTargets
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -56,6 +57,24 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in usageAccessSpec.permissions)
         assertEquals(RiskLevel.MediumDraftOrNavigation, usageAccessSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, usageAccessSpec.confirmationPolicy)
+
+        val systemSettingsSpec = registry.specFor(MobileActionFunctions.OPEN_SYSTEM_SETTINGS)
+        assertNotNull(systemSettingsSpec)
+        requireNotNull(systemSettingsSpec)
+        assertEquals(ToolCapability.DeviceSettings, systemSettingsSpec.capability)
+        assertTrue(ToolPermission.StartsExternalActivity in systemSettingsSpec.permissions)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, systemSettingsSpec.riskLevel)
+        assertEquals(ConfirmationPolicy.Required, systemSettingsSpec.confirmationPolicy)
+        assertEquals(setOf("target"), systemSettingsSpec.pendingArgumentAllowlist)
+
+        val openCameraSpec = registry.specFor(MobileActionFunctions.OPEN_CAMERA)
+        assertNotNull(openCameraSpec)
+        requireNotNull(openCameraSpec)
+        assertEquals(ToolCapability.ExternalNavigation, openCameraSpec.capability)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, openCameraSpec.riskLevel)
+        assertEquals(ConfirmationPolicy.Required, openCameraSpec.confirmationPolicy)
+        assertTrue(ToolPermission.StartsExternalActivity in openCameraSpec.permissions)
+        assertFalse(ToolPermission.ReadsDeviceContext in openCameraSpec.permissions)
 
         val webSearchSpec = registry.specFor(MobileActionFunctions.WEB_SEARCH)
         assertNotNull(webSearchSpec)
@@ -262,6 +281,28 @@ class ToolRegistryTest {
         assertTrue(uiTapSpec.outputSchemaJson.contains("\"afterNodesJson\""))
         assertFalse(uiTapSpec.isRemoteModelPlanningEligible())
 
+        val uiSubmitSearchSpec = registry.specFor(MobileActionFunctions.UI_SUBMIT_SEARCH)
+        assertNotNull(uiSubmitSearchSpec)
+        requireNotNull(uiSubmitSearchSpec)
+        assertEquals(ToolCapability.DeviceControl, uiSubmitSearchSpec.capability)
+        assertEquals(ToolResultContinuationPolicy.LocalEvidence, uiSubmitSearchSpec.resultContinuationPolicy)
+        assertEquals(ConfirmationPolicy.Required, uiSubmitSearchSpec.confirmationPolicy)
+        assertTrue(ToolPermission.ReadsDeviceContext in uiSubmitSearchSpec.permissions)
+        assertTrue(ToolPermission.ReadsAccessibilityText in uiSubmitSearchSpec.permissions)
+        assertTrue(ToolPermission.PerformsAccessibilityGesture in uiSubmitSearchSpec.permissions)
+        assertTrue(uiSubmitSearchSpec.outputSchemaJson.contains("\"submit_search\""))
+        assertTrue(uiSubmitSearchSpec.outputSchemaJson.contains("\"submit_not_found\""))
+        assertFalse(uiSubmitSearchSpec.isRemoteModelPlanningEligible())
+        assertFalse(uiSubmitSearchSpec.isPublicEvidenceBatchEligible())
+
+        val uiWaitSpec = registry.specFor(MobileActionFunctions.UI_WAIT)
+        assertNotNull(uiWaitSpec)
+        requireNotNull(uiWaitSpec)
+        assertTrue(uiWaitSpec.inputSchemaJson.contains("\"verifySearchQuery\""))
+        assertTrue(uiWaitSpec.inputSchemaJson.contains("\"expectedPackageName\""))
+        assertTrue(uiWaitSpec.outputSchemaJson.contains("\"searchVerificationStatus\""))
+        assertFalse(uiWaitSpec.isRemoteModelPlanningEligible())
+
         val currentScreenshotOcrSpec = registry.specFor(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR)
         assertNotNull(currentScreenshotOcrSpec)
         requireNotNull(currentScreenshotOcrSpec)
@@ -305,6 +346,17 @@ class ToolRegistryTest {
         assertEquals(RiskLevel.MediumDraftOrNavigation, deepLinkSpec.riskLevel)
         assertTrue(ToolPermission.StartsExternalActivity in deepLinkSpec.permissions)
         assertTrue(deepLinkSpec.inputSchemaJson.contains("\"uri\""))
+
+        val appByNameSpec = registry.specFor(MobileActionFunctions.OPEN_APP_BY_NAME)
+        assertNotNull(appByNameSpec)
+        requireNotNull(appByNameSpec)
+        assertEquals(ToolCapability.ExternalNavigation, appByNameSpec.capability)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, appByNameSpec.riskLevel)
+        assertEquals(ConfirmationPolicy.Required, appByNameSpec.confirmationPolicy)
+        assertTrue(ToolPermission.StartsExternalActivity in appByNameSpec.permissions)
+        assertTrue(appByNameSpec.description.contains("应用名"))
+        assertTrue(appByNameSpec.inputSchemaJson.contains("\"appName\""))
+        assertTrue(!appByNameSpec.inputSchemaJson.contains("\"activityClass\""))
 
         val appIntentSpec = registry.specFor(MobileActionFunctions.OPEN_APP_INTENT)
         assertNotNull(appIntentSpec)
@@ -351,6 +403,7 @@ class ToolRegistryTest {
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
             MobileActionFunctions.UI_TAP,
             MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
             MobileActionFunctions.UI_SCROLL,
             MobileActionFunctions.UI_PRESS_BACK,
             MobileActionFunctions.UI_WAIT,
@@ -387,6 +440,7 @@ class ToolRegistryTest {
             listOf(
                 MobileActionFunctions.OPEN_WIFI_SETTINGS,
                 MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+                MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
                 MobileActionFunctions.SEARCH_MAPS,
                 MobileActionFunctions.WEB_SEARCH,
                 MobileActionFunctions.COMPOSE_EMAIL,
@@ -397,6 +451,8 @@ class ToolRegistryTest {
                 MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
                 MobileActionFunctions.SHARE_TEXT,
                 MobileActionFunctions.OPEN_DEEP_LINK,
+                MobileActionFunctions.OPEN_CAMERA,
+                MobileActionFunctions.OPEN_APP_BY_NAME,
                 MobileActionFunctions.OPEN_APP_INTENT,
                 MobileActionFunctions.OPEN_APP_DEEP_TARGET,
                 MobileActionFunctions.CANCEL_REMINDER,
@@ -658,6 +714,7 @@ class ToolRegistryTest {
     @Test
     fun pendingArgumentAllowlistsAreDeclaredByToolPolicy() {
         val expectedAllowlists = mapOf(
+            MobileActionFunctions.OPEN_APP_BY_NAME to setOf("appName"),
             MobileActionFunctions.OPEN_APP_INTENT to setOf("packageName"),
             MobileActionFunctions.OPEN_APP_DEEP_TARGET to setOf("targetId", "packageName"),
             MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY to setOf("start", "end"),
@@ -1407,6 +1464,7 @@ class ToolRegistryTest {
             MobileActionFunctions.CANCEL_REMINDER to "taskId",
             MobileActionFunctions.SHARE_TEXT to "text",
             MobileActionFunctions.OPEN_DEEP_LINK to "uri",
+            MobileActionFunctions.OPEN_APP_BY_NAME to "appName",
             MobileActionFunctions.OPEN_APP_INTENT to "packageName",
             MobileActionFunctions.OPEN_APP_DEEP_TARGET to "targetId",
         )
@@ -1456,6 +1514,32 @@ class ToolRegistryTest {
         requireNotNull(rejection)
         assertEquals(ToolStatus.Rejected, rejection.status)
         assertTrue(rejection.summary.contains("enabled"))
+    }
+
+    @Test
+    fun validatesSystemSettingsTargetEnum() {
+        val accepted = registry.validate(
+            ToolRequest(
+                id = "request-bluetooth-settings",
+                toolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                arguments = mapOf("target" to SystemSettingsTargets.BLUETOOTH),
+                reason = "test",
+            ),
+        )
+        assertNull(accepted)
+
+        val rejected = registry.validate(
+            ToolRequest(
+                id = "request-unknown-settings",
+                toolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                arguments = mapOf("target" to "developer_options"),
+                reason = "test",
+            ),
+        )
+        assertNotNull(rejected)
+        requireNotNull(rejected)
+        assertEquals(ToolStatus.Rejected, rejected.status)
+        assertTrue(rejected.summary.contains("target"))
     }
 
     @Test

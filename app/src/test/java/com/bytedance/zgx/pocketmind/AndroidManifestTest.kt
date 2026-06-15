@@ -46,6 +46,18 @@ class AndroidManifestTest {
     }
 
     @Test
+    fun declaresDeviceControlForegroundSessionService() {
+        val manifest = readManifest()
+        val service = manifest.serviceBlockFor(".device.DeviceControlSessionService")
+
+        assertTrue(manifest.contains("""android.permission.FOREGROUND_SERVICE"""))
+        assertTrue(manifest.contains("""android.permission.FOREGROUND_SERVICE_SPECIAL_USE"""))
+        assertTrue(service.contains("""android:exported="false""""))
+        assertTrue(service.contains("""android:foregroundServiceType="specialUse""""))
+        assertTrue(service.contains("""user_confirmed_device_control_session"""))
+    }
+
+    @Test
     fun reminderRecoveryReceiverHandlesBootAndPackageReplacement() {
         val manifest = readManifest()
         val receiver = manifest.receiverBlockFor(".background.ReminderBootReceiver")
@@ -136,6 +148,12 @@ class AndroidManifestTest {
             .findAll(this)
             .map { it.value }
             .first { it.contains("""android:name="$receiverName"""") }
+
+    private fun String.serviceBlockFor(serviceName: String): String =
+        Regex("""<service\b[\s\S]*?(?:/>|</service>)""")
+            .findAll(this)
+            .map { it.value }
+            .first { it.contains("""android:name="$serviceName"""") }
 
     private companion object {
         val SHARED_ATTACHMENT_MIME_TYPES = listOf(

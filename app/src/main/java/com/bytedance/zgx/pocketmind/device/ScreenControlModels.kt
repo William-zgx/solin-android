@@ -30,6 +30,8 @@ interface CurrentScreenControlProvider {
         timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS,
     ): UiActionReadResult
 
+    fun submitSearch(timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS): UiActionReadResult
+
     fun scroll(
         direction: UiScrollDirection,
         target: String? = null,
@@ -79,7 +81,10 @@ data class ScreenStateSnapshot(
 sealed class ScreenStateReadResult {
     data class Available(val snapshot: ScreenStateSnapshot) : ScreenStateReadResult()
     data class PermissionDenied(val reason: String) : ScreenStateReadResult()
-    data class Failed(val reason: String) : ScreenStateReadResult()
+    data class Failed(
+        val reason: String,
+        val failureKind: UiActionFailureKind = UiActionFailureKind.Unknown,
+    ) : ScreenStateReadResult()
 }
 
 data class UiActionExecutionResult(
@@ -112,8 +117,45 @@ enum class UiActionFailureKind(val schemaValue: String) {
     PermissionMissing("permission_missing"),
     KeyboardObscured("keyboard_obscured"),
     Timeout("timeout"),
+    AppNotForeground("app_not_foreground"),
+    SearchEntryNotFound("search_entry_not_found"),
+    EditableNotFound("editable_not_found"),
+    SubmitNotFound("submit_not_found"),
+    ResultNotVerified("result_not_verified"),
     Unknown("unknown"),
 }
+
+enum class UiTargetKind(val schemaValue: String) {
+    SearchEntry("search_entry"),
+    EditableField("editable_field"),
+    SubmitSearch("submit_search"),
+    FilterEntry("filter_entry"),
+    ResultItem("result_item"),
+    ScrollContainer("scroll_container"),
+}
+
+data class UiResolvedTarget(
+    val kind: UiTargetKind,
+    val nodeId: String?,
+    val bounds: ScreenBounds?,
+    val confidence: Int,
+    val reason: String,
+)
+
+data class AppInteractionProfile(
+    val appNameAliases: Set<String>,
+    val packageNames: Set<String>,
+    val searchEntryHints: Set<String>,
+    val submitHints: Set<String>,
+    val resultHints: Set<String>,
+)
+
+data class SearchResultVerification(
+    val verified: Boolean,
+    val summary: String,
+    val failureKind: UiActionFailureKind? = null,
+    val evidence: String = "",
+)
 
 enum class UiScrollDirection(val schemaValue: String) {
     Up("up"),
@@ -147,6 +189,11 @@ class AndroidCurrentScreenControlProvider : CurrentScreenControlProvider {
         PocketMindAccessibilityService.performTypeText(
             text = text.take(MAX_UI_TYPE_TEXT_CHARS),
             target = target?.trim()?.takeIf { it.isNotBlank() },
+            timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
+        )
+
+    override fun submitSearch(timeoutMillis: Long): UiActionReadResult =
+        PocketMindAccessibilityService.performSubmitSearch(
             timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
         )
 

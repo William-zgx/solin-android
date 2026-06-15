@@ -110,6 +110,7 @@ fun PendingAgentConfirmation.specialAccessRequirementsFor(): List<SpecialAccessR
         MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
         MobileActionFunctions.UI_TAP,
         MobileActionFunctions.UI_TYPE_TEXT,
+        MobileActionFunctions.UI_SUBMIT_SEARCH,
         MobileActionFunctions.UI_SCROLL,
         MobileActionFunctions.UI_PRESS_BACK,
         MobileActionFunctions.UI_WAIT -> listOf(ACCESSIBILITY_DEVICE_CONTROL_REQUIREMENT)

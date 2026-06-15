@@ -8,6 +8,7 @@ import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.ModelToolOutputParseResult
+import com.bytedance.zgx.pocketmind.action.SystemSettingsTargets
 import com.bytedance.zgx.pocketmind.audit.NoOpToolAuditSink
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEvent
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEventType
@@ -64,6 +65,7 @@ private const val OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON =
 private const val DEVICE_CONTROL_FAILURE_RECOVERY_REASON = "Device control failure recovery checkpoint."
 private const val PENDING_EXTERNAL_OUTCOME_RESTORE_RUN_LIMIT = 20
 private const val TOOL_OBSERVATION_AUDIT_SUMMARY = "Tool observation recorded."
+private const val LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT = 5
 private val ANSWER_CONTEXT_TOKEN_BUDGET =
     LocalModelTokenLimits.MAX_INPUT_TOKENS -
         LocalModelTokenLimits.SYSTEM_PROMPT_TOKEN_RESERVE -
@@ -83,11 +85,13 @@ class AgentLoopRuntime(
     private val maxToolRetryAttempts: Int = 1,
     private val maxRunToolSteps: Int = 8,
     private val maxObservationDecisions: Int = 16,
+    private val deviceControlSessionFinisher: () -> Unit = {},
 ) {
     private val skillProgressor = SkillRunProgressor(toolRegistry = toolRegistry)
     private val valueFreeCompletedStepFrontiersByRunId = mutableMapOf<String, Set<String>>()
     private val remoteToolScopesByRunId = mutableMapOf<String, RemoteToolScope>()
     private val remoteExposedToolNamesByRunId = mutableMapOf<String, Set<String>>()
+    private val lowRiskDeviceActionConfirmationBypassByRunId = mutableMapOf<String, Boolean>()
 
     @Suppress("UNUSED_PARAMETER")
     fun runOnce(
@@ -101,6 +105,7 @@ class AgentLoopRuntime(
     ): AgentLoopResult {
         val createdRun = traceStore.createRun(input, sessionId)
         remoteToolScopesByRunId[createdRun.id] = options.remoteToolScope
+        lowRiskDeviceActionConfirmationBypassByRunId[createdRun.id] = options.reduceDeviceActionConfirmations
         traceStore.updateState(createdRun.id, AgentRunState.LoadingContext)
 
         val memoryHits = if (memoryEnabled) {
@@ -618,15 +623,16 @@ class AgentLoopRuntime(
         )
         return when (plan) {
             is AgentPlan.UseTool -> {
-                appendToolPlanSteps(runId, plan)
+                val effectivePlan = plan.withConfirmationBypassForRun(runId)
+                appendToolPlanSteps(runId, effectivePlan)
                 val decision = AgentObservationDecision.PlanNextTool(
-                    plan = plan,
+                    plan = effectivePlan,
                     reason = "Remote model requested a tool call.",
                 )
                 traceStore.appendStep(runId, AgentStep.ObservationDecided(decision))
-                val updatedRun = traceStore.updateState(runId, plan.nextExecutionState())
-                if (plan.requiresUserConfirmation()) {
-                    traceStore.savePendingConfirmation(plan.toPendingSnapshot(updatedRun))
+                val updatedRun = traceStore.updateState(runId, effectivePlan.nextExecutionState())
+                if (effectivePlan.requiresUserConfirmation()) {
+                    traceStore.savePendingConfirmation(effectivePlan.toPendingSnapshot(updatedRun))
                 }
                 AgentModelObservationResult(
                     run = updatedRun,
@@ -979,11 +985,18 @@ class AgentLoopRuntime(
         }
         val nextToolPlan = if (
             observedResult.status == ToolStatus.Succeeded &&
-            canPlanNextToolAfterObservation(request, observedResult) &&
-            retryRequest == null &&
-            (continuationPrompt == null || canPlanNextToolBeforeContinuation)
+            retryRequest == null
         ) {
-            planNextToolAfterObservation(run, request, observedResult)
+            planNextOpenAppUiSearchStepAfterUnverifiedLaunch(run, request, observedResult)
+                ?: planNextLowRiskAppControlSkillStepBeforeContinuation(run, request, observedResult)
+                ?: if (
+                    (continuationPrompt == null || canPlanNextToolBeforeContinuation) &&
+                    canPlanNextToolAfterObservation(run, request, observedResult)
+                ) {
+                    planNextToolAfterObservation(run, request, observedResult)
+                } else {
+                    NextObservationPlan.None
+                }
         } else if (
             observedResult.status == ToolStatus.Failed &&
             request.isDeviceControlTool() &&
@@ -1030,9 +1043,14 @@ class AgentLoopRuntime(
                 summary = "Retry ${decision.attempt} scheduled.",
             )
         }
+        val shouldAwaitExternalOutcome = shouldAwaitExternalOutcomeConfirmation(
+            runId = runId,
+            request = request,
+            result = observedResult,
+        )
         val finalState = when (decision) {
             AgentObservationDecision.Complete ->
-                if (observedResult.isUnverifiedExternalLaunch()) {
+                if (shouldAwaitExternalOutcome) {
                     AgentRunState.AwaitingExternalOutcome
                 } else {
                     AgentRunState.Completed
@@ -1046,7 +1064,7 @@ class AgentLoopRuntime(
             AgentObservationDecision.Cancel -> AgentRunState.Cancelled
         }
         val updatedRun = traceStore.updateState(runId, finalState)
-        if (finalState in terminalRunStates && !observedResult.isUnverifiedExternalLaunch()) {
+        if (finalState in terminalRunStates) {
             clearEphemeralRunState(runId)
         }
         if (decision is AgentObservationDecision.ContinueWithModel) {
@@ -1246,12 +1264,62 @@ class AgentLoopRuntime(
         traceStore.appendStep(run.id, AgentStep.ContinuationCursorRecorded(cursor))
     }
 
+    private fun planNextOpenAppUiSearchStepAfterUnverifiedLaunch(
+        run: AgentRun,
+        request: ToolRequest,
+        result: ToolResult,
+    ): NextObservationPlan? {
+        if (!result.isUnverifiedExternalLaunch()) return null
+        if (request.toolName !in openAppLaunchToolNames) return null
+        val skillPlan = latestSkillPlan(run.id) ?: return null
+        if (skillPlan.manifest.id != BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL) return null
+        val requestBelongsToSkill = skillPlan.steps
+            .filterIsInstance<SkillStep.ToolStep>()
+            .any { step -> step.request.id == request.id && step.request.toolName == request.toolName }
+        if (!requestBelongsToSkill) return null
+        val nextPlan = planNextToolStepFromCurrentSkill(run, result) ?: return null
+        return nextPlan.takeIf { plan ->
+            plan !is NextObservationPlan.Planned || plan.plan.request.isLowRiskAppControlContinuationTool()
+        }
+    }
+
+    private fun planNextLowRiskAppControlSkillStepBeforeContinuation(
+        run: AgentRun,
+        request: ToolRequest,
+        result: ToolResult,
+    ): NextObservationPlan? {
+        if (!request.isLowRiskAppControlContinuationTool()) return null
+        val skillPlan = latestSkillPlan(run.id) ?: return null
+        if (!skillPlan.isLowRiskAppControlSkill()) return null
+        if (!skillPlan.hasToolStep(request)) return null
+        invalidSkillPlanReason(skillPlan)?.let { reason ->
+            val requestedRequestIds = toolRequestsFor(run.id).mapTo(mutableSetOf()) { toolRequest ->
+                toolRequest.id
+            }
+            return rejectNextToolPlan(
+                run.id,
+                requestForSkillProgressionRejection(skillPlan, requestedRequestIds, reason),
+            )
+        }
+        val nextPlan = planNextToolStepFromCurrentSkill(run, result) ?: return null
+        return nextPlan.takeIf { plan ->
+            plan !is NextObservationPlan.Planned ||
+                plan.plan.request.isLowRiskAppControlContinuationTool() ||
+                plan.plan.requiresUserConfirmation()
+        }
+    }
+
     private fun canPlanNextToolAfterObservation(
+        run: AgentRun,
         request: ToolRequest,
         result: ToolResult,
     ): Boolean {
         if (!request.startsExternalActivity()) return true
-        return result.isUserConfirmedCompletedExternalOutcome()
+        return result.isUserConfirmedCompletedExternalOutcome() ||
+            (
+                request.isLowRiskDeviceActionConfirmationSkippable() &&
+                    traceStore.continuationCursor(run.id)?.sourceRequestId == request.id
+            )
     }
 
     private fun ToolRequest.startsExternalActivity(): Boolean =
@@ -1416,16 +1484,18 @@ class AgentLoopRuntime(
             traceStore.appendStep(runId, AgentStep.SafetyChecked(safetyDecision))
             return rejectNextToolPlan(runId, rejected)
         }
+        val plan = AgentPlan.UseTool(
+            request = request,
+            draft = draft.withSafetyDecision(safetyDecision),
+            plannedByModel = plannedByModel,
+            fallbackReason = fallbackReason,
+            skillRequest = skillPlan?.request,
+            skillPlan = skillPlan,
+            safetyDecision = safetyDecision,
+        ).withConfirmationBypassForRun(runId)
+            .withLowRiskAppControlContinuationBypassForRun(runId, skillPlan)
         return NextObservationPlan.Planned(
-            AgentPlan.UseTool(
-                request = request,
-                draft = draft.withSafetyDecision(safetyDecision),
-                plannedByModel = plannedByModel,
-                fallbackReason = fallbackReason,
-                skillRequest = skillPlan?.request,
-                skillPlan = skillPlan,
-                safetyDecision = safetyDecision,
-            ),
+            plan,
         )
     }
 
@@ -1463,22 +1533,23 @@ class AgentLoopRuntime(
         run: AgentRun,
         plan: AgentPlan.UseTool,
     ): AgentLoopResult {
+        val effectivePlan = plan.withConfirmationBypassForRun(run.id)
         if (toolStepBudgetExceeded(run.id)) {
-            return failInitialPlanBudget(run, plan.request)
+            return failInitialPlanBudget(run, effectivePlan.request)
         }
-        appendToolPlanSteps(run.id, plan)
-        val nextState = if (plan.requiresUserConfirmation()) {
+        appendToolPlanSteps(run.id, effectivePlan)
+        val nextState = if (effectivePlan.requiresUserConfirmation()) {
             AgentRunState.AwaitingUserConfirmation
         } else {
             AgentRunState.ExecutingTool
         }
         val waitingRun = traceStore.updateState(run.id, nextState)
-        if (plan.requiresUserConfirmation()) {
-            traceStore.savePendingConfirmation(plan.toPendingSnapshot(waitingRun))
+        if (effectivePlan.requiresUserConfirmation()) {
+            traceStore.savePendingConfirmation(effectivePlan.toPendingSnapshot(waitingRun))
         }
         return AgentLoopResult(
             run = waitingRun,
-            plan = plan,
+            plan = effectivePlan,
             steps = traceStore.steps(run.id),
         )
     }
@@ -1527,16 +1598,28 @@ class AgentLoopRuntime(
             .filter { step -> step.type == "ToolRequested" }
             .mapNotNull { step -> step.restoredToolRequestSummaryOrNull() }
             .associateBy { request -> request.requestId }
-        val observation = steps
+        val observationEntry = steps
+            .withIndex()
+            .toList()
             .asReversed()
             .asSequence()
-            .filter { step -> step.type == "ToolObserved" }
-            .mapNotNull { step -> step.restoredExternalObservationOrNull() }
-            .firstOrNull { observation ->
+            .filter { indexedStep -> indexedStep.value.type == "ToolObserved" }
+            .mapNotNull { indexedStep ->
+                indexedStep.value.restoredExternalObservationOrNull()?.let { observation ->
+                    indexedStep.index to observation
+                }
+            }
+            .firstOrNull { (_, observation) ->
                 observation.requestId !in confirmedRequestIds &&
                     observation.result.isUnverifiedExternalLaunch()
             } ?: return null
+        val laterToolRequested = steps
+            .drop(observationEntry.first + 1)
+            .any { step -> step.type == "ToolRequested" }
+        if (laterToolRequested) return null
+        val observation = observationEntry.second
         val request = requestsById[observation.requestId] ?: return null
+        if (request.isLowRiskRestoredExternalOutcomePopupSkippable(observation.result)) return null
         val summary = if (observation.result.summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX)) {
             observation.result.summary
         } else {
@@ -2655,11 +2738,189 @@ class AgentLoopRuntime(
         }
     }
 
+    private fun AgentPlan.UseTool.withConfirmationBypassForRun(runId: String): AgentPlan.UseTool {
+        if (lowRiskDeviceActionConfirmationBypassByRunId[runId] != true) return this
+        if (!request.isLowRiskDeviceActionConfirmationSkippable()) return this
+        if (exceedsLowRiskAppControlCheckpointForRun(runId)) return this
+        if (safetyDecision.outcome != SafetyOutcome.RequireConfirmation) return this
+        val bypassDecision = SafetyDecision(
+            outcome = SafetyOutcome.Allow,
+            reason = "Low-risk device action confirmation was skipped by the user's settings.",
+        )
+        return copy(
+            draft = draft.copy(requiresConfirmation = false),
+            safetyDecision = bypassDecision,
+        )
+    }
+
+    private fun AgentPlan.UseTool.withLowRiskAppControlContinuationBypassForRun(
+        runId: String,
+        skillPlan: SkillPlan?,
+    ): AgentPlan.UseTool {
+        val activeSkillPlan = skillPlan ?: this.skillPlan ?: latestSkillPlan(runId) ?: return this
+        appControlSessionForRun(runId, activeSkillPlan)?.takeIf { it.lowRisk } ?: return this
+        if (!request.isLowRiskAppControlContinuationTool()) return this
+        if (safetyDecision.outcome != SafetyOutcome.RequireConfirmation) return this
+        if (!activeSkillPlan.hasConfirmedToolStep(runId)) return this
+        if (exceedsLowRiskAppControlCheckpointForRun(runId, activeSkillPlan)) return this
+        val bypassDecision = SafetyDecision(
+            outcome = SafetyOutcome.Allow,
+            reason = "Low-risk app control continuation was allowed after the user's initial confirmation.",
+        )
+        return copy(
+            draft = draft.copy(requiresConfirmation = false),
+            safetyDecision = bypassDecision,
+        )
+    }
+
+    private fun AgentPlan.UseTool.exceedsLowRiskAppControlCheckpointForRun(
+        runId: String,
+        activeSkillPlan: SkillPlan? = skillPlan ?: latestSkillPlan(runId),
+    ): Boolean {
+        val session = appControlSessionForRun(runId, activeSkillPlan) ?: return false
+        return request.isLowRiskAppControlContinuationTool() &&
+            request.isCheckpointedUiActionTool() &&
+            session.checkpointRequired
+    }
+
+    private fun appControlSessionForRun(
+        runId: String,
+        activeSkillPlan: SkillPlan? = latestSkillPlan(runId),
+    ): AppControlSession? {
+        val plan = activeSkillPlan ?: return null
+        if (!plan.isLowRiskAppControlSkill()) return null
+        val checkpointedStepCount = plan.requestedCheckpointedUiActionCount(runId)
+        return AppControlSession(
+            runId = runId,
+            skillId = plan.manifest.id,
+            targetPackage = plan.expectedPackageName(),
+            lowRisk = true,
+            stepCount = checkpointedStepCount,
+            checkpointRequired = checkpointedStepCount >= LOW_RISK_APP_CONTROL_UI_ACTION_CHECKPOINT_LIMIT,
+        )
+    }
+
+    private fun shouldAwaitExternalOutcomeConfirmation(
+        runId: String,
+        request: ToolRequest,
+        result: ToolResult,
+    ): Boolean {
+        if (!result.isUnverifiedExternalLaunch()) return false
+        if (request.isLowRiskDeviceActionConfirmationSkippable()) return false
+        return true
+    }
+
+    private fun ToolRequest.isLowRiskDeviceActionConfirmationSkippable(): Boolean =
+        when (toolName) {
+            MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            MobileActionFunctions.OPEN_CAMERA,
+            MobileActionFunctions.OPEN_APP_BY_NAME,
+            MobileActionFunctions.OPEN_APP_INTENT,
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
+            MobileActionFunctions.UI_SCROLL,
+            MobileActionFunctions.UI_PRESS_BACK,
+            MobileActionFunctions.UI_WAIT
+            -> true
+
+            MobileActionFunctions.UI_TAP ->
+                !arguments["target"].orEmpty().containsHighRiskUiActionTarget()
+
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+                arguments["target"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
+
+            else -> false
+        }
+
+    private fun ToolRequest.isLowRiskAppControlContinuationTool(): Boolean =
+        isLowRiskDeviceActionConfirmationSkippable() &&
+            toolName in lowRiskAppControlContinuationToolNames
+
+    private fun ToolRequest.isCheckpointedUiActionTool(): Boolean =
+        toolName in checkpointedUiActionToolNames
+
+    private fun SkillPlan.isLowRiskAppControlSkill(): Boolean =
+        manifest.id in lowRiskAppControlSkillIds
+
+    private fun SkillPlan.hasConfirmedToolStep(runId: String): Boolean {
+        val stepRequestIds = toolStepRequestIds()
+        return traceStore.steps(runId).any { step ->
+            step is AgentStep.UserConfirmed && step.requestId in stepRequestIds
+        }
+    }
+
+    private fun SkillPlan.hasToolStep(request: ToolRequest): Boolean =
+        steps.filterIsInstance<SkillStep.ToolStep>()
+            .any { step -> step.request.id == request.id && step.request.toolName == request.toolName }
+
+    private fun SkillPlan.requestedCheckpointedUiActionCount(runId: String): Int {
+        val stepRequestIds = toolStepRequestIds()
+        return toolRequestsFor(runId).count { request ->
+            request.id in stepRequestIds && request.isCheckpointedUiActionTool()
+        }
+    }
+
+    private fun SkillPlan.expectedPackageName(): String? =
+        steps.filterIsInstance<SkillStep.ToolStep>()
+            .firstNotNullOfOrNull { step ->
+                step.request.arguments["expectedPackageName"]?.takeIf { it.isNotBlank() }
+            }
+
+    private fun SkillPlan.toolStepRequestIds(): Set<String> =
+        steps.filterIsInstance<SkillStep.ToolStep>()
+            .mapTo(mutableSetOf()) { step -> step.request.id }
+
+    private fun String.containsHighRiskUiActionTarget(): Boolean {
+        val normalized = lowercase()
+        return listOf(
+            "发送",
+            "删除",
+            "支付",
+            "付款",
+            "转账",
+            "下单",
+            "提交",
+            "发布",
+            "购买",
+            "确认",
+            "send",
+            "delete",
+            "pay",
+            "transfer",
+            "submit",
+            "post",
+            "publish",
+            "buy",
+            "order",
+            "confirm",
+        ).any { normalized.contains(it) }
+    }
+
     private fun clearEphemeralRunState(runId: String) {
+        if (runUsedDeviceControlSession(runId)) {
+            runCatching { deviceControlSessionFinisher() }
+        }
         valueFreeCompletedStepFrontiersByRunId.remove(runId)
         remoteToolScopesByRunId.remove(runId)
         remoteExposedToolNamesByRunId.remove(runId)
+        lowRiskDeviceActionConfirmationBypassByRunId.remove(runId)
     }
+
+    private fun runUsedDeviceControlSession(runId: String): Boolean =
+        toolRequestsFor(runId).any { request ->
+            request.toolName in deviceControlSessionToolNames ||
+                request.isDeviceControlTool()
+        }
+
+    private data class AppControlSession(
+        val runId: String,
+        val skillId: String,
+        val targetPackage: String?,
+        val lowRisk: Boolean,
+        val stepCount: Int,
+        val checkpointRequired: Boolean,
+    )
 
     private data class ToolObservationContinuation(
         val prompt: String,
@@ -2692,6 +2953,48 @@ class AgentLoopRuntime(
     private val pendingExternalOutcomeRestoreStates = setOf(
         AgentRunState.AwaitingExternalOutcome,
         AgentRunState.Completed,
+    )
+
+    private val openAppLaunchToolNames = setOf(
+        MobileActionFunctions.OPEN_APP_BY_NAME,
+        MobileActionFunctions.OPEN_APP_INTENT,
+    )
+
+    private val lowRiskAppControlSkillIds = setOf(
+        BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL,
+        BuiltInSkillRuntime.CURRENT_APP_UI_SEARCH_SKILL,
+        BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
+        BuiltInSkillRuntime.BROWSER_UI_SEARCH_SKILL,
+        BuiltInSkillRuntime.MAPS_UI_ROUTE_SKILL,
+    )
+
+    private val lowRiskAppControlContinuationToolNames = setOf(
+        MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+        MobileActionFunctions.UI_TAP,
+        MobileActionFunctions.UI_TYPE_TEXT,
+        MobileActionFunctions.UI_SUBMIT_SEARCH,
+        MobileActionFunctions.UI_SCROLL,
+        MobileActionFunctions.UI_PRESS_BACK,
+        MobileActionFunctions.UI_WAIT,
+    )
+
+    private val checkpointedUiActionToolNames = setOf(
+        MobileActionFunctions.UI_TAP,
+        MobileActionFunctions.UI_TYPE_TEXT,
+        MobileActionFunctions.UI_SUBMIT_SEARCH,
+        MobileActionFunctions.UI_SCROLL,
+        MobileActionFunctions.UI_PRESS_BACK,
+    )
+
+    private val deviceControlSessionToolNames = setOf(
+        MobileActionFunctions.OPEN_WIFI_SETTINGS,
+        MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+        MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+        MobileActionFunctions.SEARCH_MAPS,
+        MobileActionFunctions.OPEN_CAMERA,
+        MobileActionFunctions.OPEN_APP_BY_NAME,
+        MobileActionFunctions.OPEN_APP_INTENT,
+        MobileActionFunctions.OPEN_APP_DEEP_TARGET,
     )
 
     private fun ToolResult.requiresLocalModelContinuation(): Boolean =
@@ -3003,7 +3306,22 @@ class AgentLoopRuntime(
         val requestId: String,
         val toolName: String,
         val title: String,
-    )
+    ) {
+        fun isLowRiskRestoredExternalOutcomePopupSkippable(result: ToolResult): Boolean =
+            when (toolName) {
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                MobileActionFunctions.OPEN_CAMERA,
+                MobileActionFunctions.OPEN_APP_BY_NAME,
+                MobileActionFunctions.OPEN_APP_INTENT,
+                MobileActionFunctions.SEARCH_MAPS
+                -> true
+
+                MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+                    result.data["targetId"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
+
+                else -> false
+            }
+    }
 
     private data class RestoredExternalObservation(
         val requestId: String,

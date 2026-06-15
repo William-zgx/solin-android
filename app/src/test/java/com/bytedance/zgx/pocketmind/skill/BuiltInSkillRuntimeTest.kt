@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.skill
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.action.SystemSettingsTargets
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
@@ -214,6 +215,9 @@ class BuiltInSkillRuntimeTest {
             "在当前浏览器搜索 Kotlin 协程" to requireNotNull(runtime.plan("在当前浏览器搜索 Kotlin 协程")),
             "在当前地图查去机场的路线" to requireNotNull(runtime.plan("在当前地图查去机场的路线")),
             "在当前邮件草稿填写 明天延期" to requireNotNull(runtime.plan("在当前邮件草稿填写 明天延期")),
+            "在当前应用搜索 海河牛奶" to requireNotNull(runtime.plan("在当前应用搜索 海河牛奶")),
+            "打开淘宝搜索海河牛奶" to requireNotNull(runtime.plan("打开淘宝搜索海河牛奶")),
+            "点击当前页面的筛选" to requireNotNull(runtime.plan("点击当前页面的筛选")),
             "查联系人 Alice" to requireNotNull(runtime.plan("查联系人 Alice")),
             "查看后台任务" to requireNotNull(runtime.plan("查看后台任务")),
             "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z" to requireNotNull(
@@ -671,16 +675,18 @@ class BuiltInSkillRuntimeTest {
             listOf(
                 MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                 MobileActionFunctions.UI_TAP,
-                MobileActionFunctions.UI_TYPE_TEXT,
                 MobileActionFunctions.UI_WAIT,
-                MobileActionFunctions.UI_TAP,
+                MobileActionFunctions.UI_TYPE_TEXT,
+                MobileActionFunctions.UI_SUBMIT_SEARCH,
+                MobileActionFunctions.UI_WAIT,
             ),
             browserPlan.steps.toolNames(),
         )
-        val browserType = browserPlan.steps[2] as SkillStep.ToolStep
+        val browserType = browserPlan.steps[3] as SkillStep.ToolStep
         assertEquals("Kotlin 协程", browserType.request.arguments["text"])
-        val browserSuggestionTap = browserPlan.steps[4] as SkillStep.ToolStep
-        assertEquals("Kotlin 协程", browserSuggestionTap.request.arguments["target"])
+        assertEquals("地址栏", browserType.request.arguments["target"])
+        val browserVerify = browserPlan.steps[5] as SkillStep.ToolStep
+        assertEquals("Kotlin 协程", browserVerify.request.arguments["verifySearchQuery"])
         assertTrue(browserPlan.validateStructure().errors.joinToString(), browserPlan.validateStructure().isValid)
 
         val mapsPlan = requireNotNull(runtime.plan("在当前地图查去机场的路线"))
@@ -689,14 +695,19 @@ class BuiltInSkillRuntimeTest {
             listOf(
                 MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
                 MobileActionFunctions.UI_TAP,
-                MobileActionFunctions.UI_TYPE_TEXT,
                 MobileActionFunctions.UI_WAIT,
-                MobileActionFunctions.UI_TAP,
+                MobileActionFunctions.UI_TYPE_TEXT,
+                MobileActionFunctions.UI_SUBMIT_SEARCH,
+                MobileActionFunctions.UI_WAIT,
             ),
             mapsPlan.steps.toolNames(),
         )
-        val mapsType = mapsPlan.steps[2] as SkillStep.ToolStep
+        val mapsType = mapsPlan.steps[3] as SkillStep.ToolStep
         assertEquals("机场", mapsType.request.arguments["text"])
+        assertEquals("搜索输入框", mapsType.request.arguments["target"])
+        val mapsVerify = mapsPlan.steps[5] as SkillStep.ToolStep
+        assertEquals("机场", mapsVerify.request.arguments["verifySearchQuery"])
+        assertEquals(null, mapsVerify.request.arguments["expectedAppName"])
         assertTrue(mapsPlan.validateStructure().errors.joinToString(), mapsPlan.validateStructure().isValid)
 
         val emailPlan = requireNotNull(runtime.plan("在当前邮件草稿填写 明天延期"))
@@ -720,8 +731,126 @@ class BuiltInSkillRuntimeTest {
         assertEquals("项目评审", calendarType.request.arguments["text"])
         assertTrue(calendarPlan.validateStructure().errors.joinToString(), calendarPlan.validateStructure().isValid)
 
+        val currentAppSearchPlan = requireNotNull(runtime.plan("在当前应用搜索 海河牛奶"))
+        assertEquals(BuiltInSkillRuntime.CURRENT_APP_UI_SEARCH_SKILL, currentAppSearchPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                MobileActionFunctions.UI_TAP,
+                MobileActionFunctions.UI_WAIT,
+                MobileActionFunctions.UI_TYPE_TEXT,
+                MobileActionFunctions.UI_SUBMIT_SEARCH,
+                MobileActionFunctions.UI_WAIT,
+            ),
+            currentAppSearchPlan.steps.toolNames(),
+        )
+        val currentAppType = currentAppSearchPlan.steps[3] as SkillStep.ToolStep
+        assertEquals("海河牛奶", currentAppType.request.arguments["text"])
+        assertEquals("搜索输入框", currentAppType.request.arguments["target"])
+        val currentAppVerify = currentAppSearchPlan.steps[5] as SkillStep.ToolStep
+        assertEquals("海河牛奶", currentAppVerify.request.arguments["verifySearchQuery"])
+        assertTrue(currentAppSearchPlan.validateStructure().errors.joinToString(), currentAppSearchPlan.validateStructure().isValid)
+
+        val openAppSearchPlan = requireNotNull(runtime.plan("打开淘宝搜索海河牛奶"))
+        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, openAppSearchPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OPEN_APP_BY_NAME,
+                MobileActionFunctions.UI_WAIT,
+                MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                MobileActionFunctions.UI_TAP,
+                MobileActionFunctions.UI_WAIT,
+                MobileActionFunctions.UI_TYPE_TEXT,
+                MobileActionFunctions.UI_SUBMIT_SEARCH,
+                MobileActionFunctions.UI_WAIT,
+            ),
+            openAppSearchPlan.steps.toolNames(),
+        )
+        val openAppStep = openAppSearchPlan.steps[0] as SkillStep.ToolStep
+        assertEquals("淘宝", openAppStep.request.arguments["appName"])
+        val openAppType = openAppSearchPlan.steps[5] as SkillStep.ToolStep
+        assertEquals("海河牛奶", openAppType.request.arguments["text"])
+        assertEquals("搜索输入框", openAppType.request.arguments["target"])
+        val openAppVerify = openAppSearchPlan.steps[7] as SkillStep.ToolStep
+        assertEquals("海河牛奶", openAppVerify.request.arguments["verifySearchQuery"])
+        assertEquals("com.taobao.taobao", openAppVerify.request.arguments["expectedPackageName"])
+        assertEquals("淘宝", openAppVerify.request.arguments["expectedAppName"])
+        assertTrue(openAppSearchPlan.validateStructure().errors.joinToString(), openAppSearchPlan.validateStructure().isValid)
+
+        val englishOpenAppSearchPlan = requireNotNull(runtime.plan("open Pinduoduo and search milk"))
+        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, englishOpenAppSearchPlan.request.skillId)
+        val englishOpenAppStep = englishOpenAppSearchPlan.steps[0] as SkillStep.ToolStep
+        assertEquals("Pinduoduo", englishOpenAppStep.request.arguments["appName"])
+        val englishType = englishOpenAppSearchPlan.steps[5] as SkillStep.ToolStep
+        assertEquals("milk", englishType.request.arguments["text"])
+        val englishVerify = englishOpenAppSearchPlan.steps[7] as SkillStep.ToolStep
+        assertEquals("milk", englishVerify.request.arguments["verifySearchQuery"])
+        assertEquals("com.xunmeng.pinduoduo", englishVerify.request.arguments["expectedPackageName"])
+
+        listOf(
+            OpenAppSearchExpectation(
+                input = "打开拼多多搜索纸巾",
+                appName = "拼多多",
+                query = "纸巾",
+                expectedPackageName = "com.xunmeng.pinduoduo",
+            ),
+            OpenAppSearchExpectation(
+                input = "打开高德地图搜索机场",
+                appName = "高德地图",
+                query = "机场",
+                expectedPackageName = "com.autonavi.minimap",
+            ),
+            OpenAppSearchExpectation(
+                input = "打开浏览器搜索 Kotlin 协程",
+                appName = "浏览器",
+                query = "Kotlin 协程",
+                expectedPackageName = "com.android.chrome",
+            ),
+        ).forEach { expectation ->
+            assertOpenAppSearchPlan(expectation)
+        }
+
+        val tapPlan = requireNotNull(runtime.plan("点击当前屏幕上的筛选"))
+        assertEquals(BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL, tapPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                MobileActionFunctions.UI_TAP,
+                MobileActionFunctions.UI_WAIT,
+            ),
+            tapPlan.steps.toolNames(),
+        )
+        val tapStep = tapPlan.steps[1] as SkillStep.ToolStep
+        assertEquals("筛选", tapStep.request.arguments["target"])
+
+        val scrollPlan = requireNotNull(runtime.plan("当前页面往下滚动"))
+        assertEquals(BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL, scrollPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                MobileActionFunctions.UI_SCROLL,
+                MobileActionFunctions.UI_WAIT,
+            ),
+            scrollPlan.steps.toolNames(),
+        )
+        val scrollStep = scrollPlan.steps[1] as SkillStep.ToolStep
+        assertEquals("down", scrollStep.request.arguments["direction"])
+
+        val backPlan = requireNotNull(runtime.plan("当前页面返回"))
+        assertEquals(BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL, backPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.UI_PRESS_BACK,
+                MobileActionFunctions.UI_WAIT,
+            ),
+            backPlan.steps.toolNames(),
+        )
+        assertTrue(backPlan.validateStructure().errors.joinToString(), backPlan.validateStructure().isValid)
+
         assertEquals(null, runtime.plan("当前设置页怎么设计"))
         assertEquals(null, runtime.plan("不要在当前浏览器搜索 Kotlin"))
+        assertEquals(null, runtime.plan("不要在当前应用搜索 海河牛奶"))
+        assertEquals(null, runtime.plan("当前页面搜索功能怎么实现"))
         assertEquals(null, runtime.plan("当前地图 API 怎么用"))
         assertEquals(null, runtime.plan("邮件草稿怎么实现"))
     }
@@ -763,6 +892,16 @@ class BuiltInSkillRuntimeTest {
         require(englishUsageAccessStep is SkillStep.ToolStep)
         assertEquals(MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS, englishUsageAccessStep.request.toolName)
 
+        val bluetoothPlan = requireNotNull(runtime.plan("打开蓝牙设置"))
+        assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, bluetoothPlan.request.skillId)
+        assertEquals(mapOf("input" to "打开蓝牙设置"), bluetoothPlan.request.arguments)
+        val bluetoothStep = bluetoothPlan.steps.single()
+        require(bluetoothStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.OPEN_SYSTEM_SETTINGS, bluetoothStep.request.toolName)
+        assertEquals(MobileActionFunctions.OPEN_SYSTEM_SETTINGS, bluetoothStep.draft.functionName)
+        assertEquals(SystemSettingsTargets.BLUETOOTH, bluetoothStep.request.arguments["target"])
+        assertTrue(bluetoothPlan.validateStructure().errors.joinToString(), bluetoothPlan.validateStructure().isValid)
+
         assertEquals(null, runtime.plan("Wi-Fi 是什么"))
         assertEquals(null, runtime.plan("Wi-Fi 设置页面怎么设计"))
         assertEquals(null, runtime.plan("不要打开 Wi-Fi 设置，只解释一下"))
@@ -777,6 +916,24 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("请勿打开 Wi-Fi 设置"))
         assertEquals(null, runtime.plan("不要设置 Wi-Fi"))
         assertEquals(null, runtime.plan("do not open usage access settings"))
+    }
+
+    @Test
+    fun plansPlainWifiOpenAsWifiSettingsWithoutSettingsWord() {
+        listOf("打开WiFi", "打开 WiFi", "打开 Wi-Fi").forEach { input ->
+            val plan = requireNotNull(runtime.plan(input)) {
+                "$input should produce a Wi-Fi settings action draft"
+            }
+
+            assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, plan.request.skillId)
+            assertEquals(mapOf("input" to input), plan.request.arguments)
+            val step = plan.steps.single()
+            require(step is SkillStep.ToolStep)
+            assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, step.request.toolName)
+            assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, step.draft.functionName)
+            assertTrue(step.request.arguments.isEmpty())
+            assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+        }
     }
 
     @Test
@@ -992,16 +1149,51 @@ class BuiltInSkillRuntimeTest {
         assertEquals(mapOf("input" to "启动微信"), launchPlan.request.arguments)
         val launchStep = launchPlan.steps.single()
         require(launchStep is SkillStep.ToolStep)
-        assertEquals(MobileActionFunctions.OPEN_APP_INTENT, launchStep.request.toolName)
-        assertEquals("com.tencent.mm", launchStep.request.arguments["packageName"])
-        assertEquals(MobileActionFunctions.OPEN_APP_INTENT, launchStep.draft.functionName)
+        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, launchStep.request.toolName)
+        assertEquals("微信", launchStep.request.arguments["appName"])
+        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, launchStep.draft.functionName)
         assertTrue(launchPlan.validateStructure().errors.joinToString(), launchPlan.validateStructure().isValid)
+
+        val commonAppCases = mapOf(
+            "打开高德地图" to "高德地图",
+            "打开信息" to "信息",
+            "打开浏览器" to "浏览器",
+            "打开日历" to "日历",
+            "打开邮件" to "邮件",
+            "打开相册" to "相册",
+            "打开计算器" to "计算器",
+            "打开时钟" to "时钟",
+            "打开便签" to "便签",
+            "打开通讯录" to "通讯录",
+            "打开拼多多" to "拼多多",
+        )
+        commonAppCases.forEach { (input, appName) ->
+            val commonPlan = requireNotNull(runtime.plan(input)) {
+                "$input should produce an app launch skill"
+            }
+            assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, commonPlan.request.skillId)
+            val commonStep = commonPlan.steps.single()
+            require(commonStep is SkillStep.ToolStep)
+            assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, commonStep.request.toolName)
+            assertEquals(appName, commonStep.request.arguments["appName"])
+            assertTrue(commonPlan.validateStructure().errors.joinToString(), commonPlan.validateStructure().isValid)
+        }
 
         val packagePlan = requireNotNull(runtime.plan("打开 com.example.app"))
         val packageStep = packagePlan.steps.single()
         require(packageStep is SkillStep.ToolStep)
         assertEquals(MobileActionFunctions.OPEN_APP_INTENT, packageStep.request.toolName)
         assertEquals("com.example.app", packageStep.request.arguments["packageName"])
+
+        listOf("打开相机", "打开摄像头", "打开摄像机").forEach { input ->
+            val cameraPlan = requireNotNull(runtime.plan(input)) {
+                "$input should produce a camera launch action draft"
+            }
+            assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, cameraPlan.request.skillId)
+            assertEquals(mapOf("input" to input), cameraPlan.request.arguments)
+            assertCameraLaunchToolStep(input, cameraPlan.steps.single())
+            assertTrue(cameraPlan.validateStructure().errors.joinToString(), cameraPlan.validateStructure().isValid)
+        }
 
         val detailsPlan = requireNotNull(runtime.plan("打开微信应用详情设置"))
         assertEquals(BuiltInSkillRuntime.APP_NAVIGATION_SKILL, detailsPlan.request.skillId)
@@ -1016,6 +1208,7 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("打开应用"))
         assertEquals(null, runtime.plan("启动 app"))
         assertEquals(null, runtime.plan("打开应用详情设置"))
+        assertEquals(null, runtime.plan("打开应用信息"))
         assertEquals(null, runtime.plan("不要打开微信"))
         assertEquals(null, runtime.plan("别启动微信"))
         assertEquals(null, runtime.plan("不启动微信"))
@@ -1471,9 +1664,14 @@ class BuiltInSkillRuntimeTest {
         ),
         ExpectedBuiltInSkillManifest(
             id = "device_settings_skill",
-            requiredTools = listOf("open_wifi_settings", "open_usage_access_settings", "open_flashlight_settings"),
+            requiredTools = listOf(
+                "open_wifi_settings",
+                "open_usage_access_settings",
+                "open_system_settings",
+                "open_flashlight_settings",
+            ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
-            triggerExamples = listOf("打开 Wi-Fi 设置", "打开使用情况访问权限设置", "打开手电筒设置"),
+            triggerExamples = listOf("打开 Wi-Fi 设置", "打开蓝牙设置", "打开使用情况访问权限设置"),
         ),
         ExpectedBuiltInSkillManifest(
             id = "reminder_skill",
@@ -1549,9 +1747,9 @@ class BuiltInSkillRuntimeTest {
         ),
         ExpectedBuiltInSkillManifest(
             id = "app_navigation_skill",
-            requiredTools = listOf("open_app_intent", "open_app_deep_target"),
+            requiredTools = listOf("open_camera", "open_app_by_name", "open_app_intent", "open_app_deep_target"),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
-            triggerExamples = listOf("启动微信", "打开微信应用详情设置"),
+            triggerExamples = listOf("启动微信", "打开微信应用详情设置", "打开相机"),
         ),
         ExpectedBuiltInSkillManifest(
             id = "foreground_app_context_skill",
@@ -1577,6 +1775,7 @@ class BuiltInSkillRuntimeTest {
                 "observe_current_screen",
                 "ui_tap",
                 "ui_type_text",
+                "ui_submit_search",
                 "ui_scroll",
                 "ui_press_back",
                 "ui_wait",
@@ -1600,6 +1799,7 @@ class BuiltInSkillRuntimeTest {
                 "observe_current_screen",
                 "ui_tap",
                 "ui_type_text",
+                "ui_submit_search",
                 "ui_wait",
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
@@ -1614,6 +1814,7 @@ class BuiltInSkillRuntimeTest {
                 "observe_current_screen",
                 "ui_tap",
                 "ui_type_text",
+                "ui_submit_search",
                 "ui_wait",
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
@@ -1633,6 +1834,53 @@ class BuiltInSkillRuntimeTest {
             triggerExamples = listOf(
                 "在当前邮件草稿填写 明天延期",
                 "fill current calendar draft with project review",
+            ),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "current_app_ui_search_skill",
+            requiredTools = listOf(
+                "observe_current_screen",
+                "ui_tap",
+                "ui_type_text",
+                "ui_submit_search",
+                "ui_wait",
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf(
+                "在当前应用搜索 海河牛奶",
+                "search Kotlin in the current app",
+            ),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "open_app_ui_search_skill",
+            requiredTools = listOf(
+                "open_app_by_name",
+                "observe_current_screen",
+                "ui_tap",
+                "ui_type_text",
+                "ui_submit_search",
+                "ui_wait",
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf(
+                "打开淘宝搜索海河牛奶",
+                "open Pinduoduo and search milk",
+            ),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "current_page_simple_interaction_skill",
+            requiredTools = listOf(
+                "observe_current_screen",
+                "ui_tap",
+                "ui_type_text",
+                "ui_scroll",
+                "ui_press_back",
+                "ui_wait",
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf(
+                "点击当前页面的筛选",
+                "scroll down on the current page",
             ),
         ),
         ExpectedBuiltInSkillManifest(
@@ -1700,6 +1948,51 @@ class BuiltInSkillRuntimeTest {
             require(step is SkillStep.ToolStep) { "Expected only tool steps but found $step" }
             step.request.toolName
         }
+
+    private fun assertCameraLaunchToolStep(input: String, step: SkillStep) {
+        require(step is SkillStep.ToolStep) { "$input should produce a tool step" }
+        assertEquals("$input should use the system camera tool", MobileActionFunctions.OPEN_CAMERA, step.request.toolName)
+        assertTrue("$input should not pass camera arguments", step.request.arguments.isEmpty())
+        assertEquals(step.request.toolName, step.draft.functionName)
+        assertTrue(step.draft.requiresConfirmation)
+    }
+
+    private fun assertOpenAppSearchPlan(expectation: OpenAppSearchExpectation) {
+        val plan = requireNotNull(runtime.plan(expectation.input)) {
+            "${expectation.input} should produce an open-app search skill"
+        }
+        assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, plan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OPEN_APP_BY_NAME,
+                MobileActionFunctions.UI_WAIT,
+                MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                MobileActionFunctions.UI_TAP,
+                MobileActionFunctions.UI_WAIT,
+                MobileActionFunctions.UI_TYPE_TEXT,
+                MobileActionFunctions.UI_SUBMIT_SEARCH,
+                MobileActionFunctions.UI_WAIT,
+            ),
+            plan.steps.toolNames(),
+        )
+        val openAppStep = plan.steps[0] as SkillStep.ToolStep
+        assertEquals(expectation.appName, openAppStep.request.arguments["appName"])
+        val typeStep = plan.steps[5] as SkillStep.ToolStep
+        assertEquals(expectation.query, typeStep.request.arguments["text"])
+        assertEquals("搜索输入框", typeStep.request.arguments["target"])
+        val verifyStep = plan.steps[7] as SkillStep.ToolStep
+        assertEquals(expectation.query, verifyStep.request.arguments["verifySearchQuery"])
+        assertEquals(expectation.expectedPackageName, verifyStep.request.arguments["expectedPackageName"])
+        assertEquals(expectation.appName, verifyStep.request.arguments["expectedAppName"])
+        assertTrue(plan.validateStructure().errors.joinToString(), plan.validateStructure().isValid)
+    }
+
+    private data class OpenAppSearchExpectation(
+        val input: String,
+        val appName: String,
+        val query: String,
+        val expectedPackageName: String,
+    )
 
     private fun draft(
         toolName: String,

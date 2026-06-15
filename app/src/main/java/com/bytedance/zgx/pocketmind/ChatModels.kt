@@ -347,6 +347,7 @@ data class ChatUiState(
     val setupSelectedModelIds: Set<String> = ModelCatalog.defaultSetupModelIds(),
     val showFirstRunSetup: Boolean = false,
     val memoryEnabled: Boolean = true,
+    val reduceDeviceActionConfirmations: Boolean = false,
     val semanticMemoryEnabled: Boolean = false,
     val semanticMemoryRuntimeStatus: SemanticMemoryRuntimeStatus =
         SemanticMemoryRuntimeStatus.NoVerifiedModel,

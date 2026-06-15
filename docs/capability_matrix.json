@@ -352,6 +352,23 @@
       "ownerAgent": "AgentRuntime"
     },
     {
+      "capabilityId": "tool_open_system_settings",
+      "entrypoint": "tool_registry",
+      "toolName": "open_system_settings",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
       "capabilityId": "tool_search_maps",
       "entrypoint": "tool_registry",
       "toolName": "search_maps",
@@ -590,6 +607,23 @@
       "ownerAgent": "AgentRuntime"
     },
     {
+      "capabilityId": "tool_ui_submit_search",
+      "entrypoint": "tool_registry",
+      "toolName": "ui_submit_search",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "LocalEvidence",
+      "requiresLocalModel": true,
+      "remoteEligible": false,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
       "capabilityId": "tool_ui_scroll",
       "entrypoint": "tool_registry",
       "toolName": "ui_scroll",
@@ -746,6 +780,40 @@
       "capabilityId": "tool_open_deep_link",
       "entrypoint": "tool_registry",
       "toolName": "open_deep_link",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_open_camera",
+      "entrypoint": "tool_registry",
+      "toolName": "open_camera",
+      "modelCapability": "MobileAction",
+      "privacyLevel": "ExternalAction",
+      "requiresLocalModel": false,
+      "remoteEligible": true,
+      "confirmationPolicy": "Required",
+      "failureBehavior": "拒绝、取消或权限失败时不执行外部动作。",
+      "requiredTests": [
+        "ToolSchemaContractTest",
+        "SafetyPolicyTest",
+        "AgentLoopRuntimeTest"
+      ],
+      "ownerAgent": "AgentRuntime"
+    },
+    {
+      "capabilityId": "tool_open_app_by_name",
+      "entrypoint": "tool_registry",
+      "toolName": "open_app_by_name",
       "modelCapability": "MobileAction",
       "privacyLevel": "ExternalAction",
       "requiresLocalModel": false,

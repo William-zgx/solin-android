@@ -6,6 +6,7 @@ import com.bytedance.zgx.pocketmind.action.BackgroundTasksQueryActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarAvailabilityActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
 import com.bytedance.zgx.pocketmind.action.CancelReminderActionParser
+import com.bytedance.zgx.pocketmind.action.CameraActionParser
 import com.bytedance.zgx.pocketmind.action.ContactDraftActionParser
 import com.bytedance.zgx.pocketmind.action.ContactQueryActionParser
 import com.bytedance.zgx.pocketmind.action.CurrentScreenTextActionParser
@@ -23,8 +24,10 @@ import com.bytedance.zgx.pocketmind.action.RecentNotificationsActionParser
 import com.bytedance.zgx.pocketmind.action.RecentScreenshotOcrActionParser
 import com.bytedance.zgx.pocketmind.action.ReminderActionParser
 import com.bytedance.zgx.pocketmind.action.ShareTextActionParser
+import com.bytedance.zgx.pocketmind.action.SystemSettingsActionParser
 import com.bytedance.zgx.pocketmind.action.WebSearchActionParser
 import com.bytedance.zgx.pocketmind.action.startsWithActionNegation
+import com.bytedance.zgx.pocketmind.device.AppInteractionProfiles
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import java.util.UUID
@@ -55,6 +58,9 @@ class BuiltInSkillRuntime : SkillRuntime {
             !input.looksLikeSequentialAction() && input.requestsCurrentDraftFormUiFill() ->
                 planCurrentDraftFormUiFill(input)
 
+            input.requestsOpenAppThenUiSearch() ->
+                planOpenAppThenUiSearch(input)
+
             !input.looksLikeSequentialAction() && MapSearchActionParser.matches(input) ->
                 plan(input, MapSearchActionParser.draft(input).toRequestPair())
 
@@ -69,6 +75,9 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && DeviceSettingsActionParser.matches(input) ->
                 plan(input, DeviceSettingsActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && SystemSettingsActionParser.matches(input) ->
+                plan(input, SystemSettingsActionParser.draft(input).toRequestPair())
 
             !input.looksLikeSequentialAction() && ContactQueryActionParser.matches(input) ->
                 plan(input, ContactQueryActionParser.draft(input).toRequestPair())
@@ -94,8 +103,14 @@ class BuiltInSkillRuntime : SkillRuntime {
             !input.looksLikeSequentialAction() && DeepLinkActionParser.matches(input) ->
                 plan(input, DeepLinkActionParser.draft(input).toRequestPair())
 
+            !input.looksLikeSequentialAction() && CameraActionParser.matches(input) ->
+                plan(input, CameraActionParser.draft().toRequestPair())
+
             !input.looksLikeSequentialAction() && AppNavigationActionParser.matches(input) ->
                 plan(input, AppNavigationActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && input.requestsCurrentAppUiSearch() ->
+                planCurrentAppUiSearch(input)
 
             !input.looksLikeSequentialAction() && ForegroundAppActionParser.matches(input) ->
                 plan(input, ForegroundAppActionParser.draft().toRequestPair())
@@ -158,6 +173,9 @@ class BuiltInSkillRuntime : SkillRuntime {
                 )
                 plan(input, draft, request)
             }
+
+            !input.looksLikeSequentialAction() && input.requestsCurrentPageSimpleInteraction() ->
+                planCurrentPageSimpleInteraction(input)
 
             else -> null
         }
@@ -352,31 +370,37 @@ class BuiltInSkillRuntime : SkillRuntime {
         return deviceUiTemplatePlan(
             input = input,
             skillId = BROWSER_UI_SEARCH_SKILL,
-            reason = "将在当前浏览器页观察、聚焦搜索框、输入关键词并点击匹配建议：$query。",
+            reason = "将在当前浏览器页观察、聚焦搜索框、输入关键词并提交搜索：$query。",
             steps = listOf(
                 observeScreenStep("observe_browser"),
                 tapStep(
                     id = "focus_browser_search",
                     dependsOn = listOf("observe_browser"),
-                    target = "搜索或输入网址",
-                    summary = "聚焦当前浏览器页面的搜索或地址输入框。",
+                    target = "地址栏",
+                    summary = "聚焦当前浏览器页面的地址栏或搜索栏。",
+                ),
+                waitStep(
+                    id = "wait_browser_search_field",
+                    dependsOn = listOf("focus_browser_search"),
+                    summary = "等待浏览器搜索输入框获得焦点或搜索页稳定。",
                 ),
                 typeTextStep(
                     id = "type_browser_query",
-                    dependsOn = listOf("focus_browser_search"),
+                    dependsOn = listOf("wait_browser_search_field"),
                     text = query,
+                    target = "地址栏",
                     summary = "在当前浏览器输入搜索关键词：$query。",
                 ),
-                waitStep(
-                    id = "wait_browser_suggestions",
+                submitSearchStep(
+                    id = "submit_browser_search",
                     dependsOn = listOf("type_browser_query"),
-                    summary = "等待浏览器搜索建议或结果入口出现。",
+                    summary = "提交浏览器搜索：$query。",
                 ),
-                tapStep(
-                    id = "tap_browser_suggestion",
-                    dependsOn = listOf("wait_browser_suggestions"),
-                    target = query,
-                    summary = "点击与关键词匹配的浏览器搜索建议：$query。",
+                waitStep(
+                    id = "verify_browser_results",
+                    dependsOn = listOf("submit_browser_search"),
+                    summary = "等待浏览器搜索结果更新并重新观察。",
+                    verifySearchQuery = query,
                 ),
             ),
         )
@@ -387,31 +411,37 @@ class BuiltInSkillRuntime : SkillRuntime {
         return deviceUiTemplatePlan(
             input = input,
             skillId = MAPS_UI_ROUTE_SKILL,
-            reason = "将在当前地图页观察、聚焦搜索框、输入路线目标并点击匹配建议：$query。",
+            reason = "将在当前地图页观察、聚焦搜索框、输入地点或路线目标并提交搜索：$query。",
             steps = listOf(
                 observeScreenStep("observe_maps"),
                 tapStep(
                     id = "focus_maps_search",
                     dependsOn = listOf("observe_maps"),
-                    target = "搜索",
+                    target = "搜索入口",
                     summary = "聚焦当前地图页面的搜索输入框。",
+                ),
+                waitStep(
+                    id = "wait_maps_search_field",
+                    dependsOn = listOf("focus_maps_search"),
+                    summary = "等待地图搜索输入框获得焦点或搜索页稳定。",
                 ),
                 typeTextStep(
                     id = "type_maps_query",
-                    dependsOn = listOf("focus_maps_search"),
+                    dependsOn = listOf("wait_maps_search_field"),
                     text = query,
+                    target = "搜索输入框",
                     summary = "在当前地图页面输入路线或地点关键词：$query。",
                 ),
-                waitStep(
-                    id = "wait_maps_suggestions",
+                submitSearchStep(
+                    id = "submit_maps_search",
                     dependsOn = listOf("type_maps_query"),
-                    summary = "等待地图建议或路线入口出现。",
+                    summary = "提交地图搜索：$query。",
                 ),
-                tapStep(
-                    id = "tap_maps_suggestion",
-                    dependsOn = listOf("wait_maps_suggestions"),
-                    target = query,
-                    summary = "点击与目标匹配的地图建议：$query。",
+                waitStep(
+                    id = "verify_maps_results",
+                    dependsOn = listOf("submit_maps_search"),
+                    summary = "等待地图搜索结果或路线入口更新并重新观察。",
+                    verifySearchQuery = query,
                 ),
             ),
         )
@@ -441,6 +471,187 @@ class BuiltInSkillRuntime : SkillRuntime {
         )
     }
 
+    private fun planCurrentAppUiSearch(input: String): SkillPlan? {
+        val query = input.extractCurrentAppUiSearchQuery() ?: return null
+        return deviceUiTemplatePlan(
+            input = input,
+            skillId = CURRENT_APP_UI_SEARCH_SKILL,
+            reason = "将在当前应用内观察、聚焦搜索入口、输入关键词、提交搜索并验证结果：$query。",
+            steps = currentAppSearchSteps(
+                observeId = "observe_current_app_search",
+                query = query,
+            ),
+        )
+    }
+
+    private fun planOpenAppThenUiSearch(input: String): SkillPlan? {
+        val request = input.extractOpenAppUiSearchRequest() ?: return null
+        val expectedPackageName = AppInteractionProfiles.forAppName(request.appName)
+            ?.packageNames
+            ?.firstOrNull()
+        return deviceUiTemplatePlan(
+            input = input,
+            skillId = OPEN_APP_UI_SEARCH_SKILL,
+            reason = "将打开${request.appName}，再在应用内搜索并验证结果：${request.query}。",
+            steps = listOf(
+                openAppByNameStep(
+                    id = "open_target_app",
+                    appName = request.appName,
+                    summary = "打开目标应用：${request.appName}。",
+                ),
+                waitStep(
+                    id = "wait_target_app",
+                    dependsOn = listOf("open_target_app"),
+                    summary = "等待${request.appName}前台界面稳定。",
+                ),
+            ) + currentAppSearchSteps(
+                observeId = "observe_target_app",
+                query = request.query,
+                firstDependsOn = listOf("wait_target_app"),
+                expectedPackageName = expectedPackageName,
+                expectedAppName = request.appName,
+            ),
+        )
+    }
+
+    private fun planCurrentPageSimpleInteraction(input: String): SkillPlan? {
+        val command = input.extractCurrentPageUiCommand() ?: return null
+        return when (command) {
+            is CurrentPageUiCommand.Tap -> deviceUiTemplatePlan(
+                input = input,
+                skillId = CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
+                reason = "将在当前页面观察并点击可见元素：${command.target}。",
+                steps = listOf(
+                    observeScreenStep("observe_current_page_tap"),
+                    tapStep(
+                        id = "tap_current_page_target",
+                        dependsOn = listOf("observe_current_page_tap"),
+                        target = command.target,
+                        summary = "点击当前页面中的可见元素：${command.target}。",
+                    ),
+                    waitStep(
+                        id = "verify_current_page_tap",
+                        dependsOn = listOf("tap_current_page_target"),
+                        summary = "等待页面变化并重新观察。",
+                    ),
+                ),
+            )
+
+            is CurrentPageUiCommand.Type -> deviceUiTemplatePlan(
+                input = input,
+                skillId = CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
+                reason = "将在当前页面观察并输入文本。",
+                steps = listOf(
+                    observeScreenStep("observe_current_page_input"),
+                    typeTextStep(
+                        id = "type_current_page_text",
+                        dependsOn = listOf("observe_current_page_input"),
+                        text = command.text,
+                        target = command.target,
+                        summary = "在当前页面输入文本。",
+                    ),
+                    waitStep(
+                        id = "verify_current_page_input",
+                        dependsOn = listOf("type_current_page_text"),
+                        summary = "等待输入结果并重新观察。",
+                    ),
+                ),
+            )
+
+            is CurrentPageUiCommand.Scroll -> deviceUiTemplatePlan(
+                input = input,
+                skillId = CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
+                reason = "将在当前页面观察并滚动。",
+                steps = listOf(
+                    observeScreenStep("observe_current_page_scroll"),
+                    scrollStep(
+                        id = "scroll_current_page",
+                        dependsOn = listOf("observe_current_page_scroll"),
+                        direction = command.direction,
+                        summary = "滚动当前页面。",
+                    ),
+                    waitStep(
+                        id = "verify_current_page_scroll",
+                        dependsOn = listOf("scroll_current_page"),
+                        summary = "等待滚动结果并重新观察。",
+                    ),
+                ),
+            )
+
+            CurrentPageUiCommand.Back -> deviceUiTemplatePlan(
+                input = input,
+                skillId = CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
+                reason = "将在当前页面执行系统返回。",
+                steps = listOf(
+                    pressBackStep(
+                        id = "press_current_page_back",
+                        summary = "执行系统返回。",
+                    ),
+                    waitStep(
+                        id = "verify_current_page_back",
+                        dependsOn = listOf("press_current_page_back"),
+                        summary = "等待返回后的页面稳定。",
+                    ),
+                ),
+            )
+
+            CurrentPageUiCommand.Wait -> deviceUiTemplatePlan(
+                input = input,
+                skillId = CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
+                reason = "将等待当前页面稳定并重新观察。",
+                steps = listOf(
+                    waitStep(
+                        id = "wait_current_page",
+                        dependsOn = emptyList(),
+                        summary = "等待当前页面稳定并重新观察。",
+                    ),
+                ),
+            )
+        }
+    }
+
+    private fun currentAppSearchSteps(
+        observeId: String,
+        query: String,
+        firstDependsOn: List<String> = emptyList(),
+        expectedPackageName: String? = null,
+        expectedAppName: String? = null,
+    ): List<SkillStep> =
+        listOf(
+            observeScreenStep(observeId).copy(dependsOn = firstDependsOn),
+            tapStep(
+                id = "focus_app_search",
+                dependsOn = listOf(observeId),
+                target = "搜索入口",
+                summary = "聚焦当前应用中的搜索入口。",
+            ),
+            waitStep(
+                id = "wait_app_search_field",
+                dependsOn = listOf("focus_app_search"),
+                summary = "等待搜索输入框获得焦点或搜索页稳定。",
+            ),
+            typeTextStep(
+                id = "type_app_search_query",
+                dependsOn = listOf("wait_app_search_field"),
+                text = query,
+                target = "搜索输入框",
+                summary = "输入搜索关键词：$query。",
+            ),
+            submitSearchStep(
+                id = "submit_app_search",
+                dependsOn = listOf("type_app_search_query"),
+                summary = "提交当前应用内搜索：$query。",
+            ),
+            waitStep(
+                id = "verify_app_search_results",
+                dependsOn = listOf("submit_app_search"),
+                summary = "等待搜索结果页更新并重新观察。",
+                verifySearchQuery = query,
+                expectedPackageName = expectedPackageName,
+                expectedAppName = expectedAppName,
+            ),
+        )
+
     private fun deviceUiTemplatePlan(
         input: String,
         skillId: String,
@@ -457,6 +668,29 @@ class BuiltInSkillRuntime : SkillRuntime {
             ),
             manifest = manifest,
             steps = steps,
+        )
+    }
+
+    private fun openAppByNameStep(
+        id: String,
+        appName: String,
+        summary: String,
+    ): SkillStep.ToolStep {
+        val parameters = mapOf("appName" to appName)
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_APP_BY_NAME,
+            title = "打开应用",
+            summary = summary,
+            parameters = parameters,
+        )
+        return SkillStep.ToolStep(
+            id = id,
+            request = ToolRequest(
+                toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                arguments = parameters,
+                reason = summary,
+            ),
+            draft = draft,
         )
     }
 
@@ -540,12 +774,44 @@ class BuiltInSkillRuntime : SkillRuntime {
         )
     }
 
-    private fun waitStep(
+    private fun submitSearchStep(
         id: String,
         dependsOn: List<String>,
         summary: String,
     ): SkillStep.ToolStep {
-        val parameters = mapOf("timeoutMillis" to "800")
+        val parameters = mapOf("timeoutMillis" to "1500")
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.UI_SUBMIT_SEARCH,
+            title = "提交搜索",
+            summary = summary,
+            parameters = parameters,
+        )
+        return SkillStep.ToolStep(
+            id = id,
+            dependsOn = dependsOn,
+            request = ToolRequest(
+                toolName = MobileActionFunctions.UI_SUBMIT_SEARCH,
+                arguments = parameters,
+                reason = summary,
+            ),
+            draft = draft,
+        )
+    }
+
+    private fun waitStep(
+        id: String,
+        dependsOn: List<String>,
+        summary: String,
+        verifySearchQuery: String? = null,
+        expectedPackageName: String? = null,
+        expectedAppName: String? = null,
+    ): SkillStep.ToolStep {
+        val parameters = buildMap {
+            put("timeoutMillis", "800")
+            verifySearchQuery?.takeIf { it.isNotBlank() }?.let { put("verifySearchQuery", it) }
+            expectedPackageName?.takeIf { it.isNotBlank() }?.let { put("expectedPackageName", it) }
+            expectedAppName?.takeIf { it.isNotBlank() }?.let { put("expectedAppName", it) }
+        }
         val draft = ActionDraft(
             functionName = MobileActionFunctions.UI_WAIT,
             title = "等待并验证",
@@ -557,6 +823,56 @@ class BuiltInSkillRuntime : SkillRuntime {
             dependsOn = dependsOn,
             request = ToolRequest(
                 toolName = MobileActionFunctions.UI_WAIT,
+                arguments = parameters,
+                reason = summary,
+            ),
+            draft = draft,
+        )
+    }
+
+    private fun scrollStep(
+        id: String,
+        dependsOn: List<String>,
+        direction: String,
+        summary: String,
+    ): SkillStep.ToolStep {
+        val parameters = mapOf(
+            "direction" to direction,
+            "timeoutMillis" to "1500",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.UI_SCROLL,
+            title = "滚动页面",
+            summary = summary,
+            parameters = parameters,
+        )
+        return SkillStep.ToolStep(
+            id = id,
+            dependsOn = dependsOn,
+            request = ToolRequest(
+                toolName = MobileActionFunctions.UI_SCROLL,
+                arguments = parameters,
+                reason = summary,
+            ),
+            draft = draft,
+        )
+    }
+
+    private fun pressBackStep(
+        id: String,
+        summary: String,
+    ): SkillStep.ToolStep {
+        val parameters = mapOf("timeoutMillis" to "1000")
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.UI_PRESS_BACK,
+            title = "返回",
+            summary = summary,
+            parameters = parameters,
+        )
+        return SkillStep.ToolStep(
+            id = id,
+            request = ToolRequest(
+                toolName = MobileActionFunctions.UI_PRESS_BACK,
                 arguments = parameters,
                 reason = summary,
             ),
@@ -591,6 +907,9 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val BROWSER_UI_SEARCH_SKILL = "browser_ui_search_skill"
         const val MAPS_UI_ROUTE_SKILL = "maps_ui_route_skill"
         const val DRAFT_FORM_UI_SKILL = "draft_form_ui_skill"
+        const val CURRENT_APP_UI_SEARCH_SKILL = "current_app_ui_search_skill"
+        const val OPEN_APP_UI_SEARCH_SKILL = "open_app_ui_search_skill"
+        const val CURRENT_PAGE_SIMPLE_INTERACTION_SKILL = "current_page_simple_interaction_skill"
         const val CONTACT_LOOKUP_SKILL = "contact_lookup_skill"
         const val CALENDAR_AVAILABILITY_SKILL = "calendar_availability_skill"
         const val APP_NAVIGATION_SKILL = "app_navigation_skill"
@@ -603,6 +922,19 @@ private data class DraftFormUiFill(
     val fieldTarget: String,
     val text: String,
 )
+
+private data class OpenAppUiSearchRequest(
+    val appName: String,
+    val query: String,
+)
+
+private sealed class CurrentPageUiCommand {
+    data class Tap(val target: String) : CurrentPageUiCommand()
+    data class Type(val text: String, val target: String?) : CurrentPageUiCommand()
+    data class Scroll(val direction: String) : CurrentPageUiCommand()
+    data object Back : CurrentPageUiCommand()
+    data object Wait : CurrentPageUiCommand()
+}
 
 private fun String.requestsCurrentScreenTextSummaryShare(): Boolean {
     val normalized = lowercase()
@@ -700,6 +1032,214 @@ private fun String.extractCurrentMapsUiQuery(): String? {
         .replace(Regex("""(?:的)?路线\s*$"""), "")
         .trim()
     return query.takeIf { it.length in 1..120 }
+}
+
+private fun String.requestsCurrentAppUiSearch(): Boolean =
+    extractCurrentAppUiSearchQuery() != null
+
+private fun String.extractCurrentAppUiSearchQuery(): String? {
+    if (startsWithActionNegation() || looksLikeUiControlDiscussion()) return null
+    val normalized = lowercase()
+    val referencesCurrentApp = listOf(
+        "当前应用",
+        "当前 app",
+        "当前app",
+        "当前页面",
+        "当前页",
+        "当前界面",
+        "这个应用",
+        "这个页面",
+        "这个界面",
+        "应用里",
+        "app 里",
+        "app里",
+    ).any { it in this } ||
+        Regex("""\b(?:current|this)\s+(?:app|application|page|screen)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
+    val asksSearch = containsSearchVerb()
+    if (!referencesCurrentApp || !asksSearch) return null
+    return extractQueryAfterSearchVerb()
+}
+
+private fun String.requestsOpenAppThenUiSearch(): Boolean =
+    extractOpenAppUiSearchRequest() != null
+
+private fun String.extractOpenAppUiSearchRequest(): OpenAppUiSearchRequest? {
+    if (startsWithActionNegation() || looksLikeUiControlDiscussion()) return null
+    val trimmed = trim()
+    val chineseMatch = Regex(
+        """^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:打开|启动|进入)\s*(.+?)\s*(?:后|之后|然后|接着|并|，|,|\s)*\s*(?:搜索|搜一下|搜|查询|查找|查)\s*[:：]?\s*(.+?)\s*[。.!！]?\s*$""",
+    ).find(trimmed)
+    if (chineseMatch != null) {
+        val appName = chineseMatch.groupValues[1].cleanAppSearchSlot()
+        val query = chineseMatch.groupValues[2].cleanSearchQuerySlot()
+        if (appName != null && query != null) return OpenAppUiSearchRequest(appName, query)
+    }
+
+    val englishMatch = Regex(
+        """^\s*(?:please\s+)?(?:open|launch|start)\s+(?:the\s+)?(.+?)\s+(?:(?:and\s+then|then|after\s+that|and)\s+)?(?:search|look\s+up|find)\s+(?:for\s+)?(.+?)\s*$""",
+        RegexOption.IGNORE_CASE,
+    ).find(trimmed)
+    if (englishMatch != null) {
+        val appName = englishMatch.groupValues[1].cleanAppSearchSlot()
+        val query = englishMatch.groupValues[2].cleanSearchQuerySlot()
+        if (appName != null && query != null) return OpenAppUiSearchRequest(appName, query)
+    }
+    return null
+}
+
+private fun String.requestsCurrentPageSimpleInteraction(): Boolean =
+    extractCurrentPageUiCommand() != null
+
+private fun String.extractCurrentPageUiCommand(): CurrentPageUiCommand? {
+    if (startsWithActionNegation() || looksLikeUiControlDiscussion()) return null
+    val normalized = lowercase()
+    val referencesCurrentPage = listOf(
+        "当前页面",
+        "当前页",
+        "当前界面",
+        "当前屏幕",
+        "这个页面",
+        "这个界面",
+        "这个屏幕",
+        "当前应用",
+        "当前 app",
+        "当前app",
+    ).any { it in this } ||
+        Regex("""\b(?:current|this)\s+(?:page|screen|app|application)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
+    if (!referencesCurrentPage) return null
+
+    if (Regex("""\b(?:back|go\s+back)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ||
+        listOf("返回", "后退").any { it in this }
+    ) {
+        return CurrentPageUiCommand.Back
+    }
+    if (Regex("""\bwait\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ||
+        listOf("等一下", "等待", "稍等").any { it in this }
+    ) {
+        return CurrentPageUiCommand.Wait
+    }
+    if (Regex("""\bscroll\s+(down|up|left|right|forward|backward)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized) ||
+        listOf("滚动", "滑动", "往下翻", "往上翻", "下滑", "上滑").any { it in this }
+    ) {
+        return CurrentPageUiCommand.Scroll(direction = scrollDirectionForCurrentPageCommand())
+    }
+
+    extractCurrentPageTypeCommand()?.let { return it }
+    if (hasCurrentPageTapIntent()) {
+        extractCurrentPageTapTarget()?.let { target -> return CurrentPageUiCommand.Tap(target) }
+    }
+    return null
+}
+
+private fun String.hasCurrentPageTapIntent(): Boolean {
+    val normalized = lowercase()
+    return listOf("点击", "点开", "点一下", "选择", "打开", "进入", "筛选").any { it in this } ||
+        Regex("""\b(?:tap|click|select|choose|open|filter)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
+}
+
+private fun String.extractCurrentPageTapTarget(): String? {
+    val target = replace(Regex("""^.*?(?:点击|点开|点一下|选择|打开|进入|筛选)\s*"""), "")
+        .replace(Regex("""(?i)^.*?\b(?:tap|click|select|choose|open|filter)\s+"""), "")
+        .stripCurrentPageReference()
+        .replace(Regex("""^\s*(?:的|上|里|内|中)\s*"""), "")
+        .replace(Regex("""(?:这个)?(?:按钮|入口|选项|筛选项|标签)?\s*$"""), "")
+        .replace(Regex("""(?i)\s+(?:button|entry|option|filter|tab)$"""), "")
+        .cleanUiTargetSlot()
+    return target?.takeIf { it.length <= 80 && it.hasActionableUiTarget() }
+}
+
+private fun String.hasActionableUiTarget(): Boolean =
+    this !in setOf("当前页面", "当前页", "当前界面", "当前屏幕", "当前应用", "这个页面", "这个界面", "这个屏幕") &&
+        !contains(Regex("""(?:是什么|什么意思|怎么|如何|说明|解释|总结|摘要|识别|读取|文字|文本|截图|通知|前台应用|当前应用是什么)"""))
+
+private fun String.extractCurrentPageTypeCommand(): CurrentPageUiCommand.Type? {
+    val chineseMatch = Regex("""^.*?(?:输入|填写)\s*[:：]?\s*(.+?)\s*$""").find(this)
+    if (chineseMatch != null) {
+        val text = chineseMatch.groupValues[1].cleanSearchQuerySlot() ?: return null
+        return CurrentPageUiCommand.Type(text = text, target = null)
+    }
+    val englishMatch = Regex("""^.*?\b(?:type|enter|fill)\s+(.+?)\s*$""", RegexOption.IGNORE_CASE).find(this)
+    if (englishMatch != null) {
+        val text = englishMatch.groupValues[1].cleanSearchQuerySlot() ?: return null
+        return CurrentPageUiCommand.Type(text = text, target = null)
+    }
+    return null
+}
+
+private fun String.stripCurrentPageReference(): String =
+    replace(
+        Regex("""^\s*(?:当前页面|当前页|当前界面|当前屏幕|这个页面|这个界面|这个屏幕|当前应用|当前\s*app)(?:上|里|内|中|的|上的|里的|中的)?\s*"""),
+        "",
+    )
+
+private fun String.scrollDirectionForCurrentPageCommand(): String {
+    val normalized = lowercase()
+    return when {
+        "往上" in this || "上滑" in this || "向上" in this ||
+            Regex("""\b(up|backward)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) -> "up"
+        "向左" in this || Regex("""\bleft\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) -> "left"
+        "向右" in this || Regex("""\bright\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) -> "right"
+        Regex("""\bforward\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) -> "forward"
+        else -> "down"
+    }
+}
+
+private fun String.containsSearchVerb(): Boolean {
+    val normalized = lowercase()
+    return listOf("搜索", "搜一下", "搜", "查询", "查找", "查").any { it in this } ||
+        Regex("""\b(?:search|look\s+up|find)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+}
+
+private fun String.extractQueryAfterSearchVerb(): String? {
+    val query = replace(Regex("""^.*?(?:搜索|搜一下|搜|查询|查找|查)\s*[:：]?"""), "")
+        .replace(Regex("""(?i)^.*?\b(?:search|look\s+up|find)\s+(?:for\s+)?"""), "")
+        .cleanSearchQuerySlot()
+    return query?.takeIf { it.length <= 120 }
+}
+
+private fun String.cleanAppSearchSlot(): String? =
+    trim()
+        .removePrefix("应用")
+        .removePrefix("app")
+        .trim()
+        .trimEnd('。', '.', '！', '!', '，', ',')
+        .takeIf { candidate ->
+            candidate.length in 1..80 &&
+                candidate !in setOf("应用", "app", "应用程序", "软件") &&
+                !candidate.contains(Regex("""[/:\\]""")) &&
+                !candidate.looksLikeSystemOrWebTarget()
+        }
+
+private fun String.cleanSearchQuerySlot(): String? =
+    trim()
+        .trim('"', '\'', '“', '”', '‘', '’')
+        .trimEnd('。', '.', '！', '!', '，', ',')
+        .trim()
+        .takeIf { candidate ->
+            candidate.isNotBlank() &&
+                candidate.length <= 120 &&
+                !candidate.contains(Regex("""^\s*(?:搜索|查询|查找|筛选)\s*$"""))
+        }
+
+private fun String.cleanUiTargetSlot(): String? =
+    trim()
+        .trim('"', '\'', '“', '”', '‘', '’')
+        .trimEnd('。', '.', '！', '!', '，', ',')
+        .trim()
+        .takeIf { candidate ->
+            candidate.isNotBlank() &&
+                candidate.length <= 120
+        }
+
+private fun String.looksLikeSystemOrWebTarget(): Boolean {
+    val normalized = lowercase()
+    return listOf("设置", "权限", "网页", "网站", "链接", "网址").any { it in this } ||
+        Regex("""\b(?:wi[-\s]?fi|wifi|wlan|settings?|preferences?|permission|web\s*page|website|link|url)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
 }
 
 private fun String.requestsCurrentDraftFormUiFill(): Boolean =
@@ -903,10 +1443,11 @@ private val builtInSkillManifests = listOf(
         version = 1,
         title = "设备设置入口",
         description = "打开受控系统设置入口，由用户在系统页面内继续操作。",
-        triggerExamples = listOf("打开 Wi-Fi 设置", "打开使用情况访问权限设置", "打开手电筒设置"),
+        triggerExamples = listOf("打开 Wi-Fi 设置", "打开蓝牙设置", "打开使用情况访问权限设置"),
         requiredTools = listOf(
             MobileActionFunctions.OPEN_WIFI_SETTINGS,
             MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+            MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
         ),
         inputSchemaJson = simpleTextInputSchema,
@@ -1046,8 +1587,10 @@ private val builtInSkillManifests = listOf(
         version = 1,
         title = "应用导航",
         description = "打开指定应用启动页或 allowlisted 应用详情设置，不接受任意 Intent 参数。",
-        triggerExamples = listOf("启动微信", "打开微信应用详情设置"),
+        triggerExamples = listOf("启动微信", "打开微信应用详情设置", "打开相机"),
         requiredTools = listOf(
+            MobileActionFunctions.OPEN_CAMERA,
+            MobileActionFunctions.OPEN_APP_BY_NAME,
             MobileActionFunctions.OPEN_APP_INTENT,
             MobileActionFunctions.OPEN_APP_DEEP_TARGET,
         ),
@@ -1094,6 +1637,7 @@ private val builtInSkillManifests = listOf(
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
             MobileActionFunctions.UI_TAP,
             MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
             MobileActionFunctions.UI_SCROLL,
             MobileActionFunctions.UI_PRESS_BACK,
             MobileActionFunctions.UI_WAIT,
@@ -1119,12 +1663,13 @@ private val builtInSkillManifests = listOf(
         id = BuiltInSkillRuntime.BROWSER_UI_SEARCH_SKILL,
         version = 1,
         title = "浏览器页面搜索",
-        description = "在当前浏览器或网页内先观察屏幕，再聚焦搜索/地址框、输入关键词、等待建议并点击匹配项；只使用通用 UI 原语。",
+        description = "在当前浏览器或网页内先观察屏幕，再聚焦搜索/地址框、输入关键词、提交搜索并等待结果更新；只使用通用 UI 原语。",
         triggerExamples = listOf("在当前浏览器搜索 Kotlin 协程", "search Kotlin coroutines in the current browser"),
         requiredTools = listOf(
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
             MobileActionFunctions.UI_TAP,
             MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
             MobileActionFunctions.UI_WAIT,
         ),
         inputSchemaJson = simpleTextInputSchema,
@@ -1134,12 +1679,13 @@ private val builtInSkillManifests = listOf(
         id = BuiltInSkillRuntime.MAPS_UI_ROUTE_SKILL,
         version = 1,
         title = "地图页路线搜索",
-        description = "在当前地图页内先观察屏幕，再聚焦搜索框、输入地点或路线目标、等待建议并点击匹配项；只使用通用 UI 原语。",
+        description = "在当前地图页内先观察屏幕，再聚焦搜索框、输入地点或路线目标、提交搜索并等待结果更新；只使用通用 UI 原语。",
         triggerExamples = listOf("在当前地图查去机场的路线", "route to the airport in the current maps page"),
         requiredTools = listOf(
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
             MobileActionFunctions.UI_TAP,
             MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
             MobileActionFunctions.UI_WAIT,
         ),
         inputSchemaJson = simpleTextInputSchema,
@@ -1154,6 +1700,56 @@ private val builtInSkillManifests = listOf(
         requiredTools = listOf(
             MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
             MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_WAIT,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.CURRENT_APP_UI_SEARCH_SKILL,
+        version = 1,
+        title = "当前应用搜索",
+        description = "在当前应用或页面内先观察屏幕，再聚焦搜索入口、输入关键词、提交搜索并等待结果更新；只使用通用 UI 原语。",
+        triggerExamples = listOf("在当前应用搜索 海河牛奶", "search Kotlin in the current app"),
+        requiredTools = listOf(
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
+            MobileActionFunctions.UI_WAIT,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL,
+        version = 1,
+        title = "打开应用后搜索",
+        description = "按本机应用名打开目标 App，等待前台界面稳定后，通过通用 UI 原语搜索关键词；不下单、不支付、不发送、不发布。",
+        triggerExamples = listOf("打开淘宝搜索海河牛奶", "open Pinduoduo and search milk"),
+        requiredTools = listOf(
+            MobileActionFunctions.OPEN_APP_BY_NAME,
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SUBMIT_SEARCH,
+            MobileActionFunctions.UI_WAIT,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
+        version = 1,
+        title = "当前页面轻交互",
+        description = "在当前页面执行观察后的点击、输入、滚动、返回或等待；不自动完成发送、删除、支付、转账、下单或公开发布。",
+        triggerExamples = listOf("点击当前页面的筛选", "scroll down on the current page"),
+        requiredTools = listOf(
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SCROLL,
+            MobileActionFunctions.UI_PRESS_BACK,
             MobileActionFunctions.UI_WAIT,
         ),
         inputSchemaJson = simpleTextInputSchema,
@@ -1191,6 +1787,9 @@ private val builtInCompositeSkillIds = setOf(
     BuiltInSkillRuntime.BROWSER_UI_SEARCH_SKILL,
     BuiltInSkillRuntime.MAPS_UI_ROUTE_SKILL,
     BuiltInSkillRuntime.DRAFT_FORM_UI_SKILL,
+    BuiltInSkillRuntime.CURRENT_APP_UI_SEARCH_SKILL,
+    BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL,
+    BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
 )
 
 private val builtInSkillDefinitions = builtInSkillManifests.map { manifest ->

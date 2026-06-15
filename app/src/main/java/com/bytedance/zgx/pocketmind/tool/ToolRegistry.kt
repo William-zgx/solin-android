@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.tool
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.action.SystemSettingsTargets
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContract
 import java.time.Instant
 import org.json.JSONObject
@@ -271,6 +272,16 @@ private val privateNonSucceededAllowedSpecialAccessValues = setOf(
 )
 
 private val privateNonSucceededAllowedSettingsActions = setOf(
+    "android.settings.SETTINGS",
+    "android.settings.BLUETOOTH_SETTINGS",
+    "android.settings.LOCATION_SOURCE_SETTINGS",
+    "android.settings.NOTIFICATION_SETTINGS",
+    "android.settings.DISPLAY_SETTINGS",
+    "android.settings.SOUND_SETTINGS",
+    "android.settings.BATTERY_SAVER_SETTINGS",
+    "android.settings.WIRELESS_SETTINGS",
+    "android.settings.AIRPLANE_MODE_SETTINGS",
+    "android.settings.INPUT_METHOD_SETTINGS",
     "android.settings.USAGE_ACCESS_SETTINGS",
     "android.settings.ACCESSIBILITY_SETTINGS",
 )
@@ -284,6 +295,8 @@ private val privateNonSucceededAllowedDiagnosticKeys = setOf(
     "status",
     "retryable",
     "failureKind",
+    "searchVerificationStatus",
+    "searchVerificationEvidence",
 )
 
 private val privateNonSucceededAllowedFailureKinds = setOf(
@@ -292,6 +305,11 @@ private val privateNonSucceededAllowedFailureKinds = setOf(
     "permission_missing",
     "keyboard_obscured",
     "timeout",
+    "app_not_foreground",
+    "search_entry_not_found",
+    "editable_not_found",
+    "submit_not_found",
+    "result_not_verified",
     "unknown",
 )
 
@@ -672,6 +690,32 @@ private val emptyObjectSchemaJson = """
     {
       "type": "object",
       "properties": {},
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val systemSettingsSchemaJson = """
+    {
+      "type": "object",
+      "required": ["target"],
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": [
+            "${SystemSettingsTargets.GENERAL}",
+            "${SystemSettingsTargets.BLUETOOTH}",
+            "${SystemSettingsTargets.LOCATION}",
+            "${SystemSettingsTargets.NOTIFICATION}",
+            "${SystemSettingsTargets.DISPLAY}",
+            "${SystemSettingsTargets.SOUND}",
+            "${SystemSettingsTargets.BATTERY_SAVER}",
+            "${SystemSettingsTargets.NETWORK}",
+            "${SystemSettingsTargets.AIRPLANE_MODE}",
+            "${SystemSettingsTargets.INPUT_METHOD}",
+            "${SystemSettingsTargets.ACCESSIBILITY}"
+          ]
+        }
+      },
       "additionalProperties": false
     }
 """.trimIndent()
@@ -1109,6 +1153,38 @@ private val uiBackOrWaitSchemaJson = """
     }
 """.trimIndent()
 
+private val uiWaitSchemaJson = """
+    {
+      "type": "object",
+      "properties": {
+        "timeoutMillis": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000
+        },
+        "verifySearchQuery": {
+          "type": "string",
+          "description": "Optional low-risk search query that must be visible or produce recognizable result evidence after waiting.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "expectedPackageName": {
+          "type": "string",
+          "description": "Optional foreground package expected while verifying search results.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "expectedAppName": {
+          "type": "string",
+          "description": "Optional app name alias used only for local profile-based result verification.",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
 private val cancelReminderSchemaJson = """
     {
       "type": "object",
@@ -1169,6 +1245,22 @@ private val openAppIntentSchemaJson = """
           "minLength": 3,
           "maxLength": 255,
           "pattern": "^[a-zA-Z][a-zA-Z0-9_]*(?:\\.[a-zA-Z0-9_]+)+$"
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val openAppByNameSchemaJson = """
+    {
+      "type": "object",
+      "required": ["appName"],
+      "properties": {
+        "appName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "用户可见的应用名，例如淘宝、拼多多、Chrome 或系统桌面显示的 App label；不能是 URI、Intent action、Activity 名或任意 extras。"
         }
       },
       "additionalProperties": false
@@ -1629,7 +1721,7 @@ private val uiActionOutputSchemaJson = """
         "requiresLocalModel": {"type": "boolean"},
         "source": {"type": "string", "enum": ["$DEVICE_CONTROL_SOURCE"]},
         "metadataPolicy": {"type": "string", "enum": ["$DEVICE_CONTROL_METADATA_POLICY"]},
-        "actionType": {"type": "string", "enum": ["tap", "type_text", "scroll", "press_back", "wait"]},
+        "actionType": {"type": "string", "enum": ["tap", "type_text", "submit_search", "scroll", "press_back", "wait"]},
         "target": {"type": "string"},
         "direction": {"type": "string", "enum": ["up", "down", "left", "right", "forward", "backward"]},
         "status": {"type": "string", "enum": ["succeeded", "failed"]},
@@ -1637,11 +1729,25 @@ private val uiActionOutputSchemaJson = """
         "summary": {"type": "string", "minLength": 1},
         "failureKind": {
           "type": "string",
-          "enum": ["node_not_found", "page_changed", "permission_missing", "keyboard_obscured", "timeout", "unknown"]
+          "enum": [
+            "node_not_found",
+            "page_changed",
+            "permission_missing",
+            "keyboard_obscured",
+            "timeout",
+            "app_not_foreground",
+            "search_entry_not_found",
+            "editable_not_found",
+            "submit_not_found",
+            "result_not_verified",
+            "unknown"
+          ]
         },
         "beforeObservationId": {"type": "string"},
         "afterObservationId": {"type": "string"},
         "verificationSummary": {"type": "string", "minLength": 1},
+        "searchVerificationStatus": {"type": "string", "enum": ["verified", "not_verified"]},
+        "searchVerificationEvidence": {"type": "string", "maxLength": 80},
         "afterPackageName": {"type": "string"},
         "afterCapturedAtMillis": {"type": "integer", "minimum": 0},
         "afterNodeCount": {"type": "integer", "minimum": 0},
@@ -1697,6 +1803,8 @@ private val uiActionPrivateOutputKeys = setOf(
     "beforeObservationId",
     "afterObservationId",
     "verificationSummary",
+    "searchVerificationStatus",
+    "searchVerificationEvidence",
     "afterPackageName",
     "afterCapturedAtMillis",
     "afterNodeCount",
@@ -1727,6 +1835,20 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             outputSchemaJson = externalActivityOutputSchemaJson,
             capability = ToolCapability.DeviceSettings,
             permissions = setOf(ToolPermission.StartsExternalActivity),
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+            title = "打开系统设置页",
+            description = "打开 allowlisted Android 系统设置页，例如蓝牙、定位、通知、显示、声音、省电、网络、飞行模式、输入法或无障碍；不会静默修改系统开关。",
+            inputSchemaJson = systemSettingsSchemaJson,
+            outputSchemaJson = externalActivityOutputSchemaJson,
+            capability = ToolCapability.DeviceSettings,
+            permissions = setOf(ToolPermission.StartsExternalActivity),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("target"),
         ),
     ),
     ToolDefinition(
@@ -1922,6 +2044,33 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             outputSchemaJson = externalActivityOutputSchemaJson,
             capability = ToolCapability.ExternalNavigation,
             permissions = setOf(ToolPermission.StartsExternalActivity),
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.OPEN_CAMERA,
+            title = "打开相机",
+            description = "打开系统相机应用；不拍照、不录像、不读取照片或相册。",
+            inputSchemaJson = emptyObjectSchemaJson,
+            outputSchemaJson = externalActivityOutputSchemaJson,
+            capability = ToolCapability.ExternalNavigation,
+            permissions = setOf(ToolPermission.StartsExternalActivity),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.OPEN_APP_BY_NAME,
+            title = "按名称打开应用",
+            description = "按本机 launcher 中的用户可见应用名解析可启动应用并打开启动页；不接受任意 Intent action、URI、Activity 或 extras。",
+            inputSchemaJson = openAppByNameSchemaJson,
+            outputSchemaJson = externalActivityOutputSchemaJson,
+            capability = ToolCapability.ExternalNavigation,
+            permissions = setOf(ToolPermission.StartsExternalActivity),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("appName"),
         ),
     ),
     ToolDefinition(
@@ -2169,6 +2318,27 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
     ),
     ToolDefinition(
         spec = ToolSpec(
+            name = MobileActionFunctions.UI_SUBMIT_SEARCH,
+            title = "提交当前搜索",
+            description = "在用户确认后通过 Accessibility 对当前输入框执行搜索提交；优先使用输入法搜索动作，失败时点击可见搜索按钮。不会发送、发布、支付或删除数据。",
+            inputSchemaJson = uiBackOrWaitSchemaJson,
+            outputSchemaJson = uiActionOutputSchemaJson,
+            capability = ToolCapability.DeviceControl,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsAccessibilityText,
+                ToolPermission.PerformsAccessibilityGesture,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("timeoutMillis"),
+            privateOutputKeys = uiActionPrivateOutputKeys,
+            redactedResultSummary = "已执行搜索提交动作",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
             name = MobileActionFunctions.UI_SCROLL,
             title = "滚动当前屏幕",
             description = "在用户确认后通过 Accessibility 滚动当前屏幕或指定滚动容器；每次动作后重新观察屏幕并返回本地验证摘要。",
@@ -2213,8 +2383,8 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
         spec = ToolSpec(
             name = MobileActionFunctions.UI_WAIT,
             title = "等待屏幕稳定",
-            description = "在用户确认后等待当前屏幕稳定并重新观察屏幕，作为页面变化、加载或输入法遮挡后的恢复检查。",
-            inputSchemaJson = uiBackOrWaitSchemaJson,
+            description = "在用户确认后等待当前屏幕稳定并重新观察屏幕；可对低风险搜索任务做本地结果验证，失败时返回可恢复原因。",
+            inputSchemaJson = uiWaitSchemaJson,
             outputSchemaJson = uiActionOutputSchemaJson,
             capability = ToolCapability.DeviceControl,
             permissions = setOf(
@@ -2224,7 +2394,12 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
-            pendingArgumentAllowlist = setOf("timeoutMillis"),
+            pendingArgumentAllowlist = setOf(
+                "timeoutMillis",
+                "verifySearchQuery",
+                "expectedPackageName",
+                "expectedAppName",
+            ),
             privateOutputKeys = uiActionPrivateOutputKeys,
             redactedResultSummary = "已等待并重新观察当前屏幕",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
