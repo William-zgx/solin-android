@@ -1,5 +1,7 @@
 package com.bytedance.zgx.pocketmind.action
 
+import java.time.Instant
+import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -8,6 +10,10 @@ import org.junit.Test
 
 class ActionPlannerTest {
     private val planner = MobileActionPlanner()
+    private val fixedPlanner = MobileActionPlanner(
+        clockMillis = { Instant.parse("2026-06-14T02:00:00Z").toEpochMilli() },
+        zoneId = ZoneId.of("Asia/Shanghai"),
+    )
 
     @Test
     fun intentCandidateRequiresMediumConfidenceBeforePlanning() {
@@ -552,6 +558,40 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun infersSystemAlarmDraftWithChineseEveningTime() {
+        val plan = fixedPlanner.plan("每天一次晚上11:25的闹钟。")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.SET_SYSTEM_ALARM, plan.draft?.functionName)
+        assertEquals("23", plan.draft?.parameters?.get("hour"))
+        assertEquals("25", plan.draft?.parameters?.get("minutes"))
+        assertEquals("daily", plan.draft?.parameters?.get("recurrence"))
+    }
+
+    @Test
+    fun infersSystemTimerDraftFromChineseCountdown() {
+        val plan = fixedPlanner.plan("倒计时20分钟")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.SET_SYSTEM_TIMER, plan.draft?.functionName)
+        assertEquals("1200", plan.draft?.parameters?.get("lengthSeconds"))
+    }
+
+    @Test
+    fun infersAbsoluteReminderDraftWithFutureTriggerAtMillis() {
+        val plan = fixedPlanner.plan("明天早上8点提醒我开会")
+
+        assertEquals(ActionPlanKind.Draft, plan.kind)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, plan.draft?.functionName)
+        assertEquals("开会", plan.draft?.parameters?.get("title"))
+        assertEquals(
+            Instant.parse("2026-06-15T00:00:00Z").toEpochMilli().toString(),
+            plan.draft?.parameters?.get("triggerAtMillis"),
+        )
+        assertNull(plan.draft?.parameters?.get("delayMinutes"))
+    }
+
+    @Test
     fun infersReminderDelayFromMatchedRelativeDelayPhrase() {
         val plan = planner.plan("提醒我 30 分钟后检查 2 小时后开始的会议资料")
 
@@ -598,6 +638,9 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("请解释“提醒我 15 分钟后喝水”这句话").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("remind me what a 1 hour SLA means").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("remind me what \"in 15 minutes\" means").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("晚上11:25是什么意思").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("怎么实现倒计时20分钟").kind)
+        assertEquals(ActionPlanKind.NoAction, planner.plan("不要设置闹钟").kind)
         assertEquals(false, planner.isLikelyAction("请解释“提醒我 15 分钟后喝水”这句话"))
         assertEquals(false, planner.isLikelyAction("remind me what \"in 15 minutes\" means"))
     }

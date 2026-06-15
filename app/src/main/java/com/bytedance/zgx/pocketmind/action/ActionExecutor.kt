@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.net.Uri
+import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.MediaStore
@@ -28,6 +29,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import com.bytedance.zgx.pocketmind.tool.failed
 import com.bytedance.zgx.pocketmind.tool.succeeded
 import java.net.URI
+import java.util.Calendar
 
 class ActionExecutor(
     private val context: Context?,
@@ -113,16 +115,20 @@ class ActionExecutor(
         val title = request.arguments["title"].orEmpty()
         val body = request.arguments["body"].orEmpty()
         val delayMinutes = request.arguments["delayMinutes"]?.toLongOrNull()
-            ?: return request.failed(
+        val triggerAtMillis = request.arguments["triggerAtMillis"]?.toLongOrNull()
+        if ((delayMinutes == null) == (triggerAtMillis == null)) {
+            return request.failed(
                 code = ToolErrorCode.InvalidRequest,
                 summary = "提醒时间参数无效",
                 retryable = false,
             )
+        }
         return scheduler.scheduleReminder(
             ReminderScheduleRequest(
                 title = title,
                 body = body,
                 delayMinutes = delayMinutes,
+                triggerAtMillis = triggerAtMillis,
             ),
         ).fold(
             onSuccess = { task ->
@@ -360,6 +366,12 @@ class ActionExecutor(
             MobileActionFunctions.SCHEDULE_REMINDER ->
                 null
 
+            MobileActionFunctions.SET_SYSTEM_ALARM ->
+                listOf(systemAlarmIntent(request))
+
+            MobileActionFunctions.SET_SYSTEM_TIMER ->
+                listOf(systemTimerIntent(request))
+
             MobileActionFunctions.READ_CLIPBOARD ->
                 null
 
@@ -399,6 +411,8 @@ class ActionExecutor(
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "已打开联系人草稿页"
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> "已打开系统设置页"
             MobileActionFunctions.SCHEDULE_REMINDER -> "已安排后台提醒"
+            MobileActionFunctions.SET_SYSTEM_ALARM -> "已打开系统闹钟设置界面"
+            MobileActionFunctions.SET_SYSTEM_TIMER -> "已打开系统倒计时设置界面"
             MobileActionFunctions.READ_CLIPBOARD -> "已读取剪贴板"
             MobileActionFunctions.SHARE_TEXT -> "已打开系统分享面板"
             MobileActionFunctions.OPEN_DEEP_LINK -> "已打开深链"
@@ -439,8 +453,55 @@ class ActionExecutor(
             MobileActionFunctions.OPEN_APP_DEEP_TARGET -> validateOpenAppDeepTargetRequest(request)
             MobileActionFunctions.SHARE_TEXT -> validateShareTextRequest(request)
             MobileActionFunctions.OPEN_CAMERA -> validateEmptyArguments(request, "打开相机不接受参数")
+            MobileActionFunctions.SET_SYSTEM_ALARM -> validateSystemAlarmRequest(request)
+            MobileActionFunctions.SET_SYSTEM_TIMER -> validateSystemTimerRequest(request)
             else -> null
         }
+
+    private fun validateSystemAlarmRequest(request: ToolRequest): ToolResult? {
+        val unknownArguments = request.arguments.keys - setOf("hour", "minutes", "message", "recurrence")
+        val hour = request.arguments["hour"]?.toIntOrNull()
+        val minutes = request.arguments["minutes"]?.toIntOrNull()
+        val recurrence = request.arguments["recurrence"].orEmpty().ifBlank { "once" }
+        val message = request.arguments["message"].orEmpty()
+        val invalidReason = when {
+            unknownArguments.isNotEmpty() -> "系统闹钟不接受参数：${unknownArguments.sorted().joinToString()}"
+            hour == null || hour !in 0..23 -> "系统闹钟 hour 必须在 0 到 23 之间"
+            minutes == null || minutes !in 0..59 -> "系统闹钟 minutes 必须在 0 到 59 之间"
+            recurrence !in setOf("once", "daily") -> "系统闹钟 recurrence 仅支持 once 或 daily"
+            message.length > MAX_CLOCK_LABEL_CHARS -> "系统闹钟标签过长"
+            else -> null
+        }
+        return invalidReason?.let { reason ->
+            request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = reason,
+                retryable = false,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+    }
+
+    private fun validateSystemTimerRequest(request: ToolRequest): ToolResult? {
+        val unknownArguments = request.arguments.keys - setOf("lengthSeconds", "message")
+        val lengthSeconds = request.arguments["lengthSeconds"]?.toIntOrNull()
+        val message = request.arguments["message"].orEmpty()
+        val invalidReason = when {
+            unknownArguments.isNotEmpty() -> "系统倒计时不接受参数：${unknownArguments.sorted().joinToString()}"
+            lengthSeconds == null || lengthSeconds !in 1..MAX_TIMER_SECONDS ->
+                "系统倒计时时长必须在 1 到 $MAX_TIMER_SECONDS 秒之间"
+            message.length > MAX_CLOCK_LABEL_CHARS -> "系统倒计时标签过长"
+            else -> null
+        }
+        return invalidReason?.let { reason ->
+            request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = reason,
+                retryable = false,
+                data = mapOf("toolName" to request.toolName),
+            )
+        }
+    }
 
     private fun validateSystemSettingsRequest(request: ToolRequest): ToolResult? {
         val target = request.arguments["target"].orEmpty()
@@ -630,6 +691,16 @@ class ActionExecutor(
                 action = MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA,
             )
 
+            MobileActionFunctions.SET_SYSTEM_ALARM -> ExternalActivityLaunch(
+                toolName = request.toolName,
+                action = AlarmClock.ACTION_SET_ALARM,
+            )
+
+            MobileActionFunctions.SET_SYSTEM_TIMER -> ExternalActivityLaunch(
+                toolName = request.toolName,
+                action = AlarmClock.ACTION_SET_TIMER,
+            )
+
             MobileActionFunctions.OPEN_APP_BY_NAME -> {
                 val resolution = resolveLaunchableApp(request.arguments.getValue("appName"))
                 val packageName = (resolution as? AppLaunchResolution.Resolved)?.packageName
@@ -697,6 +768,39 @@ class ActionExecutor(
             request.arguments["title"].orEmpty().ifBlank { "分享文本" },
         )
     }
+
+    private fun systemAlarmIntent(request: ToolRequest): Intent =
+        Intent(AlarmClock.ACTION_SET_ALARM).apply {
+            putExtra(AlarmClock.EXTRA_HOUR, request.arguments.getValue("hour").toInt())
+            putExtra(AlarmClock.EXTRA_MINUTES, request.arguments.getValue("minutes").toInt())
+            request.arguments["message"]?.takeIf { it.isNotBlank() }?.let { message ->
+                putExtra(AlarmClock.EXTRA_MESSAGE, message)
+            }
+            if (request.arguments["recurrence"] == "daily") {
+                putIntegerArrayListExtra(
+                    AlarmClock.EXTRA_DAYS,
+                    arrayListOf(
+                        Calendar.SUNDAY,
+                        Calendar.MONDAY,
+                        Calendar.TUESDAY,
+                        Calendar.WEDNESDAY,
+                        Calendar.THURSDAY,
+                        Calendar.FRIDAY,
+                        Calendar.SATURDAY,
+                    ),
+                )
+            }
+            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+        }
+
+    private fun systemTimerIntent(request: ToolRequest): Intent =
+        Intent(AlarmClock.ACTION_SET_TIMER).apply {
+            putExtra(AlarmClock.EXTRA_LENGTH, request.arguments.getValue("lengthSeconds").toInt())
+            request.arguments["message"]?.takeIf { it.isNotBlank() }?.let { message ->
+                putExtra(AlarmClock.EXTRA_MESSAGE, message)
+            }
+            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+        }
 
     private fun executeExternalActivityIntents(
         request: ToolRequest,
@@ -888,6 +992,16 @@ class ActionExecutor(
                 intentAction = action,
             )
 
+            MobileActionFunctions.SET_SYSTEM_ALARM -> ExternalActivityMetadata(
+                targetKind = "SystemAlarm",
+                intentAction = action,
+            )
+
+            MobileActionFunctions.SET_SYSTEM_TIMER -> ExternalActivityMetadata(
+                targetKind = "SystemTimer",
+                intentAction = action,
+            )
+
             MobileActionFunctions.OPEN_APP_BY_NAME -> ExternalActivityMetadata(
                 targetKind = "AndroidPackage",
                 intentAction = action,
@@ -948,6 +1062,16 @@ class ActionExecutor(
 
             MobileActionFunctions.OPEN_CAMERA -> ExternalActivityMetadata(
                 targetKind = "Camera",
+                intentAction = action,
+            )
+
+            MobileActionFunctions.SET_SYSTEM_ALARM -> ExternalActivityMetadata(
+                targetKind = "SystemAlarm",
+                intentAction = action,
+            )
+
+            MobileActionFunctions.SET_SYSTEM_TIMER -> ExternalActivityMetadata(
+                targetKind = "SystemTimer",
                 intentAction = action,
             )
 
@@ -1020,6 +1144,8 @@ class ActionExecutor(
             MobileActionFunctions.SHARE_TEXT -> Intent.ACTION_CHOOSER
             MobileActionFunctions.OPEN_DEEP_LINK -> Intent.ACTION_VIEW
             MobileActionFunctions.OPEN_CAMERA -> MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA
+            MobileActionFunctions.SET_SYSTEM_ALARM -> AlarmClock.ACTION_SET_ALARM
+            MobileActionFunctions.SET_SYSTEM_TIMER -> AlarmClock.ACTION_SET_TIMER
             MobileActionFunctions.OPEN_APP_BY_NAME -> Intent.ACTION_MAIN
             MobileActionFunctions.OPEN_APP_INTENT -> Intent.ACTION_MAIN
             MobileActionFunctions.OPEN_APP_DEEP_TARGET ->
@@ -1129,6 +1255,8 @@ class ActionExecutor(
         const val MAX_CLIPBOARD_RESULT_CHARS = 4_000
         const val MAX_DEEP_LINK_URI_CHARS = 2_048
         const val MAX_APP_NAME_CHARS = 80
+        const val MAX_CLOCK_LABEL_CHARS = 120
+        const val MAX_TIMER_SECONDS = 24 * 60 * 60
         const val COMPLETION_STATE_EXTERNAL_ACTIVITY_OPENED = "ExternalActivityOpened"
         const val COMPLETION_STATE_NOT_STARTED = "NotStarted"
         const val EXTERNAL_ACTIVITY_START_FAILED_SUMMARY = "外部应用或系统页面启动失败"

@@ -102,6 +102,26 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.PostsNotification in reminderSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission in reminderSpec.permissions)
 
+        val systemAlarmSpec = registry.specFor(MobileActionFunctions.SET_SYSTEM_ALARM)
+        assertNotNull(systemAlarmSpec)
+        requireNotNull(systemAlarmSpec)
+        assertEquals(ToolCapability.ExternalDraft, systemAlarmSpec.capability)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, systemAlarmSpec.riskLevel)
+        assertEquals(ConfirmationPolicy.Required, systemAlarmSpec.confirmationPolicy)
+        assertTrue(ToolPermission.StartsExternalActivity in systemAlarmSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in systemAlarmSpec.permissions)
+        assertEquals(setOf("hour", "minutes", "message", "recurrence"), systemAlarmSpec.pendingArgumentAllowlist)
+
+        val systemTimerSpec = registry.specFor(MobileActionFunctions.SET_SYSTEM_TIMER)
+        assertNotNull(systemTimerSpec)
+        requireNotNull(systemTimerSpec)
+        assertEquals(ToolCapability.ExternalDraft, systemTimerSpec.capability)
+        assertEquals(RiskLevel.MediumDraftOrNavigation, systemTimerSpec.riskLevel)
+        assertEquals(ConfirmationPolicy.Required, systemTimerSpec.confirmationPolicy)
+        assertTrue(ToolPermission.StartsExternalActivity in systemTimerSpec.permissions)
+        assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in systemTimerSpec.permissions)
+        assertEquals(setOf("lengthSeconds", "message"), systemTimerSpec.pendingArgumentAllowlist)
+
         val periodicCheckSpec = registry.specFor(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK)
         assertNotNull(periodicCheckSpec)
         requireNotNull(periodicCheckSpec)
@@ -448,6 +468,8 @@ class ToolRegistryTest {
                 MobileActionFunctions.CREATE_CONTACT_DRAFT,
                 MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS,
                 MobileActionFunctions.SCHEDULE_REMINDER,
+                MobileActionFunctions.SET_SYSTEM_ALARM,
+                MobileActionFunctions.SET_SYSTEM_TIMER,
                 MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
                 MobileActionFunctions.SHARE_TEXT,
                 MobileActionFunctions.OPEN_DEEP_LINK,
@@ -726,6 +748,8 @@ class ToolRegistryTest {
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to setOf("maxChars"),
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to setOf("captureMode"),
             MobileActionFunctions.CANCEL_REMINDER to setOf("taskId"),
+            MobileActionFunctions.SET_SYSTEM_ALARM to setOf("hour", "minutes", "message", "recurrence"),
+            MobileActionFunctions.SET_SYSTEM_TIMER to setOf("lengthSeconds", "message"),
             MobileActionFunctions.CONFIGURE_PERIODIC_CHECK to setOf(
                 "enabled",
                 "intervalMinutes",
@@ -1455,26 +1479,29 @@ class ToolRegistryTest {
     @Test
     fun validatesRequiredArgumentsForDraftTools() {
         val requiredArgumentsByTool = mapOf(
-            MobileActionFunctions.COMPOSE_EMAIL to "body",
-            MobileActionFunctions.CREATE_CALENDAR_EVENT to "title",
-            MobileActionFunctions.CREATE_CONTACT_DRAFT to "name",
-            MobileActionFunctions.SEARCH_MAPS to "query",
-            MobileActionFunctions.WEB_SEARCH to "query",
-            MobileActionFunctions.SCHEDULE_REMINDER to "title",
-            MobileActionFunctions.CANCEL_REMINDER to "taskId",
-            MobileActionFunctions.SHARE_TEXT to "text",
-            MobileActionFunctions.OPEN_DEEP_LINK to "uri",
-            MobileActionFunctions.OPEN_APP_BY_NAME to "appName",
-            MobileActionFunctions.OPEN_APP_INTENT to "packageName",
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET to "targetId",
+            MobileActionFunctions.COMPOSE_EMAIL to ("body" to emptyMap()),
+            MobileActionFunctions.CREATE_CALENDAR_EVENT to ("title" to emptyMap()),
+            MobileActionFunctions.CREATE_CONTACT_DRAFT to ("name" to emptyMap()),
+            MobileActionFunctions.SEARCH_MAPS to ("query" to emptyMap()),
+            MobileActionFunctions.WEB_SEARCH to ("query" to emptyMap()),
+            MobileActionFunctions.SCHEDULE_REMINDER to ("title" to mapOf("delayMinutes" to "15")),
+            MobileActionFunctions.SET_SYSTEM_ALARM to ("hour" to mapOf("minutes" to "25")),
+            MobileActionFunctions.SET_SYSTEM_TIMER to ("lengthSeconds" to emptyMap()),
+            MobileActionFunctions.CANCEL_REMINDER to ("taskId" to emptyMap()),
+            MobileActionFunctions.SHARE_TEXT to ("text" to emptyMap()),
+            MobileActionFunctions.OPEN_DEEP_LINK to ("uri" to emptyMap()),
+            MobileActionFunctions.OPEN_APP_BY_NAME to ("appName" to emptyMap()),
+            MobileActionFunctions.OPEN_APP_INTENT to ("packageName" to emptyMap()),
+            MobileActionFunctions.OPEN_APP_DEEP_TARGET to ("targetId" to mapOf("packageName" to "com.example.app")),
         )
 
-        requiredArgumentsByTool.forEach { (toolName, requiredArgument) ->
+        requiredArgumentsByTool.forEach { (toolName, case) ->
+            val requiredArgument = case.first
             val rejection = registry.validate(
                 ToolRequest(
                     id = "request-$toolName",
                     toolName = toolName,
-                    arguments = mapOf(requiredArgument to " "),
+                    arguments = case.second + mapOf(requiredArgument to " "),
                     reason = "test",
                 ),
             )
@@ -1688,6 +1715,142 @@ class ToolRegistryTest {
             ),
         )
         assertNull(valid)
+
+        val validAbsolute = registry.validate(
+            ToolRequest(
+                id = "request-reminder-absolute-valid",
+                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                arguments = mapOf(
+                    "title" to "开会",
+                    "body" to "明天早上8点提醒我开会",
+                    "triggerAtMillis" to "1781481600000",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNull(validAbsolute)
+
+        val missingTiming = registry.validate(
+            ToolRequest(
+                id = "request-reminder-missing-timing",
+                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                arguments = mapOf("title" to "喝水"),
+                reason = "test",
+            ),
+        )
+        assertNotNull(missingTiming)
+        requireNotNull(missingTiming)
+        assertTrue(missingTiming.summary.contains("exactly one"))
+
+        val duplicateTiming = registry.validate(
+            ToolRequest(
+                id = "request-reminder-duplicate-timing",
+                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                arguments = mapOf(
+                    "title" to "喝水",
+                    "delayMinutes" to "15",
+                    "triggerAtMillis" to "1781481600000",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNotNull(duplicateTiming)
+        requireNotNull(duplicateTiming)
+        assertTrue(duplicateTiming.summary.contains("exactly one"))
+    }
+
+    @Test
+    fun validatesSystemAlarmArguments() {
+        val valid = registry.validate(
+            ToolRequest(
+                id = "request-system-alarm-valid",
+                toolName = MobileActionFunctions.SET_SYSTEM_ALARM,
+                arguments = mapOf(
+                    "hour" to "23",
+                    "minutes" to "25",
+                    "recurrence" to "daily",
+                    "message" to "起床",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNull(valid)
+
+        val invalidHour = registry.validate(
+            ToolRequest(
+                id = "request-system-alarm-invalid-hour",
+                toolName = MobileActionFunctions.SET_SYSTEM_ALARM,
+                arguments = mapOf("hour" to "24", "minutes" to "25"),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidHour)
+        requireNotNull(invalidHour)
+        assertTrue(invalidHour.summary.contains("hour"))
+
+        val invalidMinutes = registry.validate(
+            ToolRequest(
+                id = "request-system-alarm-invalid-minutes",
+                toolName = MobileActionFunctions.SET_SYSTEM_ALARM,
+                arguments = mapOf("hour" to "23", "minutes" to "60"),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidMinutes)
+        requireNotNull(invalidMinutes)
+        assertTrue(invalidMinutes.summary.contains("minutes"))
+
+        val invalidRecurrence = registry.validate(
+            ToolRequest(
+                id = "request-system-alarm-invalid-recurrence",
+                toolName = MobileActionFunctions.SET_SYSTEM_ALARM,
+                arguments = mapOf("hour" to "23", "minutes" to "25", "recurrence" to "weekly"),
+                reason = "test",
+            ),
+        )
+        assertNotNull(invalidRecurrence)
+        requireNotNull(invalidRecurrence)
+        assertTrue(invalidRecurrence.summary.contains("recurrence"))
+    }
+
+    @Test
+    fun validatesSystemTimerArguments() {
+        val valid = registry.validate(
+            ToolRequest(
+                id = "request-system-timer-valid",
+                toolName = MobileActionFunctions.SET_SYSTEM_TIMER,
+                arguments = mapOf(
+                    "lengthSeconds" to "1200",
+                    "message" to "泡茶",
+                ),
+                reason = "test",
+            ),
+        )
+        assertNull(valid)
+
+        val tooShort = registry.validate(
+            ToolRequest(
+                id = "request-system-timer-too-short",
+                toolName = MobileActionFunctions.SET_SYSTEM_TIMER,
+                arguments = mapOf("lengthSeconds" to "0"),
+                reason = "test",
+            ),
+        )
+        assertNotNull(tooShort)
+        requireNotNull(tooShort)
+        assertTrue(tooShort.summary.contains("lengthSeconds"))
+
+        val tooLong = registry.validate(
+            ToolRequest(
+                id = "request-system-timer-too-long",
+                toolName = MobileActionFunctions.SET_SYSTEM_TIMER,
+                arguments = mapOf("lengthSeconds" to "86401"),
+                reason = "test",
+            ),
+        )
+        assertNotNull(tooLong)
+        requireNotNull(tooLong)
+        assertTrue(tooLong.summary.contains("lengthSeconds"))
     }
 
     @Test

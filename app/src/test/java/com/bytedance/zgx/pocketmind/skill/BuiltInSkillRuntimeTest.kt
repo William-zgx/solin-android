@@ -13,9 +13,15 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
+import java.time.ZoneId
 
 class BuiltInSkillRuntimeTest {
     private val runtime = BuiltInSkillRuntime()
+    private val fixedRuntime = BuiltInSkillRuntime(
+        clockMillis = { Instant.parse("2026-06-14T02:00:00Z").toEpochMilli() },
+        zoneId = ZoneId.of("Asia/Shanghai"),
+    )
 
     @Test
     fun exposesVersionedManifestsForCoreSkills() {
@@ -183,6 +189,7 @@ class BuiltInSkillRuntimeTest {
                 ),
             ),
             "取消提醒 task-123" to requireNotNull(runtime.plan("取消提醒 task-123")),
+            "倒计时20分钟" to requireNotNull(runtime.plan("倒计时20分钟")),
             "开启周期检查" to requireNotNull(runtime.plan("开启周期检查")),
             "读取剪贴板" to requireNotNull(runtime.plan("读取剪贴板")),
             "分享这段文字：明天十点开会" to requireNotNull(
@@ -366,6 +373,45 @@ class BuiltInSkillRuntimeTest {
         assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, step.request.toolName)
         assertEquals("60", step.request.arguments["delayMinutes"])
         assertEquals("check build status", step.request.arguments["title"])
+    }
+
+    @Test
+    fun plansAbsoluteReminderSkillFirstWithoutActionDraft() {
+        val plan = fixedRuntime.plan("明天早上8点提醒我开会")
+
+        requireNotNull(plan)
+        assertEquals(BuiltInSkillRuntime.REMINDER_SKILL, plan.request.skillId)
+        val step = plan.steps.single()
+        require(step is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.SCHEDULE_REMINDER, step.request.toolName)
+        assertEquals("开会", step.request.arguments["title"])
+        assertEquals(
+            Instant.parse("2026-06-15T00:00:00Z").toEpochMilli().toString(),
+            step.request.arguments["triggerAtMillis"],
+        )
+        assertNull(step.request.arguments["delayMinutes"])
+    }
+
+    @Test
+    fun plansSystemTimeActionSkillFirstWithoutActionDraft() {
+        val alarmPlan = runtime.plan("每天晚上11:25设置闹钟")
+
+        requireNotNull(alarmPlan)
+        assertEquals(BuiltInSkillRuntime.TIME_ACTION_SKILL, alarmPlan.request.skillId)
+        val alarmStep = alarmPlan.steps.single()
+        require(alarmStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.SET_SYSTEM_ALARM, alarmStep.request.toolName)
+        assertEquals("23", alarmStep.request.arguments["hour"])
+        assertEquals("25", alarmStep.request.arguments["minutes"])
+        assertEquals("daily", alarmStep.request.arguments["recurrence"])
+
+        val timerPlan = runtime.plan("倒计时20分钟")
+        requireNotNull(timerPlan)
+        assertEquals(BuiltInSkillRuntime.TIME_ACTION_SKILL, timerPlan.request.skillId)
+        val timerStep = timerPlan.steps.single()
+        require(timerStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.SET_SYSTEM_TIMER, timerStep.request.toolName)
+        assertEquals("1200", timerStep.request.arguments["lengthSeconds"])
     }
 
     @Test
@@ -1677,7 +1723,13 @@ class BuiltInSkillRuntimeTest {
             id = "reminder_skill",
             requiredTools = listOf("schedule_reminder", "cancel_reminder"),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
-            triggerExamples = listOf("提醒我 10 分钟后喝水", "取消提醒 task-123", "remind me in 1 hour"),
+            triggerExamples = listOf("提醒我 10 分钟后喝水", "明天早上8点提醒我开会", "取消提醒 task-123"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "time_action_skill",
+            requiredTools = listOf("set_system_alarm", "set_system_timer"),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("每天晚上11:25设置闹钟", "倒计时20分钟", "set a timer for 10 minutes"),
         ),
         ExpectedBuiltInSkillManifest(
             id = "periodic_check_skill",

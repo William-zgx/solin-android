@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.action
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.provider.AlarmClock
 import android.provider.MediaStore
 import android.provider.Settings
 import com.bytedance.zgx.pocketmind.MessagePrivacy
@@ -19,6 +20,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -41,6 +43,135 @@ class ActionExecutorTest {
         assertEquals("task-1", result.data["recoveryTaskId"])
         assertEquals("喝水", scheduler.lastReminderRequest?.title)
         assertEquals(15L, scheduler.lastReminderRequest?.delayMinutes)
+    }
+
+    @Test
+    fun schedulesAbsoluteReminderThroughBackgroundScheduler() {
+        val scheduler = RecordingBackgroundTaskScheduler()
+        val executor = ActionExecutor(
+            context = null,
+            backgroundTaskScheduler = scheduler,
+            canPostReminderNotifications = { true },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-absolute-reminder",
+                toolName = MobileActionFunctions.SCHEDULE_REMINDER,
+                arguments = mapOf(
+                    "title" to "开会",
+                    "body" to "明天早上8点提醒我开会",
+                    "triggerAtMillis" to "1781481600000",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals("task-1", result.data["taskId"])
+        assertEquals("开会", scheduler.lastReminderRequest?.title)
+        assertNull(scheduler.lastReminderRequest?.delayMinutes)
+        assertEquals(1781481600000L, scheduler.lastReminderRequest?.triggerAtMillis)
+    }
+
+    @Test
+    fun setsSystemAlarmThroughAlarmClockIntent() {
+        val launched = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launched += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-system-alarm",
+                toolName = MobileActionFunctions.SET_SYSTEM_ALARM,
+                arguments = mapOf(
+                    "hour" to "23",
+                    "minutes" to "25",
+                    "recurrence" to "daily",
+                    "message" to "起床",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertExternalActivityOpened(result.data, "SystemAlarm", AlarmClock.ACTION_SET_ALARM)
+        val launch = launched.single()
+        assertEquals(MobileActionFunctions.SET_SYSTEM_ALARM, launch.toolName)
+        assertEquals(AlarmClock.ACTION_SET_ALARM, launch.action)
+    }
+
+    @Test
+    fun setsSystemTimerThroughAlarmClockIntent() {
+        val launched = mutableListOf<ExternalActivityLaunch>()
+        val executor = ActionExecutor(
+            context = null,
+            externalActivityStarter = { launch ->
+                launched += launch
+                true
+            },
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "request-system-timer",
+                toolName = MobileActionFunctions.SET_SYSTEM_TIMER,
+                arguments = mapOf(
+                    "lengthSeconds" to "1200",
+                    "message" to "泡茶",
+                ),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertExternalActivityOpened(result.data, "SystemTimer", AlarmClock.ACTION_SET_TIMER)
+        val launch = launched.single()
+        assertEquals(MobileActionFunctions.SET_SYSTEM_TIMER, launch.toolName)
+        assertEquals(AlarmClock.ACTION_SET_TIMER, launch.action)
+    }
+
+    @Test
+    fun rejectsInvalidSystemTimeActionsBeforeStartingActivity() {
+        val launched = mutableListOf<Intent>()
+        val executor = ActionExecutor(
+            context = null,
+            activityStarter = { intent ->
+                launched += intent
+                true
+            },
+        )
+
+        val alarmResult = executor.execute(
+            ToolRequest(
+                id = "request-invalid-alarm",
+                toolName = MobileActionFunctions.SET_SYSTEM_ALARM,
+                arguments = mapOf(
+                    "hour" to "24",
+                    "minutes" to "0",
+                ),
+                reason = "test",
+            ),
+        )
+        val timerResult = executor.execute(
+            ToolRequest(
+                id = "request-invalid-timer",
+                toolName = MobileActionFunctions.SET_SYSTEM_TIMER,
+                arguments = mapOf("lengthSeconds" to "0"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, alarmResult.status)
+        assertEquals(ToolErrorCode.InvalidRequest, alarmResult.error?.code)
+        assertEquals(ToolStatus.Failed, timerResult.status)
+        assertEquals(ToolErrorCode.InvalidRequest, timerResult.error?.code)
+        assertTrue(launched.isEmpty())
     }
 
     @Test

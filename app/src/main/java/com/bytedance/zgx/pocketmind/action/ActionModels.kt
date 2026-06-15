@@ -47,6 +47,8 @@ object MobileActionFunctions {
     const val QUERY_CONTACTS = "query_contacts"
     const val OPEN_FLASHLIGHT_SETTINGS = "open_flashlight_settings"
     const val SCHEDULE_REMINDER = "schedule_reminder"
+    const val SET_SYSTEM_ALARM = "set_system_alarm"
+    const val SET_SYSTEM_TIMER = "set_system_timer"
     const val CONFIGURE_PERIODIC_CHECK = "configure_periodic_check"
     const val QUERY_BACKGROUND_TASKS = "query_background_tasks"
     const val READ_CLIPBOARD = "read_clipboard"
@@ -97,6 +99,8 @@ object MobileActionFunctions {
         UI_WAIT,
         OPEN_FLASHLIGHT_SETTINGS,
         SCHEDULE_REMINDER,
+        SET_SYSTEM_ALARM,
+        SET_SYSTEM_TIMER,
         CONFIGURE_PERIODIC_CHECK,
         QUERY_BACKGROUND_TASKS,
         READ_CLIPBOARD,

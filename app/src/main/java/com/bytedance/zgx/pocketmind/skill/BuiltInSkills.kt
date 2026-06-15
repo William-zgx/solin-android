@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.skill
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.AppNavigationActionParser
+import com.bytedance.zgx.pocketmind.action.AbsoluteReminderActionParser
 import com.bytedance.zgx.pocketmind.action.BackgroundTasksQueryActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarAvailabilityActionParser
 import com.bytedance.zgx.pocketmind.action.CalendarDraftActionParser
@@ -24,15 +25,21 @@ import com.bytedance.zgx.pocketmind.action.RecentNotificationsActionParser
 import com.bytedance.zgx.pocketmind.action.RecentScreenshotOcrActionParser
 import com.bytedance.zgx.pocketmind.action.ReminderActionParser
 import com.bytedance.zgx.pocketmind.action.ShareTextActionParser
+import com.bytedance.zgx.pocketmind.action.SystemAlarmActionParser
 import com.bytedance.zgx.pocketmind.action.SystemSettingsActionParser
+import com.bytedance.zgx.pocketmind.action.SystemTimerActionParser
 import com.bytedance.zgx.pocketmind.action.WebSearchActionParser
 import com.bytedance.zgx.pocketmind.action.startsWithActionNegation
 import com.bytedance.zgx.pocketmind.device.AppInteractionProfiles
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
+import java.time.ZoneId
 import java.util.UUID
 
-class BuiltInSkillRuntime : SkillRuntime {
+class BuiltInSkillRuntime(
+    private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val zoneId: ZoneId = ZoneId.systemDefault(),
+) : SkillRuntime {
     internal val catalog: SkillCatalog = builtInSkillCatalog
     private val manifestsById = catalog.manifestsById
     private val skillByToolName = catalog.skillIdByToolName
@@ -106,6 +113,12 @@ class BuiltInSkillRuntime : SkillRuntime {
             !input.looksLikeSequentialAction() && CameraActionParser.matches(input) ->
                 plan(input, CameraActionParser.draft().toRequestPair())
 
+            !input.looksLikeSequentialAction() && SystemAlarmActionParser.matches(input) ->
+                plan(input, requireNotNull(SystemAlarmActionParser.draft(input)).toRequestPair())
+
+            !input.looksLikeSequentialAction() && SystemTimerActionParser.matches(input) ->
+                plan(input, requireNotNull(SystemTimerActionParser.draft(input)).toRequestPair())
+
             !input.looksLikeSequentialAction() && AppNavigationActionParser.matches(input) ->
                 plan(input, AppNavigationActionParser.draft(input).toRequestPair())
 
@@ -142,6 +155,16 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && ShareTextActionParser.matches(input) -> {
                 val draft = ShareTextActionParser.draft(input)
+                val request = ToolRequest(
+                    toolName = draft.functionName,
+                    arguments = draft.parameters,
+                    reason = draft.summary,
+                )
+                plan(input, draft, request)
+            }
+
+            !input.looksLikeSequentialAction() && AbsoluteReminderActionParser.matches(input, clockMillis(), zoneId) -> {
+                val draft = requireNotNull(AbsoluteReminderActionParser.draft(input, clockMillis(), zoneId))
                 val request = ToolRequest(
                     toolName = draft.functionName,
                     arguments = draft.parameters,
@@ -888,6 +911,7 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val INFORMATION_LOOKUP_SKILL = "information_lookup_skill"
         const val DEVICE_SETTINGS_SKILL = "device_settings_skill"
         const val REMINDER_SKILL = "reminder_skill"
+        const val TIME_ACTION_SKILL = "time_action_skill"
         const val PERIODIC_CHECK_SKILL = "periodic_check_skill"
         const val BACKGROUND_TASKS_CONTEXT_SKILL = "background_tasks_context_skill"
         const val CLIPBOARD_CONTEXT_SKILL = "clipboard_context_skill"
@@ -1457,11 +1481,24 @@ private val builtInSkillManifests = listOf(
         id = BuiltInSkillRuntime.REMINDER_SKILL,
         version = 1,
         title = "后台提醒",
-        description = "把自然语言提醒请求整理成本地后台提醒工具调用。",
-        triggerExamples = listOf("提醒我 10 分钟后喝水", "取消提醒 task-123", "remind me in 1 hour"),
+        description = "把自然语言提醒请求整理成本地一次性后台提醒工具调用。",
+        triggerExamples = listOf("提醒我 10 分钟后喝水", "明天早上8点提醒我开会", "取消提醒 task-123"),
         requiredTools = listOf(
             MobileActionFunctions.SCHEDULE_REMINDER,
             MobileActionFunctions.CANCEL_REMINDER,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.TIME_ACTION_SKILL,
+        version = 1,
+        title = "系统时间工具",
+        description = "打开系统时钟应用设置闹钟或倒计时；不跳过系统 UI，不验证外部应用内最终保存结果。",
+        triggerExamples = listOf("每天晚上11:25设置闹钟", "倒计时20分钟", "set a timer for 10 minutes"),
+        requiredTools = listOf(
+            MobileActionFunctions.SET_SYSTEM_ALARM,
+            MobileActionFunctions.SET_SYSTEM_TIMER,
         ),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,

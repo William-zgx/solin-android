@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.action
 
+import java.time.ZoneId
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -10,7 +11,10 @@ interface ActionPlanner {
     fun plan(input: String): ActionPlan
 }
 
-class MobileActionPlanner : ActionPlanner {
+class MobileActionPlanner(
+    private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val zoneId: ZoneId = ZoneId.systemDefault(),
+) : ActionPlanner {
     override fun classifyIntent(input: String): IntentCandidate {
         parseModelOutput(input)?.let { draft ->
             return IntentCandidate(
@@ -104,11 +108,20 @@ class MobileActionPlanner : ActionPlanner {
             CameraActionParser.matches(input) ->
                 CameraActionParser.draft()
 
+            SystemAlarmActionParser.matches(input) ->
+                SystemAlarmActionParser.draft(input)
+
+            SystemTimerActionParser.matches(input) ->
+                SystemTimerActionParser.draft(input)
+
             AppNavigationActionParser.matches(input) ->
                 AppNavigationActionParser.draft(input)
 
             isReminderRequest(input) ->
                 ReminderActionParser.draft(input)
+
+            AbsoluteReminderActionParser.matches(input, clockMillis(), zoneId) ->
+                AbsoluteReminderActionParser.draft(input, clockMillis(), zoneId)
 
             PeriodicCheckActionParser.matches(input) ->
                 PeriodicCheckActionParser.draft(input)
@@ -186,6 +199,8 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "联系人草稿"
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> "打开手电筒设置"
             MobileActionFunctions.SCHEDULE_REMINDER -> "后台提醒"
+            MobileActionFunctions.SET_SYSTEM_ALARM -> "系统闹钟"
+            MobileActionFunctions.SET_SYSTEM_TIMER -> "系统倒计时"
             MobileActionFunctions.CONFIGURE_PERIODIC_CHECK -> "周期检查"
             MobileActionFunctions.QUERY_BACKGROUND_TASKS -> "查询后台任务"
             MobileActionFunctions.READ_CLIPBOARD -> "读取剪贴板"
@@ -221,7 +236,19 @@ class MobileActionPlanner : ActionPlanner {
             MobileActionFunctions.CREATE_CONTACT_DRAFT -> "将打开联系人新建页面。"
             MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS -> "将打开系统设置，由你手动确认手电筒相关操作。"
             MobileActionFunctions.SCHEDULE_REMINDER ->
-                "将在 ${parameters["delayMinutes"].orEmpty()} 分钟后提醒：${parameters["title"].orEmpty()}"
+                if (parameters["triggerAtMillis"].isNullOrBlank()) {
+                    "将在 ${parameters["delayMinutes"].orEmpty()} 分钟后提醒：${parameters["title"].orEmpty()}"
+                } else {
+                    "将在指定时间提醒：${parameters["title"].orEmpty()}"
+                }
+            MobileActionFunctions.SET_SYSTEM_ALARM -> {
+                val hour = parameters["hour"].orEmpty()
+                val minutes = parameters["minutes"].orEmpty()
+                val recurrence = if (parameters["recurrence"] == "daily") "每天" else "下次"
+                "将打开系统闹钟界面设置$recurrence ${hour.padStart(2, '0')}:${minutes.padStart(2, '0')} 的闹钟。"
+            }
+            MobileActionFunctions.SET_SYSTEM_TIMER ->
+                "将打开系统计时器界面设置 ${parameters["lengthSeconds"].orEmpty()} 秒倒计时。"
             MobileActionFunctions.CONFIGURE_PERIODIC_CHECK -> {
                 if (parameters["enabled"] == "false") {
                     "将关闭本地提醒周期检查。"

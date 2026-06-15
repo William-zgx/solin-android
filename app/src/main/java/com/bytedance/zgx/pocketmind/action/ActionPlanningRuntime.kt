@@ -158,7 +158,10 @@ internal fun actionPrompt(input: String): String =
     - create_calendar_event {"title":"..."}
     - create_contact_draft {"name":"..."}
     - open_flashlight_settings {}
-    - schedule_reminder {"title":"...","body":"...","delayMinutes":"15"} 仅用于明确的分钟/小时后提醒
+    - schedule_reminder {"title":"...","body":"...","delayMinutes":"15"} 仅用于明确的分钟/小时后一次性本地提醒
+    - schedule_reminder {"title":"...","body":"...","triggerAtMillis":"..."} 仅用于已解析到未来 epoch millis 的一次性本地提醒；不支持重复
+    - set_system_alarm {"hour":"23","minutes":"25","recurrence":"once|daily","message":"..."} 仅用于打开系统时钟闹钟设置界面；不跳过系统 UI；每天闹钟用 recurrence=daily
+    - set_system_timer {"lengthSeconds":"1200","message":"..."} 仅用于打开系统时钟倒计时设置界面；不跳过系统 UI
     - query_background_tasks {"scope":"active|history|policy|all","maxCount":"..."} 仅用于只读查询本地后台任务/提醒任务/周期检查状态，不返回提醒正文
     - read_clipboard {} 仅用于用户明确要求读取剪贴板
     - share_text {"text":"...","title":"..."} 仅打开系统分享面板，不直接发送

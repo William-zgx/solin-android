@@ -60,6 +60,14 @@ class ToolRegistry private constructor(
                     preserveSummary = true,
                 )
         }
+        toolSpecificArgumentInvariant(request)?.let { reason ->
+            return request.rejected(reason)
+                .sanitizedPrivateNonSucceededResult(
+                    request = request,
+                    spec = definition.spec,
+                    preserveSummary = true,
+                )
+        }
 
         return null
     }
@@ -210,6 +218,21 @@ class ToolRegistry private constructor(
             ToolRegistry(definitionsFor(supportedActions))
     }
 }
+
+private fun toolSpecificArgumentInvariant(request: ToolRequest): String? =
+    when (request.toolName) {
+        MobileActionFunctions.SCHEDULE_REMINDER -> {
+            val hasDelay = !request.arguments["delayMinutes"].isNullOrBlank()
+            val hasTriggerAt = !request.arguments["triggerAtMillis"].isNullOrBlank()
+            if (hasDelay == hasTriggerAt) {
+                "Tool ${request.toolName} requires exactly one of delayMinutes or triggerAtMillis"
+            } else {
+                null
+            }
+        }
+
+        else -> null
+    }
 
 private fun privateOutputResultInvariant(
     spec: ToolSpec,
@@ -898,7 +921,7 @@ private val contactQuerySchemaJson = """
 private val reminderSchemaJson = """
     {
       "type": "object",
-      "required": ["title", "delayMinutes"],
+      "required": ["title"],
       "properties": {
         "title": {
           "type": "string",
@@ -910,6 +933,57 @@ private val reminderSchemaJson = """
         "delayMinutes": {
           "type": "integer",
           "minimum": 1
+        },
+        "triggerAtMillis": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val systemAlarmSchemaJson = """
+    {
+      "type": "object",
+      "required": ["hour", "minutes"],
+      "properties": {
+        "hour": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 59
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "recurrence": {
+          "type": "string",
+          "enum": ["once", "daily"]
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val systemTimerSchemaJson = """
+    {
+      "type": "object",
+      "required": ["lengthSeconds"],
+      "properties": {
+        "lengthSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 120
         }
       },
       "additionalProperties": false
@@ -1952,7 +2026,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
         spec = ToolSpec(
             name = MobileActionFunctions.SCHEDULE_REMINDER,
             title = "后台提醒",
-            description = "创建一个本地后台提醒，到点后通过系统通知提示用户。",
+            description = "创建一个本地后台提醒，到点后通过系统通知提示用户；支持相对延迟或一次性绝对触发时间，不支持重复提醒。",
             inputSchemaJson = reminderSchemaJson,
             outputSchemaJson = reminderOutputSchemaJson,
             capability = ToolCapability.BackgroundTask,
@@ -1961,6 +2035,34 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
                 ToolPermission.PostsNotification,
                 ToolPermission.RequiresAndroidRuntimePermission,
             ),
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.SET_SYSTEM_ALARM,
+            title = "系统闹钟",
+            description = "打开 Android 系统时钟应用的闹钟设置界面并填入小时、分钟和可选标签；不跳过系统 UI，不验证外部应用内最终保存结果。",
+            inputSchemaJson = systemAlarmSchemaJson,
+            outputSchemaJson = externalActivityOutputSchemaJson,
+            capability = ToolCapability.ExternalDraft,
+            permissions = setOf(ToolPermission.StartsExternalActivity),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("hour", "minutes", "message", "recurrence"),
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.SET_SYSTEM_TIMER,
+            title = "系统倒计时",
+            description = "打开 Android 系统时钟应用的倒计时设置界面并填入时长和可选标签；不跳过系统 UI，不验证外部应用内最终启动结果。",
+            inputSchemaJson = systemTimerSchemaJson,
+            outputSchemaJson = externalActivityOutputSchemaJson,
+            capability = ToolCapability.ExternalDraft,
+            permissions = setOf(ToolPermission.StartsExternalActivity),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("lengthSeconds", "message"),
         ),
     ),
     ToolDefinition(

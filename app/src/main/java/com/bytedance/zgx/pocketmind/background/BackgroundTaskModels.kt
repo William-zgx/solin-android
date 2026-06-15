@@ -28,13 +28,15 @@ enum class ScheduledTaskStatus {
 data class ReminderScheduleRequest(
     val title: String,
     val body: String,
-    val delayMinutes: Long,
+    val delayMinutes: Long? = null,
+    val triggerAtMillis: Long? = null,
 ) {
     fun normalized(): ReminderScheduleRequest =
         copy(
             title = title.trim().ifBlank { DEFAULT_TITLE },
             body = body.trim(),
-            delayMinutes = delayMinutes.coerceAtLeast(MIN_DELAY_MINUTES),
+            delayMinutes = delayMinutes?.coerceAtLeast(MIN_DELAY_MINUTES),
+            triggerAtMillis = triggerAtMillis?.coerceAtLeast(0L),
         )
 
     companion object {

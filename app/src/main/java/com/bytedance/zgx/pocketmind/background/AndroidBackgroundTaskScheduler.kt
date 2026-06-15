@@ -41,7 +41,15 @@ class AndroidBackgroundTaskScheduler(
     override fun scheduleReminder(request: ReminderScheduleRequest): Result<ScheduledTask> =
         runCatching {
             val normalized = request.normalized()
-            val triggerAtMillis = clockMillis() + normalized.delayMinutes * MILLIS_PER_MINUTE
+            require((normalized.delayMinutes == null) != (normalized.triggerAtMillis == null)) {
+                "Reminder request requires exactly one of delayMinutes or triggerAtMillis"
+            }
+            val now = clockMillis()
+            val minimumTriggerAtMillis = now + ReminderScheduleRequest.MIN_DELAY_MINUTES * MILLIS_PER_MINUTE
+            val triggerAtMillis = (
+                normalized.triggerAtMillis
+                    ?: (now + requireNotNull(normalized.delayMinutes) * MILLIS_PER_MINUTE)
+                ).coerceAtLeast(minimumTriggerAtMillis)
             val task = repository.createReminder(
                 title = normalized.title,
                 body = normalized.body,
