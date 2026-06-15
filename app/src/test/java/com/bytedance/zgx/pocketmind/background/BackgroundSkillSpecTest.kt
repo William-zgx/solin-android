@@ -1,9 +1,11 @@
 package com.bytedance.zgx.pocketmind.background
 
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.pocketmind.tool.ConfirmationPolicy
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolCapability
+import com.bytedance.zgx.pocketmind.tool.ToolCapabilityTag
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolSpec
@@ -19,6 +21,19 @@ class BackgroundSkillSpecTest {
         )
 
         assertTrue(validation.errors.joinToString(), validation.isValid)
+    }
+
+    @Test
+    fun registeredPeriodicLocalReminderPatrolSpecIsDerivedFromSkillManifest() {
+        val manifest = BuiltInSkillRuntime()
+            .manifests()
+            .first { skillManifest -> skillManifest.id == BuiltInSkillRuntime.PERIODIC_CHECK_SKILL }
+        val backgroundExecution = requireNotNull(manifest.backgroundExecution)
+        val spec = RegisteredBackgroundSkillSpecs.PeriodicLocalReminderPatrol
+
+        assertTrue(spec.id == manifest.id)
+        assertTrue(spec.requiredTools == backgroundExecution.requiredTools)
+        assertTrue(spec.allowedWork.map { work -> work.name }.toSet() == backgroundExecution.allowedWork.map { work -> work.name }.toSet())
     }
 
     @Test
@@ -41,10 +56,12 @@ class BackgroundSkillSpecTest {
                 MobileActionFunctions.QUERY_BACKGROUND_TASKS to toolSpec(
                     riskLevel = RiskLevel.LowReadOnly,
                     permissions = setOf(ToolPermission.ReadsDeviceContext),
+                    tags = setOf(ToolCapabilityTag.BackgroundSkillAllowed),
                 ),
                 MobileActionFunctions.CONFIGURE_PERIODIC_CHECK to toolSpec(
                     riskLevel = RiskLevel.MediumDraftOrNavigation,
                     permissions = setOf(ToolPermission.SchedulesBackgroundWork, ToolPermission.PostsNotification),
+                    tags = setOf(ToolCapabilityTag.BackgroundSkillAllowed),
                 ),
             ),
         )
@@ -133,6 +150,7 @@ class BackgroundSkillSpecTest {
         riskLevel: RiskLevel,
         permissions: Set<ToolPermission>,
         confirmationPolicy: ConfirmationPolicy = ConfirmationPolicy.Required,
+        tags: Set<ToolCapabilityTag> = emptySet(),
     ): ToolSpec =
         ToolSpec(
             name = "test_tool",
@@ -143,5 +161,6 @@ class BackgroundSkillSpecTest {
             permissions = permissions,
             riskLevel = riskLevel,
             confirmationPolicy = confirmationPolicy,
+            tags = tags,
         )
 }

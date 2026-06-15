@@ -3,7 +3,11 @@ package com.bytedance.zgx.pocketmind
 import android.Manifest
 import android.os.Build
 import android.provider.Settings
-import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.tool.AndroidRuntimePermissionKind
+import com.bytedance.zgx.pocketmind.tool.AndroidRuntimePermissionSpec
+import com.bytedance.zgx.pocketmind.tool.ToolCapabilityTag
+import com.bytedance.zgx.pocketmind.tool.ToolPermission
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 
 data class RuntimePermissionRequirement(
     val permissions: List<String>,
@@ -23,8 +27,11 @@ const val SPECIAL_ACCESS_USAGE_STATS = "usage_stats"
 const val SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT = "accessibility_screen_text"
 const val SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL = "accessibility_device_control"
 
-fun PendingAgentConfirmation.runtimePermissionsFor(apiLevel: Int = Build.VERSION.SDK_INT): List<String> {
-    return runtimePermissionRequirementsFor(apiLevel)
+fun PendingAgentConfirmation.runtimePermissionsFor(
+    apiLevel: Int = Build.VERSION.SDK_INT,
+    toolRegistry: ToolRegistry = ToolRegistry(),
+): List<String> {
+    return runtimePermissionRequirementsFor(apiLevel, toolRegistry)
         .flatMap { it.permissions }
         .distinct()
 }
@@ -38,100 +45,63 @@ internal fun PendingAgentConfirmation.matchesExecution(other: PendingAgentConfir
 internal fun PendingAgentConfirmation.requiresRuntimePermissionResult(
     resultPermissions: Set<String>,
     apiLevel: Int = Build.VERSION.SDK_INT,
+    toolRegistry: ToolRegistry = ToolRegistry(),
 ): Boolean {
-    val expectedPermissions = runtimePermissionsFor(apiLevel).toSet()
+    val expectedPermissions = runtimePermissionsFor(apiLevel, toolRegistry).toSet()
     if (expectedPermissions.isEmpty()) return false
     return resultPermissions.isEmpty() || resultPermissions.any { permission -> permission in expectedPermissions }
 }
 
-internal fun PendingAgentConfirmation.requiresCurrentScreenshotOcrConsent(): Boolean {
+internal fun PendingAgentConfirmation.requiresCurrentScreenshotOcrConsent(
+    toolRegistry: ToolRegistry = ToolRegistry(),
+): Boolean {
     val toolName = toolRequest?.toolName ?: draft.functionName
-    return toolName == MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR
+    return toolRegistry.specFor(toolName)?.permissions?.contains(ToolPermission.RequiresMediaProjectionConsent) == true
 }
 
 fun PendingAgentConfirmation.runtimePermissionRequirementsFor(
     apiLevel: Int = Build.VERSION.SDK_INT,
+    toolRegistry: ToolRegistry = ToolRegistry(),
 ): List<RuntimePermissionRequirement> {
     val toolName = toolRequest?.toolName ?: draft.functionName
-    return when (toolName) {
-        MobileActionFunctions.SCHEDULE_REMINDER ->
-            if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
-                listOf(Manifest.permission.POST_NOTIFICATIONS.requirement())
-            } else {
-                emptyList()
-            }
-
-        MobileActionFunctions.CONFIGURE_PERIODIC_CHECK ->
-            if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
-                listOf(
-                    Manifest.permission.POST_NOTIFICATIONS.requirement(
-                        rationale = "用于周期检查发现过期本地提醒时发送通知。",
-                    ),
-                )
-            } else {
-                emptyList()
-            }
-
-        MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY ->
-            listOf(Manifest.permission.READ_CALENDAR.requirement())
-
-        MobileActionFunctions.QUERY_CONTACTS ->
-            listOf(Manifest.permission.READ_CONTACTS.requirement())
-
-        MobileActionFunctions.QUERY_RECENT_FILES ->
-            recentFilePermissionRequirementsFor(
-                kind = toolRequest?.arguments?.get("kind")
-                    ?: draft.parameters["kind"]
-                    ?: "all",
-                apiLevel = apiLevel,
-            )
-
-        MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR ->
-            recentImageOcrPermissionRequirementsFor(
-                apiLevel = apiLevel,
-                rationale = "用于在你确认后读取最近 1 张截图像素，并在本地提取 OCR 文本。",
-            )
-
-        MobileActionFunctions.READ_RECENT_IMAGE_OCR ->
-            recentImageOcrPermissionRequirementsFor(
-                apiLevel = apiLevel,
-                rationale = "用于在你确认后最多扫描最近 3 张图片像素，并在本地提取第一条 OCR 文本。",
-            )
-
-        else -> emptyList()
-    }
+    return toolRegistry.androidRuntimePermissionSpecsFor(toolName)
+        .flatMap { spec -> runtimePermissionRequirementsFor(spec, apiLevel) }
+        .distinctBy { requirement -> requirement.permissions to requirement.rationale }
 }
 
-fun PendingAgentConfirmation.specialAccessRequirementsFor(): List<SpecialAccessRequirement> {
+fun PendingAgentConfirmation.specialAccessRequirementsFor(
+    toolRegistry: ToolRegistry = ToolRegistry(),
+): List<SpecialAccessRequirement> {
     val toolName = toolRequest?.toolName ?: draft.functionName
-    return when (toolName) {
-        MobileActionFunctions.QUERY_FOREGROUND_APP -> listOf(USAGE_ACCESS_REQUIREMENT)
-        MobileActionFunctions.READ_CURRENT_SCREEN_TEXT -> listOf(ACCESSIBILITY_SCREEN_TEXT_REQUIREMENT)
-        MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
-        MobileActionFunctions.UI_TAP,
-        MobileActionFunctions.UI_TYPE_TEXT,
-        MobileActionFunctions.UI_SUBMIT_SEARCH,
-        MobileActionFunctions.UI_SCROLL,
-        MobileActionFunctions.UI_PRESS_BACK,
-        MobileActionFunctions.UI_WAIT -> listOf(ACCESSIBILITY_DEVICE_CONTROL_REQUIREMENT)
-        else -> emptyList()
-    }
+    return toolRegistry.specialAccessTagsFor(toolName)
+        .mapNotNull { tag ->
+            when (tag) {
+                ToolCapabilityTag.UsageStatsSpecialAccess -> USAGE_ACCESS_REQUIREMENT
+                ToolCapabilityTag.AccessibilityScreenTextSpecialAccess -> ACCESSIBILITY_SCREEN_TEXT_REQUIREMENT
+                ToolCapabilityTag.AccessibilityDeviceControlSpecialAccess ->
+                    ACCESSIBILITY_DEVICE_CONTROL_REQUIREMENT
+                else -> null
+            }
+        }
+        .distinctBy { requirement -> requirement.id }
 }
 
 internal fun restoredPendingSpecialAccessRequirement(
     requirementId: String?,
     pendingConfirmation: PendingAgentConfirmation?,
+    toolRegistry: ToolRegistry = ToolRegistry(),
 ): SpecialAccessRequirement? =
     pendingConfirmation
-        ?.specialAccessRequirementsFor()
+        ?.specialAccessRequirementsFor(toolRegistry)
         ?.firstOrNull { requirement -> requirement.id == requirementId }
 
 fun PendingAgentConfirmation.deniedRuntimePermissionsAfterGrantResult(
     grantResults: Map<String, Boolean>,
     apiLevel: Int = Build.VERSION.SDK_INT,
     hasRuntimePermission: (String) -> Boolean,
+    toolRegistry: ToolRegistry = ToolRegistry(),
 ): List<String> =
-    runtimePermissionsFor(apiLevel)
+    runtimePermissionsFor(apiLevel, toolRegistry)
         .filterNot { permission ->
             grantResults[permission] == true ||
                 hasRuntimePermission(permission) ||
@@ -146,6 +116,7 @@ fun PendingAgentConfirmation.deniedRuntimePermissionsAfterGrantResult(
                     grantResults = grantResults,
                     apiLevel = apiLevel,
                     hasRuntimePermission = hasRuntimePermission,
+                    toolRegistry = toolRegistry,
                 )
         }
 
@@ -263,11 +234,14 @@ private fun PendingAgentConfirmation.isCoveredByPartialRecentFileAllGrant(
     grantResults: Map<String, Boolean>,
     apiLevel: Int,
     hasRuntimePermission: (String) -> Boolean,
+    toolRegistry: ToolRegistry,
 ): Boolean {
     if (apiLevel < Build.VERSION_CODES.TIRAMISU) return false
     val toolName = toolRequest?.toolName ?: draft.functionName
-    if (toolName != MobileActionFunctions.QUERY_RECENT_FILES) return false
-    val kind = (toolRequest?.arguments?.get("kind") ?: draft.parameters["kind"] ?: "all").lowercase()
+    val recentFilesSpec = toolRegistry.androidRuntimePermissionSpecsFor(toolName)
+        .firstOrNull { spec -> spec.kind == AndroidRuntimePermissionKind.RecentFiles }
+        ?: return false
+    val kind = (runtimePermissionArgument(recentFilesSpec.argumentName) ?: "all").lowercase()
     if (kind != "all") return false
     val mediaPermissions = buildSet {
         add(Manifest.permission.READ_MEDIA_IMAGES)
@@ -281,6 +255,42 @@ private fun PendingAgentConfirmation.isCoveredByPartialRecentFileAllGrant(
     return mediaPermissions.any { mediaPermission ->
         grantResults[mediaPermission] == true || hasRuntimePermission(mediaPermission)
     }
+}
+
+private fun PendingAgentConfirmation.runtimePermissionRequirementsFor(
+    spec: AndroidRuntimePermissionSpec,
+    apiLevel: Int,
+): List<RuntimePermissionRequirement> =
+    when (spec.kind) {
+        AndroidRuntimePermissionKind.PostNotifications ->
+            if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
+                listOf(Manifest.permission.POST_NOTIFICATIONS.requirement(rationale = spec.rationale))
+            } else {
+                emptyList()
+            }
+
+        AndroidRuntimePermissionKind.ReadCalendar ->
+            listOf(Manifest.permission.READ_CALENDAR.requirement(rationale = spec.rationale))
+
+        AndroidRuntimePermissionKind.ReadContacts ->
+            listOf(Manifest.permission.READ_CONTACTS.requirement(rationale = spec.rationale))
+
+        AndroidRuntimePermissionKind.RecentFiles ->
+            recentFilePermissionRequirementsFor(
+                kind = runtimePermissionArgument(spec.argumentName) ?: "all",
+                apiLevel = apiLevel,
+            )
+
+        AndroidRuntimePermissionKind.RecentImages ->
+            recentImageOcrPermissionRequirementsFor(
+                apiLevel = apiLevel,
+                rationale = spec.rationale ?: "用于在你确认后读取最近图片像素，并在本地提取 OCR 文本。",
+            )
+    }
+
+private fun PendingAgentConfirmation.runtimePermissionArgument(name: String?): String? {
+    if (name.isNullOrBlank()) return null
+    return toolRequest?.arguments?.get(name) ?: draft.parameters[name]
 }
 
 private fun String.requirement(rationale: String? = null): RuntimePermissionRequirement =

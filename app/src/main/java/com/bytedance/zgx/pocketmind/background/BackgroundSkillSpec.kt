@@ -1,8 +1,11 @@
 package com.bytedance.zgx.pocketmind.background
 
-import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
+import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
+import com.bytedance.zgx.pocketmind.skill.SkillBackgroundWork
+import com.bytedance.zgx.pocketmind.skill.SkillManifest
 import com.bytedance.zgx.pocketmind.tool.ConfirmationPolicy
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
+import com.bytedance.zgx.pocketmind.tool.ToolCapabilityTag
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolSpec
 
@@ -49,7 +52,7 @@ data class BackgroundSkillSpec(
 
     private fun validateToolBoundary(toolName: String, spec: ToolSpec): List<String> {
         val errors = mutableListOf<String>()
-        if (toolName !in BACKGROUND_ALLOWED_TOOL_NAMES) {
+        if (ToolCapabilityTag.BackgroundSkillAllowed !in spec.tags) {
             errors += "background tool $toolName is not in the approved background tool allowlist"
         }
         if (spec.riskLevel.ordinal > RiskLevel.MediumDraftOrNavigation.ordinal) {
@@ -76,16 +79,36 @@ data class BackgroundSkillSpec(
         const val MIN_INTERVAL_MINUTES = PeriodicCheckScheduleRequest.MIN_INTERVAL_MINUTES
         val BACKGROUND_ALLOWED_WORK: Set<BackgroundSkillWork> =
             setOf(BackgroundSkillWork.ReadOnlyLocalState, BackgroundSkillWork.PostLocalNotification)
-        val BACKGROUND_ALLOWED_TOOL_NAMES: Set<String> = setOf(
-            MobileActionFunctions.QUERY_BACKGROUND_TASKS,
-            MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
-        )
         private val FOREGROUND_ONLY_PERMISSIONS = setOf(
             ToolPermission.StartsExternalActivity,
             ToolPermission.SendsTextToExternalApp,
         )
+
+        fun fromManifest(manifest: SkillManifest): BackgroundSkillSpec {
+            val backgroundExecution = requireNotNull(manifest.backgroundExecution) {
+                "Skill ${manifest.id} does not declare background execution metadata"
+            }
+            return BackgroundSkillSpec(
+                id = manifest.id,
+                requiredTools = backgroundExecution.requiredTools.ifEmpty { manifest.requiredTools },
+                userConfigured = backgroundExecution.userConfigured,
+                minimumIntervalMinutes = backgroundExecution.minimumIntervalMinutes,
+                localOnly = backgroundExecution.localOnly,
+                allowedWork = backgroundExecution.allowedWork.mapTo(linkedSetOf(), SkillBackgroundWork::toBackgroundWork),
+                foregroundConfirmationForOutboundOrExecution =
+                    backgroundExecution.foregroundConfirmationForOutboundOrExecution,
+            )
+        }
     }
 }
+
+private fun SkillBackgroundWork.toBackgroundWork(): BackgroundSkillWork =
+    when (this) {
+        SkillBackgroundWork.ReadOnlyLocalState -> BackgroundSkillWork.ReadOnlyLocalState
+        SkillBackgroundWork.PostLocalNotification -> BackgroundSkillWork.PostLocalNotification
+        SkillBackgroundWork.OutboundNetwork -> BackgroundSkillWork.OutboundNetwork
+        SkillBackgroundWork.ExecuteExternalAction -> BackgroundSkillWork.ExecuteExternalAction
+    }
 
 data class BackgroundSkillSpecValidation(
     val errors: List<String>,
@@ -101,20 +124,11 @@ enum class BackgroundSkillWork {
 }
 
 object RegisteredBackgroundSkillSpecs {
-    val PeriodicLocalReminderPatrol = BackgroundSkillSpec(
-        id = "periodic_local_reminder_patrol",
-        requiredTools = listOf(
-            MobileActionFunctions.QUERY_BACKGROUND_TASKS,
-            MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
-        ),
-        userConfigured = true,
-        minimumIntervalMinutes = BackgroundSkillSpec.MIN_INTERVAL_MINUTES,
-        localOnly = true,
-        allowedWork = setOf(
-            BackgroundSkillWork.ReadOnlyLocalState,
-            BackgroundSkillWork.PostLocalNotification,
-        ),
-    )
+    val PeriodicLocalReminderPatrol: BackgroundSkillSpec =
+        BuiltInSkillRuntime()
+            .manifests()
+            .first { manifest -> manifest.id == BuiltInSkillRuntime.PERIODIC_CHECK_SKILL }
+            .let(BackgroundSkillSpec::fromManifest)
 
     val all: List<BackgroundSkillSpec> = listOf(PeriodicLocalReminderPatrol)
 }

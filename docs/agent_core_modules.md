@@ -50,6 +50,20 @@ Current status:
 - Implemented registry, JSON schema strings, argument validation, permission
   declarations, risk levels, confirmation policy, structured result helpers,
   and Android Intent execution results.
+- `ToolRegistry` can now aggregate `ToolSpec` values from `ToolProvider`
+  instances. The current built-in provider preserves the existing tool set and
+  ordering, while making Web search, device context, device control, Android
+  Intent, background task, and future software-specific providers separable
+  without changing the Agent loop contract.
+- `ToolSpec.tags` now carries runtime policy categories that used to be
+  scattered as tool-name allowlists in the Agent loop and executors. The
+  registry answers questions such as whether a tool starts a device-control
+  session, can skip reduced-confirmation prompts, can continue a low-risk app
+  control skill, counts toward UI checkpoints, can source an app-launch
+  continuation, or requires a local model before a sequential tail. `Action`
+  parsing and device-control routing now query the registry instead of
+  treating `MobileActionFunctions.supported` or local `setOf(...)` lists as
+  authoritative.
 - Tool argument validation is now driven by each tool's JSON schema for
   required properties, closed argument sets, `minLength`, and regex `pattern`
   checks.
@@ -185,11 +199,11 @@ flowchart TD
   serialized into `ToolRequest`, trace, audit, or pending confirmation rows.
   Without a fresh matching foreground MediaProjection consent result, the
   executor fails closed.
-- Tools that may require runtime permissions declare that requirement in
-  `ToolSpec` only when the current runtime permission policy can request a
-  concrete Android manifest permission. The Activity boundary maps pending tool
-  confirmations to Android runtime permission requests before handing the same
-  confirmation back to the ViewModel for execution.
+- Tools that may require runtime permissions declare abstract
+  `ToolSpec.androidRuntimePermissions` descriptors alongside
+  `RequiresAndroidRuntimePermission`. The Android boundary expands those
+  descriptors into concrete manifest permissions by API level before handing
+  the same confirmation back to the ViewModel for execution.
 - Special app access requirements are declared separately from Android runtime
   permissions. Usage Access (`PACKAGE_USAGE_STATS`) is modeled as a
   settings-granted capability, not a dangerous runtime permission.
@@ -244,7 +258,11 @@ Current status:
   the next steps are observe/tap/type/search/scroll/back/wait, the loop may
   continue within the configured phone-control confirmation policy. Sending,
   deleting, paying, ordering, publishing, sensitive input, permission changes,
-  and mixed-risk batches stay on the confirmation/fail-closed path.
+  and mixed-risk batches stay on the confirmation/fail-closed path. Eligibility
+  is declared on `SkillManifest.lowRiskAppControlEligible`, while individual
+  UI tool categories still come from `ToolSpec.tags`. Continuing after an
+  unverified app launch is separately declared by
+  `SkillManifest.continuesAfterUnverifiedOpenAppLaunch`.
 - App-control runs use a small step budget and stop the foreground
   `DeviceControlSessionService` when the run reaches a terminal state.
 - Confirmed tool observations revalidate successful `ToolResult.data` against
@@ -800,9 +818,10 @@ Current status:
   Registry.
 - `SkillManifest.authorizationContractHash()` defines the current-runtime
   reauthorization scope for restored or attached plans. It hashes only
-  id/version/risk, normalized required tools, and canonicalized input schema;
-  title, description, trigger examples, and raw JSON formatting stay outside the
-  execution authorization contract.
+  id/version/risk, low-risk app-control eligibility, unverified app-launch
+  continuation eligibility, background execution metadata, normalized required
+  tools, and canonicalized input schema; title, description, trigger examples,
+  and raw JSON formatting stay outside the execution authorization contract.
 - `SkillPlan` reserves `.` as the `stepId.outputKey` source-reference
   delimiter. Step ids and model output keys containing that delimiter are
   rejected during structure validation so bindings and value-free checkpoints
@@ -1556,7 +1575,8 @@ Current status:
 
 - Implemented `schedule_reminder` as a confirmed tool and `reminder_skill` as a
   built-in one-step skill.
-- `BackgroundSkillSpec` defines the approved scheduled-local-skill boundary:
+- `SkillManifest.backgroundExecution` defines the approved scheduled-local-skill
+  boundary and `BackgroundSkillSpec` is derived from that manifest metadata:
   background skills must be explicitly user-configured, frequency-bounded,
   local-only, limited to read-only local state or local notification work, and
   any outbound or execution follow-up must return to foreground confirmation.

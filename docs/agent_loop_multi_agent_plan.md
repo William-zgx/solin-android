@@ -202,10 +202,22 @@ data class ToolSpec(
     val title: String,
     val description: String,
     val inputSchemaJson: String,
+    val outputSchemaJson: String,
     val capability: ToolCapability,
+    val permissions: Set<ToolPermission>,
     val riskLevel: RiskLevel,
     val confirmationPolicy: ConfirmationPolicy,
+    val pendingArgumentAllowlist: Set<String>,
+    val privateOutputKeys: Set<String>,
+    val resultContinuationPolicy: ToolResultContinuationPolicy,
+    val planningPromptHint: String?,
+    val tags: Set<ToolCapabilityTag>,
+    val androidRuntimePermissions: List<AndroidRuntimePermissionSpec>,
 )
+
+fun interface ToolProvider {
+    fun specs(): List<ToolSpec>
+}
 
 data class ToolRequest(
     val id: String,
@@ -226,6 +238,12 @@ data class ToolResult(
 ### 初始工具清单
 
 第一阶段只迁移现有 6 个动作，避免扩大风险面：
+
+现状更新：工具层已经从固定动作清单演进为 provider-backed
+`ToolRegistry`。Web search、设备上下文、Accessibility GUI primitives、Android
+Intent、后台任务和未来软件专属工具都通过 `ToolSpec` 声明；Agent loop 只查询
+registry 的 schema、risk、permission、tag 和 continuation policy，不再维护
+平行的工具 allowlist。
 
 | Tool | 当前来源 | 确认策略 | 结果 |
 | --- | --- | --- | --- |
@@ -267,14 +285,22 @@ Tool 是原子能力，Skill 是可复用任务流程。Skill 不应绕过 Tool 
 ```kotlin
 data class SkillManifest(
     val id: String,
+    val version: Int,
     val title: String,
     val description: String,
     val triggerExamples: List<String>,
     val requiredTools: List<String>,
     val inputSchemaJson: String,
     val riskLevel: RiskLevel,
+    val lowRiskAppControlEligible: Boolean,
+    val continuesAfterUnverifiedOpenAppLaunch: Boolean,
+    val backgroundExecution: SkillBackgroundExecution?,
 )
 ```
+
+`SkillManifest.authorizationContractHash()` 绑定 id/version/risk、低风险 App
+控制资格、未验证 App launch 后续资格、后台执行元数据、required tools 和输入
+schema。标题、描述和 trigger examples 不参与恢复时的执行授权。
 
 ### SkillRun
 

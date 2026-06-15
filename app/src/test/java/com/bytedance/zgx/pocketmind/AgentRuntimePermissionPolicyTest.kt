@@ -6,9 +6,15 @@ import android.provider.Settings
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
+import com.bytedance.zgx.pocketmind.tool.AndroidRuntimePermissionKind
+import com.bytedance.zgx.pocketmind.tool.AndroidRuntimePermissionSpec
+import com.bytedance.zgx.pocketmind.tool.ToolCapability
+import com.bytedance.zgx.pocketmind.tool.ToolCapabilityTag
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
+import com.bytedance.zgx.pocketmind.tool.ToolProvider
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
+import com.bytedance.zgx.pocketmind.tool.ToolSpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -356,8 +362,13 @@ class AgentRuntimePermissionPolicyTest {
 
     @Test
     fun runtimePermissionRegistryMarkerMatchesPolicyTools() {
-        val runtimePermissionTools = ToolRegistry().specs()
+        val registry = ToolRegistry()
+        val runtimePermissionTools = registry.specs()
             .filter { ToolPermission.RequiresAndroidRuntimePermission in it.permissions }
+            .map { it.name }
+            .toSet()
+        val descriptorTools = registry.specs()
+            .filter { it.androidRuntimePermissions.isNotEmpty() }
             .map { it.name }
             .toSet()
 
@@ -372,6 +383,43 @@ class AgentRuntimePermissionPolicyTest {
                 MobileActionFunctions.READ_RECENT_IMAGE_OCR,
             ),
             runtimePermissionTools,
+        )
+        assertEquals(
+            "Android runtime permission marker and descriptor must stay in lockstep",
+            runtimePermissionTools,
+            descriptorTools,
+        )
+    }
+
+    @Test
+    fun runtimePermissionRequirementsCanComeFromRegistryProviderDescriptors() {
+        val toolName = "custom_contact_context"
+        val confirmation = confirmationFor(toolName)
+        val registry = ToolRegistry(
+            ToolProvider {
+                listOf(
+                    ToolSpec(
+                        name = toolName,
+                        title = "Custom contact context",
+                        description = "Custom contact context",
+                        inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
+                        capability = ToolCapability.DeviceContext,
+                        permissions = setOf(ToolPermission.RequiresAndroidRuntimePermission),
+                        androidRuntimePermissions = listOf(
+                            AndroidRuntimePermissionSpec(AndroidRuntimePermissionKind.ReadContacts),
+                        ),
+                    ),
+                )
+            },
+        )
+
+        assertEquals(
+            listOf(Manifest.permission.READ_CONTACTS),
+            confirmation.runtimePermissionsFor(toolRegistry = registry),
+        )
+        assertEquals(
+            "联系人权限",
+            confirmation.runtimePermissionRequirementsFor(toolRegistry = registry).single().title,
         )
     }
 
@@ -430,6 +478,32 @@ class AgentRuntimePermissionPolicyTest {
         assertEquals(SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT, requirements.single().id)
         assertEquals("无障碍屏幕文本权限", requirements.single().title)
         assertTrue(requirements.single().rationale.contains("当前屏幕"))
+        assertEquals(Settings.ACTION_ACCESSIBILITY_SETTINGS, requirements.single().settingsAction)
+    }
+
+    @Test
+    fun specialAccessRequirementsCanComeFromRegistryProviderTags() {
+        val toolName = "custom_accessibility_tool"
+        val confirmation = confirmationFor(toolName)
+        val registry = ToolRegistry(
+            ToolProvider {
+                listOf(
+                    ToolSpec(
+                        name = toolName,
+                        title = "Custom accessibility tool",
+                        description = "Custom accessibility tool",
+                        inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
+                        capability = ToolCapability.DeviceControl,
+                        tags = setOf(ToolCapabilityTag.AccessibilityDeviceControlSpecialAccess),
+                    ),
+                )
+            },
+        )
+
+        val requirements = confirmation.specialAccessRequirementsFor(registry)
+
+        assertEquals(1, requirements.size)
+        assertEquals(SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL, requirements.single().id)
         assertEquals(Settings.ACTION_ACCESSIBILITY_SETTINGS, requirements.single().settingsAction)
     }
 

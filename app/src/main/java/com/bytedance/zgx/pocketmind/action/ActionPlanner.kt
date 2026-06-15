@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.action
 
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import java.time.ZoneId
 import org.json.JSONArray
 import org.json.JSONObject
@@ -14,6 +15,7 @@ interface ActionPlanner {
 class MobileActionPlanner(
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val zoneId: ZoneId = ZoneId.systemDefault(),
+    private val toolRegistry: ToolRegistry = ToolRegistry(),
 ) : ActionPlanner {
     override fun classifyIntent(input: String): IntentCandidate {
         parseModelOutput(input)?.let { draft ->
@@ -58,7 +60,7 @@ class MobileActionPlanner(
     fun parseModelOutput(output: String): ActionDraft? {
         val match = CALL_PATTERN.find(output.trim()) ?: return null
         val functionName = match.groupValues[1]
-        if (functionName !in MobileActionFunctions.supported) return null
+        if (!toolRegistry.isKnownTool(functionName)) return null
         val parameters = parseJsonLikeObject(match.groupValues[2])
         return functionName.toDraft(parameters)
     }
@@ -72,7 +74,7 @@ class MobileActionPlanner(
                 reason = "Invalid model tool call format",
             )
         val functionName = match.groupValues[1]
-        if (functionName !in MobileActionFunctions.supported) {
+        if (!toolRegistry.isKnownTool(functionName)) {
             return ModelToolOutputParseResult.Rejected(
                 toolName = functionName,
                 reason = "Unknown tool: $functionName",

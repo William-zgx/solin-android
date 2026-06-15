@@ -1512,6 +1512,19 @@ private val builtInSkillManifests = listOf(
         requiredTools = listOf(MobileActionFunctions.CONFIGURE_PERIODIC_CHECK),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
+        backgroundExecution = SkillBackgroundExecution(
+            requiredTools = listOf(
+                MobileActionFunctions.QUERY_BACKGROUND_TASKS,
+                MobileActionFunctions.CONFIGURE_PERIODIC_CHECK,
+            ),
+            userConfigured = true,
+            minimumIntervalMinutes = 60L,
+            localOnly = true,
+            allowedWork = setOf(
+                SkillBackgroundWork.ReadOnlyLocalState,
+                SkillBackgroundWork.PostLocalNotification,
+            ),
+        ),
     ),
     SkillManifest(
         id = BuiltInSkillRuntime.BACKGROUND_TASKS_CONTEXT_SKILL,
@@ -1711,6 +1724,7 @@ private val builtInSkillManifests = listOf(
         ),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
+        lowRiskAppControlEligible = true,
     ),
     SkillManifest(
         id = BuiltInSkillRuntime.MAPS_UI_ROUTE_SKILL,
@@ -1727,6 +1741,7 @@ private val builtInSkillManifests = listOf(
         ),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
+        lowRiskAppControlEligible = true,
     ),
     SkillManifest(
         id = BuiltInSkillRuntime.DRAFT_FORM_UI_SKILL,
@@ -1757,6 +1772,7 @@ private val builtInSkillManifests = listOf(
         ),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
+        lowRiskAppControlEligible = true,
     ),
     SkillManifest(
         id = BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL,
@@ -1774,6 +1790,8 @@ private val builtInSkillManifests = listOf(
         ),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
+        lowRiskAppControlEligible = true,
+        continuesAfterUnverifiedOpenAppLaunch = true,
     ),
     SkillManifest(
         id = BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
@@ -1791,6 +1809,7 @@ private val builtInSkillManifests = listOf(
         ),
         inputSchemaJson = simpleTextInputSchema,
         riskLevel = RiskLevel.MediumDraftOrNavigation,
+        lowRiskAppControlEligible = true,
     ),
     SkillManifest(
         id = BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL,

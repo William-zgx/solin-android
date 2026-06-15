@@ -23,6 +23,56 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-15 Agent capability architecture and physical-device validation
+
+本轮覆盖项：
+
+- 将 Agent 能力边界从 Agent loop 内部 allowlist 收敛到 `ToolProvider` /
+  `ToolSpec` / `ToolCapabilityTag` / `SkillManifest` 元数据：基础能力如
+  public evidence search、设备上下文、Accessibility GUI primitives、Android
+  runtime permission、special access 和后台调度由 registry 声明；软件/流程能力
+  通过 provider 与 Skill Manifest 扩展。
+- `ActionPlanningRuntime` 的模型提示从当前 Tool Registry schema 生成；低风险
+  App 控制、未验证 App launch 后续、UI checkpoint、后台 Skill allowlist 和
+  runtime permission descriptor 均由 registry/manifest 查询。
+- 真机安装和全量 AndroidTest instrumentation 以真实设备 `fb6272c` 验证，不把失败
+  结果绑定为 release physical-device 通过证据。
+
+验证命令：
+
+```bash
+$HOME/Library/Android/sdk/platform-tools/adb devices -l
+$HOME/Library/Android/sdk/platform-tools/adb -s fb6272c shell 'getprop ro.product.manufacturer; getprop ro.product.model; getprop ro.build.version.release; getprop ro.build.version.sdk; getprop ro.product.cpu.abilist64; df -k /data | tail -n 1'
+ANDROID_SERIAL=fb6272c CLEAN_DEVICE=0 RESET_APP_DATA_AFTER_TESTS=0 scripts/install_and_test_device.sh
+$HOME/Library/Android/sdk/platform-tools/adb -s fb6272c shell am start -W -n com.bytedance.zgx.pocketmind/.MainActivity
+```
+
+结果：
+
+- 通过：真机识别为 `serial=fb6272c`、`manufacturer=Xiaomi`、
+  `model=23127PN0CC`、`device=houji`、Android 16 / API 36、`arm64-v8a`，
+  `/data` 可用约 39GB。
+- 通过：`assembleDebug assembleDebugAndroidTest` 成功，debug APK 与
+  androidTest APK 安装均返回 `Success`。
+- 失败：全量 instrumentation 在
+  `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`
+  开始后超过 900 秒；设备报告
+  `build/verification/device-20260615-110000/device-verification.properties`
+  记录 `status=failed`、`failedTarget=instrumentation`、
+  `reason=instrumentation-timeout`、`instrumentation_test_count=56`、
+  `clean_device=0`、`reset_app_data_after_tests=0`。
+- 通过：失败后手动启动主 Activity 返回 `Status: ok`、`LaunchState: COLD`、
+  `TotalTime=1677`、`WaitTime=1681`，说明安装后的 App 可启动。
+- evidence SHA-256：
+  `device-verification.properties` 为
+  `bfca9791d89be1ccc6614ed309664249572fd8ef89d38db03aa0b5c698c97c88`；
+  `instrumentation.txt` 为
+  `cc9fd985fc12518a76543de28519bad16d010f0eaf9c6d7a8994fc5524e92718`；
+  `logcat.txt` 为
+  `2adf7e9bc37c4a0dc7466461a28ca0c65af7e210a8354c4be7e8394f8e350d60`。
+- 未绑定：`docs/release_validation_record.json` 的 physical-device evidence 保持
+  pending；该失败报告不能替代 release physical-device passed evidence。
+
 ## 2026-06-14 App 内搜索闭环与真机覆盖安装
 
 本轮覆盖项：

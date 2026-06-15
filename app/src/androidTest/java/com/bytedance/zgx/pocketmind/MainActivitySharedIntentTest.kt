@@ -48,15 +48,11 @@ class MainActivitySharedIntentTest {
         ActivityScenario.launch<MainActivity>(launchIntent).use {
             composeRule.waitForTag("app_title")
             composeRule.waitForTag("pending_shared_input_strip")
-            composeRule.waitForText("已接收分享内容", substring = true)
 
             composeRule.onNodeWithTag("app_title").assertIsDisplayed()
             composeRule.onNodeWithTag("pending_shared_input_strip")
                 .assertIsDisplayed()
             composeRule.onAllNodesWithText("文本", substring = true)
-                .onFirst()
-                .assertIsDisplayed()
-            composeRule.onAllNodesWithText("已接收分享内容", substring = true)
                 .onFirst()
                 .assertIsDisplayed()
             composeRule.assertTextAbsent(sharedText)

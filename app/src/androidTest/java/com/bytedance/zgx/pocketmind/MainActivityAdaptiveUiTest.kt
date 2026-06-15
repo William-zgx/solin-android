@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.view.KeyEvent
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -101,10 +102,12 @@ class MainActivityAdaptiveUiTest {
         )
 
         ActivityScenario.launch<MainActivity>(skipStartupIntent(ReadyRemoteModelConfig)).use { scenario ->
+            composeRule.waitForTag("app_title")
+            composeRule.enableEveryMessageRemoteSendDisclosure()
+
             scenario.onActivity { activity ->
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             }
-            composeRule.waitForTag("app_title")
             composeRule.waitForReadyComposer()
 
             composeRule.onNodeWithTag("composer_input").performTextInput("横屏确认远程发送")
@@ -159,5 +162,21 @@ class MainActivityAdaptiveUiTest {
     private fun ComposeTestRule.assertLabeledAction(tag: String, label: String) {
         onNodeWithTag(tag).assertHasClickAction()
         onNode(hasTestTag(tag) and hasContentDescription(label)).assertIsDisplayed()
+    }
+
+    private fun ComposeTestRule.enableEveryMessageRemoteSendDisclosure() {
+        onNodeWithTag("top_model_button").performClick()
+        waitForTag("model_manager_sheet")
+        onNodeWithTag("model_tab_privacy").performClick()
+        onNodeWithTag("remote_send_policy_EveryMessage").performScrollTo().performClick()
+        onNodeWithTag("model_manager_close_button").performClick()
+        waitForIdle()
+        if (onAllNodesWithTag("model_manager_sheet").fetchSemanticsNodes().isNotEmpty()) {
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            waitForIdle()
+        }
+        waitUntil(timeoutMillis = 10_000) {
+            onAllNodesWithTag("model_manager_sheet").fetchSemanticsNodes().isEmpty()
+        }
     }
 }

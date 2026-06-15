@@ -4,7 +4,6 @@ import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionIntentConfidence
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
-import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.audit.ToolAuditSummaryRedactor
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
@@ -17,20 +16,7 @@ private const val SEQUENTIAL_REPLAN_REQUEST_REASON = "Explicit sequential action
 private const val MODEL_OBSERVATION_REPLAN_REQUEST_REASON = "Observation model step planned."
 private const val MODEL_OBSERVATION_REPLAN_FALLBACK_REASON = "observation model replan"
 
-private val SEQUENTIAL_LOCAL_CONTINUATION_TOOL_NAMES = setOf(
-    MobileActionFunctions.READ_CLIPBOARD,
-    MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
-    MobileActionFunctions.READ_RECENT_IMAGE_OCR,
-    MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
-    MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
-    MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
-    MobileActionFunctions.UI_TAP,
-    MobileActionFunctions.UI_TYPE_TEXT,
-    MobileActionFunctions.UI_SCROLL,
-    MobileActionFunctions.UI_PRESS_BACK,
-    MobileActionFunctions.UI_WAIT,
-    MobileActionFunctions.QUERY_BACKGROUND_TASKS,
-)
+private val defaultSequentialToolRegistry = ToolRegistry()
 
 fun interface AgentObservationReplanner {
     fun planNext(context: AgentObservationReplanContext): AgentObservationReplan?
@@ -108,6 +94,7 @@ class ModelObservationReplanner(
 class SequentialActionObservationReplanner(
     private val actionPlanningRuntime: ActionPlanningRuntime,
     maxSequentialActions: Int = DEFAULT_MAX_SEQUENTIAL_ACTIONS,
+    private val toolRegistry: ToolRegistry = defaultSequentialToolRegistry,
 ) : AgentObservationReplanner {
     private val sequentialActionLimit = maxSequentialActions.coerceAtLeast(1)
 
@@ -124,7 +111,7 @@ class SequentialActionObservationReplanner(
         val draft = planningResult.plan.draft ?: return null
         if (planningResult.plan.kind != ActionPlanKind.Draft) return null
         if (
-            draft.functionName.requiresLocalModelBeforeSequentialTail() &&
+            draft.functionName.requiresLocalModelBeforeSequentialTail(toolRegistry) &&
             context.run.input.explicitSequentialActionTextAt(completedSegmentCount + 1) != null
         ) {
             return null
@@ -210,7 +197,10 @@ internal fun String.explicitSequentialActionTextAt(index: Int): String? {
 }
 
 internal fun String.requiresLocalModelBeforeSequentialTail(): Boolean =
-    this in SEQUENTIAL_LOCAL_CONTINUATION_TOOL_NAMES
+    requiresLocalModelBeforeSequentialTail(defaultSequentialToolRegistry)
+
+internal fun String.requiresLocalModelBeforeSequentialTail(toolRegistry: ToolRegistry): Boolean =
+    toolRegistry.requiresSequentialLocalModelBeforeTail(this)
 
 internal fun String.immediateSequentialActionText(): String? =
     (explicitSequentialActionTextAt(0) ?: trimActionText()).takeIf { it.isNotBlank() }

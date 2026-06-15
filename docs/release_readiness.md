@@ -34,6 +34,11 @@ items below.
 - Memory is documented as a lightweight local index. Phone actions now use
   local planning, rule fallback, confirmed tools, and low-risk app-control
   continuation.
+- Agent capability ownership is now registry-based: `ToolProvider` supplies
+  `ToolSpec` contracts, `ToolSpec.tags` drive low-risk GUI continuation,
+  device-control sessions, special access, runtime permission descriptors, and
+  background-skill eligibility, while `SkillManifest` declares app-control and
+  background execution metadata.
 - Remote OpenAI-compatible tool calls now go through the local Agent runtime:
   single public read-only evidence calls and all-public evidence batches can
   execute without confirmation, while mixed private/action/side-effect batches
@@ -105,6 +110,14 @@ items below.
   rejects `emulator-*` serials as physical-device evidence, checks AndroidTest
   count coverage, required API levels, manual/system-mediated flows, screenshot
   files, and review date.
+- Investigate the current full physical-device instrumentation timeout before
+  binding physical-device release evidence. On 2026-06-15, `fb6272c`
+  (`Xiaomi 23127PN0CC`, API 36, `arm64-v8a`) built and installed the debug and
+  androidTest APKs, but `scripts/install_and_test_device.sh` timed out after
+  900s in `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`;
+  see
+  `build/verification/device-20260615-110000/device-verification.properties`
+  (`failedTarget=instrumentation`, `reason=instrumentation-timeout`).
 - Prepare API 28/32/33/34 arm64 emulator system images and AVDs before claiming
   API matrix coverage. `scripts/check_emulator_api_matrix.sh` records missing
   packages and AVDs but does not install SDK packages or create AVDs by itself.

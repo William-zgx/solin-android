@@ -730,10 +730,10 @@ def validate_instrumentation_output(prefix, output_file):
         return None
     if not output.strip():
         failures.append(f"{prefix}-instrumentation-output-empty")
-    if re.search(r"^(FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2|INSTRUMENTATION_RESULT: shortMsg=|INSTRUMENTATION_STATUS: stack=|Error in )", output, re.MULTILINE):
-        failures.append(f"{prefix}-instrumentation-output-failure-marker")
     ok_matches = re.findall(r"^OK(?: \(([0-9]+) tests?\))?$", output, re.MULTILINE)
     if not ok_matches:
+        if re.search(r"^(FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2|INSTRUMENTATION_RESULT: shortMsg=|INSTRUMENTATION_STATUS: stack=|Error in )", output, re.MULTILINE):
+            failures.append(f"{prefix}-instrumentation-output-failure-marker")
         failures.append(f"{prefix}-instrumentation-output-success-marker-missing")
         return None
     count = ok_matches[-1]

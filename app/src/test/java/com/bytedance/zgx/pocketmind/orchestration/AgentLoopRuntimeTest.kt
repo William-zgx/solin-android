@@ -9063,6 +9063,7 @@ class AgentLoopRuntimeTest {
             requiredTools = listOf(MobileActionFunctions.UI_TAP),
             inputSchemaJson = """{"type":"object","properties":{"input":{"type":"string"}}}""",
             riskLevel = RiskLevel.MediumDraftOrNavigation,
+            lowRiskAppControlEligible = true,
         )
 
         override fun manifests(): List<SkillManifest> = listOf(manifest)
@@ -9125,6 +9126,7 @@ class AgentLoopRuntimeTest {
             ),
             inputSchemaJson = """{"type":"object","properties":{"input":{"type":"string"}}}""",
             riskLevel = RiskLevel.MediumDraftOrNavigation,
+            lowRiskAppControlEligible = true,
         )
 
         override fun manifests(): List<SkillManifest> = listOf(manifest)

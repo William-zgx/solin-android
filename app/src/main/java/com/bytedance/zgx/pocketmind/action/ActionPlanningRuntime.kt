@@ -7,9 +7,12 @@ import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
+import com.bytedance.zgx.pocketmind.tool.ToolSpec
 import java.io.File
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 
 interface ActionPlanningRuntime {
     fun classifyIntent(input: String): IntentCandidate =
@@ -49,9 +52,10 @@ sealed class ModelToolOutputParseResult {
 
 class HybridActionPlanningRuntime(
     cacheDir: File,
-    private val rulePlanner: MobileActionPlanner = MobileActionPlanner(),
+    toolRegistry: ToolRegistry = ToolRegistry(),
+    private val rulePlanner: MobileActionPlanner = MobileActionPlanner(toolRegistry = toolRegistry),
 ) : ActionPlanningRuntime, AutoCloseable {
-    private val modelPlanner = ModelBackedActionPlanner(cacheDir, rulePlanner)
+    private val modelPlanner = ModelBackedActionPlanner(cacheDir, rulePlanner, toolRegistry)
 
     override fun classifyIntent(input: String): IntentCandidate =
         rulePlanner.classifyIntent(input)
@@ -90,6 +94,7 @@ class HybridActionPlanningRuntime(
 private class ModelBackedActionPlanner(
     private val cacheDir: File,
     private val parser: MobileActionPlanner,
+    private val toolRegistry: ToolRegistry,
 ) : AutoCloseable {
     private var loadedPath: String? = null
     private var engine: Engine? = null
@@ -100,7 +105,7 @@ private class ModelBackedActionPlanner(
         return try {
             val output = StringBuilder()
             runBlocking {
-                conversation.sendMessageAsync(actionPrompt(input)).collect { message ->
+                conversation.sendMessageAsync(actionPrompt(input, toolRegistry.specs())).collect { message ->
                     output.append(message.textContent())
                 }
             }
@@ -146,49 +151,92 @@ private fun actionConversationConfig(): ConversationConfig =
         ),
     )
 
-internal fun actionPrompt(input: String): String =
-    """
-    将用户请求转换成一个手机动作调用。支持函数：
-    - open_wifi_settings {}
-    - open_usage_access_settings {} 仅用于打开系统“使用情况访问权限”设置页
-    - open_system_settings {"target":"general|bluetooth|location|notification|display|sound|battery_saver|network|airplane_mode|input_method|accessibility"} 仅用于打开 allowlisted Android 系统设置页，不静默修改系统开关
-    - search_maps {"query":"..."}
-    - web_search {"query":"..."} query 必须是理解后的搜索关键词，不要直接复制用户原文；保留实体、主题、限定词和必要时效词
-    - compose_email {"body":"..."}
-    - create_calendar_event {"title":"..."}
-    - create_contact_draft {"name":"..."}
-    - open_flashlight_settings {}
-    - schedule_reminder {"title":"...","body":"...","delayMinutes":"15"} 仅用于明确的分钟/小时后一次性本地提醒
-    - schedule_reminder {"title":"...","body":"...","triggerAtMillis":"..."} 仅用于已解析到未来 epoch millis 的一次性本地提醒；不支持重复
-    - set_system_alarm {"hour":"23","minutes":"25","recurrence":"once|daily","message":"..."} 仅用于打开系统时钟闹钟设置界面；不跳过系统 UI；每天闹钟用 recurrence=daily
-    - set_system_timer {"lengthSeconds":"1200","message":"..."} 仅用于打开系统时钟倒计时设置界面；不跳过系统 UI
-    - query_background_tasks {"scope":"active|history|policy|all","maxCount":"..."} 仅用于只读查询本地后台任务/提醒任务/周期检查状态，不返回提醒正文
-    - read_clipboard {} 仅用于用户明确要求读取剪贴板
-    - share_text {"text":"...","title":"..."} 仅打开系统分享面板，不直接发送
-    - open_deep_link {"uri":"https://..."} 仅用于打开 https 外部链接
-    - open_app_by_name {"appName":"..."} 仅用于按本机 launcher 显示的应用名打开应用，不接受 URI、Activity、action 或 extras
-    - open_app_intent {"packageName":"..."} 仅用于打开特定应用启动页
-    - open_app_deep_target {"targetId":"android_app_details_settings","packageName":"..."} 仅用于打开允许列表中的固定应用目标
-    - cancel_reminder {"taskId":"..."} 仅用于取消已安排的提醒任务
-    - query_foreground_app {} 仅用于返回当前前台应用的包名与名称
-    - query_calendar_availability {"start":"...","end":"..."} 仅用于查询指定时间窗日历忙闲
-    - query_contacts {"query":"...","maxCount":"..."} 仅用于读取联系人名称与电话（maxCount 可选，默认 5）
-    - query_recent_notifications {"maxCount":"..."} 仅用于返回当前应用最近通知的简要信息（可选）
-    - query_recent_files {"kind":"...","maxCount":"..."} 仅用于返回最近文件摘要（kind 可为 all/screenshots/images/videos/audio/documents/downloads/others，maxCount 可选；Android 13 及以上 all 仅包含已授权媒体，documents/downloads/others 需要系统文件选择器授权）
-    - read_recent_screenshot_ocr {"maxCount":"1"} 仅用于用户明确要求识别最近截图文字时，本地读取最近 1 张截图并提取 OCR 摘录
-    - read_recent_image_ocr {"maxCount":"1..3"} 仅用于用户明确要求识别最近图片/照片文字时，本地扫描最近图片并提取第一条 OCR 摘录
-    - read_current_screen_text {"maxChars":"1..4000"} 仅用于用户明确要求读取或总结当前屏幕/当前界面的可访问文本；这是 Accessibility 文本快照，不读取截图、像素或 OCR
-    - open_camera {} 仅用于打开系统相机应用；不拍照、不录像、不读取照片
-    - observe_current_screen {"maxTextChars":"1..4000","maxNodes":"1..120"} 仅用于观察当前屏幕 Accessibility 节点与可见文本，本地处理
-    - ui_tap {"target":"...","timeoutMillis":"100..10000"} 仅用于点击当前屏幕上可见的文本、contentDescription 或短期节点 id
-    - ui_type_text {"text":"...","target":"...","timeoutMillis":"100..10000"} 仅用于向当前或指定输入框输入文本，不发送、不发布
-    - ui_submit_search {"timeoutMillis":"100..10000"} 仅用于提交当前搜索输入，不发送、不发布、不支付
-    - ui_scroll {"direction":"up|down|left|right|forward|backward","target":"...","timeoutMillis":"100..10000"} 仅用于滚动当前屏幕或指定滚动容器
-    - ui_press_back {"timeoutMillis":"100..10000"} 仅用于执行系统返回
-    - ui_wait {"timeoutMillis":"100..10000","verifySearchQuery":"..."} 仅用于等待屏幕稳定并重新观察；可用 verifySearchQuery 本地验证低风险搜索结果
+internal fun actionPrompt(
+    input: String,
+    toolSpecs: List<ToolSpec> = ToolRegistry().specs(),
+): String {
+    val toolLines = toolSpecs.joinToString(separator = "\n") { spec ->
+        spec.toActionPromptLine()
+    }
+    return """
+        将用户请求转换成一个手机动作调用。只能输出 call:function {"arg":"value"}，不解释。
+        支持函数来自 ToolRegistry；参数必须符合对应 JSON schema：
+        $toolLines
 
-    用户请求：$input
+        用户请求：$input
     """.trimIndent()
+}
+
+private fun ToolSpec.toActionPromptLine(): String {
+    val schema = runCatching { JSONObject(inputSchemaJson) }.getOrNull()
+    val properties = schema?.optJSONObject("properties") ?: JSONObject()
+    val requiredNames = schema?.optStringList("required").orEmpty()
+    val propertyNames = properties.keysList()
+    val primaryNames = requiredNames.ifEmpty { emptyList() }
+    val optionalNames = propertyNames.filterNot { name -> name in primaryNames }
+    val primaryShape = primaryNames.joinToString(prefix = "{", postfix = "}") { name ->
+        val property = properties.optJSONObject(name) ?: JSONObject()
+        """"$name":${property.placeholderFor(name)}"""
+    }
+    val optionalClause = optionalNames
+        .takeIf { names -> names.isNotEmpty() }
+        ?.joinToString(prefix = " 可选参数：")
+        .orEmpty()
+    val hintClause = planningPromptHint
+        ?.takeIf { hint -> hint.isNotBlank() }
+        ?.let { hint -> " $hint" }
+        .orEmpty()
+    return "- $name $primaryShape$optionalClause。$description$hintClause"
+}
+
+private fun JSONObject.placeholderFor(name: String): String {
+    val enumValues = optStringList("enum")
+    if (enumValues.isNotEmpty()) return enumValues.joinToString(prefix = "\"", postfix = "\"", separator = "|")
+    return when (optString("type")) {
+        "integer", "number" -> {
+            val minimum = optNumberAsString("minimum")
+            val maximum = optNumberAsString("maximum")
+            if (minimum != null && maximum != null) {
+                "\"$minimum..$maximum\""
+            } else {
+                "\"...\""
+            }
+        }
+
+        "boolean" -> "\"true|false\""
+        else -> when {
+            name.equals("uri", ignoreCase = true) -> "\"https://...\""
+            name.endsWith("Millis", ignoreCase = true) -> "\"...\""
+            else -> "\"...\""
+        }
+    }
+}
+
+private fun JSONObject.optStringList(name: String): List<String> {
+    val array = optJSONArray(name) ?: return emptyList()
+    return (0 until array.length()).mapNotNull { index ->
+        array.optString(index).takeIf { value -> value.isNotBlank() }
+    }
+}
+
+private fun JSONObject.keysList(): List<String> {
+    val names = mutableListOf<String>()
+    val iterator = keys()
+    while (iterator.hasNext()) {
+        names += iterator.next()
+    }
+    return names
+}
+
+private fun JSONObject.optNumberAsString(name: String): String? =
+    opt(name)?.let { value ->
+        when (value) {
+            is Number -> value.toLong().takeIf { value.toDouble() == it.toDouble() }?.toString()
+                ?: value.toString()
+
+            else -> value.toString().takeIf { it.isNotBlank() }
+        }
+    }
 
 private fun com.google.ai.edge.litertlm.Message.textContent(): String =
     contents.contents

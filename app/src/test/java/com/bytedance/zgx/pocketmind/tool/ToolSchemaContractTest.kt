@@ -20,9 +20,7 @@ class ToolSchemaContractTest {
             val properties = schema.optJSONObject("properties") ?: JSONObject()
             val propertyNames = properties.keysSet()
             val requiredProperties = schema.optStringSet("required")
-            val minimalValidArguments = requiredProperties.associateWith { propertyName ->
-                validValueFor(properties.getJSONObject(propertyName))
-            }
+            val minimalValidArguments = minimalValidInputArgumentsFor(spec, schema, properties)
 
             assertEquals("${spec.name} schema must be an object", "object", schema.getString("type"))
             assertFalse("${spec.name} schema must be closed", schema.optBoolean("additionalProperties", true))
@@ -82,9 +80,7 @@ class ToolSchemaContractTest {
         registry.specs().forEach { spec ->
             val inputSchema = JSONObject(spec.inputSchemaJson)
             val inputProperties = inputSchema.optJSONObject("properties") ?: JSONObject()
-            val minimalValidArguments = inputSchema.optStringSet("required").associateWith { propertyName ->
-                validValueFor(inputProperties.getJSONObject(propertyName))
-            }
+            val minimalValidArguments = minimalValidInputArgumentsFor(spec, inputSchema, inputProperties)
             val outputSchema = JSONObject(spec.outputSchemaJson)
             val outputProperties = outputSchema.optJSONObject("properties") ?: JSONObject()
             val outputPropertyNames = outputProperties.keysSet()
@@ -155,9 +151,7 @@ class ToolSchemaContractTest {
             .forEach { spec ->
                 val inputSchema = JSONObject(spec.inputSchemaJson)
                 val inputProperties = inputSchema.optJSONObject("properties") ?: JSONObject()
-                val minimalValidArguments = inputSchema.optStringSet("required").associateWith { propertyName ->
-                    validValueFor(inputProperties.getJSONObject(propertyName))
-                }
+            val minimalValidArguments = minimalValidInputArgumentsFor(spec, inputSchema, inputProperties)
                 val outputSchema = JSONObject(spec.outputSchemaJson)
                 val outputProperties = outputSchema.optJSONObject("properties") ?: JSONObject()
                 val minimalValidData = minimalValidOutputDataFor(
@@ -310,9 +304,7 @@ class ToolSchemaContractTest {
             val schema = JSONObject(spec.inputSchemaJson)
             val properties = schema.optJSONObject("properties") ?: JSONObject()
             val requiredProperties = schema.optStringSet("required")
-            val minimalValidArguments = requiredProperties.associateWith { propertyName ->
-                validValueFor(properties.getJSONObject(propertyName))
-            }
+            val minimalValidArguments = minimalValidInputArgumentsFor(spec, schema, properties)
 
             properties.keysSet().forEach { propertyName ->
                 val property = properties.optJSONObject(propertyName) ?: return@forEach
@@ -338,9 +330,7 @@ class ToolSchemaContractTest {
             val schema = JSONObject(spec.inputSchemaJson)
             val properties = schema.optJSONObject("properties") ?: JSONObject()
             val requiredProperties = schema.optStringSet("required")
-            val minimalValidArguments = requiredProperties.associateWith { propertyName ->
-                validValueFor(properties.getJSONObject(propertyName))
-            }
+            val minimalValidArguments = minimalValidInputArgumentsFor(spec, schema, properties)
 
             properties.keysSet().forEach { propertyName ->
                 val property = properties.optJSONObject(propertyName) ?: return@forEach
@@ -382,6 +372,22 @@ class ToolSchemaContractTest {
                 val minLength = property.optIntOrNull("minLength") ?: 1
                 "x".repeat(minLength.coerceAtLeast(1))
             }
+        }
+    }
+
+    private fun minimalValidInputArgumentsFor(
+        spec: ToolSpec,
+        schema: JSONObject,
+        properties: JSONObject,
+    ): Map<String, String> {
+        val requiredArguments = schema.optStringSet("required").associateWith { propertyName ->
+            validValueFor(properties.getJSONObject(propertyName))
+        }
+        return when (spec.name) {
+            MobileActionFunctions.SCHEDULE_REMINDER ->
+                requiredArguments + ("delayMinutes" to validValueFor(properties.getJSONObject("delayMinutes")))
+
+            else -> requiredArguments
         }
     }
 

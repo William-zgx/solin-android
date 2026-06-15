@@ -7,6 +7,8 @@ import com.bytedance.zgx.pocketmind.data.AgentRunEntity
 import com.bytedance.zgx.pocketmind.data.AgentStepEntity
 import com.bytedance.zgx.pocketmind.data.AgentTraceDao
 import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
+import com.bytedance.zgx.pocketmind.skill.SkillBackgroundExecution
+import com.bytedance.zgx.pocketmind.skill.SkillBackgroundWork
 import com.bytedance.zgx.pocketmind.skill.SkillManifest
 import com.bytedance.zgx.pocketmind.skill.SkillPlan
 import com.bytedance.zgx.pocketmind.skill.SkillRequest
@@ -1065,6 +1067,9 @@ private fun SkillManifest.toJsonObject(): JSONObject =
         .put("requiredTools", requiredTools.toJsonArray())
         .put("inputSchemaJson", inputSchemaJson)
         .put("riskLevel", riskLevel.name)
+        .put("lowRiskAppControlEligible", lowRiskAppControlEligible)
+        .put("continuesAfterUnverifiedOpenAppLaunch", continuesAfterUnverifiedOpenAppLaunch)
+        .put("backgroundExecution", backgroundExecution?.toJsonObject())
 
 private fun JSONObject.toSkillManifest(): SkillManifest =
     SkillManifest(
@@ -1076,6 +1081,31 @@ private fun JSONObject.toSkillManifest(): SkillManifest =
         requiredTools = getJSONArray("requiredTools").toStringList(),
         inputSchemaJson = getString("inputSchemaJson"),
         riskLevel = RiskLevel.valueOf(getString("riskLevel")),
+        lowRiskAppControlEligible = optBoolean("lowRiskAppControlEligible", false),
+        continuesAfterUnverifiedOpenAppLaunch = optBoolean("continuesAfterUnverifiedOpenAppLaunch", false),
+        backgroundExecution = optJSONObject("backgroundExecution")?.toSkillBackgroundExecution(),
+    )
+
+private fun SkillBackgroundExecution.toJsonObject(): JSONObject =
+    JSONObject()
+        .put("requiredTools", requiredTools.toJsonArray())
+        .put("userConfigured", userConfigured)
+        .put("minimumIntervalMinutes", minimumIntervalMinutes)
+        .put("localOnly", localOnly)
+        .put("allowedWork", allowedWork.map { work -> work.name }.sorted().toJsonArray())
+        .put("foregroundConfirmationForOutboundOrExecution", foregroundConfirmationForOutboundOrExecution)
+
+private fun JSONObject.toSkillBackgroundExecution(): SkillBackgroundExecution =
+    SkillBackgroundExecution(
+        requiredTools = getJSONArray("requiredTools").toStringList(),
+        userConfigured = optBoolean("userConfigured", true),
+        minimumIntervalMinutes = optLong("minimumIntervalMinutes", 60L),
+        localOnly = optBoolean("localOnly", true),
+        allowedWork = getJSONArray("allowedWork")
+            .toStringList()
+            .mapTo(linkedSetOf()) { value -> SkillBackgroundWork.valueOf(value) },
+        foregroundConfirmationForOutboundOrExecution =
+            optBoolean("foregroundConfirmationForOutboundOrExecution", true),
     )
 
 private fun SkillStep.toJsonObject(): JSONObject =

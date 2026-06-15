@@ -1270,6 +1270,82 @@ class AgentTraceStoreTest {
     }
 
     @Test
+    fun roomStorePersistsAndRestoresSkillManifestLowRiskAppControlEligibility() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-low-risk-skill" },
+        )
+        val skillPlan = requireNotNull(BuiltInSkillRuntime().plan("等待当前页面"))
+        val pendingStep = skillPlan.steps
+            .filterIsInstance<SkillStep.ToolStep>()
+            .first { step -> step.request.toolName == MobileActionFunctions.UI_WAIT }
+        val run = store.createRun("等待当前页面")
+        val waitingRun = store.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = pendingStep.request,
+                draft = pendingStep.draft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillRunCheckpoint = skillPlan.valueFreeCheckpointForPendingTool(
+                    runId = waitingRun.id,
+                    pendingRequest = pendingStep.request,
+                ),
+            ),
+        )
+
+        val persisted = requireNotNull(dao.latestPendingConfirmation())
+        val persistedSkillPlan = JSONObject(requireNotNull(persisted.skillPlanJson))
+        assertTrue(persistedSkillPlan.getJSONObject("manifest").getBoolean("lowRiskAppControlEligible"))
+        val restored = RoomAgentTraceStore(traceDao = dao).latestPendingConfirmation()
+        assertTrue(restored?.skillPlan?.manifest?.lowRiskAppControlEligible == true)
+    }
+
+    @Test
+    fun roomStoreDefaultsLegacySkillManifestLowRiskAppControlEligibilityToFalse() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-legacy-low-risk-skill" },
+        )
+        val skillPlan = requireNotNull(BuiltInSkillRuntime().plan("等待当前页面"))
+        val pendingStep = skillPlan.steps
+            .filterIsInstance<SkillStep.ToolStep>()
+            .first { step -> step.request.toolName == MobileActionFunctions.UI_WAIT }
+        val run = store.createRun("等待当前页面")
+        val waitingRun = store.updateState(run.id, AgentRunState.AwaitingUserConfirmation)
+
+        store.savePendingConfirmation(
+            PendingToolConfirmationSnapshot(
+                run = waitingRun,
+                request = pendingStep.request,
+                draft = pendingStep.draft,
+                skillId = skillPlan.request.skillId,
+                skillPlan = skillPlan,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillRunCheckpoint = skillPlan.valueFreeCheckpointForPendingTool(
+                    runId = waitingRun.id,
+                    pendingRequest = pendingStep.request,
+                ),
+            ),
+        )
+        val persisted = requireNotNull(dao.latestPendingConfirmation())
+        val legacySkillPlan = JSONObject(requireNotNull(persisted.skillPlanJson))
+        legacySkillPlan.getJSONObject("manifest").remove("lowRiskAppControlEligible")
+        dao.upsertPendingConfirmation(persisted.copy(skillPlanJson = legacySkillPlan.toString()))
+
+        val restored = RoomAgentTraceStore(traceDao = dao).latestPendingConfirmation()
+
+        assertFalse(restored?.skillPlan?.manifest?.lowRiskAppControlEligible == true)
+    }
+
+    @Test
     fun roomStorePersistsSkillRunCheckpointWithoutRawOutputs() {
         val dao = FakeAgentTraceDao()
         val store = RoomAgentTraceStore(

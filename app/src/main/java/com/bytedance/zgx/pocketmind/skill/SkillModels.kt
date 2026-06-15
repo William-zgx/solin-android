@@ -17,7 +17,26 @@ data class SkillManifest(
     val requiredTools: List<String>,
     val inputSchemaJson: String,
     val riskLevel: RiskLevel,
+    val lowRiskAppControlEligible: Boolean = false,
+    val continuesAfterUnverifiedOpenAppLaunch: Boolean = false,
+    val backgroundExecution: SkillBackgroundExecution? = null,
 )
+
+data class SkillBackgroundExecution(
+    val requiredTools: List<String> = emptyList(),
+    val userConfigured: Boolean = true,
+    val minimumIntervalMinutes: Long = 60L,
+    val localOnly: Boolean = true,
+    val allowedWork: Set<SkillBackgroundWork>,
+    val foregroundConfirmationForOutboundOrExecution: Boolean = true,
+)
+
+enum class SkillBackgroundWork {
+    ReadOnlyLocalState,
+    PostLocalNotification,
+    OutboundNetwork,
+    ExecuteExternalAction,
+}
 
 data class ParsedSkillDraft(
     val draft: ActionDraft,
@@ -88,6 +107,9 @@ fun SkillManifest.authorizationContractHash(): String {
         appendLengthPrefixed(id)
         appendLengthPrefixed(version.toString())
         appendLengthPrefixed(riskLevel.name)
+        appendLengthPrefixed(lowRiskAppControlEligible.toString())
+        appendLengthPrefixed(continuesAfterUnverifiedOpenAppLaunch.toString())
+        appendLengthPrefixed(backgroundExecution?.authorizationIdentity().orEmpty())
         requiredTools.sorted().forEach(::appendLengthPrefixed)
         appendLengthPrefixed(inputSchemaJson.normalizedJsonForContract())
     }
@@ -95,6 +117,16 @@ fun SkillManifest.authorizationContractHash(): String {
         .digest(identity.toByteArray(Charsets.UTF_8))
         .joinToString(separator = "") { byte -> "%02x".format(byte) }
 }
+
+private fun SkillBackgroundExecution.authorizationIdentity(): String =
+    buildString {
+        requiredTools.sorted().forEach(::appendLengthPrefixed)
+        appendLengthPrefixed(userConfigured.toString())
+        appendLengthPrefixed(minimumIntervalMinutes.toString())
+        appendLengthPrefixed(localOnly.toString())
+        allowedWork.map { work -> work.name }.sorted().forEach(::appendLengthPrefixed)
+        appendLengthPrefixed(foregroundConfirmationForOutboundOrExecution.toString())
+    }
 
 data class SkillRequest(
     val id: String,

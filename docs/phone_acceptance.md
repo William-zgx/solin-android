@@ -49,6 +49,12 @@ scripts/install_and_test_device.sh
 - instrumentation runner 报告的测试总数全部通过。
 - App 可以被启动。
 
+如果 instrumentation 超时，报告必须按失败记录处理，不能替代 release
+physical-device evidence。重点记录 `device-verification.properties` 中的
+`failedTarget`、`reason`、`instrumentation_test_count`、设备 serial/API/ABI、
+`instrumentation.txt` 和 `logcat.txt` SHA；必要时再用 `INSTRUMENTATION_CLASS=...`
+缩小到单个测试类复现。
+
 默认情况下，脚本不会在测试后删除 App，但会在最终手动启动前清空 App 数据，避免 instrumentation 写入的测试状态残留到验收起点。需要连旧安装包也一起清理时，显式运行：
 
 ```bash

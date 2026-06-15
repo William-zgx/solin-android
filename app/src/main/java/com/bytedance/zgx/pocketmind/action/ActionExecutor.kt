@@ -23,6 +23,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolExecutor
 import com.bytedance.zgx.pocketmind.tool.MAX_SHARE_TEXT_CHARS
 import com.bytedance.zgx.pocketmind.tool.MAX_SHARE_TITLE_CHARS
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
@@ -40,6 +41,7 @@ class ActionExecutor(
     private val externalActivityStarter: ((ExternalActivityLaunch) -> Boolean)? = null,
     private val appLauncherResolver: ((String) -> AppLaunchResolution)? = null,
     private val deviceControlSessionStarter: ((String) -> Unit)? = null,
+    private val toolRegistry: ToolRegistry = ToolRegistry(),
 ) : ToolExecutor {
     fun executeConfirmed(draft: ActionDraft): Boolean {
         val request = ToolRequest(
@@ -833,7 +835,7 @@ class ActionExecutor(
     }
 
     private fun ToolRequest.startDeviceControlSessionIfNeeded() {
-        if (toolName !in DEVICE_CONTROL_SESSION_TOOLS) return
+        if (!toolRegistry.startsDeviceControlSession(toolName)) return
         val reason = deviceControlSessionReason()
         runCatching {
             deviceControlSessionStarter?.invoke(reason)
@@ -1261,16 +1263,6 @@ class ActionExecutor(
         const val COMPLETION_STATE_NOT_STARTED = "NotStarted"
         const val EXTERNAL_ACTIVITY_START_FAILED_SUMMARY = "外部应用或系统页面启动失败"
         val PACKAGE_NAME_PATTERN = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)+$""")
-        val DEVICE_CONTROL_SESSION_TOOLS = setOf(
-            MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
-            MobileActionFunctions.SEARCH_MAPS,
-            MobileActionFunctions.OPEN_CAMERA,
-            MobileActionFunctions.OPEN_APP_BY_NAME,
-            MobileActionFunctions.OPEN_APP_INTENT,
-            MobileActionFunctions.OPEN_APP_DEEP_TARGET,
-        )
     }
 }
 

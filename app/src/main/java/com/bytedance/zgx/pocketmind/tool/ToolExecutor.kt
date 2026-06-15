@@ -68,6 +68,7 @@ class RoutingToolExecutor(
     private val currentScreenTextProvider: CurrentScreenTextProvider? = null,
     private val currentScreenshotOcrProvider: CurrentScreenshotOcrProvider? = null,
     private val currentScreenControlProvider: CurrentScreenControlProvider? = null,
+    private val toolRegistry: ToolRegistry = ToolRegistry(),
 ) : ToolExecutor {
     private val calendarAvailabilityToolExecutor =
         CalendarAvailabilityToolExecutor(calendarAvailabilityProvider)
@@ -88,8 +89,9 @@ class RoutingToolExecutor(
     private val deviceControlToolExecutor =
         DeviceControlToolExecutor(currentScreenControlProvider)
 
-    override fun execute(request: ToolRequest): ToolResult =
-        when (request.toolName) {
+    override fun execute(request: ToolRequest): ToolResult {
+        if (request.isDeviceControlTool()) return deviceControlToolExecutor.execute(request)
+        return when (request.toolName) {
             MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY ->
                 calendarAvailabilityToolExecutor.execute(request)
             MobileActionFunctions.QUERY_FOREGROUND_APP ->
@@ -132,17 +134,12 @@ class RoutingToolExecutor(
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR ->
                 currentScreenshotOcrToolExecutor.execute(request)
 
-            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
-            MobileActionFunctions.UI_TAP,
-            MobileActionFunctions.UI_TYPE_TEXT,
-            MobileActionFunctions.UI_SUBMIT_SEARCH,
-            MobileActionFunctions.UI_SCROLL,
-            MobileActionFunctions.UI_PRESS_BACK,
-            MobileActionFunctions.UI_WAIT ->
-                deviceControlToolExecutor.execute(request)
-
             else -> delegate.execute(request)
         }
+    }
+
+    private fun ToolRequest.isDeviceControlTool(): Boolean =
+        toolRegistry.specFor(toolName)?.capability == ToolCapability.DeviceControl
 }
 
 class WebSearchToolExecutor(

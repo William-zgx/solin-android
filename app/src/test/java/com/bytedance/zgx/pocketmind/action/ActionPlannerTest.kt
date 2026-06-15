@@ -1,5 +1,10 @@
 package com.bytedance.zgx.pocketmind.action
 
+import com.bytedance.zgx.pocketmind.tool.ToolCapability
+import com.bytedance.zgx.pocketmind.tool.ToolProvider
+import com.bytedance.zgx.pocketmind.tool.ToolRegistry
+import com.bytedance.zgx.pocketmind.tool.ToolSpec
+import java.nio.file.Files
 import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
@@ -91,6 +96,69 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun strictModelToolOutputAcceptsRegistryProvidedToolOutsideMobileActionFunctions() {
+        val customToolName = "custom_registry_tool"
+        assertFalse(customToolName in MobileActionFunctions.supported)
+        val customPlanner = MobileActionPlanner(
+            toolRegistry = ToolRegistry(
+                ToolProvider {
+                    listOf(
+                        ToolSpec(
+                            name = customToolName,
+                            title = "Custom registry tool",
+                            description = "Custom registry tool",
+                            inputSchemaJson = """
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {"type": "string"}
+                                  },
+                                  "additionalProperties": false
+                                }
+                            """.trimIndent(),
+                            capability = ToolCapability.DeviceContext,
+                        ),
+                    )
+                },
+            ),
+        )
+
+        val parsed = customPlanner.parseModelToolOutput("""call:custom_registry_tool{"value":"ok"}""")
+
+        parsed as ModelToolOutputParseResult.Parsed
+        assertEquals(customToolName, parsed.draft.functionName)
+        assertEquals("ok", parsed.draft.parameters["value"])
+    }
+
+    @Test
+    fun hybridRuntimeDefaultParserUsesInjectedToolRegistry() {
+        val customToolName = "hybrid_registry_tool"
+        val customRegistry = ToolRegistry(
+            ToolProvider {
+                listOf(
+                    ToolSpec(
+                        name = customToolName,
+                        title = "Hybrid registry tool",
+                        description = "Hybrid registry tool",
+                        inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
+                        capability = ToolCapability.DeviceContext,
+                    ),
+                )
+            },
+        )
+        val runtime = HybridActionPlanningRuntime(
+            cacheDir = Files.createTempDirectory("hybrid-action-runtime-test").toFile(),
+            toolRegistry = customRegistry,
+        )
+
+        val parsed = runtime.parseModelToolOutput("""call:hybrid_registry_tool{}""")
+
+        runtime.close()
+        parsed as ModelToolOutputParseResult.Parsed
+        assertEquals(customToolName, parsed.draft.functionName)
+    }
+
+    @Test
     fun parsesHermesStyleWebSearchCallOutput() {
         val draft = planner.parseModelOutput(
             """call:web_search{"query":"Kotlin coroutines Android"}""",
@@ -108,8 +176,25 @@ class ActionPlannerTest {
         val prompt = actionPrompt("目前中国和美国最新最火热的AI模型分别是什么")
 
         assertTrue(prompt.contains("""web_search {"query":"..."}"""))
-        assertTrue(prompt.contains("query 必须是理解后的搜索关键词"))
+        assertTrue(prompt.contains("模型理解后的搜索关键词"))
         assertTrue(prompt.contains("不要直接复制用户原文"))
+    }
+
+    @Test
+    fun actionPromptDerivesSupportedToolsFromRegistry() {
+        val prompt = actionPrompt("测试")
+
+        ToolRegistry().specs().forEach { spec ->
+            assertTrue(
+                "prompt must include registered tool ${spec.name}",
+                prompt.contains("- ${spec.name} "),
+            )
+        }
+        assertTrue(prompt.contains("支持函数来自 ToolRegistry"))
+        assertTrue(prompt.contains("参数必须符合对应 JSON schema"))
+        assertTrue(prompt.contains("delayMinutes"))
+        assertTrue(prompt.contains("triggerAtMillis"))
+        assertTrue(prompt.contains("必须恰好填写 delayMinutes 或 triggerAtMillis 之一"))
     }
 
     @Test

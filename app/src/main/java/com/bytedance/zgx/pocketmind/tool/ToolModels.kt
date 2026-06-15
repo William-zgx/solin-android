@@ -22,7 +22,14 @@ data class ToolSpec(
     val privateOutputKeys: Set<String> = emptySet(),
     val redactedResultSummary: String? = null,
     val resultContinuationPolicy: ToolResultContinuationPolicy = ToolResultContinuationPolicy.None,
+    val planningPromptHint: String? = null,
+    val tags: Set<ToolCapabilityTag> = emptySet(),
+    val androidRuntimePermissions: List<AndroidRuntimePermissionSpec> = emptyList(),
 )
+
+fun interface ToolProvider {
+    fun specs(): List<ToolSpec>
+}
 
 data class ToolRequest(
     val id: String = UUID.randomUUID().toString(),
@@ -120,6 +127,36 @@ enum class ToolCapability {
     DeviceContext,
     DeviceControl,
     ExternalShare,
+}
+
+enum class ToolCapabilityTag {
+    SequentialLocalContinuation,
+    DeviceControlSession,
+    LowRiskDeviceAction,
+    ConditionalLowRiskDeviceAction,
+    LowRiskAppControlContinuation,
+    CheckpointedUiAction,
+    OpenAppLaunch,
+    RestoredExternalOutcomePopupSkippable,
+    ConditionalRestoredExternalOutcomePopupSkippable,
+    BackgroundSkillAllowed,
+    UsageStatsSpecialAccess,
+    AccessibilityScreenTextSpecialAccess,
+    AccessibilityDeviceControlSpecialAccess,
+}
+
+data class AndroidRuntimePermissionSpec(
+    val kind: AndroidRuntimePermissionKind,
+    val argumentName: String? = null,
+    val rationale: String? = null,
+)
+
+enum class AndroidRuntimePermissionKind {
+    PostNotifications,
+    ReadCalendar,
+    ReadContacts,
+    RecentFiles,
+    RecentImages,
 }
 
 private val publicEvidenceBatchDisallowedPermissions = setOf(

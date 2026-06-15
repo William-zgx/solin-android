@@ -17,6 +17,300 @@ class ToolRegistryTest {
     private val registry = ToolRegistry()
 
     @Test
+    fun canBuildRegistryFromToolProviders() {
+        val webSearchSpec = requireNotNull(registry.specFor(MobileActionFunctions.WEB_SEARCH))
+        val providerRegistry = ToolRegistry(
+            ToolProvider { listOf(webSearchSpec) },
+        )
+
+        assertEquals(listOf(MobileActionFunctions.WEB_SEARCH), providerRegistry.specs().map { it.name })
+        assertTrue(providerRegistry.isKnownTool(MobileActionFunctions.WEB_SEARCH))
+        assertFalse(providerRegistry.isKnownTool(MobileActionFunctions.OPEN_WIFI_SETTINGS))
+        assertNull(
+            providerRegistry.validate(
+                ToolRequest(
+                    toolName = MobileActionFunctions.WEB_SEARCH,
+                    arguments = mapOf("query" to "Kotlin coroutines"),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun providerAggregationRejectsDuplicateToolNames() {
+        val webSearchSpec = requireNotNull(registry.specFor(MobileActionFunctions.WEB_SEARCH))
+        val failure = runCatching {
+            ToolRegistry(
+                ToolProvider { listOf(webSearchSpec) },
+                ToolProvider { listOf(webSearchSpec) },
+            )
+        }.exceptionOrNull()
+
+        assertNotNull(failure)
+        requireNotNull(failure)
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure.message.orEmpty().contains("unique"))
+    }
+
+    @Test
+    fun customToolProviderPreservesAndroidRuntimePermissionDescriptors() {
+        val toolName = "custom_recent_file_context"
+        val providerRegistry = ToolRegistry(
+            ToolProvider {
+                listOf(
+                    ToolSpec(
+                        name = toolName,
+                        title = "Custom recent file context",
+                        description = "Custom recent file context",
+                        inputSchemaJson = """
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {"type": "string", "enum": ["images", "all"]}
+                              },
+                              "additionalProperties": false
+                            }
+                        """.trimIndent(),
+                        capability = ToolCapability.DeviceContext,
+                        permissions = setOf(ToolPermission.RequiresAndroidRuntimePermission),
+                        androidRuntimePermissions = listOf(
+                            AndroidRuntimePermissionSpec(
+                                kind = AndroidRuntimePermissionKind.RecentFiles,
+                                argumentName = "kind",
+                            ),
+                        ),
+                    ),
+                )
+            },
+        )
+
+        assertEquals(
+            listOf(AndroidRuntimePermissionKind.RecentFiles),
+            providerRegistry.androidRuntimePermissionSpecsFor(toolName).map { it.kind },
+        )
+        assertEquals("kind", providerRegistry.androidRuntimePermissionSpecsFor(toolName).single().argumentName)
+    }
+
+    @Test
+    fun androidRuntimePermissionDescriptorPresenceMatchesMarker() {
+        val builtInNamesWithMarker = registry.specs()
+            .filter { spec -> ToolPermission.RequiresAndroidRuntimePermission in spec.permissions }
+            .mapTo(linkedSetOf()) { spec -> spec.name }
+        val builtInNamesWithDescriptors = registry.specs()
+            .filter { spec -> spec.androidRuntimePermissions.isNotEmpty() }
+            .mapTo(linkedSetOf()) { spec -> spec.name }
+
+        assertEquals(builtInNamesWithMarker, builtInNamesWithDescriptors)
+    }
+
+    @Test
+    fun builtInRuntimePermissionDescriptorsDeclareExpectedKinds() {
+        val descriptorKindsByTool = registry.specs()
+            .filter { spec -> spec.androidRuntimePermissions.isNotEmpty() }
+            .associate { spec ->
+                spec.name to spec.androidRuntimePermissions.map { runtimePermission -> runtimePermission.kind }
+            }
+
+        assertEquals(
+            mapOf(
+                MobileActionFunctions.QUERY_CONTACTS to listOf(AndroidRuntimePermissionKind.ReadContacts),
+                MobileActionFunctions.SCHEDULE_REMINDER to listOf(AndroidRuntimePermissionKind.PostNotifications),
+                MobileActionFunctions.CONFIGURE_PERIODIC_CHECK to listOf(AndroidRuntimePermissionKind.PostNotifications),
+                MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY to listOf(AndroidRuntimePermissionKind.ReadCalendar),
+                MobileActionFunctions.QUERY_RECENT_FILES to listOf(AndroidRuntimePermissionKind.RecentFiles),
+                MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR to listOf(AndroidRuntimePermissionKind.RecentImages),
+                MobileActionFunctions.READ_RECENT_IMAGE_OCR to listOf(AndroidRuntimePermissionKind.RecentImages),
+            ),
+            descriptorKindsByTool,
+        )
+    }
+
+    @Test
+    fun registryRejectsRuntimePermissionMarkerWithoutDescriptor() {
+        val failure = runCatching {
+            ToolRegistry(
+                ToolProvider {
+                    listOf(
+                        runtimePermissionContractSpec(
+                            permissions = setOf(ToolPermission.RequiresAndroidRuntimePermission),
+                            androidRuntimePermissions = emptyList(),
+                        ),
+                    )
+                },
+            )
+        }.exceptionOrNull()
+
+        assertNotNull(failure)
+        requireNotNull(failure)
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure.message.orEmpty().contains("marker and descriptor"))
+    }
+
+    @Test
+    fun registryRejectsRuntimePermissionDescriptorWithoutMarker() {
+        val failure = runCatching {
+            ToolRegistry(
+                ToolProvider {
+                    listOf(
+                        runtimePermissionContractSpec(
+                            permissions = emptySet(),
+                            androidRuntimePermissions = listOf(
+                                AndroidRuntimePermissionSpec(AndroidRuntimePermissionKind.ReadContacts),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }.exceptionOrNull()
+
+        assertNotNull(failure)
+        requireNotNull(failure)
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure.message.orEmpty().contains("marker and descriptor"))
+    }
+
+    @Test
+    fun runtimePermissionDescriptorArgumentNameMustBeDeclaredInInputSchema() {
+        val failure = runCatching {
+            ToolRegistry(
+                ToolProvider {
+                    listOf(
+                        runtimePermissionContractSpec(
+                            permissions = setOf(ToolPermission.RequiresAndroidRuntimePermission),
+                            androidRuntimePermissions = listOf(
+                                AndroidRuntimePermissionSpec(
+                                    kind = AndroidRuntimePermissionKind.RecentFiles,
+                                    argumentName = "kind",
+                                ),
+                            ),
+                        ),
+                    )
+                },
+            )
+        }.exceptionOrNull()
+
+        assertNotNull(failure)
+        requireNotNull(failure)
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure.message.orEmpty().contains("not declared in input schema"))
+    }
+
+    @Test
+    fun toolTagsDriveDeviceControlRuntimePolicies() {
+        assertTrue(registry.startsDeviceControlSession(MobileActionFunctions.OPEN_WIFI_SETTINGS))
+        assertTrue(registry.startsDeviceControlSession(MobileActionFunctions.SEARCH_MAPS))
+        assertFalse(registry.startsDeviceControlSession(MobileActionFunctions.WEB_SEARCH))
+
+        assertTrue(registry.isOpenAppLaunchTool(MobileActionFunctions.OPEN_APP_BY_NAME))
+        assertTrue(registry.isOpenAppLaunchTool(MobileActionFunctions.OPEN_APP_INTENT))
+        assertFalse(registry.isOpenAppLaunchTool(MobileActionFunctions.OPEN_APP_DEEP_TARGET))
+
+        assertTrue(
+            registry.isLowRiskDeviceActionConfirmationSkippable(
+                ToolRequest(toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS),
+            ),
+        )
+        assertFalse(
+            registry.isLowRiskDeviceActionConfirmationSkippable(
+                ToolRequest(toolName = MobileActionFunctions.SEARCH_MAPS),
+            ),
+        )
+        assertTrue(
+            registry.isLowRiskDeviceActionConfirmationSkippable(
+                ToolRequest(
+                    toolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                    arguments = mapOf("target" to SystemSettingsTargets.BLUETOOTH),
+                ),
+            ),
+        )
+        assertFalse(
+            registry.isLowRiskDeviceActionConfirmationSkippable(
+                ToolRequest(
+                    toolName = MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                    arguments = mapOf("target" to SystemSettingsTargets.ACCESSIBILITY),
+                ),
+            ),
+        )
+        assertTrue(
+            registry.isLowRiskDeviceActionConfirmationSkippable(
+                ToolRequest(
+                    toolName = MobileActionFunctions.UI_TAP,
+                    arguments = mapOf("target" to "搜索"),
+                ),
+            ),
+        )
+        assertFalse(
+            registry.isLowRiskDeviceActionConfirmationSkippable(
+                ToolRequest(
+                    toolName = MobileActionFunctions.UI_TAP,
+                    arguments = mapOf("target" to "发送"),
+                ),
+            ),
+        )
+
+        assertTrue(
+            registry.isLowRiskAppControlContinuationTool(
+                ToolRequest(toolName = MobileActionFunctions.UI_SUBMIT_SEARCH),
+            ),
+        )
+        assertFalse(
+            registry.isLowRiskAppControlContinuationTool(
+                ToolRequest(
+                    toolName = MobileActionFunctions.UI_TAP,
+                    arguments = mapOf("target" to "付款"),
+                ),
+            ),
+        )
+        assertTrue(registry.isCheckpointedUiActionTool(MobileActionFunctions.UI_SUBMIT_SEARCH))
+        assertFalse(registry.isCheckpointedUiActionTool(MobileActionFunctions.UI_WAIT))
+
+        assertTrue(registry.requiresSequentialLocalModelBeforeTail(MobileActionFunctions.READ_CLIPBOARD))
+        assertTrue(registry.requiresSequentialLocalModelBeforeTail(MobileActionFunctions.OBSERVE_CURRENT_SCREEN))
+        assertFalse(registry.requiresSequentialLocalModelBeforeTail(MobileActionFunctions.WEB_SEARCH))
+    }
+
+    @Test
+    fun toolTagsDriveRestoredExternalOutcomePopupPolicy() {
+        val result = ToolResult(
+            requestId = "request-1",
+            status = ToolStatus.Succeeded,
+            summary = "opened",
+            data = emptyMap(),
+        )
+
+        assertTrue(
+            registry.isLowRiskRestoredExternalOutcomePopupSkippable(
+                MobileActionFunctions.SEARCH_MAPS,
+                result,
+            ),
+        )
+        assertTrue(
+            registry.isLowRiskRestoredExternalOutcomePopupSkippable(
+                MobileActionFunctions.OPEN_APP_BY_NAME,
+                result,
+            ),
+        )
+        assertFalse(
+            registry.isLowRiskRestoredExternalOutcomePopupSkippable(
+                MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
+                result,
+            ),
+        )
+        assertTrue(
+            registry.isLowRiskRestoredExternalOutcomePopupSkippable(
+                MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                result.copy(data = mapOf("targetId" to SystemSettingsTargets.BLUETOOTH)),
+            ),
+        )
+        assertFalse(
+            registry.isLowRiskRestoredExternalOutcomePopupSkippable(
+                MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
+                result.copy(data = mapOf("targetId" to SystemSettingsTargets.ACCESSIBILITY)),
+            ),
+        )
+    }
+
+    @Test
     fun rejectsUnknownTool() {
         val rejection = registry.validate(
             ToolRequest(
@@ -1971,6 +2265,20 @@ class ToolRegistryTest {
         assertFalse(result.retryable)
         assertTrue(result.summary.contains(expectedField))
     }
+
+    private fun runtimePermissionContractSpec(
+        permissions: Set<ToolPermission>,
+        androidRuntimePermissions: List<AndroidRuntimePermissionSpec>,
+    ): ToolSpec =
+        ToolSpec(
+            name = "custom_runtime_permission_contract",
+            title = "Custom runtime permission contract",
+            description = "Custom runtime permission contract",
+            inputSchemaJson = """{"type":"object","properties":{},"additionalProperties":false}""",
+            capability = ToolCapability.DeviceContext,
+            permissions = permissions,
+            androidRuntimePermissions = androidRuntimePermissions,
+        )
 }
 
 private fun JSONArray?.containsString(value: String): Boolean {

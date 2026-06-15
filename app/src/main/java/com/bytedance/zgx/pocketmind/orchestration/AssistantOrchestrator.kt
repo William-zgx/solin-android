@@ -133,7 +133,10 @@ class AssistantOrchestrator(
             actionModelPathProvider = actionModelPathProvider,
             toolRegistry = toolRegistry,
         ),
-        SequentialActionObservationReplanner(actionPlanningRuntime),
+        SequentialActionObservationReplanner(
+            actionPlanningRuntime = actionPlanningRuntime,
+            toolRegistry = toolRegistry,
+        ),
     ),
     deviceControlSessionFinisher: () -> Unit = {},
 ) : AssistantRouter {

@@ -112,8 +112,11 @@ class PocketMindAppContainer(context: Context) {
         backgroundTaskSchedulerInternal = AndroidBackgroundTaskScheduler(appContext, scheduledTaskRepository)
         reminderNotificationHelper = ReminderNotificationHelper(appContext)
         currentScreenshotOcrProviderInternal = AndroidCurrentScreenshotOcrProvider(appContext)
-        actionPlanningRuntime = HybridActionPlanningRuntime(appContext.cacheDir)
         val toolRegistry = ToolRegistry()
+        actionPlanningRuntime = HybridActionPlanningRuntime(
+            cacheDir = appContext.cacheDir,
+            toolRegistry = toolRegistry,
+        )
         actionExecutor = ValidatingToolExecutor(
             delegate = RoutingToolExecutor(
                 calendarAvailabilityProvider = AndroidCalendarAvailabilityProvider(appContext),
@@ -126,12 +129,14 @@ class PocketMindAppContainer(context: Context) {
                     context = appContext,
                     backgroundTaskScheduler = backgroundTaskSchedulerInternal,
                     canPostReminderNotifications = reminderNotificationHelper::canPostNotifications,
+                    toolRegistry = toolRegistry,
                 ),
                 backgroundTaskScheduler = backgroundTaskSchedulerInternal,
                 recentImageTextProvider = AndroidRecentImageTextProvider(appContext),
                 currentScreenTextProvider = AndroidCurrentScreenTextProvider(),
                 currentScreenshotOcrProvider = currentScreenshotOcrProviderInternal,
                 currentScreenControlProvider = AndroidCurrentScreenControlProvider(),
+                toolRegistry = toolRegistry,
             ),
             registry = toolRegistry,
         )
@@ -147,7 +152,10 @@ class PocketMindAppContainer(context: Context) {
                     actionModelPathProvider = modelRepository::verifiedActionModelPath,
                     toolRegistry = toolRegistry,
                 ),
-                SequentialActionObservationReplanner(actionPlanningRuntime),
+                SequentialActionObservationReplanner(
+                    actionPlanningRuntime = actionPlanningRuntime,
+                    toolRegistry = toolRegistry,
+                ),
             ),
             deviceControlSessionFinisher = {
                 DeviceControlSessionService.stop(appContext)

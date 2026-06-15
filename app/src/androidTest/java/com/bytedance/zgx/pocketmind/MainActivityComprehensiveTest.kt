@@ -20,9 +20,9 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.BufferedReader
+import java.io.BufferedInputStream
 import java.io.Closeable
-import java.io.InputStreamReader
+import java.io.EOFException
 import java.io.OutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -158,6 +158,17 @@ class MainActivityComprehensiveTest {
         composeRule.onNodeWithTag("model_tab_current").performClick()
         composeRule.onNodeWithTag("inference_remote_chip").performClick()
         closeSheet("model_manager_sheet")
+        dismissRemoteModeDisclosureIfPresent()
+    }
+
+    private fun dismissRemoteModeDisclosureIfPresent() {
+        val needsConfirmation = composeRule.waitForOptionalTag(
+            tag = "remote_mode_disclosure_sheet",
+            timeoutMillis = 5_000,
+        )
+        if (!needsConfirmation) return
+        composeRule.onNodeWithTag("remote_mode_confirm_button").performClick()
+        composeRule.waitForTagGone("remote_mode_disclosure_sheet", timeoutMillis = 5_000)
     }
 
     private fun sendPrompt(prompt: String, server: LocalOpenAiServer? = null) {
@@ -367,14 +378,14 @@ private class LocalOpenAiServer : Closeable {
 
     private fun handle(socket: Socket) {
         socket.use { client ->
-            val reader = BufferedReader(InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8))
-            val requestLine = reader.readLine() ?: return
+            val input = BufferedInputStream(client.getInputStream())
+            val requestLine = input.readHttpLine() ?: return
             val parts = requestLine.split(" ")
             val method = parts.getOrNull(0).orEmpty()
             val path = parts.getOrNull(1).orEmpty()
             val headers = linkedMapOf<String, String>()
             while (true) {
-                val line = reader.readLine() ?: return
+                val line = input.readHttpLine() ?: return
                 if (line.isEmpty()) break
                 val separator = line.indexOf(':')
                 if (separator > 0) {
@@ -383,7 +394,7 @@ private class LocalOpenAiServer : Closeable {
             }
             val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
             val body = if (contentLength > 0) {
-                CharArray(contentLength).also { reader.read(it) }.concatToString()
+                String(input.readExactBytes(contentLength), StandardCharsets.UTF_8)
             } else {
                 ""
             }
@@ -423,6 +434,30 @@ private class LocalOpenAiServer : Closeable {
     override fun close() {
         serverSocket.close()
         worker.interrupt()
+    }
+
+    private fun BufferedInputStream.readHttpLine(): String? {
+        val bytes = mutableListOf<Byte>()
+        while (true) {
+            val value = read()
+            if (value == -1) {
+                return if (bytes.isEmpty()) null else String(bytes.toByteArray(), StandardCharsets.ISO_8859_1)
+            }
+            if (value == '\n'.code) break
+            if (value != '\r'.code) bytes += value.toByte()
+        }
+        return String(bytes.toByteArray(), StandardCharsets.ISO_8859_1)
+    }
+
+    private fun BufferedInputStream.readExactBytes(length: Int): ByteArray {
+        val buffer = ByteArray(length)
+        var offset = 0
+        while (offset < length) {
+            val read = read(buffer, offset, length - offset)
+            if (read == -1) throw EOFException("Expected $length request body bytes, got $offset.")
+            offset += read
+        }
+        return buffer
     }
 }
 

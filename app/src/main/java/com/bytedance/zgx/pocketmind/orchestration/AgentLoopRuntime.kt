@@ -8,7 +8,6 @@ import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.ModelToolOutputParseResult
-import com.bytedance.zgx.pocketmind.action.SystemSettingsTargets
 import com.bytedance.zgx.pocketmind.audit.NoOpToolAuditSink
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEvent
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEventType
@@ -1270,9 +1269,9 @@ class AgentLoopRuntime(
         result: ToolResult,
     ): NextObservationPlan? {
         if (!result.isUnverifiedExternalLaunch()) return null
-        if (request.toolName !in openAppLaunchToolNames) return null
+        if (!toolRegistry.isOpenAppLaunchTool(request.toolName)) return null
         val skillPlan = latestSkillPlan(run.id) ?: return null
-        if (skillPlan.manifest.id != BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL) return null
+        if (!skillPlan.manifest.continuesAfterUnverifiedOpenAppLaunch) return null
         val requestBelongsToSkill = skillPlan.steps
             .filterIsInstance<SkillStep.ToolStep>()
             .any { step -> step.request.id == request.id && step.request.toolName == request.toolName }
@@ -1619,7 +1618,7 @@ class AgentLoopRuntime(
         if (laterToolRequested) return null
         val observation = observationEntry.second
         val request = requestsById[observation.requestId] ?: return null
-        if (request.isLowRiskRestoredExternalOutcomePopupSkippable(observation.result)) return null
+        if (request.isLowRiskRestoredExternalOutcomePopupSkippable(observation.result, toolRegistry)) return null
         val summary = if (observation.result.summary.startsWith(UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX)) {
             observation.result.summary
         } else {
@@ -2811,37 +2810,16 @@ class AgentLoopRuntime(
     }
 
     private fun ToolRequest.isLowRiskDeviceActionConfirmationSkippable(): Boolean =
-        when (toolName) {
-            MobileActionFunctions.OPEN_WIFI_SETTINGS,
-            MobileActionFunctions.OPEN_CAMERA,
-            MobileActionFunctions.OPEN_APP_BY_NAME,
-            MobileActionFunctions.OPEN_APP_INTENT,
-            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
-            MobileActionFunctions.UI_TYPE_TEXT,
-            MobileActionFunctions.UI_SUBMIT_SEARCH,
-            MobileActionFunctions.UI_SCROLL,
-            MobileActionFunctions.UI_PRESS_BACK,
-            MobileActionFunctions.UI_WAIT
-            -> true
-
-            MobileActionFunctions.UI_TAP ->
-                !arguments["target"].orEmpty().containsHighRiskUiActionTarget()
-
-            MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
-                arguments["target"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
-
-            else -> false
-        }
+        toolRegistry.isLowRiskDeviceActionConfirmationSkippable(this)
 
     private fun ToolRequest.isLowRiskAppControlContinuationTool(): Boolean =
-        isLowRiskDeviceActionConfirmationSkippable() &&
-            toolName in lowRiskAppControlContinuationToolNames
+        toolRegistry.isLowRiskAppControlContinuationTool(this)
 
     private fun ToolRequest.isCheckpointedUiActionTool(): Boolean =
-        toolName in checkpointedUiActionToolNames
+        toolRegistry.isCheckpointedUiActionTool(toolName)
 
     private fun SkillPlan.isLowRiskAppControlSkill(): Boolean =
-        manifest.id in lowRiskAppControlSkillIds
+        manifest.lowRiskAppControlEligible
 
     private fun SkillPlan.hasConfirmedToolStep(runId: String): Boolean {
         val stepRequestIds = toolStepRequestIds()
@@ -2871,32 +2849,6 @@ class AgentLoopRuntime(
         steps.filterIsInstance<SkillStep.ToolStep>()
             .mapTo(mutableSetOf()) { step -> step.request.id }
 
-    private fun String.containsHighRiskUiActionTarget(): Boolean {
-        val normalized = lowercase()
-        return listOf(
-            "发送",
-            "删除",
-            "支付",
-            "付款",
-            "转账",
-            "下单",
-            "提交",
-            "发布",
-            "购买",
-            "确认",
-            "send",
-            "delete",
-            "pay",
-            "transfer",
-            "submit",
-            "post",
-            "publish",
-            "buy",
-            "order",
-            "confirm",
-        ).any { normalized.contains(it) }
-    }
-
     private fun clearEphemeralRunState(runId: String) {
         if (runUsedDeviceControlSession(runId)) {
             runCatching { deviceControlSessionFinisher() }
@@ -2909,7 +2861,7 @@ class AgentLoopRuntime(
 
     private fun runUsedDeviceControlSession(runId: String): Boolean =
         toolRequestsFor(runId).any { request ->
-            request.toolName in deviceControlSessionToolNames ||
+            toolRegistry.startsDeviceControlSession(request.toolName) ||
                 request.isDeviceControlTool()
         }
 
@@ -2953,48 +2905,6 @@ class AgentLoopRuntime(
     private val pendingExternalOutcomeRestoreStates = setOf(
         AgentRunState.AwaitingExternalOutcome,
         AgentRunState.Completed,
-    )
-
-    private val openAppLaunchToolNames = setOf(
-        MobileActionFunctions.OPEN_APP_BY_NAME,
-        MobileActionFunctions.OPEN_APP_INTENT,
-    )
-
-    private val lowRiskAppControlSkillIds = setOf(
-        BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL,
-        BuiltInSkillRuntime.CURRENT_APP_UI_SEARCH_SKILL,
-        BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL,
-        BuiltInSkillRuntime.BROWSER_UI_SEARCH_SKILL,
-        BuiltInSkillRuntime.MAPS_UI_ROUTE_SKILL,
-    )
-
-    private val lowRiskAppControlContinuationToolNames = setOf(
-        MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
-        MobileActionFunctions.UI_TAP,
-        MobileActionFunctions.UI_TYPE_TEXT,
-        MobileActionFunctions.UI_SUBMIT_SEARCH,
-        MobileActionFunctions.UI_SCROLL,
-        MobileActionFunctions.UI_PRESS_BACK,
-        MobileActionFunctions.UI_WAIT,
-    )
-
-    private val checkpointedUiActionToolNames = setOf(
-        MobileActionFunctions.UI_TAP,
-        MobileActionFunctions.UI_TYPE_TEXT,
-        MobileActionFunctions.UI_SUBMIT_SEARCH,
-        MobileActionFunctions.UI_SCROLL,
-        MobileActionFunctions.UI_PRESS_BACK,
-    )
-
-    private val deviceControlSessionToolNames = setOf(
-        MobileActionFunctions.OPEN_WIFI_SETTINGS,
-        MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
-        MobileActionFunctions.OPEN_SYSTEM_SETTINGS,
-        MobileActionFunctions.SEARCH_MAPS,
-        MobileActionFunctions.OPEN_CAMERA,
-        MobileActionFunctions.OPEN_APP_BY_NAME,
-        MobileActionFunctions.OPEN_APP_INTENT,
-        MobileActionFunctions.OPEN_APP_DEEP_TARGET,
     )
 
     private fun ToolResult.requiresLocalModelContinuation(): Boolean =
@@ -3307,20 +3217,11 @@ class AgentLoopRuntime(
         val toolName: String,
         val title: String,
     ) {
-        fun isLowRiskRestoredExternalOutcomePopupSkippable(result: ToolResult): Boolean =
-            when (toolName) {
-                MobileActionFunctions.OPEN_WIFI_SETTINGS,
-                MobileActionFunctions.OPEN_CAMERA,
-                MobileActionFunctions.OPEN_APP_BY_NAME,
-                MobileActionFunctions.OPEN_APP_INTENT,
-                MobileActionFunctions.SEARCH_MAPS
-                -> true
-
-                MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
-                    result.data["targetId"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
-
-                else -> false
-            }
+        fun isLowRiskRestoredExternalOutcomePopupSkippable(
+            result: ToolResult,
+            toolRegistry: ToolRegistry,
+        ): Boolean =
+            toolRegistry.isLowRiskRestoredExternalOutcomePopupSkippable(toolName, result)
     }
 
     private data class RestoredExternalObservation(

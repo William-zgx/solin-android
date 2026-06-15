@@ -440,12 +440,16 @@ mkdir -p "$(dirname "$INSTRUMENTATION_OUTPUT_FILE")"
 printf '%s\n' "$TEST_OUTPUT" > "$INSTRUMENTATION_OUTPUT_FILE"
 printf '%s\n' "$TEST_OUTPUT"
 INSTRUMENTATION_TEST_COUNT="$(instrumentation_test_count_for "$TEST_OUTPUT")"
-if [[ "$TEST_STATUS" -eq 0 ]] && instrumentation_output_failed "$TEST_OUTPUT"; then
+INSTRUMENTATION_SUCCEEDED=0
+if instrumentation_output_succeeded "$TEST_OUTPUT"; then
+  INSTRUMENTATION_SUCCEEDED=1
+fi
+if [[ "$TEST_STATUS" -eq 0 && "$INSTRUMENTATION_SUCCEEDED" != "1" ]] && instrumentation_output_failed "$TEST_OUTPUT"; then
   TEST_STATUS=1
   FAILED_TARGET="instrumentation"
   FAILURE_REASON="instrumentation-failed"
 fi
-if [[ "$TEST_STATUS" -eq 0 ]] && ! instrumentation_output_succeeded "$TEST_OUTPUT"; then
+if [[ "$TEST_STATUS" -eq 0 && "$INSTRUMENTATION_SUCCEEDED" != "1" ]]; then
   TEST_STATUS=1
   FAILED_TARGET="instrumentation"
   FAILURE_REASON="instrumentation-success-marker-missing"

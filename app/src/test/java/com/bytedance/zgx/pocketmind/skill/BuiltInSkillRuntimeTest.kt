@@ -53,6 +53,29 @@ class BuiltInSkillRuntimeTest {
                 expected.riskLevel,
                 manifest.riskLevel,
             )
+            assertEquals(
+                "${manifest.id} low-risk app-control eligibility changed without contract review",
+                expected.lowRiskAppControlEligible,
+                manifest.lowRiskAppControlEligible,
+            )
+            if (expected.backgroundRequiredTools.isEmpty()) {
+                assertNull(
+                    "${manifest.id} background execution metadata changed without contract review",
+                    manifest.backgroundExecution,
+                )
+            } else {
+                val backgroundExecution = requireNotNull(manifest.backgroundExecution)
+                assertEquals(
+                    "${manifest.id} background required tools changed without contract review",
+                    expected.backgroundRequiredTools,
+                    backgroundExecution.requiredTools,
+                )
+                assertEquals(
+                    "${manifest.id} background allowed work changed without contract review",
+                    expected.backgroundAllowedWork,
+                    backgroundExecution.allowedWork,
+                )
+            }
             manifest.requiredTools.forEach { toolName ->
                 assertTrue("${manifest.id} requires unknown tool $toolName", registry.isKnownTool(toolName))
             }
@@ -1675,6 +1698,9 @@ class BuiltInSkillRuntimeTest {
         val riskLevel: RiskLevel,
         val triggerExamples: List<String>,
         val version: Int = 1,
+        val lowRiskAppControlEligible: Boolean = false,
+        val backgroundRequiredTools: List<String> = emptyList(),
+        val backgroundAllowedWork: Set<SkillBackgroundWork> = emptySet(),
     )
 
     private val expectedBuiltInSkillManifests = listOf(
@@ -1736,6 +1762,11 @@ class BuiltInSkillRuntimeTest {
             requiredTools = listOf("configure_periodic_check"),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             triggerExamples = listOf("开启周期检查", "关闭周期检查", "enable periodic check"),
+            backgroundRequiredTools = listOf("query_background_tasks", "configure_periodic_check"),
+            backgroundAllowedWork = setOf(
+                SkillBackgroundWork.ReadOnlyLocalState,
+                SkillBackgroundWork.PostLocalNotification,
+            ),
         ),
         ExpectedBuiltInSkillManifest(
             id = "background_tasks_context_skill",
@@ -1859,6 +1890,7 @@ class BuiltInSkillRuntimeTest {
                 "在当前浏览器搜索 Kotlin 协程",
                 "search Kotlin coroutines in the current browser",
             ),
+            lowRiskAppControlEligible = true,
         ),
         ExpectedBuiltInSkillManifest(
             id = "maps_ui_route_skill",
@@ -1874,6 +1906,7 @@ class BuiltInSkillRuntimeTest {
                 "在当前地图查去机场的路线",
                 "route to the airport in the current maps page",
             ),
+            lowRiskAppControlEligible = true,
         ),
         ExpectedBuiltInSkillManifest(
             id = "draft_form_ui_skill",
@@ -1902,6 +1935,7 @@ class BuiltInSkillRuntimeTest {
                 "在当前应用搜索 海河牛奶",
                 "search Kotlin in the current app",
             ),
+            lowRiskAppControlEligible = true,
         ),
         ExpectedBuiltInSkillManifest(
             id = "open_app_ui_search_skill",
@@ -1918,6 +1952,7 @@ class BuiltInSkillRuntimeTest {
                 "打开淘宝搜索海河牛奶",
                 "open Pinduoduo and search milk",
             ),
+            lowRiskAppControlEligible = true,
         ),
         ExpectedBuiltInSkillManifest(
             id = "current_page_simple_interaction_skill",
@@ -1934,6 +1969,7 @@ class BuiltInSkillRuntimeTest {
                 "点击当前页面的筛选",
                 "scroll down on the current page",
             ),
+            lowRiskAppControlEligible = true,
         ),
         ExpectedBuiltInSkillManifest(
             id = "contact_lookup_skill",

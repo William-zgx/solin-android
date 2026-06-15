@@ -45,6 +45,12 @@ flowchart LR
   setting can continue low-risk navigation, search, tap, scroll, and back steps;
   sending, deleting, paying, ordering, publishing, sensitive input, and
   permission changes still require confirmation.
+- **Capabilities are registry-owned:** broad Agent abilities such as public
+  evidence search, device context, Accessibility screen observation, GUI
+  gestures, Android runtime permissions, and special-access gates are declared
+  as `ToolSpec` contracts. Software- or workflow-specific behavior is layered
+  through tool providers and Skill manifests rather than hard-coded in the
+  Agent loop.
 - **Users stay in control:** privacy guidance is available in-app, remote keys
   can be cleared, conversations and memories can be deleted, and release gates
   track Play Data safety / privacy-policy consistency.
@@ -110,6 +116,14 @@ flowchart TD
 - Lightweight local memory recall over previous conversation context.
 - Local mobile action planning with deterministic rule fallback and
   confirmation-aware execution.
+- Registry-driven tool architecture: `ToolRegistry` aggregates built-in and
+  future provider `ToolSpec` values, exposes schema validation, result
+  redaction, Android runtime permission descriptors, special-access tags,
+  low-risk device-action tags, background-skill eligibility, and app-control
+  continuation policy from the same contract the Agent loop executes.
+- Action-model prompts are generated from the current Tool Registry JSON
+  schemas and planning hints, so adding or removing a tool updates model
+  planning without a second hard-coded function list.
 - Accessibility-based app control tools:
   `observe_current_screen`, `ui_tap`, `ui_type_text`, `ui_submit_search`,
   `ui_scroll`, `ui_press_back`, and `ui_wait`. Each action observes again and
@@ -292,14 +306,16 @@ memory falls back to the lightweight local index. Only explicit long-term
 `Preference`, `UserFact`, and `TaskState` records enter the semantic index.
 Mobile actions can use the verified action model as a bounded planner; if it is
 missing or does not produce a supported `call:function {...}` draft,
-PocketMind falls back to deterministic local rules. Low-risk phone-control
-steps can continue under the user's confirmation setting; drafts, HTTPS links,
-share sheets, high-risk actions, and unknown external actions stay on the
-confirmation or external-outcome path. When the verified action model is used
-for observation replanning, it can only propose one next supported tool draft
-after a successful observed tool result; unsupported or
-malformed drafts fail closed, and every proposed tool still requires explicit
-confirmation. After confirmation,
+PocketMind falls back to deterministic local rules. The planner and replanner
+consult the current `ToolRegistry` instead of a separate action-function list:
+tool schemas shape model output, `ToolSpec.tags` decide low-risk phone-control
+continuations, and `SkillManifest` metadata decides whether a Skill may
+continue after an unverified app launch. Drafts, HTTPS links, share sheets,
+high-risk actions, and unknown external actions stay on the confirmation or
+external-outcome path. When the verified action model is used for observation
+replanning, it can only propose one next supported tool draft after a
+successful observed tool result; unsupported or malformed drafts fail closed,
+and every proposed tool still requires explicit confirmation. After confirmation,
 Android execution returns a structured tool result that is written back to the
 Agent run trace and audit log. The chat surface only shows a safe result
 summary; structured fields and allowlisted completion metadata are inspected

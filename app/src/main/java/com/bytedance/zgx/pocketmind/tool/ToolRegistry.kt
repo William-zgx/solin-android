@@ -18,10 +18,13 @@ class ToolRegistry private constructor(
         require(definitionsByName.size == definitions.size) { "Tool names must be unique." }
         definitions.forEach { definition ->
             definition.argumentValidator
+            validateRuntimePermissionDescriptorContract(definition.spec)
         }
     }
 
-    constructor() : this(definitionsFor(MobileActionFunctions.supported))
+    constructor() : this(BuiltInToolProvider)
+
+    constructor(vararg providers: ToolProvider) : this(definitionsFor(providers.toList()))
 
     fun specs(): List<ToolSpec> = orderedSpecs
 
@@ -33,8 +36,75 @@ class ToolRegistry private constructor(
     fun pendingArgumentAllowlistFor(toolName: String): Set<String> =
         specFor(toolName)?.pendingArgumentAllowlist.orEmpty()
 
+    fun androidRuntimePermissionSpecsFor(toolName: String): List<AndroidRuntimePermissionSpec> =
+        specFor(toolName)?.androidRuntimePermissions.orEmpty()
+
     fun redactedResultSummaryFor(toolName: String): String? =
         specFor(toolName)?.redactedResultSummary
+
+    fun toolNamesWithTag(tag: ToolCapabilityTag): Set<String> =
+        orderedSpecs
+            .filter { spec -> tag in spec.tags }
+            .mapTo(linkedSetOf()) { spec -> spec.name }
+
+    fun hasTag(toolName: String, tag: ToolCapabilityTag): Boolean =
+        specFor(toolName)?.tags?.contains(tag) == true
+
+    fun startsDeviceControlSession(toolName: String): Boolean =
+        hasTag(toolName, ToolCapabilityTag.DeviceControlSession)
+
+    fun isOpenAppLaunchTool(toolName: String): Boolean =
+        hasTag(toolName, ToolCapabilityTag.OpenAppLaunch)
+
+    fun requiresSequentialLocalModelBeforeTail(toolName: String): Boolean {
+        val spec = specFor(toolName) ?: return false
+        return ToolCapabilityTag.SequentialLocalContinuation in spec.tags ||
+            spec.resultContinuationPolicy == ToolResultContinuationPolicy.LocalEvidence ||
+            spec.privateOutputKeys.isNotEmpty()
+    }
+
+    fun isLowRiskDeviceActionConfirmationSkippable(request: ToolRequest): Boolean =
+        when {
+            hasTag(request.toolName, ToolCapabilityTag.LowRiskDeviceAction) -> true
+            !hasTag(request.toolName, ToolCapabilityTag.ConditionalLowRiskDeviceAction) -> false
+            request.toolName == MobileActionFunctions.UI_TAP ->
+                !request.arguments["target"].orEmpty().containsHighRiskUiActionTarget()
+            request.toolName == MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+                request.arguments["target"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
+            else -> false
+        }
+
+    fun isLowRiskAppControlContinuationTool(request: ToolRequest): Boolean =
+        isLowRiskDeviceActionConfirmationSkippable(request) &&
+            hasTag(request.toolName, ToolCapabilityTag.LowRiskAppControlContinuation)
+
+    fun isCheckpointedUiActionTool(toolName: String): Boolean =
+        hasTag(toolName, ToolCapabilityTag.CheckpointedUiAction)
+
+    fun isBackgroundSkillAllowedTool(toolName: String): Boolean =
+        hasTag(toolName, ToolCapabilityTag.BackgroundSkillAllowed)
+
+    fun specialAccessTagsFor(toolName: String): Set<ToolCapabilityTag> =
+        specFor(toolName)
+            ?.tags
+            ?.filterTo(linkedSetOf()) { tag ->
+                tag == ToolCapabilityTag.UsageStatsSpecialAccess ||
+                    tag == ToolCapabilityTag.AccessibilityScreenTextSpecialAccess ||
+                    tag == ToolCapabilityTag.AccessibilityDeviceControlSpecialAccess
+            }
+            .orEmpty()
+
+    fun isLowRiskRestoredExternalOutcomePopupSkippable(
+        toolName: String,
+        result: ToolResult,
+    ): Boolean =
+        when {
+            hasTag(toolName, ToolCapabilityTag.RestoredExternalOutcomePopupSkippable) -> true
+            !hasTag(toolName, ToolCapabilityTag.ConditionalRestoredExternalOutcomePopupSkippable) -> false
+            toolName == MobileActionFunctions.OPEN_SYSTEM_SETTINGS ->
+                result.data["targetId"].orEmpty() in SystemSettingsTargets.confirmationBypassEligible
+            else -> false
+        }
 
     fun isKnownTool(toolName: String): Boolean = toolName in definitionsByName
 
@@ -214,9 +284,31 @@ class ToolRegistry private constructor(
     }
 
     companion object {
-        fun fromSupportedActions(supportedActions: Set<String> = MobileActionFunctions.supported): ToolRegistry =
+        fun fromSupportedActions(supportedActions: Set<String> = builtInToolNames()): ToolRegistry =
             ToolRegistry(definitionsFor(supportedActions))
     }
+}
+
+private fun validateRuntimePermissionDescriptorContract(spec: ToolSpec) {
+    val hasMarker = ToolPermission.RequiresAndroidRuntimePermission in spec.permissions
+    val hasDescriptors = spec.androidRuntimePermissions.isNotEmpty()
+    require(hasMarker == hasDescriptors) {
+        "Tool ${spec.name} Android runtime permission marker and descriptor must both be present or absent."
+    }
+    val argumentNames = spec.inputSchemaJson.schemaPropertyNames()
+    spec.androidRuntimePermissions.forEach { runtimePermission ->
+        val argumentName = runtimePermission.argumentName ?: return@forEach
+        require(argumentName in argumentNames) {
+            "Tool ${spec.name} Android runtime permission argument $argumentName is not declared in input schema."
+        }
+    }
+}
+
+private fun String.schemaPropertyNames(): Set<String> {
+    val schema = JSONObject(this)
+    return schema.optJSONObject("properties")
+        ?.keysSet()
+        .orEmpty()
 }
 
 private fun toolSpecificArgumentInvariant(request: ToolRequest): String? =
@@ -707,6 +799,45 @@ private fun definitionsFor(supportedActions: Set<String>): List<ToolDefinition> 
         "Missing tool definition(s): ${missingDefinitions.sorted().joinToString()}"
     }
     return supportedActions.map { toolDefinitionsByName.getValue(it) }
+}
+
+private fun builtInToolNames(): Set<String> =
+    builtInToolDefinitions.mapTo(linkedSetOf()) { definition -> definition.spec.name }
+
+private fun definitionsFor(providers: List<ToolProvider>): List<ToolDefinition> =
+    providers.flatMap { provider ->
+        provider.specs().map(::ToolDefinition)
+    }
+
+private fun String.containsHighRiskUiActionTarget(): Boolean {
+    val normalized = lowercase()
+    return listOf(
+        "发送",
+        "删除",
+        "支付",
+        "付款",
+        "转账",
+        "下单",
+        "提交",
+        "发布",
+        "购买",
+        "确认",
+        "send",
+        "delete",
+        "pay",
+        "transfer",
+        "submit",
+        "post",
+        "publish",
+        "buy",
+        "order",
+        "confirm",
+    ).any { normalized.contains(it) }
+}
+
+private object BuiltInToolProvider : ToolProvider {
+    override fun specs(): List<ToolSpec> =
+        builtInToolDefinitions.map { definition -> definition.spec }
 }
 
 private val emptyObjectSchemaJson = """
@@ -1888,7 +2019,80 @@ private val uiActionPrivateOutputKeys = setOf(
     "afterNodesJson",
 )
 
-private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
+private val deviceControlSessionTags = setOf(
+    ToolCapabilityTag.DeviceControlSession,
+)
+
+private val lowRiskDeviceControlSessionTags = setOf(
+    ToolCapabilityTag.DeviceControlSession,
+    ToolCapabilityTag.LowRiskDeviceAction,
+    ToolCapabilityTag.RestoredExternalOutcomePopupSkippable,
+)
+
+private val restoredPopupDeviceControlSessionTags = setOf(
+    ToolCapabilityTag.DeviceControlSession,
+    ToolCapabilityTag.RestoredExternalOutcomePopupSkippable,
+)
+
+private val conditionalLowRiskDeviceControlSessionTags = setOf(
+    ToolCapabilityTag.DeviceControlSession,
+    ToolCapabilityTag.ConditionalLowRiskDeviceAction,
+    ToolCapabilityTag.ConditionalRestoredExternalOutcomePopupSkippable,
+)
+
+private val sequentialLocalContinuationTags = setOf(
+    ToolCapabilityTag.SequentialLocalContinuation,
+)
+
+private val backgroundSkillAllowedTags = setOf(
+    ToolCapabilityTag.BackgroundSkillAllowed,
+)
+
+private val backgroundSequentialLocalContinuationTags = setOf(
+    ToolCapabilityTag.BackgroundSkillAllowed,
+    ToolCapabilityTag.SequentialLocalContinuation,
+)
+
+private val usageStatsSpecialAccessTags = setOf(
+    ToolCapabilityTag.UsageStatsSpecialAccess,
+)
+
+private val accessibilityScreenTextSequentialTags = setOf(
+    ToolCapabilityTag.SequentialLocalContinuation,
+    ToolCapabilityTag.AccessibilityScreenTextSpecialAccess,
+)
+
+private val lowRiskSequentialContinuationTags = setOf(
+    ToolCapabilityTag.SequentialLocalContinuation,
+    ToolCapabilityTag.LowRiskDeviceAction,
+    ToolCapabilityTag.LowRiskAppControlContinuation,
+    ToolCapabilityTag.AccessibilityDeviceControlSpecialAccess,
+)
+
+private val conditionalLowRiskSequentialContinuationTags = setOf(
+    ToolCapabilityTag.SequentialLocalContinuation,
+    ToolCapabilityTag.ConditionalLowRiskDeviceAction,
+    ToolCapabilityTag.LowRiskAppControlContinuation,
+    ToolCapabilityTag.CheckpointedUiAction,
+    ToolCapabilityTag.AccessibilityDeviceControlSpecialAccess,
+)
+
+private val checkpointedLowRiskSequentialContinuationTags = setOf(
+    ToolCapabilityTag.SequentialLocalContinuation,
+    ToolCapabilityTag.LowRiskDeviceAction,
+    ToolCapabilityTag.LowRiskAppControlContinuation,
+    ToolCapabilityTag.CheckpointedUiAction,
+    ToolCapabilityTag.AccessibilityDeviceControlSpecialAccess,
+)
+
+private val checkpointedLowRiskContinuationTags = setOf(
+    ToolCapabilityTag.LowRiskDeviceAction,
+    ToolCapabilityTag.LowRiskAppControlContinuation,
+    ToolCapabilityTag.CheckpointedUiAction,
+    ToolCapabilityTag.AccessibilityDeviceControlSpecialAccess,
+)
+
+private val builtInToolDefinitions: List<ToolDefinition> = listOf(
     ToolDefinition(
         spec = ToolSpec(
             name = MobileActionFunctions.OPEN_WIFI_SETTINGS,
@@ -1898,6 +2102,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             outputSchemaJson = externalActivityOutputSchemaJson,
             capability = ToolCapability.DeviceSettings,
             permissions = setOf(ToolPermission.StartsExternalActivity),
+            tags = lowRiskDeviceControlSessionTags,
         ),
     ),
     ToolDefinition(
@@ -1909,6 +2114,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             outputSchemaJson = externalActivityOutputSchemaJson,
             capability = ToolCapability.DeviceSettings,
             permissions = setOf(ToolPermission.StartsExternalActivity),
+            tags = deviceControlSessionTags,
         ),
     ),
     ToolDefinition(
@@ -1923,6 +2129,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
             pendingArgumentAllowlist = setOf("target"),
+            tags = conditionalLowRiskDeviceControlSessionTags,
         ),
     ),
     ToolDefinition(
@@ -1934,6 +2141,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             outputSchemaJson = externalActivityOutputSchemaJson,
             capability = ToolCapability.ExternalNavigation,
             permissions = setOf(ToolPermission.StartsExternalActivity),
+            tags = restoredPopupDeviceControlSessionTags,
         ),
     ),
     ToolDefinition(
@@ -2009,6 +2217,9 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = setOf("query", "contactCount", "contactsJson"),
             redactedResultSummary = "已读取联系人摘要",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            androidRuntimePermissions = listOf(
+                AndroidRuntimePermissionSpec(AndroidRuntimePermissionKind.ReadContacts),
+            ),
         ),
     ),
     ToolDefinition(
@@ -2034,6 +2245,10 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
                 ToolPermission.SchedulesBackgroundWork,
                 ToolPermission.PostsNotification,
                 ToolPermission.RequiresAndroidRuntimePermission,
+            ),
+            planningPromptHint = "必须恰好填写 delayMinutes 或 triggerAtMillis 之一；不支持重复提醒。",
+            androidRuntimePermissions = listOf(
+                AndroidRuntimePermissionSpec(AndroidRuntimePermissionKind.PostNotifications),
             ),
         ),
     ),
@@ -2088,6 +2303,13 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
                 "requiresBatteryNotLow",
                 "requiresCharging",
             ),
+            tags = backgroundSkillAllowedTags,
+            androidRuntimePermissions = listOf(
+                AndroidRuntimePermissionSpec(
+                    kind = AndroidRuntimePermissionKind.PostNotifications,
+                    rationale = "用于周期检查发现过期本地提醒时发送通知。",
+                ),
+            ),
         ),
     ),
     ToolDefinition(
@@ -2105,6 +2327,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = setOf("activeTaskCount", "historyTaskCount", "tasksJson", "policyJson"),
             redactedResultSummary = "已读取后台任务摘要",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            tags = backgroundSequentialLocalContinuationTags,
         ),
     ),
     ToolDefinition(
@@ -2121,6 +2344,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             ),
             privateOutputKeys = setOf("text"),
             redactedResultSummary = "已读取剪贴板文本",
+            tags = sequentialLocalContinuationTags,
         ),
     ),
     ToolDefinition(
@@ -2159,6 +2383,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             permissions = setOf(ToolPermission.StartsExternalActivity),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
+            tags = lowRiskDeviceControlSessionTags,
         ),
     ),
     ToolDefinition(
@@ -2173,6 +2398,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
             pendingArgumentAllowlist = setOf("appName"),
+            tags = lowRiskDeviceControlSessionTags + ToolCapabilityTag.OpenAppLaunch,
         ),
     ),
     ToolDefinition(
@@ -2185,6 +2411,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             capability = ToolCapability.ExternalNavigation,
             permissions = setOf(ToolPermission.StartsExternalActivity),
             pendingArgumentAllowlist = setOf("packageName"),
+            tags = lowRiskDeviceControlSessionTags + ToolCapabilityTag.OpenAppLaunch,
         ),
     ),
     ToolDefinition(
@@ -2197,6 +2424,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             capability = ToolCapability.ExternalNavigation,
             permissions = setOf(ToolPermission.StartsExternalActivity),
             pendingArgumentAllowlist = setOf("targetId", "packageName"),
+            tags = deviceControlSessionTags,
         ),
     ),
     ToolDefinition(
@@ -2218,6 +2446,9 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = setOf("start", "end", "busyBlockCount", "freeBlockCount", "blocksJson"),
             redactedResultSummary = "已读取日历忙闲摘要",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            androidRuntimePermissions = listOf(
+                AndroidRuntimePermissionSpec(AndroidRuntimePermissionKind.ReadCalendar),
+            ),
         ),
     ),
     ToolDefinition(
@@ -2236,6 +2467,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = setOf("packageName", "appLabel", "lastTimeUsedMillis"),
             redactedResultSummary = "已读取当前前台应用",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            tags = usageStatsSpecialAccessTags,
         ),
     ),
     ToolDefinition(
@@ -2276,6 +2508,12 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = setOf("fileCount", "filesJson"),
             redactedResultSummary = "已读取最近文件摘要",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            androidRuntimePermissions = listOf(
+                AndroidRuntimePermissionSpec(
+                    kind = AndroidRuntimePermissionKind.RecentFiles,
+                    argumentName = "kind",
+                ),
+            ),
         ),
     ),
     ToolDefinition(
@@ -2296,6 +2534,13 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("maxCount"),
             privateOutputKeys = recentImageOcrPrivateOutputKeys,
             redactedResultSummary = "已读取最近截图 OCR 摘录",
+            tags = sequentialLocalContinuationTags,
+            androidRuntimePermissions = listOf(
+                AndroidRuntimePermissionSpec(
+                    kind = AndroidRuntimePermissionKind.RecentImages,
+                    rationale = "用于在你确认后读取最近 1 张截图像素，并在本地提取 OCR 文本。",
+                ),
+            ),
         ),
     ),
     ToolDefinition(
@@ -2316,6 +2561,13 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("maxCount"),
             privateOutputKeys = recentImageOcrPrivateOutputKeys,
             redactedResultSummary = "已读取最近图片 OCR 摘录",
+            tags = sequentialLocalContinuationTags,
+            androidRuntimePermissions = listOf(
+                AndroidRuntimePermissionSpec(
+                    kind = AndroidRuntimePermissionKind.RecentImages,
+                    rationale = "用于在你确认后最多扫描最近 3 张图片像素，并在本地提取第一条 OCR 文本。",
+                ),
+            ),
         ),
     ),
     ToolDefinition(
@@ -2335,6 +2587,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("maxChars"),
             privateOutputKeys = setOf("capturedAtMillis", "nodeCount", "screenText", "packageName", "structureSummary"),
             redactedResultSummary = "已读取当前屏幕可访问文本快照",
+            tags = accessibilityScreenTextSequentialTags,
         ),
     ),
     ToolDefinition(
@@ -2354,6 +2607,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("captureMode"),
             privateOutputKeys = setOf("ocrText"),
             redactedResultSummary = "已读取当前屏幕截图 OCR 摘录",
+            tags = sequentialLocalContinuationTags,
         ),
     ),
     ToolDefinition(
@@ -2374,6 +2628,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = observeCurrentScreenPrivateOutputKeys,
             redactedResultSummary = "已观察当前屏幕状态",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            tags = lowRiskSequentialContinuationTags,
         ),
     ),
     ToolDefinition(
@@ -2395,6 +2650,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = uiActionPrivateOutputKeys,
             redactedResultSummary = "已执行屏幕点击动作",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            tags = conditionalLowRiskSequentialContinuationTags,
         ),
     ),
     ToolDefinition(
@@ -2416,6 +2672,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = uiActionPrivateOutputKeys,
             redactedResultSummary = "已执行屏幕输入动作",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            tags = checkpointedLowRiskSequentialContinuationTags,
         ),
     ),
     ToolDefinition(
@@ -2437,6 +2694,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = uiActionPrivateOutputKeys,
             redactedResultSummary = "已执行搜索提交动作",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            tags = checkpointedLowRiskContinuationTags,
         ),
     ),
     ToolDefinition(
@@ -2458,6 +2716,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = uiActionPrivateOutputKeys,
             redactedResultSummary = "已执行屏幕滚动动作",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            tags = checkpointedLowRiskSequentialContinuationTags,
         ),
     ),
     ToolDefinition(
@@ -2479,6 +2738,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = uiActionPrivateOutputKeys,
             redactedResultSummary = "已执行系统返回动作",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            tags = checkpointedLowRiskSequentialContinuationTags,
         ),
     ),
     ToolDefinition(
@@ -2505,6 +2765,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             privateOutputKeys = uiActionPrivateOutputKeys,
             redactedResultSummary = "已等待并重新观察当前屏幕",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+            tags = lowRiskSequentialContinuationTags,
         ),
     ),
     ToolDefinition(
@@ -2521,4 +2782,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("taskId"),
         ),
     ),
-).associateBy { it.spec.name }
+)
+
+private val toolDefinitionsByName: Map<String, ToolDefinition> =
+    builtInToolDefinitions.associateBy { it.spec.name }
