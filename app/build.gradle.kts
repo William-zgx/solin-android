@@ -86,6 +86,7 @@ dependencies {
     implementation(libs.mlkit.text.recognition)
     implementation(libs.mlkit.text.recognition.chinese)
     implementation(libs.okhttp)
+    implementation(libs.jsoup)
 
     ksp(libs.androidx.room.compiler)
 

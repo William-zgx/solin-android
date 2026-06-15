@@ -728,7 +728,7 @@ class BuiltInSkillRuntimeTest {
         val weatherStep = weatherPlan.steps.single()
         require(weatherStep is SkillStep.ToolStep)
         assertEquals(MobileActionFunctions.WEB_SEARCH, weatherStep.request.toolName)
-        assertEquals("北京天气怎么样", weatherStep.request.arguments["query"])
+        assertEquals("北京天气", weatherStep.request.arguments["query"])
         assertEquals(false, weatherStep.draft.requiresConfirmation)
 
         assertEquals(null, runtime.plan("查一下 Kotlin 协程"))

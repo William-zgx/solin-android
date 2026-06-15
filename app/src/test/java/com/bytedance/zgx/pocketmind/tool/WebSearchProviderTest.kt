@@ -13,6 +13,43 @@ import java.time.ZoneOffset
 
 class WebSearchProviderTest {
     @Test
+    fun freshnessInferenceRecognizesCurrentLanguageHints() {
+        listOf(
+            "最新 AI 模型",
+            "目前最强的手机芯片",
+            "当前 OpenAI model",
+            "现在热门应用",
+            "中国和美国最火热的 AI 模型",
+            "AI 模型排行",
+            "手机芯片榜单",
+            "latest AI model",
+            "current Android release",
+            "recent Kotlin changes",
+            "trending AI tools",
+            "hottest phones",
+            "2026 AI model ranking",
+        ).forEach { query ->
+            assertEquals(
+                query,
+                WebSearchFreshness.Current,
+                inferWebSearchFreshness(
+                    query = query,
+                    searchMode = WebSearchMode.General,
+                    currentYear = 2026,
+                ),
+            )
+        }
+        assertEquals(
+            WebSearchFreshness.AnyTime,
+            inferWebSearchFreshness(
+                query = "Kotlin coroutine dispatcher guide",
+                searchMode = WebSearchMode.General,
+                currentYear = 2026,
+            ),
+        )
+    }
+
+    @Test
     fun weatherSearchStripsChineseQuestionParticlesBeforeGeocoding() {
         MockWebServer().use { server ->
             server.enqueue(jsonResponse(beijingGeocodingJson()))
@@ -27,7 +64,7 @@ class WebSearchProviderTest {
                 ),
             )
 
-            require(result is WebSearchReadResult.Available)
+            require(result is WebSearchReadResult.Available) { result.toString() }
             assertEquals("open_meteo", result.source)
             assertTrue(result.summaryText.contains("北京"))
             assertEquals(WebSearchMode.WeatherCurrent, result.searchMode)
@@ -51,13 +88,16 @@ class WebSearchProviderTest {
     fun generalWeatherWordingDoesNotRouteToOpenMeteo() {
         MockWebServer().use { server ->
             server.enqueue(
-                jsonResponse(
+                htmlResponse(
                     """
-                    {
-                      "AbstractText": "北京天气相关搜索摘要",
-                      "AbstractURL": "https://example.com/weather",
-                      "Heading": "北京天气"
-                    }
+                    <html>
+                      <body>
+                        <div class="result">
+                          <h2><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fweather">北京天气</a></h2>
+                          <a class="result__snippet">北京天气相关搜索摘要</a>
+                        </div>
+                      </body>
+                    </html>
                     """.trimIndent(),
                 ),
             )
@@ -67,13 +107,209 @@ class WebSearchProviderTest {
             val result = provider.search("北京今天下雨了吗？")
 
             require(result is WebSearchReadResult.Available)
-            assertEquals("duckduckgo", result.source)
+            assertEquals("duckduckgo_html", result.source)
             assertEquals(WebSearchMode.General, result.searchMode)
             val json = JSONObject(result.resultsJson)
             assertEquals("general", json.getString("searchMode"))
-            assertEquals("any_time", json.getString("freshness"))
-            assertEquals("duckduckgo", json.getJSONArray("results").getJSONObject(0).getString("sourceId"))
+            assertEquals("current", json.getString("freshness"))
+            assertEquals("duckduckgo_html", json.getJSONArray("results").getJSONObject(0).getString("sourceId"))
+            assertTrue(server.takeRequest().target.startsWith("/html?"))
+        }
+    }
+
+    @Test
+    fun generalSearchWithLatestKeywordInfersCurrentAndEnhancesDuckDuckGoPageQuery() {
+        MockWebServer().use { server ->
+            server.enqueue(
+                htmlResponse(
+                    """
+                    <html>
+                      <body>
+                        <div class="result">
+                          <h2><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Flatest-ai">Latest AI model release</a></h2>
+                          <a class="result__snippet">A current roundup of AI model releases.</a>
+                        </div>
+                      </body>
+                    </html>
+                    """.trimIndent(),
+                ),
+            )
+            server.start()
+            val provider = provider(server)
+
+            val result = provider.search("OpenAI latest model release")
+
+            require(result is WebSearchReadResult.Available)
+            assertEquals("duckduckgo_html", result.source)
+            assertEquals(WebSearchFreshness.Current, result.freshness)
+            val json = JSONObject(result.resultsJson)
+            assertEquals("OpenAI latest model release", json.getString("query"))
+            assertEquals("OpenAI latest model release 2026", json.getString("submittedQuery"))
+            assertEquals("current", json.getString("freshness"))
+            val request = server.takeRequest()
+            assertTrue(request.target.startsWith("/html?"))
+            assertEquals("OpenAI latest model release 2026", request.url.queryParameter("q"))
+        }
+    }
+
+    @Test
+    fun generalSearchSubmitsOptimizedKeywordsInsteadOfNaturalLanguageQuestion() {
+        MockWebServer().use { server ->
+            server.enqueue(
+                htmlResponse(
+                    """
+                    <html>
+                      <body>
+                        <div class="result">
+                          <h2><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fhot-ai-models">Hot AI models</a></h2>
+                          <a class="result__snippet">A current roundup of popular AI models in China and the US.</a>
+                        </div>
+                      </body>
+                    </html>
+                    """.trimIndent(),
+                ),
+            )
+            server.start()
+            val provider = provider(server)
+
+            val originalQuery = "目前中国和美国最新最火热的AI模型分别是什么"
+            val result = provider.search(originalQuery)
+
+            require(result is WebSearchReadResult.Available)
+            assertEquals(WebSearchFreshness.Current, result.freshness)
+            val json = JSONObject(result.resultsJson)
+            assertEquals(originalQuery, json.getString("query"))
+            assertEquals("中国和美国最新最火热 AI 模型 2026", json.getString("submittedQuery"))
+            val request = server.takeRequest()
+            assertEquals("中国和美国最新最火热 AI 模型 2026", request.url.queryParameter("q"))
+        }
+    }
+
+    @Test
+    fun generalSearchWithCurrentYearKeepsSemanticDuckDuckGoPageQuery() {
+        MockWebServer().use { server ->
+            server.enqueue(
+                htmlResponse(
+                    """
+                    <html>
+                      <body>
+                        <div class="result">
+                          <h2><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fai-ranking">AI model ranking 2026</a></h2>
+                          <a class="result__snippet">A fresh ranking of AI models.</a>
+                        </div>
+                      </body>
+                    </html>
+                    """.trimIndent(),
+                ),
+            )
+            server.start()
+            val provider = provider(server)
+
+            val result = provider.search("2026 AI model ranking")
+
+            require(result is WebSearchReadResult.Available)
+            assertEquals(WebSearchFreshness.Current, result.freshness)
+            val json = JSONObject(result.resultsJson)
+            assertEquals("2026 AI model ranking", json.optString("submittedQuery", json.getString("query")))
+            assertEquals("current", json.getString("freshness"))
+            val request = server.takeRequest()
+            assertTrue(request.target.startsWith("/html?"))
+            assertEquals("2026 AI model ranking", request.url.queryParameter("q"))
+        }
+    }
+
+    @Test
+    fun generalSearchFallsBackToDuckDuckGoHtmlWhenInstantAnswerHasNoEvidence() {
+        MockWebServer().use { server ->
+            server.enqueue(jsonResponse("""{}"""))
+            server.enqueue(
+                htmlResponse(
+                    """
+                    <html>
+                      <body>
+                        <div class="result">
+                          <h2><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fcoroutines">Kotlin coroutine guide</a></h2>
+                          <a class="result__snippet">A practical guide to coroutine dispatchers.</a>
+                        </div>
+                      </body>
+                    </html>
+                    """.trimIndent(),
+                ),
+            )
+            server.start()
+            val provider = provider(server)
+
+            val result = provider.search("Kotlin coroutine dispatcher guide")
+
+            require(result is WebSearchReadResult.Available)
+            assertEquals("duckduckgo_html", result.source)
+            assertTrue(result.summaryText.contains("Kotlin coroutine guide"))
+            val json = JSONObject(result.resultsJson)
+            val firstResult = json.getJSONArray("results").getJSONObject(0)
+            assertEquals("web_result", firstResult.getString("kind"))
+            assertEquals("duckduckgo_html", firstResult.getString("sourceId"))
+            assertEquals("https://example.com/coroutines", firstResult.getString("url"))
             assertTrue(server.takeRequest().target.startsWith("/instant?"))
+            assertTrue(server.takeRequest().target.startsWith("/html?"))
+        }
+    }
+
+    @Test
+    fun generalSearchWithoutInstantOrHtmlEvidenceFailsClosed() {
+        MockWebServer().use { server ->
+            server.enqueue(jsonResponse("""{}"""))
+            server.enqueue(htmlResponse("""<html><body>No results</body></html>"""))
+            server.enqueue(htmlResponse("""<html><body>No lite results</body></html>"""))
+            server.start()
+            val provider = provider(server)
+
+            val result = provider.search("Kotlin coroutine dispatcher guide")
+
+            require(result is WebSearchReadResult.Failed)
+            assertTrue(result.reason.contains("没有找到可直接引用的搜索证据"))
+            assertTrue(server.takeRequest().target.startsWith("/instant?"))
+            assertTrue(server.takeRequest().target.startsWith("/html?"))
+            assertTrue(server.takeRequest().target.startsWith("/lite?"))
+        }
+    }
+
+    @Test
+    fun generalSearchFallsBackFromHtmlPageToLitePage() {
+        MockWebServer().use { server ->
+            server.enqueue(jsonResponse("""{}"""))
+            server.enqueue(htmlResponse("""<html><body>No html results</body></html>"""))
+            server.enqueue(
+                htmlResponse(
+                    """
+                    <html>
+                      <body>
+                        <table>
+                          <tr>
+                            <td>
+                              <a class="result-link" href="/l/?uddg=https%3A%2F%2Fexample.com%2Flite-ai">Lite AI result</a>
+                              <span class="result-snippet">Lite search result snippet.</span>
+                            </td>
+                          </tr>
+                        </table>
+                      </body>
+                    </html>
+                    """.trimIndent(),
+                ),
+            )
+            server.start()
+            val provider = provider(server)
+
+            val result = provider.search("Kotlin coroutine dispatcher guide")
+
+            require(result is WebSearchReadResult.Available)
+            assertEquals("duckduckgo_lite", result.source)
+            assertTrue(result.summaryText.contains("Lite search result snippet"))
+            val firstResult = JSONObject(result.resultsJson).getJSONArray("results").getJSONObject(0)
+            assertEquals("duckduckgo_lite", firstResult.getString("sourceId"))
+            assertEquals("https://example.com/lite-ai", firstResult.getString("url"))
+            assertTrue(server.takeRequest().target.startsWith("/instant?"))
+            assertTrue(server.takeRequest().target.startsWith("/html?"))
+            assertTrue(server.takeRequest().target.startsWith("/lite?"))
         }
     }
 
@@ -170,13 +406,16 @@ class WebSearchProviderTest {
     fun hotSearchQueryDoesNotRouteToWeatherBySingleHotCharacter() {
         MockWebServer().use { server ->
             server.enqueue(
-                jsonResponse(
+                htmlResponse(
                     """
-                    {
-                      "AbstractText": "今日热点摘要",
-                      "AbstractURL": "https://example.com/hot",
-                      "Heading": "热搜"
-                    }
+                    <html>
+                      <body>
+                        <div class="result">
+                          <h2><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fhot">今日热搜</a></h2>
+                          <a class="result__snippet">今日热点摘要</a>
+                        </div>
+                      </body>
+                    </html>
                     """.trimIndent(),
                 ),
             )
@@ -191,10 +430,11 @@ class WebSearchProviderTest {
             )
 
             require(result is WebSearchReadResult.Available)
-            assertEquals("duckduckgo", result.source)
+            assertEquals("duckduckgo_html", result.source)
             assertEquals(1, result.maxResults)
+            assertEquals(WebSearchFreshness.Current, result.freshness)
             assertEquals(1, JSONObject(result.resultsJson).getInt("maxResults"))
-            assertTrue(server.takeRequest().target.startsWith("/instant?"))
+            assertTrue(server.takeRequest().target.startsWith("/html?"))
         }
     }
 
@@ -204,6 +444,8 @@ class WebSearchProviderTest {
             geocodingBaseUrl = server.url("/geo").toString(),
             forecastBaseUrl = server.url("/forecast").toString(),
             instantAnswerBaseUrl = server.url("/instant").toString(),
+            htmlSearchBaseUrl = server.url("/html").toString(),
+            liteSearchBaseUrl = server.url("/lite").toString(),
             clock = Clock.fixed(fixedInstant, ZoneOffset.UTC),
         )
 
@@ -211,6 +453,13 @@ class WebSearchProviderTest {
         MockResponse.Builder()
             .code(200)
             .addHeader("Content-Type", "application/json")
+            .body(body)
+            .build()
+
+    private fun htmlResponse(body: String): MockResponse =
+        MockResponse.Builder()
+            .code(200)
+            .addHeader("Content-Type", "text/html; charset=utf-8")
             .body(body)
             .build()
 

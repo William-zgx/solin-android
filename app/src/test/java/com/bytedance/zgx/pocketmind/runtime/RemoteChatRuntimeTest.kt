@@ -94,7 +94,11 @@ class RemoteChatRuntimeTest {
         assertTrue(function.getString("description").isNotBlank())
         assertTrue(function.getString("description").contains("多主体比较"))
         assertTrue(function.getString("description").contains("独立 web_search 工具调用"))
-        assertEquals("object", function.getJSONObject("parameters").getString("type"))
+        val parameters = function.getJSONObject("parameters")
+        assertEquals("object", parameters.getString("type"))
+        val querySchema = parameters.getJSONObject("properties").getJSONObject("query")
+        assertTrue(querySchema.getString("description").contains("模型理解后的搜索关键词"))
+        assertTrue(querySchema.getString("description").contains("不要直接复制用户原文"))
         assertEquals("auto", body.getString("tool_choice"))
     }
 

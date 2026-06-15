@@ -661,6 +661,7 @@ private val querySchemaJson = """
       "properties": {
         "query": {
           "type": "string",
+          "description": "搜索关键词，不要直接复制用户原文；保留实体、主题、限定词，去掉“请帮我/是什么/有哪些”等寒暄和疑问词。",
           "minLength": 1
         },
         "searchMode": {
@@ -679,6 +680,7 @@ private val webSearchInputSchemaJson = """
       "properties": {
         "query": {
           "type": "string",
+          "description": "模型理解后的搜索关键词，不要直接复制用户原文；保留实体、主题、限定词和必要时效词，去掉“请帮我/是什么/有哪些”等寒暄和疑问词；比较或多主体问题优先拆成多次独立 web_search。",
           "minLength": 1
         },
         "searchMode": {
@@ -687,6 +689,7 @@ private val webSearchInputSchemaJson = """
         },
         "freshness": {
           "type": "string",
+          "description": "搜索时效。查询含最新/目前/当前/现在/今日/热门/排行/latest/current/recent/trending/hottest 或当前年份等当前性语义时应使用 current；缺省时宿主也会按 query 推断。",
           "enum": ["any_time", "current"]
         },
         "maxResults": {
@@ -710,7 +713,7 @@ private val webSearchOutputSchemaJson = """
         "query": {"type": "string", "minLength": 1},
         "source": {
           "type": "string",
-          "enum": ["open_meteo", "duckduckgo"]
+          "enum": ["open_meteo", "duckduckgo", "duckduckgo_html", "duckduckgo_lite"]
         },
         "searchMode": {
           "type": "string",
@@ -1491,7 +1494,7 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
         spec = ToolSpec(
             name = MobileActionFunctions.WEB_SEARCH,
             title = "Web 搜索",
-            description = "执行只读网络信息查询并返回摘要和结构化结果，不打开浏览器；多主体比较、差值、汇总或交叉核验问题可对每个主体发起独立 web_search 工具调用，由宿主并发执行公开只读批次后再综合；疑似个人信息或密钥查询需要用户确认后才联网。",
+            description = "执行只读网络信息查询并返回摘要和结构化结果，不打开浏览器；query 必须是模型理解后的搜索关键词，不要直接复制用户原文；查询含最新/目前/当前/现在/今日/热门/排行/latest/current/recent/trending/hottest 或当前年份等当前性语义时以 freshness=current 执行；多主体比较、差值、汇总或交叉核验问题可对每个主体发起独立 web_search 工具调用，由宿主并发执行公开只读批次后再综合；疑似个人信息或密钥查询需要用户确认后才联网。",
             inputSchemaJson = webSearchInputSchemaJson,
             outputSchemaJson = webSearchOutputSchemaJson,
             capability = ToolCapability.WebSearch,

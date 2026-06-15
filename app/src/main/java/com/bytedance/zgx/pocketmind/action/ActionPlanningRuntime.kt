@@ -152,7 +152,7 @@ internal fun actionPrompt(input: String): String =
     - open_wifi_settings {}
     - open_usage_access_settings {} 仅用于打开系统“使用情况访问权限”设置页
     - search_maps {"query":"..."}
-    - web_search {"query":"..."}
+    - web_search {"query":"..."} query 必须是理解后的搜索关键词，不要直接复制用户原文；保留实体、主题、限定词和必要时效词
     - compose_email {"body":"..."}
     - create_calendar_event {"title":"..."}
     - create_contact_draft {"name":"..."}

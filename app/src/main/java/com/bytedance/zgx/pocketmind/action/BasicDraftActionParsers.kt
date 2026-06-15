@@ -206,6 +206,13 @@ internal object WebSearchActionParser {
         Regex("""^\s*(what\s+is|what\s+does|explain|how\s+do\s+i|how\s+to)\b""", RegexOption.IGNORE_CASE)
     private val negativeEnglishPattern =
         Regex("""\b(do\s+not|don't|dont)\s+(?:search|look\s+up|google|bing)\b""", RegexOption.IGNORE_CASE)
+    private val cjkAsciiBoundaryPattern =
+        Regex("""(?<=[\u4E00-\u9FFF])(?=[A-Za-z0-9])|(?<=[A-Za-z0-9])(?=[\u4E00-\u9FFF])""")
+    private val searchQueryPunctuationPattern = Regex("""[，。！？、；;:：,.?()（）\[\]{}"'“”]+""")
+    private val chineseSearchQuestionNoisePattern =
+        Regex("""(搜索一下|搜一下|查一下|看一下|帮我看看|帮我查查|帮我|帮忙|麻烦|请问|请|给我|告诉我|你能不能|能不能|你能|可以|分别是什么|是什么|有哪些|怎么样|如何|多少|一下|分别|吗|呢)""")
+    private val englishSearchQuestionNoisePattern =
+        Regex("""(?i)\b(?:please|can\s+you|could\s+you|search\s+for|search|look\s+up|google|bing|tell\s+me|what\s+is|what\s+are|what's|which|who\s+is)\b""")
 
     fun matches(input: String): Boolean {
         if (input.looksLikeWebSearchNonAction()) return false
@@ -248,7 +255,8 @@ internal object WebSearchActionParser {
 
     private fun cleanedWebSearchQuery(input: String): String {
         val stripped = strippedWebSearchQuery(input)
-        return stripped.ifBlank { cleanedObject(input) }
+        val keywordQuery = stripped.keywordizedWebSearchQuery()
+        return keywordQuery.ifBlank { cleanedObject(input) }
     }
 
     private fun strippedWebSearchQuery(input: String): String {
@@ -283,6 +291,14 @@ internal object WebSearchActionParser {
             .replace(Regex("""(?i)\b(?:in|for|today|now|currently)\b"""), " ")
             .replace(Regex("""(天气|气温|温度|降雨|下雨|预报|怎么样|如何|多少|现在|今天|查询|查一下|搜一下|帮我|请|一下)"""), " ")
             .replace(Regex("""[，。！？、:：?]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+
+    private fun String.keywordizedWebSearchQuery(): String =
+        replace(cjkAsciiBoundaryPattern, " ")
+            .replace(searchQueryPunctuationPattern, " ")
+            .replace(englishSearchQuestionNoisePattern, " ")
+            .replace(chineseSearchQuestionNoisePattern, " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
 

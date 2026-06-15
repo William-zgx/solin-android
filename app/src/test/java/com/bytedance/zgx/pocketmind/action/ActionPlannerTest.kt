@@ -98,6 +98,15 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun actionPromptRequiresKeywordQueryForWebSearch() {
+        val prompt = actionPrompt("目前中国和美国最新最火热的AI模型分别是什么")
+
+        assertTrue(prompt.contains("""web_search {"query":"..."}"""))
+        assertTrue(prompt.contains("query 必须是理解后的搜索关键词"))
+        assertTrue(prompt.contains("不要直接复制用户原文"))
+    }
+
+    @Test
     fun parsesCalendarAvailabilityCallOutput() {
         val draft = planner.parseModelOutput(
             """call:query_calendar_availability{"start":"2026-06-01T09:00:00Z","end":"2026-06-01T10:00:00Z"}""",
@@ -441,8 +450,13 @@ class ActionPlannerTest {
         val weatherPlan = planner.plan("北京天气怎么样")
         assertEquals(ActionPlanKind.Draft, weatherPlan.kind)
         assertEquals(MobileActionFunctions.WEB_SEARCH, weatherPlan.draft?.functionName)
-        assertEquals("北京天气怎么样", weatherPlan.draft?.parameters?.get("query"))
+        assertEquals("北京天气", weatherPlan.draft?.parameters?.get("query"))
         assertEquals(false, weatherPlan.draft?.requiresConfirmation)
+
+        val wrappedPlan = planner.plan("你能帮我搜一下 Kotlin 吗？")
+        assertEquals(ActionPlanKind.Draft, wrappedPlan.kind)
+        assertEquals(MobileActionFunctions.WEB_SEARCH, wrappedPlan.draft?.functionName)
+        assertEquals("Kotlin", wrappedPlan.draft?.parameters?.get("query"))
 
         assertEquals(ActionPlanKind.NoAction, planner.plan("网页搜索是什么").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("天气是什么").kind)

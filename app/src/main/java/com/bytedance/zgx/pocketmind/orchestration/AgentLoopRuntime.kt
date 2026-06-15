@@ -52,6 +52,7 @@ import com.bytedance.zgx.pocketmind.tool.isUnverifiedExternalLaunch
 import com.bytedance.zgx.pocketmind.tool.rejected
 import com.bytedance.zgx.pocketmind.tool.UNVERIFIED_EXTERNAL_LAUNCH_SUMMARY_PREFIX
 import com.bytedance.zgx.pocketmind.tool.unverifiedExternalLaunchSummary
+import org.json.JSONArray
 import org.json.JSONObject
 
 private const val REDACTED_AGENT_RUN_INPUT_VALUE = "[redacted]"
@@ -790,13 +791,14 @@ class AgentLoopRuntime(
         }
         val failedPair = gapPairs.firstOrNull()
         val aggregatePair = cancelledPair ?: failedPair
+        val publicEvidenceSummary = successfulPairs.publicEvidenceBatchAuditSummary()
         val assistantMessage = when {
             cancelledPair != null -> "工具批量执行已取消：${cancelledPair.second.summary}"
             failedPair != null && successfulPairs.isNotEmpty() ->
-                "工具批量执行部分失败：已获得 ${successfulPairs.size}/${observedPairs.size} 个公开只读工具结果；失败缺口：${failedPair.second.summary}"
+                "工具批量执行部分失败：已获得 ${successfulPairs.size}/${observedPairs.size} 个公开只读工具结果；$publicEvidenceSummary；失败缺口：${failedPair.second.summary}"
 
             failedPair != null -> "工具批量执行失败：${failedPair.second.summary}"
-            else -> "工具执行结果：已完成 ${observedPairs.size} 个公开只读工具调用。"
+            else -> "工具执行结果：已完成 ${observedPairs.size} 个公开只读工具调用；$publicEvidenceSummary。"
         }
         val aggregateStatus = when {
             cancelledPair != null -> ToolStatus.Cancelled
@@ -2246,6 +2248,9 @@ class AgentLoopRuntime(
         }
         return """
             请根据以下公开只读工具结果回答用户原始问题。不要只回答最后一次工具结果；如果用户要求比较、计算、总结或判断，请综合所有可用证据完成对应推理。
+            只以工具公开证据为依据，并以每条证据的 retrievedAt 或 resultsJson.retrievedAt 判断时效；同一事实存在多条证据时，以 retrievedAt 最新且最相关的证据为准。
+            涉及“最新”“目前”“当前”“今天”等时效性问题时，必须优先使用最新 retrievedAt 的工具证据；不得用模型训练知识、旧知识或未给出的网页内容补全空白。
+            最终答案必须列出使用的来源/链接（来自 sources、results.url 或 source 字段）；如果来源或证据不足，请明确说明证据不足。
             如果存在失败缺口，请先基于成功证据部分回答；无法完成的部分明确说明缺少什么信息，不要编造。
             如果工具结果仍不足以完成用户请求，可以继续调用公开只读工具补充证据；仍不足时请明确说明缺少什么信息，不要编造。
 
@@ -2309,6 +2314,104 @@ class AgentLoopRuntime(
                 "$key: ${value.boundedPromptValue()}"
             }
             .ifBlank { "无" }
+
+    private fun List<Pair<AgentPlan.UseTool, ToolResult>>.publicEvidenceBatchAuditSummary(): String {
+        val remotePairs = filter { (_, result) ->
+            result.status == ToolStatus.Succeeded && result.isPublicEvidenceForRemoteModel()
+        }
+        if (remotePairs.isEmpty()) return "证据摘要：无可公开摘要"
+        val queries = remotePairs
+            .mapNotNull { (plan, result) ->
+                result.data["query"]?.takeIf { it.isNotBlank() }
+                    ?: plan.request.arguments["query"]?.takeIf { it.isNotBlank() }
+            }
+            .distinct()
+            .take(3)
+            .joinToString(separator = "、") { query -> "「${query.compactAuditValue(80)}」" }
+        val sourceLabels = remotePairs
+            .flatMap { (_, result) -> result.publicEvidenceSourceLabels() }
+            .distinct()
+        val keyItems = remotePairs
+            .flatMap { (_, result) -> result.publicEvidenceKeyItems() }
+            .distinct()
+            .take(3)
+            .joinToString(separator = "；") { item -> item.compactAuditValue(120) }
+        val parts = buildList {
+            if (queries.isNotBlank()) add("查询：$queries")
+            if (sourceLabels.isNotEmpty()) add("来源 ${sourceLabels.size} 个")
+            if (keyItems.isNotBlank()) add("关键项：$keyItems")
+        }
+        return if (parts.isEmpty()) {
+            "证据摘要：无可公开摘要"
+        } else {
+            parts.joinToString(separator = "；", prefix = "证据摘要：")
+        }
+    }
+
+    private fun ToolResult.publicEvidenceSourceLabels(): List<String> {
+        val json = publicEvidenceResultsJsonObject()
+        val sourceLabels = json?.optJSONArray("sources")
+            ?.objects()
+            ?.mapNotNull { source ->
+                firstNonBlank(
+                    source.optString("name").trim(),
+                    source.optString("url").trim(),
+                    source.optString("id").trim(),
+                )
+            }
+            .orEmpty()
+        if (sourceLabels.isNotEmpty()) return sourceLabels
+        return listOfNotNull(
+            data["source"]?.takeIf { it.isNotBlank() },
+            json?.optString("provider")?.trim()?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun ToolResult.publicEvidenceKeyItems(): List<String> {
+        val json = publicEvidenceResultsJsonObject()
+        val resultItems = json?.optJSONArray("results")
+            ?.objects()
+            ?.mapNotNull { result ->
+                val title = result.optString("title").trim()
+                val url = result.optString("url").trim()
+                val requestedLocation = result.optString("requestedLocation").trim()
+                val location = result.optString("location").trim()
+                when {
+                    title.isNotBlank() && url.isNotBlank() -> "$title $url"
+                    url.isNotBlank() -> url
+                    title.isNotBlank() -> title
+                    requestedLocation.isNotBlank() -> requestedLocation
+                    location.isNotBlank() -> location
+                    else -> null
+                }
+            }
+            .orEmpty()
+        val sourceLinks = json?.optJSONArray("sources")
+            ?.objects()
+            ?.mapNotNull { source -> source.optString("url").trim().takeIf { it.isNotBlank() } }
+            .orEmpty()
+        val fallbackSummary = data["summaryText"]
+            ?.takeIf { it.isNotBlank() }
+            ?: summary.takeIf { it.isNotBlank() }
+        return (resultItems + sourceLinks).ifEmpty {
+            listOfNotNull(fallbackSummary)
+        }
+    }
+
+    private fun ToolResult.publicEvidenceResultsJsonObject(): JSONObject? =
+        data["resultsJson"]?.let { rawJson ->
+            runCatching { JSONObject(rawJson) }.getOrNull()
+        }
+
+    private fun JSONArray.objects(): List<JSONObject> =
+        buildList {
+            for (index in 0 until length()) {
+                optJSONObject(index)?.let(::add)
+            }
+        }
+
+    private fun firstNonBlank(vararg values: String): String? =
+        values.firstOrNull { value -> value.isNotBlank() }
 
     private fun List<PublicEvidencePromptBlock>.renderPublicEvidenceBlocks(): String =
         if (isEmpty()) {
@@ -2903,6 +3006,11 @@ private fun AgentPlan.UseTool.nextExecutionState(): AgentRunState =
 
 private fun String.boundedPromptValue(maxLength: Int = 2_000): String =
     if (length <= maxLength) this else take(maxLength).trimEnd() + "..."
+
+private val auditWhitespaceRegex = Regex("\\s+")
+
+private fun String.compactAuditValue(maxLength: Int): String =
+    trim().replace(auditWhitespaceRegex, " ").boundedPromptValue(maxLength)
 
 private val evidencePriorityComparator: Comparator<EvidenceCard> =
     compareBy<EvidenceCard> { it.sourceType.priorityForPromptBudget() }

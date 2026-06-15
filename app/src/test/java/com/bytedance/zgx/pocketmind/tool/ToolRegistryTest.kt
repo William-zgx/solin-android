@@ -66,6 +66,8 @@ class ToolRegistryTest {
         assertEquals(ConfirmationPolicy.NotRequired, webSearchSpec.confirmationPolicy)
         assertEquals(ToolResultContinuationPolicy.PublicEvidence, webSearchSpec.resultContinuationPolicy)
         assertTrue(webSearchSpec.inputSchemaJson.contains("query"))
+        assertTrue(webSearchSpec.inputSchemaJson.contains("模型理解后的搜索关键词"))
+        assertTrue(webSearchSpec.description.contains("不要直接复制用户原文"))
         assertTrue(webSearchSpec.inputSchemaJson.contains("weather_current"))
         assertTrue(webSearchSpec.inputSchemaJson.contains("maxResults"))
         assertTrue(webSearchSpec.inputSchemaJson.contains("freshness"))
@@ -1013,6 +1015,39 @@ class ToolRegistryTest {
         assertFalse(wrongOutputType.retryable)
         assertTrue(wrongOutputType.summary.contains("truncated"))
         assertTrue(wrongOutputType.summary.contains("true or false"))
+    }
+
+    @Test
+    fun validateResultAcceptsFreeDuckDuckGoPageSearchSources() {
+        val request = ToolRequest(
+            id = "web-search-output-contract",
+            toolName = MobileActionFunctions.WEB_SEARCH,
+            reason = "schema contract",
+        )
+
+        listOf("duckduckgo_html", "duckduckgo_lite").forEach { source ->
+            val validated = registry.validateResult(
+                request = request,
+                result = request.succeeded(
+                    summary = "web search",
+                    data = mapOf(
+                        "toolName" to MobileActionFunctions.WEB_SEARCH,
+                        "privacy" to MessagePrivacy.RemoteEligible.name,
+                        "requiresLocalModel" to "false",
+                        "query" to "AI model ranking",
+                        "source" to source,
+                        "searchMode" to "general",
+                        "retrievedAt" to "2026-06-13T12:00:00Z",
+                        "freshness" to "any_time",
+                        "maxResults" to "3",
+                        "summaryText" to "AI model ranking: current roundup",
+                        "resultsJson" to """{"kind":"web_search_evidence","results":[{"url":"https://example.com"}]}""",
+                    ),
+                ),
+            )
+
+            assertNull(validated)
+        }
     }
 
     @Test

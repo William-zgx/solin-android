@@ -149,7 +149,10 @@ class WebSearchToolExecutor(
         val freshnessArgument = request.arguments["freshness"]
         val freshness = WebSearchFreshness.fromSchemaValue(freshnessArgument)
             ?: if (freshnessArgument.isNullOrBlank()) {
-                searchMode.defaultFreshness
+                inferWebSearchFreshness(
+                    query = query,
+                    searchMode = searchMode,
+                )
             } else {
                 return request.failed(
                     code = ToolErrorCode.InvalidRequest,

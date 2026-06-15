@@ -737,12 +737,15 @@ class RoutingAndValidatingToolExecutorTest {
         val executor = ValidatingToolExecutor(
             routingExecutor(
                 delegate = delegate,
-                webSearchProvider = StaticWebSearchProvider { query, _ ->
+                webSearchProvider = StaticWebSearchProvider { request ->
                     WebSearchReadResult.Available(
-                        query = query,
+                        query = request.query,
                         source = "open_meteo",
                         summaryText = "北京 当前天气：晴，气温 24℃。",
                         resultsJson = """{"kind":"weather","provider":"Open-Meteo"}""",
+                        searchMode = request.searchMode,
+                        freshness = request.freshness,
+                        maxResults = request.maxResults,
                     )
                 },
             ),
@@ -763,6 +766,44 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals("open_meteo", result.data["source"])
         assertTrue(result.data["summaryText"].orEmpty().contains("北京 当前天气"))
         assertFalse(result.data.containsKey("completionState"))
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
+    fun routingExecutorInfersCurrentFreshnessForTemporalWebSearchQuery() {
+        val delegate = RecordingDelegate()
+        var capturedRequest: WebSearchRequest? = null
+        val executor = ValidatingToolExecutor(
+            routingExecutor(
+                delegate = delegate,
+                webSearchProvider = StaticWebSearchProvider { request ->
+                    capturedRequest = request
+                    WebSearchReadResult.Available(
+                        query = request.query,
+                        source = "duckduckgo_html",
+                        summaryText = "OpenAI latest model summary",
+                        resultsJson = """{"kind":"web_search_evidence","freshness":"${request.freshness.schemaValue}"}""",
+                        searchMode = request.searchMode,
+                        freshness = request.freshness,
+                        maxResults = request.maxResults,
+                    )
+                },
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "web-search-current-freshness",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "OpenAI latest model"),
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Succeeded, result.status)
+        assertEquals(WebSearchFreshness.Current, capturedRequest?.freshness)
+        assertEquals("current", result.data["freshness"])
+        assertEquals("OpenAI latest model", result.data["query"])
         assertTrue(delegate.requests.isEmpty())
     }
 
@@ -906,17 +947,20 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     private class StaticWebSearchProvider(
-        private val resultForQuery: (String, String?) -> WebSearchReadResult = { query, _ ->
+        private val resultForRequest: (WebSearchRequest) -> WebSearchReadResult = { request ->
             WebSearchReadResult.Available(
-                query = query,
+                query = request.query,
                 source = "duckduckgo",
                 summaryText = "Kotlin search summary",
                 resultsJson = """{"kind":"instant_answer","results":[]}""",
+                searchMode = request.searchMode,
+                freshness = request.freshness,
+                maxResults = request.maxResults,
             )
         },
     ) : WebSearchProvider {
         override fun search(request: WebSearchRequest): WebSearchReadResult =
-            resultForQuery(request.query, request.searchMode.schemaValue)
+            resultForRequest(request)
     }
 
     private class StaticBackgroundTaskScheduler : BackgroundTaskScheduler {

@@ -413,6 +413,10 @@ class AgentLoopRuntimeTest {
         assertTrue(prompt.contains("已读取北京、上海当前天气"))
         assertTrue(prompt.contains("temperature_2m"))
         assertTrue(prompt.contains("可以继续调用公开只读工具补充证据"))
+        assertTrue(prompt.contains("以每条证据的 retrievedAt"))
+        assertTrue(prompt.contains("必须优先使用最新 retrievedAt 的工具证据"))
+        assertTrue(prompt.contains("不得用模型训练知识、旧知识或未给出的网页内容补全空白"))
+        assertTrue(prompt.contains("最终答案必须列出使用的来源/链接"))
     }
 
     @Test
@@ -730,12 +734,115 @@ class AgentLoopRuntimeTest {
         assertFalse(observed.decision.requiresLocalModel)
         assertFalse(observed.continuationRequiresLocalModel)
         assertEquals(2, observed.steps.filterIsInstance<AgentStep.ToolObserved>().size)
+        assertTrue(observed.assistantMessage.contains("证据摘要"))
+        assertTrue(observed.assistantMessage.contains("查询："))
+        assertTrue(observed.assistantMessage.contains("北京天气"))
+        assertTrue(observed.assistantMessage.contains("上海天气"))
+        assertTrue(observed.assistantMessage.contains("来源 1 个"))
         val prompt = observed.continuationPromptForModel.orEmpty()
         assertTrue(prompt.contains("北京和上海今天温差多少"))
         assertTrue(prompt.contains("已读取北京当前天气"))
         assertTrue(prompt.contains("已读取上海当前天气"))
         assertTrue(prompt.contains("temperature_2m"))
         assertTrue(prompt.contains("公开只读"))
+    }
+
+    @Test
+    fun publicEvidenceToolBatchAssistantMessageIncludesAuditSummaryWithoutLocalOnlyData() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "Kotlin 目前最新发布是什么？",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        val requests = listOf(
+            ToolRequest(
+                id = "call-kotlin",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "Kotlin latest release"),
+                reason = "remote tool call",
+            ),
+            ToolRequest(
+                id = "call-local-only",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "local-only should not leak"),
+                reason = "remote tool call",
+            ),
+        )
+        runtime.recordRemoteToolsExposed(
+            runId = result.run.id,
+            scope = RemoteToolScope.PublicEvidenceOnly,
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+        )
+        val planned = runtime.observeModelToolRequests(result.run.id, requests)
+        requireNotNull(planned)
+        require(planned.decision is AgentObservationDecision.PlanToolBatch)
+
+        val observed = runtime.observeToolResults(
+            runId = result.run.id,
+            results = listOf(
+                ToolResult(
+                    requestId = "call-kotlin",
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取 Kotlin 发布信息。",
+                    data = webSearchResultData(
+                        query = "Kotlin latest release",
+                        summaryText = "Kotlin releases page.",
+                        resultsJson = """
+                            {
+                              "kind": "web_search_evidence",
+                              "query": "Kotlin latest release",
+                              "retrievedAt": "2026-06-13T00:00:00Z",
+                              "sources": [
+                                {
+                                  "id": "duckduckgo_html",
+                                  "name": "DuckDuckGo HTML",
+                                  "url": "https://html.duckduckgo.com/html/"
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "kind": "web_result",
+                                  "sourceId": "duckduckgo_html",
+                                  "title": "Kotlin releases",
+                                  "url": "https://kotlinlang.org/docs/releases.html"
+                                }
+                              ]
+                            }
+                        """.trimIndent(),
+                    ),
+                ),
+                ToolResult(
+                    requestId = "call-local-only",
+                    status = ToolStatus.Succeeded,
+                    summary = "PRIVATE_LOCAL_SUMMARY",
+                    data = mapOf(
+                        "toolName" to MobileActionFunctions.WEB_SEARCH,
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                        "requiresLocalModel" to "true",
+                        "query" to "PRIVATE_LOCAL_QUERY",
+                        "secret" to "PRIVATE_LOCAL_DATA",
+                    ),
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.assistantMessage.contains("部分失败"))
+        assertTrue(observed.assistantMessage.contains("证据摘要"))
+        assertTrue(observed.assistantMessage.contains("Kotlin latest release"))
+        assertTrue(observed.assistantMessage.contains("来源 1 个"))
+        assertTrue(observed.assistantMessage.contains("Kotlin releases"))
+        assertTrue(observed.assistantMessage.contains("https://kotlinlang.org/docs/releases.html"))
+        assertFalse(observed.assistantMessage.contains("PRIVATE_LOCAL_SUMMARY"))
+        assertFalse(observed.assistantMessage.contains("PRIVATE_LOCAL_QUERY"))
+        assertFalse(observed.assistantMessage.contains("PRIVATE_LOCAL_DATA"))
     }
 
     @Test
@@ -1962,7 +2069,7 @@ class AgentLoopRuntimeTest {
     fun skillFirstWebSearchBypassesActionPlannerAndExecutesWithoutConfirmation() {
         val cases = listOf(
             "搜一下 Kotlin 协程" to "Kotlin 协程",
-            "北京天气怎么样" to "北京天气怎么样",
+            "北京天气怎么样" to "北京天气",
             "look up Kotlin coroutines" to "Kotlin coroutines",
         )
 
@@ -7650,6 +7757,7 @@ class AgentLoopRuntimeTest {
     private fun webSearchResultData(
         query: String = "Kotlin",
         summaryText: String = "Kotlin search summary",
+        retrievedAt: String = "2026-06-13T00:00:00Z",
         resultsJson: String = """{"kind":"instant_answer","provider":"DuckDuckGo","results":[]}""",
     ): Map<String, String> =
         mapOf(
@@ -7658,6 +7766,10 @@ class AgentLoopRuntimeTest {
             "requiresLocalModel" to "false",
             "query" to query,
             "source" to "duckduckgo",
+            "searchMode" to "general",
+            "retrievedAt" to retrievedAt,
+            "freshness" to "current",
+            "maxResults" to "3",
             "summaryText" to summaryText,
             "resultsJson" to resultsJson,
         )
