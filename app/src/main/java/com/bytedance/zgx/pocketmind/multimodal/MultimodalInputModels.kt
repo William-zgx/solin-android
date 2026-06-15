@@ -39,6 +39,9 @@ data class SharedInput(
                     safeTextPreview?.let { preview ->
                         append("\n   ${preview.source.label}")
                         if (preview.truncated) append("（已截断）")
+                        preview.quality.noticeForPrompt()?.let { notice ->
+                            append("（$notice）")
+                        }
                         append("：\n")
                         append(preview.text.lines().joinToString(separator = "\n") { line -> "   $line" })
                     } ?: attachment.unavailablePreviewNotice()?.let { notice ->
@@ -207,7 +210,61 @@ data class SharedTextPreview(
     val text: String,
     val truncated: Boolean,
     val source: SharedTextPreviewSource = SharedTextPreviewSource.TextFile,
+    val quality: MultimodalQuality = MultimodalQuality.fromText(text, truncated),
 )
+
+enum class MultimodalQualityLevel {
+    High,
+    Medium,
+    Low,
+}
+
+data class MultimodalQuality(
+    val level: MultimodalQualityLevel,
+    val reasons: List<String> = emptyList(),
+) {
+    init {
+        require(reasons.all { it.isNotBlank() }) { "Multimodal quality reasons must not be blank" }
+    }
+
+    fun noticeForPrompt(): String? =
+        when (level) {
+            MultimodalQualityLevel.Low -> "质量较低：${reasons.joinToString(separator = "/")}"
+            MultimodalQualityLevel.Medium -> reasons
+                .takeIf { it.isNotEmpty() }
+                ?.joinToString(separator = "/", prefix = "质量提示：")
+            MultimodalQualityLevel.High -> null
+        }
+
+    companion object {
+        fun fromText(text: String, truncated: Boolean): MultimodalQuality {
+            val normalized = text.trim()
+            val replacementCount = normalized.count { it == '\uFFFD' }
+            val punctuationLikeCount = normalized.count { char ->
+                !char.isLetterOrDigit() && !char.isWhitespace()
+            }
+            val visibleCount = normalized.count { !it.isWhitespace() }
+            val reasons = buildList {
+                if (normalized.length < LOW_TEXT_LENGTH_THRESHOLD) add("short_text")
+                if (replacementCount >= REPLACEMENT_CHAR_THRESHOLD) add("replacement_chars")
+                if (visibleCount > 0 && punctuationLikeCount.toFloat() / visibleCount > PUNCTUATION_DENSITY_THRESHOLD) {
+                    add("punctuation_dense")
+                }
+                if (truncated) add("truncated")
+            }
+            val level = when {
+                reasons.any { it != "truncated" } -> MultimodalQualityLevel.Low
+                truncated -> MultimodalQualityLevel.Medium
+                else -> MultimodalQualityLevel.High
+            }
+            return MultimodalQuality(level = level, reasons = reasons)
+        }
+
+        private const val LOW_TEXT_LENGTH_THRESHOLD = 12
+        private const val REPLACEMENT_CHAR_THRESHOLD = 2
+        private const val PUNCTUATION_DENSITY_THRESHOLD = 0.55f
+    }
+}
 
 enum class SharedTextPreviewSource(val label: String) {
     TextFile("文本摘录"),

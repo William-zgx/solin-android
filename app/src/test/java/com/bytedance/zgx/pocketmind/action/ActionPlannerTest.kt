@@ -10,6 +10,24 @@ class ActionPlannerTest {
     private val planner = MobileActionPlanner()
 
     @Test
+    fun intentCandidateRequiresMediumConfidenceBeforePlanning() {
+        assertFalse(
+            IntentCandidate(
+                toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                confidence = ActionIntentConfidence.Low,
+                reason = "ambiguous",
+            ).isAction,
+        )
+        assertTrue(
+            IntentCandidate(
+                toolName = null,
+                confidence = ActionIntentConfidence.Medium,
+                reason = "runtime classifier accepted",
+            ).isAction,
+        )
+    }
+
+    @Test
     fun parsesWhitelistedCallOutputIntoConfirmedDraft() {
         val draft = planner.parseModelOutput(
             """call:compose_email{"subject":"Hi","body":"明天聊"}""",
@@ -233,6 +251,18 @@ class ActionPlannerTest {
 
         assertEquals(ActionPlanKind.Draft, plan.kind)
         assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, plan.draft?.functionName)
+    }
+
+    @Test
+    fun classifiesIntentBeforeSlotFillingBoundary() {
+        val action = planner.classifyIntent("帮我打开 Wi-Fi 设置")
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, action.toolName)
+        assertEquals(ActionIntentConfidence.High, action.confidence)
+        assertTrue(action.reason.contains("rule"))
+
+        val chat = planner.classifyIntent("解释一下 Wi-Fi 设置 API 怎么实现")
+        assertFalse(chat.isAction)
+        assertEquals(ActionIntentConfidence.None, chat.confidence)
     }
 
     @Test

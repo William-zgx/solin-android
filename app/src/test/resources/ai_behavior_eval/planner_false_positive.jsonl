@@ -1,0 +1,2 @@
+{"category":"planner_false_positive","input":"解释一下 Wi-Fi 设置 API 怎么实现","expectedBoundary":"plain_chat_no_tool","ownerAgent":"Planner"}
+{"category":"planner_false_positive","input":"不要打开剪贴板，只说明权限风险","expectedBoundary":"plain_chat_no_tool","ownerAgent":"Planner"}

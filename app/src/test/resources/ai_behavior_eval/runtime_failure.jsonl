@@ -1,0 +1,2 @@
+{"category":"runtime_failure","input":"模型重复输出同一短句","expectedBoundary":"quality_guard_stop","ownerAgent":"Runtime"}
+{"category":"runtime_failure","input":"GPU 初始化失败后继续生成","expectedBoundary":"cpu_fallback_conservative_budget","ownerAgent":"Runtime"}

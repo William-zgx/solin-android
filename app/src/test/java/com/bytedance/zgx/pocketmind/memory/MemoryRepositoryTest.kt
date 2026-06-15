@@ -21,6 +21,11 @@ class MemoryRepositoryTest {
 
         assertEquals(1, hits.size)
         assertEquals("travel", hits.first().id)
+        assertEquals(MemoryRecordType.Conversation, hits.first().recordType)
+        assertEquals(hits.first().score, hits.first().lexicalScore ?: 0f, 0.001f)
+        assertNull(hits.first().semanticScore)
+        assertEquals(hits.first().score, hits.first().finalScore, 0.001f)
+        assertTrue(hits.first().rankingReason.contains("lexical"))
     }
 
     @Test
@@ -264,6 +269,10 @@ class MemoryRepositoryTest {
         val semanticHits = repository.search("compressed responses")
         assertEquals(listOf("pref"), semanticHits.map { it.id })
         assertEquals(MemoryRecallMode.Semantic, semanticHits.first().recallMode)
+        assertEquals(MemoryRecordType.Preference, semanticHits.first().recordType)
+        assertNull(semanticHits.first().lexicalScore)
+        assertEquals(semanticHits.first().score, semanticHits.first().semanticScore ?: 0f, 0.001f)
+        assertTrue(semanticHits.first().rankingReason.contains("semantic"))
 
         repository.useMemoryModel(null)
 
@@ -271,6 +280,28 @@ class MemoryRepositoryTest {
         assertEquals(SemanticMemoryRuntimeStatus.NoVerifiedModel, repository.semanticMemoryRuntimeStatus)
         assertNull(repository.activeMemoryModelPath)
         assertTrue(repository.search("compressed responses").isEmpty())
+    }
+
+    @Test
+    fun activeSemanticRuntimeCombinesLexicalAndSemanticScoresForSameRecord() {
+        val repository = MemoryRepository(
+            semanticRuntimeFactory = { path ->
+                check(path == "/verified/memory.litertlm")
+                ConceptEmbeddingRuntime()
+            },
+        )
+        repository.indexPreference("pref", "I prefer concise answers")
+        repository.useMemoryModel("/verified/memory.litertlm")
+
+        val hits = repository.search("concise compressed responses")
+
+        assertEquals(listOf("pref"), hits.map { it.id })
+        assertEquals(MemoryRecordType.Preference, hits.first().recordType)
+        assertTrue((hits.first().lexicalScore ?: 0f) > 0f)
+        assertEquals(1f, hits.first().semanticScore ?: 0f, 0.001f)
+        assertEquals(1f, hits.first().finalScore, 0.001f)
+        assertTrue(hits.first().rankingReason.contains("lexical"))
+        assertTrue(hits.first().rankingReason.contains("semantic"))
     }
 
     @Test

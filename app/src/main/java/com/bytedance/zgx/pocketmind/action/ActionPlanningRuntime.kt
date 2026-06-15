@@ -12,6 +12,21 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.runBlocking
 
 interface ActionPlanningRuntime {
+    fun classifyIntent(input: String): IntentCandidate =
+        if (isLikelyAction(input)) {
+            IntentCandidate(
+                toolName = null,
+                confidence = ActionIntentConfidence.High,
+                reason = "runtime likely action",
+            )
+        } else {
+            IntentCandidate(
+                toolName = null,
+                confidence = ActionIntentConfidence.None,
+                reason = "runtime rejected action intent",
+            )
+        }
+
     fun isLikelyAction(input: String): Boolean
     fun plan(input: String, actionModelPath: String?): ActionPlanningResult
     fun parseModelToolOutput(output: String): ModelToolOutputParseResult = ModelToolOutputParseResult.None
@@ -38,8 +53,11 @@ class HybridActionPlanningRuntime(
 ) : ActionPlanningRuntime, AutoCloseable {
     private val modelPlanner = ModelBackedActionPlanner(cacheDir, rulePlanner)
 
+    override fun classifyIntent(input: String): IntentCandidate =
+        rulePlanner.classifyIntent(input)
+
     override fun isLikelyAction(input: String): Boolean =
-        rulePlanner.isLikelyAction(input)
+        classifyIntent(input).isAction
 
     override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
         if (actionModelPath != null) {

@@ -80,6 +80,32 @@ class SharedInputTest {
     }
 
     @Test
+    fun textPreviewCarriesQualitySignalIntoPrompt() {
+        val input = SharedInput(
+            text = "请看摘录",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "text/plain",
+                    displayName = "noisy.txt",
+                    sizeBytes = 120L,
+                    textPreview = SharedTextPreview(
+                        text = "???",
+                        truncated = false,
+                    ),
+                ),
+            ),
+        )
+
+        val preview = requireNotNull(input.attachments.single().textPreview)
+        val prompt = input.toPrompt()
+
+        assertEquals(MultimodalQualityLevel.Low, preview.quality.level)
+        assertTrue(preview.quality.reasons.contains("short_text"))
+        assertTrue(prompt.contains("质量较低"))
+    }
+
+    @Test
     fun promptIncludesOcrPreviewForImageAttachment() {
         val input = SharedInput(
             text = "请总结图片",

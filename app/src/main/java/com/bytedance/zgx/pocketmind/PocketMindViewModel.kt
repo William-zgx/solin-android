@@ -39,6 +39,11 @@ import com.bytedance.zgx.pocketmind.device.DeviceContextToolReadiness
 import com.bytedance.zgx.pocketmind.device.DeviceContextToolReadinessState
 import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
+import com.bytedance.zgx.pocketmind.evidence.EvidenceCard
+import com.bytedance.zgx.pocketmind.evidence.EvidenceQuality
+import com.bytedance.zgx.pocketmind.evidence.EvidenceQualityLevel
+import com.bytedance.zgx.pocketmind.evidence.EvidenceSourceType
+import com.bytedance.zgx.pocketmind.evidence.toEvidenceReceiptSummary
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
 import com.bytedance.zgx.pocketmind.memory.MemoryRecallMode
@@ -78,6 +83,8 @@ import com.bytedance.zgx.pocketmind.runtime.GenerationQualityDecision
 import com.bytedance.zgx.pocketmind.runtime.GenerationQualityIssue
 import com.bytedance.zgx.pocketmind.runtime.GenerationQualityReport
 import com.bytedance.zgx.pocketmind.runtime.GenerationRuntimeKind
+import com.bytedance.zgx.pocketmind.runtime.AdaptiveGenerationPolicy
+import com.bytedance.zgx.pocketmind.runtime.AdaptiveGenerationPolicyInput
 import com.bytedance.zgx.pocketmind.runtime.LocalModelRequest
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.ModelOutputQualityGuard
@@ -4387,16 +4394,26 @@ class PocketMindViewModel(
         imageAttachments: List<LocalImageAttachment> = emptyList(),
         onChunk: (String) -> Unit,
     ) {
+        val policyDecision = AdaptiveGenerationPolicy.decide(
+            AdaptiveGenerationPolicyInput(
+                preferredBackend = _uiState.value.backend,
+                lastGenerationStats = _uiState.value.lastGenerationStatsForAdaptivePolicy(),
+                qualityIssue = _uiState.value.lastOutputQualityIssueForAdaptivePolicy(),
+                requestedImageCount = imageAttachments.size,
+            ),
+        )
+        val effectiveImageAttachments = imageAttachments.take(policyDecision.maxImages)
         runtimeLock.withLock {
             runtime.recreateConversationForSend(
                 history = history,
                 prompt = promptForModel,
                 parameters = parameters,
+                maxInputTokens = policyDecision.maxInputTokens,
             )
             runtime.send(
                 LocalModelRequest(
                     prompt = promptForModel,
-                    imageAttachments = imageAttachments,
+                    imageAttachments = effectiveImageAttachments,
                 ),
             ).collect { chunk ->
                 onChunk(chunk)
@@ -5063,6 +5080,11 @@ class PocketMindViewModel(
             deviceContextIncluded = json.optBoolean("deviceContextIncluded"),
             imageAttachmentCount = json.optInt("imageAttachmentCount"),
             protectedSourceCount = json.optInt("protectedSourceCount"),
+            evidenceCardCount = json.optInt("evidenceCardCount"),
+            localOnlyEvidenceCardCount = json.optInt("localOnlyEvidenceCardCount"),
+            truncatedEvidenceCardCount = json.optInt("truncatedEvidenceCardCount"),
+            lowQualityEvidenceCardCount = json.optInt("lowQualityEvidenceCardCount"),
+            evidenceSourceTypes = json.optJSONArray("evidenceSourceTypes").toStringList(),
             rawContentPersisted = json.optBoolean("rawContentPersisted"),
             protectedContentTypes = json.optJSONArray("protectedContentTypes").toStringList(),
             deletableRecordTypes = json.optJSONArray("deletableRecordTypes").toStringList(),
@@ -5649,6 +5671,27 @@ private fun RunDataReceipt.withOutputQualityDecision(decision: GenerationQuality
     )
 }
 
+private fun ChatUiState.lastGenerationStatsForAdaptivePolicy(): GenerationStats? =
+    messages
+        .asReversed()
+        .firstNotNullOfOrNull { message -> message.generationStats?.takeIf { it.isUsable() } }
+        ?: modelHealth.takeIf { health ->
+            health.tokenCount != null && health.tokensPerSecond != null
+        }?.let { health ->
+            GenerationStats(
+                tokenCount = health.tokenCount ?: 0,
+                tokensPerSecond = health.tokensPerSecond ?: 0.0,
+                backend = health.backend ?: backend,
+                loadMs = health.loadMs,
+                firstTokenMs = health.firstTokenMs,
+                usedFallbackBackend = health.fallbackBackend != null,
+            )
+        }
+
+private fun ChatUiState.lastOutputQualityIssueForAdaptivePolicy(): GenerationQualityIssue? =
+    modelHealth.lastOutputQualityIssue
+        ?.let { value -> runCatching { GenerationQualityIssue.valueOf(value) }.getOrNull() }
+
 private fun RemoteModelConfig.hasSameConnectivityTarget(other: RemoteModelConfig): Boolean {
     val left = normalized()
     val right = other.normalized()
@@ -5706,6 +5749,48 @@ private fun AssistantRoute.runDataReceipt(
     val deviceContextIncluded = !isRemote && deviceContext != null
     val semanticMemoryHitCount = memoryHits.count { hit -> hit.recallMode == MemoryRecallMode.Semantic }
     val lexicalMemoryHitCount = memoryHits.count { hit -> hit.recallMode == MemoryRecallMode.Lexical }
+    val evidenceReceiptSummary = buildList<EvidenceCard> {
+        if (memoryContextIncluded) {
+            memoryHits.forEach { hit ->
+                add(
+                    EvidenceCard(
+                        id = "memory:${hit.id}",
+                        sourceType = EvidenceSourceType.Memory,
+                        privacy = MessagePrivacy.LocalOnly,
+                        requiresLocalModel = true,
+                        text = hit.text,
+                        quality = EvidenceQuality(EvidenceQualityLevel.High),
+                    ),
+                )
+            }
+        }
+        if (deviceContextIncluded) {
+            add(
+                EvidenceCard(
+                    id = "device-context",
+                    sourceType = EvidenceSourceType.DeviceContext,
+                    privacy = MessagePrivacy.LocalOnly,
+                    requiresLocalModel = true,
+                    text = "",
+                    quality = EvidenceQuality(EvidenceQualityLevel.Unknown),
+                ),
+            )
+        }
+        if (isRemote && imageAttachmentCount > 0) {
+            repeat(imageAttachmentCount) { index ->
+                add(
+                    EvidenceCard(
+                        id = "remote-image:$index",
+                        sourceType = EvidenceSourceType.ImageAttachment,
+                        privacy = MessagePrivacy.RemoteEligible,
+                        requiresLocalModel = false,
+                        text = "",
+                        quality = EvidenceQuality(EvidenceQualityLevel.Unknown),
+                    ),
+                )
+            }
+        }
+    }.toEvidenceReceiptSummary()
     return RunDataReceipt(
         destination = destination,
         currentPromptPrivacy = currentPromptPrivacy.name,
@@ -5718,6 +5803,11 @@ private fun AssistantRoute.runDataReceipt(
         deviceContextIncluded = deviceContextIncluded,
         imageAttachmentCount = if (isRemote) imageAttachmentCount else 0,
         protectedSourceCount = protectedSourceCount,
+        evidenceCardCount = evidenceReceiptSummary.evidenceCardCount,
+        localOnlyEvidenceCardCount = evidenceReceiptSummary.localOnlyEvidenceCardCount,
+        truncatedEvidenceCardCount = evidenceReceiptSummary.truncatedEvidenceCardCount,
+        lowQualityEvidenceCardCount = evidenceReceiptSummary.lowQualityEvidenceCardCount,
+        evidenceSourceTypes = evidenceReceiptSummary.sourceTypes.map { it.name },
         rawContentPersisted = false,
         protectedContentTypes = buildList {
             if (isRemote) {

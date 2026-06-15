@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
@@ -12,8 +13,13 @@ import com.bytedance.zgx.pocketmind.audit.ToolAuditEvent
 import com.bytedance.zgx.pocketmind.audit.ToolAuditEventType
 import com.bytedance.zgx.pocketmind.audit.ToolAuditSink
 import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
+import com.bytedance.zgx.pocketmind.evidence.EvidenceCard
+import com.bytedance.zgx.pocketmind.evidence.EvidenceQuality
+import com.bytedance.zgx.pocketmind.evidence.EvidenceQualityLevel
+import com.bytedance.zgx.pocketmind.evidence.EvidenceSourceType
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
+import com.bytedance.zgx.pocketmind.runtime.estimateLocalRuntimeTokens
 import com.bytedance.zgx.pocketmind.safety.SafetyContext
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
@@ -55,6 +61,12 @@ private const val OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON =
     "Agent run observation decision budget exceeded."
 private const val PENDING_EXTERNAL_OUTCOME_RESTORE_RUN_LIMIT = 20
 private const val TOOL_OBSERVATION_AUDIT_SUMMARY = "Tool observation recorded."
+private val ANSWER_CONTEXT_TOKEN_BUDGET =
+    LocalModelTokenLimits.MAX_INPUT_TOKENS -
+        LocalModelTokenLimits.SYSTEM_PROMPT_TOKEN_RESERVE -
+        LocalModelTokenLimits.CURRENT_PROMPT_TOKEN_RESERVE
+private const val ANSWER_PROMPT_SCAFFOLD_TOKEN_RESERVE = 256
+private const val MIN_TRUNCATED_EVIDENCE_TOKENS = 96
 
 class AgentLoopRuntime(
     private val memoryIndex: MemoryIndex,
@@ -1633,7 +1645,8 @@ class AgentLoopRuntime(
                 return buildInitialToolPlanFromSkill(skillPlan)
             }
         }
-        if (!actionPlanningRuntime.isLikelyAction(input)) return null
+        val intent = actionPlanningRuntime.classifyIntent(input)
+        if (!intent.isAction || !intent.confidence.isActionableForAgentPlan()) return null
         val result = actionPlanningRuntime.plan(input, actionModelPath)
         val draft = result.plan.draft
         if (result.plan.kind != ActionPlanKind.Draft || draft == null) return null
@@ -1760,23 +1773,106 @@ class AgentLoopRuntime(
         deviceContext: DeviceContextSnapshot?,
     ): String {
         if (memoryHits.isEmpty() && deviceContext == null) return input
-        val context = runCatching { memoryIndex.buildContext(memoryHits) }.getOrDefault("")
-        val memoryBlock = if (context.isBlank()) {
+        val evidenceCards = budgetEvidenceCards(
+            cards = evidenceCardsForAnswerContext(memoryHits, deviceContext),
+            input = input,
+        )
+        val memoryBlock = evidenceCards
+            .filter { card -> card.sourceType == EvidenceSourceType.Memory }
+            .joinToString(separator = "\n") { card -> card.toPromptLine() }
+            .ifBlank {
+                runCatching { memoryIndex.buildContext(memoryHits) }.getOrDefault("")
+            }
+        val safeMemoryBlock = if (memoryBlock.isBlank()) {
             "无"
         } else {
-            context
+            memoryBlock
         }
-        val deviceBlock = deviceContext?.toPromptContext() ?: "无"
+        val deviceBlock = evidenceCards
+            .firstOrNull { card -> card.sourceType == EvidenceSourceType.DeviceContext }
+            ?.toPromptLine(prefix = "")
+            ?: "无"
         return """
             请根据用户当前输入的语言回答。只有在以下本地记忆或设备上下文与当前问题明显相关时才使用；如果无关，请忽略，不要复述无关隐私内容。
+            以下上下文已按相关性、隐私边界和端侧 token 预算裁剪；被标记为截断的内容只能作为弱证据。
             本地记忆：
-            $memoryBlock
+            $safeMemoryBlock
 
             设备上下文：
             $deviceBlock
 
             用户问题：$input
         """.trimIndent()
+    }
+
+    private fun evidenceCardsForAnswerContext(
+        memoryHits: List<MemoryHit>,
+        deviceContext: DeviceContextSnapshot?,
+    ): List<EvidenceCard> =
+        buildList {
+            memoryHits.forEach { hit ->
+                add(
+                    EvidenceCard(
+                        id = "memory:${hit.id}",
+                        sourceType = EvidenceSourceType.Memory,
+                        privacy = MessagePrivacy.LocalOnly,
+                        requiresLocalModel = true,
+                        text = hit.text,
+                        quality = EvidenceQuality(hit.memoryEvidenceQualityLevel()),
+                        tokenEstimate = estimateLocalRuntimeTokens(hit.text),
+                    ),
+                )
+            }
+            val deviceText = deviceContext?.toPromptContext()?.takeIf { it.isNotBlank() }
+            if (deviceText != null) {
+                add(
+                    EvidenceCard(
+                        id = "device-context",
+                        sourceType = EvidenceSourceType.DeviceContext,
+                        privacy = MessagePrivacy.LocalOnly,
+                        requiresLocalModel = true,
+                        text = deviceText,
+                        quality = EvidenceQuality(EvidenceQualityLevel.Medium),
+                        tokenEstimate = estimateLocalRuntimeTokens(deviceText),
+                    ),
+                )
+            }
+        }
+
+    private fun budgetEvidenceCards(
+        cards: List<EvidenceCard>,
+        input: String,
+    ): List<EvidenceCard> {
+        if (cards.isEmpty()) return emptyList()
+        var remainingTokens = (
+            ANSWER_CONTEXT_TOKEN_BUDGET -
+                estimateLocalRuntimeTokens(input) -
+                ANSWER_PROMPT_SCAFFOLD_TOKEN_RESERVE
+            ).coerceAtLeast(0)
+        if (remainingTokens <= 0) return emptyList()
+        val selected = mutableListOf<EvidenceCard>()
+        cards.sortedWith(evidencePriorityComparator).forEach { card ->
+            val cost = card.tokenEstimate.coerceAtLeast(estimateLocalRuntimeTokens(card.text))
+            when {
+                cost <= remainingTokens -> {
+                    selected += card
+                    remainingTokens -= cost
+                }
+                remainingTokens >= MIN_TRUNCATED_EVIDENCE_TOKENS -> {
+                    val truncatedText = card.text.takeFirstEstimatedTokens(remainingTokens)
+                    if (truncatedText.isNotBlank()) {
+                        selected += card.copy(
+                            text = truncatedText,
+                            truncated = true,
+                            tokenEstimate = estimateLocalRuntimeTokens(truncatedText),
+                        )
+                        remainingTokens = 0
+                    }
+                }
+            }
+            if (remainingTokens <= 0) return@forEach
+        }
+        return selected.sortedWith(evidenceRenderComparator)
     }
 
     private fun messageForObservation(
@@ -1799,7 +1895,7 @@ class AgentLoopRuntime(
             ToolStatus.Failed -> if (retryAttempt > 0) {
                 "工具执行失败，正在重试（第 $retryAttempt 次）：${result.summary}"
             } else {
-                "工具执行失败：${result.summary}"
+                "工具执行失败：${result.summary}\n${result.recoveryGuidanceForFailure()}"
             }
             ToolStatus.Rejected -> "工具请求已拒绝：${result.summary}"
             ToolStatus.Cancelled -> "工具执行已取消：${result.summary}"
@@ -1824,7 +1920,7 @@ class AgentLoopRuntime(
             result.status == ToolStatus.Failed && retryAttempt > 0 ->
                 "工具执行失败，正在重试（第 $retryAttempt 次），错误详情已隐藏。"
             result.status == ToolStatus.Failed ->
-                "工具执行失败，错误详情已隐藏。"
+                "工具执行失败，错误详情已隐藏。${result.traceRecoveryGuidanceForFailure()}"
             result.status == ToolStatus.Rejected ->
                 "工具请求已拒绝，详情已隐藏。"
             result.status == ToolStatus.Cancelled ->
@@ -1904,6 +2000,35 @@ class AgentLoopRuntime(
                 "如需撤销该提醒，请再次确认执行 ${request.toolName}，taskId=${request.arguments["taskId"]}。"
 
             else -> null
+        }
+
+    private fun ToolResult.recoveryGuidanceForFailure(): String =
+        when (error?.code) {
+            ToolErrorCode.PermissionDenied ->
+                "下一步：请授权所需权限后重试，或改用不需要该权限的请求。"
+            ToolErrorCode.MissingArgument, ToolErrorCode.InvalidRequest, ToolErrorCode.InvalidResult ->
+                "下一步：请补充或改正必要信息后重试。"
+            ToolErrorCode.UnknownTool, ToolErrorCode.NoActivityFound ->
+                "下一步：请确认相关系统能力可用后重试，或换一种方式完成。"
+            ToolErrorCode.UserCancelled ->
+                "下一步：操作已取消；需要继续时请重新发起。"
+            ToolErrorCode.ExecutionFailed, null ->
+                if (retryable) {
+                    "下一步：自动重试次数已用尽；请稍后重试，或简化请求后再试。"
+                } else {
+                    "下一步：请调整请求后重试，或改用手动方式完成。"
+                }
+        }
+
+    private fun ToolResult.traceRecoveryGuidanceForFailure(): String =
+        when (error?.code) {
+            ToolErrorCode.PermissionDenied -> " 下一步：授权后重试。"
+            ToolErrorCode.MissingArgument, ToolErrorCode.InvalidRequest, ToolErrorCode.InvalidResult ->
+                " 下一步：补充必要信息后重试。"
+            ToolErrorCode.UnknownTool, ToolErrorCode.NoActivityFound ->
+                " 下一步：确认系统能力可用后重试。"
+            ToolErrorCode.UserCancelled -> " 下一步：需要继续时重新发起。"
+            ToolErrorCode.ExecutionFailed, null -> " 下一步：调整请求或稍后重试。"
         }
 
     private fun ToolResult.auditSummaryForObservation(request: ToolRequest): String {
@@ -2778,3 +2903,69 @@ private fun AgentPlan.UseTool.nextExecutionState(): AgentRunState =
 
 private fun String.boundedPromptValue(maxLength: Int = 2_000): String =
     if (length <= maxLength) this else take(maxLength).trimEnd() + "..."
+
+private val evidencePriorityComparator: Comparator<EvidenceCard> =
+    compareBy<EvidenceCard> { it.sourceType.priorityForPromptBudget() }
+        .thenByDescending { it.quality.level.priorityForPromptBudget() }
+
+private val evidenceRenderComparator: Comparator<EvidenceCard> =
+    compareBy { it.sourceType.priorityForPromptRender() }
+
+private fun EvidenceSourceType.priorityForPromptBudget(): Int =
+    when (this) {
+        EvidenceSourceType.Memory -> 0
+        EvidenceSourceType.DeviceContext -> 1
+        EvidenceSourceType.UserPrompt -> 2
+        EvidenceSourceType.ToolResult,
+        EvidenceSourceType.OcrText,
+        EvidenceSourceType.FilePreview,
+        EvidenceSourceType.ImageAttachment,
+        EvidenceSourceType.PublicWeb,
+        EvidenceSourceType.ProtectedSource -> 3
+    }
+
+private fun EvidenceSourceType.priorityForPromptRender(): Int =
+    when (this) {
+        EvidenceSourceType.Memory -> 0
+        EvidenceSourceType.DeviceContext -> 1
+        else -> 2
+    }
+
+private fun EvidenceQualityLevel.priorityForPromptBudget(): Int =
+    when (this) {
+        EvidenceQualityLevel.High -> 3
+        EvidenceQualityLevel.Medium -> 2
+        EvidenceQualityLevel.Unknown -> 1
+        EvidenceQualityLevel.Low -> 0
+    }
+
+private fun MemoryHit.memoryEvidenceQualityLevel(): EvidenceQualityLevel =
+    when {
+        finalScore >= 0.70f -> EvidenceQualityLevel.High
+        finalScore >= 0.25f -> EvidenceQualityLevel.Medium
+        else -> EvidenceQualityLevel.Low
+    }
+
+private fun EvidenceCard.toPromptLine(prefix: String = "- "): String {
+    val quality = when (this.quality.level) {
+        EvidenceQualityLevel.High -> "高"
+        EvidenceQualityLevel.Medium -> "中"
+        EvidenceQualityLevel.Low -> "低"
+        EvidenceQualityLevel.Unknown -> "未知"
+    }
+    val truncatedLabel = if (truncated) "，已截断" else ""
+    return "$prefix[证据=${sourceType.name}，质量=$quality$truncatedLabel] $text"
+}
+
+private fun String.takeFirstEstimatedTokens(maxTokens: Int): String {
+    if (maxTokens <= 0) return ""
+    var usedTokens = 0
+    val builder = StringBuilder()
+    for (char in this) {
+        val cost = 1
+        if (usedTokens + cost > maxTokens) break
+        builder.append(char)
+        usedTokens += cost
+    }
+    return builder.toString().trimEnd()
+}

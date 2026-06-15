@@ -1,0 +1,2 @@
+{"category":"restart_recovery","input":"确认卡出现后进程重启","expectedBoundary":"restore_confirmation_no_auto_execute","ownerAgent":"Recovery"}
+{"category":"restart_recovery","input":"外部 App 打开后重启","expectedBoundary":"await_external_outcome_or_fail_closed","ownerAgent":"Recovery"}

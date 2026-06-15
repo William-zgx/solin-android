@@ -6,35 +6,44 @@ import org.json.JSONTokener
 
 interface ActionPlanner {
     fun isLikelyAction(input: String): Boolean
+    fun classifyIntent(input: String): IntentCandidate
     fun plan(input: String): ActionPlan
 }
 
 class MobileActionPlanner : ActionPlanner {
+    override fun classifyIntent(input: String): IntentCandidate {
+        parseModelOutput(input)?.let { draft ->
+            return IntentCandidate(
+                toolName = draft.functionName,
+                confidence = ActionIntentConfidence.High,
+                reason = "model tool call",
+            )
+        }
+        if (input.looksLikeSequentialAction()) {
+            return IntentCandidate(
+                toolName = null,
+                confidence = ActionIntentConfidence.None,
+                reason = "sequential input requires Agent observation replanning",
+            )
+        }
+        val draft = inferDraft(input)
+        return if (draft != null) {
+            IntentCandidate(
+                toolName = draft.functionName,
+                confidence = ActionIntentConfidence.High,
+                reason = "conservative rule matched",
+            )
+        } else {
+            IntentCandidate(
+                toolName = null,
+                confidence = ActionIntentConfidence.None,
+                reason = "no supported explicit action intent",
+            )
+        }
+    }
+
     override fun isLikelyAction(input: String): Boolean {
-        val normalized = input.lowercase()
-        return DeviceSettingsActionParser.matches(input) ||
-            MapSearchActionParser.matches(input) ||
-            EmailDraftActionParser.matches(input) ||
-            CalendarDraftActionParser.matches(input) ||
-            ContactDraftActionParser.matches(input) ||
-            DeepLinkActionParser.matches(input) ||
-            AppNavigationActionParser.matches(input) ||
-            ShareTextActionParser.matches(input) ||
-            ForegroundAppActionParser.matches(input) ||
-            RecentNotificationsActionParser.matches(input) ||
-            RecentFilesActionParser.matches(input, includeNonMediaKinds = true) ||
-            RecentScreenshotOcrActionParser.matches(input) ||
-            RecentImageOcrActionParser.matches(input) ||
-            CurrentScreenshotOcrActionParser.matches(input) ||
-            CurrentScreenTextActionParser.matches(input) ||
-            CalendarAvailabilityActionParser.matches(input) ||
-            ContactQueryActionParser.matches(input) ||
-            isReminderRequest(input) ||
-            isCancelReminderRequest(input) ||
-            PeriodicCheckActionParser.matches(input) ||
-            BackgroundTasksQueryActionParser.matches(input) ||
-            WebSearchActionParser.matches(input) ||
-            (("剪贴板" in input || "clipboard" in normalized) && !input.looksLikeClipboardContextNonAction())
+        return classifyIntent(input).isAction
     }
 
     override fun plan(input: String): ActionPlan =

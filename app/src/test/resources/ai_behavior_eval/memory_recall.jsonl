@@ -1,0 +1,2 @@
+{"category":"memory_recall","input":"我喜欢简洁回答，以后也这样","expectedBoundary":"local_memory_only","ownerAgent":"Memory"}
+{"category":"memory_recall","input":"下次用中文回答我","expectedBoundary":"preference_recall","ownerAgent":"Memory"}

@@ -2745,6 +2745,40 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun localGenerationUsesAdaptiveInputBudgetAfterSlowFallbackStats() = runTest(dispatcher) {
+        val sessionStore = FakeSessionStore(
+            initialSessions = mapOf(
+                "session-1" to listOf(
+                    ChatMessage(
+                        role = MessageRole.Assistant,
+                        text = "上一轮回复",
+                        generationStats = GenerationStats(
+                            tokenCount = 8,
+                            tokensPerSecond = 1.0,
+                            backend = BackendChoice.CPU,
+                            firstTokenMs = 6_000,
+                            usedFallbackBackend = true,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val localRuntime = FakeLiteRtRuntime(localResponse = "本地回复")
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            runtime = localRuntime,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通问题")
+        advanceUntilIdle()
+
+        assertEquals(listOf(4 * 1024), localRuntime.preparedForSendMaxInputTokens)
+    }
+
+    @Test
     fun loadModelFallsBackToCpuWhenGpuInitializationFails() = runTest(dispatcher) {
         val generationStore = FakeGenerationParametersStore().apply {
             saveBackend(BackendChoice.GPU)
@@ -7949,6 +7983,7 @@ class PocketMindViewModelTest {
         val localRequests = mutableListOf<LocalModelRequest>()
         val recreatedHistories = mutableListOf<List<ChatMessage>>()
         val preparedForSendPrompts = mutableListOf<String>()
+        val preparedForSendMaxInputTokens = mutableListOf<Int?>()
         val loadCalls = mutableListOf<BackendChoice>()
         var stopCallCount: Int = 0
             private set
@@ -7985,8 +8020,10 @@ class PocketMindViewModelTest {
             history: List<ChatMessage>,
             prompt: String,
             parameters: GenerationParameters,
+            maxInputTokens: Int?,
         ) {
             preparedForSendPrompts += prompt
+            preparedForSendMaxInputTokens += maxInputTokens
             recreateConversation(history, parameters)
         }
 

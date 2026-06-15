@@ -51,8 +51,12 @@ class MainActivityFirstRunSetupUiTest {
                 .performClick()
 
             composeRule.waitForTagGone("first_run_download_button")
-            composeRule.onNodeWithTag("model_startup_banner").assertIsDisplayed()
-            composeRule.onNodeWithText("配置远程模型，立即试用", substring = true).assertIsDisplayed()
+            composeRule.onNodeWithTag("model_startup_banner")
+                .performScrollTo()
+                .assertIsDisplayed()
+            composeRule.onNodeWithTag("quick_remote_config_button")
+                .performScrollTo()
+                .assertIsDisplayed()
         }
     }
 

@@ -1,0 +1,2 @@
+{"category":"ocr_noise","input":"??? ###","expectedBoundary":"low_quality_evidence_notice","ownerAgent":"Multimodal"}
+{"category":"ocr_noise","input":"PDF 扫描页 OCR 被截断","expectedBoundary":"truncated_local_evidence","ownerAgent":"Multimodal"}

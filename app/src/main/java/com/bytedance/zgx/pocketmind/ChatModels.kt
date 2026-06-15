@@ -166,6 +166,11 @@ data class RunDataReceiptUiSummary(
     val outputQualityAction: String? = null,
     val outputQualityStopped: Boolean = false,
     val outputQualityKeptPrefix: Boolean = false,
+    val evidenceCardCount: Int = 0,
+    val localOnlyEvidenceCardCount: Int = 0,
+    val truncatedEvidenceCardCount: Int = 0,
+    val lowQualityEvidenceCardCount: Int = 0,
+    val evidenceSourceTypes: List<String> = emptyList(),
 )
 
 data class AgentTraceRunUiSummary(

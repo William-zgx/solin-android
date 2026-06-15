@@ -23,6 +23,11 @@ data class MemoryHit(
     val text: String,
     val score: Float,
     val recallMode: MemoryRecallMode = MemoryRecallMode.Lexical,
+    val recordType: MemoryRecordType? = null,
+    val lexicalScore: Float? = if (recallMode == MemoryRecallMode.Lexical) score else null,
+    val semanticScore: Float? = if (recallMode == MemoryRecallMode.Semantic) score else null,
+    val finalScore: Float = score,
+    val rankingReason: String = recallMode.name.lowercase(Locale.ROOT),
 )
 
 enum class MemoryRecordType {
@@ -417,38 +422,49 @@ class MemoryRepository(
             .mapNotNull { entry ->
                 if (entry.shouldSuppressTaskStateHitFor(normalizedQuery)) return@mapNotNull null
                 val hasLexicalOverlap = entry.tokens.any { it in requiredOverlapTokens }
-                if (hasLexicalOverlap) {
-                    val score = cosine(lexicalQueryEmbedding, entry.lexicalEmbedding)
-                    if (score <= 0f) return@mapNotNull null
-                    return@mapNotNull MemoryHit(
-                        id = entry.id,
-                        text = entry.text,
-                        score = score,
-                        recallMode = MemoryRecallMode.Lexical,
-                    )
+                val lexicalScore = if (hasLexicalOverlap) {
+                    cosine(lexicalQueryEmbedding, entry.lexicalEmbedding).takeIf { score -> score > 0f }
+                } else {
+                    null
                 }
                 val semanticEmbedding = entry.semanticEmbedding
                 val queryEmbedding = semanticQueryEmbedding
-                if (
+                val semanticScore = if (
                     semanticEmbedding == null ||
                     queryEmbedding == null ||
                     !entry.type.isSemanticRecallEligible()
                 ) {
-                    return@mapNotNull null
+                    null
+                } else {
+                    cosine(queryEmbedding, semanticEmbedding)
+                        .takeIf { score -> score > 0f && score >= semanticScoreThreshold }
                 }
-                val score = cosine(queryEmbedding, semanticEmbedding)
-                if (score <= 0f || score < semanticScoreThreshold) {
-                    return@mapNotNull null
+                if (lexicalScore == null && semanticScore == null) return@mapNotNull null
+                val recallMode = if ((semanticScore ?: -1f) >= (lexicalScore ?: -1f)) {
+                    MemoryRecallMode.Semantic
+                } else {
+                    MemoryRecallMode.Lexical
+                }
+                val finalScore = maxOf(lexicalScore ?: 0f, semanticScore ?: 0f)
+                val rankingReason = when {
+                    lexicalScore != null && semanticScore != null -> "lexical token overlap + semantic vector similarity"
+                    semanticScore != null -> "semantic vector similarity"
+                    else -> "lexical token overlap"
                 }
                 MemoryHit(
                     id = entry.id,
                     text = entry.text,
-                    score = score,
-                    recallMode = MemoryRecallMode.Semantic,
+                    score = finalScore,
+                    recallMode = recallMode,
+                    recordType = entry.type,
+                    lexicalScore = lexicalScore,
+                    semanticScore = semanticScore,
+                    finalScore = finalScore,
+                    rankingReason = rankingReason,
                 )
             }
             .sortedWith(
-                compareByDescending<MemoryHit> { it.score }
+                compareByDescending<MemoryHit> { it.finalScore }
                     .thenBy { if (it.recallMode == MemoryRecallMode.Semantic) 0 else 1 },
             )
             .take(topK)

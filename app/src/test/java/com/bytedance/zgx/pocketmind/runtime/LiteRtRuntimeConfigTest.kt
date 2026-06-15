@@ -61,6 +61,32 @@ class LiteRtRuntimeConfigTest {
     }
 
     @Test
+    fun localHistoryBudgetCanUseAdaptiveInputBudget() {
+        val adaptiveInputBudget = 3 * 1024
+        val expectedBudget =
+            adaptiveInputBudget -
+                LocalModelTokenLimits.SYSTEM_PROMPT_TOKEN_RESERVE -
+                LocalModelTokenLimits.CURRENT_PROMPT_TOKEN_RESERVE
+        val longHistory = listOf(
+            ChatMessage(MessageRole.User, "旧".repeat(LocalModelTokenLimits.MAX_TOTAL_TOKENS)),
+            ChatMessage(MessageRole.Assistant, "最近的回答"),
+            ChatMessage(MessageRole.User, "最近的问题"),
+        )
+
+        val budgeted = budgetLocalRuntimeHistory(
+            messages = longHistory,
+            currentPrompt = "你好",
+            maxInputTokens = adaptiveInputBudget,
+        )
+
+        assertTrue(budgeted.isNotEmpty())
+        assertEquals("最近的问题", budgeted.last().text)
+        assertTrue(
+            budgeted.sumOf { estimateLocalRuntimeTokens(it.text) } <= expectedBudget,
+        )
+    }
+
+    @Test
     fun tokenLimitDisplayShowsInputBudgetAndOutputReserve() {
         assertEquals("总窗口 8k tokens", LocalModelTokenLimits.totalDisplayText())
         assertEquals("输入预算 6k tokens", LocalModelTokenLimits.inputDisplayText())

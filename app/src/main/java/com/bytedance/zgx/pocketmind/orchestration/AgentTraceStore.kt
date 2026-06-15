@@ -1269,7 +1269,7 @@ private fun AgentStep.traceSummary(): String =
             "Data receipt ${receipt.destination.name}: remoteHistory=${receipt.remoteHistoryCount}, " +
                 "memoryHitCount=${receipt.memoryHitCount}, semantic=${receipt.semanticMemoryHitCount}, " +
                 "lexical=${receipt.lexicalMemoryHitCount}, images=${receipt.imageAttachmentCount}, " +
-                "qualityGuard=${receipt.outputQualityGuardTriggered}."
+                "evidence=${receipt.evidenceCardCount}, qualityGuard=${receipt.outputQualityGuardTriggered}."
         is AgentStep.ModelOutputQualityGuardTriggered ->
             "Model output guard stopped ${trace.runtimeKind} generation: ${trace.issue} via ${trace.triggeredRule}."
         is AgentStep.ToolRequested -> "Requested tool ${request.toolName}."
@@ -1338,6 +1338,11 @@ private fun AgentStep.traceJson(type: String): JSONObject {
             .put("deviceContextIncluded", receipt.deviceContextIncluded)
             .put("imageAttachmentCount", receipt.imageAttachmentCount)
             .put("protectedSourceCount", receipt.protectedSourceCount)
+            .put("evidenceCardCount", receipt.evidenceCardCount)
+            .put("localOnlyEvidenceCardCount", receipt.localOnlyEvidenceCardCount)
+            .put("truncatedEvidenceCardCount", receipt.truncatedEvidenceCardCount)
+            .put("lowQualityEvidenceCardCount", receipt.lowQualityEvidenceCardCount)
+            .put("evidenceSourceTypes", receipt.evidenceSourceTypes.toJsonArray())
             .put("rawContentPersisted", receipt.rawContentPersisted)
             .put("protectedContentTypes", receipt.protectedContentTypes.toJsonArray())
             .put("deletableRecordTypes", receipt.deletableRecordTypes.toJsonArray())

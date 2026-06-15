@@ -1,0 +1,2 @@
+{"category":"tool_sequence","input":"先搜索天气，然后打开 Wi-Fi 设置","expectedBoundary":"confirmed_sequential_tools","ownerAgent":"Planner"}
+{"category":"tool_sequence","input":"搜索 Kotlin，再分享摘要","expectedBoundary":"confirmation_between_segments","ownerAgent":"Planner"}

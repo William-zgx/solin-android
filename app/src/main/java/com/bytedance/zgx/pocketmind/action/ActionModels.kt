@@ -8,6 +8,22 @@ data class ActionDraft(
     val requiresConfirmation: Boolean = true,
 )
 
+enum class ActionIntentConfidence {
+    None,
+    Low,
+    Medium,
+    High,
+}
+
+data class IntentCandidate(
+    val toolName: String?,
+    val confidence: ActionIntentConfidence,
+    val reason: String,
+) {
+    val isAction: Boolean
+        get() = confidence == ActionIntentConfidence.Medium || confidence == ActionIntentConfidence.High
+}
+
 enum class ActionPlanKind {
     NoAction,
     Draft,

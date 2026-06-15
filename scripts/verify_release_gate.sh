@@ -35,6 +35,7 @@ REQUIRE_SIGNED_ARTIFACT="${REQUIRE_SIGNED_ARTIFACT:-0}"
 VERIFY_RELEASE_MAPPING="${VERIFY_RELEASE_MAPPING:-0}"
 RELEASE_MAPPING_FILE="${RELEASE_MAPPING_FILE:-app/build/outputs/mapping/release/mapping.txt}"
 VERIFY_CONTRACT_TESTS="${VERIFY_CONTRACT_TESTS:-1}"
+VERIFY_AI_BEHAVIOR_EVAL="${VERIFY_AI_BEHAVIOR_EVAL:-1}"
 EXTRA_PRIVACY_SCAN_TARGETS="${EXTRA_PRIVACY_SCAN_TARGETS:-}"
 EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
@@ -84,6 +85,7 @@ write_gate_report() {
     printf 'verifyReleaseMapping=%s\n' "$VERIFY_RELEASE_MAPPING"
     printf 'releaseMappingFile=%s\n' "$RELEASE_MAPPING_FILE"
     printf 'verifyContractTests=%s\n' "$VERIFY_CONTRACT_TESTS"
+    printf 'verifyAiBehaviorEval=%s\n' "$VERIFY_AI_BEHAVIOR_EVAL"
     printf 'extraPrivacyScanTargets=%s\n' "$EXTRA_PRIVACY_SCAN_TARGETS"
     printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
     printf 'releaseApk=%s\n' "$RELEASE_APK"
@@ -162,6 +164,18 @@ else
     printf 'target=contract-tests\n'
     printf 'reason=VERIFY_CONTRACT_TESTS-not-enabled\n'
   } > "$ARTIFACT_DIR/contract-tests.properties"
+fi
+
+if [[ "$VERIFY_AI_BEHAVIOR_EVAL" == "1" ]]; then
+  if ! scripts/verify_ai_behavior_eval.sh --report "$ARTIFACT_DIR/ai-behavior-eval.properties"; then
+    fail_gate ai-behavior-eval "$ARTIFACT_DIR/ai-behavior-eval.properties"
+  fi
+else
+  {
+    printf 'status=skipped\n'
+    printf 'target=ai-behavior-eval\n'
+    printf 'reason=VERIFY_AI_BEHAVIOR_EVAL-not-enabled\n'
+  } > "$ARTIFACT_DIR/ai-behavior-eval.properties"
 fi
 
 artifact_args=()

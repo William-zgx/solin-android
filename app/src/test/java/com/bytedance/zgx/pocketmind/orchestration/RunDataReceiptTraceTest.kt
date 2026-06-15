@@ -24,6 +24,11 @@ class RunDataReceiptTraceTest {
                     deviceContextIncluded = false,
                     imageAttachmentCount = 1,
                     protectedSourceCount = 1,
+                    evidenceCardCount = 2,
+                    localOnlyEvidenceCardCount = 1,
+                    truncatedEvidenceCardCount = 1,
+                    lowQualityEvidenceCardCount = 0,
+                    evidenceSourceTypes = listOf("Memory", "ImageAttachment"),
                     rawContentPersisted = false,
                     protectedContentTypes = listOf("本地记忆", "LocalOnly 历史"),
                     deletableRecordTypes = listOf("对话消息", "Agent 轨迹"),
@@ -38,6 +43,9 @@ class RunDataReceiptTraceTest {
         assertTrue(step.summary.contains("remoteHistory=2"))
         assertEquals("Remote", json.getString("destination"))
         assertEquals(1, json.getInt("imageAttachmentCount"))
+        assertEquals(2, json.getInt("evidenceCardCount"))
+        assertEquals(1, json.getInt("localOnlyEvidenceCardCount"))
+        assertEquals("Memory", json.getJSONArray("evidenceSourceTypes").getString(0))
         assertFalse(json.getBoolean("memoryContextIncluded"))
         assertEquals("本地记忆", json.getJSONArray("protectedContentTypes").getString(0))
         assertEquals("Agent 轨迹", json.getJSONArray("deletableRecordTypes").getString(1))

@@ -1,13 +1,16 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.ActionIntentConfidence
 import com.bytedance.zgx.pocketmind.action.ActionPlan
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
+import com.bytedance.zgx.pocketmind.action.IntentCandidate
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
 import com.bytedance.zgx.pocketmind.action.ModelToolOutputParseResult
@@ -66,6 +69,7 @@ class AgentLoopRuntimeTest {
         assertEquals(AgentRunState.GeneratingAnswer, result.run.state)
         require(result.plan is AgentPlan.Answer)
         assertTrue(result.plan.promptForModel.contains("用户当前输入的语言"))
+        assertTrue(result.plan.promptForModel.contains("[证据=Memory"))
         assertTrue(result.plan.promptForModel.contains("用户喜欢端侧离线聊天"))
         assertEquals(listOf("preference"), result.plan.memoryHits.map { it.id })
         assertEquals(0, actionRuntime.planCallCount)
@@ -76,6 +80,30 @@ class AgentLoopRuntimeTest {
         assertTrue(result.steps.any { step ->
             step is AgentStep.ModelPlanned && step.plan is AgentPlan.Answer
         })
+    }
+
+    @Test
+    fun answerPromptBudgetsEvidenceCardsAndMarksTruncation() {
+        val memoryRepository = MemoryRepository()
+        memoryRepository.index(
+            id = "long-memory",
+            text = "端侧上下文" + "很长".repeat(LocalModelTokenLimits.MAX_INPUT_TOKENS) + "TAIL_SHOULD_NOT_APPEAR",
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = memoryRepository,
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "端侧上下文是什么",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = true,
+        )
+
+        require(result.plan is AgentPlan.Answer)
+        assertTrue(result.plan.promptForModel.contains("已截断"))
+        assertFalse(result.plan.promptForModel.contains("TAIL_SHOULD_NOT_APPEAR"))
     }
 
     @Test
@@ -6789,6 +6817,7 @@ class AgentLoopRuntimeTest {
         assertEquals(0, failed.retryAttempt)
         assertEquals(1, failed.steps.filterIsInstance<AgentStep.ToolRetryScheduled>().size)
         assertTrue(!failed.assistantMessage.contains("正在重试"))
+        assertTrue(failed.assistantMessage.contains("下一步"))
     }
 
     @Test
@@ -7022,6 +7051,27 @@ class AgentLoopRuntimeTest {
         require(failed.decision is AgentObservationDecision.Fail)
         assertNull(failed.retryRequest)
         assertTrue(failed.steps.none { it is AgentStep.ToolRetryScheduled })
+        assertTrue(failed.assistantMessage.contains("下一步"))
+    }
+
+    @Test
+    fun lowConfidenceActionIntentDoesNotEnterToolPlanning() {
+        val actionRuntime = LowConfidenceActionRuntime()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "也许打开 Wi-Fi 设置？",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        require(result.plan is AgentPlan.Answer)
+        assertEquals(0, actionRuntime.planCallCount)
     }
 
     @Test
@@ -7944,6 +7994,38 @@ class AgentLoopRuntimeTest {
                 plan = ActionPlan(kind = ActionPlanKind.Draft, draft = draft),
                 usedModel = false,
                 fallbackReason = "test fallback",
+            )
+        }
+    }
+
+    private class LowConfidenceActionRuntime : ActionPlanningRuntime {
+        var planCallCount: Int = 0
+            private set
+
+        override fun classifyIntent(input: String): IntentCandidate =
+            IntentCandidate(
+                toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                confidence = ActionIntentConfidence.Low,
+                reason = "ambiguous action mention",
+            )
+
+        override fun isLikelyAction(input: String): Boolean = true
+
+        override fun plan(input: String, actionModelPath: String?): ActionPlanningResult {
+            planCallCount += 1
+            return ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        title = "打开 Wi-Fi 设置",
+                        summary = "将打开系统 Wi-Fi 设置页。",
+                        parameters = emptyMap(),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "low confidence should not plan",
             )
         }
     }

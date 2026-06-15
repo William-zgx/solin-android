@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.ActionIntentConfidence
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
@@ -111,7 +112,8 @@ class SequentialActionObservationReplanner(
         val nextInput = context.nextActionInput?.immediateSequentialActionText()
             ?: context.run.input.explicitSequentialActionTextAt(completedSegmentCount)
             ?: return null
-        if (!actionPlanningRuntime.isLikelyAction(nextInput)) return null
+        val intent = actionPlanningRuntime.classifyIntent(nextInput)
+        if (!intent.isAction || !intent.confidence.isActionableForSequentialReplan()) return null
         val planningResult = actionPlanningRuntime.plan(nextInput, actionModelPath = null)
         val draft = planningResult.plan.draft ?: return null
         if (planningResult.plan.kind != ActionPlanKind.Draft) return null
@@ -135,6 +137,12 @@ class SequentialActionObservationReplanner(
     }
 
 }
+
+internal fun ActionIntentConfidence.isActionableForAgentPlan(): Boolean =
+    this == ActionIntentConfidence.Medium || this == ActionIntentConfidence.High
+
+internal fun ActionIntentConfidence.isActionableForSequentialReplan(): Boolean =
+    this == ActionIntentConfidence.High
 
 private fun AgentObservationReplanContext.modelObservationReplanCount(): Int =
     priorRequests.count { request -> request.reason == MODEL_OBSERVATION_REPLAN_REQUEST_REASON }

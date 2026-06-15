@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
@@ -64,7 +65,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
@@ -101,6 +101,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -113,6 +114,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.bytedance.zgx.pocketmind.BackendChoice
 import com.bytedance.zgx.pocketmind.AuditEventSummary
@@ -558,108 +560,139 @@ private fun ChatTopBar(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         shadowElevation = 0.dp,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val compactTopBar = maxWidth < 430.dp
+            val actionButtonSize = if (compactTopBar) 36.dp else 40.dp
+            Row(
                 modifier = Modifier
-                    .width(4.dp)
-                    .height(34.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.secondary,
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(
+                        horizontal = if (compactTopBar) 10.dp else 14.dp,
+                        vertical = if (compactTopBar) 6.dp else 7.dp,
+                    ),
+                horizontalArrangement = Arrangement.spacedBy(if (compactTopBar) 6.dp else 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .height(if (compactTopBar) 30.dp else 34.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.secondary,
+                                ),
                             ),
                         ),
-                    ),
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
-            ) {
-                Text(
-                    modifier = Modifier.testTag("app_title"),
-                    text = "PocketMind",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    modifier = Modifier.testTag("app_positioning_subtitle"),
-                    text = PRODUCT_POSITIONING_SHORT_TEXT,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            CompactModelStatusChip(
-                modifier = Modifier.widthIn(min = 102.dp, max = 156.dp),
-                state = state,
-                onClick = onOpenModelManager,
-            )
-            TopActionButton(
-                modifier = Modifier.testTag("top_session_button"),
-                icon = Icons.Filled.Hub,
-                label = "会话",
-                onClick = onOpenSessions,
-            )
-            Box {
-                TopActionButton(
-                    modifier = Modifier.testTag("top_more_button"),
-                    icon = Icons.Filled.MoreVert,
-                    label = "更多",
-                    onClick = { menuExpanded = true },
-                )
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false },
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .widthIn(min = if (compactTopBar) 92.dp else 132.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
-                    TopMenuItem(
-                        modifier = Modifier.testTag("top_create_session_button"),
-                        icon = Icons.Filled.Add,
-                        label = "新建会话",
-                        enabled = !state.isBusy,
-                        onClick = {
-                            menuExpanded = false
-                            onCreateSession()
+                    Text(
+                        modifier = Modifier.testTag("app_title"),
+                        text = "PocketMind",
+                        style = if (compactTopBar) {
+                            MaterialTheme.typography.titleSmall
+                        } else {
+                            MaterialTheme.typography.titleMedium
                         },
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    TopMenuItem(
-                        modifier = Modifier.testTag("top_model_menu_button"),
-                        icon = Icons.Filled.Tune,
-                        label = "模型管理",
-                        onClick = {
-                            menuExpanded = false
-                            onOpenModelManager()
-                        },
+                    if (!compactTopBar) {
+                        Text(
+                            modifier = Modifier.testTag("app_positioning_subtitle"),
+                            text = PRODUCT_POSITIONING_SHORT_TEXT,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    } else {
+                        Text(
+                            modifier = Modifier.testTag("app_positioning_subtitle"),
+                            text = "隐私优先",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                CompactModelStatusChip(
+                    modifier = Modifier.widthIn(
+                        min = if (compactTopBar) 74.dp else 102.dp,
+                        max = if (compactTopBar) 104.dp else 156.dp,
+                    ),
+                    state = state,
+                    compact = compactTopBar,
+                    onClick = onOpenModelManager,
+                )
+                TopActionButton(
+                    modifier = Modifier.testTag("top_session_button"),
+                    icon = Icons.Filled.Hub,
+                    label = "会话",
+                    size = actionButtonSize,
+                    onClick = onOpenSessions,
+                )
+                Box {
+                    TopActionButton(
+                        modifier = Modifier.testTag("top_more_button"),
+                        icon = Icons.Filled.MoreVert,
+                        label = "更多",
+                        size = actionButtonSize,
+                        onClick = { menuExpanded = true },
                     )
-                    TopMenuItem(
-                        modifier = Modifier.testTag("top_privacy_button"),
-                        icon = Icons.Filled.Security,
-                        label = "隐私说明",
-                        onClick = {
-                            menuExpanded = false
-                            onOpenPrivacyNotice()
-                        },
-                    )
-                    TopMenuItem(
-                        modifier = Modifier.testTag("top_background_tasks_button"),
-                        icon = Icons.Filled.Notifications,
-                        label = "后台任务",
-                        onClick = {
-                            menuExpanded = false
-                            onOpenBackgroundTasks()
-                        },
-                    )
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                        modifier = Modifier.widthIn(min = 152.dp, max = 164.dp),
+                    ) {
+                        TopMenuItem(
+                            modifier = Modifier.testTag("top_create_session_button"),
+                            icon = Icons.Filled.Add,
+                            label = "新建会话",
+                            enabled = !state.isBusy,
+                            onClick = {
+                                menuExpanded = false
+                                onCreateSession()
+                            },
+                        )
+                        TopMenuItem(
+                            modifier = Modifier.testTag("top_model_menu_button"),
+                            icon = Icons.Filled.Tune,
+                            label = "模型管理",
+                            onClick = {
+                                menuExpanded = false
+                                onOpenModelManager()
+                            },
+                        )
+                        TopMenuItem(
+                            modifier = Modifier.testTag("top_privacy_button"),
+                            icon = Icons.Filled.Security,
+                            label = "隐私说明",
+                            onClick = {
+                                menuExpanded = false
+                                onOpenPrivacyNotice()
+                            },
+                        )
+                        TopMenuItem(
+                            modifier = Modifier.testTag("top_background_tasks_button"),
+                            icon = Icons.Filled.Notifications,
+                            label = "后台任务",
+                            onClick = {
+                                menuExpanded = false
+                                onOpenBackgroundTasks()
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -671,6 +704,7 @@ private fun CompactModelStatusChip(
     state: ChatUiState,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     val active = state.isReady && !state.isBusy
     val semanticColors = LocalPocketMindColors.current
@@ -691,7 +725,10 @@ private fun CompactModelStatusChip(
         onClick = onClick,
         modifier = modifier
             .testTag("top_model_button")
-            .semantics { contentDescription = "模型管理" },
+            .semantics {
+                contentDescription = "模型管理"
+                stateDescription = compactModelStatus(state)
+            },
         shape = CircleShape,
         color = container,
         border = BorderStroke(1.dp, content.copy(alpha = 0.18f)),
@@ -708,7 +745,7 @@ private fun CompactModelStatusChip(
                     .background(content),
             )
             Text(
-                text = compactModelStatus(state),
+                text = if (compact) compactModelStatusShort(state) else compactModelStatus(state),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = content,
@@ -727,18 +764,36 @@ private fun TopMenuItem(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    DropdownMenuItem(
-        modifier = modifier.semantics { contentDescription = label },
-        text = { Text(label) },
-        leadingIcon = {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-            )
-        },
-        enabled = enabled,
-        onClick = onClick,
-    )
+    val contentColor = if (enabled) {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = label }
+            .padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            modifier = Modifier.size(20.dp),
+            imageVector = icon,
+            tint = contentColor,
+            contentDescription = null,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 @Composable
@@ -748,10 +803,11 @@ private fun TopActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    size: Dp = 40.dp,
 ) {
     IconButton(
         modifier = modifier
-            .size(40.dp)
+            .size(size)
             .clip(MaterialTheme.shapes.medium)
             .semantics {
                 contentDescription = label
@@ -839,7 +895,6 @@ private fun ChatEmptyState(
     onSkipFirstRunSetup: () -> Unit,
     onSendPrompt: (String) -> Unit,
 ) {
-    val semanticColors = LocalPocketMindColors.current
     val readyTitle = when {
         state.inferenceMode == InferenceMode.Remote && state.isReady -> "远程模型已就绪"
         state.isReady -> "本机模型已就绪"
@@ -851,14 +906,14 @@ private fun ChatEmptyState(
         state.isReady ->
             "当前会话为空，选择一个开场问题，或在底部直接输入。问答和历史记录会保留在本机。"
         else ->
-            PRODUCT_HOME_DESCRIPTION_TEXT
+            "先配置远程模型或下载本地模型；就绪前不会读取本地数据，也不会自动发送远程请求。"
     }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(start = 18.dp, top = 16.dp, end = 18.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -888,7 +943,23 @@ private fun ChatEmptyState(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                HomePositioningPanel()
+                if (state.isReady) {
+                    StatusSummaryRow(state)
+                    PromptSuggestionList(
+                        enabled = !state.isBusy,
+                        onSendPrompt = onSendPrompt,
+                    )
+                } else {
+                    QuickModelSetup(
+                        state = state,
+                        onOpenModelManager = onOpenModelManager,
+                        onOpenRemoteModelConfig = onOpenRemoteModelConfig,
+                        onPickModel = onPickModel,
+                        onDownloadModel = onDownloadModel,
+                        onCancelDownload = onCancelDownload,
+                    )
+                    HomeCapabilityPills()
+                }
                 OutlinedButton(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -902,23 +973,7 @@ private fun ChatEmptyState(
                     )
                     Text(" 隐私说明")
                 }
-                if (state.isReady) {
-                    StatusSummaryRow(state)
-                    PromptSuggestionList(
-                        enabled = !state.isBusy,
-                        onSendPrompt = onSendPrompt,
-                    )
-                } else {
-                    HomeCapabilityPills()
-                    QuickModelSetup(
-                        state = state,
-                        onOpenModelManager = onOpenModelManager,
-                        onOpenRemoteModelConfig = onOpenRemoteModelConfig,
-                        onPickModel = onPickModel,
-                        onDownloadModel = onDownloadModel,
-                        onCancelDownload = onCancelDownload,
-                    )
-                }
+                HomePositioningPanel()
             }
         }
 
@@ -971,12 +1026,12 @@ private fun homeValueIcon(kind: HomeValueKind): ImageVector =
 
 @Composable
 private fun HomeCapabilityPills() {
-    Row(
+    FlowRow(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .testTag("home_capability_pills"),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         HOME_CAPABILITY_PILLS.forEach { label ->
             Surface(
@@ -1120,6 +1175,47 @@ private fun QuickModelSetup(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
 ) {
+    val stackModelActionsForTextScale = LocalDensity.current.fontScale >= 1.25f
+    @Composable
+    fun DownloadModelButton(modifier: Modifier = Modifier) {
+        Button(
+            modifier = modifier,
+            onClick = onDownloadModel,
+            enabled = !state.isBusy && !state.isDownloading,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Download,
+                contentDescription = null,
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "下载模型",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+
+    @Composable
+    fun ImportModelButton(modifier: Modifier = Modifier) {
+        OutlinedButton(
+            modifier = modifier,
+            onClick = onPickModel,
+            enabled = !state.isBusy,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.FolderOpen,
+                contentDescription = null,
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "导入模型",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1181,31 +1277,24 @@ private fun QuickModelSetup(
                 )
                 Text(" 配置远程模型，立即试用")
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Button(
-                    modifier = Modifier.weight(1f),
-                    onClick = onDownloadModel,
-                    enabled = !state.isBusy && !state.isDownloading,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Download,
-                        contentDescription = null,
-                    )
-                    Text(" 下载模型")
-                }
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = onPickModel,
-                    enabled = !state.isBusy,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.FolderOpen,
-                        contentDescription = null,
-                    )
-                    Text(" 导入模型")
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val stackModelActions = stackModelActionsForTextScale || maxWidth < 280.dp
+                if (stackModelActions) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        DownloadModelButton(modifier = Modifier.fillMaxWidth())
+                        ImportModelButton(modifier = Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        DownloadModelButton(modifier = Modifier.weight(1f))
+                        ImportModelButton(modifier = Modifier.weight(1f))
+                    }
                 }
             }
             OutlinedButton(
@@ -1781,8 +1870,8 @@ private fun ModelManagerSheet(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top,
         ) {
             Column(
                 modifier = Modifier.weight(1f),
@@ -1797,23 +1886,19 @@ private fun ModelManagerSheet(
                     text = MODEL_MANAGER_POSITIONING_TEXT,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            IconButton(
+                modifier = Modifier.testTag("model_manager_close_button"),
+                onClick = onDismiss,
+                enabled = !state.isBusy,
             ) {
-                RuntimeStatusBadge(state)
-                IconButton(
-                    modifier = Modifier.testTag("model_manager_close_button"),
-                    onClick = onDismiss,
-                    enabled = !state.isBusy,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "关闭模型管理",
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "关闭模型管理",
+                )
             }
         }
 
@@ -4071,10 +4156,19 @@ internal fun runDataReceiptDisplayText(receipt: RunDataReceiptUiSummary): String
         "未触发"
     }
     val deviceUsage = if (receipt.deviceContextIncluded) "已使用" else "未带出"
+    val evidenceSources = receipt.evidenceSourceTypes
+        .takeIf { it.isNotEmpty() }
+        ?.joinToString(separator = "/")
+        ?: "无"
+    val evidenceUsage = if (receipt.evidenceCardCount > 0) {
+        "${receipt.evidenceCardCount} 条（LocalOnly ${receipt.localOnlyEvidenceCardCount}，截断 ${receipt.truncatedEvidenceCardCount}，低质量 ${receipt.lowQualityEvidenceCardCount}，来源 $evidenceSources）"
+    } else {
+        "未使用"
+    }
     return "去向：$destination；隐私：${receipt.currentPromptPrivacy}；远端历史：${receipt.remoteHistoryCount}；" +
         "过滤 LocalOnly：${receipt.localOnlyHistoryFilteredCount}；记忆：$memoryUsage/${receipt.memoryHitCount}；" +
         "召回：$memoryRecall；设备上下文：$deviceUsage；图片：${receipt.imageAttachmentCount}；受保护源：${receipt.protectedSourceCount}；" +
-        "输出保护：$outputQuality；保护：$protectedTypes；可删除：$deletableRecords；原文持久化：$rawPersisted"
+        "证据：$evidenceUsage；输出保护：$outputQuality；保护：$protectedTypes；可删除：$deletableRecords；原文持久化：$rawPersisted"
 }
 
 @Composable
@@ -4401,6 +4495,17 @@ private fun compactModelStatus(state: ChatUiState): String {
         ?: state.selectedRecommendedModel.shortName
     return "$modelName · ${state.backend.name} · $ready"
 }
+
+private fun compactModelStatusShort(state: ChatUiState): String =
+    when {
+        state.isDownloading -> state.downloadProgressPercent?.let { "下载 $it%" } ?: "下载中"
+        state.isBusy -> "处理中"
+        state.inferenceMode == InferenceMode.Remote && state.isReady -> "远程"
+        state.inferenceMode == InferenceMode.Remote -> "待配置"
+        state.isReady -> "本地"
+        state.modelPath != null -> "待加载"
+        else -> "待准备"
+    }
 
 internal fun modelHealthDisplayText(state: ChatUiState): String {
     val health = state.modelHealth
@@ -5070,8 +5175,7 @@ private fun Composer(
         hasPendingSharedInput -> "补充说明"
         else -> "输入问题"
     }
-    val showCompactStatus = !state.isReady ||
-        state.isBusy ||
+    val showCompactStatus = state.isBusy ||
         state.statusText.isVoiceStatusText() ||
         state.statusText.isAgentExecutionOutcomeStatusText()
     Column(

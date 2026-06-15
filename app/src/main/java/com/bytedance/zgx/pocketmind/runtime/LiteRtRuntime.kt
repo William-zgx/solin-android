@@ -51,6 +51,7 @@ interface LocalChatRuntime {
         history: List<ChatMessage>,
         prompt: String,
         parameters: GenerationParameters,
+        maxInputTokens: Int? = null,
     ) {
         recreateConversation(history, parameters)
     }
@@ -131,18 +132,22 @@ class RealLiteRtRuntime(
         history: List<ChatMessage>,
         prompt: String,
         parameters: GenerationParameters,
+        maxInputTokens: Int?,
     ) {
-        recreateConversationInternal(history, parameters, currentPrompt = prompt)
+        recreateConversationInternal(history, parameters, currentPrompt = prompt, maxInputTokens = maxInputTokens)
     }
 
     private fun recreateConversationInternal(
         history: List<ChatMessage>,
         parameters: GenerationParameters,
         currentPrompt: String,
+        maxInputTokens: Int? = null,
     ) {
         val currentEngine = engine ?: error("模型尚未就绪")
         conversation?.close()
-        conversation = currentEngine.createConversation(defaultConversationConfig(history, parameters, currentPrompt))
+        conversation = currentEngine.createConversation(
+            defaultConversationConfig(history, parameters, currentPrompt, maxInputTokens),
+        )
     }
 
     override fun send(prompt: String): Flow<String> =
@@ -258,10 +263,11 @@ private fun defaultConversationConfig(
     messages: List<ChatMessage>,
     parameters: GenerationParameters,
     currentPrompt: String = "",
+    maxInputTokens: Int? = null,
 ): ConversationConfig =
     ConversationConfig(
         systemInstruction = Contents.of(DEFAULT_CHAT_SYSTEM_INSTRUCTION),
-        initialMessages = budgetLocalRuntimeHistory(messages, currentPrompt).toLiteRtInitialMessages(),
+        initialMessages = budgetLocalRuntimeHistory(messages, currentPrompt, maxInputTokens).toLiteRtInitialMessages(),
         samplerConfig = SamplerConfig(
             topK = parameters.topK,
             topP = parameters.topP.toDouble(),
@@ -272,14 +278,16 @@ private fun defaultConversationConfig(
 internal fun budgetLocalRuntimeHistory(
     messages: List<ChatMessage>,
     currentPrompt: String = "",
+    maxInputTokens: Int? = null,
 ): List<ChatMessage> {
     val promptReserve = maxOf(
         LocalModelTokenLimits.CURRENT_PROMPT_TOKEN_RESERVE,
         estimateLocalRuntimeTokens(currentPrompt),
     )
+    val inputBudget = (maxInputTokens ?: LocalModelTokenLimits.MAX_INPUT_TOKENS)
+        .coerceIn(0, LocalModelTokenLimits.MAX_INPUT_TOKENS)
     val historyBudget = (
-        LocalModelTokenLimits.MAX_TOTAL_TOKENS -
-            LocalModelTokenLimits.OUTPUT_TOKEN_RESERVE -
+        inputBudget -
             LocalModelTokenLimits.SYSTEM_PROMPT_TOKEN_RESERVE -
             promptReserve
         ).coerceAtLeast(0)

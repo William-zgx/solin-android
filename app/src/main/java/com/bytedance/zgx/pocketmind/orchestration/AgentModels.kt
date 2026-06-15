@@ -73,6 +73,11 @@ data class RunDataReceipt(
     val deviceContextIncluded: Boolean = false,
     val imageAttachmentCount: Int = 0,
     val protectedSourceCount: Int = 0,
+    val evidenceCardCount: Int = 0,
+    val localOnlyEvidenceCardCount: Int = 0,
+    val truncatedEvidenceCardCount: Int = 0,
+    val lowQualityEvidenceCardCount: Int = 0,
+    val evidenceSourceTypes: List<String> = emptyList(),
     val rawContentPersisted: Boolean = false,
     val protectedContentTypes: List<String> = emptyList(),
     val deletableRecordTypes: List<String> = listOf("对话消息", "Agent 轨迹"),
@@ -91,6 +96,10 @@ data class RunDataReceipt(
         require(lexicalMemoryHitCount >= 0) { "lexicalMemoryHitCount must be >= 0" }
         require(imageAttachmentCount >= 0) { "imageAttachmentCount must be >= 0" }
         require(protectedSourceCount >= 0) { "protectedSourceCount must be >= 0" }
+        require(evidenceCardCount >= 0) { "evidenceCardCount must be >= 0" }
+        require(localOnlyEvidenceCardCount >= 0) { "localOnlyEvidenceCardCount must be >= 0" }
+        require(truncatedEvidenceCardCount >= 0) { "truncatedEvidenceCardCount must be >= 0" }
+        require(lowQualityEvidenceCardCount >= 0) { "lowQualityEvidenceCardCount must be >= 0" }
     }
 }
 
