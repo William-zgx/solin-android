@@ -22,7 +22,8 @@ class CapabilityMatrixDocumentationTest {
         assertEquals(CapabilityMatrix.productPositioning, json.getString("productPositioning"))
         assertEquals(CapabilityMatrix.targetUserJob, json.getString("targetUserJob"))
         assertTrue(json.getString("productPositioning").contains("隐私优先"))
-        assertTrue(json.getString("productPositioning").contains("必须确认执行"))
+        assertTrue(json.getString("productPositioning").contains("默认保守确认"))
+        assertTrue(json.getString("productPositioning").contains("低风险步骤"))
         assertTrue(json.getString("targetUserJob").contains("本地上下文留在本机"))
 
         assertEquals(
@@ -142,6 +143,7 @@ class CapabilityMatrixDocumentationTest {
             it.capabilityId == "confirmed_device_actions"
         }
         assertTrue(action.consentBoundary.contains("必须先确认"))
+        assertTrue(action.consentBoundary.contains("低风险 App 搜索"))
         assertTrue(action.remoteBoundary.contains("LocalOnly"))
         assertTrue(action.dataAccessed.contains("外部打开结果"))
     }
@@ -167,6 +169,30 @@ class CapabilityMatrixDocumentationTest {
             val item = documented.getJSONObject(index)
             assertDescriptorMatchesJson(descriptor, item)
         }
+    }
+
+    @Test
+    fun uiActionToolsRemainRequiredConfirmationInToolSpec() {
+        val registry = ToolRegistry()
+        val uiToolNames = listOf(
+            "ui_tap",
+            "ui_type_text",
+            "ui_submit_search",
+            "ui_scroll",
+            "ui_press_back",
+            "ui_wait",
+        )
+
+        uiToolNames.forEach { toolName ->
+            val spec = registry.specs().single { candidate -> candidate.name == toolName }
+            assertEquals("$toolName must stay confirmation-required at ToolSpec level", ConfirmationPolicy.Required, spec.confirmationPolicy)
+        }
+
+        val deviceDescriptor = CapabilityMatrix.productDescriptors.single {
+            descriptor -> descriptor.capabilityId == "confirmed_device_tools"
+        }
+        assertTrue(deviceDescriptor.failureBehavior.contains("低风险"))
+        assertTrue(deviceDescriptor.failureBehavior.contains("仍 fail-closed"))
     }
 
     @Test

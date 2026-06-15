@@ -23,6 +23,37 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-14 App 内搜索闭环与真机覆盖安装
+
+本轮覆盖项：
+
+- 低风险 App 控制闭环：打开 App、观察屏幕、定位搜索入口、输入、提交搜索和验证结果。
+- 顶部手机控制进度条、低风险连续执行、结果验证和 `LocalOnly` 屏幕状态边界。
+- 真机调试验收后覆盖安装最新签名 release 包，保留已下载模型数据。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleRelease
+ANDROID_SERIAL=fb6272c scripts/run_real_app_search_eval.sh
+ANDROID_SERIAL=emulator-5554 scripts/run_mock_target_app_search_eval.sh
+adb -s fb6272c install -r app/build/outputs/apk/release/app-release-local-signed.apk
+```
+
+结果：
+
+- 通过：`build/verification/real-app-search-eval-20260614-222945/real-app-search-eval.properties`
+  记录 `status=passed`、`serial=fb6272c`、`run_count=3`、`pass_count=3`、
+  `fail_count=0`；淘宝、拼多多、高德通过，Chrome 未安装跳过。
+- 通过：`build/verification/mock-target-app-search-eval-20260614-205816/mock-target-app-search-eval.properties`
+  记录 mock 淘宝、拼多多、高德 `3/3` 通过。
+- 通过：本地 release 签名报告
+  `build/verification/signing/local-app-control-release-signing.properties`
+  记录 `status=passed`，签名 APK SHA-256 为
+  `892a2b5fdf74494dcf0fa0efebfe80de408f52fb36740687c503262058951cf8`。
+- 说明：真实 App 搜索 eval 使用 debug eval receiver；最后已用
+  `adb install -r` 覆盖安装 release APK，不作为 Play production 签名证据。
+
 ## 2026-06-07 Remote network failure retry recovery
 
 本轮覆盖项：

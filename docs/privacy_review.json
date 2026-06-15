@@ -2,7 +2,7 @@
   "version": 1,
   "policy": "Public release builds require VERIFY_PRIVACY_REVIEW=1 and approved release/security/legal records for the current privacy notice SHA.",
   "noticePath": "docs/privacy_notice.md",
-  "noticeSha256": "4345bcbb11830fa2ed1d3e4ef6acc739af0c674a9ccc495cfd7c1ef9398b8c16",
+  "noticeSha256": "e25465add3bd572864a7c787c6e4efbee876dc98729c53115d3c9833c3cee49a",
   "status": "pending_manual_review",
   "reviews": [
     {

@@ -111,12 +111,15 @@ release ticket or PR.
   `READ_CALENDAR`, `READ_CONTACTS`, legacy `READ_EXTERNAL_STORAGE`,
   `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_MEDIA_AUDIO`,
   `READ_MEDIA_VISUAL_USER_SELECTED`, `POST_NOTIFICATIONS`,
-  `PACKAGE_USAGE_STATS`, the Accessibility service, and one-shot
-  MediaProjection consent for current-screen OCR.
+  `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`,
+  `PACKAGE_USAGE_STATS`, the Accessibility service, Accessibility gestures
+  for phone control, and one-shot MediaProjection consent for current-screen
+  OCR.
 - [ ] Play declarations or review notes explain why Usage Access,
-  Accessibility, notifications, calendar/contact reads, media reads, voice
-  input, document/share input, external navigation, and reminders are requested
-  only for user-confirmed flows.
+  Accessibility observation/gestures, phone-control foreground service,
+  notifications, calendar/contact reads, media reads, voice input,
+  document/share input, external navigation, and reminders are requested only
+  for user-confirmed or low-risk user-initiated flows.
 - [ ] `docs/store_policy_record.json` is updated and approved, then
   `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh` passes. The gate
   checks store listing fields, privacy policy URL, Data safety answers, model

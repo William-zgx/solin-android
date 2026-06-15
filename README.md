@@ -1,18 +1,34 @@
 # PocketMind Android
 
-PocketMind Android is a privacy-first pocket AI assistant: it can run local
+PocketMind Android is a privacy-first phone-side AI assistant: it can run local
 LiteRT-LM models on device, optionally use a user-configured remote multimodal
-model, and only executes device actions after explicit confirmation.
+model, and control common phone flows through confirmed, audited tools.
 
 The reason to install PocketMind is not "another chatbot". It is a phone-side
 assistant for private, everyday context: basic questions can work locally after
 a model is downloaded or imported, verified local vision models can handle
 user-provided images on device, remote image/chat support is opt-in, and
-contacts, calendar, screen, media, reminders, sharing, and app-opening actions
-stay behind local permission and confirmation gates.
+contacts, calendar, screen, media, reminders, sharing, app opening, and
+low-risk in-app search stay behind local permission, confirmation, and audit
+boundaries.
 
 The project is built with Kotlin, Jetpack Compose, Android Gradle Plugin, and
 Google AI Edge LiteRT-LM.
+
+```mermaid
+flowchart LR
+    Input["Chat, share, voice, or app request"] --> Router["Local router and Skill-first preflight"]
+    Router --> Local["Local LiteRT-LM\nLocalOnly by default"]
+    Router --> Remote["Optional remote model\nRemoteEligible only"]
+    Router --> Tools["Confirmed tools"]
+    Tools --> Device["Device context and phone control"]
+    Tools --> External["Share sheets, drafts, links, reminders"]
+    Local --> Answer["Assistant answer"]
+    Remote --> Answer
+    Device --> Trace["Trace and audit"]
+    External --> Trace
+    Trace --> Answer
+```
 
 ## Product Contract
 
@@ -24,11 +40,52 @@ Google AI Edge LiteRT-LM.
   explicitly configured OpenAI-compatible endpoint; every remote send shows
   what can leave the phone before it is sent.
 - **Actions are confirmed:** contacts, calendar, screen, media, reminders,
-  sharing, settings, and app-opening actions stay behind permission,
-  disclosure, and confirmation gates.
+  sharing, settings, and phone-control actions stay behind permission,
+  disclosure, and confirmation gates. The "reduce phone-control confirmations"
+  setting can continue low-risk navigation, search, tap, scroll, and back steps;
+  sending, deleting, paying, ordering, publishing, sensitive input, and
+  permission changes still require confirmation.
 - **Users stay in control:** privacy guidance is available in-app, remote keys
   can be cleared, conversations and memories can be deleted, and release gates
   track Play Data safety / privacy-policy consistency.
+
+## Phone Control Scope
+
+Current phone control is aimed at low-risk app navigation and search, not
+arbitrary autonomous app use.
+
+- Supported primitives: observe current screen, tap, type, submit search,
+  scroll, press back, wait, open apps, open camera, and open selected settings.
+- Supported app-search flow: open app -> observe -> find search entry -> type
+  query -> submit -> verify result.
+- App profiles improve search for Taobao, Pinduoduo, Amap/Gaode, JD, Google
+  Maps, Chrome/Android Browser, Quark, UC, and Google App. Unknown apps use a
+  generic resolver.
+- While controlling the phone, PocketMind runs a short foreground control
+  session and shows a translucent progress overlay at the top of the screen.
+- Screen nodes, bounds, OCR text, and Accessibility text are `LocalOnly` by
+  default and are not sent to a remote model automatically.
+
+```mermaid
+flowchart TD
+    Request["App search request"] --> Plan["Skill or planner"]
+    Plan --> Registry["ToolRegistry validation"]
+    Registry --> Safety["SafetyPolicy"]
+    Safety --> Gate{"Required confirmation?"}
+    Gate -->|Initial app open| ConfirmOpen["Confirm open_app_by_name"]
+    Gate -->|High risk or unknown| ConfirmHigh["Confirm or fail closed"]
+    Gate -->|Low-risk continuation allowed| Session["Foreground session and overlay"]
+    ConfirmOpen --> Session
+    Session --> Wait["Wait for foreground"]
+    Wait --> Observe["Observe screen\nLocalOnly"]
+    Observe --> Resolve["Resolve search entry"]
+    Resolve --> Act["Tap, type, submit, scroll, back"]
+    Act --> Verify["Observe and verify"]
+    Verify -->|Success| Done["Local result summary"]
+    Verify -->|Recoverable| Observe
+    Verify -->|5-step checkpoint| ConfirmOpen
+    Verify -->|Blocked| Reason["Recoverable reason"]
+```
 
 ## Implementation Highlights
 
@@ -51,7 +108,18 @@ Google AI Edge LiteRT-LM.
   confirmed. If the local or remote profile disables image input, PocketMind
   records a LocalOnly notice and does not force OCR as a fallback.
 - Lightweight local memory recall over previous conversation context.
-- Experimental local mobile action planning with deterministic rule fallback and explicit confirmation.
+- Local mobile action planning with deterministic rule fallback and
+  confirmation-aware execution.
+- Accessibility-based app control tools:
+  `observe_current_screen`, `ui_tap`, `ui_type_text`, `ui_submit_search`,
+  `ui_scroll`, `ui_press_back`, and `ui_wait`. Each action observes again and
+  returns a structured result.
+- UI target resolution scores current-screen nodes for search entry, editable
+  field, submit search, filter, result item, and scroll container targets; app
+  profiles only adjust ranking and verification.
+- App-search skills can continue from `open_app_by_name` into low-risk
+  observe/action/verify steps. The loop checkpoints after a small step budget
+  and keeps high-risk actions on the confirmation path.
 - Schema-driven tool validation plus Agent run tracing for plan-confirm-observe execution, safety checks, read-only bounded retry, and persistent audit events.
 - Public read-only search results are treated as Agent evidence: `web_search`
   does not open a browser, uses typed `general` / `weather_current` evidence
@@ -100,8 +168,8 @@ Google AI Edge LiteRT-LM.
   current-app notification summary, foreground-app usage-stats estimates,
   recent-file metadata, and
   recent-screenshot OCR, recent-image OCR, one-shot current-screen screenshot
-  OCR, and a confirmed current-screen Accessibility text snapshot path for
-  controlled context access.
+  OCR, and current-screen Accessibility text/screen-state snapshots for
+  controlled local context access.
 - Confirmed Android runtime permission requests for tools that need calendar,
   contact, media, or reminder notification posting access, including Android
   14+ selected visual media access when the user grants only chosen photos or
@@ -109,8 +177,10 @@ Google AI Edge LiteRT-LM.
 - Runtime permission denial is observed as a structured tool failure without
   executing or automatically retrying the tool.
 - Confirmed external navigation for safe HTTPS deep links, package-level app
-  launches, and allowlisted app details settings, with user-recorded external
-  outcome confirmation after launch-only Activity/share/draft openings.
+  launches, camera launch, and allowlisted app details settings. Low-risk
+  app-control sessions can continue after app launch; share sheets, drafts,
+  high-risk, and unknown external actions still ask the user to record the
+  external outcome.
 - Versioned built-in skill manifests for email drafts, calendar drafts, map
   search, information lookup, device settings including Usage Access settings,
   local reminders, local periodic reminder checks, calendar
@@ -149,7 +219,7 @@ Google AI Edge LiteRT-LM.
 PocketMind opens directly into the assistant surface. The first screen explains
 the promise before asking for model setup: local basic chat is available after a
 model download/import, remote multimodal use is optional, and remote sends or
-device actions still require confirmation.
+high-risk device actions still require confirmation.
 
 1. Choose the local path by downloading or importing a trusted `.litertlm`
    model, or choose the remote path by configuring a compatible endpoint.
@@ -220,14 +290,14 @@ Embedder runtime. Semantic recall is enabled only after runtime
 probe returns a non-empty normalized vector with a stable dimension; otherwise
 memory falls back to the lightweight local index. Only explicit long-term
 `Preference`, `UserFact`, and `TaskState` records enter the semantic index.
-Mobile actions can use the
-verified action model as an experimental planner; if it is missing or does not
-produce a supported
-`call:function {...}` draft, PocketMind falls back to deterministic local rules
-and still requires explicit user confirmation before opening Android system
-pages, drafts, HTTPS links, or package-level app launches. When the verified
-action model is used for observation replanning, it can only propose one next
-supported tool draft after a successful observed tool result; unsupported or
+Mobile actions can use the verified action model as a bounded planner; if it is
+missing or does not produce a supported `call:function {...}` draft,
+PocketMind falls back to deterministic local rules. Low-risk phone-control
+steps can continue under the user's confirmation setting; drafts, HTTPS links,
+share sheets, high-risk actions, and unknown external actions stay on the
+confirmation or external-outcome path. When the verified action model is used
+for observation replanning, it can only propose one next supported tool draft
+after a successful observed tool result; unsupported or
 malformed drafts fail closed, and every proposed tool still requires explicit
 confirmation. After confirmation,
 Android execution returns a structured tool result that is written back to the
@@ -564,6 +634,17 @@ adb devices
 scripts/install_and_test_device.sh
 ```
 
+Run focused phone-control checks on a connected device:
+
+```bash
+ANDROID_SERIAL=<device> scripts/run_device_control_debug_eval.sh
+ANDROID_SERIAL=<device> scripts/run_real_app_search_eval.sh
+```
+
+`run_real_app_search_eval.sh` uses the debug eval receiver to drive installed
+real apps. The latest recorded physical-device run passed Taobao, Pinduoduo,
+and Amap/Gaode search; Chrome was skipped because it was not installed.
+
 Run emulator-only validation without accidentally selecting a physical device:
 
 ```bash
@@ -645,6 +726,10 @@ for explicit local signing smoke checks. Production signing requires
 `EXPECTED_SIGNING_CERT_SHA256`; release artifact scanning also rejects Android
 Debug certificates unless `--allow-debug-certificate` is passed for a smoke-only
 scan.
+
+After debug-only device evaluation, reinstall the signed release APK with
+`adb install -r` to preserve downloaded model data while restoring the formal
+package.
 
 ## Production Release Readiness
 

@@ -1,8 +1,8 @@
 {
   "version": 1,
   "source": "CapabilityMatrix and ToolRegistry",
-  "productPositioning": "隐私优先的随身 AI 助手：本地对话和本地视觉可用，远程多模态可选，设备动作必须确认执行。",
-  "targetUserJob": "在手机上处理私人日常问答、记忆、图片/文件输入和受确认保护的设备动作，同时默认把本地上下文留在本机。",
+  "productPositioning": "隐私优先的随身 AI 助手：本地对话和本地视觉可用，远程多模态可选，手机操作默认保守确认，低风险步骤可按设置连续执行。",
+  "targetUserJob": "在手机上处理私人日常问答、记忆、图片/文件输入、App 打开和低风险搜索交互，同时默认把本地上下文留在本机。",
   "sensitiveCapabilityDisclosures": [
     {
       "capabilityId": "remote_model_send",
@@ -49,8 +49,8 @@
     {
       "capabilityId": "confirmed_device_actions",
       "displayName": "设备动作和外部 App",
-      "dataAccessed": "用户请求、动作草稿、目标 App/链接/提醒参数和外部打开结果；不在未确认结果前宣称动作完成。",
-      "consentBoundary": "中高风险设备动作、外部 App 打开、后台提醒和批量动作都必须先确认；取消或混合风险时 fail-closed。",
+      "dataAccessed": "用户请求、动作草稿、目标 App/链接/提醒参数、屏幕状态摘要和外部打开结果；不在未确认结果前宣称高风险动作完成。",
+      "consentBoundary": "默认保守确认；中高风险设备动作、发送、删除、支付、发布、敏感输入、权限授权、后台提醒和批量混合风险都必须先确认；低风险 App 搜索可按设置连续执行。",
       "remoteBoundary": "设备动作结果和私密参数默认 LocalOnly，不作为远程模型自动上下文；只读公共 evidence 工具才可进入远程规划。",
       "revokeOrClearControl": "可取消动作确认、标记外部操作未完成、撤销可撤销提醒，并删除相关会话记录。",
       "requiredTests": [
@@ -240,7 +240,7 @@
       "requiresLocalModel": false,
       "remoteEligible": false,
       "confirmationPolicy": "Required",
-      "failureBehavior": "中高风险、本地私密读取和外部动作必须先确认；取消、权限拒绝或批量混合风险时 fail-closed。",
+      "failureBehavior": "默认保守确认；开启减少确认后仅低风险手机导航/搜索/点击/滚动可连续执行；发送、删除、支付、发布、敏感输入、权限授权和批量混合风险仍 fail-closed。",
       "requiredTests": [
         "ToolRegistryTest",
         "SafetyPolicyTest",

@@ -74,24 +74,37 @@ metadata fails closed before remote continuation.
 
 ## Device Context Tools
 
-Device context tools are gated behind Agent planning, schema validation, safety
-policy, and user confirmation. The current tool set includes bounded reads for
-clipboard text, calendar busy/free windows, contact name/phone search, current
-foreground app metadata, current-app notification metadata, recent file
-metadata, recent screenshot/image OCR excerpts, and current-screen
-Accessibility text snapshots.
+Device context and phone-control tools are gated behind Agent planning, schema
+validation, safety policy, and user confirmation. The current tool set includes
+bounded reads for clipboard text, calendar busy/free windows, contact
+name/phone search, current foreground app metadata, current-app notification
+metadata, recent file metadata, recent screenshot/image OCR excerpts,
+current-screen Accessibility text/screen-state snapshots, and low-risk
+Accessibility actions such as tap, type, submit search, scroll, back, and wait.
+
+```mermaid
+flowchart LR
+    Private["Private/device tool\nscreen, OCR, contacts, files"] --> Local["LocalOnly\nrequiresLocalModel=true"]
+    Local --> LocalModel["Local continuation only"]
+    LocalModel --> Redact["Redacted trace and audit"]
+    Public["PublicEvidence tool\nweb_search"] --> PublicGate{"RemoteEligible\nrequiresLocalModel=false?"}
+    PublicGate -->|Yes| Remote["Remote continuation allowed"]
+    PublicGate -->|Missing or unknown| Fail["Fail closed"]
+    External["ExternalAction\nshare, draft, link, app"] --> Outcome["No automatic model continuation\nexternal outcome boundary"]
+    Remote --> Redact
+    Outcome --> Redact
+```
 
 These tools are designed to minimize returned data. For example, recent file
 reads return metadata rather than file contents, paths, or URIs; current-screen
-text reads use Accessibility text nodes rather than screenshots or pixels; OCR
-tools avoid persisting image identifiers, paths, raw pixels, and raw OCR text in
-trace or audit stores. Foreground-app reads are labeled as UsageStats
-estimates, and Android 14+ selected-photo grants are labeled as user-selected
-visual media rather than full-library access. Clipboard text, contact matches,
-calendar busy/free windows, foreground-app metadata, current-app notification
-summaries, recent file metadata, OCR excerpts, and current-screen
-Accessibility snapshots are marked `LocalOnly` and `requiresLocalModel=true`;
-their local payload fields are
+reads use Accessibility nodes rather than screenshots or pixels; OCR tools
+avoid persisting image identifiers, paths, raw pixels, and raw OCR text in trace
+or audit stores. Foreground-app reads are labeled as UsageStats estimates, and
+Android 14+ selected-photo grants are labeled as user-selected visual media
+rather than full-library access. Clipboard text, contact matches, calendar
+busy/free windows, foreground-app metadata, current-app notification summaries,
+recent file metadata, OCR excerpts, and current-screen Accessibility snapshots
+are marked `LocalOnly` and `requiresLocalModel=true`; their local payload fields are
 declared as private tool outputs so they remain inside local continuation,
 observation, trace-redaction, and Skill public-output boundaries.
 
@@ -102,19 +115,23 @@ On Android 13 and above, `query_recent_files` does not expose a direct
 `documents`, `downloads`, or `others` query path; non-media files must be
 provided through the system file picker or Android share input.
 Special-access flows are disclosed separately from runtime permissions:
-Usage Access is used only for confirmed foreground-app estimates,
-Accessibility is used only for confirmed current-screen text reads, and
-MediaProjection is used only for one-shot current-screen screenshot OCR after
-foreground consent.
+Usage Access is used only for confirmed foreground-app estimates.
+Accessibility is used for confirmed current-screen reads and, during a
+phone-control session, for low-risk gestures requested by the user. A
+short-lived foreground service and a translucent Accessibility overlay show
+phone-control progress; the service stops when the Agent run reaches a terminal
+state or times out. MediaProjection is used only for one-shot current-screen
+screenshot OCR after foreground consent.
 
 ## External Intents And Sharing
 
 Confirmed tools may open Android system screens, the share sheet, email drafts,
-calendar drafts, contact drafts, web links, app launchers, or allowlisted app
-settings pages. Once an external screen opens, the destination app or Android
-system component may receive the prefilled data needed for that action. The
-current app records this as an opened-but-unverified boundary; it cannot know
-whether the user completed the destination app action.
+calendar drafts, contact drafts, web links, app launchers, the camera, or
+allowlisted app settings pages. Once an external screen opens, the destination
+app or Android system component may receive the prefilled data needed for that
+action. Low-risk app-control sessions can continue into observe/tap/type/search
+steps. Share sheets, drafts, high-risk, and unknown external actions remain an
+opened-but-unverified boundary until the user records the outcome.
 
 System speech recognition inserts a transcript into the compose box only.
 Sending remains explicit. Audio/video/legacy Office/binary attachments are

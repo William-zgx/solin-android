@@ -31,8 +31,9 @@ items below.
 - Remote streaming uses OkHttp and cancels the underlying call when stopped.
 - PR verification is local-only by default; model URL provenance is manual or
   scheduled with `VERIFY_MODEL_URLS=1`.
-- Memory is documented as a lightweight local index. Action planning is
-  documented as experimental model planning with rule fallback.
+- Memory is documented as a lightweight local index. Phone actions now use
+  local planning, rule fallback, confirmed tools, and low-risk app-control
+  continuation.
 - Remote OpenAI-compatible tool calls now go through the local Agent runtime:
   single public read-only evidence calls and all-public evidence batches can
   execute without confirmation, while mixed private/action/side-effect batches
@@ -44,10 +45,13 @@ items below.
   `scripts/verify_local.sh`, including JVM tests, lint, debug/androidTest APK
   assembly, release assembly, and APK content checks; see
   `docs/validation_report.md` for the dated command log.
-- Latest internal ad hoc release APK was locally signed and coverage-installed
-  on physical device `fb6272c` for smoke launch validation on
-  2026-06-03. This is not a replacement for the final release-candidate
-  device/instrumentation gate.
+- Latest physical-device App search eval passed on `fb6272c` on 2026-06-14:
+  `build/verification/real-app-search-eval-20260614-222945/real-app-search-eval.properties`
+  records Taobao, Pinduoduo, and Amap/Gaode search passing, with Chrome skipped
+  because it was not installed.
+- Latest local signed release APK was installed back on `fb6272c` with
+  `adb install -r` after debug eval, preserving app data. This is not a
+  replacement for production signing or the final release-candidate matrix.
 - Current release-candidate emulator regression passed with
   `scripts/regression_emulator.sh` on `pocketmind_api36_arm64` /
   `emulator-5554` (API 36, `arm64-v8a`):

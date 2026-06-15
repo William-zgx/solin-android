@@ -59,6 +59,30 @@ CLEAN_DEVICE=1 scripts/install_and_test_device.sh
 
 需要保留真机安装时，不要直接运行 `./gradlew :app:connectedDebugAndroidTest`；Android Gradle Plugin 可能会在 instrumentation 结束后清理安装包。
 
+手机控制专项验收使用已授权真机和 debug eval receiver：
+
+```bash
+ANDROID_SERIAL=<physical-device-serial> scripts/run_device_control_debug_eval.sh
+ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
+```
+
+`run_real_app_search_eval.sh` 验证真实 App 的低风险搜索闭环。它不等同于正式
+release validation；完成 debug 验收后，使用 `adb install -r` 覆盖安装最新签名
+release 包，以保留已下载模型数据并恢复正式包。
+
+```mermaid
+flowchart TD
+    Device["Authorized physical device"] --> DebugEval["run_device_control_debug_eval.sh"]
+    Device --> RealEval["run_real_app_search_eval.sh"]
+    DebugEval --> DebugReport["Debug-only machine-readable report"]
+    RealEval --> DebugReport
+    DebugReport --> Boundary["Debug receiver boundary\nnot release validation"]
+    Boundary --> ReleaseBuild["Build and sign release APK"]
+    ReleaseBuild --> Install["Post-eval adb install -r"]
+    Install --> KeepData["Model data preserved"]
+    Boundary --> Formal["Formal release validation remains separate"]
+```
+
 ## 人工验收安装
 
 如果目的是在手机上继续人工查看页面、远程配置或已保存会话，不要使用完整 smoke
@@ -141,6 +165,8 @@ adb -s "$ANDROID_SERIAL" shell am start -n com.bytedance.zgx.pocketmind/.MainAct
 验收记录应包含 APK 路径、SHA-256、设备 serial/model/API/ABI、`lastUpdateTime`、
 启动 PID，以及是否清理数据。本流程只做覆盖安装和启动 smoke；完整真机回归仍以
 `scripts/install_and_test_device.sh` 的 instrumentation 结果为准。
+需要保留模型数据时只使用覆盖安装，不使用 `CLEAN_DEVICE=1`、卸载、清数据或
+`pm clear`。
 
 ## 模拟器回归
 
@@ -285,10 +311,11 @@ provider endpoint、model 或 key；必须通过 `POCKETMIND_LIVE_REMOTE_BASE_UR
 - “打开链接 https://example.com” 应先出现确认；确认后只打开 HTTPS 链接，`http`、`file`、`content`、`javascript` 和自定义 scheme 应被拒绝。
 - “启动微信” 或指定合法包名的 App 启动请求应通过 Skill-first 先出现确认；确认后只打开应用启动页，不接受任意 activity/action/data/extras。
 - “打开微信应用详情设置” 或指定合法包名的 `android_app_details_settings` 请求应通过 Skill-first 先出现确认；确认后只打开白名单固定目标，不接受任意 targetId、URI、activity/action/data/extras。微信小程序、支付码、App 内设置或故障/文档问题不应降级成打开 App。
-- 外部 Activity、分享面板、草稿页或 App 启动页打开后，UI、Agent trace 和 audit 只能说明“外部界面已打开，最终结果未验证”；不应声称分享、发送、保存或目标 App 内操作已经完成，也不应基于该未验证结果自动规划下一步工具。
-- 上述 launch-only Agent run 应处于“等待外部结果确认”的状态，而不是已完成；只有用户补录外部结果后才进入完成、失败或下一步确认。
+- 低风险 App 控制任务可以在打开 App 后继续执行观察、点击、输入、提交搜索、滚动和返回；顶部半透明进度条应展示当前步骤，执行完成后不再单独要求用户补录“是否完成”。
+- 分享面板、草稿页、高风险或未知外部 Activity 打开后，UI、Agent trace 和 audit 只能说明“外部界面已打开，最终结果未验证”；不应声称分享、发送、保存或目标 App 内高风险操作已经完成，也不应基于未验证结果自动规划下一步工具。
+- 上述高风险或未知 launch-only Agent run 应处于“等待外部结果确认”的状态，而不是已完成；只有用户补录外部结果后才进入完成、失败或下一步确认。
 - 对上述 launch-only 结果，UI 应要求用户显式记录“已完成 / 未完成 / 只是打开了”。只有用户选择“已完成”后，trace/audit 才能记录 `externalOutcomeSource=UserConfirmed`、`completionVerified=true`，并允许 Agent 继续规划依赖该外部动作完成的下一步；“未完成”和“只是打开了”只记录结果，不应继续规划下一步工具。
-- 如果 App 在外部界面打开后重启，当前会话应从 Agent trace 恢复外部结果确认 sheet；恢复过程不应重新执行工具、不应恢复原始参数/外发 payload，用户确认后应只追加 `ExternalOutcomeConfirmed`。若打开外部界面前已经记录了无参数、已验证的单工具 tail cursor，只有用户补录“已完成”后，才可在重新校验预算、工具注册表和安全策略后进入下一张确认卡；“未完成”和“只是打开了”不应继续规划。
+- 如果 App 在高风险或未知外部界面打开后重启，当前会话应从 Agent trace 恢复外部结果确认 sheet；恢复过程不应重新执行工具、不应恢复原始参数/外发 payload，用户确认后应只追加 `ExternalOutcomeConfirmed`。若打开外部界面前已经记录了无参数、已验证的单工具 tail cursor，只有用户补录“已完成”后，才可在重新校验预算、工具注册表和安全策略后进入下一张确认卡；“未完成”和“只是打开了”不应继续规划。
 - 如果 App 重启时某个 `AwaitingExternalOutcome` run 的 trace 已损坏或缺少可恢复的 launch-only `ToolObserved`/`ToolRequested` 元数据，启动修复应把该 run 标记为失败，而不是留下不可见、不可处理的外部结果等待状态。
 - 如果 App 在多步请求的工具确认卡处重启，恢复后的确认仍不应恢复 raw 后续自然语言；只有无参数、已验证的单工具 tail 可以通过结构化 cursor 在用户重新确认当前工具且观察成功后进入下一张确认卡。
 - 未知工具、缺少参数或没有可处理 Intent 的设备，应显示明确失败原因，不应崩溃。
@@ -333,7 +360,7 @@ provider endpoint、model 或 key；必须通过 `POCKETMIND_LIVE_REMOTE_BASE_UR
 ## 后台任务验收
 
 - 安排提醒前应先出现动作确认，不确认时不应创建 `scheduled_tasks` 记录。
-- 确认 `schedule_reminder` 后，`scheduled_tasks` 应写入 `Scheduled` 状态，聊天中应追加结构化工具结果并包含任务 id；工具结果和 Agent trace 应提供 `cancel_reminder` recovery metadata，但不写入提醒标题或正文。
+- 确认 `schedule_reminder` 后，`scheduled_tasks` 应写入 `Scheduled` 状态，聊天中只应追加安全摘要；Agent trace / audit 应提供 `cancel_reminder` recovery metadata，但不写入提醒标题或正文。
 - Android 13+ 首次确认提醒时应先弹出通知权限请求；拒绝后应显示结构化权限失败，不应创建误导性的成功状态。
 - 到点后如果通知权限可用，应通过 `pocketmind_agent_reminders` 通知通道弹出提醒，并把任务状态更新为 `Delivered`。
 - 如果触发时通知权限不可用，不应崩溃，任务应进入 `Failed`。

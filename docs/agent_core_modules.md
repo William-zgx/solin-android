@@ -4,6 +4,27 @@ This document is the module map for the end-side Agent architecture. It records
 what each core module owns, what it must not own, and the current implementation
 status.
 
+Current Agent lifecycle:
+
+```mermaid
+flowchart LR
+    Input["User input"] --> Preflight["Skill-first local preflight"]
+    Preflight --> Planner["Planner or local rule"]
+    Planner --> Registry["ToolRegistry validation"]
+    Registry --> Policy["SafetyPolicy"]
+    Policy --> Confirm["AwaitingUserConfirmation"]
+    Confirm --> Permission["Runtime permission or special access"]
+    Permission --> Execute["Execute tool or model step"]
+    Execute --> Validate["Validate ToolResult"]
+    Validate --> Observe{"Observe decision"}
+    Observe -->|Local evidence| Local["Continue local model"]
+    Observe -->|Public evidence| Remote["Remote public evidence continuation"]
+    Observe -->|Next action| Next["Plan next tool"]
+    Observe -->|External action| External["AwaitingExternalOutcome"]
+    Observe -->|Retryable read| Retry["Retry read-only once"]
+    Observe -->|Done or blocked| End["Answer, fail, or cancel"]
+```
+
 ## Tool Layer
 
 Code:
@@ -124,8 +145,32 @@ Current status:
   lookup, recent notification summaries, calendar availability, recent file
   metadata summaries, confirmed recent screenshot OCR, confirmed recent image
   OCR, confirmed current-screen Accessibility text snapshots, safe HTTPS
-  deep-link navigation, package-level app launches, and allowlisted app deep
-  targets.
+  deep-link navigation, package-level app launches, camera launch,
+  allowlisted app deep targets, current-screen observation, and Accessibility
+  UI actions for tap, type, submit search, scroll, back, and wait.
+- Phone-control tools return `LocalOnly` observations and structured
+  `UiActionResult` values. `UiTargetResolver` scores current-screen nodes for
+  search, editable, submit, filter, result, and scroll targets; app profiles
+  only improve ranking and verification, not safety policy.
+
+```mermaid
+flowchart TD
+    Plan["Skill or planner tool draft"] --> Registry["ToolRegistry validation"]
+    Registry --> Policy["SafetyPolicy"]
+    Policy --> Pending{"Needs user confirmation?"}
+    Pending -->|Yes| Confirm["Pending confirmation"]
+    Pending -->|No low-risk continuation| Executor["ActionExecutor"]
+    Confirm --> Executor
+    Executor --> Session["DeviceControlSessionService"]
+    Executor --> Access["PocketMindAccessibilityService"]
+    Access --> Snapshot["ScreenStateSnapshot"]
+    Snapshot --> Resolver["UiTargetResolver"]
+    Resolver --> Executor
+    Executor --> Result["UiActionResult"]
+    Result --> Validate["Result schema validation"]
+    Validate --> Loop["AgentLoopRuntime observe"]
+```
+
 - `read_current_screen_text` belongs to this
   tool boundary as a confirmed, `LocalOnly` device-context read. It may expose
   only a bounded current Accessibility text-node snapshot plus coarse structure
@@ -195,6 +240,13 @@ Current status:
   planner, because their first tool step does not require model-driven
   parameter extraction.
 - Implemented confirmation state and post-confirmation observation.
+- Implemented low-risk app-control continuation. When a Skill opens an app and
+  the next steps are observe/tap/type/search/scroll/back/wait, the loop may
+  continue within the configured phone-control confirmation policy. Sending,
+  deleting, paying, ordering, publishing, sensitive input, permission changes,
+  and mixed-risk batches stay on the confirmation/fail-closed path.
+- App-control runs use a small step budget and stop the foreground
+  `DeviceControlSessionService` when the run reaches a terminal state.
 - Confirmed tool observations revalidate successful `ToolResult.data` against
   the registered output schema before building local continuation prompts,
   redacting trace, auditing, retrying, or replanning. A malformed successful
@@ -1063,6 +1115,14 @@ Current status:
   summary such as node count and visible-text-item count. That summary is
   `LocalOnly`, private, and excludes node ids, bounds, hierarchy, screenshots,
   OCR, and visual semantics.
+- `observe_current_screen` is a separate phone-control observation for
+  Accessibility nodes. It may include short-lived node ids and bounds so local
+  UI actions can resolve targets, but those fields are `LocalOnly`, private,
+  and not remote-eligible.
+- Current App search uses the same device package: open app, wait, observe,
+  resolve search entry, type, submit search, and verify. Profiles currently
+  cover Taobao, Pinduoduo, Amap/Gaode, Google Maps, JD, Chrome/Android Browser,
+  Quark, UC, and Google App, with a generic resolver fallback.
 - JVM executor matrix tests cover foreground app, notification summary, contact
   summary, calendar availability, recent file metadata, recent screenshot OCR,
   and recent image OCR success, permission denied, provider failure, LocalOnly,
@@ -1161,13 +1221,15 @@ Current status:
   target id. Agent trace persists only that allowlisted metadata, not raw
   payload text or original URI paths/query strings.
 - Agent observation, UI status, and audit summaries now consume launch-only
-  metadata directly. When an external activity is opened but completion is not
-  verified, PocketMind reports that boundary explicitly and does not auto-plan
-  a next tool from that unverified result.
-- After an external Activity/share sheet/draft page opens, the UI asks the user
-  to record whether the target-side operation completed, did not complete, or
-  merely opened. This appends an audited `ExternalOutcomeConfirmed` trace step
-  with `externalOutcomeSource=UserConfirmed`; only `Completed` sets
+  metadata directly. Low-risk app-control sessions can continue after app
+  launch into observe/action/verify steps. Share sheets, drafts, high-risk, and
+  unknown external actions still report an opened-but-unverified boundary and
+  do not auto-plan from an unverified result.
+- After a share sheet, draft page, high-risk, or unknown external Activity
+  opens, the UI asks the user to record whether the target-side operation
+  completed, did not complete, or merely opened. This appends an audited
+  `ExternalOutcomeConfirmed` trace step with
+  `externalOutcomeSource=UserConfirmed`; only `Completed` sets
   `completionVerified=true` and can unlock the next Agent tool plan.
 - If the app restarts after a launch-only external result, the pending outcome
   sheet is restored from allowlisted Agent trace metadata for the active
@@ -1183,9 +1245,10 @@ Current status:
   trace still has both a matching `ToolRequested` summary and an unconfirmed
   launch-only `ToolObserved` summary. Missing or corrupted trace metadata fails
   the run instead of leaving an invisible pending external outcome.
-- Special-app-access flow is modeled for both Usage Access
-  (`query_foreground_app`) and Accessibility screen text
-  (`read_current_screen_text`): the confirmation UI warns with a
+- Special-app-access flow is modeled for Usage Access
+  (`query_foreground_app`) and Accessibility screen text/control
+  (`read_current_screen_text`, `observe_current_screen`, `ui_*`): the
+  confirmation UI warns with a
   special-access requirement and settings entry, denial returns structured
   `specialAccess/settingsAction` recovery metadata, and settings-return handling
   updates UI status without executing the pending tool. Before confirmation

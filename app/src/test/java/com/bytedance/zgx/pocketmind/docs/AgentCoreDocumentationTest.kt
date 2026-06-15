@@ -62,7 +62,37 @@ class AgentCoreDocumentationTest {
         assertTrue(readme.contains("Actions are confirmed"))
         assertTrue(readme.contains("Users stay in control"))
         assertTrue(readme.contains("remote sends"))
-        assertTrue(readme.contains("device actions still require confirmation"))
+        assertTrue(readme.contains("high-risk device actions still require confirmation"))
+        assertTrue(readme.contains("Phone Control Scope"))
+    }
+
+    @Test
+    fun diagramsDocumentAgentAndPrivacyBoundaries() {
+        val readme = readRepoFile("README.md")
+        val agentCore = readRepoFile("docs/agent_core_modules.md")
+        val privacy = readRepoFile("docs/privacy_notice.md")
+        val phoneAcceptance = readRepoFile("docs/phone_acceptance.md")
+
+        assertTrue(readme.contains("```mermaid"))
+        assertTrue(readme.contains("ToolRegistry validation"))
+        assertTrue(readme.contains("SafetyPolicy"))
+        assertTrue(readme.contains("LocalOnly"))
+        assertTrue(readme.contains("5-step checkpoint"))
+
+        assertTrue(agentCore.contains("ToolRegistry validation"))
+        assertTrue(agentCore.contains("SafetyPolicy"))
+        assertTrue(agentCore.contains("AwaitingUserConfirmation"))
+        assertTrue(agentCore.contains("AwaitingExternalOutcome"))
+
+        assertTrue(privacy.contains("LocalOnly"))
+        assertTrue(privacy.contains("requiresLocalModel=true"))
+        assertTrue(privacy.contains("RemoteEligible"))
+        assertTrue(privacy.contains("requiresLocalModel=false"))
+        assertTrue(privacy.contains("Fail closed"))
+
+        assertTrue(phoneAcceptance.contains("Debug receiver boundary"))
+        assertTrue(phoneAcceptance.contains("not release validation"))
+        assertTrue(phoneAcceptance.contains("adb install -r"))
     }
 
     @Test
@@ -126,10 +156,12 @@ class AgentCoreDocumentationTest {
         assertTrue(readme.contains("through the trace/audit surfaces, not a typed chat card"))
         assertTrue(phoneAcceptance.contains("聊天中只应追加安全摘要"))
         assertTrue(phoneAcceptance.contains("通过 Agent trace / audit 入口查看"))
+        assertTrue(phoneAcceptance.contains("Agent trace / audit 应提供"))
         assertTrue(agentCore.contains("Surface safe execution summaries to the UI"))
         assertTrue(agentCore.contains("remain in Agent trace and audit"))
 
         assertFalse(phoneAcceptance.contains("聊天中应追加一条结构化执行结果"))
+        assertFalse(phoneAcceptance.contains("聊天中应追加结构化工具结果"))
         assertFalse(readme.contains("Agent run trace, audit log, and chat session"))
     }
 
