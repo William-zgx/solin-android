@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.tool
 
 import android.provider.Settings
 import com.bytedance.zgx.pocketmind.MessagePrivacy
+import com.bytedance.zgx.pocketmind.SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
@@ -15,8 +16,11 @@ import com.bytedance.zgx.pocketmind.device.ForegroundAppReadResult
 import com.bytedance.zgx.pocketmind.device.ContactSummaryItem
 import com.bytedance.zgx.pocketmind.device.ContactSummaryProvider
 import com.bytedance.zgx.pocketmind.device.ContactSummaryReadResult
+import com.bytedance.zgx.pocketmind.device.CurrentScreenControlProvider
 import com.bytedance.zgx.pocketmind.device.CurrentScreenTextProvider
 import com.bytedance.zgx.pocketmind.device.CurrentScreenTextReadResult
+import com.bytedance.zgx.pocketmind.device.DEVICE_CONTROL_METADATA_POLICY
+import com.bytedance.zgx.pocketmind.device.DEVICE_CONTROL_SOURCE_ACCESSIBILITY
 import com.bytedance.zgx.pocketmind.device.NotificationSummaryItem
 import com.bytedance.zgx.pocketmind.device.NotificationSummaryProvider
 import com.bytedance.zgx.pocketmind.device.NotificationSummaryReadResult
@@ -25,6 +29,14 @@ import com.bytedance.zgx.pocketmind.device.RecentFileProvider
 import com.bytedance.zgx.pocketmind.device.RecentFileReadResult
 import com.bytedance.zgx.pocketmind.device.RecentImageTextProvider
 import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
+import com.bytedance.zgx.pocketmind.device.ScreenBounds
+import com.bytedance.zgx.pocketmind.device.ScreenNode
+import com.bytedance.zgx.pocketmind.device.ScreenStateReadResult
+import com.bytedance.zgx.pocketmind.device.ScreenStateSnapshot
+import com.bytedance.zgx.pocketmind.device.UiActionFailureKind
+import com.bytedance.zgx.pocketmind.device.UiActionReadResult
+import com.bytedance.zgx.pocketmind.device.UiActionStatus
+import com.bytedance.zgx.pocketmind.device.UiScrollDirection
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrProvider
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrReadResult
@@ -53,6 +65,7 @@ class RoutingToolExecutor(
     private val recentImageTextProvider: RecentImageTextProvider? = null,
     private val currentScreenTextProvider: CurrentScreenTextProvider? = null,
     private val currentScreenshotOcrProvider: CurrentScreenshotOcrProvider? = null,
+    private val currentScreenControlProvider: CurrentScreenControlProvider? = null,
 ) : ToolExecutor {
     private val calendarAvailabilityToolExecutor =
         CalendarAvailabilityToolExecutor(calendarAvailabilityProvider)
@@ -70,6 +83,8 @@ class RoutingToolExecutor(
         currentScreenTextProvider?.let(::CurrentScreenTextToolExecutor)
     private val currentScreenshotOcrToolExecutor =
         CurrentScreenshotOcrToolExecutor(currentScreenshotOcrProvider)
+    private val deviceControlToolExecutor =
+        DeviceControlToolExecutor(currentScreenControlProvider)
 
     override fun execute(request: ToolRequest): ToolResult =
         when (request.toolName) {
@@ -114,6 +129,14 @@ class RoutingToolExecutor(
 
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR ->
                 currentScreenshotOcrToolExecutor.execute(request)
+
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SCROLL,
+            MobileActionFunctions.UI_PRESS_BACK,
+            MobileActionFunctions.UI_WAIT ->
+                deviceControlToolExecutor.execute(request)
 
             else -> delegate.execute(request)
         }
@@ -749,6 +772,266 @@ class CurrentScreenTextToolExecutor(
     }
 }
 
+class DeviceControlToolExecutor(
+    private val provider: CurrentScreenControlProvider?,
+) : ToolExecutor {
+    override fun execute(request: ToolRequest): ToolResult {
+        val controlProvider = provider
+            ?: return request.failed(
+                code = ToolErrorCode.ExecutionFailed,
+                summary = "当前屏幕控制服务不可用",
+                retryable = true,
+                data = request.deviceControlBaseData(),
+            )
+        return when (request.toolName) {
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN -> executeObserve(request, controlProvider)
+            MobileActionFunctions.UI_TAP -> executeTap(request, controlProvider)
+            MobileActionFunctions.UI_TYPE_TEXT -> executeTypeText(request, controlProvider)
+            MobileActionFunctions.UI_SCROLL -> executeScroll(request, controlProvider)
+            MobileActionFunctions.UI_PRESS_BACK -> executePressBack(request, controlProvider)
+            MobileActionFunctions.UI_WAIT -> executeWait(request, controlProvider)
+            else -> request.failed(
+                code = ToolErrorCode.UnknownTool,
+                summary = "Unknown tool: ${request.toolName}",
+                retryable = false,
+            )
+        }
+    }
+
+    private fun executeObserve(
+        request: ToolRequest,
+        provider: CurrentScreenControlProvider,
+    ): ToolResult {
+        val maxTextChars = request.arguments["maxTextChars"]?.toIntOrNull() ?: DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS
+        val maxNodes = request.arguments["maxNodes"]?.toIntOrNull() ?: DEFAULT_MAX_SCREEN_STATE_NODES
+        return when (val result = provider.observeCurrentScreen(maxTextChars = maxTextChars, maxNodes = maxNodes)) {
+            is ScreenStateReadResult.Available ->
+                request.succeeded(
+                    summary = result.snapshot.observationSummary(),
+                    data = request.deviceControlBaseData() + result.snapshot.toObservationData(
+                        requestedMaxTextChars = maxTextChars,
+                        requestedMaxNodes = maxNodes,
+                    ),
+                )
+
+            is ScreenStateReadResult.PermissionDenied ->
+                request.deviceControlPermissionDenied(result.reason)
+
+            is ScreenStateReadResult.Failed ->
+                request.failed(
+                    code = ToolErrorCode.ExecutionFailed,
+                    summary = result.reason,
+                    retryable = true,
+                    data = request.deviceControlBaseData() + mapOf(
+                        "failureKind" to UiActionFailureKind.Unknown.schemaValue,
+                    ),
+                )
+        }
+    }
+
+    private fun executeTap(
+        request: ToolRequest,
+        provider: CurrentScreenControlProvider,
+    ): ToolResult =
+        actionResult(
+            request = request,
+            actionType = "tap",
+            target = request.arguments["target"].orEmpty(),
+            result = provider.tap(
+                target = request.arguments["target"].orEmpty(),
+                timeoutMillis = request.timeoutMillis(),
+            ),
+        )
+
+    private fun executeTypeText(
+        request: ToolRequest,
+        provider: CurrentScreenControlProvider,
+    ): ToolResult =
+        actionResult(
+            request = request,
+            actionType = "type_text",
+            target = request.arguments["target"].orEmpty(),
+            result = provider.typeText(
+                text = request.arguments["text"].orEmpty(),
+                target = request.arguments["target"],
+                timeoutMillis = request.timeoutMillis(),
+            ),
+        )
+
+    private fun executeScroll(
+        request: ToolRequest,
+        provider: CurrentScreenControlProvider,
+    ): ToolResult {
+        val direction = UiScrollDirection.fromSchemaValue(request.arguments["direction"])
+            ?: return request.failed(
+                code = ToolErrorCode.InvalidRequest,
+                summary = "不支持的滚动方向：${request.arguments["direction"]}",
+                retryable = false,
+                data = request.deviceControlBaseData(),
+            )
+        return actionResult(
+            request = request,
+            actionType = "scroll",
+            target = request.arguments["target"].orEmpty(),
+            result = provider.scroll(
+                direction = direction,
+                target = request.arguments["target"],
+                timeoutMillis = request.timeoutMillis(),
+            ),
+            extraData = mapOf("direction" to direction.schemaValue),
+        )
+    }
+
+    private fun executePressBack(
+        request: ToolRequest,
+        provider: CurrentScreenControlProvider,
+    ): ToolResult =
+        actionResult(
+            request = request,
+            actionType = "press_back",
+            target = "",
+            result = provider.pressBack(timeoutMillis = request.timeoutMillis()),
+        )
+
+    private fun executeWait(
+        request: ToolRequest,
+        provider: CurrentScreenControlProvider,
+    ): ToolResult =
+        actionResult(
+            request = request,
+            actionType = "wait",
+            target = "",
+            result = provider.waitForScreen(timeoutMillis = request.timeoutMillis()),
+        )
+
+    private fun actionResult(
+        request: ToolRequest,
+        actionType: String,
+        target: String,
+        result: UiActionReadResult,
+        extraData: Map<String, String> = emptyMap(),
+    ): ToolResult =
+        when (result) {
+            is UiActionReadResult.Available -> {
+                val execution = result.result
+                val after = execution.after
+                val data = request.deviceControlBaseData() +
+                    mapOf(
+                        "actionType" to actionType,
+                        "status" to execution.status.schemaValue(),
+                        "retryable" to execution.retryable.toString(),
+                        "summary" to execution.summary,
+                        "beforeObservationId" to execution.before?.id.orEmpty(),
+                        "afterObservationId" to after?.id.orEmpty(),
+                        "verificationSummary" to (after?.observationSummary() ?: "动作后未能读取屏幕状态"),
+                    ) +
+                    target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty() +
+                    execution.failureKind?.let { mapOf("failureKind" to it.schemaValue) }.orEmpty() +
+                    after?.toAfterObservationData().orEmpty() +
+                    extraData
+                if (execution.status == UiActionStatus.Succeeded) {
+                    request.succeeded(
+                        summary = execution.summary,
+                        data = data,
+                    )
+                } else {
+                    request.failed(
+                        code = ToolErrorCode.ExecutionFailed,
+                        summary = execution.summary,
+                        retryable = execution.retryable,
+                        data = data,
+                    )
+                }
+            }
+
+            is UiActionReadResult.PermissionDenied ->
+                request.deviceControlPermissionDenied(result.reason)
+
+            is UiActionReadResult.Failed ->
+                request.failed(
+                    code = if (result.failureKind == UiActionFailureKind.PermissionMissing) {
+                        ToolErrorCode.PermissionDenied
+                    } else {
+                        ToolErrorCode.ExecutionFailed
+                    },
+                    summary = result.reason,
+                    retryable = result.retryable,
+                    data = request.deviceControlBaseData() + mapOf(
+                        "actionType" to actionType,
+                        "status" to UiActionStatus.Failed.schemaValue(),
+                        "retryable" to result.retryable.toString(),
+                        "summary" to result.reason,
+                        "failureKind" to result.failureKind.schemaValue,
+                    ),
+                )
+        }
+
+    private fun ToolRequest.timeoutMillis(): Long =
+        arguments["timeoutMillis"]?.trim()?.toLongOrNull() ?: DEFAULT_UI_ACTION_TIMEOUT_MILLIS
+
+    private fun ToolRequest.deviceControlPermissionDenied(reason: String): ToolResult =
+        failed(
+            code = ToolErrorCode.PermissionDenied,
+            summary = reason.ifBlank { "需要开启 PocketMind 无障碍服务才能控制当前屏幕" },
+            retryable = true,
+            data = deviceControlBaseData() + mapOf(
+                "specialAccess" to SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL,
+                "settingsAction" to Settings.ACTION_ACCESSIBILITY_SETTINGS,
+                "failureKind" to UiActionFailureKind.PermissionMissing.schemaValue,
+            ),
+        )
+
+    private fun ToolRequest.deviceControlBaseData(): Map<String, String> =
+        localOnlyData() + mapOf(
+            "source" to DEVICE_CONTROL_SOURCE_ACCESSIBILITY,
+            "metadataPolicy" to DEVICE_CONTROL_METADATA_POLICY,
+        )
+
+    private fun ScreenStateSnapshot.toObservationData(
+        requestedMaxTextChars: Int,
+        requestedMaxNodes: Int,
+    ): Map<String, String> =
+        mapOf(
+            "observationId" to id,
+            "capturedAtMillis" to capturedAtMillis.toString(),
+            "nodeCount" to nodeCount.toString(),
+            "actionableNodeCount" to actionableNodeCount.toString(),
+            "textSummary" to textSummary,
+            "truncated" to truncated.toString(),
+            "nodesJson" to nodes.toScreenNodesJsonString(),
+            "maxTextChars" to requestedMaxTextChars.toString(),
+            "maxNodes" to requestedMaxNodes.toString(),
+        ) + packageName?.takeIf { it.isNotBlank() }?.let { mapOf("packageName" to it) }.orEmpty()
+
+    private fun ScreenStateSnapshot.toAfterObservationData(): Map<String, String> =
+        mapOf(
+            "afterPackageName" to packageName.orEmpty(),
+            "afterCapturedAtMillis" to capturedAtMillis.toString(),
+            "afterNodeCount" to nodeCount.toString(),
+            "afterActionableNodeCount" to actionableNodeCount.toString(),
+            "afterTextSummary" to textSummary,
+            "afterTruncated" to truncated.toString(),
+            "afterNodesJson" to nodes.toScreenNodesJsonString(),
+        )
+
+    private fun ScreenStateSnapshot.observationSummary(): String {
+        val packagePart = packageName?.takeIf { it.isNotBlank() }?.let { "包名 $it，" }.orEmpty()
+        return "已观察当前屏幕：${packagePart}${nodeCount} 个节点，${actionableNodeCount} 个可交互节点。"
+    }
+
+    private fun UiActionStatus.schemaValue(): String =
+        when (this) {
+            UiActionStatus.Succeeded -> "succeeded"
+            UiActionStatus.Failed -> "failed"
+        }
+
+    private companion object {
+        const val DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS = 2_000
+        const val DEFAULT_MAX_SCREEN_STATE_NODES = 50
+        const val DEFAULT_UI_ACTION_TIMEOUT_MILLIS = 1_000L
+    }
+}
+
 class CurrentScreenshotOcrToolExecutor(
     private val provider: CurrentScreenshotOcrProvider?,
 ) : ToolExecutor {
@@ -841,6 +1124,32 @@ private fun List<RecentFileItem>.toRecentFilesJsonString(): String {
     }
     return filesArray.toString()
 }
+
+private fun List<ScreenNode>.toScreenNodesJsonString(): String {
+    val nodesArray = JSONArray()
+    forEach { node ->
+        nodesArray.put(
+            JSONObject()
+                .put("id", node.id)
+                .put("text", node.text)
+                .put("contentDescription", node.contentDescription)
+                .put("className", node.className)
+                .put("bounds", node.bounds?.toJsonObject())
+                .put("clickable", node.clickable)
+                .put("editable", node.editable)
+                .put("scrollable", node.scrollable)
+                .put("enabled", node.enabled),
+        )
+    }
+    return nodesArray.toString()
+}
+
+private fun ScreenBounds.toJsonObject(): JSONObject =
+    JSONObject()
+        .put("left", left)
+        .put("top", top)
+        .put("right", right)
+        .put("bottom", bottom)
 
 private fun List<ScheduledTask>.appendToBackgroundTasksJson(
     scope: String,

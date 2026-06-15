@@ -10,6 +10,9 @@ export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_SDK}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 ADB_BIN="${ANDROID_SDK}/platform-tools/adb"
 CLEAN_DEVICE="${CLEAN_DEVICE:-0}"
+SKIP_BUILD="${SKIP_BUILD:-0}"
+SKIP_INSTALL="${SKIP_INSTALL:-0}"
+REQUIRE_POCKETMIND_ACCESSIBILITY="${REQUIRE_POCKETMIND_ACCESSIBILITY:-0}"
 RESET_APP_DATA_AFTER_TESTS="${RESET_APP_DATA_AFTER_TESTS:-1}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/device-$(date +%Y%m%d-%H%M%S)}"
 VERIFICATION_REPORT_FILE="${VERIFICATION_REPORT_FILE:-${ARTIFACT_DIR}/device-verification.properties}"
@@ -37,6 +40,7 @@ PACKAGE_NAME="com.bytedance.zgx.pocketmind"
 TEST_PACKAGE_NAME="${PACKAGE_NAME}.test"
 MAIN_ACTIVITY="${PACKAGE_NAME}/.MainActivity"
 TEST_RUNNER="${TEST_PACKAGE_NAME}/androidx.test.runner.AndroidJUnitRunner"
+POCKETMIND_ACCESSIBILITY_SERVICE="${PACKAGE_NAME}/${PACKAGE_NAME}.device.PocketMindAccessibilityService"
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 ANDROID_TEST_APK="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 REQUIRED_FREE_KB=$((3 * 1024 * 1024))
@@ -59,6 +63,9 @@ write_verification_report() {
     echo "api_level=${API_LEVEL:-}"
     echo "abi=${ABI_LIST:-}"
     echo "clean_device=$CLEAN_DEVICE"
+    echo "skip_build=$SKIP_BUILD"
+    echo "skip_install=$SKIP_INSTALL"
+    echo "require_pocketmind_accessibility=$REQUIRE_POCKETMIND_ACCESSIBILITY"
     echo "reset_app_data_after_tests=$RESET_APP_DATA_AFTER_TESTS"
     echo "data_free_kb=${DATA_FREE_KB:-}"
     echo "instrumentation=$INSTRUMENTATION_STATUS"
@@ -201,16 +208,54 @@ fi
 if [[ "$CLEAN_DEVICE" == "1" ]]; then
   "${ADB[@]}" uninstall "$PACKAGE_NAME" >/dev/null 2>&1 || true
 fi
-"$GRADLE_CMD" assembleDebug assembleDebugAndroidTest
+if [[ "$SKIP_BUILD" == "1" ]]; then
+  if [[ "$SKIP_INSTALL" != "1" && ( ! -f "$DEBUG_APK" || ! -f "$ANDROID_TEST_APK" ) ]]; then
+    fail_with_reason build skipped-build-apk-missing \
+      "SKIP_BUILD=1 requires existing APKs when SKIP_INSTALL is not set."
+  fi
+else
+  "$GRADLE_CMD" assembleDebug assembleDebugAndroidTest
+fi
+
+pocketmind_accessibility_enabled() {
+  local dump bound_section enabled_line
+  dump="$("${ADB[@]}" shell dumpsys accessibility 2>/dev/null | tr -d '\r')"
+  bound_section="$(awk '
+    /Bound services:/ {printing = 1}
+    printing {print}
+    /Enabled services:/ {printing = 0}
+  ' <<<"$dump")"
+  enabled_line="$(grep -m 1 'Enabled services:' <<<"$dump" || true)"
+  grep -Fq "$POCKETMIND_ACCESSIBILITY_SERVICE" <<<"${bound_section}${enabled_line}"
+}
+
+require_pocketmind_accessibility_if_needed() {
+  if [[ "$REQUIRE_POCKETMIND_ACCESSIBILITY" != "1" ]]; then
+    return 0
+  fi
+  if pocketmind_accessibility_enabled; then
+    return 0
+  fi
+  cat >&2 <<EOF
+PocketMind Accessibility service is not enabled.
+Open system Accessibility settings, enable PocketMind, then rerun with SKIP_INSTALL=1
+or DEVICE_CONTROL_SKIP_INSTALL=1 so the debug APK is not reinstalled.
+Expected service: $POCKETMIND_ACCESSIBILITY_SERVICE
+EOF
+  return 1
+}
 
 run_device_tests() {
-  "${ADB[@]}" install -r "$DEBUG_APK" &&
-    "${ADB[@]}" install -r -t "$ANDROID_TEST_APK" &&
-    if [[ -n "$INSTRUMENTATION_CLASS" ]]; then
-      "${ADB[@]}" shell am instrument -w -r -e class "$INSTRUMENTATION_CLASS" "$TEST_RUNNER"
-    else
-      "${ADB[@]}" shell am instrument -w -r "$TEST_RUNNER"
-    fi
+  if [[ "$SKIP_INSTALL" != "1" ]]; then
+    "${ADB[@]}" install -r "$DEBUG_APK" || return
+    "${ADB[@]}" install -r -t "$ANDROID_TEST_APK" || return
+  fi
+  require_pocketmind_accessibility_if_needed || return
+  if [[ -n "$INSTRUMENTATION_CLASS" ]]; then
+    "${ADB[@]}" shell am instrument -w -r -e class "$INSTRUMENTATION_CLASS" "$TEST_RUNNER"
+  else
+    "${ADB[@]}" shell am instrument -w -r "$TEST_RUNNER"
+  fi
 }
 
 run_with_timeout_capture() {
@@ -329,6 +374,10 @@ On Xiaomi/HyperOS/MIUI devices, enable Developer options -> USB debugging,
 USB install / Install via USB, and accept any install confirmation shown on the phone.
 Then rerun scripts/install_and_test_device.sh.
 EOF
+  fi
+  if grep -q "PocketMind Accessibility service is not enabled" <<<"$TEST_OUTPUT"; then
+    FAILED_TARGET="accessibility-permission"
+    FAILURE_REASON="pocketmind-accessibility-not-enabled"
   fi
   if [[ -z "$FAILED_TARGET" ]]; then
     FAILED_TARGET="instrumentation"

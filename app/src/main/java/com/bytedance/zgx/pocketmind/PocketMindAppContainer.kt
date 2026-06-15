@@ -24,6 +24,7 @@ import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
 import com.bytedance.zgx.pocketmind.data.SessionRepository
 import com.bytedance.zgx.pocketmind.device.AndroidCalendarAvailabilityProvider
 import com.bytedance.zgx.pocketmind.device.AndroidContactSummaryProvider
+import com.bytedance.zgx.pocketmind.device.AndroidCurrentScreenControlProvider
 import com.bytedance.zgx.pocketmind.device.AndroidCurrentScreenTextProvider
 import com.bytedance.zgx.pocketmind.device.AndroidForegroundAppProvider
 import com.bytedance.zgx.pocketmind.device.AndroidNotificationSummaryProvider
@@ -129,6 +130,7 @@ class PocketMindAppContainer(context: Context) {
                 recentImageTextProvider = AndroidRecentImageTextProvider(appContext),
                 currentScreenTextProvider = AndroidCurrentScreenTextProvider(),
                 currentScreenshotOcrProvider = currentScreenshotOcrProviderInternal,
+                currentScreenControlProvider = AndroidCurrentScreenControlProvider(),
             ),
             registry = toolRegistry,
         )

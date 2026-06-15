@@ -24,6 +24,7 @@ import com.bytedance.zgx.pocketmind.action.RecentScreenshotOcrActionParser
 import com.bytedance.zgx.pocketmind.action.ReminderActionParser
 import com.bytedance.zgx.pocketmind.action.ShareTextActionParser
 import com.bytedance.zgx.pocketmind.action.WebSearchActionParser
+import com.bytedance.zgx.pocketmind.action.startsWithActionNegation
 import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import java.util.UUID
@@ -41,6 +42,18 @@ class BuiltInSkillRuntime : SkillRuntime {
             !input.looksLikeSequentialAction() && input.requestsClipboardSummaryShare() -> planClipboardSummaryShare(input)
             !input.looksLikeSequentialAction() && input.requestsCurrentScreenTextSummaryShare() ->
                 planCurrentScreenTextSummaryShare(input)
+
+            !input.looksLikeSequentialAction() && input.requestsCurrentSettingsUiControl() ->
+                planCurrentSettingsUiControl(input)
+
+            !input.looksLikeSequentialAction() && input.requestsCurrentBrowserUiSearch() ->
+                planCurrentBrowserUiSearch(input)
+
+            !input.looksLikeSequentialAction() && input.requestsCurrentMapsUiRoute() ->
+                planCurrentMapsUiRoute(input)
+
+            !input.looksLikeSequentialAction() && input.requestsCurrentDraftFormUiFill() ->
+                planCurrentDraftFormUiFill(input)
 
             !input.looksLikeSequentialAction() && MapSearchActionParser.matches(input) ->
                 plan(input, MapSearchActionParser.draft(input).toRequestPair())
@@ -89,6 +102,16 @@ class BuiltInSkillRuntime : SkillRuntime {
 
             !input.looksLikeSequentialAction() && RecentNotificationsActionParser.matches(input) ->
                 plan(input, RecentNotificationsActionParser.draft(input).toRequestPair())
+
+            !input.looksLikeSequentialAction() && input.requestsCurrentScreenObservation() -> {
+                val draft = ActionDraft(
+                    functionName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                    title = "观察当前屏幕",
+                    summary = "将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。",
+                    parameters = emptyMap(),
+                )
+                plan(input, draft.toRequestPair())
+            }
 
             !input.looksLikeSequentialAction() && CurrentScreenTextActionParser.matches(input) ->
                 plan(input, CurrentScreenTextActionParser.draft(input).toRequestPair())
@@ -301,6 +324,246 @@ class BuiltInSkillRuntime : SkillRuntime {
         )
     }
 
+    private fun planCurrentSettingsUiControl(input: String): SkillPlan? {
+        val target = input.extractCurrentSettingsUiTarget() ?: return null
+        return deviceUiTemplatePlan(
+            input = input,
+            skillId = SETTINGS_UI_CONTROL_SKILL,
+            reason = "将在当前设置页先观察屏幕，再点击可见设置项：$target。",
+            steps = listOf(
+                observeScreenStep("observe_settings"),
+                tapStep(
+                    id = "tap_settings_target",
+                    dependsOn = listOf("observe_settings"),
+                    target = target,
+                    summary = "点击当前设置页中的可见设置项：$target。",
+                ),
+                waitStep(
+                    id = "verify_settings_target",
+                    dependsOn = listOf("tap_settings_target"),
+                    summary = "等待设置页面变化并重新观察。",
+                ),
+            ),
+        )
+    }
+
+    private fun planCurrentBrowserUiSearch(input: String): SkillPlan? {
+        val query = input.extractCurrentBrowserUiQuery() ?: return null
+        return deviceUiTemplatePlan(
+            input = input,
+            skillId = BROWSER_UI_SEARCH_SKILL,
+            reason = "将在当前浏览器页观察、聚焦搜索框、输入关键词并点击匹配建议：$query。",
+            steps = listOf(
+                observeScreenStep("observe_browser"),
+                tapStep(
+                    id = "focus_browser_search",
+                    dependsOn = listOf("observe_browser"),
+                    target = "搜索或输入网址",
+                    summary = "聚焦当前浏览器页面的搜索或地址输入框。",
+                ),
+                typeTextStep(
+                    id = "type_browser_query",
+                    dependsOn = listOf("focus_browser_search"),
+                    text = query,
+                    summary = "在当前浏览器输入搜索关键词：$query。",
+                ),
+                waitStep(
+                    id = "wait_browser_suggestions",
+                    dependsOn = listOf("type_browser_query"),
+                    summary = "等待浏览器搜索建议或结果入口出现。",
+                ),
+                tapStep(
+                    id = "tap_browser_suggestion",
+                    dependsOn = listOf("wait_browser_suggestions"),
+                    target = query,
+                    summary = "点击与关键词匹配的浏览器搜索建议：$query。",
+                ),
+            ),
+        )
+    }
+
+    private fun planCurrentMapsUiRoute(input: String): SkillPlan? {
+        val query = input.extractCurrentMapsUiQuery() ?: return null
+        return deviceUiTemplatePlan(
+            input = input,
+            skillId = MAPS_UI_ROUTE_SKILL,
+            reason = "将在当前地图页观察、聚焦搜索框、输入路线目标并点击匹配建议：$query。",
+            steps = listOf(
+                observeScreenStep("observe_maps"),
+                tapStep(
+                    id = "focus_maps_search",
+                    dependsOn = listOf("observe_maps"),
+                    target = "搜索",
+                    summary = "聚焦当前地图页面的搜索输入框。",
+                ),
+                typeTextStep(
+                    id = "type_maps_query",
+                    dependsOn = listOf("focus_maps_search"),
+                    text = query,
+                    summary = "在当前地图页面输入路线或地点关键词：$query。",
+                ),
+                waitStep(
+                    id = "wait_maps_suggestions",
+                    dependsOn = listOf("type_maps_query"),
+                    summary = "等待地图建议或路线入口出现。",
+                ),
+                tapStep(
+                    id = "tap_maps_suggestion",
+                    dependsOn = listOf("wait_maps_suggestions"),
+                    target = query,
+                    summary = "点击与目标匹配的地图建议：$query。",
+                ),
+            ),
+        )
+    }
+
+    private fun planCurrentDraftFormUiFill(input: String): SkillPlan? {
+        val draft = input.extractCurrentDraftFormUiFill() ?: return null
+        return deviceUiTemplatePlan(
+            input = input,
+            skillId = DRAFT_FORM_UI_SKILL,
+            reason = "将在当前${draft.formTitle}草稿页观察并填写${draft.fieldTitle}；不会发送、保存或发布。",
+            steps = listOf(
+                observeScreenStep("observe_draft_form"),
+                typeTextStep(
+                    id = "type_draft_field",
+                    dependsOn = listOf("observe_draft_form"),
+                    target = draft.fieldTarget,
+                    text = draft.text,
+                    summary = "在当前${draft.formTitle}草稿页填写${draft.fieldTitle}。",
+                ),
+                waitStep(
+                    id = "verify_draft_field",
+                    dependsOn = listOf("type_draft_field"),
+                    summary = "等待草稿字段更新并重新观察。",
+                ),
+            ),
+        )
+    }
+
+    private fun deviceUiTemplatePlan(
+        input: String,
+        skillId: String,
+        reason: String,
+        steps: List<SkillStep>,
+    ): SkillPlan {
+        val manifest = manifestsById.getValue(skillId)
+        return SkillPlan(
+            request = SkillRequest(
+                id = UUID.randomUUID().toString(),
+                skillId = skillId,
+                arguments = mapOf("input" to input),
+                reason = reason,
+            ),
+            manifest = manifest,
+            steps = steps,
+        )
+    }
+
+    private fun observeScreenStep(id: String): SkillStep.ToolStep {
+        val parameters = mapOf(
+            "maxTextChars" to "2000",
+            "maxNodes" to "80",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            title = "观察当前屏幕",
+            summary = "先读取当前屏幕的本地 Accessibility 状态快照，作为 UI 动作前置观察。",
+            parameters = parameters,
+        )
+        return SkillStep.ToolStep(
+            id = id,
+            request = ToolRequest(
+                toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                arguments = parameters,
+                reason = draft.summary,
+            ),
+            draft = draft,
+        )
+    }
+
+    private fun tapStep(
+        id: String,
+        dependsOn: List<String>,
+        target: String,
+        summary: String,
+    ): SkillStep.ToolStep {
+        val parameters = mapOf(
+            "target" to target,
+            "timeoutMillis" to "1500",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.UI_TAP,
+            title = "点击屏幕元素",
+            summary = summary,
+            parameters = parameters,
+        )
+        return SkillStep.ToolStep(
+            id = id,
+            dependsOn = dependsOn,
+            request = ToolRequest(
+                toolName = MobileActionFunctions.UI_TAP,
+                arguments = parameters,
+                reason = summary,
+            ),
+            draft = draft,
+        )
+    }
+
+    private fun typeTextStep(
+        id: String,
+        dependsOn: List<String>,
+        text: String,
+        summary: String,
+        target: String? = null,
+    ): SkillStep.ToolStep {
+        val parameters = buildMap {
+            put("text", text)
+            target?.takeIf { it.isNotBlank() }?.let { put("target", it) }
+            put("timeoutMillis", "1500")
+        }
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.UI_TYPE_TEXT,
+            title = "输入文本",
+            summary = summary,
+            parameters = parameters,
+        )
+        return SkillStep.ToolStep(
+            id = id,
+            dependsOn = dependsOn,
+            request = ToolRequest(
+                toolName = MobileActionFunctions.UI_TYPE_TEXT,
+                arguments = parameters,
+                reason = summary,
+            ),
+            draft = draft,
+        )
+    }
+
+    private fun waitStep(
+        id: String,
+        dependsOn: List<String>,
+        summary: String,
+    ): SkillStep.ToolStep {
+        val parameters = mapOf("timeoutMillis" to "800")
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.UI_WAIT,
+            title = "等待并验证",
+            summary = summary,
+            parameters = parameters,
+        )
+        return SkillStep.ToolStep(
+            id = id,
+            dependsOn = dependsOn,
+            request = ToolRequest(
+                toolName = MobileActionFunctions.UI_WAIT,
+                arguments = parameters,
+                reason = summary,
+            ),
+            draft = draft,
+        )
+    }
+
     companion object {
         const val EMAIL_DRAFT_SKILL = "email_draft_skill"
         const val CALENDAR_DRAFT_SKILL = "calendar_draft_skill"
@@ -323,11 +586,23 @@ class BuiltInSkillRuntime : SkillRuntime {
         const val FOREGROUND_APP_CONTEXT_SKILL = "foreground_app_context_skill"
         const val RECENT_NOTIFICATIONS_CONTEXT_SKILL = "recent_notifications_context_skill"
         const val CURRENT_SCREEN_TEXT_CONTEXT_SKILL = "current_screen_text_context_skill"
+        const val DEVICE_CONTROL_SKILL = "device_control_skill"
+        const val SETTINGS_UI_CONTROL_SKILL = "settings_ui_control_skill"
+        const val BROWSER_UI_SEARCH_SKILL = "browser_ui_search_skill"
+        const val MAPS_UI_ROUTE_SKILL = "maps_ui_route_skill"
+        const val DRAFT_FORM_UI_SKILL = "draft_form_ui_skill"
         const val CONTACT_LOOKUP_SKILL = "contact_lookup_skill"
         const val CALENDAR_AVAILABILITY_SKILL = "calendar_availability_skill"
         const val APP_NAVIGATION_SKILL = "app_navigation_skill"
     }
 }
+
+private data class DraftFormUiFill(
+    val formTitle: String,
+    val fieldTitle: String,
+    val fieldTarget: String,
+    val text: String,
+)
 
 private fun String.requestsCurrentScreenTextSummaryShare(): Boolean {
     val normalized = lowercase()
@@ -348,6 +623,128 @@ private fun String.currentScreenTextReferences(normalized: String): Boolean =
             .containsMatchIn(normalized) ||
         Regex("""\b(?:current\s+)?(?:visible|accessibility|accessible)\s+text\b""", RegexOption.IGNORE_CASE)
             .containsMatchIn(normalized)
+
+private fun String.requestsCurrentScreenObservation(): Boolean {
+    val normalized = lowercase()
+    if (
+        Regex("""^\s*(?:请问|问一下|如何|怎么|怎样|为什么|解释|说明|介绍)""").containsMatchIn(this) ||
+        Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b""").containsMatchIn(normalized) ||
+        Regex("""^\s*(?:请|帮我|麻烦|麻烦你)?\s*(?:不想|不需要|不用|不必|不要|别|请勿|请不要|先别|暂时别|不)\s*""")
+            .containsMatchIn(this) ||
+        Regex("""^\s*(?:(?:please\s+)?(?:do\s+not|don't|dont|never)|i\s+(?:do\s+not|don't|dont)\s+want\s+to)\b""")
+            .containsMatchIn(normalized)
+    ) {
+        return false
+    }
+    val referencesScreen = listOf("当前屏幕", "当前界面", "现在屏幕", "这个界面").any { it in this } ||
+        Regex("""\b(?:current|active|this)\s+(?:screen|page|window|view)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
+    val asksObserve = listOf("观察", "查看", "看看", "读取状态", "屏幕状态").any { it in this } ||
+        Regex("""\b(?:observe|inspect|read)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+    return referencesScreen && asksObserve
+}
+
+private fun String.requestsCurrentSettingsUiControl(): Boolean =
+    extractCurrentSettingsUiTarget() != null
+
+private fun String.extractCurrentSettingsUiTarget(): String? {
+    if (startsWithActionNegation() || looksLikeUiControlDiscussion()) return null
+    val normalized = lowercase()
+    val referencesCurrentSettings = listOf("当前设置页", "当前设置页面", "当前系统设置", "设置页里", "设置页面里")
+        .any { it in this } ||
+        Regex("""\b(?:current|this)\s+(?:settings?|preferences?)\s+(?:screen|page)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
+    if (!referencesCurrentSettings) return null
+    val target = replace(Regex("""^.*?(?:点击|点开|打开|进入|选择)\s*"""), "")
+        .replace(Regex("""(?i)^.*?\b(?:tap|open|select|choose)\s+"""), "")
+        .replace(Regex("""(?:这个)?(?:设置项|选项|入口|按钮)?\s*$"""), "")
+        .replace(Regex("""(?i)\s+(?:option|entry|button)$"""), "")
+        .trim()
+    return target.takeIf { it.length in 1..80 }
+}
+
+private fun String.requestsCurrentBrowserUiSearch(): Boolean =
+    extractCurrentBrowserUiQuery() != null
+
+private fun String.extractCurrentBrowserUiQuery(): String? {
+    if (startsWithActionNegation() || looksLikeUiControlDiscussion()) return null
+    val normalized = lowercase()
+    val referencesCurrentBrowser = listOf("当前浏览器", "当前网页", "浏览器页面", "网页页面")
+        .any { it in this } ||
+        Regex("""\b(?:current|this)\s+(?:browser|web\s+page|webpage)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
+    val asksSearch = listOf("搜索", "查询", "搜", "查", "输入").any { it in this } ||
+        Regex("""\b(?:search|look\s+up|type)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+    if (!referencesCurrentBrowser || !asksSearch) return null
+    val query = replace(Regex("""^.*?(?:搜索|查询|搜|查|输入)\s*[:：]?"""), "")
+        .replace(Regex("""(?i)^.*?\b(?:search|look\s+up|type)\s+(?:for\s+)?"""), "")
+        .trim()
+    return query.takeIf { it.length in 1..120 }
+}
+
+private fun String.requestsCurrentMapsUiRoute(): Boolean =
+    extractCurrentMapsUiQuery() != null
+
+private fun String.extractCurrentMapsUiQuery(): String? {
+    if (startsWithActionNegation() || looksLikeUiControlDiscussion()) return null
+    val normalized = lowercase()
+    val referencesCurrentMaps = listOf("当前地图", "地图页面", "地图里", "地图内").any { it in this } ||
+        Regex("""\b(?:current|this)\s+maps?\b|\bmaps?\s+(?:screen|page)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
+    val asksRouteOrSearch = listOf("路线", "导航", "搜索", "查", "输入").any { it in this } ||
+        Regex("""\b(?:route|directions?|navigate|search|type)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
+    if (!referencesCurrentMaps || !asksRouteOrSearch) return null
+    val query = replace(Regex("""^.*?(?:查(?:去|到)?|搜索|导航(?:到|去)?|输入)\s*[:：]?"""), "")
+        .replace(Regex("""(?i)^.*?\b(?:route|directions?\s+to|navigate\s+to|search|type)\s+"""), "")
+        .replace(Regex("""(?:的)?路线\s*$"""), "")
+        .trim()
+    return query.takeIf { it.length in 1..120 }
+}
+
+private fun String.requestsCurrentDraftFormUiFill(): Boolean =
+    extractCurrentDraftFormUiFill() != null
+
+private fun String.extractCurrentDraftFormUiFill(): DraftFormUiFill? {
+    if (startsWithActionNegation() || looksLikeUiControlDiscussion()) return null
+    val normalized = lowercase()
+    val isEmail = listOf("当前邮件表单", "当前邮件页面", "当前邮件草稿", "邮件草稿页").any { it in this } ||
+        Regex("""\b(?:current|this)\s+(?:email|mail)\s+(?:draft|form|compose)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
+    val isCalendar = listOf("当前日历表单", "当前日程页面", "当前日程草稿", "日历草稿页").any { it in this } ||
+        Regex("""\b(?:current|this)\s+(?:calendar|event)\s+(?:draft|form)\b""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(normalized)
+    if (!isEmail && !isCalendar) return null
+    val asksFill = listOf("填写", "填入", "输入", "写入").any { it in this } ||
+        Regex("""\b(?:fill|type|enter)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+    if (!asksFill) return null
+    val text = replace(Regex("""^.*?(?:填写|填入|输入|写入)\s*[:：]?"""), "")
+        .replace(Regex("""(?i)^.*?\b(?:fill|type|enter)\s+"""), "")
+        .trim()
+    if (text.isBlank() || text.length > 500) return null
+    return if (isEmail) {
+        DraftFormUiFill(
+            formTitle = "邮件",
+            fieldTitle = "正文",
+            fieldTarget = "正文",
+            text = text,
+        )
+    } else {
+        DraftFormUiFill(
+            formTitle = "日历",
+            fieldTitle = "标题",
+            fieldTarget = "标题",
+            text = text,
+        )
+    }
+}
+
+private fun String.looksLikeUiControlDiscussion(): Boolean {
+    val normalized = lowercase()
+    return Regex("""^\s*(?:请问|问一下|如何|怎么|怎样|为什么|解释|说明|介绍)""").containsMatchIn(this) ||
+        Regex("""^\s*(?:how\s+(?:do|can|to)|what\s+is|explain)\b""").containsMatchIn(normalized) ||
+        listOf(" API", "api", "接口", "怎么实现", "如何实现", "怎么设计").any { it in this }
+}
 
 private fun String.looksLikeCurrentScreenTextSummaryShareNonAction(normalized: String): Boolean =
     (
@@ -688,6 +1085,81 @@ private val builtInSkillManifests = listOf(
         riskLevel = RiskLevel.MediumDraftOrNavigation,
     ),
     SkillManifest(
+        id = BuiltInSkillRuntime.DEVICE_CONTROL_SKILL,
+        version = 1,
+        title = "屏幕观察与确认控制",
+        description = "通过通用 Accessibility UI 工具观察当前屏幕，并在确认流程内执行点击、输入、滚动、返回或等待；不读取截图像素，不自动完成发送、删除、支付、转账或公开发布。",
+        triggerExamples = listOf("观察当前屏幕", "observe current screen"),
+        requiredTools = listOf(
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SCROLL,
+            MobileActionFunctions.UI_PRESS_BACK,
+            MobileActionFunctions.UI_WAIT,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.SETTINGS_UI_CONTROL_SKILL,
+        version = 1,
+        title = "设置页 UI 控制",
+        description = "在当前系统设置页内先观察屏幕，再通过通用 UI 原语点击可见设置项并等待验证；不绕过确认，不自动修改关键系统设置。",
+        triggerExamples = listOf("在当前设置页点击 Wi-Fi", "tap Wi-Fi on the current settings screen"),
+        requiredTools = listOf(
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_WAIT,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.BROWSER_UI_SEARCH_SKILL,
+        version = 1,
+        title = "浏览器页面搜索",
+        description = "在当前浏览器或网页内先观察屏幕，再聚焦搜索/地址框、输入关键词、等待建议并点击匹配项；只使用通用 UI 原语。",
+        triggerExamples = listOf("在当前浏览器搜索 Kotlin 协程", "search Kotlin coroutines in the current browser"),
+        requiredTools = listOf(
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_WAIT,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.MAPS_UI_ROUTE_SKILL,
+        version = 1,
+        title = "地图页路线搜索",
+        description = "在当前地图页内先观察屏幕，再聚焦搜索框、输入地点或路线目标、等待建议并点击匹配项；只使用通用 UI 原语。",
+        triggerExamples = listOf("在当前地图查去机场的路线", "route to the airport in the current maps page"),
+        requiredTools = listOf(
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_WAIT,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
+        id = BuiltInSkillRuntime.DRAFT_FORM_UI_SKILL,
+        version = 1,
+        title = "草稿表单填写",
+        description = "在当前邮件或日历草稿页先观察屏幕，再填写正文或标题字段并等待验证；不发送、不保存、不发布。",
+        triggerExamples = listOf("在当前邮件草稿填写 明天延期", "fill current calendar draft with project review"),
+        requiredTools = listOf(
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_WAIT,
+        ),
+        inputSchemaJson = simpleTextInputSchema,
+        riskLevel = RiskLevel.MediumDraftOrNavigation,
+    ),
+    SkillManifest(
         id = BuiltInSkillRuntime.CONTACT_LOOKUP_SKILL,
         version = 1,
         title = "联系人查询",
@@ -715,6 +1187,10 @@ private val builtInSkillManifests = listOf(
 private val builtInCompositeSkillIds = setOf(
     BuiltInSkillRuntime.CLIPBOARD_SUMMARY_SHARE_SKILL,
     BuiltInSkillRuntime.CURRENT_SCREEN_TEXT_SUMMARY_SHARE_SKILL,
+    BuiltInSkillRuntime.SETTINGS_UI_CONTROL_SKILL,
+    BuiltInSkillRuntime.BROWSER_UI_SEARCH_SKILL,
+    BuiltInSkillRuntime.MAPS_UI_ROUTE_SKILL,
+    BuiltInSkillRuntime.DRAFT_FORM_UI_SKILL,
 )
 
 private val builtInSkillDefinitions = builtInSkillManifests.map { manifest ->

@@ -449,6 +449,7 @@ class MainActivity : ComponentActivity() {
         when (id) {
             SPECIAL_ACCESS_USAGE_STATS -> hasUsageStatsAccess()
             SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT -> hasAccessibilityScreenTextAccess()
+            SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL -> hasAccessibilityScreenTextAccess()
             else -> false
         }
 
@@ -597,6 +598,7 @@ class MainActivity : ComponentActivity() {
         private val DEVICE_CONTEXT_SPECIAL_ACCESS_IDS = listOf(
             SPECIAL_ACCESS_USAGE_STATS,
             SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
+            SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL,
         )
 
         private fun isRunningUnderAndroidTest(): Boolean =

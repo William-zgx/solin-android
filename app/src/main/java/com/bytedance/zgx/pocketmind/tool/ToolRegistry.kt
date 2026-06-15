@@ -141,6 +141,11 @@ class ToolRegistry private constructor(
         data["recoveryToolName"]
             ?.takeIf { it in privateNonSucceededAllowedRecoveryTools }
             ?.let { sanitizedData["recoveryToolName"] = it }
+        privateNonSucceededAllowedDiagnosticKeys.forEach { key ->
+            data[key]
+                ?.takeIf { value -> privateNonSucceededDiagnosticValueAllowed(key, value) }
+                ?.let { value -> sanitizedData[key] = value }
+        }
         sanitizedData["toolName"] = request.toolName
         sanitizedData["privacy"] = MessagePrivacy.LocalOnly.name
         sanitizedData["requiresLocalModel"] = true.toString()
@@ -261,6 +266,7 @@ private data class ToolDefinition(
 private val privateNonSucceededAllowedSpecialAccessValues = setOf(
     "usage_stats",
     "accessibility_screen_text",
+    "accessibility_device_control",
     CurrentScreenshotOcrContract.CONSENT_REASON,
 )
 
@@ -272,6 +278,27 @@ private val privateNonSucceededAllowedSettingsActions = setOf(
 private val privateNonSucceededAllowedRecoveryTools = setOf(
     MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS,
 )
+
+private val privateNonSucceededAllowedDiagnosticKeys = setOf(
+    "actionType",
+    "status",
+    "retryable",
+    "failureKind",
+)
+
+private val privateNonSucceededAllowedFailureKinds = setOf(
+    "node_not_found",
+    "page_changed",
+    "permission_missing",
+    "keyboard_obscured",
+    "timeout",
+    "unknown",
+)
+
+private fun privateNonSucceededDiagnosticValueAllowed(key: String, value: String): Boolean {
+    if (value.length > 64 || !value.matches(Regex("""[A-Za-z0-9_-]+"""))) return false
+    return key != "failureKind" || value in privateNonSucceededAllowedFailureKinds
+}
 
 private data class ToolArgumentValidator(
     private val requiredArguments: Set<String>,
@@ -652,6 +679,9 @@ private val emptyObjectSchemaJson = """
 private const val CURRENT_SCREEN_TEXT_SOURCE = "accessibility_active_window"
 private const val CURRENT_SCREEN_TEXT_METADATA_POLICY =
     "accessibility_text_local_only_no_node_ids_bounds_or_hierarchy_persisted"
+private const val DEVICE_CONTROL_SOURCE = "accessibility_active_window"
+private const val DEVICE_CONTROL_METADATA_POLICY =
+    "accessibility_control_local_only_transient_node_ids_no_pixels_persisted"
 private val currentScreenshotOcrSchemaJson = CurrentScreenshotOcrContract.INPUT_SCHEMA_JSON.trimIndent()
 
 private val querySchemaJson = """
@@ -966,6 +996,113 @@ private val currentScreenTextSchemaJson = """
           "description": "Maximum characters returned from the active-window Accessibility 可访问文本快照；不是截图、OCR、视觉/VLM 或语义屏幕理解。",
           "minimum": 1,
           "maximum": 4000
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val observeCurrentScreenSchemaJson = """
+    {
+      "type": "object",
+      "properties": {
+        "maxTextChars": {
+          "type": "integer",
+          "description": "Maximum characters returned from the active-window Accessibility text summary.",
+          "minimum": 1,
+          "maximum": 4000
+        },
+        "maxNodes": {
+          "type": "integer",
+          "description": "Maximum visible Accessibility nodes returned with transient node ids and bounds.",
+          "minimum": 1,
+          "maximum": 120
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val uiTapSchemaJson = """
+    {
+      "type": "object",
+      "required": ["target"],
+      "properties": {
+        "target": {
+          "type": "string",
+          "description": "Transient node id from observe_current_screen, or visible text/contentDescription to match.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "timeoutMillis": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val uiTypeTextSchemaJson = """
+    {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "target": {
+          "type": "string",
+          "description": "Optional transient node id or visible label for the editable field.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "timeoutMillis": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val uiScrollSchemaJson = """
+    {
+      "type": "object",
+      "required": ["direction"],
+      "properties": {
+        "direction": {
+          "type": "string",
+          "enum": ["up", "down", "left", "right", "forward", "backward"]
+        },
+        "target": {
+          "type": "string",
+          "description": "Optional transient node id or visible label for the scroll container.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "timeoutMillis": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000
+        }
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val uiBackOrWaitSchemaJson = """
+    {
+      "type": "object",
+      "properties": {
+        "timeoutMillis": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000
         }
       },
       "additionalProperties": false
@@ -1429,6 +1566,94 @@ private val currentScreenTextOutputSchemaJson = """
 
 private val currentScreenshotOcrOutputSchemaJson = CurrentScreenshotOcrContract.OUTPUT_SCHEMA_JSON.trimIndent()
 
+private val observeCurrentScreenOutputSchemaJson = """
+    {
+      "type": "object",
+      "required": [
+        "toolName",
+        "privacy",
+        "requiresLocalModel",
+        "source",
+        "metadataPolicy",
+        "observationId",
+        "capturedAtMillis",
+        "nodeCount",
+        "actionableNodeCount",
+        "textSummary",
+        "truncated",
+        "nodesJson",
+        "maxTextChars",
+        "maxNodes"
+      ],
+      "properties": {
+        "toolName": {"type": "string", "minLength": 1},
+        "privacy": {"type": "string", "enum": ["LocalOnly"]},
+        "requiresLocalModel": {"type": "boolean"},
+        "source": {"type": "string", "enum": ["$DEVICE_CONTROL_SOURCE"]},
+        "metadataPolicy": {"type": "string", "enum": ["$DEVICE_CONTROL_METADATA_POLICY"]},
+        "observationId": {"type": "string", "minLength": 1},
+        "packageName": {"type": "string"},
+        "capturedAtMillis": {"type": "integer", "minimum": 0},
+        "nodeCount": {"type": "integer", "minimum": 0},
+        "actionableNodeCount": {"type": "integer", "minimum": 0},
+        "textSummary": {"type": "string"},
+        "truncated": {"type": "boolean"},
+        "nodesJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"},
+        "maxTextChars": {"type": "integer", "minimum": 1, "maximum": 4000},
+        "maxNodes": {"type": "integer", "minimum": 1, "maximum": 120}
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
+private val uiActionOutputSchemaJson = """
+    {
+      "type": "object",
+      "required": [
+        "toolName",
+        "privacy",
+        "requiresLocalModel",
+        "source",
+        "metadataPolicy",
+        "actionType",
+        "status",
+        "retryable",
+        "summary",
+        "beforeObservationId",
+        "afterObservationId",
+        "verificationSummary"
+      ],
+      "properties": {
+        "toolName": {"type": "string", "minLength": 1},
+        "privacy": {"type": "string", "enum": ["LocalOnly"]},
+        "requiresLocalModel": {"type": "boolean"},
+        "source": {"type": "string", "enum": ["$DEVICE_CONTROL_SOURCE"]},
+        "metadataPolicy": {"type": "string", "enum": ["$DEVICE_CONTROL_METADATA_POLICY"]},
+        "actionType": {"type": "string", "enum": ["tap", "type_text", "scroll", "press_back", "wait"]},
+        "target": {"type": "string"},
+        "direction": {"type": "string", "enum": ["up", "down", "left", "right", "forward", "backward"]},
+        "status": {"type": "string", "enum": ["succeeded", "failed"]},
+        "retryable": {"type": "boolean"},
+        "summary": {"type": "string", "minLength": 1},
+        "failureKind": {
+          "type": "string",
+          "enum": ["node_not_found", "page_changed", "permission_missing", "keyboard_obscured", "timeout", "unknown"]
+        },
+        "beforeObservationId": {"type": "string"},
+        "afterObservationId": {"type": "string"},
+        "verificationSummary": {"type": "string", "minLength": 1},
+        "afterPackageName": {"type": "string"},
+        "afterCapturedAtMillis": {"type": "integer", "minimum": 0},
+        "afterNodeCount": {"type": "integer", "minimum": 0},
+        "afterActionableNodeCount": {"type": "integer", "minimum": 0},
+        "afterTextSummary": {"type": "string"},
+        "afterTruncated": {"type": "boolean"},
+        "afterNodesJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"}
+      },
+      "additionalProperties": false
+    }
+""".trimIndent()
+
 private val calendarAvailabilityOutputSchemaJson = """
     {
       "type": "object",
@@ -1455,6 +1680,31 @@ private val calendarAvailabilityOutputSchemaJson = """
       "additionalProperties": false
     }
 """.trimIndent()
+
+private val observeCurrentScreenPrivateOutputKeys = setOf(
+    "observationId",
+    "packageName",
+    "capturedAtMillis",
+    "nodeCount",
+    "actionableNodeCount",
+    "textSummary",
+    "nodesJson",
+)
+
+private val uiActionPrivateOutputKeys = setOf(
+    "target",
+    "summary",
+    "beforeObservationId",
+    "afterObservationId",
+    "verificationSummary",
+    "afterPackageName",
+    "afterCapturedAtMillis",
+    "afterNodeCount",
+    "afterActionableNodeCount",
+    "afterTextSummary",
+    "afterTruncated",
+    "afterNodesJson",
+)
 
 private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
     ToolDefinition(
@@ -1853,6 +2103,131 @@ private val toolDefinitionsByName: Map<String, ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("captureMode"),
             privateOutputKeys = setOf("ocrText"),
             redactedResultSummary = "已读取当前屏幕截图 OCR 摘录",
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            title = "观察当前屏幕",
+            description = "在用户确认后通过 Accessibility 读取当前 active window 的本地屏幕状态快照，包括可见文本摘要、可交互节点、短期节点 id 和 bounds；不读取截图像素，不默认发送远程。",
+            inputSchemaJson = observeCurrentScreenSchemaJson,
+            outputSchemaJson = observeCurrentScreenOutputSchemaJson,
+            capability = ToolCapability.DeviceControl,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsAccessibilityText,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("maxTextChars", "maxNodes"),
+            privateOutputKeys = observeCurrentScreenPrivateOutputKeys,
+            redactedResultSummary = "已观察当前屏幕状态",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.UI_TAP,
+            title = "点击当前屏幕元素",
+            description = "在用户确认后通过 Accessibility 点击当前屏幕中匹配的短期节点 id、文本或 contentDescription；每次动作后重新观察屏幕并返回本地验证摘要。",
+            inputSchemaJson = uiTapSchemaJson,
+            outputSchemaJson = uiActionOutputSchemaJson,
+            capability = ToolCapability.DeviceControl,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsAccessibilityText,
+                ToolPermission.PerformsAccessibilityGesture,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("target", "timeoutMillis"),
+            privateOutputKeys = uiActionPrivateOutputKeys,
+            redactedResultSummary = "已执行屏幕点击动作",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.UI_TYPE_TEXT,
+            title = "向当前屏幕输入文本",
+            description = "在用户确认后通过 Accessibility 向当前或指定输入框写入文本；不直接发送、发布、支付或删除数据，每次动作后重新观察屏幕并返回本地验证摘要。",
+            inputSchemaJson = uiTypeTextSchemaJson,
+            outputSchemaJson = uiActionOutputSchemaJson,
+            capability = ToolCapability.DeviceControl,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsAccessibilityText,
+                ToolPermission.PerformsAccessibilityGesture,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("text", "target", "timeoutMillis"),
+            privateOutputKeys = uiActionPrivateOutputKeys,
+            redactedResultSummary = "已执行屏幕输入动作",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.UI_SCROLL,
+            title = "滚动当前屏幕",
+            description = "在用户确认后通过 Accessibility 滚动当前屏幕或指定滚动容器；每次动作后重新观察屏幕并返回本地验证摘要。",
+            inputSchemaJson = uiScrollSchemaJson,
+            outputSchemaJson = uiActionOutputSchemaJson,
+            capability = ToolCapability.DeviceControl,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsAccessibilityText,
+                ToolPermission.PerformsAccessibilityGesture,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("direction", "target", "timeoutMillis"),
+            privateOutputKeys = uiActionPrivateOutputKeys,
+            redactedResultSummary = "已执行屏幕滚动动作",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.UI_PRESS_BACK,
+            title = "执行系统返回",
+            description = "在用户确认后通过 Accessibility 执行系统返回；每次动作后重新观察屏幕并返回本地验证摘要。",
+            inputSchemaJson = uiBackOrWaitSchemaJson,
+            outputSchemaJson = uiActionOutputSchemaJson,
+            capability = ToolCapability.DeviceControl,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsAccessibilityText,
+                ToolPermission.PerformsAccessibilityGesture,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("timeoutMillis"),
+            privateOutputKeys = uiActionPrivateOutputKeys,
+            redactedResultSummary = "已执行系统返回动作",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
+        ),
+    ),
+    ToolDefinition(
+        spec = ToolSpec(
+            name = MobileActionFunctions.UI_WAIT,
+            title = "等待屏幕稳定",
+            description = "在用户确认后等待当前屏幕稳定并重新观察屏幕，作为页面变化、加载或输入法遮挡后的恢复检查。",
+            inputSchemaJson = uiBackOrWaitSchemaJson,
+            outputSchemaJson = uiActionOutputSchemaJson,
+            capability = ToolCapability.DeviceControl,
+            permissions = setOf(
+                ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsAccessibilityText,
+                ToolPermission.PerformsAccessibilityGesture,
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            confirmationPolicy = ConfirmationPolicy.Required,
+            pendingArgumentAllowlist = setOf("timeoutMillis"),
+            privateOutputKeys = uiActionPrivateOutputKeys,
+            redactedResultSummary = "已等待并重新观察当前屏幕",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
         ),
     ),
     ToolDefinition(

@@ -61,6 +61,12 @@ object MobileActionFunctions {
     const val READ_RECENT_IMAGE_OCR = "read_recent_image_ocr"
     const val READ_CURRENT_SCREEN_TEXT = "read_current_screen_text"
     const val CAPTURE_CURRENT_SCREENSHOT_OCR = "capture_current_screenshot_ocr"
+    const val OBSERVE_CURRENT_SCREEN = "observe_current_screen"
+    const val UI_TAP = "ui_tap"
+    const val UI_TYPE_TEXT = "ui_type_text"
+    const val UI_SCROLL = "ui_scroll"
+    const val UI_PRESS_BACK = "ui_press_back"
+    const val UI_WAIT = "ui_wait"
     const val CANCEL_REMINDER = "cancel_reminder"
 
     val supported: Set<String> = setOf(
@@ -77,6 +83,12 @@ object MobileActionFunctions {
         READ_RECENT_IMAGE_OCR,
         READ_CURRENT_SCREEN_TEXT,
         CAPTURE_CURRENT_SCREENSHOT_OCR,
+        OBSERVE_CURRENT_SCREEN,
+        UI_TAP,
+        UI_TYPE_TEXT,
+        UI_SCROLL,
+        UI_PRESS_BACK,
+        UI_WAIT,
         OPEN_FLASHLIGHT_SETTINGS,
         SCHEDULE_REMINDER,
         CONFIGURE_PERIODIC_CHECK,

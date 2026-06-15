@@ -1559,7 +1559,19 @@ internal object CalendarAvailabilityActionParser {
 
 private fun String.looksLikeDiscussion(): Boolean {
     val normalized = lowercase()
-    return listOf("什么意思", "什么含义", "怎么说", "如何表达", "解释", "怎么理解", "怎么写", "是什么")
+    return listOf(
+        "什么意思",
+        "什么含义",
+        "怎么说",
+        "如何表达",
+        "解释",
+        "怎么理解",
+        "怎么写",
+        "怎么实现",
+        "如何实现",
+        "怎么设计",
+        "是什么",
+    )
         .any { it in this } ||
         listOf("错误原因", "日志", "算法", "数据结构", "功能测试", "路线图", "导航栏").any { it in this } ||
         normalized.contains(Regex("""\b(how\s+do\s+i|what\s+does|what\s+is|explain|meaning|parser|tests?|listener|handler|schema|stream)\b"""))

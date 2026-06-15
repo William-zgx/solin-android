@@ -31,7 +31,7 @@ class AndroidManifestTest {
     }
 
     @Test
-    fun declaresAccessibilityServiceForCurrentScreenTextSpecialAccess() {
+    fun declaresAccessibilityServiceForScreenStateAndConfirmedGestures() {
         val manifest = readManifest()
         val serviceConfig = readMainFile("res/xml/pocketmind_accessibility_service.xml")
 
@@ -41,7 +41,7 @@ class AndroidManifestTest {
         assertTrue(manifest.contains("""@xml/pocketmind_accessibility_service"""))
         assertTrue(serviceConfig.contains("""android:canRetrieveWindowContent="true""""))
         assertTrue(serviceConfig.contains("""typeWindowStateChanged|typeWindowContentChanged|typeWindowsChanged"""))
-        assertTrue(!serviceConfig.contains("""canPerformGestures="true""""))
+        assertTrue(serviceConfig.contains("""android:canPerformGestures="true""""))
         assertTrue(!serviceConfig.contains("""canTakeScreenshot="true""""))
     }
 

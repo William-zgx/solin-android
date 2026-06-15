@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">PocketMind</string>
-    <string name="accessibility_service_description">在你确认 PocketMind 工具后，只读获取当前屏幕暴露的可访问文本；不会点击、控制设备或读取截图像素。</string>
+    <string name="accessibility_service_description">在你确认 PocketMind 工具后，观察当前屏幕暴露的可访问状态，并在确认流程内执行点击、输入、滚动或返回；不会读取截图像素。</string>
 </resources>

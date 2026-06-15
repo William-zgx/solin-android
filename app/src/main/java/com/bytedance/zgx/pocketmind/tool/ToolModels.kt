@@ -92,6 +92,7 @@ enum class ToolPermission {
     ReadsContacts,
     ReadsFiles,
     ReadsAccessibilityText,
+    PerformsAccessibilityGesture,
     RequiresAndroidRuntimePermission,
     RequiresMediaProjectionConsent,
     SchedulesBackgroundWork,
@@ -117,6 +118,7 @@ enum class ToolCapability {
     ExternalDraft,
     BackgroundTask,
     DeviceContext,
+    DeviceControl,
     ExternalShare,
 }
 
@@ -129,6 +131,7 @@ private val publicEvidenceBatchDisallowedPermissions = setOf(
     ToolPermission.ReadsContacts,
     ToolPermission.ReadsFiles,
     ToolPermission.ReadsAccessibilityText,
+    ToolPermission.PerformsAccessibilityGesture,
     ToolPermission.RequiresAndroidRuntimePermission,
     ToolPermission.RequiresMediaProjectionConsent,
     ToolPermission.SchedulesBackgroundWork,
@@ -157,6 +160,7 @@ private val remoteModelPlanningDisallowedPermissions = setOf(
     ToolPermission.ReadsContacts,
     ToolPermission.ReadsFiles,
     ToolPermission.ReadsAccessibilityText,
+    ToolPermission.PerformsAccessibilityGesture,
     ToolPermission.RequiresMediaProjectionConsent,
 )
 

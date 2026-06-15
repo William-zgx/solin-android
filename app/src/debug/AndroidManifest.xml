@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <activity
+            android:name=".debug.DeviceControlEvalActivity"
+            android:exported="true" />
+        <receiver
+            android:name=".debug.DeviceControlEvalReceiver"
+            android:exported="true" />
         <receiver
             android:name=".debug.DebugRemoteConfigReceiver"
             android:exported="false" />

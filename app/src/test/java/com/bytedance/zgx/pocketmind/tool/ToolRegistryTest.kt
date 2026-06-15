@@ -236,6 +236,32 @@ class ToolRegistryTest {
         assertTrue(currentScreenTextSpec.description.contains("Accessibility"))
         assertTrue(currentScreenTextSpec.description.contains("不是截图"))
 
+        val observeScreenSpec = registry.specFor(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
+        assertNotNull(observeScreenSpec)
+        requireNotNull(observeScreenSpec)
+        assertEquals(ToolCapability.DeviceControl, observeScreenSpec.capability)
+        assertEquals(ToolResultContinuationPolicy.LocalEvidence, observeScreenSpec.resultContinuationPolicy)
+        assertEquals(ConfirmationPolicy.Required, observeScreenSpec.confirmationPolicy)
+        assertTrue(ToolPermission.ReadsDeviceContext in observeScreenSpec.permissions)
+        assertTrue(ToolPermission.ReadsAccessibilityText in observeScreenSpec.permissions)
+        assertTrue(ToolPermission.PerformsAccessibilityGesture !in observeScreenSpec.permissions)
+        assertTrue(observeScreenSpec.inputSchemaJson.contains("\"maxNodes\""))
+        assertTrue(observeScreenSpec.outputSchemaJson.contains("\"nodesJson\""))
+        assertTrue(observeScreenSpec.description.contains("短期节点 id"))
+        assertFalse(observeScreenSpec.isRemoteModelPlanningEligible())
+
+        val uiTapSpec = registry.specFor(MobileActionFunctions.UI_TAP)
+        assertNotNull(uiTapSpec)
+        requireNotNull(uiTapSpec)
+        assertEquals(ToolCapability.DeviceControl, uiTapSpec.capability)
+        assertEquals(ToolResultContinuationPolicy.LocalEvidence, uiTapSpec.resultContinuationPolicy)
+        assertEquals(ConfirmationPolicy.Required, uiTapSpec.confirmationPolicy)
+        assertTrue(ToolPermission.ReadsDeviceContext in uiTapSpec.permissions)
+        assertTrue(ToolPermission.ReadsAccessibilityText in uiTapSpec.permissions)
+        assertTrue(ToolPermission.PerformsAccessibilityGesture in uiTapSpec.permissions)
+        assertTrue(uiTapSpec.outputSchemaJson.contains("\"afterNodesJson\""))
+        assertFalse(uiTapSpec.isRemoteModelPlanningEligible())
+
         val currentScreenshotOcrSpec = registry.specFor(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR)
         assertNotNull(currentScreenshotOcrSpec)
         requireNotNull(currentScreenshotOcrSpec)
@@ -322,6 +348,12 @@ class ToolRegistryTest {
             MobileActionFunctions.QUERY_RECENT_FILES,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SCROLL,
+            MobileActionFunctions.UI_PRESS_BACK,
+            MobileActionFunctions.UI_WAIT,
             MobileActionFunctions.OPEN_WIFI_SETTINGS,
             MobileActionFunctions.SEARCH_MAPS,
             MobileActionFunctions.SHARE_TEXT,

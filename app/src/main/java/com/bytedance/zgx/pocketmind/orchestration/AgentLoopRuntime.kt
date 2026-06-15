@@ -36,6 +36,7 @@ import com.bytedance.zgx.pocketmind.skill.authorizationContractHash
 import com.bytedance.zgx.pocketmind.skill.validateStructure
 import com.bytedance.zgx.pocketmind.skill.valueFreeCheckpointForPendingTool
 import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
+import com.bytedance.zgx.pocketmind.tool.ToolCapability
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
@@ -60,6 +61,7 @@ private const val RUN_CANCELLED_REASON = "Agent run was cancelled by the user."
 private const val TOOL_STEP_BUDGET_EXCEEDED_REASON = "Agent run tool step budget exceeded."
 private const val OBSERVATION_DECISION_BUDGET_EXCEEDED_REASON =
     "Agent run observation decision budget exceeded."
+private const val DEVICE_CONTROL_FAILURE_RECOVERY_REASON = "Device control failure recovery checkpoint."
 private const val PENDING_EXTERNAL_OUTCOME_RESTORE_RUN_LIMIT = 20
 private const val TOOL_OBSERVATION_AUDIT_SUMMARY = "Tool observation recorded."
 private val ANSWER_CONTEXT_TOKEN_BUDGET =
@@ -982,6 +984,13 @@ class AgentLoopRuntime(
             (continuationPrompt == null || canPlanNextToolBeforeContinuation)
         ) {
             planNextToolAfterObservation(run, request, observedResult)
+        } else if (
+            observedResult.status == ToolStatus.Failed &&
+            request.isDeviceControlTool() &&
+            !observedResult.isPermissionFailure() &&
+            retryRequest == null
+        ) {
+            planSafeDeviceControlRecoveryAfterFailure(run, request, observedResult)
         } else {
             NextObservationPlan.None
         }
@@ -1077,13 +1086,13 @@ class AgentLoopRuntime(
                 reason = result.summary,
             )
 
-            result.status == ToolStatus.Succeeded && nextToolPlan is NextObservationPlan.Planned ->
+            nextToolPlan is NextObservationPlan.Planned ->
                 AgentObservationDecision.PlanNextTool(
                     plan = nextToolPlan.plan,
                     reason = result.summary,
                 )
 
-            result.status == ToolStatus.Succeeded && nextToolPlan is NextObservationPlan.Rejected ->
+            nextToolPlan is NextObservationPlan.Rejected ->
                 AgentObservationDecision.Fail(nextToolPlan.reason)
 
             result.status == ToolStatus.Succeeded && continuationPrompt != null ->
@@ -1148,6 +1157,55 @@ class AgentLoopRuntime(
         )
     }
 
+    private fun planSafeDeviceControlRecoveryAfterFailure(
+        run: AgentRun,
+        request: ToolRequest,
+        result: ToolResult,
+    ): NextObservationPlan {
+        val recoveryCount = toolRequestsFor(run.id).count { prior ->
+            prior.reason == DEVICE_CONTROL_FAILURE_RECOVERY_REASON
+        }
+        if (recoveryCount >= 2) return NextObservationPlan.None
+        val failureKind = result.data["failureKind"].orEmpty()
+        if (failureKind == "permission_missing") return NextObservationPlan.None
+        val nextToolName = when (request.toolName) {
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN -> MobileActionFunctions.UI_WAIT
+            MobileActionFunctions.UI_WAIT -> MobileActionFunctions.OBSERVE_CURRENT_SCREEN
+            else -> MobileActionFunctions.OBSERVE_CURRENT_SCREEN
+        }
+        val arguments = when (nextToolName) {
+            MobileActionFunctions.UI_WAIT -> mapOf("timeoutMillis" to "500")
+            else -> mapOf(
+                "maxTextChars" to "2000",
+                "maxNodes" to "50",
+            )
+        }
+        val title = when (nextToolName) {
+            MobileActionFunctions.UI_WAIT -> "等待屏幕稳定"
+            else -> "重新观察当前屏幕"
+        }
+        val draft = ActionDraft(
+            functionName = nextToolName,
+            title = title,
+            summary = "上一屏幕控制动作失败，将先$title 以便重新规划；不会读取截图像素或发送远程。",
+            parameters = arguments,
+        )
+        val recoveryRequest = ToolRequest(
+            toolName = nextToolName,
+            arguments = arguments,
+            reason = DEVICE_CONTROL_FAILURE_RECOVERY_REASON,
+        )
+        val skillPlan = skillRuntime.plan(run.input, draft, recoveryRequest)
+        return buildNextToolPlan(
+            runId = run.id,
+            request = recoveryRequest,
+            draft = draft,
+            plannedByModel = false,
+            fallbackReason = "device control failure recovery",
+            skillPlan = skillPlan,
+        )
+    }
+
     private fun planNextToolFromContinuationCursor(
         run: AgentRun,
         request: ToolRequest,
@@ -1198,6 +1256,13 @@ class AgentLoopRuntime(
 
     private fun ToolRequest.startsExternalActivity(): Boolean =
         toolRegistry.specFor(toolName)?.permissions?.contains(ToolPermission.StartsExternalActivity) == true
+
+    private fun ToolRequest.isDeviceControlTool(): Boolean =
+        toolRegistry.specFor(toolName)?.capability == ToolCapability.DeviceControl
+
+    private fun ToolResult.isPermissionFailure(): Boolean =
+        error?.code == ToolErrorCode.PermissionDenied ||
+            data["failureKind"] == "permission_missing"
 
     private fun planNextToolStepFromCurrentSkill(
         run: AgentRun,

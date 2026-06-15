@@ -209,6 +209,11 @@ class BuiltInSkillRuntimeTest {
             "最近通知" to requireNotNull(runtime.plan("最近通知")),
             "总结当前屏幕文字" to requireNotNull(runtime.plan("总结当前屏幕文字")),
             "识别当前屏幕截图文字" to requireNotNull(runtime.plan("识别当前屏幕截图文字")),
+            "观察当前屏幕" to requireNotNull(runtime.plan("观察当前屏幕")),
+            "在当前设置页点击 Wi-Fi" to requireNotNull(runtime.plan("在当前设置页点击 Wi-Fi")),
+            "在当前浏览器搜索 Kotlin 协程" to requireNotNull(runtime.plan("在当前浏览器搜索 Kotlin 协程")),
+            "在当前地图查去机场的路线" to requireNotNull(runtime.plan("在当前地图查去机场的路线")),
+            "在当前邮件草稿填写 明天延期" to requireNotNull(runtime.plan("在当前邮件草稿填写 明天延期")),
             "查联系人 Alice" to requireNotNull(runtime.plan("查联系人 Alice")),
             "查看后台任务" to requireNotNull(runtime.plan("查看后台任务")),
             "查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z" to requireNotNull(
@@ -644,6 +649,84 @@ class BuiltInSkillRuntimeTest {
     }
 
     @Test
+    fun plansCurrentAppUiSkillsAsObserveActVerifyTemplates() {
+        val settingsPlan = requireNotNull(runtime.plan("在当前设置页点击 Wi-Fi"))
+        assertEquals(BuiltInSkillRuntime.SETTINGS_UI_CONTROL_SKILL, settingsPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                MobileActionFunctions.UI_TAP,
+                MobileActionFunctions.UI_WAIT,
+            ),
+            settingsPlan.steps.toolNames(),
+        )
+        val settingsTap = settingsPlan.steps[1] as SkillStep.ToolStep
+        assertEquals("Wi-Fi", settingsTap.request.arguments["target"])
+        assertEquals(listOf("observe_settings"), settingsTap.dependsOn)
+        assertTrue(settingsPlan.validateStructure().errors.joinToString(), settingsPlan.validateStructure().isValid)
+
+        val browserPlan = requireNotNull(runtime.plan("在当前浏览器搜索 Kotlin 协程"))
+        assertEquals(BuiltInSkillRuntime.BROWSER_UI_SEARCH_SKILL, browserPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                MobileActionFunctions.UI_TAP,
+                MobileActionFunctions.UI_TYPE_TEXT,
+                MobileActionFunctions.UI_WAIT,
+                MobileActionFunctions.UI_TAP,
+            ),
+            browserPlan.steps.toolNames(),
+        )
+        val browserType = browserPlan.steps[2] as SkillStep.ToolStep
+        assertEquals("Kotlin 协程", browserType.request.arguments["text"])
+        val browserSuggestionTap = browserPlan.steps[4] as SkillStep.ToolStep
+        assertEquals("Kotlin 协程", browserSuggestionTap.request.arguments["target"])
+        assertTrue(browserPlan.validateStructure().errors.joinToString(), browserPlan.validateStructure().isValid)
+
+        val mapsPlan = requireNotNull(runtime.plan("在当前地图查去机场的路线"))
+        assertEquals(BuiltInSkillRuntime.MAPS_UI_ROUTE_SKILL, mapsPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                MobileActionFunctions.UI_TAP,
+                MobileActionFunctions.UI_TYPE_TEXT,
+                MobileActionFunctions.UI_WAIT,
+                MobileActionFunctions.UI_TAP,
+            ),
+            mapsPlan.steps.toolNames(),
+        )
+        val mapsType = mapsPlan.steps[2] as SkillStep.ToolStep
+        assertEquals("机场", mapsType.request.arguments["text"])
+        assertTrue(mapsPlan.validateStructure().errors.joinToString(), mapsPlan.validateStructure().isValid)
+
+        val emailPlan = requireNotNull(runtime.plan("在当前邮件草稿填写 明天延期"))
+        assertEquals(BuiltInSkillRuntime.DRAFT_FORM_UI_SKILL, emailPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                MobileActionFunctions.UI_TYPE_TEXT,
+                MobileActionFunctions.UI_WAIT,
+            ),
+            emailPlan.steps.toolNames(),
+        )
+        val emailType = emailPlan.steps[1] as SkillStep.ToolStep
+        assertEquals("正文", emailType.request.arguments["target"])
+        assertEquals("明天延期", emailType.request.arguments["text"])
+
+        val calendarPlan = requireNotNull(runtime.plan("在当前日历表单填写 项目评审"))
+        assertEquals(BuiltInSkillRuntime.DRAFT_FORM_UI_SKILL, calendarPlan.request.skillId)
+        val calendarType = calendarPlan.steps[1] as SkillStep.ToolStep
+        assertEquals("标题", calendarType.request.arguments["target"])
+        assertEquals("项目评审", calendarType.request.arguments["text"])
+        assertTrue(calendarPlan.validateStructure().errors.joinToString(), calendarPlan.validateStructure().isValid)
+
+        assertEquals(null, runtime.plan("当前设置页怎么设计"))
+        assertEquals(null, runtime.plan("不要在当前浏览器搜索 Kotlin"))
+        assertEquals(null, runtime.plan("当前地图 API 怎么用"))
+        assertEquals(null, runtime.plan("邮件草稿怎么实现"))
+    }
+
+    @Test
     fun plansDeviceSettingsWithoutActionDraftWhenCommandIsExplicit() {
         val wifiPlan = requireNotNull(runtime.plan("打开 Wi-Fi 设置"))
         assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, wifiPlan.request.skillId)
@@ -1042,7 +1125,11 @@ class BuiltInSkillRuntimeTest {
         assertEquals(MobileActionFunctions.READ_CURRENT_SCREEN_TEXT, englishStep.request.toolName)
         assertEquals("1200", englishStep.request.arguments["maxChars"])
 
-        assertEquals(null, runtime.plan("看看当前屏幕"))
+        val observePlan = requireNotNull(runtime.plan("看看当前屏幕"))
+        assertEquals(BuiltInSkillRuntime.DEVICE_CONTROL_SKILL, observePlan.request.skillId)
+        val observeStep = observePlan.steps.single()
+        require(observeStep is SkillStep.ToolStep)
+        assertEquals(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, observeStep.request.toolName)
         assertEquals(null, runtime.plan("不要读取当前屏幕文字"))
         assertEquals(null, runtime.plan("不要查看当前屏幕内容"))
         assertEquals(null, runtime.plan("总结当前屏幕内容"))
@@ -1485,6 +1572,70 @@ class BuiltInSkillRuntimeTest {
             triggerExamples = listOf("读取当前屏幕文字", "summarize current screen text"),
         ),
         ExpectedBuiltInSkillManifest(
+            id = "device_control_skill",
+            requiredTools = listOf(
+                "observe_current_screen",
+                "ui_tap",
+                "ui_type_text",
+                "ui_scroll",
+                "ui_press_back",
+                "ui_wait",
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("观察当前屏幕", "observe current screen"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "settings_ui_control_skill",
+            requiredTools = listOf(
+                "observe_current_screen",
+                "ui_tap",
+                "ui_wait",
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf("在当前设置页点击 Wi-Fi", "tap Wi-Fi on the current settings screen"),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "browser_ui_search_skill",
+            requiredTools = listOf(
+                "observe_current_screen",
+                "ui_tap",
+                "ui_type_text",
+                "ui_wait",
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf(
+                "在当前浏览器搜索 Kotlin 协程",
+                "search Kotlin coroutines in the current browser",
+            ),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "maps_ui_route_skill",
+            requiredTools = listOf(
+                "observe_current_screen",
+                "ui_tap",
+                "ui_type_text",
+                "ui_wait",
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf(
+                "在当前地图查去机场的路线",
+                "route to the airport in the current maps page",
+            ),
+        ),
+        ExpectedBuiltInSkillManifest(
+            id = "draft_form_ui_skill",
+            requiredTools = listOf(
+                "observe_current_screen",
+                "ui_type_text",
+                "ui_wait",
+            ),
+            riskLevel = RiskLevel.MediumDraftOrNavigation,
+            triggerExamples = listOf(
+                "在当前邮件草稿填写 明天延期",
+                "fill current calendar draft with project review",
+            ),
+        ),
+        ExpectedBuiltInSkillManifest(
             id = "contact_lookup_skill",
             requiredTools = listOf("query_contacts"),
             riskLevel = RiskLevel.LowReadOnly,
@@ -1542,6 +1693,12 @@ class BuiltInSkillRuntimeTest {
                         .joinToString("|") { (key, value) -> "$key=$value" },
                 ).joinToString(":")
             }
+        }
+
+    private fun List<SkillStep>.toolNames(): List<String> =
+        map { step ->
+            require(step is SkillStep.ToolStep) { "Expected only tool steps but found $step" }
+            step.request.toolName
         }
 
     private fun draft(

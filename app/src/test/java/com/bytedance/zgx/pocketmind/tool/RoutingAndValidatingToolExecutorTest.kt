@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.tool
 
 import com.bytedance.zgx.pocketmind.MessagePrivacy
+import com.bytedance.zgx.pocketmind.SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
 import com.bytedance.zgx.pocketmind.background.ReminderScheduleRequest
@@ -14,6 +15,7 @@ import com.bytedance.zgx.pocketmind.device.CalendarAvailabilityWindow
 import com.bytedance.zgx.pocketmind.device.ContactSummaryItem
 import com.bytedance.zgx.pocketmind.device.ContactSummaryProvider
 import com.bytedance.zgx.pocketmind.device.ContactSummaryReadResult
+import com.bytedance.zgx.pocketmind.device.CurrentScreenControlProvider
 import com.bytedance.zgx.pocketmind.device.CurrentScreenTextProvider
 import com.bytedance.zgx.pocketmind.device.CurrentScreenTextReadResult
 import com.bytedance.zgx.pocketmind.device.CurrentScreenTextSnapshot
@@ -29,6 +31,14 @@ import com.bytedance.zgx.pocketmind.device.RecentFileReadResult
 import com.bytedance.zgx.pocketmind.device.RecentImageTextItem
 import com.bytedance.zgx.pocketmind.device.RecentImageTextProvider
 import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
+import com.bytedance.zgx.pocketmind.device.ScreenBounds
+import com.bytedance.zgx.pocketmind.device.ScreenNode
+import com.bytedance.zgx.pocketmind.device.ScreenStateReadResult
+import com.bytedance.zgx.pocketmind.device.ScreenStateSnapshot
+import com.bytedance.zgx.pocketmind.device.UiActionExecutionResult
+import com.bytedance.zgx.pocketmind.device.UiActionReadResult
+import com.bytedance.zgx.pocketmind.device.UiActionStatus
+import com.bytedance.zgx.pocketmind.device.UiScrollDirection
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrProvider
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrReadResult
@@ -107,6 +117,18 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf("captureMode" to "current_screen"),
                 reason = "test",
             ) to "ocrText",
+            ToolRequest(
+                id = "observe-current-screen",
+                toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                arguments = mapOf("maxTextChars" to "1000", "maxNodes" to "50"),
+                reason = "test",
+            ) to "nodesJson",
+            ToolRequest(
+                id = "ui-tap",
+                toolName = MobileActionFunctions.UI_TAP,
+                arguments = mapOf("target" to "n0_button", "timeoutMillis" to "500"),
+                reason = "test",
+            ) to "afterNodesJson",
         )
 
         requests.forEach { (request, routedDataKey) ->
@@ -430,6 +452,50 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     @Test
+    fun validatingExecutorRejectsInvalidDeviceControlArguments() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(delegate)
+        val cases = listOf(
+            ToolRequest(
+                id = "tap-empty",
+                toolName = MobileActionFunctions.UI_TAP,
+                arguments = mapOf("target" to " "),
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "type-too-long",
+                toolName = MobileActionFunctions.UI_TYPE_TEXT,
+                arguments = mapOf("text" to "x".repeat(2001)),
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "scroll-invalid",
+                toolName = MobileActionFunctions.UI_SCROLL,
+                arguments = mapOf("direction" to "diagonal"),
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "wait-too-long",
+                toolName = MobileActionFunctions.UI_WAIT,
+                arguments = mapOf("timeoutMillis" to "10001"),
+                reason = "test",
+            ),
+        )
+
+        cases.forEach { request ->
+            val result = executor.execute(request)
+
+            assertEquals(ToolStatus.Rejected, result.status)
+            assertEquals(ToolErrorCode.InvalidRequest, result.error?.code)
+            assertFalse(result.retryable)
+            assertEquals(request.toolName, result.data["toolName"])
+            assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+            assertEquals(true.toString(), result.data["requiresLocalModel"])
+        }
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
     fun validatingExecutorWrapsDelegateExceptionAsRetryableExecutionFailure() {
         val executor = ValidatingToolExecutor(
             ThrowingDelegate(IllegalStateException("boom")),
@@ -711,6 +777,18 @@ class RoutingAndValidatingToolExecutorTest {
                 arguments = mapOf("maxChars" to "1000"),
                 reason = "test",
             ),
+            ToolRequest(
+                id = "screen-state-private-output",
+                toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                arguments = mapOf("maxTextChars" to "1000", "maxNodes" to "50"),
+                reason = "test",
+            ),
+            ToolRequest(
+                id = "ui-scroll-private-output",
+                toolName = MobileActionFunctions.UI_SCROLL,
+                arguments = mapOf("direction" to "down", "timeoutMillis" to "500"),
+                reason = "test",
+            ),
         )
 
         privateDeviceRequests.forEach { request ->
@@ -808,6 +886,39 @@ class RoutingAndValidatingToolExecutorTest {
     }
 
     @Test
+    fun deviceControlPermissionDeniedKeepsRecoverableLocalOnlyBoundary() {
+        val delegate = RecordingDelegate()
+        val executor = ValidatingToolExecutor(
+            routingExecutor(
+                delegate = delegate,
+                currentScreenControlProvider = StaticCurrentScreenControlProvider(
+                    observeResult = ScreenStateReadResult.PermissionDenied("accessibility disabled"),
+                ),
+            ),
+        )
+
+        val result = executor.execute(
+            ToolRequest(
+                id = "observe-denied",
+                toolName = MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+                reason = "test",
+            ),
+        )
+
+        assertEquals(ToolStatus.Failed, result.status)
+        assertEquals(ToolErrorCode.PermissionDenied, result.error?.code)
+        assertTrue(result.retryable)
+        assertEquals(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, result.data["toolName"])
+        assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
+        assertEquals(true.toString(), result.data["requiresLocalModel"])
+        assertEquals(SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL, result.data["specialAccess"])
+        assertEquals("android.settings.ACCESSIBILITY_SETTINGS", result.data["settingsAction"])
+        assertFalse(result.data.containsKey("nodesJson"))
+        assertFalse(result.data.containsKey("textSummary"))
+        assertTrue(delegate.requests.isEmpty())
+    }
+
+    @Test
     fun validatingExecutorDoesNotLetUnknownToolReachRoutingDelegate() {
         val delegate = RecordingDelegate()
         val executor = ValidatingToolExecutor(
@@ -838,6 +949,7 @@ class RoutingAndValidatingToolExecutorTest {
             ),
         ),
         webSearchProvider: WebSearchProvider = StaticWebSearchProvider(),
+        currentScreenControlProvider: CurrentScreenControlProvider? = StaticCurrentScreenControlProvider(),
     ): RoutingToolExecutor =
         RoutingToolExecutor(
             calendarAvailabilityProvider = object : CalendarAvailabilityProvider {
@@ -924,7 +1036,63 @@ class RoutingAndValidatingToolExecutorTest {
                     )
             },
             currentScreenshotOcrProvider = currentScreenshotOcrProvider,
+            currentScreenControlProvider = currentScreenControlProvider,
         )
+
+    private class StaticCurrentScreenControlProvider(
+        private val observeResult: ScreenStateReadResult = ScreenStateReadResult.Available(staticSnapshot("before")),
+        private val actionResult: UiActionReadResult = UiActionReadResult.Available(
+            UiActionExecutionResult(
+                status = UiActionStatus.Succeeded,
+                before = staticSnapshot("before"),
+                after = staticSnapshot("after"),
+                summary = "action completed",
+                retryable = false,
+            ),
+        ),
+    ) : CurrentScreenControlProvider {
+        override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult =
+            observeResult
+
+        override fun tap(target: String, timeoutMillis: Long): UiActionReadResult =
+            actionResult
+
+        override fun typeText(text: String, target: String?, timeoutMillis: Long): UiActionReadResult =
+            actionResult
+
+        override fun scroll(direction: UiScrollDirection, target: String?, timeoutMillis: Long): UiActionReadResult =
+            actionResult
+
+        override fun pressBack(timeoutMillis: Long): UiActionReadResult =
+            actionResult
+
+        override fun waitForScreen(timeoutMillis: Long): UiActionReadResult =
+            actionResult
+    }
+
+    private companion object {
+        fun staticSnapshot(id: String): ScreenStateSnapshot =
+            ScreenStateSnapshot(
+                id = "screen-$id",
+                packageName = "com.example.app",
+                capturedAtMillis = Instant.parse("2026-06-01T09:00:00Z").toEpochMilli(),
+                nodes = listOf(
+                    ScreenNode(
+                        id = "n0_button",
+                        text = "Continue",
+                        contentDescription = "",
+                        className = "android.widget.Button",
+                        bounds = ScreenBounds(0, 0, 100, 48),
+                        clickable = true,
+                        editable = false,
+                        scrollable = false,
+                        enabled = true,
+                    ),
+                ),
+                textSummary = "Continue",
+                truncated = false,
+            )
+    }
 
     private class StaticCurrentScreenshotOcrProvider(
         private val result: CurrentScreenshotOcrReadResult,

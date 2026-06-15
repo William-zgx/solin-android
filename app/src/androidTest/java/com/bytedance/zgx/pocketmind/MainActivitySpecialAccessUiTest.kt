@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -44,6 +45,37 @@ class MainActivitySpecialAccessUiTest {
             )
                 .assertIsDisplayed()
             composeRule.onNodeWithTag("open_special_access_accessibility_screen_text")
+                .assertIsDisplayed()
+            composeRule.assertTagAbsent("runtime_permission_requirements")
+
+            composeRule.onNodeWithTag("action_dismiss_button").performClick()
+            composeRule.waitForTagGone("special_access_requirements")
+        }
+    }
+
+    @Test
+    fun deviceControlConfirmationShowsAccessibilityControlRequirementWithoutRuntimePermission() {
+        launchReadyRemoteActivity().use {
+            composeRule.waitForTag("app_title")
+
+            composeRule.sendPrompt("观察当前屏幕")
+
+            composeRule.waitForTag("special_access_requirements")
+            composeRule.onAllNodesWithText("观察当前屏幕")
+                .onFirst()
+                .assertIsDisplayed()
+            composeRule.onNodeWithText(
+                "将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。",
+            ).assertIsDisplayed()
+            composeRule.onNodeWithTag("special_access_requirements")
+                .assertIsDisplayed()
+            composeRule.onNodeWithText("可能需要系统特殊授权")
+                .assertIsDisplayed()
+            composeRule.onNodeWithText(
+                "无障碍设备控制权限：用于在你确认后观察当前屏幕的可访问状态并执行点击、输入、滚动、返回或等待；不读取截图像素，不保存原始节点树。",
+            )
+                .assertIsDisplayed()
+            composeRule.onNodeWithTag("open_special_access_accessibility_device_control")
                 .assertIsDisplayed()
             composeRule.assertTagAbsent("runtime_permission_requirements")
 

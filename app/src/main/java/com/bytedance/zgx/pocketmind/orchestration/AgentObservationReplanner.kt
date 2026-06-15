@@ -23,6 +23,12 @@ private val SEQUENTIAL_LOCAL_CONTINUATION_TOOL_NAMES = setOf(
     MobileActionFunctions.READ_RECENT_IMAGE_OCR,
     MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
     MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+    MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+    MobileActionFunctions.UI_TAP,
+    MobileActionFunctions.UI_TYPE_TEXT,
+    MobileActionFunctions.UI_SCROLL,
+    MobileActionFunctions.UI_PRESS_BACK,
+    MobileActionFunctions.UI_WAIT,
     MobileActionFunctions.QUERY_BACKGROUND_TASKS,
 )
 

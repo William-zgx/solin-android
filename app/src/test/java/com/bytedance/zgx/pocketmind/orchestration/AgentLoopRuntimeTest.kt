@@ -2761,7 +2761,6 @@ class AgentLoopRuntimeTest {
             "不要读取最近通知",
             "current app notifications API",
             "don't read current app notifications",
-            "看看当前屏幕",
             "不要读取当前屏幕文字",
             "总结这页内容",
             "总结页面内容",
@@ -5339,6 +5338,67 @@ class AgentLoopRuntimeTest {
         assertFalse(persistedTrace.contains("搜索结果摘要"))
         assertFalse(persistedTrace.contains("可分享的搜索摘要"))
         assertFalse(persistedTrace.contains("继续打开设置"))
+    }
+
+    @Test
+    fun failedDeviceControlObservationPlansSafeObserveCheckpoint() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.UI_TAP,
+                        title = "点击按钮",
+                        summary = "将点击当前屏幕上的 Continue 按钮。",
+                        parameters = mapOf("target" to "Continue"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val planned = runtime.runOnce(
+            input = "点击 Continue",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.UI_TAP, planned.plan.request.toolName)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val replanned = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Failed,
+                summary = "未找到可点击目标：Continue",
+                data = mapOf(
+                    "toolName" to MobileActionFunctions.UI_TAP,
+                    "privacy" to MessagePrivacy.LocalOnly.name,
+                    "requiresLocalModel" to "true",
+                    "actionType" to "tap",
+                    "status" to "failed",
+                    "retryable" to "true",
+                    "failureKind" to "node_not_found",
+                ),
+                error = ToolError(ToolErrorCode.ExecutionFailed, "未找到可点击目标：Continue"),
+                retryable = true,
+            ),
+        )
+
+        requireNotNull(replanned)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, replanned.run.state)
+        require(replanned.decision is AgentObservationDecision.PlanNextTool)
+        assertEquals(MobileActionFunctions.OBSERVE_CURRENT_SCREEN, replanned.decision.plan.request.toolName)
+        assertEquals(BuiltInSkillRuntime.DEVICE_CONTROL_SKILL, replanned.decision.plan.skillRequest?.skillId)
+        assertTrue(replanned.steps.none { it is AgentStep.ToolRetryScheduled })
     }
 
     @Test

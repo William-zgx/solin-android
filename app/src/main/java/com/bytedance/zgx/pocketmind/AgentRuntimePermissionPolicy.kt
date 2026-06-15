@@ -21,6 +21,7 @@ data class SpecialAccessRequirement(
 
 const val SPECIAL_ACCESS_USAGE_STATS = "usage_stats"
 const val SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT = "accessibility_screen_text"
+const val SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL = "accessibility_device_control"
 
 fun PendingAgentConfirmation.runtimePermissionsFor(apiLevel: Int = Build.VERSION.SDK_INT): List<String> {
     return runtimePermissionRequirementsFor(apiLevel)
@@ -106,6 +107,12 @@ fun PendingAgentConfirmation.specialAccessRequirementsFor(): List<SpecialAccessR
     return when (toolName) {
         MobileActionFunctions.QUERY_FOREGROUND_APP -> listOf(USAGE_ACCESS_REQUIREMENT)
         MobileActionFunctions.READ_CURRENT_SCREEN_TEXT -> listOf(ACCESSIBILITY_SCREEN_TEXT_REQUIREMENT)
+        MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+        MobileActionFunctions.UI_TAP,
+        MobileActionFunctions.UI_TYPE_TEXT,
+        MobileActionFunctions.UI_SCROLL,
+        MobileActionFunctions.UI_PRESS_BACK,
+        MobileActionFunctions.UI_WAIT -> listOf(ACCESSIBILITY_DEVICE_CONTROL_REQUIREMENT)
         else -> emptyList()
     }
 }
@@ -319,5 +326,12 @@ private val ACCESSIBILITY_SCREEN_TEXT_REQUIREMENT = SpecialAccessRequirement(
     id = SPECIAL_ACCESS_ACCESSIBILITY_SCREEN_TEXT,
     title = "无障碍屏幕文本权限",
     rationale = "用于在你确认后只读获取当前屏幕暴露的可访问文本；不会点击、控制设备或读取截图像素。",
+    settingsAction = Settings.ACTION_ACCESSIBILITY_SETTINGS,
+)
+
+private val ACCESSIBILITY_DEVICE_CONTROL_REQUIREMENT = SpecialAccessRequirement(
+    id = SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL,
+    title = "无障碍设备控制权限",
+    rationale = "用于在你确认后观察当前屏幕的可访问状态并执行点击、输入、滚动、返回或等待；不读取截图像素，不保存原始节点树。",
     settingsAction = Settings.ACTION_ACCESSIBILITY_SETTINGS,
 )

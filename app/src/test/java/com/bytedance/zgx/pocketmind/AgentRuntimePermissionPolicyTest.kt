@@ -428,6 +428,38 @@ class AgentRuntimePermissionPolicyTest {
     }
 
     @Test
+    fun deviceControlToolsDeclareAccessibilityControlSpecialAccessOnly() {
+        val deviceControlTools = listOf(
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN,
+            MobileActionFunctions.UI_TAP,
+            MobileActionFunctions.UI_TYPE_TEXT,
+            MobileActionFunctions.UI_SCROLL,
+            MobileActionFunctions.UI_PRESS_BACK,
+            MobileActionFunctions.UI_WAIT,
+        )
+
+        deviceControlTools.forEach { toolName ->
+            val confirmation = confirmationFor(
+                toolName = toolName,
+                arguments = when (toolName) {
+                    MobileActionFunctions.UI_TAP -> mapOf("target" to "Continue")
+                    MobileActionFunctions.UI_TYPE_TEXT -> mapOf("text" to "hello")
+                    MobileActionFunctions.UI_SCROLL -> mapOf("direction" to "down")
+                    else -> emptyMap()
+                },
+            )
+            val requirements = confirmation.specialAccessRequirementsFor()
+
+            assertTrue(confirmation.runtimePermissionsFor(apiLevel = Build.VERSION_CODES.TIRAMISU).isEmpty())
+            assertEquals(1, requirements.size)
+            assertEquals(SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL, requirements.single().id)
+            assertEquals("无障碍设备控制权限", requirements.single().title)
+            assertTrue(requirements.single().rationale.contains("点击"))
+            assertEquals(Settings.ACTION_ACCESSIBILITY_SETTINGS, requirements.single().settingsAction)
+        }
+    }
+
+    @Test
     fun currentScreenshotOcrDeclaresMediaProjectionConsentNotRuntimePermission() {
         val confirmation = confirmationFor(
             toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
