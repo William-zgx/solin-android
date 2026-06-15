@@ -220,24 +220,34 @@ enum class RemoteSendDisclosureKind {
     ToolResultContinuation,
 }
 
+data class PendingRemoteModeDisclosure(
+    val remoteHost: String,
+    val remoteModelName: String,
+    val apiKeyConfigured: Boolean,
+    val connectivityStatus: RemoteModelConnectivityStatus = RemoteModelConnectivityStatus.Unknown,
+    val supportsVisionInput: Boolean,
+    val isConfigured: Boolean,
+)
+
 /**
- * Controls how often the remote-send disclosure sheet is shown before sending content to a
- * remote model.
+ * Controls how often ordinary remote-send confirmations are shown.
  *
- * - [EveryMessage]: confirm before every remote send (the safe, verbose default).
- * - [OncePerSession]: confirm once per session; subsequent quiet sends are silent, but a
- *   sensitive hit or image attachment always re-forces confirmation.
- * - [OnlyWhenSensitiveOrImage]: stay silent for ordinary text, only confirm when the send
- *   carries an image attachment or a flagged-sensitive payload.
+ * - [OnRemoteModeSwitch]: show the remote-mode disclosure once when entering remote mode.
+ *   Ordinary sends are silent after that reminder; sensitive payloads still require consent.
+ * - [EveryMessage]: confirm before every remote send.
+ * - [OncePerSession]: confirm once per session; subsequent quiet sends are silent.
+ * - [OnlyWhenSensitive]: stay silent for ordinary sends; only flagged-sensitive payloads
+ *   require the audited sensitive confirmation.
  *
- * Note: regardless of policy, a send that carries an image attachment or is flagged as
- * sensitive is ALWAYS confirmed (fail-closed). The policy only relaxes the quiet,
- * text-only path.
+ * Note: sensitive sends are ALWAYS confirmed (fail-closed). Image attachments are covered by
+ * the remote-mode disclosure and the inline remote attachment notice, so they do not force a
+ * per-send popup by default.
  */
 enum class RemoteSendDisclosurePolicy {
+    OnRemoteModeSwitch,
     EveryMessage,
     OncePerSession,
-    OnlyWhenSensitiveOrImage,
+    OnlyWhenSensitive,
 }
 
 data class PendingRemoteSendDisclosure(
@@ -254,11 +264,11 @@ data class PendingRemoteSendDisclosure(
     val connectivityStatus: RemoteModelConnectivityStatus = RemoteModelConnectivityStatus.Unknown,
     val imageAttachments: List<ChatImageAttachment> = emptyList(),
     /**
-     * True when this confirmation was force-shown despite a relaxed policy because the send
-     * carries an image attachment or sensitive payload. When true the UI must NOT offer the
-     * "don't ask again this session" affordance — these sends always require explicit consent.
+     * True when this confirmation was force-shown because the send carries sensitive content.
+     * When true the UI must NOT offer the "don't ask again this session" affordance — these
+     * sends always require explicit consent.
      */
-    val forcedBySensitiveOrImage: Boolean = false,
+    val forcedBySensitiveContent: Boolean = false,
     /**
      * A truncated preview of the actual prompt text that will be sent to the remote model, so
      * the user can verify what they are approving (P1 explainability). Empty for tool-result
@@ -353,9 +363,10 @@ data class ChatUiState(
     val remoteSendAuditEvents: List<RemoteSendAuditSummary> = emptyList(),
     val agentTraceRuns: List<AgentTraceRunUiSummary> = emptyList(),
     val pendingConfirmation: PendingAgentConfirmation? = null,
+    val pendingRemoteModeDisclosure: PendingRemoteModeDisclosure? = null,
     val pendingRemoteSendDisclosure: PendingRemoteSendDisclosure? = null,
     val remoteSendDisclosurePolicy: RemoteSendDisclosurePolicy =
-        RemoteSendDisclosurePolicy.EveryMessage,
+        RemoteSendDisclosurePolicy.OnRemoteModeSwitch,
     val pendingExternalOutcome: PendingExternalOutcomeConfirmation? = null,
     val latestRecoveryAction: AgentRecoveryAction? = null,
     val inferenceMode: InferenceMode = InferenceMode.Local,

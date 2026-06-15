@@ -96,6 +96,7 @@ class PocketMindExternalOutcomeUiTest {
                         recorded = currentPending to outcome
                     },
                     onOpenRecoveryAction = {},
+                    onDismissRemoteModeDisclosure = {},
                     onConfirmRemoteSendDisclosure = {},
                     onConfirmRemoteSendWithMasking = {},
                     onConfirmRemoteSendDespiteSensitive = {},

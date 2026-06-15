@@ -147,6 +147,7 @@ class PocketMindVoiceInputConsentUiTest {
                     onDismissAgentConfirmation = {},
                     onRecordExternalOutcome = { _, _ -> },
                     onOpenRecoveryAction = {},
+                    onDismissRemoteModeDisclosure = {},
                     onConfirmRemoteSendDisclosure = {},
                     onConfirmRemoteSendWithMasking = {},
                     onConfirmRemoteSendDespiteSensitive = {},

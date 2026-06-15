@@ -135,6 +135,7 @@ import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.ModelHealthState
 import com.bytedance.zgx.pocketmind.PendingAgentConfirmation
 import com.bytedance.zgx.pocketmind.PendingExternalOutcomeConfirmation
+import com.bytedance.zgx.pocketmind.PendingRemoteModeDisclosure
 import com.bytedance.zgx.pocketmind.PendingRemoteSendDisclosure
 import com.bytedance.zgx.pocketmind.RecommendedModel
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
@@ -213,6 +214,7 @@ fun PocketMindScreen(
     onDismissAgentConfirmation: (PendingAgentConfirmation?) -> Unit,
     onRecordExternalOutcome: (PendingExternalOutcomeConfirmation, AgentExternalOutcome) -> Unit,
     onOpenRecoveryAction: (AgentRecoveryAction) -> Unit,
+    onDismissRemoteModeDisclosure: () -> Unit,
     onConfirmRemoteSendDisclosure: (Boolean) -> Unit,
     onConfirmRemoteSendWithMasking: () -> Unit,
     onConfirmRemoteSendDespiteSensitive: () -> Unit,
@@ -459,6 +461,18 @@ fun PocketMindScreen(
                         onCancelBackgroundTask = onCancelBackgroundTask,
                         onSetPeriodicCheckPolicy = onSetPeriodicCheckPolicy,
                         onDisablePeriodicCheckPolicy = onDisablePeriodicCheckPolicy,
+                    )
+                }
+            }
+
+            state.pendingRemoteModeDisclosure?.let { disclosure ->
+                ModalBottomSheet(
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                    onDismissRequest = onDismissRemoteModeDisclosure,
+                ) {
+                    RemoteModeDisclosureSheet(
+                        disclosure = disclosure,
+                        onDismiss = onDismissRemoteModeDisclosure,
                     )
                 }
             }
@@ -1321,6 +1335,84 @@ private fun QuickModelSetup(
 }
 
 @Composable
+private fun RemoteModeDisclosureSheet(
+    disclosure: PendingRemoteModeDisclosure,
+    onDismiss: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .testTag("remote_mode_disclosure_sheet"),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        SectionTitle(
+            text = "已切换到远程模型",
+            subtitle = "远程模式提醒只在切换时展示；普通发送不会逐条弹窗，疑似敏感内容仍会单独确认。",
+        )
+        RemoteModeDisclosureRows(disclosure)
+        Button(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("remote_mode_confirm_button"),
+            onClick = onDismiss,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Cloud,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("知道了")
+        }
+    }
+}
+
+@Composable
+private fun RemoteModeDisclosureRows(disclosure: PendingRemoteModeDisclosure) {
+    val rows = remoteModeDisclosureDisplayRows(disclosure)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("remote_mode_disclosure_rows"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        rows.forEach { row ->
+            Text(
+                text = row,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+internal fun remoteModeDisclosureDisplayRows(disclosure: PendingRemoteModeDisclosure): List<String> {
+    val imagePolicy = if (disclosure.supportsVisionInput) {
+        "主动选择的图片会随远程请求发送；请只选择你愿意交给该服务处理的图片。"
+    } else {
+        "当前远程模型未启用图片输入；选择图片时会直接提示不支持，不会读取或发送。"
+    }
+    val destinationSummary = if (disclosure.isConfigured) {
+        "远程地址：${disclosure.remoteHost}"
+    } else {
+        "远程地址：尚未配置，配置完成前不会发送远程请求"
+    }
+    return listOf(
+        destinationSummary,
+        "模型：${disclosure.remoteModelName}",
+        "发送范围：仅发送 RemoteEligible 对话上下文、当前输入和主动选择的图片。",
+        "不会发送：LocalOnly 历史、本地记忆、设备上下文、非图片附件正文或 OCR 摘录。",
+        "图片规则：$imagePolicy",
+        "远程服务方可能按其政策记录或保留请求和响应。",
+        "凭据状态：${if (disclosure.apiKeyConfigured) "已配置 API Key" else "未配置 API Key"}",
+        "连接状态：${disclosure.connectivityStatus.label}",
+    )
+}
+
+@Composable
 private fun RemoteSendDisclosureSheet(
     disclosure: PendingRemoteSendDisclosure,
     onConfirm: (Boolean) -> Unit,
@@ -1328,8 +1420,8 @@ private fun RemoteSendDisclosureSheet(
     onSendAnyway: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // Sensitive/image disclosures are forced and can never be silenced for the session.
-    val canSuppressForSession = !disclosure.forcedBySensitiveOrImage
+    // Sensitive disclosures are forced and can never be silenced for the session.
+    val canSuppressForSession = !disclosure.forcedBySensitiveContent
     val requiresSensitiveConsent = disclosure.requiresSensitiveConsent
     var suppressForSession by rememberSaveable(disclosure) { mutableStateOf(false) }
     Column(
@@ -2379,7 +2471,7 @@ internal fun modelPathGuidanceRows(selectedModel: RecommendedModel): List<ModelP
         ),
         ModelPathGuidanceRow(
             label = "远程",
-            body = "不下载本地对话模型也能开始；配置 HTTPS 兼容接口后，每次发送前都会展示远程内容预览，图片只在你主动附加且模型支持时发送。",
+            body = "不下载本地对话模型也能开始；配置 HTTPS 兼容接口后，切换到远程模型时会提醒一次，图片只在你主动附加且模型支持时发送。",
         ),
         ModelPathGuidanceRow(
             label = "轻量",
@@ -2757,8 +2849,8 @@ private fun TrustBoundaryPanel(
         PanelSurface {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionTitle(
-                    text = "远程发送确认",
-                    subtitle = "普通文本可以降低打扰；敏感内容和图片发送始终需要确认。",
+                    text = "远程模式提醒",
+                    subtitle = "默认切换到远程模型时提醒一次；疑似敏感内容发送仍会单独确认。",
                 )
                 RemoteSendDisclosurePolicySelector(
                     selectedPolicy = state.remoteSendDisclosurePolicy,
@@ -2900,16 +2992,19 @@ private fun RemoteSendAuditRow(event: RemoteSendAuditSummary) {
 
 private fun RemoteSendDisclosurePolicy.remoteSendPolicyLabel(): String =
     when (this) {
-        RemoteSendDisclosurePolicy.EveryMessage -> "每次都确认"
+        RemoteSendDisclosurePolicy.OnRemoteModeSwitch -> "切换时提醒"
+        RemoteSendDisclosurePolicy.EveryMessage -> "每次发送"
         RemoteSendDisclosurePolicy.OncePerSession -> "每会话一次"
-        RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage -> "仅敏感或图片"
+        RemoteSendDisclosurePolicy.OnlyWhenSensitive -> "仅敏感内容"
     }
 
 private fun RemoteSendDisclosurePolicy.remoteSendPolicyDescription(): String =
     when (this) {
+        RemoteSendDisclosurePolicy.OnRemoteModeSwitch ->
+            "切换到远程模型时弹一次提醒；普通文本和主动选择的图片随后不再逐条弹窗。"
         RemoteSendDisclosurePolicy.EveryMessage -> "所有远程发送都会弹出确认。"
-        RemoteSendDisclosurePolicy.OncePerSession -> "普通文本确认一次后本会话内静默，敏感内容和图片仍会弹窗。"
-        RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage -> "普通文本直接发送；疑似敏感内容或图片发送仍会强制确认。"
+        RemoteSendDisclosurePolicy.OncePerSession -> "普通发送确认一次后本会话内静默，疑似敏感内容仍会弹窗。"
+        RemoteSendDisclosurePolicy.OnlyWhenSensitive -> "普通文本和主动选择的图片直接发送；疑似敏感内容仍会强制确认。"
     }
 
 private fun RemoteSendAuditSummary.remoteSendAuditTimeLabel(): String =
@@ -3760,7 +3855,7 @@ internal val HOME_VALUE_PROPOSITIONS = listOf(
     HomeValueProposition(
         kind = HomeValueKind.Remote,
         title = "远程多模态可选",
-        body = "远程模型只在你配置并切换后使用；发送文字或图片前都会先确认。",
+        body = "远程模型只在你配置并切换后使用；切换时提醒一次，疑似敏感内容仍会单独确认。",
     ),
     HomeValueProposition(
         kind = HomeValueKind.Action,
@@ -3773,7 +3868,7 @@ internal const val MODEL_STARTUP_BANNER_TITLE =
     "模型未就绪"
 
 internal const val MODEL_STARTUP_BANNER_DESCRIPTION =
-    "配置远程模型可立即试用；下载或导入本地模型后可离线问答。远程发送和设备动作仍会先让你确认。"
+    "配置远程模型可立即试用；下载或导入本地模型后可离线问答。切换远程会提醒，设备动作仍会先让你确认。"
 
 internal val HOME_CAPABILITY_PILLS = listOf(
     "离线问答",
@@ -3789,12 +3884,12 @@ internal const val LOCAL_SETUP_PANEL_DESCRIPTION =
     "下载后基础问答和历史默认留在本机；也可以先跳过，稍后配置远程模型或导入可信 .litertlm。"
 
 internal const val MODEL_MANAGER_POSITIONING_TEXT =
-    "本地对话和本地视觉可用，可离线使用；远程多模态可选。远程发送和设备动作仍会先确认。"
+    "本地对话和本地视觉可用，可离线使用；远程多模态可选。切换远程会提醒，设备动作仍会先确认。"
 
 internal val PRODUCT_PROMPT_SUGGESTIONS = listOf(
     "告诉我哪些内容会留在本机",
     "帮我整理一个只保存在本机的待办清单",
-    "远程图片发送前会确认什么？",
+    "切换远程模型会提醒什么？",
 )
 
 internal const val PRODUCT_LOCAL_VALUE_TEXT =
@@ -3810,7 +3905,7 @@ internal const val PRIVACY_POLICY_ENTRY_TEXT =
     "说明哪些内容留在本机、什么时候会发送到远程，以及哪些设备能力必须你确认后才执行。"
 
 internal const val REMOTE_MODE_DISCLOSURE_TEXT =
-    "兼容 /v1/chat/completions；远程模式只发送可远程发送的对话上下文，每次发送前都会确认，主动选择的图片会随请求发送。"
+    "兼容 /v1/chat/completions；远程模式只发送可远程发送的对话上下文，切换到远程时提醒一次，主动选择的图片会随请求发送。"
 
 internal const val MODEL_DOWNLOAD_RATIONALE_TEXT =
     "本地模型让基础问答离线可用；基础对话模型约 2.4 GB，缺少、下载失败或文件不完整时可在这里补装，也可以先配置远程模型。"

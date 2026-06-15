@@ -60,7 +60,7 @@ class MainActivitySmokeTest {
         composeRule.waitForTag("model_manager_sheet")
 
         composeRule.onNodeWithText("模型管理").assertIsDisplayed()
-        composeRule.waitForText("本地对话和本地视觉可用，可离线使用；远程多模态可选。远程发送和设备动作仍会先确认。")
+        composeRule.waitForText("本地对话和本地视觉可用，可离线使用；远程多模态可选。切换远程会提醒，设备动作仍会先确认。")
         composeRule.waitForText("当前模型")
         composeRule.onNodeWithTag("model_tab_current").assertIsDisplayed()
         composeRule.onNodeWithTag("model_tab_remote").assertIsDisplayed()

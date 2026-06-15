@@ -190,10 +190,9 @@ class PocketMindViewModel(
     private var remoteConnectivityProbeJob: Job? = null
     /**
      * Session-scoped suppression of the remote-send disclosure sheet. Set when the user picks
-     * "don't ask again this session" on a quiet (non-sensitive, image-free) confirmation. Reset
-     * whenever the trust boundary changes: session switch, inference-mode change, or remote
-     * config change. A sensitive payload or image attachment always re-forces confirmation
-     * regardless of this flag (fail-closed).
+     * "don't ask again this session" on a quiet, non-sensitive confirmation. Reset whenever the
+     * trust boundary changes: session switch, inference-mode change, or remote config change.
+     * A sensitive payload always re-forces confirmation regardless of this flag (fail-closed).
      */
     private var remoteSendDisclosureSuppressedForSession: Boolean = false
     private var deviceContextAuthorizationSnapshot = DeviceContextAuthorizationSnapshot()
@@ -871,13 +870,17 @@ class PocketMindViewModel(
         remoteModelRepository.saveMode(mode)
         if (mode == InferenceMode.Remote) {
             runtime.close()
-            updateRemoteReadiness("已切换到远程模型")
+            updateRemoteReadiness(
+                prefix = "已切换到远程模型",
+                showModeDisclosure = requireRemoteSendDisclosure,
+            )
             return
         }
 
         _uiState.update {
             it.copy(
                 inferenceMode = InferenceMode.Local,
+                pendingRemoteModeDisclosure = null,
                 pendingRemoteSendDisclosure = null,
                 isReady = runtime.isLoaded,
                 statusText = if (runtime.isLoaded) {
@@ -926,6 +929,7 @@ class PocketMindViewModel(
                     _uiState.update {
                         it.copy(
                             remoteModelConfig = normalized,
+                            pendingRemoteModeDisclosure = null,
                             pendingRemoteSendDisclosure = null,
                             showFirstRunSetup = if (normalized.isConfigured) false else it.showFirstRunSetup,
                         )
@@ -1324,6 +1328,15 @@ class PocketMindViewModel(
             return
         }
         if (trimmed.isNotEmpty() &&
+            _uiState.value.pendingRemoteModeDisclosure != null &&
+            !remoteSendConfirmed
+        ) {
+            _uiState.update {
+                it.copy(statusText = "请先确认远程模式提醒")
+            }
+            return
+        }
+        if (trimmed.isNotEmpty() &&
             _uiState.value.pendingRemoteSendDisclosure != null &&
             !remoteSendConfirmed
         ) {
@@ -1498,7 +1511,7 @@ class PocketMindViewModel(
             effectiveMessagePrivacy == MessagePrivacy.RemoteEligible &&
             remoteConfig.isConfigured &&
             !remoteSendConfirmed &&
-            shouldRequireRemoteSendDisclosure(hasImageAttachment = imageAttachments.isNotEmpty())
+            shouldRequireRemoteSendDisclosure()
         ) {
             _uiState.update {
                 it.copy(
@@ -2096,9 +2109,9 @@ class PocketMindViewModel(
     fun confirmRemoteSendDisclosure(suppressForSession: Boolean = false) {
         val pending = _uiState.value.pendingRemoteSendDisclosure ?: return
         if (pending.requiresSensitiveConsent) return
-        // Only honor "don't ask again this session" for non-forced sends. Sensitive/image
-        // disclosures must never be silenced — they re-prompt every time regardless.
-        if (suppressForSession && !pending.forcedBySensitiveOrImage) {
+        // Only honor "don't ask again this session" for non-forced sends.
+        // Sensitive disclosures must never be silenced — they re-prompt every time regardless.
+        if (suppressForSession && !pending.forcedBySensitiveContent) {
             remoteSendDisclosureSuppressedForSession = true
         }
         recordRemoteSendDecision(RemoteSendDecision.Confirmed, pending)
@@ -2256,6 +2269,23 @@ class PocketMindViewModel(
     /** Refreshes the egress audit list in UI state. Call when the privacy/egress panel opens. */
     fun refreshRemoteSendAuditEvents() {
         _uiState.update { it.copy(remoteSendAuditEvents = loadRemoteSendAuditEvents()) }
+    }
+
+    fun dismissRemoteModeDisclosure() {
+        _uiState.update {
+            if (it.pendingRemoteModeDisclosure == null) {
+                it
+            } else {
+                it.copy(
+                    pendingRemoteModeDisclosure = null,
+                    statusText = if (it.inferenceMode == InferenceMode.Remote) {
+                        if (it.remoteModelConfig.isConfigured) "就绪 · 远程" else "请配置远程模型"
+                    } else {
+                        it.statusText
+                    },
+                )
+            }
+        }
     }
 
     fun dismissRemoteSendDisclosure() {
@@ -2543,6 +2573,10 @@ class PocketMindViewModel(
         }
         if (state.pendingExternalOutcome != null) {
             _uiState.update { it.copy(statusText = "请先确认外部动作结果") }
+            return
+        }
+        if (state.pendingRemoteModeDisclosure != null) {
+            _uiState.update { it.copy(statusText = "请先确认远程模式提醒") }
             return
         }
         if (state.isBusy || generationJob?.isActive == true) return
@@ -3388,7 +3422,7 @@ class PocketMindViewModel(
             responsePrivacy == MessagePrivacy.RemoteEligible &&
             remoteConfig.isConfigured &&
             !remoteSendConfirmed &&
-            shouldRequireRemoteSendDisclosure(hasImageAttachment = false)
+            shouldRequireRemoteSendDisclosure()
         ) {
             pendingRemoteContinuation = PendingRemoteContinuation(
                 runId = runId,
@@ -3829,30 +3863,19 @@ class PocketMindViewModel(
             }
 
     /**
-     * Decides whether the remote-send disclosure sheet must be shown before this send.
-     *
-     * Fail-closed rules, in order:
-     * 1. If disclosure is globally disabled (test/debug), never show.
-     * 2. If the send carries an image attachment, ALWAYS show (force) — image bytes leave the
-     *    device and the policy/suppression never silences this.
-     * 3. Otherwise apply the active [RemoteSendDisclosurePolicy]:
-     *    - [RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage]: text-only sends are silent
-     *      (sensitive payloads are already blocked earlier in [sendMessageInternal], so any
-     *      text reaching here is non-sensitive).
-     *    - [RemoteSendDisclosurePolicy.OncePerSession]: silent once the session has been
-     *      confirmed and suppressed.
-     *    - [RemoteSendDisclosurePolicy.EveryMessage]: always show.
+     * Decides whether the remote-send disclosure sheet must be shown before an ordinary,
+     * non-sensitive send. Sensitive payloads are intercepted earlier in [sendMessageInternal]
+     * and always require an audited choice.
      */
-    private fun shouldRequireRemoteSendDisclosure(
-        hasImageAttachment: Boolean,
-    ): Boolean {
+    private fun shouldRequireRemoteSendDisclosure(): Boolean {
         if (!requireRemoteSendDisclosure) return false
-        if (hasImageAttachment) return true
         return when (_uiState.value.remoteSendDisclosurePolicy) {
-            RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage -> false
+            RemoteSendDisclosurePolicy.OnRemoteModeSwitch -> false
+            RemoteSendDisclosurePolicy.OnlyWhenSensitive -> false
             RemoteSendDisclosurePolicy.OncePerSession ->
                 !remoteSendDisclosureSuppressedForSession
-            RemoteSendDisclosurePolicy.EveryMessage -> true
+            RemoteSendDisclosurePolicy.EveryMessage ->
+                !remoteSendDisclosureSuppressedForSession
         }
     }
 
@@ -3883,7 +3906,7 @@ class PocketMindViewModel(
     ): PendingRemoteSendDisclosure =
         PendingRemoteSendDisclosure(
             kind = kind,
-            forcedBySensitiveOrImage = imageAttachments.isNotEmpty(),
+            forcedBySensitiveContent = false,
             prompt = prompt,
             messagePrivacy = messagePrivacy,
             remoteHost = remoteConfig.destinationHostLabel(),
@@ -3908,8 +3931,9 @@ class PocketMindViewModel(
 
     /**
      * Builds a forced disclosure for a sensitive send that offers graded handling (mask & send /
-     * send anyway). Always [forcedBySensitiveOrImage] so it can never be silenced, and carries
-     * the masked preview so the user sees exactly what "mask & send" would transmit.
+     * send anyway). Always [PendingRemoteSendDisclosure.forcedBySensitiveContent] so it can
+     * never be silenced, and carries the masked preview so the user sees exactly what
+     * "mask & send" would transmit.
      */
     private fun buildSensitiveRemoteSendDisclosure(
         prompt: String,
@@ -3930,7 +3954,7 @@ class PocketMindViewModel(
         )
         val maskResult = outboundSafetyPolicy.maskSensitiveContent(prompt)
         return base.copy(
-            forcedBySensitiveOrImage = true,
+            forcedBySensitiveContent = true,
             allowMaskedSend = maskResult.didMask,
             maskedPrompt = if (maskResult.didMask) maskResult.maskedText else "",
             maskedPromptPreview = if (maskResult.didMask) {
@@ -4694,18 +4718,29 @@ class PocketMindViewModel(
         }
     }
 
-    private fun updateRemoteReadiness(prefix: String) {
+    private fun updateRemoteReadiness(
+        prefix: String,
+        showModeDisclosure: Boolean = false,
+    ) {
         val config = _uiState.value.remoteModelConfig
         pendingRemoteContinuation = null
+        val modeDisclosure = if (showModeDisclosure) {
+            buildRemoteModeDisclosure(config)
+        } else {
+            null
+        }
         _uiState.update {
             it.copy(
                 inferenceMode = InferenceMode.Remote,
+                pendingRemoteModeDisclosure = modeDisclosure,
                 pendingRemoteSendDisclosure = null,
                 isBusy = false,
                 isDownloading = false,
                 isReady = config.isConfigured,
-                statusText = if (config.isConfigured) {
-                    "${prefix}已就绪"
+                statusText = if (modeDisclosure != null) {
+                    "远程模式待确认"
+                } else if (config.isConfigured) {
+                    if (prefix.endsWith("远程模型")) "${prefix}已就绪" else prefix
                 } else {
                     "请配置远程模型"
                 },
@@ -4716,6 +4751,18 @@ class PocketMindViewModel(
                 ),
             )
         }
+    }
+
+    private fun buildRemoteModeDisclosure(config: RemoteModelConfig): PendingRemoteModeDisclosure {
+        val normalized = config.normalized()
+        return PendingRemoteModeDisclosure(
+            remoteHost = normalized.destinationHostLabel(),
+            remoteModelName = normalized.modelName.ifBlank { "未命名远程模型" },
+            apiKeyConfigured = normalized.apiKey.isNotBlank(),
+            connectivityStatus = normalized.connectivityStatus,
+            supportsVisionInput = normalized.modelProfile().supportsVisionInput,
+            isConfigured = normalized.isConfigured,
+        )
     }
 
     private fun refreshDeviceStatus() {

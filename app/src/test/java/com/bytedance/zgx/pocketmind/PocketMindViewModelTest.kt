@@ -164,7 +164,7 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun remoteSendDisclosureBlocksRuntimeUntilConfirmed() = runTest(dispatcher) {
+    fun defaultRemoteModeSendsOrdinaryTextWithoutPerSendDisclosure() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
@@ -180,25 +180,55 @@ class PocketMindViewModelTest {
         viewModel.sendMessage("普通远程问题")
         advanceUntilIdle()
 
-        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
-        assertEquals(RemoteSendDisclosureKind.CurrentInput, disclosure.kind)
-        assertEquals("普通远程问题", disclosure.prompt)
-        assertEquals(MessagePrivacy.RemoteEligible, disclosure.messagePrivacy)
-        assertEquals("api.example.com", disclosure.remoteHost)
-        assertEquals("model-a", disclosure.remoteModelName)
-        assertEquals(0, disclosure.remoteHistoryCount)
-        assertEquals(0, disclosure.imageAttachmentCount)
-        assertTrue(remoteRuntime.calls.isEmpty())
-
-        viewModel.confirmRemoteSendDisclosure()
-        advanceUntilIdle()
-
         assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
         assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
     }
 
     @Test
-    fun remoteSendDisclosureOncePerSessionGoesSilentAfterSuppressThenForcesOnImage() =
+    fun switchingToRemoteShowsModeDisclosureOnceAndDismissAllowsSend() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Local,
+                config = configuredRemoteModel(),
+            ),
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.selectInferenceMode(InferenceMode.Remote)
+        advanceUntilIdle()
+
+        val modeDisclosure = requireNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+        assertEquals("api.example.com", modeDisclosure.remoteHost)
+        assertEquals("model-a", modeDisclosure.remoteModelName)
+        assertEquals("远程模式待确认", viewModel.uiState.value.statusText)
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals("请先确认远程模式提醒", viewModel.uiState.value.statusText)
+
+        viewModel.dismissRemoteModeDisclosure()
+        advanceUntilIdle()
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingRemoteModeDisclosure)
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+
+        viewModel.selectInferenceMode(InferenceMode.Local)
+        advanceUntilIdle()
+        viewModel.selectInferenceMode(InferenceMode.Remote)
+        advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value.pendingRemoteModeDisclosure)
+    }
+
+    @Test
+    fun remoteSendDisclosureOncePerSessionGoesSilentAfterSuppressThenKeepsImageSilent() =
         runTest(dispatcher) {
             val remoteRuntime = RecordingRemoteChatRuntime()
             val viewModel = createViewModel(
@@ -218,7 +248,7 @@ class PocketMindViewModelTest {
             viewModel.sendMessage("第一条远程问题")
             advanceUntilIdle()
             val first = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
-            assertFalse(first.forcedBySensitiveOrImage)
+            assertFalse(first.forcedBySensitiveContent)
             assertTrue(remoteRuntime.calls.isEmpty())
 
             // Confirm with "don't ask again this session".
@@ -234,7 +264,8 @@ class PocketMindViewModelTest {
             assertEquals(2, remoteRuntime.calls.size)
             assertEquals("第二条远程问题", remoteRuntime.calls.last().prompt)
 
-            // An image send ALWAYS forces disclosure, even when suppressed for the session.
+            // Image sends are covered by the remote-mode disclosure and no longer force a
+            // per-send popup after suppression.
             viewModel.stageSharedInput(
                 SharedInput(
                     text = "",
@@ -256,14 +287,13 @@ class PocketMindViewModelTest {
             viewModel.sendPendingSharedInput("描述这张图")
             advanceUntilIdle()
 
-            val forced = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
-            assertTrue(forced.forcedBySensitiveOrImage)
-            assertEquals(1, forced.imageAttachmentCount)
-            assertEquals(2, remoteRuntime.calls.size)
+            assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+            assertEquals(3, remoteRuntime.calls.size)
+            assertEquals(1, remoteRuntime.calls.last().imageAttachments.size)
         }
 
     @Test
-    fun remoteSendDisclosureOnlyWhenSensitiveOrImageSendsTextSilentlyButForcesImage() =
+    fun remoteSendDisclosureOnlyWhenSensitiveSendsTextAndImageSilently() =
         runTest(dispatcher) {
             val remoteRuntime = RecordingRemoteChatRuntime()
             val viewModel = createViewModel(
@@ -278,7 +308,7 @@ class PocketMindViewModelTest {
             advanceUntilIdle()
 
             viewModel.setRemoteSendDisclosurePolicy(
-                RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage,
+                RemoteSendDisclosurePolicy.OnlyWhenSensitive,
             )
 
             // Non-sensitive text send goes through silently (no disclosure).
@@ -287,7 +317,7 @@ class PocketMindViewModelTest {
             assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
             assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
 
-            // An image send still forces disclosure.
+            // Image sends are also silent; the mode disclosure explains the image boundary.
             viewModel.stageSharedInput(
                 SharedInput(
                     text = "",
@@ -309,9 +339,9 @@ class PocketMindViewModelTest {
             viewModel.sendPendingSharedInput("描述这张图")
             advanceUntilIdle()
 
-            val forced = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
-            assertTrue(forced.forcedBySensitiveOrImage)
-            assertEquals(1, remoteRuntime.calls.size)
+            assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+            assertEquals(2, remoteRuntime.calls.size)
+            assertEquals(1, remoteRuntime.calls.last().imageAttachments.size)
         }
 
     @Test
@@ -374,7 +404,7 @@ class PocketMindViewModelTest {
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
-        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.OnlyWhenSensitiveOrImage)
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.OnlyWhenSensitive)
 
         viewModel.sendMessage("普通远程问题")
         advanceUntilIdle()
@@ -415,7 +445,7 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun remoteModePlansCalendarAvailabilityLocallyAfterSendDisclosure() = runTest(dispatcher) {
+    fun remoteModePlansCalendarAvailabilityLocallyWithoutPerSendDisclosure() = runTest(dispatcher) {
         val traceStore = InMemoryAgentTraceStore()
         val orchestrator = AssistantOrchestrator(
             memoryIndex = MemoryRepository(),
@@ -436,20 +466,6 @@ class PocketMindViewModelTest {
         advanceUntilIdle()
 
         viewModel.sendMessage("查忙闲 2026-06-01T09:00:00Z 到 2026-06-01T10:00:00Z")
-        advanceUntilIdle()
-
-        val disclosureState = viewModel.uiState.value
-        assertTrue(
-            "Expected remote send disclosure before local calendar planning, " +
-                "status=${disclosureState.statusText}, " +
-                "isReady=${disclosureState.isReady}, " +
-                "pendingAction=${disclosureState.pendingConfirmation?.draft?.functionName}, " +
-                "remoteCalls=${remoteRuntime.calls.size}",
-            disclosureState.pendingRemoteSendDisclosure != null,
-        )
-        assertTrue(remoteRuntime.calls.isEmpty())
-        assertEquals("远程发送待确认", disclosureState.statusText)
-        viewModel.confirmRemoteSendDisclosure()
         advanceUntilIdle()
 
         val confirmedState = viewModel.uiState.value
@@ -484,6 +500,7 @@ class PocketMindViewModelTest {
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
 
         viewModel.sendMessage("普通远程问题")
         advanceUntilIdle()
@@ -542,7 +559,7 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun remoteImageDisclosureKeepsAttachmentForConfirmedVisionSend() = runTest(dispatcher) {
+    fun remoteImageSendKeepsAttachmentWithoutPerSendDisclosure() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
@@ -577,14 +594,7 @@ class PocketMindViewModelTest {
         viewModel.sendPendingSharedInput("描述这张图")
         advanceUntilIdle()
 
-        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
-        assertEquals(1, disclosure.imageAttachmentCount)
-        assertEquals("data:image/png;base64,AA==", disclosure.imageAttachments.single().dataUrl)
-        assertTrue(remoteRuntime.calls.isEmpty())
-
-        viewModel.confirmRemoteSendDisclosure()
-        advanceUntilIdle()
-
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
         val call = remoteRuntime.calls.single()
         assertTrue(call.prompt.contains("描述这张图"))
         assertEquals("data:image/png;base64,AA==", call.imageAttachments.single().dataUrl)
@@ -1181,7 +1191,7 @@ class PocketMindViewModelTest {
             val disclosure = viewModel.uiState.value.pendingRemoteSendDisclosure
             assertNotNull(disclosure)
             // Sensitive disclosures are forced (can never be silenced) and offer graded handling.
-            assertTrue(disclosure!!.forcedBySensitiveOrImage)
+            assertTrue(disclosure!!.forcedBySensitiveContent)
             assertTrue(disclosure.allowMaskedSend)
             assertTrue(disclosure.sensitiveHitCategories.isNotEmpty())
 
@@ -4489,20 +4499,8 @@ class PocketMindViewModelTest {
         viewModel.sendMessage("北京和上海今天温差多少？")
         advanceUntilIdle()
 
-        assertEquals("远程发送待确认", viewModel.uiState.value.statusText)
-        assertTrue(remoteRuntime.calls.isEmpty())
-        viewModel.confirmRemoteSendDisclosure()
-        advanceUntilIdle()
-
-        assertEquals("远程续写待确认", viewModel.uiState.value.statusText)
-        assertEquals(
-            RemoteSendDisclosureKind.ToolResultContinuation,
-            requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure).kind,
-        )
-        assertEquals(1, remoteRuntime.calls.size)
-        assertEquals("北京和上海今天温差多少？", remoteRuntime.calls.single().prompt)
-        viewModel.confirmRemoteSendDisclosure()
-        advanceUntilIdle()
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals("北京和上海今天温差多少？", remoteRuntime.calls.first().prompt)
 
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
         assertEquals(1, assistantRouter.observeModelToolBatchCallCount)
@@ -4626,6 +4624,7 @@ class PocketMindViewModelTest {
         )
         viewModel.restoreStartupState(skipModelRuntimeWork = true)
         advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
 
         viewModel.sendMessage("北京和上海今天温差多少？")
         advanceUntilIdle()
@@ -4956,11 +4955,6 @@ class PocketMindViewModelTest {
         viewModel.sendMessage("执行远程工具")
         advanceUntilIdle()
 
-        assertEquals("远程发送待确认", viewModel.uiState.value.statusText)
-        assertTrue(remoteRuntime.calls.isEmpty())
-        viewModel.confirmRemoteSendDisclosure()
-        advanceUntilIdle()
-
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
         assertEquals("模型输出格式已拦截", viewModel.uiState.value.statusText)
         assertEquals(1, remoteRuntime.stopCallCount)
@@ -5114,11 +5108,6 @@ class PocketMindViewModelTest {
         viewModel.sendMessage("普通远程问题")
         advanceUntilIdle()
 
-        assertEquals("远程发送待确认", viewModel.uiState.value.statusText)
-        assertTrue(remoteRuntime.calls.isEmpty())
-        viewModel.confirmRemoteSendDisclosure()
-        advanceUntilIdle()
-
         val readableFailure = "远程模型网络连接失败，请检查网络或远程模型配置后重试"
         assertEquals("远程生成失败", viewModel.uiState.value.statusText)
         assertEquals(1, remoteRuntime.calls.size)
@@ -5138,11 +5127,6 @@ class PocketMindViewModelTest {
 
         remoteRuntime.failure = null
         viewModel.sendMessage("普通远程问题")
-        advanceUntilIdle()
-
-        assertEquals("远程发送待确认", viewModel.uiState.value.statusText)
-        assertEquals(1, remoteRuntime.calls.size)
-        viewModel.confirmRemoteSendDisclosure()
         advanceUntilIdle()
 
         assertEquals(2, remoteRuntime.calls.size)

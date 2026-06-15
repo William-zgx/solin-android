@@ -198,6 +198,7 @@ class MainActivity : ComponentActivity() {
                     onDismissAgentConfirmation = viewModel::dismissAgentConfirmation,
                     onRecordExternalOutcome = viewModel::recordExternalOutcome,
                     onOpenRecoveryAction = viewModel::requestRecoveryActionConfirmation,
+                    onDismissRemoteModeDisclosure = viewModel::dismissRemoteModeDisclosure,
                     onConfirmRemoteSendDisclosure = viewModel::confirmRemoteSendDisclosure,
                     onConfirmRemoteSendWithMasking = viewModel::confirmRemoteSendWithMasking,
                     onConfirmRemoteSendDespiteSensitive = viewModel::confirmRemoteSendDespiteSensitive,

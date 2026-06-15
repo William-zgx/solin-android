@@ -8,6 +8,7 @@ import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
 import com.bytedance.zgx.pocketmind.ModelHealth
 import com.bytedance.zgx.pocketmind.ModelHealthState
 import com.bytedance.zgx.pocketmind.MessagePrivacy
+import com.bytedance.zgx.pocketmind.PendingRemoteModeDisclosure
 import com.bytedance.zgx.pocketmind.PendingRemoteSendDisclosure
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.RemoteModelConnectivityStatus
@@ -52,7 +53,7 @@ class PocketMindScreenDisplayTest {
         assertTrue(homeValueText.contains("本地可用"))
         assertTrue(homeValueText.contains("显式记忆"))
         assertTrue(homeValueText.contains("远程多模态可选"))
-        assertTrue(homeValueText.contains("发送文字或图片前都会先确认"))
+        assertTrue(homeValueText.contains("切换时提醒一次"))
         assertTrue(homeValueText.contains("动作确认执行"))
         assertTrue(homeValueText.contains("权限与风险"))
         assertTrue(MODEL_STARTUP_BANNER_TITLE.contains("模型未就绪"))
@@ -71,9 +72,9 @@ class PocketMindScreenDisplayTest {
         assertTrue(MODEL_MANAGER_POSITIONING_TEXT.contains("本地视觉"))
         assertTrue(MODEL_MANAGER_POSITIONING_TEXT.contains("离线使用"))
         assertTrue(MODEL_MANAGER_POSITIONING_TEXT.contains("远程多模态可选"))
-        assertTrue(MODEL_MANAGER_POSITIONING_TEXT.contains("先确认"))
+        assertTrue(MODEL_MANAGER_POSITIONING_TEXT.contains("切换远程会提醒"))
         assertTrue(PRODUCT_PROMPT_SUGGESTIONS.any { it.contains("留在本机") })
-        assertTrue(PRODUCT_PROMPT_SUGGESTIONS.any { it.contains("远程图片发送前") })
+        assertTrue(PRODUCT_PROMPT_SUGGESTIONS.any { it.contains("切换远程模型") })
         assertTrue(PRODUCT_LOCAL_VALUE_TEXT.contains("基础问答"))
         assertTrue(PRODUCT_LOCAL_VALUE_TEXT.contains("图片输入"))
         assertTrue(PRODUCT_REMOTE_VALUE_TEXT.contains("图片"))
@@ -82,7 +83,7 @@ class PocketMindScreenDisplayTest {
         assertTrue(PRIVACY_POLICY_ENTRY_TEXT.contains("发送到远程"))
         assertTrue(PRIVACY_POLICY_ENTRY_TEXT.contains("确认后才执行"))
         assertTrue(REMOTE_MODE_DISCLOSURE_TEXT.contains("可远程发送的对话上下文"))
-        assertTrue(REMOTE_MODE_DISCLOSURE_TEXT.contains("每次发送前都会确认"))
+        assertTrue(REMOTE_MODE_DISCLOSURE_TEXT.contains("切换到远程时提醒一次"))
         assertTrue(MODEL_DOWNLOAD_RATIONALE_TEXT.contains("离线可用"))
         assertTrue(MODEL_DOWNLOAD_RATIONALE_TEXT.contains("2.4 GB"))
         assertTrue(MODEL_DOWNLOAD_RATIONALE_TEXT.contains("远程模型"))
@@ -171,7 +172,7 @@ class PocketMindScreenDisplayTest {
         assertTrue(text.contains("重新下载"))
         assertTrue(text.contains("空间不足"))
         assertTrue(text.contains("远程"))
-        assertTrue(text.contains("每次发送前都会展示远程内容预览"))
+        assertTrue(text.contains("切换到远程模型时会提醒一次"))
         assertTrue(text.contains("主动附加"))
         assertTrue(text.contains("轻量"))
         assertTrue(text.contains("没有更小的官方推荐聊天模型"))
@@ -296,6 +297,32 @@ class PocketMindScreenDisplayTest {
     }
 
     @Test
+    fun remoteModeDisclosureRowsNameOneTimeBoundaryReminder() {
+        val text = remoteModeDisclosureDisplayRows(
+            PendingRemoteModeDisclosure(
+                remoteHost = "api.example.com",
+                remoteModelName = "model-a",
+                apiKeyConfigured = true,
+                connectivityStatus = RemoteModelConnectivityStatus.Reachable,
+                supportsVisionInput = true,
+                isConfigured = true,
+            ),
+        ).joinToString("\n")
+
+        assertTrue(text.contains("api.example.com"))
+        assertTrue(text.contains("model-a"))
+        assertTrue(text.contains("RemoteEligible 对话上下文"))
+        assertTrue(text.contains("当前输入"))
+        assertTrue(text.contains("主动选择的图片"))
+        assertTrue(text.contains("LocalOnly 历史"))
+        assertTrue(text.contains("本地记忆"))
+        assertTrue(text.contains("设备上下文"))
+        assertTrue(text.contains("非图片附件正文或 OCR 摘录"))
+        assertTrue(text.contains("已配置 API Key"))
+        assertTrue(text.contains("连接状态：可达"))
+    }
+
+    @Test
     fun remoteSendDisclosureRowsNameDestinationAndProtectedData() {
         val text = remoteSendDisclosureDisplayRows(
             PendingRemoteSendDisclosure(
@@ -414,7 +441,7 @@ class PocketMindScreenDisplayTest {
                 imageAttachmentCount = 0,
                 protectedSourceCount = 0,
                 apiKeyConfigured = true,
-                forcedBySensitiveOrImage = true,
+                forcedBySensitiveContent = true,
                 promptPreview = "我的手机号是 13800001111",
                 sensitiveHitCategories = listOf("疑似手机号/电话", "疑似个人身份信息"),
                 sensitiveHitSnippets = listOf("13800001111"),
