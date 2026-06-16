@@ -154,7 +154,6 @@ import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
-import com.bytedance.zgx.pocketmind.capability.CapabilityMatrix
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.pocketmind.isUsable
@@ -2826,6 +2825,21 @@ private fun TrustBoundaryPanel(
         PanelSurface {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionTitle(
+                    text = "能力与信任中心",
+                    subtitle = TRUST_CENTER_CAPABILITY_TEXT,
+                )
+                trustCenterCapabilityDisplayRows().forEach { row ->
+                    TrustBoundaryRow(
+                        icon = Icons.Filled.Security,
+                        title = row.title,
+                        body = row.body,
+                    )
+                }
+            }
+        }
+        PanelSurface {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle(
                     text = "隐私说明",
                     subtitle = PRIVACY_POLICY_ENTRY_TEXT,
                 )
@@ -3092,22 +3106,6 @@ internal fun semanticMemoryIndexStatusText(state: ChatUiState): String {
         ?: "尚未建立"
     return "召回模式：$mode；索引：${state.semanticMemoryIndexedRecordCount} 条长期记忆；最近重建：$rebuilt"
 }
-
-internal data class SensitiveCapabilityDisclosureDisplayRow(
-    val title: String,
-    val body: String,
-)
-
-internal fun sensitiveCapabilityDisclosureDisplayRows(): List<SensitiveCapabilityDisclosureDisplayRow> =
-    CapabilityMatrix.sensitiveCapabilityDisclosures.map { disclosure ->
-        SensitiveCapabilityDisclosureDisplayRow(
-            title = disclosure.displayName,
-            body = "数据：${disclosure.dataAccessed}\n" +
-                "同意：${disclosure.consentBoundary}\n" +
-                "远程：${disclosure.remoteBoundary}\n" +
-                "撤销/清除：${disclosure.revokeOrClearControl}",
-        )
-    }
 
 @Composable
 private fun MemoryTogglePanel(
@@ -3847,7 +3845,7 @@ internal const val REMOTE_ATTACHMENT_PROTECTION_NOTICE =
     "远程模型模式下，主动选择的图片会直接发送给远程视觉模型；其他附件和分享文本不会读取正文、文本摘录或 OCR 摘录。若模型或接口不支持图片，会直接提示不支持。"
 
 internal const val PRODUCT_POSITIONING_TEXT =
-    "隐私优先的随身 AI 助手：本地对话和本地视觉可用，远程多模态可选，设备动作必须确认执行。"
+    "隐私优先的随身 AI 助手：本地对话和本地视觉可用，远程多模态可选，设备动作必须确认执行；能力与信任中心会集中说明数据边界、权限和人工发布事项。"
 
 internal const val PRODUCT_POSITIONING_SHORT_TEXT =
     "隐私优先的随身 AI 助手"

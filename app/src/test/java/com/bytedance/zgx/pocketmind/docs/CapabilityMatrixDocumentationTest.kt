@@ -56,10 +56,49 @@ class CapabilityMatrixDocumentationTest {
                 "auditable_agent_trace",
                 "model_management",
                 "run_data_receipt",
+                "local_private_qa_and_memory",
+                "local_screen_clipboard_summary_share",
+                "low_risk_app_search_control",
+                "local_reminders_background_tasks",
+                "remote_public_evidence",
+                "trust_center_capability_review",
                 "release_gate",
             ),
             documentedIds,
         )
+    }
+
+    @Test
+    fun nextStageProductCapabilitiesNameCoreMvpScenarios() {
+        val json = JSONObject(readRepoFile("docs/capability_matrix.json"))
+        val documentedScenarios = json.getJSONArray("nextStageMvpScenarios")
+        val documentedScenarioIds = (0 until documentedScenarios.length()).map { index ->
+            documentedScenarios.getJSONObject(index).getString("capabilityId")
+        }
+        val documentedScenarioTitles = (0 until documentedScenarios.length()).associate { index ->
+            val item = documentedScenarios.getJSONObject(index)
+            item.getString("capabilityId") to item.getString("title")
+        }
+        val descriptors = CapabilityMatrix.productDescriptors.associateBy { descriptor ->
+            descriptor.capabilityId
+        }
+        val requiredIds = CapabilityMatrix.nextStageMvpScenarioIds
+
+        assertEquals(requiredIds, CapabilityMatrix.nextStageMvpScenarioTitles.keys.toList())
+        assertEquals(requiredIds, documentedScenarioIds)
+        assertEquals(CapabilityMatrix.nextStageMvpScenarioTitles, documentedScenarioTitles)
+        requiredIds.forEach { capabilityId ->
+            val title = CapabilityMatrix.nextStageMvpScenarioTitle(capabilityId)
+            assertTrue("missing next-stage descriptor $capabilityId", descriptors.containsKey(capabilityId))
+            assertTrue("next-stage title must be non-blank for $capabilityId", title.isNotBlank())
+            assertFalse("next-stage title must be user-readable for $capabilityId", title.contains("_"))
+        }
+        assertTrue(descriptors.getValue("local_private_qa_and_memory").failureBehavior.contains("LocalOnly"))
+        assertTrue(descriptors.getValue("local_screen_clipboard_summary_share").failureBehavior.contains("二次确认"))
+        assertTrue(descriptors.getValue("low_risk_app_search_control").failureBehavior.contains("低风险"))
+        assertTrue(descriptors.getValue("local_reminders_background_tasks").privacyLevel.name == "BackgroundTask")
+        assertTrue(descriptors.getValue("remote_public_evidence").failureBehavior.contains("整批拒绝"))
+        assertTrue(descriptors.getValue("trust_center_capability_review").failureBehavior.contains("能力与信任中心"))
     }
 
     @Test

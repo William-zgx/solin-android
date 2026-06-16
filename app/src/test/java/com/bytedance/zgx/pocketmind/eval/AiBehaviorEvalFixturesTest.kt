@@ -1,5 +1,6 @@
 package com.bytedance.zgx.pocketmind.eval
 
+import com.bytedance.zgx.pocketmind.capability.CapabilityMatrix
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -26,11 +27,37 @@ class AiBehaviorEvalFixturesTest {
                 assertTrue(row.getString("input").isNotBlank())
                 assertTrue(row.getString("expectedBoundary").isNotBlank())
                 assertTrue(row.getString("ownerAgent").isNotBlank())
+                assertTrue(row.getString("mvpScenario").isNotBlank())
             }
             name
         }
 
         assertEquals(expected, loadedCategories)
+    }
+
+    @Test
+    fun fixturesCoverNextStageMvpScenarios() {
+        val expectedScenarios = CapabilityMatrix.nextStageMvpScenarioIds.toSet()
+        val scenarioCounts = mutableMapOf<String, Int>()
+
+        listOf(
+            "memory_recall",
+            "planner_false_positive",
+            "tool_sequence",
+            "ocr_noise",
+            "runtime_failure",
+            "privacy_boundary",
+            "restart_recovery",
+        ).flatMap { loadFixtureRows("$it.jsonl") }
+            .forEach { row ->
+                val scenario = row.getString("mvpScenario")
+                scenarioCounts[scenario] = scenarioCounts.getOrDefault(scenario, 0) + 1
+            }
+
+        assertEquals(expectedScenarios, scenarioCounts.keys)
+        expectedScenarios.forEach { scenario ->
+            assertTrue("$scenario should have at least two eval cases", scenarioCounts.getValue(scenario) >= 2)
+        }
     }
 
     private fun loadFixtureRows(fileName: String): List<JSONObject> {

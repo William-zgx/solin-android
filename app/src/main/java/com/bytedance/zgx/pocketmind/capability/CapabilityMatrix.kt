@@ -60,6 +60,36 @@ object CapabilityMatrix {
     fun toolDescriptors(registry: ToolRegistry = ToolRegistry()): List<CapabilityDescriptor> =
         registry.specs().map { spec -> spec.toCapabilityDescriptor() }
 
+    val nextStageMvpScenarioIds: List<String> = listOf(
+        "local_private_qa_and_memory",
+        "local_screen_clipboard_summary_share",
+        "low_risk_app_search_control",
+        "local_reminders_background_tasks",
+        "remote_public_evidence",
+        "trust_center_capability_review",
+    )
+
+    val nextStageMvpScenarioTitles: Map<String, String> = linkedMapOf(
+        "local_private_qa_and_memory" to "本地私密问答与记忆",
+        "local_screen_clipboard_summary_share" to "屏幕/剪贴板总结分享",
+        "low_risk_app_search_control" to "低风险 App 搜索控制",
+        "local_reminders_background_tasks" to "本地提醒与后台任务",
+        "remote_public_evidence" to "远程公开证据查询",
+        "trust_center_capability_review" to "能力与信任中心",
+    ).also { titles ->
+        require(titles.keys.toList() == nextStageMvpScenarioIds) {
+            "Next-stage MVP scenario titles must match nextStageMvpScenarioIds"
+        }
+        require(titles.values.all { title -> title.isNotBlank() }) {
+            "Next-stage MVP scenario titles must be non-blank"
+        }
+    }
+
+    fun nextStageMvpScenarioTitle(capabilityId: String): String =
+        requireNotNull(nextStageMvpScenarioTitles[capabilityId]) {
+            "Missing next-stage MVP scenario title: $capabilityId"
+        }
+
     val productDescriptors: List<CapabilityDescriptor> =
         listOf(
             CapabilityDescriptor(
@@ -208,6 +238,84 @@ object CapabilityMatrix {
                 ownerAgent = CapabilityOwnerAgent.TrustPrivacy,
             ),
             CapabilityDescriptor(
+                capabilityId = "local_private_qa_and_memory",
+                entrypoint = "chat_input_and_remember_forget_commands",
+                toolName = null,
+                modelCapability = ModelCapability.Chat,
+                privacyLevel = CapabilityPrivacyLevel.LocalEvidence,
+                requiresLocalModel = true,
+                remoteEligible = false,
+                confirmationPolicy = ConfirmationPolicy.NotRequired,
+                failureBehavior = "本地问答、显式偏好/事实记忆和自动任务状态默认 LocalOnly；本地模型不可用时停止生成，记忆控制命令仍留在本机执行。",
+                requiredTests = listOf("PocketMindViewModelTest", "MemoryRepositoryTest", "MemoryQualityContractTest"),
+                ownerAgent = CapabilityOwnerAgent.Memory,
+            ),
+            CapabilityDescriptor(
+                capabilityId = "local_screen_clipboard_summary_share",
+                entrypoint = "clipboard_or_current_screen_summary_share_skill",
+                toolName = null,
+                modelCapability = ModelCapability.Chat,
+                privacyLevel = CapabilityPrivacyLevel.LocalEvidence,
+                requiresLocalModel = true,
+                remoteEligible = false,
+                confirmationPolicy = ConfirmationPolicy.Required,
+                failureBehavior = "剪贴板或当前屏幕文本先单次确认读取并保持 LocalOnly，再由本地模型生成摘要；打开分享前必须二次确认，重启到 payload 确认点时 fail-closed。",
+                requiredTests = listOf("AgentLoopRuntimeTest", "BuiltInSkillRuntimeTest", "MainActivitySkillUiTest", "PocketMindViewModelTest"),
+                ownerAgent = CapabilityOwnerAgent.TrustPrivacy,
+            ),
+            CapabilityDescriptor(
+                capabilityId = "low_risk_app_search_control",
+                entrypoint = "app_search_skill_and_accessibility_control",
+                toolName = null,
+                modelCapability = ModelCapability.MobileAction,
+                privacyLevel = CapabilityPrivacyLevel.ExternalAction,
+                requiresLocalModel = false,
+                remoteEligible = false,
+                confirmationPolicy = ConfirmationPolicy.Required,
+                failureBehavior = "打开 App 后只允许低风险 observe/tap/type/search/scroll/back/wait 连续步骤；发送、删除、支付、发布、敏感输入和权限变更仍回到确认或 fail-closed。",
+                requiredTests = listOf("ToolRegistryTest", "ActionExecutorTest", "MainActivitySkillUiTest", "PocketMindAccessibilityServiceDeviceControlTest"),
+                ownerAgent = CapabilityOwnerAgent.AgentRuntime,
+            ),
+            CapabilityDescriptor(
+                capabilityId = "local_reminders_background_tasks",
+                entrypoint = "schedule_reminder_and_background_tasks",
+                toolName = null,
+                modelCapability = ModelCapability.MobileAction,
+                privacyLevel = CapabilityPrivacyLevel.BackgroundTask,
+                requiresLocalModel = false,
+                remoteEligible = false,
+                confirmationPolicy = ConfirmationPolicy.Required,
+                failureBehavior = "提醒和周期检查必须由用户确认后写入本地任务表；后台只做本地提醒巡检/通知，取消、过期、重启恢复和失败都以本地状态为准。",
+                requiredTests = listOf("ScheduledTaskRepositoryTest", "ReminderAlarmReceiverTest", "BackgroundSkillSpecTest", "MainActivitySkillUiTest"),
+                ownerAgent = CapabilityOwnerAgent.AgentRuntime,
+            ),
+            CapabilityDescriptor(
+                capabilityId = "remote_public_evidence",
+                entrypoint = "remote_tool_calls_web_search",
+                toolName = null,
+                modelCapability = ModelCapability.Chat,
+                privacyLevel = CapabilityPrivacyLevel.PublicEvidence,
+                requiresLocalModel = false,
+                remoteEligible = true,
+                confirmationPolicy = ConfirmationPolicy.NotRequired,
+                failureBehavior = "远程模型只能免确认调用公开只读 evidence；多工具批次必须全部 public/read-only/side-effect-free，混入私密读取或动作工具时整批拒绝。",
+                requiredTests = listOf("RemoteChatRuntimeTest", "AgentLoopRuntimeTest", "PocketMindViewModelTest", "WebSearchProviderTest"),
+                ownerAgent = CapabilityOwnerAgent.AgentRuntime,
+            ),
+            CapabilityDescriptor(
+                capabilityId = "trust_center_capability_review",
+                entrypoint = "model_manager_privacy_tab",
+                toolName = null,
+                modelCapability = null,
+                privacyLevel = CapabilityPrivacyLevel.LocalEvidence,
+                requiresLocalModel = false,
+                remoteEligible = false,
+                confirmationPolicy = ConfirmationPolicy.NotRequired,
+                failureBehavior = "能力与信任中心只展示 CapabilityMatrix、脱敏审计摘要、权限边界和人工发布事项；不展示原始 prompt、工具参数、截图、剪贴板或 API Key。",
+                requiredTests = listOf("CapabilityMatrixDocumentationTest", "PocketMindScreenDisplayTest", "ToolAuditRepositoryTest"),
+                ownerAgent = CapabilityOwnerAgent.TrustPrivacy,
+            ),
+            CapabilityDescriptor(
                 capabilityId = "release_gate",
                 entrypoint = "scripts/verify_release_gate.sh",
                 toolName = null,
@@ -225,6 +333,16 @@ object CapabilityMatrix {
                 ownerAgent = CapabilityOwnerAgent.PerformanceQa,
             ),
         )
+
+    val nextStageMvpDescriptors: List<CapabilityDescriptor>
+        get() {
+            val descriptorsById = productDescriptors.associateBy { descriptor -> descriptor.capabilityId }
+            return nextStageMvpScenarioIds.map { capabilityId ->
+                requireNotNull(descriptorsById[capabilityId]) {
+                    "Missing next-stage MVP capability descriptor: $capabilityId"
+                }
+            }
+        }
 
     val sensitiveCapabilityDisclosures: List<SensitiveCapabilityDisclosure> =
         listOf(

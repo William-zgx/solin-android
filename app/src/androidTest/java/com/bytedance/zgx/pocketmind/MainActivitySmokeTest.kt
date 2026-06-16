@@ -2,6 +2,9 @@ package com.bytedance.zgx.pocketmind
 
 import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -103,11 +106,17 @@ class MainActivitySmokeTest {
         composeRule.openTopMenuItem("top_privacy_button")
         composeRule.waitForTag("model_manager_sheet")
 
-        composeRule.onNodeWithText("隐私说明").assertIsDisplayed()
+        composeRule.scrollToModelManagerText("隐私说明").assertIsDisplayed()
         composeRule.waitForText("为什么装它")
         composeRule.waitForText("本地可用")
         composeRule.waitForText("远程多模态可选")
         composeRule.waitForText("动作确认执行")
+        composeRule.waitForText("能力与信任中心")
+        composeRule.waitForText("本地私密问答与记忆")
+        composeRule.waitForText("屏幕/剪贴板总结分享")
+        composeRule.waitForText("低风险 App 搜索控制")
+        composeRule.waitForText("本地提醒与后台任务")
+        composeRule.waitForText("远程公开证据查询")
         composeRule.waitForText("用户控制")
         composeRule.waitForText("可清空长期记忆", substring = true)
         composeRule.waitForText("删除当前会话", substring = true)
@@ -125,7 +134,9 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("home_privacy_notice_button").performScrollTo().performClick()
         composeRule.waitForTag("model_manager_sheet")
 
-        composeRule.onNodeWithText("隐私说明").assertIsDisplayed()
+        composeRule.scrollToModelManagerText("隐私说明").assertIsDisplayed()
+        composeRule.waitForText("能力与信任中心")
+        composeRule.waitForText("远程公开证据查询")
         composeRule.waitForText("敏感能力披露")
         composeRule.waitForText("设备动作和外部 App")
         composeRule.waitForText("用户控制")
@@ -168,6 +179,9 @@ class MainActivitySmokeTest {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
         }
     }
+
+    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.scrollToModelManagerText(text: String) =
+        onNode(hasText(text) and hasAnyAncestor(hasTestTag("model_manager_sheet"))).performScrollTo()
 
     private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.openTopMenuItem(tag: String) {
         onNodeWithTag("top_more_button").performClick()

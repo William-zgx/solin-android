@@ -60,10 +60,10 @@ items below.
 - Current release-candidate emulator regression passed with
   `scripts/regression_emulator.sh` on `pocketmind_api36_arm64` /
   `emulator-5554` (API 36, `arm64-v8a`):
-  `build/verification/regression-emulator-api36-default-args-current/regression-emulator.properties`
+  `build/verification/goal-emulator-trust-center-final-rerun/regression-emulator.properties`
   records `status=passed`, nested emulator/device reports passed,
-  `actual_android_test_count=28` matching the 28 AndroidTest source count,
-  and exercises the default headless wipe-data AVD startup path.
+  `actual_android_test_count=56` matching the 56 AndroidTest source count,
+  and exercises the headless clean-device AVD regression path.
 - Emulator API matrix readiness is now machine-readable. The current local
   environment reports API 36 ready and API 28/32/33/34 missing system images
   and AVDs in
@@ -76,91 +76,27 @@ items below.
   `build/verification/regression-emulator-api36-no-implicit-image-ocr/regression-emulator-api-matrix.properties`
   records `status=passed`, `passedApis=36`, and links the nested API 36
   `regression-emulator.properties` with 28 AndroidTest(s).
+- The app now has a Trust/Capability Center surface backed by
+  `CapabilityMatrix`: it names the next-stage MVP scenarios, LocalOnly/remote
+  boundaries, confirmation policies, and fail-closed behavior without exposing
+  raw prompts, tool parameters, screenshots, clipboard content, or API keys.
+- `scripts/verify_ai_behavior_eval.sh` now emits machine-readable behavior
+  coverage metrics and the release gate requires `mvpScenario` boundary mapping
+  for the fixture suite. This makes Agent behavior coverage auditable without
+  requiring live model execution in CI.
 
-## Remaining
+## Remaining release blockers by ownership
 
-- Review `docs/privacy_notice.md` with release, security, and legal owners
-  before publishing it as an external policy. Record approvals in
-  `docs/privacy_review.json`; `VERIFY_PRIVACY_REVIEW=1` verifies that all
-  required roles approved the current notice SHA.
-- Fill `docs/release_record.json` for the final release candidate with owner,
-  reviewer, target channel, changelog, release notes, artifact checksum, signing
-  certificate fingerprint, verification reports, and resolved or accepted
-  blockers. `VERIFY_RELEASE_RECORD=1` verifies the record against the current
-  Gradle version, a Git commit reachable from the current checkout, local
-  artifact, and evidence files. `PUBLIC_RELEASE=1` additionally requires a
-  public distribution channel and binds the record to the final AAB path,
-  artifact SHA-256, and expected signing certificate SHA-256.
-- Fill `docs/store_policy_record.json` with approved store listing, data-safety
-  answers, privacy policy URL, model download disclosure, Android permission
-  purposes, and special-access disclosures. `VERIFY_STORE_POLICY=1` verifies
-  the record against the current privacy notice SHA and Android manifest.
-- Fill `docs/release_operations_record.json` with approved crash/ANR monitoring
-  owner, signal sources, first-24-hour watcher, staged rollout thresholds,
-  crash/ANR smoke result, and rollback plan. Generate the smoke evidence with
-  `scripts/collect_crash_anr_smoke_evidence.sh` from the device verification
-  report, instrumentation output, and captured `adb logcat`.
-  `VERIFY_RELEASE_OPERATIONS=1` verifies Android Vitals coverage, rollout
-  thresholds, previous known-good metadata or initial-release exemption,
-  rollback criteria, and review date.
-- Fill `docs/release_validation_record.json` with approved emulator regression,
-  physical-device instrumentation, API matrix coverage, manual acceptance,
-  flow matrix, sanitized screenshots, and performance sanity evidence.
-  `VERIFY_RELEASE_VALIDATION=1` verifies linked emulator/device reports,
-  rejects `emulator-*` serials as physical-device evidence, checks AndroidTest
-  count coverage, required API levels, manual/system-mediated flows, screenshot
-  files, and review date.
-- Investigate the current full physical-device instrumentation timeout before
-  binding physical-device release evidence. On 2026-06-15, `fb6272c`
-  (`Xiaomi 23127PN0CC`, API 36, `arm64-v8a`) built and installed the debug and
-  androidTest APKs, but `scripts/install_and_test_device.sh` timed out after
-  900s in `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`;
-  see
-  `build/verification/device-20260615-110000/device-verification.properties`
-  (`failedTarget=instrumentation`, `reason=instrumentation-timeout`).
-- Prepare API 28/32/33/34 arm64 emulator system images and AVDs before claiming
-  API matrix coverage. `scripts/check_emulator_api_matrix.sh` records missing
-  packages and AVDs but does not install SDK packages or create AVDs by itself.
-  Use `scripts/prepare_emulator_api_matrix.sh` for a dry-run install/create
-  plan, then rerun it with `APPLY=1` once approved. After those AVDs exist, run
-  `scripts/regression_emulator_api_matrix.sh` to generate the matrix-level
-  report and nested per-API regression reports.
-- For all four recommended model downloads, manually verify the upstream model
-  license name, license URL or file path, redistribution rights, attribution or
-  notice requirements, reviewer, and review date. Record the result in
-  `docs/model_manifest.md`, `docs/model_license_review.json`, and the release
-  checklist. `VERIFY_MODEL_URLS=1` checks URL/content metadata only; it does
-  not establish license readiness. `scripts/collect_model_license_metadata.sh`
-  derives the model list from `docs/model_manifest.md`, refreshes Hugging Face
-  model-card metadata in `docs/model_license_metadata.json`, and records
-  `licenseSourceCandidates` for reviewer follow-up, but it does not replace
-  legal/release approval. `VERIFY_MODEL_LICENSES=1` runs
-  `scripts/verify_model_license_review.sh` and requires approved review records
-  aligned with the current manifest, metadata, license source, and metadata
-  collection date.
-- Configure release signing outside source control.
-- Use `scripts/sign_release_artifacts.sh` from the private signing environment
-  to produce signed APK/AAB artifacts and certificate reports once production
-  keystore material is available. The script rejects Android debug keystores by
-  default and requires `EXPECTED_SIGNING_CERT_SHA256` for production signing;
-  `ALLOW_DEBUG_KEYSTORE=1` is only for local smoke validation.
-  Public release gates also reject Android Debug certificates in signed APK/AAB
-  artifacts and can pin `EXPECTED_SIGNING_CERT_SHA256` to the production upload
-  certificate.
-- Run a final release-candidate validation pass on target physical hardware
-  before broad distribution; emulator validation does not cover all LiteRT-LM
-  GPU/performance behavior.
-- Record final physical-device SLOs with `scripts/collect_perf_baseline.sh`
-  or an equivalent measured `perf-baseline.properties` based on
-  `docs/perf_baseline_template.properties`, then pass it to
-  `scripts/verify_release_gate.sh` with `PERF_BASELINE_FILE=...`. The verifier
-  rejects emulator serials, stale or future `recordedAt`, non-`arm64-v8a`
-  baselines, wrong app versions, mismatched artifact SHA-256, OOM/ANR
-  observations, and zero critical timing or memory values.
-- For public distribution, run the release gate with
-  `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert>` after
-  production signing and bundle generation are complete. `PUBLIC_RELEASE=1`
-  enables release record, store policy, rollout monitoring/rollback readiness,
-  release validation matrix, privacy review, model license, AAB,
-  signed-artifact, and certificate fingerprint checks, plus release mapping
-  verification.
+| Status | Owner / environment | Item | Gate or evidence |
+| --- | --- | --- | --- |
+| Owner evidence required | Release owner | Fill `docs/release_record.json` with final owner, reviewer, target channel, changelog, release notes, artifact checksum, signing certificate fingerprint, verification reports, and resolved/accepted blockers. | `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; `PUBLIC_RELEASE=1` additionally binds the record to the final public AAB, artifact SHA-256, and production signing certificate SHA-256. |
+| Owner evidence required | Store / policy owner | Fill `docs/store_policy_record.json` with approved store listing, Data safety answers, privacy-policy URL, model download disclosure, Android permission purposes, and special-access disclosures. | `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`; verifier checks the current privacy notice SHA and Android manifest. |
+| Owner evidence required | Release operations owner | Fill `docs/release_operations_record.json` with crash/ANR monitoring owner, signal source, first-24-hour watcher, staged rollout thresholds, crash/ANR smoke result, and rollback plan. | `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`; smoke evidence should come from `scripts/collect_crash_anr_smoke_evidence.sh` plus device verification, instrumentation output, and logcat. |
+| Owner evidence required | Validation owner | Fill `docs/release_validation_record.json` with approved emulator regression, physical-device instrumentation, API matrix, manual acceptance, flow matrix, sanitized screenshots, and performance sanity evidence. | `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh`; verifier rejects emulator serials as physical-device evidence and checks AndroidTest counts, required APIs, manual/system-mediated flows, screenshots, and review date. |
+| Manual approval required | Release, security, legal | Review `docs/privacy_notice.md` before publishing it as the external policy and record role approvals in `docs/privacy_review.json`. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`. App code cannot replace this approval. |
+| Manual/legal approval required | Model/license reviewer | For all four recommended model downloads, verify upstream license name, concrete license/notice URL or file path, redistribution rights, attribution/notice requirements, reviewer, and date. | Record in `docs/model_license_review.json`; `VERIFY_MODEL_LICENSES=1` verifies alignment with `docs/model_manifest.md` and metadata. `VERIFY_MODEL_URLS=1` checks URL/content metadata only and is not license approval. |
+| Private environment required | Signing owner | Configure production release signing outside source control and run `scripts/sign_release_artifacts.sh` with production keystore material and `EXPECTED_SIGNING_CERT_SHA256`. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> scripts/verify_release_gate.sh`; debug keystores are rejected for production. |
+| Physical hardware required | Device validation owner | Investigate the current full physical-device instrumentation timeout before binding physical-device release evidence. On 2026-06-15, `fb6272c` (`Xiaomi 23127PN0CC`, API 36, `arm64-v8a`) timed out after 900s in `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`; see `build/verification/device-20260615-110000/device-verification.properties` (`failedTarget=instrumentation`, `reason=instrumentation-timeout`). | A passing physical `scripts/install_and_test_device.sh` report, plus failure evidence for any remaining timeout. |
+| SDK/AVD environment required | CI / emulator owner | Prepare API 28/32/33/34 arm64 emulator system images and AVDs before claiming API matrix coverage. | `scripts/check_emulator_api_matrix.sh` records missing packages/AVDs; `scripts/prepare_emulator_api_matrix.sh` produces dry-run/apply commands; `scripts/regression_emulator_api_matrix.sh` generates matrix evidence. |
+| Physical hardware required | Performance owner | Run final release-candidate validation and performance SLO collection on target physical arm64 hardware. Emulator validation does not cover LiteRT-LM GPU/performance behavior. | `scripts/collect_perf_baseline.sh` or equivalent `perf-baseline.properties`, then `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh`; verifier rejects emulator serials, stale/future timestamps, wrong ABI/version/artifact SHA, OOM/ANR, and zero timing/memory values. |
+| Public-release final gate | Release owner | After production signing, AAB generation, approvals, validation, and perf evidence are complete, run the public release gate. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> PERF_BASELINE_FILE=<rc perf baseline> scripts/verify_release_gate.sh`; this enables release record, store policy, operations, validation, privacy review, model license, signed artifact/AAB, cert fingerprint, and mapping checks. |

@@ -38,6 +38,7 @@ class PocketMindScreenDisplayTest {
         assertTrue(PRODUCT_POSITIONING_TEXT.contains("本地视觉"))
         assertTrue(PRODUCT_POSITIONING_TEXT.contains("远程多模态可选"))
         assertTrue(PRODUCT_POSITIONING_TEXT.contains("必须确认执行"))
+        assertTrue(PRODUCT_POSITIONING_TEXT.contains("能力与信任中心"))
         assertTrue(PRODUCT_POSITIONING_SHORT_TEXT.contains("隐私优先"))
         assertTrue(PRODUCT_POSITIONING_SHORT_TEXT.contains("随身 AI 助手"))
         assertTrue(PRODUCT_HOME_TITLE_TEXT.contains("隐私优先"))
@@ -111,6 +112,41 @@ class PocketMindScreenDisplayTest {
         assertTrue(SENSITIVE_CAPABILITY_DISCLOSURE_TEXT.contains("Usage Stats"))
         assertTrue(SENSITIVE_CAPABILITY_DISCLOSURE_TEXT.contains("设备动作"))
         assertTrue(SENSITIVE_CAPABILITY_DISCLOSURE_TEXT.contains("取消、撤销或清除路径"))
+        CapabilityMatrix.nextStageMvpScenarioTitles.values.forEach { title ->
+            assertTrue("missing trust center summary title: $title", TRUST_CENTER_CAPABILITY_TEXT.contains(title))
+        }
+    }
+
+    @Test
+    fun trustCenterCapabilityRowsCoverNextStageScenarios() {
+        val rows = trustCenterCapabilityDisplayRows()
+        val allText = rows.joinToString("\n") { "${it.title}\n${it.body}" }
+
+        assertEquals(CapabilityMatrix.nextStageMvpScenarioIds.size, rows.size)
+        listOf(
+            "本地私密问答与记忆",
+            "屏幕/剪贴板总结分享",
+            "低风险 App 搜索控制",
+            "本地提醒与后台任务",
+            "远程公开证据查询",
+            "能力与信任中心",
+        ).forEach { expectedTitle ->
+            assertTrue("missing trust center row: $expectedTitle", rows.any { it.title == expectedTitle })
+        }
+        listOf(
+            "LocalEvidence",
+            "BackgroundTask",
+            "PublicEvidence",
+            "确认：Required",
+            "远程：可用",
+            "远程：不可自动发送",
+            "fail-closed",
+            "整批拒绝",
+        ).forEach { requiredCopy ->
+            assertTrue("missing trust center copy: $requiredCopy", allText.contains(requiredCopy))
+        }
+        assertTrue(!allText.contains("sk-"))
+        assertTrue(!allText.contains("Bearer "))
     }
 
     @Test

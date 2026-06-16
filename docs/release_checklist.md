@@ -2,7 +2,11 @@
 
 Use this checklist for each release candidate. It is intentionally operational:
 every checked item should have a named owner, date, and artifact link in the
-release ticket or PR.
+release ticket or PR. Code gates can prove artifact shape, records, and script
+outputs; they cannot substitute for manual/legal approval, production signing
+secrets, Play Console/Android Vitals evidence, or measurements on real physical
+hardware. Keep the ownership/status table in `docs/release_readiness.md` aligned
+with each RC before treating this checklist as complete.
 
 ## Scope
 

@@ -1,2 +1,5 @@
-{"category":"restart_recovery","input":"确认卡出现后进程重启","expectedBoundary":"restore_confirmation_no_auto_execute","ownerAgent":"Recovery"}
-{"category":"restart_recovery","input":"外部 App 打开后重启","expectedBoundary":"await_external_outcome_or_fail_closed","ownerAgent":"Recovery"}
+{"category":"restart_recovery","input":"确认卡出现后进程重启","expectedBoundary":"restore_confirmation_no_auto_execute","ownerAgent":"Recovery","mvpScenario":"trust_center_capability_review"}
+{"category":"restart_recovery","input":"外部 App 打开后重启","expectedBoundary":"await_external_outcome_or_fail_closed","ownerAgent":"Recovery","mvpScenario":"low_risk_app_search_control"}
+{"category":"restart_recovery","input":"剪贴板摘要已生成但分享确认前重启","expectedBoundary":"payload_share_pending_fails_closed","ownerAgent":"Recovery","mvpScenario":"local_screen_clipboard_summary_share"}
+{"category":"restart_recovery","input":"提醒已排程后系统重启","expectedBoundary":"local_reminder_rescheduled_from_task_store","ownerAgent":"Recovery","mvpScenario":"local_reminders_background_tasks"}
+{"category":"restart_recovery","input":"能力与信任中心刷新后只恢复脱敏摘要","expectedBoundary":"metadata_only_review_no_raw_payload_restore","ownerAgent":"Recovery","mvpScenario":"trust_center_capability_review"}

@@ -349,6 +349,208 @@ class ToolSchemaContractTest {
         }
     }
 
+    @Test
+    fun allToolInputAndOutputPropertiesDeclareTypes() {
+        registry.specs().forEach { spec ->
+            listOf(
+                "input" to spec.inputSchemaJson,
+                "output" to spec.outputSchemaJson,
+            ).forEach { (schemaKind, schemaJson) ->
+                val properties = JSONObject(schemaJson).optJSONObject("properties") ?: JSONObject()
+                properties.keysSet().forEach { propertyName ->
+                    val property = properties.getJSONObject(propertyName)
+                    assertTrue(
+                        "${spec.name} $schemaKind property $propertyName must declare type",
+                        property.has("type") && !property.isNull("type"),
+                    )
+                    assertTrue(
+                        "${spec.name} $schemaKind property $propertyName type must be a string",
+                        property.get("type") is String,
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun registryConstructionRejectsUnsupportedRootSchemaDeclarations() {
+        listOf(
+            "missing additionalProperties" to """{"type":"object","properties":{}}""",
+            "open additionalProperties" to """{"type":"object","properties":{},"additionalProperties":true}""",
+            "non-object properties" to """{"type":"object","properties":[],"additionalProperties":false}""",
+            "non-array required" to """{"type":"object","required":"value","properties":{},"additionalProperties":false}""",
+            "non-string required value" to """{"type":"object","required":[7],"properties":{},"additionalProperties":false}""",
+            "blank required value" to """{"type":"object","required":[""],"properties":{},"additionalProperties":false}""",
+            "unsupported root keyword" to
+                """{"type":"object","properties":{},"additionalProperties":false,"oneOf":[]}""",
+            "duplicate required values" to
+                """{"type":"object","required":["value","value"],"properties":{"value":{"type":"string"}},"additionalProperties":false}""",
+        ).forEach { (label, inputSchemaJson) ->
+            val error = runCatching {
+                ToolRegistry(
+                    ToolProvider {
+                        listOf(
+                            schemaContractSpec(
+                                name = "invalid_root_schema_contract",
+                                inputSchemaJson = inputSchemaJson,
+                            ),
+                        )
+                    },
+                )
+            }.exceptionOrNull()
+
+            assertNotNull("$label should fail registry construction", error)
+            assertTrue(
+                "$label should fail on the root schema: ${error?.message}",
+                error?.message.orEmpty().contains("schema"),
+            )
+        }
+    }
+
+    @Test
+    fun registryConstructionRejectsUnsupportedPropertySchemaDeclarations() {
+        val invalidInputPropertySchemas = listOf(
+            "missing property type" to """{"minLength":1}""",
+            "non-string property type" to """{"type":7}""",
+            "array property with nested items" to """{"type":"array","items":{"type":"string"}}""",
+            "object property with nested properties" to
+                """{"type":"object","properties":{"nested":{"type":"string"}}}""",
+            "object property with nested required" to """{"type":"object","required":["nested"]}""",
+            "object property with nested additionalProperties" to
+                """{"type":"object","additionalProperties":false}""",
+            "property with unsupported schema keyword" to """{"type":"string","allOf":[{"minLength":1}]}""",
+            "property with non-string description" to """{"type":"string","description":7}""",
+            "property with non-integer minLength" to """{"type":"string","minLength":"1"}""",
+            "property with non-string enum value" to """{"type":"string","enum":["ok",7]}""",
+            "property with non-number maximum" to """{"type":"integer","maximum":"10"}""",
+            "property with non-finite maximum" to """{"type":"number","maximum":1e999}""",
+            "property with object const" to """{"type":"string","const":{"value":"x"}}""",
+            "property with string const on integer type" to """{"type":"integer","const":"1"}""",
+            "property with non-boolean enum on boolean type" to """{"type":"boolean","enum":["true","maybe"]}""",
+            "property with duplicate enum values" to """{"type":"string","enum":["ok","ok"]}""",
+            "property with negative minLength" to """{"type":"string","minLength":-1}""",
+            "property with inverted string length bounds" to """{"type":"string","minLength":3,"maxLength":2}""",
+            "property with inverted numeric bounds" to """{"type":"integer","minimum":5,"maximum":4}""",
+            "property with inverted exclusive numeric bounds" to
+                """{"type":"number","exclusiveMinimum":5,"exclusiveMaximum":5}""",
+            "integer property with string minLength keyword" to """{"type":"integer","minLength":1}""",
+            "boolean property with numeric maximum keyword" to """{"type":"boolean","maximum":1}""",
+            "array property with string format keyword" to """{"type":"array","format":"date-time"}""",
+            "object property with JSON content media type keyword" to
+                """{"type":"object","contentMediaType":"application/json"}""",
+        )
+
+        invalidInputPropertySchemas.forEach { (label, propertySchemaJson) ->
+            assertRegistryConstructionFails(
+                message = label,
+                inputSchemaJson = objectSchemaWithValueProperty(propertySchemaJson),
+            )
+        }
+        assertRegistryConstructionFails(
+            message = "output property missing type",
+            inputSchemaJson = EMPTY_OBJECT_INPUT_SCHEMA_JSON,
+            outputSchemaJson = outputSchemaWithValueProperty("""{"minLength":1}"""),
+        )
+    }
+
+    @Test
+    fun unsupportedSchemaTypesFailClosedDuringRegistryConstruction() {
+        assertRegistryConstructionFails(
+            message = "unsupported input schema type",
+            inputSchemaJson = objectSchemaWithValueProperty("""{"type":"uint64"}"""),
+        )
+        assertRegistryConstructionFails(
+            message = "unsupported output schema type",
+            inputSchemaJson = EMPTY_OBJECT_INPUT_SCHEMA_JSON,
+            outputSchemaJson = outputSchemaWithValueProperty("""{"type":"uint64"}"""),
+        )
+    }
+
+    @Test
+    fun nonFiniteNumbersAreRejectedForNumberProperties() {
+        val inputToolName = "finite_number_input_contract"
+        val inputRegistry = ToolRegistry(
+            ToolProvider {
+                listOf(
+                    schemaContractSpec(
+                        name = inputToolName,
+                        inputSchemaJson = objectSchemaWithValueProperty("""{"type":"number"}"""),
+                    ),
+                )
+            },
+        )
+
+        listOf("Infinity", "NaN").forEach { nonFiniteValue ->
+            assertNotNull(
+                "non-finite number arguments should be rejected: $nonFiniteValue",
+                inputRegistry.validate(
+                    ToolRequest(
+                        toolName = inputToolName,
+                        arguments = mapOf("value" to nonFiniteValue),
+                        reason = "schema contract",
+                    ),
+                ),
+            )
+        }
+
+        val outputToolName = "finite_number_output_contract"
+        val outputRegistry = ToolRegistry(
+            ToolProvider {
+                listOf(
+                    schemaContractSpec(
+                        name = outputToolName,
+                        inputSchemaJson = EMPTY_OBJECT_INPUT_SCHEMA_JSON,
+                        outputSchemaJson = outputSchemaWithValueProperty("""{"type":"number"}"""),
+                    ),
+                )
+            },
+        )
+        val outputRequest = ToolRequest(
+            id = "finite-number-output-request",
+            toolName = outputToolName,
+            reason = "schema contract",
+        )
+
+        listOf("Infinity", "NaN").forEach { nonFiniteValue ->
+            assertInvalidResult(
+                "non-finite number results should be rejected: $nonFiniteValue",
+                outputRegistry.validateResult(
+                    request = outputRequest,
+                    result = outputRequest.succeeded(
+                        summary = "non-finite number output",
+                        data = mapOf("toolName" to outputToolName, "value" to nonFiniteValue),
+                    ),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun unsupportedStringFormatsAndContentMediaTypesFailClosedDuringRegistryConstruction() {
+        assertRegistryConstructionFails(
+            message = "unsupported input string format",
+            inputSchemaJson = objectSchemaWithValueProperty("""{"type":"string","format":"uri"}"""),
+        )
+        assertRegistryConstructionFails(
+            message = "unsupported output string format",
+            inputSchemaJson = EMPTY_OBJECT_INPUT_SCHEMA_JSON,
+            outputSchemaJson = outputSchemaWithValueProperty("""{"type":"string","format":"uri"}"""),
+        )
+        assertRegistryConstructionFails(
+            message = "unsupported input string content media type",
+            inputSchemaJson = objectSchemaWithValueProperty(
+                """{"type":"string","contentMediaType":"text/plain"}""",
+            ),
+        )
+        assertRegistryConstructionFails(
+            message = "unsupported output string content media type",
+            inputSchemaJson = EMPTY_OBJECT_INPUT_SCHEMA_JSON,
+            outputSchemaJson = outputSchemaWithValueProperty(
+                """{"type":"string","contentMediaType":"text/plain"}""",
+            ),
+        )
+    }
+
     private fun validValueFor(property: JSONObject): String {
         property.optConstStringOrNull()?.let { return it }
         property.optStringSet("enum").firstOrNull()?.let { return it }
@@ -458,6 +660,70 @@ class ToolSchemaContractTest {
             else -> null
         }
 
+    private fun assertRegistryConstructionFails(
+        message: String,
+        inputSchemaJson: String,
+        outputSchemaJson: String = TOOL_NAME_ONLY_OUTPUT_SCHEMA_JSON,
+    ) {
+        val error = runCatching {
+            ToolRegistry(
+                ToolProvider {
+                    listOf(
+                        schemaContractSpec(
+                            name = "invalid_property_schema_contract",
+                            inputSchemaJson = inputSchemaJson,
+                            outputSchemaJson = outputSchemaJson,
+                        ),
+                    )
+                },
+            )
+        }.exceptionOrNull()
+
+        assertNotNull("$message should fail registry construction", error)
+        assertTrue(
+            "$message should fail on the property schema: ${error?.message}",
+            error?.message.orEmpty().contains("property"),
+        )
+    }
+
+    private fun objectSchemaWithValueProperty(propertySchemaJson: String): String =
+        """
+            {
+              "type": "object",
+              "required": ["value"],
+              "properties": {
+                "value": $propertySchemaJson
+              },
+              "additionalProperties": false
+            }
+        """.trimIndent()
+
+    private fun outputSchemaWithValueProperty(propertySchemaJson: String): String =
+        """
+            {
+              "type": "object",
+              "required": ["toolName", "value"],
+              "properties": {
+                "toolName": {"type": "string", "minLength": 1},
+                "value": $propertySchemaJson
+              },
+              "additionalProperties": false
+            }
+        """.trimIndent()
+
+    private fun schemaContractSpec(
+        name: String,
+        inputSchemaJson: String,
+        outputSchemaJson: String = TOOL_NAME_ONLY_OUTPUT_SCHEMA_JSON,
+    ): ToolSpec = ToolSpec(
+        name = name,
+        title = name,
+        description = name,
+        inputSchemaJson = inputSchemaJson,
+        outputSchemaJson = outputSchemaJson,
+        capability = ToolCapability.DeviceContext,
+    )
+
     private fun JSONObject.keysSet(): Set<String> {
         val result = linkedSetOf<String>()
         val iterator = keys()
@@ -496,6 +762,8 @@ class ToolSchemaContractTest {
     }
 
     private companion object {
+        const val EMPTY_OBJECT_INPUT_SCHEMA_JSON =
+            """{"type":"object","properties":{},"additionalProperties":false}"""
         val NUMERIC_SCHEMA_TYPES = setOf("integer", "number")
     }
 }

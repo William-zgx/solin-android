@@ -743,6 +743,51 @@ grep -q 'baseVersionCodeRaw=' scripts/verify_upgrade_install_emulator.sh ||
   fail "upgrade install emulator report must preserve raw base versionCode"
 grep -q 'currentVersionCodeRaw=' scripts/verify_upgrade_install_emulator.sh ||
   fail "upgrade install emulator report must preserve raw current versionCode"
+grep -q 'scripts/verify_ai_behavior_eval.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include verify_ai_behavior_eval.sh in shell syntax checks"
+grep -q -- '--require-boundary-map --report "$ARTIFACT_DIR/ai-behavior-eval.properties"' scripts/verify_release_gate.sh ||
+  fail "release gate must require AI behavior eval boundary mapping"
+grep -q 'docs/capability_matrix.json' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must read MVP scenarios from capability matrix JSON"
+grep -q 'nextStageMvpScenarios' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must use nextStageMvpScenarios as the MVP scenario source"
+if grep -q 'REQUIRED_MVP_SCENARIOS=' scripts/verify_ai_behavior_eval.sh; then
+  fail "AI behavior eval gate must not keep a hard-coded MVP scenario array"
+fi
+python3 - <<'PY' || fail "Capability matrix JSON MVP scenarios must match CapabilityMatrix"
+import json
+import pathlib
+import re
+import sys
+
+kotlin = pathlib.Path("app/src/main/java/com/bytedance/zgx/pocketmind/capability/CapabilityMatrix.kt").read_text()
+capability_matrix = json.loads(pathlib.Path("docs/capability_matrix.json").read_text())
+
+def extract_quoted(pattern, source, label):
+    match = re.search(pattern, source, re.S)
+    if not match:
+        print(f"missing {label}", file=sys.stderr)
+        sys.exit(1)
+    return re.findall(r'"([^"]+)"', match.group(1))
+
+kotlin_ids = extract_quoted(
+    r"nextStageMvpScenarioIds:\s*List<String>\s*=\s*listOf\((.*?)\)",
+    kotlin,
+    "CapabilityMatrix.nextStageMvpScenarioIds",
+)
+json_ids = [scenario.get("capabilityId", "") for scenario in capability_matrix.get("nextStageMvpScenarios", [])]
+json_titles = [scenario.get("title", "") for scenario in capability_matrix.get("nextStageMvpScenarios", [])]
+if kotlin_ids != json_ids:
+    print(f"CapabilityMatrix MVP scenarios {kotlin_ids} != docs/capability_matrix.json {json_ids}", file=sys.stderr)
+    sys.exit(1)
+if len(set(json_ids)) != len(json_ids) or any(not title.strip() for title in json_titles):
+    print("docs/capability_matrix.json nextStageMvpScenarios must have unique IDs and non-blank titles", file=sys.stderr)
+    sys.exit(1)
+PY
+grep -q 'underCoveredMvpScenarios=' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval report must expose under-covered MVP scenarios"
+grep -q 'missingRequiredMvpScenarios=' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval report must expose missing MVP scenarios"
 grep -q 'scripts/privacy_scan.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include privacy_scan.sh in shell syntax checks"
 grep -q 'scripts/scan_android_artifacts.sh' scripts/verify_local.sh ||

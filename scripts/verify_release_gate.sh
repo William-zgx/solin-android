@@ -167,7 +167,7 @@ else
 fi
 
 if [[ "$VERIFY_AI_BEHAVIOR_EVAL" == "1" ]]; then
-  if ! scripts/verify_ai_behavior_eval.sh --report "$ARTIFACT_DIR/ai-behavior-eval.properties"; then
+  if ! scripts/verify_ai_behavior_eval.sh --require-boundary-map --report "$ARTIFACT_DIR/ai-behavior-eval.properties"; then
     fail_gate ai-behavior-eval "$ARTIFACT_DIR/ai-behavior-eval.properties"
   fi
 else
