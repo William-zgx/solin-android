@@ -50,10 +50,14 @@ items below.
   `scripts/verify_local.sh`, including JVM tests, lint, debug/androidTest APK
   assembly, release assembly, and APK content checks; see
   `docs/validation_report.md` for the dated command log.
-- Latest physical-device App search eval passed on `fb6272c` on 2026-06-14:
-  `build/verification/real-app-search-eval-20260614-222945/real-app-search-eval.properties`
-  records Taobao, Pinduoduo, and Amap/Gaode search passing, with Chrome skipped
-  because it was not installed.
+- Latest 2026-06-17 physical-device debug control eval passed on `fb6272c`:
+  `build/verification/device-control-debug-eval-20260617-001110/device-control-debug-eval.properties`
+  records `status=passed` and `command_count=39`. The paired real-app search
+  eval is not release-passing:
+  `build/verification/real-app-search-eval-20260617-000937/real-app-search-eval.properties`
+  records `status=failed`, Pinduoduo passed, Taobao failed
+  `search_entry_not_found`, Amap/Gaode failed `editable_not_found`, and Chrome
+  was skipped because it was not installed.
 - Latest local signed release APK was installed back on `fb6272c` with
   `adb install -r` after debug eval, preserving app data. This is not a
   replacement for production signing or the final release-candidate matrix.
@@ -96,7 +100,7 @@ items below.
 | Manual approval required | Release, security, legal | Review `docs/privacy_notice.md` before publishing it as the external policy and record role approvals in `docs/privacy_review.json`. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`. App code cannot replace this approval. |
 | Manual/legal approval required | Model/license reviewer | For all four recommended model downloads, verify upstream license name, concrete license/notice URL or file path, redistribution rights, attribution/notice requirements, reviewer, and date. | Record in `docs/model_license_review.json`; `VERIFY_MODEL_LICENSES=1` verifies alignment with `docs/model_manifest.md` and metadata. `VERIFY_MODEL_URLS=1` checks URL/content metadata only and is not license approval. |
 | Private environment required | Signing owner | Configure production release signing outside source control and run `scripts/sign_release_artifacts.sh` with production keystore material and `EXPECTED_SIGNING_CERT_SHA256`. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> scripts/verify_release_gate.sh`; debug keystores are rejected for production. |
-| Physical hardware required | Device validation owner | Investigate the current full physical-device instrumentation timeout before binding physical-device release evidence. On 2026-06-15, `fb6272c` (`Xiaomi 23127PN0CC`, API 36, `arm64-v8a`) timed out after 900s in `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`; see `build/verification/device-20260615-110000/device-verification.properties` (`failedTarget=instrumentation`, `reason=instrumentation-timeout`). | A passing physical `scripts/install_and_test_device.sh` report, plus failure evidence for any remaining timeout. |
+| Physical hardware required | Device validation owner | Investigate the current full physical-device instrumentation crash before binding physical-device release evidence. On 2026-06-17, `fb6272c` (`Xiaomi 23127PN0CC`, API 36, `arm64-v8a`) crashed in `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`; see `build/verification/device-20260617-000355/device-verification.properties` (`failedTarget=instrumentation`, `reason=instrumentation-failed`) and `instrumentation.txt` (`shortMsg=Process crashed.`). | A passing physical `scripts/install_and_test_device.sh` report, plus failure evidence for any remaining crash or timeout. |
 | SDK/AVD environment required | CI / emulator owner | Prepare API 28/32/33/34 arm64 emulator system images and AVDs before claiming API matrix coverage. | `scripts/check_emulator_api_matrix.sh` records missing packages/AVDs; `scripts/prepare_emulator_api_matrix.sh` produces dry-run/apply commands; `scripts/regression_emulator_api_matrix.sh` generates matrix evidence. |
 | Physical hardware required | Performance owner | Run final release-candidate validation and performance SLO collection on target physical arm64 hardware. Emulator validation does not cover LiteRT-LM GPU/performance behavior. | `scripts/collect_perf_baseline.sh` or equivalent `perf-baseline.properties`, then `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh`; verifier rejects emulator serials, stale/future timestamps, wrong ABI/version/artifact SHA, OOM/ANR, and zero timing/memory values. |
 | Public-release final gate | Release owner | After production signing, AAB generation, approvals, validation, and perf evidence are complete, run the public release gate. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> PERF_BASELINE_FILE=<rc perf baseline> scripts/verify_release_gate.sh`; this enables release record, store policy, operations, validation, privacy review, model license, signed artifact/AAB, cert fingerprint, and mapping checks. |

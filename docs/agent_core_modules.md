@@ -1799,6 +1799,12 @@ Current status:
   receipts. Generic text-like excerpts require strict UTF-8; malformed UTF-8
   binary content stays metadata-only instead of being decoded with replacement
   characters.
+- Remote image sends are a separate opt-in path: after the remote-send preview
+  is confirmed, bounded image bytes are attached as OpenAI-compatible
+  `image_url` content parts only for configurations with image input enabled
+  and an endpoint/model that supports that message shape. A text-compatible
+  OpenAI-style endpoint is not treated as vision-capable by default, and image
+  rejection does not trigger OCR fallback.
 - Audio, video, legacy Office binary formats, binary, malformed PDF, and other
   unsupported attachments stay metadata-only; the app does not parse or embed
   their bytes into prompts.
@@ -1911,12 +1917,16 @@ instrumentation test count. Direct device reports record that count as
 `instrumentation_test_count`. The helpers also write machine-readable evidence
 under `build/verification/`: `device-verification.properties` for direct device
 runs, and `emulator-verification.properties` plus a nested device report for
-emulator runs. `scripts/regression_emulator.sh` is the stricter full emulator
-gate: it forces `CLEAN_DEVICE=1`, validates the nested reports, checks that
-`instrumentation_test_count` is at least the current AndroidTest source count,
-and writes `regression-emulator.properties`. Treat those reports as the
-artifact-of-record for whether a device or emulator regression actually
-executed.
+emulator runs. Direct device validation keeps the debug app installed but clears
+app data by default before the final manual launch; use
+`RESET_APP_DATA_AFTER_TESTS=0` and avoid `CLEAN_DEVICE=1`, uninstall, or manual
+`pm clear` when preserving downloaded models, model metadata, remote
+configuration, sessions, or messages matters. `scripts/regression_emulator.sh`
+is the stricter full emulator gate: it forces `CLEAN_DEVICE=1`, validates the
+nested reports, checks that `instrumentation_test_count` is at least the current
+AndroidTest source count, and writes `regression-emulator.properties`. Treat
+those reports as the artifact-of-record for whether a device or emulator
+regression actually executed.
 
 Full device validation remains required for LiteRT-LM model execution because
 emulators usually do not expose the same GPU backend behavior as physical

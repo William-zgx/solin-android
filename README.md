@@ -36,9 +36,10 @@ flowchart LR
   local model, verified local vision models can process user-provided images on
   device, and chat history, memory, and local tool results stay on device unless
   the user chooses a remote path.
-- **Remote is optional:** remote chat and image understanding require an
-  explicitly configured OpenAI-compatible endpoint; every remote send shows
-  what can leave the phone before it is sent.
+- **Remote is optional:** remote chat requires an explicitly configured
+  OpenAI-compatible chat endpoint; remote image understanding additionally
+  requires an endpoint/model that accepts OpenAI-style `image_url` content
+  parts. Every remote send shows what can leave the phone before it is sent.
 - **Actions are confirmed:** contacts, calendar, screen, media, reminders,
   sharing, settings, and phone-control actions stay behind permission,
   disclosure, and confirmation gates. The "reduce phone-control confirmations"
@@ -105,14 +106,17 @@ flowchart TD
 - Optional higher-quality chat model presets.
 - Custom `.litertlm` download links and local file import.
 - Model manager for switching downloaded or imported models.
-- Configurable streaming remote chat backend for OpenAI-compatible `/v1/chat/completions` services.
+- Configurable streaming remote chat backend for OpenAI-compatible chat
+  completion base URLs; PocketMind appends `/chat/completions` unless the
+  configured URL already ends with that endpoint.
 - Local image input sends bounded user-provided image bytes directly to a
   verified local vision-capable LiteRT-LM chat model; the image bytes are not
   serialized into the prompt, history, audit, or receipt.
 - Remote image sharing remains opt-in: image attachments are sent only to a
-  configured vision-capable remote model after the remote-send preview is
-  confirmed. If the local or remote profile disables image input, PocketMind
-  records a LocalOnly notice and does not force OCR as a fallback.
+  configured vision-capable remote model/API that accepts OpenAI-compatible
+  `image_url` content parts after the remote-send preview is confirmed. If the
+  local or remote profile disables image input, or the remote API rejects image
+  content, PocketMind reports the failure and does not force OCR as a fallback.
 - Lightweight local memory recall over previous conversation context.
 - Local mobile action planning with deterministic rule fallback and
   confirmation-aware execution.
@@ -236,7 +240,9 @@ model download/import, remote multimodal use is optional, and remote sends or
 high-risk device actions still require confirmation.
 
 1. Choose the local path by downloading or importing a trusted `.litertlm`
-   model, or choose the remote path by configuring a compatible endpoint.
+   model, or choose the remote path by configuring a compatible chat endpoint.
+   Enable remote image input only when that endpoint/model supports
+   OpenAI-compatible `image_url` message content.
 2. Review the in-app privacy guidance from the top bar whenever model,
    attachment, voice, memory, or device-action behavior is unclear.
 3. Chat once the selected backend reports ready.
@@ -257,6 +263,10 @@ excerpts, current-screen Accessibility text snapshots, and attachment metadata
 are not automatically sent to the configured backend. HTTPS is
 required except for local debug hosts such as `localhost`, `127.0.0.1`, and
 Android emulator `10.0.2.2`.
+Text-compatible OpenAI-style endpoints are not automatically vision-capable:
+remote image sends use OpenAI-compatible `image_url` content parts, so a
+text-only service should keep image input disabled and will report image-input
+failure if it rejects those content parts.
 The current remote prompt also passes a conservative outbound privacy gate:
 personal identifiers, contact details, and token/API-key-like content are kept
 LocalOnly with a prompt to switch local or remove sensitive content.
@@ -469,9 +479,10 @@ declares vision input; each image is bounded to 8 MB and sent to LiteRT-LM as an
 image content part, not as base64 or metadata in the prompt. In remote mode,
 user-provided `image/*` attachments are read only after the provider identifies
 them as images, bounded to an 8 MB data URL, and sent directly to the remote
-vision model request without local OCR. If the local or remote model/API rejects
-image input, PocketMind reports that image input failed instead of falling back
-to OCR. Remote mode still protects shared text, non-image attachments,
+request as OpenAI-compatible `image_url` content without local OCR. If the
+local or remote model/API rejects image input, PocketMind reports that image
+input failed instead of falling back to OCR. Remote mode still protects shared
+text, non-image attachments,
 attachment text excerpts, and OCR excerpts at the reader boundary: it does not
 read or automatically send those contents before showing a local privacy notice.
 Local mode also requires the user to tap send before the staged shared-input
@@ -658,8 +669,10 @@ ANDROID_SERIAL=<device> scripts/run_real_app_search_eval.sh
 ```
 
 `run_real_app_search_eval.sh` uses the debug eval receiver to drive installed
-real apps. The latest recorded physical-device run passed Taobao, Pinduoduo,
-and Amap/Gaode search; Chrome was skipped because it was not installed.
+real apps. The latest 2026-06-17 physical-device run on `fb6272c` passed
+Pinduoduo, failed Taobao search-entry detection and Amap/Gaode editable-field
+detection, and skipped Chrome because it was not installed; see
+`docs/validation_report.md` for the current evidence paths.
 
 Run emulator-only validation without accidentally selecting a physical device:
 
@@ -703,10 +716,13 @@ scripts/install_and_test_device.sh
 
 `scripts/install_and_test_device.sh` leaves the debug app installed after a
 successful run and clears app data before the final manual launch by default, so
-instrumentation state cannot leak into acceptance. Set
-`RESET_APP_DATA_AFTER_TESTS=0` only when you intentionally want to inspect the
-post-test app state. Use `CLEAN_DEVICE=1 scripts/install_and_test_device.sh`
-when you also want to uninstall any old debug package before validation.
+instrumentation state cannot leak into acceptance. That default `pm clear`
+removes downloaded model files, model metadata, remote configuration, sessions,
+and messages from app storage. Set `RESET_APP_DATA_AFTER_TESTS=0` when you need
+to preserve or inspect post-test app data, and avoid `CLEAN_DEVICE=1`,
+uninstall, or manual `pm clear` on devices whose downloaded models must be
+kept. Use `CLEAN_DEVICE=1 scripts/install_and_test_device.sh` only when you also
+want to uninstall any old debug package before validation.
 If there is no authorized device, or if multiple authorized devices are
 connected without `ANDROID_SERIAL`, the script exits before Gradle build, APK
 install, or instrumentation. Record the instrumentation runner's reported test

@@ -27,9 +27,10 @@ preferences. Clearing the API key field removes the stored secret.
 ## Remote Model Mode
 
 Remote model mode sends requests only to the user-configured OpenAI-compatible
-chat endpoint. The request can include the current user prompt, selected model
-name, generation parameters, and prior chat messages whose privacy is
-`RemoteEligible`.
+chat endpoint. PocketMind accepts a base URL and appends `/chat/completions`
+unless the configured URL already points at that endpoint. The request can
+include the current user prompt, selected model name, generation parameters,
+and prior chat messages whose privacy is `RemoteEligible`.
 
 The app filters `LocalOnly` messages from remote history and rejects a
 `LocalOnly` current prompt before making a remote request. Local memory hits,
@@ -40,9 +41,13 @@ the same content into a normal remote-eligible message, that message can be
 sent.
 
 When the user explicitly sends images to a configured remote vision model, the
-image bytes are attached to that request, but the text prompt uses only a
-generic image count and support notice. It does not include attachment display
-names, MIME types, byte sizes, OCR text, or non-image attachment metadata.
+image bytes are attached as OpenAI-compatible `image_url` content parts only
+when image input is enabled and the endpoint/model supports that message shape.
+A text-compatible OpenAI-style endpoint is not automatically vision-capable.
+If the endpoint rejects image content, PocketMind reports image-input failure
+and does not fall back to OCR. The text prompt uses only a generic image count
+and support notice. It does not include attachment display names, MIME types,
+byte sizes, OCR text, or non-image attachment metadata.
 
 Remote transport requires HTTPS, except for local debug hosts such as
 `localhost`, `127.0.0.1`, and Android emulator `10.0.2.2`. When an API key is
@@ -139,8 +144,9 @@ metadata-only in the current app; supported strict UTF-8 text, RTF, PDF text
 layers, PDF scanned-page OCR fallback, and Office Open XML attachments may
 produce bounded local excerpts. User-provided image attachments are read only
 when the active local model is a verified vision-capable profile or when the
-user confirms sending them to a supported remote vision model; explicit
-confirmed OCR tools remain separate. Malformed PDFs remain
+user confirms sending them to a remote endpoint/model that supports
+OpenAI-compatible `image_url` vision input; explicit confirmed OCR tools remain
+separate. Malformed PDFs remain
 metadata-only. If Android does not provide a useful MIME type for a
 user-provided attachment, PocketMind may infer common supported types from the
 display-name extension before deciding whether a bounded local excerpt is

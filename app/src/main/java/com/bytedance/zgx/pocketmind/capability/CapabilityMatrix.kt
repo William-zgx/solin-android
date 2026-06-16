@@ -158,7 +158,7 @@ object CapabilityMatrix {
                 requiresLocalModel = false,
                 remoteEligible = true,
                 confirmationPolicy = ConfirmationPolicy.Required,
-                failureBehavior = "图片只在远程发送预览确认后随请求发送；远程配置不支持图片输入时直接提示不支持，不强制 OCR；远程视觉 prompt 不包含附件文件名、MIME、大小或 OCR。",
+                failureBehavior = "图片只在远程发送预览确认后随请求发送；远程模型还必须显式启用图片输入并支持 OpenAI image_url 内容块，不支持图片或接口拒绝时直接提示不支持，不强制 OCR；远程视觉 prompt 不包含附件文件名、MIME、大小或 OCR。",
                 requiredTests = listOf(
                     "RemoteChatRuntimeTest",
                     "PocketMindViewModelTest",
@@ -351,7 +351,7 @@ object CapabilityMatrix {
                 displayName = "远程模型发送",
                 dataAccessed = "当前输入、可远程发送历史和用户主动附加的图片；不包含本地记忆、设备上下文或 LocalOnly 历史。",
                 consentBoundary = "切换远程模型并点击发送后展示远程发送预览；确认前不请求远程接口。",
-                remoteBoundary = "远程请求只发往用户配置的 HTTPS 或本机调试 endpoint；图片字节只有在主动附加且模型支持视觉时发送。",
+                remoteBoundary = "远程请求只发往用户配置的 HTTPS 或本机调试 endpoint；图片字节只有在主动附加、配置显式启用图片输入且接口支持 OpenAI image_url 视觉输入时发送。",
                 revokeOrClearControl = "可取消发送预览、清除远程服务地址/模型名/API Key，并删除会话记录。",
                 requiredTests = listOf("PocketMindViewModelTest", "PocketMindScreenDisplayTest", "RemoteChatRuntimeTest"),
             ),
@@ -375,7 +375,7 @@ object CapabilityMatrix {
                 displayName = "分享和文件选择",
                 dataAccessed = "用户通过分享入口或系统文件选择器主动提供的文本、文件元数据、受限文本摘录，以及已验证本地视觉模型可使用的受限图片字节。",
                 consentBoundary = "仅处理用户主动分享或通过系统文件选择器确认的内容；本地模式才读取受支持文本/PDF/OCR 摘录；已验证本地视觉模型可在发送时读取受限图片字节，不支持视觉时不自动 OCR。",
-                remoteBoundary = "远程模式保护分享文本、非图片附件、文本摘录和 OCR 摘录；图片只有在远程模式、视觉开启且用户确认发送后才走远程视觉路径；本地视觉图片字节不进入远程请求。",
+                remoteBoundary = "远程模式保护分享文本、非图片附件、文本摘录和 OCR 摘录；图片只有在远程模式、视觉开启、接口支持 OpenAI image_url 且用户确认发送后才走远程视觉路径；本地视觉图片字节不进入远程请求。",
                 revokeOrClearControl = "可取消草稿、删除当前会话，并通过系统 picker/分享入口重新选择范围。",
                 requiredTests = listOf(
                     "SharedInputTest",

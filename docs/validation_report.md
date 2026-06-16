@@ -23,6 +23,60 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-17 文档边界同步与真机回归抽测
+
+本轮覆盖项：
+
+- 根据当前代码同步项目文档：远程 chat completion URL 处理、远程图片输入必须支持
+  OpenAI-compatible `image_url` 内容块、默认真机 smoke 会清 App 数据、保留模型数据时的
+  `RESET_APP_DATA_AFTER_TESTS=0` 要求、以及 2026-06-17 真机实测状态。
+- 复核真机 `fb6272c` 的 debug 控制、真实 App 搜索、主界面可启动/交互、以及完整
+  instrumentation 失败证据。
+- 检查用户提醒后未继续执行卸载、`pm clear` 或默认会清数据的完整验收路径；只做只读
+  sandbox/数据库状态核对。
+
+验证命令：
+
+```bash
+ANDROID_SERIAL=fb6272c RESET_APP_DATA_AFTER_TESTS=0 scripts/install_and_test_device.sh
+SKIP_BUILD=1 SKIP_INSTALL=1 ANDROID_SERIAL=fb6272c scripts/run_real_app_search_eval.sh
+SKIP_BUILD=1 SKIP_INSTALL=1 ANDROID_SERIAL=fb6272c scripts/run_device_control_debug_eval.sh
+$HOME/Library/Android/sdk/platform-tools/adb -s fb6272c shell am start -W -n com.bytedance.zgx.pocketmind/.MainActivity
+sqlite3 build/verification/pocketmind-db-after-device-tests.db "select 'installed_models=' || count(*) from installed_models; select 'download_records=' || count(*) from download_records; select 'chat_sessions=' || count(*) from chat_sessions; select 'chat_messages=' || count(*) from chat_messages;"
+```
+
+结果：
+
+- 失败：完整真机 instrumentation 报告
+  `build/verification/device-20260617-000355/device-verification.properties`
+  记录 `status=failed`、`failedTarget=instrumentation`、
+  `reason=instrumentation-failed`、`instrumentation_test_count=56`、
+  `reset_app_data_after_tests=0`；`instrumentation.txt` 显示
+  `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`
+  开始后 `shortMsg=Process crashed.`。该报告不能作为 release physical-device
+  passed evidence。
+- 通过：debug phone-control primitive eval
+  `build/verification/device-control-debug-eval-20260617-001110/device-control-debug-eval.properties`
+  记录 `status=passed`、`command_count=39`，覆盖 observe/tap/type/scroll/wait/back
+  和 node-not-found recovery。
+- 失败：真实 App 搜索 eval
+  `build/verification/real-app-search-eval-20260617-000937/real-app-search-eval.properties`
+  记录 `status=failed`、`run_count=3`、`pass_count=1`、`fail_count=2`、
+  `skip_count=1`；`pdd.case.properties` 通过，`taobao.case.properties` 为
+  `search_entry_not_found`，`gaode.case.properties` 为 `editable_not_found`，
+  `chrome.case.properties` 因 `package_not_installed:com.android.chrome` 跳过。
+- 通过：主 Activity 真机启动返回 `Status: ok`，并保存 UI/交互证据
+  `build/verification/pocketmind-main-20260617-0011.xml`、
+  `build/verification/pocketmind-model-sheet-20260617-0011.xml`、
+  `build/verification/pocketmind-input-20260617-0011.xml` 和
+  `build/verification/pocketmind-after-input-20260617-0011.xml`；输入框可输入测试文本并启用发送入口，随后已清空测试文本。
+- 数据保留核对：用户提醒不要删除已下载模型数据后，本轮未继续执行卸载、`pm clear` 或默认清数据脚本；只读数据库副本
+  `build/verification/pocketmind-db-after-device-tests.db` 显示
+  `installed_models=0`、`download_records=0`、`chat_sessions=0`、
+  `chat_messages=0`。该结果只能说明当时可见数据库为空，不能替代已有模型数据保护策略。
+- 未执行：未用真实 vision-capable 远程 endpoint 做图片发送通过性验证；当前文档只绑定代码行为边界，即远程图片请求使用 OpenAI-compatible
+  `image_url` 内容块，文本兼容端点若不支持视觉应保持图片输入关闭或预期失败。
+
 ## 2026-06-15 Agent capability architecture and physical-device validation
 
 本轮覆盖项：

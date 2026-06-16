@@ -319,8 +319,10 @@ with each RC before treating this checklist as complete.
   rejection, and successful local import registration as `UnverifiedCustom`.
 - [ ] `shareAndPickerInput` release flow evidence must explicitly record
   ACTION_SEND text staging, remote-mode text-share protection, remote vision
-  image attachment staging, unsupported-vision protection, no implicit image
-  OCR, bounded document excerpts, and picker attachment prompting.
+  image attachment staging through an endpoint/model that supports
+  OpenAI-compatible `image_url` content, unsupported-vision protection, no
+  implicit image OCR, bounded document excerpts, and picker attachment
+  prompting.
 - [ ] `privacyAndDataControls` release flow evidence must explicitly record
   the App privacy notice entry, long-term memory clear and forget controls,
   current-session deletion, remote configuration clearing, and deletion/control
