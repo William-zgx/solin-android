@@ -846,6 +846,19 @@ class BuiltInSkillRuntimeTest {
         assertEquals("淘宝", openAppVerify.request.arguments["expectedAppName"])
         assertTrue(openAppSearchPlan.validateStructure().errors.joinToString(), openAppSearchPlan.validateStructure().isValid)
 
+        assertEquals(null, runtime.plan("打开淘宝搜索耳机，然后返回"))
+
+        val bareBackPlan = requireNotNull(runtime.plan("返回"))
+        assertEquals(BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL, bareBackPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.UI_PRESS_BACK,
+                MobileActionFunctions.UI_WAIT,
+            ),
+            bareBackPlan.steps.toolNames(),
+        )
+        assertTrue(bareBackPlan.validateStructure().errors.joinToString(), bareBackPlan.validateStructure().isValid)
+
         val englishOpenAppSearchPlan = requireNotNull(runtime.plan("open Pinduoduo and search milk"))
         assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, englishOpenAppSearchPlan.request.skillId)
         val englishOpenAppStep = englishOpenAppSearchPlan.steps[0] as SkillStep.ToolStep

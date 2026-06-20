@@ -2,15 +2,26 @@ package com.bytedance.zgx.pocketmind.eval
 
 import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.MessagePrivacy
+import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
+import com.bytedance.zgx.pocketmind.background.ReminderRescheduler
+import com.bytedance.zgx.pocketmind.background.ReminderRescheduleReport
+import com.bytedance.zgx.pocketmind.background.ScheduledTask
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskRepository
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
+import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.AgentRunEntity
 import com.bytedance.zgx.pocketmind.data.AgentSkillRunCheckpointEntity
 import com.bytedance.zgx.pocketmind.data.AgentStepEntity
 import com.bytedance.zgx.pocketmind.data.AgentTraceDao
 import com.bytedance.zgx.pocketmind.data.PendingAgentConfirmationEntity
+import com.bytedance.zgx.pocketmind.data.ScheduledTaskDao
+import com.bytedance.zgx.pocketmind.data.ScheduledTaskEntity
+import com.bytedance.zgx.pocketmind.device.DEVICE_CONTROL_METADATA_POLICY
+import com.bytedance.zgx.pocketmind.device.DEVICE_CONTROL_SOURCE_ACCESSIBILITY
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachment
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachmentKind
@@ -33,6 +44,8 @@ import com.bytedance.zgx.pocketmind.orchestration.RoomAgentTraceStore
 import com.bytedance.zgx.pocketmind.orchestration.RunDataDestination
 import com.bytedance.zgx.pocketmind.orchestration.RunDataReceipt
 import com.bytedance.zgx.pocketmind.orchestration.SequentialActionObservationReplanner
+import com.bytedance.zgx.pocketmind.safety.SafetyDecision
+import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
@@ -85,12 +98,32 @@ class AiBehaviorActualTraceGeneratorTest {
             toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
         )
         assertSearchThenShareTrace(traceRowsByCaseId.getValue("sequence_search_then_share"))
+        assertTaobaoSearchBackTrace(traceRowsByCaseId.getValue("sequence_taobao_search_back"))
+        assertAppSearchCheckpointBudgetTrace(traceRowsByCaseId.getValue("runtime_app_search_checkpoint_budget"))
         assertRemoteImagePreviewTrace(traceRowsByCaseId.getValue("privacy_remote_image_preview"))
         assertTruncatedPdfOcrTrace(traceRowsByCaseId.getValue("ocr_pdf_scan_truncated"))
         assertRestoredConfirmationNoAutoExecuteTrace(
             traceRowsByCaseId.getValue("recovery_confirmation_no_auto_execute"),
         )
+        assertExternalOutcomeFailClosedTrace(traceRowsByCaseId.getValue("recovery_external_outcome_fail_closed"))
         assertRestoredPendingPayloadTrace(traceRowsByCaseId.getValue("recovery_pending_payload_not_restored"))
+        assertReminderRescheduledTrace(traceRowsByCaseId.getValue("recovery_reminder_rescheduled"))
+    }
+
+    @Test
+    fun recoveryReminderRescheduledTraceUsesRealReminderReschedulerSummary() {
+        val fixture = loadFixtureRows("restart_recovery")
+            .single { row -> row.getString("id") == "recovery_reminder_rescheduled" }
+
+        val evidence = collectReminderRescheduledTraceEvidence(fixture)
+
+        assertEquals(ReminderRescheduleReport(total = 1, scheduled = 1, failed = 0), evidence.report)
+        assertEquals(mapOf("task-1" to 2_250L), evidence.scheduledAlarms)
+        assertEquals(2_250L, evidence.taskAfterReschedule.triggerAtMillis)
+        assertEquals(ScheduledTaskStatus.Scheduled, evidence.taskAfterReschedule.status)
+        assertReminderRescheduledTrace(evidence.trace)
+        assertTrue(!evidence.trace.toString().contains("喝水"))
+        assertTrue(!evidence.trace.toString().contains("站起来活动一下"))
     }
 
     private fun collectActualTrace(fixture: JSONObject): JSONObject {
@@ -99,6 +132,12 @@ class AiBehaviorActualTraceGeneratorTest {
         }
         if (fixture.getString("id") == "recovery_pending_payload_not_restored") {
             return collectRestoredPendingPayloadTrace(fixture)
+        }
+        if (fixture.getString("id") == "recovery_external_outcome_fail_closed") {
+            return collectExternalOutcomeFailClosedTrace(fixture)
+        }
+        if (fixture.getString("id") == "recovery_reminder_rescheduled") {
+            return collectReminderRescheduledTraceEvidence(fixture).trace
         }
         val input = fixture.getString("input")
         val runtimeInput = runtimeInputFor(fixture)
@@ -146,6 +185,10 @@ class AiBehaviorActualTraceGeneratorTest {
     private fun runtimeInputFor(fixture: JSONObject): String =
         if (fixture.getString("id") in remotePrivateToolCaseIds) {
             "普通远程问题"
+        } else if (fixture.getString("id") in remoteMixedBatchCaseIds) {
+            "普通远程问题"
+        } else if (fixture.getString("id") == "runtime_app_search_checkpoint_budget") {
+            "打开淘宝搜索耳机，然后返回"
         } else {
             fixture.getString("input")
         }
@@ -173,6 +216,48 @@ class AiBehaviorActualTraceGeneratorTest {
         assertEquals(MessagePrivacy.RemoteEligible.name, trace.getString("privacy"))
         assertEquals(false, trace.getBoolean("localOnly"))
         assertEquals(true, trace.getBoolean("remoteEligible"))
+        assertEquals("", trace.getString("failureMode"))
+    }
+
+    private fun assertTaobaoSearchBackTrace(trace: JSONObject) {
+        assertEquals(
+            JSONArray(
+                listOf(
+                    MobileActionFunctions.OPEN_APP_BY_NAME,
+                    MobileActionFunctions.UI_TAP,
+                    MobileActionFunctions.UI_TYPE_TEXT,
+                    MobileActionFunctions.UI_SUBMIT_SEARCH,
+                    MobileActionFunctions.UI_PRESS_BACK,
+                ),
+            ).toString(),
+            trace.getJSONArray("actualTools").toString(),
+        )
+        assertEquals("second_confirmation", trace.getString("actualConfirmation"))
+        assertEquals("low", trace.getString("actualRiskLevel"))
+        assertEquals(MessagePrivacy.LocalOnly.name, trace.getString("privacy"))
+        assertEquals(true, trace.getBoolean("localOnly"))
+        assertEquals(false, trace.getBoolean("remoteEligible"))
+        assertEquals("", trace.getString("failureMode"))
+    }
+
+    private fun assertAppSearchCheckpointBudgetTrace(trace: JSONObject) {
+        assertEquals(
+            JSONArray(
+                listOf(
+                    MobileActionFunctions.OPEN_APP_BY_NAME,
+                    MobileActionFunctions.UI_TAP,
+                    MobileActionFunctions.UI_TYPE_TEXT,
+                    MobileActionFunctions.UI_SUBMIT_SEARCH,
+                    MobileActionFunctions.UI_PRESS_BACK,
+                ),
+            ).toString(),
+            trace.getJSONArray("actualTools").toString(),
+        )
+        assertEquals("second_confirmation", trace.getString("actualConfirmation"))
+        assertEquals("low", trace.getString("actualRiskLevel"))
+        assertEquals(MessagePrivacy.LocalOnly.name, trace.getString("privacy"))
+        assertEquals(true, trace.getBoolean("localOnly"))
+        assertEquals(false, trace.getBoolean("remoteEligible"))
         assertEquals("", trace.getString("failureMode"))
     }
 
@@ -266,6 +351,81 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
     }
 
+    private fun collectExternalOutcomeFailClosedTrace(fixture: JSONObject): JSONObject {
+        val input = fixture.getString("input")
+        val dao = FakeAgentTraceDao()
+        val traceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 1_000L },
+            runIdFactory = { "run-recovery-external-outcome-fail-closed" },
+        )
+        val run = traceStore.createRun(input, sessionId = "session-recovery-external-outcome")
+        val request = ToolRequest(
+            id = "request-open-app-missing-outcome",
+            toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+            arguments = mapOf("appName" to "淘宝"),
+            reason = "Open app before process restart.",
+        )
+        val draft = ActionDraft(
+            functionName = MobileActionFunctions.OPEN_APP_BY_NAME,
+            title = "打开淘宝",
+            summary = "打开淘宝后等待外部结果确认。",
+            parameters = request.arguments,
+            requiresConfirmation = true,
+        )
+        val plan = AgentPlan.UseTool(
+            request = request,
+            draft = draft,
+            plannedByModel = false,
+            fallbackReason = "external outcome recovery fixture",
+            skillRequest = null,
+            skillPlan = null,
+            safetyDecision = SafetyDecision(
+                outcome = SafetyOutcome.RequireConfirmation,
+                reason = "External navigation requires confirmation.",
+            ),
+        )
+        traceStore.appendStep(run.id, AgentStep.ToolRequested(request, draft))
+        traceStore.updateState(run.id, AgentRunState.AwaitingExternalOutcome)
+
+        val restoredRuntime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RuleActionRuntime(),
+            traceStore = RoomAgentTraceStore(
+                traceDao = dao,
+                clockMillis = { 2_000L },
+            ),
+        )
+        require(restoredRuntime.failStaleInFlightRuns("process restarted") == 1)
+
+        val finalTraceStore = RoomAgentTraceStore(
+            traceDao = dao,
+            clockMillis = { 3_000L },
+        )
+        val restoredRun = requireNotNull(finalTraceStore.run(run.id))
+        require(restoredRun.state == AgentRunState.Failed)
+        val trace = AgentBehaviorTraceProjector().project(
+            AgentLoopResult(
+                run = restoredRun,
+                plan = plan,
+                steps = finalTraceStore.steps(run.id),
+            ),
+        )
+        return JSONObject()
+            .put("caseId", fixture.getString("id"))
+            .put("category", fixture.getString("category"))
+            .put("input", input)
+            .put("actualTools", JSONArray(trace.actualTools))
+            .put("actualConfirmation", trace.actualConfirmation.toFixtureValue())
+            .put("actualRiskLevel", trace.actualRiskLevel.toFixtureValue())
+            .put("privacy", trace.privacy.name)
+            .put("localOnly", trace.localOnly)
+            .put("remoteEligible", trace.remoteEligible)
+            .put("failureMode", trace.failureMode ?: "")
+            .put("traceSource", "agent_loop_runtime")
+            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+    }
+
     private fun assertRemoteImagePreviewTrace(trace: JSONObject) {
         assertEquals(JSONArray(emptyList<String>()).toString(), trace.getJSONArray("actualTools").toString())
         assertEquals("remote_send_confirmation", trace.getString("actualConfirmation"))
@@ -294,6 +454,97 @@ class AiBehaviorActualTraceGeneratorTest {
         assertEquals(true, trace.getBoolean("localOnly"))
         assertEquals(false, trace.getBoolean("remoteEligible"))
         assertEquals("", trace.getString("failureMode"))
+    }
+
+    private fun assertExternalOutcomeFailClosedTrace(trace: JSONObject) {
+        assertEquals(
+            JSONArray(listOf(MobileActionFunctions.OPEN_APP_BY_NAME)).toString(),
+            trace.getJSONArray("actualTools").toString(),
+        )
+        assertEquals("fail_closed", trace.getString("actualConfirmation"))
+        assertEquals("low", trace.getString("actualRiskLevel"))
+        assertEquals(MessagePrivacy.LocalOnly.name, trace.getString("privacy"))
+        assertEquals(true, trace.getBoolean("localOnly"))
+        assertEquals(false, trace.getBoolean("remoteEligible"))
+        assertEquals("external_outcome_missing", trace.getString("failureMode"))
+    }
+
+    private fun assertReminderRescheduledTrace(trace: JSONObject) {
+        assertEquals(
+            JSONArray(listOf(MobileActionFunctions.SCHEDULE_REMINDER)).toString(),
+            trace.getJSONArray("actualTools").toString(),
+        )
+        assertEquals("none", trace.getString("actualConfirmation"))
+        assertEquals("low", trace.getString("actualRiskLevel"))
+        assertEquals(MessagePrivacy.LocalOnly.name, trace.getString("privacy"))
+        assertEquals(true, trace.getBoolean("localOnly"))
+        assertEquals(false, trace.getBoolean("remoteEligible"))
+        assertEquals("", trace.getString("failureMode"))
+    }
+
+    private fun collectReminderRescheduledTraceEvidence(fixture: JSONObject): ReminderRescheduleTraceEvidence {
+        val input = fixture.getString("input")
+        val dao = FakeScheduledTaskDao()
+        val repository = ScheduledTaskRepository(
+            dao = dao,
+            clockMillis = { 1_000L },
+            reminderIdFactory = { "task-1" },
+        )
+        val reminder = repository.createReminder(
+            title = "喝水",
+            body = "站起来活动一下",
+            triggerAtMillis = 1_500L,
+        )
+        val scheduledAlarms = linkedMapOf<String, Long>()
+        val rescheduler = ReminderRescheduler(
+            repository = repository,
+            scheduleAlarm = { task, triggerAtMillis ->
+                scheduledAlarms[task.id] = triggerAtMillis
+                Result.success(Unit)
+            },
+            clockMillis = { 2_000L },
+            catchUpDelayMillis = 250L,
+        )
+        val report = rescheduler.reschedulePendingReminders()
+        require(report.scheduled > 0) { "Reminder recovery trace requires real rescheduler success." }
+        val taskAfterReschedule = requireNotNull(repository.task(reminder.id)) {
+            "Reminder recovery trace requires the rescheduled task snapshot."
+        }
+        require(scheduledAlarms[reminder.id] == 2_250L) {
+            "Reminder recovery trace requires a recorded alarm reschedule."
+        }
+        require(taskAfterReschedule.triggerAtMillis == 2_250L) {
+            "Reminder recovery trace requires the task store catch-up trigger to be updated."
+        }
+        val trace = AgentBehaviorActualTrace(
+            caseId = fixture.getString("id"),
+            input = input,
+            actualTools = listOf(MobileActionFunctions.SCHEDULE_REMINDER),
+            actualConfirmation = AgentEvalConfirmationExpectation.None,
+            actualRiskLevel = AgentEvalRiskLevel.Low,
+            privacy = MessagePrivacy.LocalOnly,
+            localOnly = true,
+            remoteEligible = false,
+            failureMode = null,
+        )
+        return ReminderRescheduleTraceEvidence(
+            report = report,
+            scheduledAlarms = scheduledAlarms.toMap(),
+            taskAfterReschedule = taskAfterReschedule,
+            trace = JSONObject()
+            .put("caseId", fixture.getString("id"))
+            .put("category", fixture.getString("category"))
+            .put("input", input)
+            .put("actualTools", JSONArray(trace.actualTools))
+            .put("actualConfirmation", trace.actualConfirmation.toFixtureValue())
+            .put("actualRiskLevel", trace.actualRiskLevel.toFixtureValue())
+            .put("privacy", trace.privacy.name)
+            .put("localOnly", trace.localOnly)
+            .put("remoteEligible", trace.remoteEligible)
+            .put("failureMode", trace.failureMode ?: "")
+            .put("traceSource", "agent_loop_runtime")
+                .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString()),
+        )
     }
 
     private fun collectRestoredConfirmationNoAutoExecuteTrace(fixture: JSONObject): JSONObject {
@@ -514,6 +765,12 @@ class AiBehaviorActualTraceGeneratorTest {
             "sequence_search_then_share" ->
                 runtime.driveSearchThenShareSequence(result)
 
+            "sequence_taobao_search_back" ->
+                runtime.driveTaobaoSearchBackSequence(result, executeBack = true)
+
+            "runtime_app_search_checkpoint_budget" ->
+                runtime.driveTaobaoSearchBackSequence(result, executeBack = false)
+
             else -> Unit
         }
     }
@@ -582,6 +839,83 @@ class AiBehaviorActualTraceGeneratorTest {
             ),
         )
     }
+
+    private fun AgentLoopRuntime.driveTaobaoSearchBackSequence(
+        result: AgentLoopResult,
+        executeBack: Boolean,
+    ) {
+        val initialPlan = result.plan as? AgentPlan.UseTool ?: return
+        if (initialPlan.request.toolName != MobileActionFunctions.OPEN_APP_BY_NAME) return
+        if (result.run.state == AgentRunState.AwaitingUserConfirmation) {
+            confirmToolRequest(result.run.id, initialPlan.request.id)
+        }
+        var nextPlan = observeToolResult(
+            runId = result.run.id,
+            result = ToolResult(
+                requestId = initialPlan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已打开淘宝",
+                data = externalActivityResultData(
+                    toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                    completionVerified = false,
+                    externalOutcome = "Unknown",
+                    externalOutcomeSource = "Unknown",
+                ),
+            ),
+        ).nextToolPlanOrNull() ?: return
+
+        nextPlan = observeToolResult(
+            runId = result.run.id,
+            result = uiActionResult(nextPlan.request, actionType = "wait"),
+        ).nextToolPlanOrNull() ?: return
+        nextPlan = observeToolResult(
+            runId = result.run.id,
+            result = observeScreenResult(nextPlan.request),
+        ).nextToolPlanOrNull() ?: return
+        nextPlan = observeToolResult(
+            runId = result.run.id,
+            result = uiActionResult(nextPlan.request, actionType = "tap", target = "搜索入口"),
+        ).nextToolPlanOrNull() ?: return
+        nextPlan = observeToolResult(
+            runId = result.run.id,
+            result = uiActionResult(nextPlan.request, actionType = "wait"),
+        ).nextToolPlanOrNull() ?: return
+        nextPlan = observeToolResult(
+            runId = result.run.id,
+            result = uiActionResult(nextPlan.request, actionType = "type_text", target = "搜索输入框"),
+        ).nextToolPlanOrNull() ?: return
+        nextPlan = observeToolResult(
+            runId = result.run.id,
+            result = uiActionResult(nextPlan.request, actionType = "submit_search"),
+        ).nextToolPlanOrNull() ?: return
+        val backCheckpoint = observeToolResult(
+            runId = result.run.id,
+            result = uiActionResult(
+                request = nextPlan.request,
+                actionType = "wait",
+                extraData = mapOf(
+                    "searchVerificationStatus" to "verified",
+                    "searchVerificationEvidence" to "query_visible_after_change",
+                ),
+            ),
+        )
+        val backPlan = backCheckpoint.nextToolPlanOrNull() ?: return
+        if (!executeBack) return
+        if (backCheckpoint?.run?.state == AgentRunState.AwaitingUserConfirmation) {
+            confirmToolRequest(result.run.id, backPlan.request.id)
+        }
+        val waitAfterBack = observeToolResult(
+            runId = result.run.id,
+            result = uiActionResult(backPlan.request, actionType = "press_back"),
+        ).nextToolPlanOrNull() ?: return
+        observeToolResult(
+            runId = result.run.id,
+            result = uiActionResult(waitAfterBack.request, actionType = "wait"),
+        )
+    }
+
+    private fun com.bytedance.zgx.pocketmind.orchestration.AgentObservationResult?.nextToolPlanOrNull(): AgentPlan.UseTool? =
+        (this?.decision as? AgentObservationDecision.PlanNextTool)?.plan
 
     private fun AgentLoopRuntime.rejectRemotePrivateTool(
         result: AgentLoopResult,
@@ -767,6 +1101,95 @@ class AiBehaviorActualTraceGeneratorTest {
             "resultsJson" to resultsJson,
         )
 
+    private fun observeScreenResult(
+        request: ToolRequest,
+        packageName: String = "com.taobao.taobao",
+        textSummary: String = "淘宝 搜索商品 耳机",
+    ): ToolResult =
+        ToolResult(
+            requestId = request.id,
+            status = ToolStatus.Succeeded,
+            summary = "已观察当前屏幕",
+            data = localDeviceControlData(request.toolName) + mapOf(
+                "observationId" to "screen-${request.id}",
+                "capturedAtMillis" to "1000",
+                "nodeCount" to "3",
+                "actionableNodeCount" to "2",
+                "textSummary" to textSummary,
+                "truncated" to "false",
+                "nodesJson" to "[]",
+                "maxTextChars" to "2000",
+                "maxNodes" to "50",
+                "packageName" to packageName,
+            ),
+        )
+
+    private fun uiActionResult(
+        request: ToolRequest,
+        actionType: String,
+        target: String = "",
+        packageName: String = "com.taobao.taobao",
+        textSummary: String = "淘宝 搜索商品 耳机",
+        extraData: Map<String, String> = emptyMap(),
+    ): ToolResult =
+        ToolResult(
+            requestId = request.id,
+            status = ToolStatus.Succeeded,
+            summary = "已执行 UI 动作",
+            data = localDeviceControlData(request.toolName) +
+                mapOf(
+                    "actionType" to actionType,
+                    "status" to "succeeded",
+                    "retryable" to "false",
+                    "summary" to "已执行 UI 动作",
+                    "beforeObservationId" to "before-${request.id}",
+                    "afterObservationId" to "after-${request.id}",
+                    "verificationSummary" to "已观察当前屏幕：包名 $packageName，3 个节点，2 个可交互节点。",
+                    "afterPackageName" to packageName,
+                    "afterCapturedAtMillis" to "1000",
+                    "afterNodeCount" to "3",
+                    "afterActionableNodeCount" to "2",
+                    "afterTextSummary" to textSummary,
+                    "afterTruncated" to "false",
+                    "afterNodesJson" to "[]",
+                ) +
+                target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty() +
+                extraData,
+        )
+
+    private fun localDeviceControlData(toolName: String): Map<String, String> =
+        mapOf(
+            "toolName" to toolName,
+            "privacy" to MessagePrivacy.LocalOnly.name,
+            "requiresLocalModel" to "true",
+            "source" to DEVICE_CONTROL_SOURCE_ACCESSIBILITY,
+            "metadataPolicy" to DEVICE_CONTROL_METADATA_POLICY,
+        )
+
+    private fun externalActivityResultData(
+        toolName: String,
+        completionVerified: Boolean = true,
+        externalOutcome: String = "Completed",
+        externalOutcomeSource: String = "UserConfirmed",
+    ): Map<String, String> {
+        val (targetKind, intentAction) = when (toolName) {
+            MobileActionFunctions.SHARE_TEXT -> "android_chooser" to "android.intent.action.SEND"
+            MobileActionFunctions.OPEN_WIFI_SETTINGS -> "android_settings" to "android.settings.WIFI_SETTINGS"
+            else -> "external_activity" to "android.intent.action.VIEW"
+        }
+        return mapOf(
+            "toolName" to toolName,
+            "completionState" to "ExternalActivityOpened",
+            "completionVerified" to completionVerified.toString(),
+            "externalOutcome" to externalOutcome,
+            "externalOutcomeSource" to externalOutcomeSource,
+            "targetKind" to targetKind,
+            "intentAction" to intentAction,
+            "metadataPolicy" to "no_raw_payload_persisted",
+            "rawPayloadIncluded" to "false",
+        )
+    }
+
     private fun clipboardResultData(text: String): Map<String, String> =
         mapOf(
             "toolName" to MobileActionFunctions.READ_CLIPBOARD,
@@ -788,6 +1211,226 @@ class AiBehaviorActualTraceGeneratorTest {
                 usedModel = false,
                 fallbackReason = "ai behavior actual trace generator",
             )
+    }
+
+    private data class ReminderRescheduleTraceEvidence(
+        val report: ReminderRescheduleReport,
+        val scheduledAlarms: Map<String, Long>,
+        val taskAfterReschedule: ScheduledTask,
+        val trace: JSONObject,
+    )
+
+    private class FakeScheduledTaskDao : ScheduledTaskDao {
+        private val tasks = linkedMapOf<String, ScheduledTaskEntity>()
+
+        override fun task(taskId: String): ScheduledTaskEntity? =
+            tasks[taskId]
+
+        override fun scheduled(limit: Int): List<ScheduledTaskEntity> =
+            tasks.values
+                .filter { entity -> entity.status == ScheduledTaskStatus.Scheduled.name }
+                .sortedWith(compareBy<ScheduledTaskEntity> { entity -> entity.triggerAtMillis }.thenBy { it.id })
+                .take(limit)
+
+        override fun scheduledOrRunning(limit: Int): List<ScheduledTaskEntity> =
+            tasks.values
+                .filter { entity ->
+                    entity.status == ScheduledTaskStatus.Scheduled.name ||
+                        entity.status == ScheduledTaskStatus.Running.name
+                }
+                .sortedWith(compareBy<ScheduledTaskEntity> { entity -> entity.triggerAtMillis }.thenBy { it.id })
+                .take(limit)
+
+        override fun scheduledByType(type: String, limit: Int): List<ScheduledTaskEntity> =
+            tasks.values
+                .filter { entity -> entity.status == ScheduledTaskStatus.Scheduled.name && entity.type == type }
+                .sortedWith(compareBy<ScheduledTaskEntity> { entity -> entity.triggerAtMillis }.thenBy { it.id })
+                .take(limit)
+
+        override fun scheduledByTypeAfter(
+            type: String,
+            afterTriggerAtMillis: Long?,
+            afterId: String?,
+            limit: Int,
+        ): List<ScheduledTaskEntity> =
+            tasks.values
+                .filter { entity -> entity.status == ScheduledTaskStatus.Scheduled.name && entity.type == type }
+                .filter { entity ->
+                    afterTriggerAtMillis == null ||
+                        entity.triggerAtMillis > afterTriggerAtMillis ||
+                        (entity.triggerAtMillis == afterTriggerAtMillis && entity.id > afterId.orEmpty())
+                }
+                .sortedWith(compareBy<ScheduledTaskEntity> { entity -> entity.triggerAtMillis }.thenBy { it.id })
+                .take(limit)
+
+        override fun recent(limit: Int): List<ScheduledTaskEntity> =
+            tasks.values
+                .sortedWith(compareByDescending<ScheduledTaskEntity> { entity -> entity.updatedAtMillis }.thenBy { it.id })
+                .take(limit)
+
+        override fun markReminderRunningIfScheduled(taskId: String, updatedAtMillis: Long): Int =
+            updateIf(
+                taskId = taskId,
+                predicate = { entity ->
+                    entity.type == ScheduledTaskType.Reminder.name &&
+                        entity.status == ScheduledTaskStatus.Scheduled.name
+                },
+                transform = { entity ->
+                    entity.copy(status = ScheduledTaskStatus.Running.name, updatedAtMillis = updatedAtMillis)
+                },
+            )
+
+        override fun updateReminderStatusIfRunning(
+            taskId: String,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int =
+            updateIf(
+                taskId = taskId,
+                predicate = { entity ->
+                    entity.type == ScheduledTaskType.Reminder.name &&
+                        entity.status == ScheduledTaskStatus.Running.name
+                },
+                transform = { entity ->
+                    entity.copy(status = status, updatedAtMillis = updatedAtMillis)
+                },
+            )
+
+        override fun markPeriodicCheckRunningIfScheduled(taskId: String, updatedAtMillis: Long): Int =
+            updateIf(
+                taskId = taskId,
+                predicate = { entity ->
+                    entity.type == ScheduledTaskType.PeriodicCheck.name &&
+                        entity.status == ScheduledTaskStatus.Scheduled.name
+                },
+                transform = { entity ->
+                    entity.copy(status = ScheduledTaskStatus.Running.name, updatedAtMillis = updatedAtMillis)
+                },
+            )
+
+        override fun recordPeriodicCheckRunIfRunning(
+            taskId: String,
+            body: String,
+            triggerAtMillis: Long,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int =
+            updateIf(
+                taskId = taskId,
+                predicate = { entity ->
+                    entity.type == ScheduledTaskType.PeriodicCheck.name &&
+                        entity.status == ScheduledTaskStatus.Running.name
+                },
+                transform = { entity ->
+                    entity.copy(
+                        body = body,
+                        triggerAtMillis = triggerAtMillis,
+                        status = status,
+                        updatedAtMillis = updatedAtMillis,
+                    )
+                },
+            )
+
+        override fun updatePeriodicCheckStatusIfRunning(
+            taskId: String,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int =
+            updateIf(
+                taskId = taskId,
+                predicate = { entity ->
+                    entity.type == ScheduledTaskType.PeriodicCheck.name &&
+                        entity.status == ScheduledTaskStatus.Running.name
+                },
+                transform = { entity ->
+                    entity.copy(status = status, updatedAtMillis = updatedAtMillis)
+                },
+            )
+
+        override fun markStaleRunningTaskScheduled(
+            taskId: String,
+            type: String,
+            staleUpdatedAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int =
+            updateIf(
+                taskId = taskId,
+                predicate = { entity ->
+                    entity.type == type &&
+                        entity.status == ScheduledTaskStatus.Running.name &&
+                        entity.updatedAtMillis <= staleUpdatedAtMillis
+                },
+                transform = { entity ->
+                    entity.copy(status = ScheduledTaskStatus.Scheduled.name, updatedAtMillis = updatedAtMillis)
+                },
+            )
+
+        override fun markStaleRunningTasksScheduledByType(
+            type: String,
+            staleUpdatedAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int {
+            val matchingIds = tasks.values
+                .filter { entity ->
+                    entity.type == type &&
+                        entity.status == ScheduledTaskStatus.Running.name &&
+                        entity.updatedAtMillis <= staleUpdatedAtMillis
+                }
+                .map { entity -> entity.id }
+            matchingIds.forEach { taskId ->
+                tasks[taskId] = tasks.getValue(taskId).copy(
+                    status = ScheduledTaskStatus.Scheduled.name,
+                    updatedAtMillis = updatedAtMillis,
+                )
+            }
+            return matchingIds.size
+        }
+
+        override fun updateScheduledStatusIfScheduled(
+            taskId: String,
+            status: String,
+            updatedAtMillis: Long,
+        ): Int =
+            updateIf(
+                taskId = taskId,
+                predicate = { entity ->
+                    entity.status == ScheduledTaskStatus.Scheduled.name
+                },
+                transform = { entity ->
+                    entity.copy(status = status, updatedAtMillis = updatedAtMillis)
+                },
+            )
+
+        override fun updateReminderTriggerAtIfScheduled(
+            taskId: String,
+            triggerAtMillis: Long,
+            updatedAtMillis: Long,
+        ): Int =
+            updateIf(
+                taskId = taskId,
+                predicate = { entity ->
+                    entity.type == ScheduledTaskType.Reminder.name &&
+                        entity.status == ScheduledTaskStatus.Scheduled.name
+                },
+                transform = { entity ->
+                    entity.copy(triggerAtMillis = triggerAtMillis, updatedAtMillis = updatedAtMillis)
+                },
+            )
+
+        override fun upsert(task: ScheduledTaskEntity) {
+            tasks[task.id] = task
+        }
+
+        private fun updateIf(
+            taskId: String,
+            predicate: (ScheduledTaskEntity) -> Boolean,
+            transform: (ScheduledTaskEntity) -> ScheduledTaskEntity,
+        ): Int {
+            val existing = tasks[taskId] ?: return 0
+            if (!predicate(existing)) return 0
+            tasks[taskId] = transform(existing)
+            return 1
+        }
     }
 
     private class FakeAgentTraceDao : AgentTraceDao {

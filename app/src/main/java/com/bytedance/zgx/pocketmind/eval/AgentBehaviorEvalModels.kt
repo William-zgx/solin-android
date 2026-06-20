@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.eval
 
 import com.bytedance.zgx.pocketmind.MessagePrivacy
+import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.orchestration.AgentLoopResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentPlan
 import com.bytedance.zgx.pocketmind.orchestration.PendingToolConfirmationSnapshot
@@ -177,7 +178,7 @@ class AgentBehaviorTraceProjector(
             )
 
             is AgentPlan.UseTool -> requestedToolStepTrace(result)
-                ?.takeIf { trace -> trace.hasRicherToolHistoryThan(plan) }
+                ?.takeIf { trace -> result.hasObservedToolHistory() || trace.hasRicherToolHistoryThan(plan) }
                 ?: toolTrace(result, plan)
         }
 
@@ -235,9 +236,11 @@ class AgentBehaviorTraceProjector(
     }
 
     private fun requestedToolStepTrace(result: AgentLoopResult): AgentBehaviorActualTrace? {
+        val lowRiskAppControlTrace = result.isLowRiskAppControlTrace()
         val toolNames = result.steps
             .filterIsInstance<AgentStep.ToolRequested>()
             .map { step -> step.request.toolName }
+            .toEvalToolNames(lowRiskAppControlTrace = lowRiskAppControlTrace)
             .takeIf { names -> names.isNotEmpty() }
             ?: return null
         val failureMode = result.failedStepFailureMode()
@@ -260,6 +263,7 @@ class AgentBehaviorTraceProjector(
             toolNames = toolNames,
             confirmation = confirmation,
             failureMode = failureMode,
+            actualRiskLevelOverride = AgentEvalRiskLevel.Low.takeIf { lowRiskAppControlTrace },
         )
     }
 
@@ -269,9 +273,11 @@ class AgentBehaviorTraceProjector(
         confirmation: AgentEvalConfirmationExpectation,
         failureMode: String?,
         sensitivePrivateEvidence: Boolean = true,
+        actualRiskLevelOverride: AgentEvalRiskLevel? = null,
     ): AgentBehaviorActualTrace {
         val specs = toolNames.mapNotNull(toolRegistry::specFor)
-        val actualRiskLevel = specs.toEvalRiskLevel(sensitivePrivateEvidence = sensitivePrivateEvidence)
+        val actualRiskLevel = actualRiskLevelOverride
+            ?: specs.toEvalRiskLevel(sensitivePrivateEvidence = sensitivePrivateEvidence)
         val privacy = specs.toTracePrivacy()
         return AgentBehaviorActualTrace(
             caseId = result.run.id,
@@ -286,6 +292,21 @@ class AgentBehaviorTraceProjector(
         )
     }
 
+    private fun AgentLoopResult.isLowRiskAppControlTrace(): Boolean =
+        steps
+            .filterIsInstance<AgentStep.SkillPlanned>()
+            .any { step -> step.plan?.manifest?.lowRiskAppControlEligible == true }
+
+    private fun List<String>.toEvalToolNames(lowRiskAppControlTrace: Boolean): List<String> =
+        if (!lowRiskAppControlTrace) {
+            this
+        } else {
+            filterNot { toolName ->
+                toolName == MobileActionFunctions.UI_WAIT ||
+                    toolName == MobileActionFunctions.OBSERVE_CURRENT_SCREEN
+            }
+        }
+
     private fun AgentPlan.UseTool.plannedToolNames(): List<String> =
         skillPlan
             ?.steps
@@ -299,6 +320,9 @@ class AgentBehaviorTraceProjector(
         return actualTools.size > plannedToolNames.size ||
             (plan.skillPlan == null && actualTools != plannedToolNames)
     }
+
+    private fun AgentLoopResult.hasObservedToolHistory(): Boolean =
+        steps.any { step -> step is AgentStep.ToolObserved }
 
     private fun AgentLoopResult.hasExternalSendConfirmationAfterPriorTool(): Boolean {
         val requestedToolNames = steps
@@ -327,6 +351,8 @@ class AgentBehaviorTraceProjector(
         return when {
             reason.contains("Pending tool confirmation could not be restored", ignoreCase = true) ->
                 "pending_payload_not_restored"
+            reason.contains("Pending external outcome could not be restored", ignoreCase = true) ->
+                "external_outcome_missing"
             else ->
                 reason.toEvalFailureMode()
         }
@@ -387,7 +413,7 @@ class AgentBehaviorTraceProjector(
         val riskLevels = specs.map { spec -> spec.riskLevel } +
             listOfNotNull(plan.skillPlan?.manifest?.riskLevel)
         val highestRisk = riskLevels.maxByOrNull { risk -> risk.rank() }
-        val actualRiskLevel = highestRisk?.toEvalRiskLevel() ?: AgentEvalRiskLevel.Medium
+        val actualRiskLevel = specs.toEvalRiskLevel(highestRisk = highestRisk)
         val privacy = if (specs.isNotEmpty() && specs.all { spec ->
                 spec.resultContinuationPolicy == ToolResultContinuationPolicy.PublicEvidence
             }

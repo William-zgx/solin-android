@@ -1881,9 +1881,11 @@ private fun String.looksLikeDiscussion(): Boolean {
 
 internal fun String.looksLikeSequentialAction(): Boolean {
     val normalized = lowercase()
-    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消|提醒|设置提醒).+""")
+    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消|提醒|设置提醒|返回|后退).*""")
         .containsMatchIn(this) ||
-        normalized.contains(Regex("""\b(?:and\s+then|then|after\s+that)\b"""))
+        normalized.contains(
+            Regex("""\b(?:and\s+then|then|after\s+that)\b.*\b(?:go\s+back|back|open|launch|search|share|send|create|read|summarize)\b"""),
+        )
 }
 
 internal fun String.startsWithActionNegation(): Boolean {

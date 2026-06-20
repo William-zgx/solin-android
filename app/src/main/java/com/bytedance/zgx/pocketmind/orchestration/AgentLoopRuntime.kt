@@ -84,7 +84,7 @@ class AgentLoopRuntime(
     private val traceStore: AgentTraceStore = InMemoryAgentTraceStore(),
     private val observationReplanner: AgentObservationReplanner = NoOpAgentObservationReplanner,
     private val maxToolRetryAttempts: Int = 1,
-    private val maxRunToolSteps: Int = 8,
+    private val maxRunToolSteps: Int = 10,
     private val maxObservationDecisions: Int = 16,
     private val deviceControlSessionFinisher: () -> Unit = {},
 ) {
@@ -992,6 +992,7 @@ class AgentLoopRuntime(
         ) {
             planNextOpenAppUiSearchStepAfterUnverifiedLaunch(run, request, observedResult)
                 ?: planNextLowRiskAppControlSkillStepBeforeContinuation(run, request, observedResult)
+                ?: planNextCompositeSkillSegmentBeforeContinuation(run, continuation)
                 ?: if (
                     (continuationPrompt == null || canPlanNextToolBeforeContinuation) &&
                     canPlanNextToolAfterObservation(run, request, observedResult)
@@ -1310,6 +1311,20 @@ class AgentLoopRuntime(
                 plan.plan.request.isLowRiskAppControlContinuationTool() ||
                 plan.plan.requiresUserConfirmation()
         }
+    }
+
+    private fun planNextCompositeSkillSegmentBeforeContinuation(
+        run: AgentRun,
+        continuation: ToolObservationContinuation?,
+    ): NextObservationPlan? {
+        if (continuation == null) return null
+        if (continuation.canPlanNextToolBeforeModel) return null
+        if (continuation.blocksSequentialTail) return null
+        val completedSegmentCount = plannedSequentialSegmentCount(run.id)
+        return planNextCompositeSkillSegment(
+            runId = run.id,
+            input = nextSequentialSegmentInput(run, completedSegmentCount),
+        )
     }
 
     private fun canPlanNextToolAfterObservation(
@@ -2697,6 +2712,7 @@ class AgentLoopRuntime(
                 只输出 `${nextModelStep.outputKey}` 对应的文本，不要输出 JSON 或额外说明。
             """.trimIndent(),
             requiresLocalModel = requiresLocalModel,
+            blocksSequentialTail = true,
         )
     }
 
@@ -2888,6 +2904,7 @@ class AgentLoopRuntime(
         val requiresLocalModel: Boolean,
         val remoteToolScope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
         val canPlanNextToolBeforeModel: Boolean = false,
+        val blocksSequentialTail: Boolean = false,
     )
 
     private data class PublicEvidencePromptBlock(
@@ -3071,33 +3088,68 @@ class AgentLoopRuntime(
 
     private fun plannedSequentialSegmentCount(runId: String): Int {
         val segmentKeys = linkedSetOf<String>()
-        var pendingSkillSegmentKey: String? = null
+        val liveSkillKeysByToolRequestId = mutableMapOf<String, String>()
+        var adjacentLiveSkillSegmentKey: String? = null
         traceStore.steps(runId).forEach { step ->
             when (step) {
                 is AgentStep.SkillPlanned -> {
-                    pendingSkillSegmentKey = "skill:${step.request.id}"
+                    val skillKey = "skill:${step.request.id}"
+                    val toolRequestIds = step.plan?.toolStepRequestIds().orEmpty()
+                    if (toolRequestIds.isEmpty()) {
+                        adjacentLiveSkillSegmentKey = skillKey
+                    } else {
+                        toolRequestIds.forEach { requestId ->
+                            liveSkillKeysByToolRequestId[requestId] = skillKey
+                        }
+                        adjacentLiveSkillSegmentKey = null
+                    }
                 }
 
                 is AgentStep.ToolRequested -> {
-                    segmentKeys += pendingSkillSegmentKey ?: "tool:${step.request.id}"
-                    pendingSkillSegmentKey = null
+                    segmentKeys += liveSkillKeysByToolRequestId.remove(step.request.id)
+                        ?: adjacentLiveSkillSegmentKey
+                        ?: "tool:${step.request.id}"
+                    adjacentLiveSkillSegmentKey = null
                 }
 
                 else -> Unit
             }
         }
-        pendingSkillSegmentKey = null
+        val summarySkillKeysByToolRequestId = mutableMapOf<String, String>()
+        var adjacentSummarySkillSegment: SummarySkillSegment? = null
         traceStore.stepSummaries(runId).forEach { step ->
             when (step.type) {
                 "SkillPlanned" -> {
-                    pendingSkillSegmentKey = step.skillRequestIdFromJson()?.let { requestId -> "skill:$requestId" }
+                    val skillKey = step.skillRequestIdFromJson()?.let { requestId -> "skill:$requestId" }
+                    if (skillKey == null) {
+                        adjacentSummarySkillSegment = null
+                    } else {
+                        val toolRequestIds = step.skillToolRequestIdsFromJson()
+                        if (toolRequestIds.isEmpty()) {
+                            val fallbackToolStepCount = step.skillToolStepCountFromJson() ?: 1
+                            adjacentSummarySkillSegment = SummarySkillSegment(
+                                key = skillKey,
+                                remainingToolSteps = fallbackToolStepCount.coerceAtLeast(1),
+                            )
+                        } else {
+                            toolRequestIds.forEach { requestId ->
+                                summarySkillKeysByToolRequestId[requestId] = skillKey
+                            }
+                            adjacentSummarySkillSegment = null
+                        }
+                    }
                 }
 
                 "ToolRequested" -> {
                     step.requestIdFromJson()?.let { requestId ->
-                        segmentKeys += pendingSkillSegmentKey ?: "tool:$requestId"
+                        val skillKey = summarySkillKeysByToolRequestId.remove(requestId)
+                        segmentKeys += skillKey
+                            ?: adjacentSummarySkillSegment?.key
+                            ?: "tool:$requestId"
+                        if (skillKey == null) {
+                            adjacentSummarySkillSegment = adjacentSummarySkillSegment?.afterTool()
+                        }
                     }
-                    pendingSkillSegmentKey = null
                 }
             }
         }
@@ -3225,8 +3277,32 @@ class AgentLoopRuntime(
     private fun AgentTraceStepSummary.skillRequestIdFromJson(): String? =
         jsonObjectOrNull()?.optString("skillRequestId")?.takeIf { it.isNotBlank() }
 
+    private fun AgentTraceStepSummary.skillToolRequestIdsFromJson(): List<String> {
+        val array = jsonObjectOrNull()?.optJSONArray("toolRequestIds") ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                array.optString(index).takeIf { value -> value.isNotBlank() }?.let(::add)
+            }
+        }
+    }
+
+    private fun AgentTraceStepSummary.skillToolStepCountFromJson(): Int? {
+        val json = jsonObjectOrNull() ?: return null
+        return json.optInt("toolStepCount", -1)
+            .takeIf { count -> count >= 0 }
+            ?: json.optInt("stepCount", -1).takeIf { count -> count >= 0 }
+    }
+
     private fun AgentTraceStepSummary.jsonObjectOrNull(): JSONObject? =
         runCatching { JSONObject(json) }.getOrNull()
+
+    private data class SummarySkillSegment(
+        val key: String,
+        val remainingToolSteps: Int,
+    ) {
+        fun afterTool(): SummarySkillSegment? =
+            if (remainingToolSteps <= 1) null else copy(remainingToolSteps = remainingToolSteps - 1)
+    }
 
     private data class RestoredToolRequestSummary(
         val requestId: String,

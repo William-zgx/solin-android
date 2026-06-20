@@ -23,6 +23,83 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-20 Sequential App Search Back Runtime, Checkpoint Evidence, and Local Gate
+
+本轮覆盖项：
+
+- `BuiltInSkillRuntime` 不再让完整顺序请求 `打开淘宝搜索耳机，然后返回` 被
+  `open_app_ui_search_skill` 一次性吞掉；首段只规划 `打开淘宝搜索耳机`，尾段 `返回`
+  作为 `CURRENT_PAGE_SIMPLE_INTERACTION_SKILL` 进入 checkpoint。
+- `AgentLoopRuntime` 的顺序段计数按 `SkillPlanned` 中的 tool request ids 把多步 skill
+  归并为一个用户意图段，避免 8 步 App 搜索 skill 被误算成 8 个顺序段。
+- `AgentTraceStore` 的 `SkillPlanned` trace JSON 增加 `toolStepCount` 和
+  `toolRequestIds`，让持久化 trace 恢复时也能解释 tool 属于哪个 skill segment。
+- 显式顺序尾段的 deterministic composite skill 可以在本地证据 continuation 之前规划；
+  skill 内部模型步骤仍通过 `blocksSequentialTail` 保持优先。
+- `AgentBehaviorTraceProjector` 对低风险 app-control trace 过滤 `ui_wait` /
+  `observe_current_screen` 支撑步骤，并把低风险设备导航投影为 eval 侧 `low`；
+  external outcome 恢复失败投影为 `external_outcome_missing`。
+- `AiBehaviorActualTraceGeneratorTest` 真实驱动淘宝搜索后返回、app-control checkpoint budget、
+  mixed public/private remote batch fail-closed、外部 App outcome 不可恢复 fail-closed 和
+  reminder reschedule；不复制 expected fixture。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansDeviceUiTemplateSkillsWithDeterministicSteps' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.openAppUiSearchThenBackRequestsCheckpointBeforePressingBack' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.openAppUiSearchThenBackPressesBackAfterUserConfirmsCheckpoint' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest.recoveryReminderRescheduledTraceUsesRealReminderReschedulerSummary'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest.writesAgentLoopRuntimeActualTraceJsonl' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest.recoveryReminderRescheduledTraceUsesRealReminderReschedulerSummary' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest.projectsRestoredPendingConfirmationWithoutExecutedTools'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+  ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-collector-app-search-back-v18 \
+  scripts/collect_ai_behavior_actual_trace.sh
+
+scripts/test_validation_scripts.sh
+
+find scripts -maxdepth 1 -type f -name '*.sh' -exec bash -n {} \;
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk scripts/verify_local.sh
+
+git diff --check
+
+/data00/home/zouguoxue/android-sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：目标 JVM 测试返回 `BUILD SUCCESSFUL`，覆盖 Wi-Fi/App 搜索 skill arbitration、
+  搜索后返回 checkpoint、确认后执行返回、真实 `ReminderRescheduler` 恢复证据。
+- 通过：`collect_ai_behavior_actual_trace.sh` 生成
+  `build/verification/ai-behavior-actual-trace-collector-app-search-back-v18/ai-behavior-actual-trace-collection.properties`，
+  记录 `caseCount=31`、`actualTraceSourceBreakdown=agent_loop_runtime:31`、
+  `traceDiffMatchedCount=20`、`traceDiffAllowedFailureCount=10`、
+  `traceDiffMismatchCount=1`、`traceDiffMissingActualCount=0`、
+  `traceDiffExtraActualCount=0`。
+- 审计绑定：collection report 记录
+  `actualTraceSha256=c2ad57322f0801d37eab0a043c0142f43d008c18be3af282713e68150da3ea9a`、
+  `traceDiffSha256=8a6312f41964a69029418734dc37571295687bd9b406596c65f9524253bd3cc2`、
+  `evalReportSha256=d6269802ebd34e58dcffc80dfce3665c3bc8d8fd89f43261b3b27d004acbe07c`。
+- 改善：`sequence_taobao_search_back` 和 `runtime_app_search_checkpoint_budget`
+  均变为 `matched`；`runtime_mixed_batch_rejected` 和
+  `recovery_external_outcome_fail_closed` 变为带 failureMode 的 allowed failure。
+- 剩余 mismatch：`memory_forget_language` 仍为 `RemoteEligible/low/no confirmation`，
+  说明本地记忆删除确认语义尚未实现；这是真实能力缺口，未用 fixture 期望值掩盖。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`。
+- 通过：shell 语法检查返回 0。
+- 通过：`scripts/verify_local.sh` 返回 `Local verification passed`，并完成 JVM tests、
+  AndroidTest APK 组装、debug APK、release APK/AAB、lint 和 artifact scan。
+- 通过：`git diff --check` 返回 0。
+- 未执行真机：`adb devices -l` 只输出 `List of devices attached` 表头，没有可见
+  authorized device；机器可读状态为 `failedTarget=physical-device-smoke`、
+  `reason=adb-no-authorized-device`。本轮没有新增 physical-device instrumentation evidence。
+
 ## 2026-06-20 AI Behavior Actual Trace Runtime Evidence, Remote Scope Filter, OCR Evidence, Recovery Restore, and Gaode Evidence Guard
 
 本轮覆盖项：

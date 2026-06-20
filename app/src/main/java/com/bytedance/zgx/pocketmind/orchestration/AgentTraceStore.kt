@@ -1404,6 +1404,15 @@ private fun AgentStep.traceJson(type: String): JSONObject {
             .put("skillRequestId", request.id)
             .put("skillId", request.skillId)
             .put("stepCount", plan?.steps?.size ?: 0)
+            .put("toolStepCount", plan?.steps?.filterIsInstance<SkillStep.ToolStep>()?.size ?: 0)
+            .put(
+                "toolRequestIds",
+                plan?.steps
+                    ?.filterIsInstance<SkillStep.ToolStep>()
+                    ?.map { step -> step.request.id }
+                    ?.toJsonArray()
+                    ?: JSONArray(),
+            )
 
         is AgentStep.SafetyChecked -> json
             .put("outcome", decision.outcome.name)

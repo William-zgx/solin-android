@@ -2735,7 +2735,7 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = AgentObservationReplanner { error("skill progression should not replan") },
+            observationReplanner = SequentialActionObservationReplanner(RecordingActionRuntime(likelyAction = false)),
         )
         val planned = runtime.runOnce(
             input = "打开淘宝搜索海河牛奶",
@@ -2782,7 +2782,7 @@ class AgentLoopRuntimeTest {
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
-            observationReplanner = AgentObservationReplanner { error("skill progression should not replan") },
+            observationReplanner = SequentialActionObservationReplanner(RecordingActionRuntime(likelyAction = false)),
         )
         val planned = runtime.runOnce(
             input = "打开淘宝搜索海河牛奶",
@@ -2840,6 +2840,160 @@ class AgentLoopRuntimeTest {
         require(verified.decision is AgentObservationDecision.ContinueWithModel)
         assertTrue(verified.decision.requiresLocalModel)
         assertEquals(null, runtime.latestPendingConfirmation())
+    }
+
+    @Test
+    fun openAppUiSearchThenBackRequestsCheckpointBeforePressingBack() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner { error("skill progression should not replan") },
+        )
+        val planned = runtime.runOnce(
+            input = "打开淘宝搜索耳机，然后返回",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, planned.run.state)
+        assertEquals(MobileActionFunctions.OPEN_APP_BY_NAME, planned.plan.request.toolName)
+        assertEquals("淘宝", planned.plan.request.arguments["appName"])
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val opened = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = ToolResult(
+                    requestId = planned.plan.request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开淘宝",
+                    data = externalActivityResultData(
+                        toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                        completionVerified = false,
+                        externalOutcome = "Unknown",
+                        externalOutcomeSource = "Unknown",
+                    ),
+                ),
+            ),
+        )
+
+        var plan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
+            .requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
+        plan = runtime.observeToolResult(planned.run.id, observeScreenResult(plan.request))
+            .requireNextTool(MobileActionFunctions.UI_TAP)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "tap", target = "搜索入口"))
+            .requireNextTool(MobileActionFunctions.UI_WAIT)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
+            .requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
+        assertEquals("耳机", plan.request.arguments["text"])
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "type_text", target = "搜索输入框"))
+            .requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "submit_search"))
+            .requireNextTool(MobileActionFunctions.UI_WAIT)
+        assertEquals("耳机", plan.request.arguments["verifySearchQuery"])
+
+        val backCheckpoint = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = uiActionResult(
+                    request = plan.request,
+                    actionType = "wait",
+                    extraData = mapOf(
+                        "searchVerificationStatus" to "verified",
+                        "searchVerificationEvidence" to "query_visible_after_change",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, backCheckpoint.run.state)
+        require(backCheckpoint.decision is AgentObservationDecision.PlanNextTool)
+        val backPlan = backCheckpoint.decision.plan
+        assertEquals(MobileActionFunctions.UI_PRESS_BACK, backPlan.request.toolName)
+        assertTrue(backPlan.draft.requiresConfirmation)
+        assertEquals(SafetyOutcome.RequireConfirmation, backPlan.safetyDecision.outcome)
+        assertEquals(backPlan.request.id, runtime.latestPendingConfirmation()?.request?.id)
+    }
+
+    @Test
+    fun openAppUiSearchThenBackPressesBackAfterUserConfirmsCheckpoint() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = AgentObservationReplanner { error("skill progression should not replan") },
+        )
+        val planned = runtime.runOnce(
+            input = "打开淘宝搜索耳机，然后返回",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+        val opened = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = ToolResult(
+                    requestId = planned.plan.request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已打开淘宝",
+                    data = externalActivityResultData(
+                        toolName = MobileActionFunctions.OPEN_APP_BY_NAME,
+                        completionVerified = false,
+                        externalOutcome = "Unknown",
+                        externalOutcomeSource = "Unknown",
+                    ),
+                ),
+            ),
+        )
+
+        var plan = opened.requireNextTool(MobileActionFunctions.UI_WAIT)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
+            .requireNextTool(MobileActionFunctions.OBSERVE_CURRENT_SCREEN)
+        plan = runtime.observeToolResult(planned.run.id, observeScreenResult(plan.request))
+            .requireNextTool(MobileActionFunctions.UI_TAP)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "tap", target = "搜索入口"))
+            .requireNextTool(MobileActionFunctions.UI_WAIT)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "wait"))
+            .requireNextTool(MobileActionFunctions.UI_TYPE_TEXT)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "type_text", target = "搜索输入框"))
+            .requireNextTool(MobileActionFunctions.UI_SUBMIT_SEARCH)
+        plan = runtime.observeToolResult(planned.run.id, uiActionResult(plan.request, actionType = "submit_search"))
+            .requireNextTool(MobileActionFunctions.UI_WAIT)
+        val backCheckpoint = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = uiActionResult(
+                    request = plan.request,
+                    actionType = "wait",
+                    extraData = mapOf(
+                        "searchVerificationStatus" to "verified",
+                        "searchVerificationEvidence" to "query_visible_after_change",
+                    ),
+                ),
+            ),
+        )
+        require(backCheckpoint.decision is AgentObservationDecision.PlanNextTool)
+        val backPlan = backCheckpoint.decision.plan
+        runtime.confirmToolRequest(planned.run.id, backPlan.request.id)
+
+        val waitAfterBack = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = uiActionResult(
+                request = backPlan.request,
+                actionType = "press_back",
+            ),
+        ).requireNextTool(MobileActionFunctions.UI_WAIT)
+
+        val completed = requireNotNull(
+            runtime.observeToolResult(
+                runId = planned.run.id,
+                result = uiActionResult(waitAfterBack.request, actionType = "wait"),
+            ),
+        )
+        assertEquals(AgentRunState.GeneratingAnswer, completed.run.state)
+        require(completed.decision is AgentObservationDecision.ContinueWithModel)
     }
 
     @Test
