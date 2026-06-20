@@ -261,7 +261,7 @@ else:
         failures.append("artifact-sha-mismatch")
     if artifact.get("sizeBytes") != len(artifact_bytes):
         failures.append("artifact-size-mismatch")
-    suffix_type = artifact_path.suffix.removeprefix(".")
+    suffix_type = artifact_path.suffix[1:] if artifact_path.suffix.startswith(".") else artifact_path.suffix
     if artifact_type and suffix_type and suffix_type != artifact_type:
         failures.append("artifact-type-path-mismatch")
 if expected_artifact_path and artifact_path_value != expected_artifact_path:

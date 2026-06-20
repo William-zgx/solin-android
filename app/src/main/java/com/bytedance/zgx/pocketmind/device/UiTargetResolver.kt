@@ -88,17 +88,42 @@ object UiTargetResolver {
         target: String? = null,
         profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(snapshot.packageName),
     ): List<UiResolvedTarget> {
-        val metrics = SnapshotBoundsMetrics.from(snapshot.nodes)
-        return snapshot.nodes.mapNotNull { node ->
-            val score = scoreNode(node, kind, target, profile, metrics) ?: return@mapNotNull null
+        return rankedCandidates(
+            snapshot = snapshot,
+            kind = kind,
+            target = target,
+            profile = profile,
+        ).map { candidate ->
             UiResolvedTarget(
                 kind = kind,
-                nodeId = node.id,
-                bounds = node.bounds,
-                confidence = score,
-                reason = "matched ${node.visibleLabel().ifBlank { node.className }}",
+                nodeId = candidate.nodeId,
+                bounds = candidate.bounds,
+                confidence = candidate.score.finalScore,
+                reason = candidate.reason,
             )
-        }.sortedByDescending { resolved -> resolved.confidence }
+        }
+    }
+
+    fun explain(
+        snapshot: ScreenStateSnapshot,
+        kind: UiTargetKind,
+        target: String? = null,
+        profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(snapshot.packageName),
+    ): UiTargetResolutionEvidence {
+        val candidates = rankedCandidates(
+            snapshot = snapshot,
+            kind = kind,
+            target = target,
+            profile = profile,
+        )
+        return UiTargetResolutionEvidence(
+            kind = kind,
+            target = target,
+            packageName = snapshot.packageName,
+            selectedNodeId = candidates.firstOrNull()?.nodeId,
+            rankedCandidates = candidates,
+            failureKind = if (candidates.isEmpty()) kind.missingResolutionFailureKind() else null,
+        )
     }
 
     fun kindForTarget(target: String?): UiTargetKind? {
@@ -131,13 +156,25 @@ object UiTargetResolver {
         }
     }
 
+    private fun rankedCandidates(
+        snapshot: ScreenStateSnapshot,
+        kind: UiTargetKind,
+        target: String?,
+        profile: AppInteractionProfile?,
+    ): List<UiTargetEvidenceCandidate> {
+        val metrics = SnapshotBoundsMetrics.from(snapshot.nodes)
+        return snapshot.nodes
+            .mapNotNull { node -> scoreNode(node, kind, target, profile, metrics) }
+            .sortedByDescending { candidate -> candidate.score.finalScore }
+    }
+
     private fun scoreNode(
         node: ScreenNode,
         kind: UiTargetKind,
         target: String?,
         profile: AppInteractionProfile?,
         metrics: SnapshotBoundsMetrics,
-    ): Int? {
+    ): UiTargetEvidenceCandidate? {
         if (!node.enabled) return null
         val label = node.visibleLabel()
         val normalizedLabel = label.normalizedLookupKey()
@@ -148,9 +185,13 @@ object UiTargetResolver {
             UiTargetKind.ResultItem -> profile?.resultHints.orEmpty()
             else -> emptySet()
         }
-        val hintScore = profileHints.maxOfOrNull { hint ->
-            phraseScore(normalizedLabel, hint.normalizedLookupKey()) ?: 0
-        } ?: 0
+        val profileHint = profileHints
+            .mapNotNull { hint ->
+                val score = phraseScore(normalizedLabel, hint.normalizedLookupKey()) ?: 0
+                if (score > 0) ProfileHintScore(hint = hint, score = score) else null
+            }
+            .maxByOrNull { score -> score.score }
+        val hintScore = profileHint?.score ?: 0
         val targetScore = phraseScore(normalizedLabel, normalizedTarget) ?: 0
         val semanticScore = when (kind) {
             UiTargetKind.SearchEntry -> searchEntryScore(node, normalizedLabel)
@@ -164,10 +205,33 @@ object UiTargetResolver {
         if (evidenceScore <= 0) return null
         val actionability = node.actionabilityScore()
         val position = node.positionScore(kind, metrics)
-        val penalty = node.targetRiskPenalty(kind, normalizedLabel, profile, metrics) +
-            labelNoisePenalty(kind, normalizedLabel)
+        val riskPenalty = node.targetRiskPenalty(kind, normalizedLabel, profile, metrics)
+        val noisePenalty = labelNoisePenalty(kind, normalizedLabel)
+        val penalty = riskPenalty + noisePenalty
         val score = evidenceScore + actionability + position - penalty
-        return score.takeIf { it >= kind.minimumConfidence() }
+        if (score < kind.minimumConfidence()) return null
+        val resolvedLabel = label.ifBlank { node.className }
+        return UiTargetEvidenceCandidate(
+            nodeId = node.id,
+            label = resolvedLabel,
+            bounds = node.bounds,
+            clickable = node.clickable,
+            editable = node.editable,
+            scrollable = node.scrollable,
+            enabled = node.enabled,
+            matchedProfileHint = profileHint?.hint,
+            score = UiTargetScoreComponents(
+                semanticScore = semanticScore,
+                profileHintScore = hintScore,
+                targetTextScore = targetScore,
+                actionabilityScore = actionability,
+                positionScore = position,
+                riskPenalty = riskPenalty,
+                noisePenalty = noisePenalty,
+                finalScore = score,
+            ),
+            reason = "matched $resolvedLabel",
+        )
     }
 
     private fun searchEntryScore(node: ScreenNode, normalizedLabel: String): Int {
@@ -361,6 +425,19 @@ internal fun UiTargetKind.requiresPreciseTarget(): Boolean =
         this == UiTargetKind.EditableField ||
         this == UiTargetKind.SubmitSearch ||
         this == UiTargetKind.FilterEntry
+
+private fun UiTargetKind.missingResolutionFailureKind(): UiActionFailureKind =
+    when (this) {
+        UiTargetKind.SearchEntry -> UiActionFailureKind.SearchEntryNotFound
+        UiTargetKind.EditableField -> UiActionFailureKind.EditableNotFound
+        UiTargetKind.SubmitSearch -> UiActionFailureKind.SubmitNotFound
+        else -> UiActionFailureKind.NodeNotFound
+    }
+
+private data class ProfileHintScore(
+    val hint: String,
+    val score: Int,
+)
 
 private data class SnapshotBoundsMetrics(
     val width: Int,

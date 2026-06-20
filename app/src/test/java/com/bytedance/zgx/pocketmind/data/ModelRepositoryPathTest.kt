@@ -176,6 +176,34 @@ class ModelRepositoryPathTest {
     }
 
     @Test
+    fun activeChatCandidateRequiresChatGenerationProfile() {
+        val verifiedChat = installedModel(
+            id = DEFAULT_CHAT_MODEL_ID,
+            path = "/tmp/chat.litertlm",
+            recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            withVerifiedCatalogEvidence = true,
+        )
+        val verifiedMemory = installedModel(
+            id = MEMORY_EMBEDDING_MODEL_ID,
+            path = "/tmp/memory.tflite",
+            recommendedModelId = MEMORY_EMBEDDING_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+            withVerifiedCatalogEvidence = true,
+        )
+        val customChat = installedModel(
+            id = "custom-chat",
+            path = "/tmp/custom.litertlm",
+            recommendedModelId = null,
+            verificationStatus = ModelVerificationStatus.UnverifiedCustom,
+        )
+
+        assertTrue(installedModelCanBecomeActiveChatModel(verifiedChat))
+        assertFalse(installedModelCanBecomeActiveChatModel(verifiedMemory))
+        assertTrue(installedModelCanBecomeActiveChatModel(customChat))
+    }
+
+    @Test
     fun canDeleteInstalledModelFileAllowsOnlyManagedLiteRtLmFiles() {
         withTempModelDir { internalRoot ->
             withTempModelDir { externalRoot ->

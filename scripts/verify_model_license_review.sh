@@ -97,6 +97,16 @@ def validate_file_sha(prefix, path, expected_sha):
     if actual_sha != expected_sha:
         failures.append(f"{prefix}-sha-mismatch")
 
+def parse_properties(path):
+    values = {}
+    for raw_line in Path(path).read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
 def normalize_license(value):
     normalized = re.sub(r"[^a-z0-9]+", "", value.lower())
     return normalized.replace("license", "")
@@ -134,6 +144,20 @@ def is_concrete_huggingface_license_source(url):
     license_markers = ("license", "licence", "copying", "notice", "readme", "model_card", "model-card", "terms")
     return any(marker in filename or marker in source_path for marker in license_markers)
 
+def huggingface_source_revision(url):
+    if not isinstance(url, str) or not url.startswith("https://huggingface.co/"):
+        return ""
+    parsed = urlparse(url)
+    path_parts = [part for part in parsed.path.strip("/").split("/") if part]
+    if path_parts[:2] == ["api", "models"]:
+        path_parts = path_parts[2:]
+    if len(path_parts) < 5:
+        return ""
+    file_parts = path_parts[2:]
+    if file_parts[0] not in {"blob", "resolve", "raw"} or len(file_parts) < 3:
+        return ""
+    return file_parts[1]
+
 def parse_manifest(path):
     models = []
     for raw_line in path.read_text().splitlines():
@@ -157,6 +181,32 @@ def parse_manifest(path):
             "upstreamRevision": revision,
         })
     return models
+
+def validate_review_evidence(model_id, evidence_path, entry):
+    try:
+        properties = parse_properties(evidence_path)
+    except OSError:
+        failures.append(f"{model_id or 'unknown'}-review-evidence-read-failed")
+        return
+    expected = {
+        "status": "approved",
+        "model": model_id,
+        "scope": "license-redistribution-attribution",
+        "redistributionDecision": "approved",
+    }
+    for key, expected_value in expected.items():
+        actual = properties.get(key, "")
+        if actual != expected_value:
+            failures.append(f"{model_id or 'unknown'}-review-evidence-{key}-mismatch")
+    target = properties.get("target", "")
+    if target and target != "model-license-review-approved-evidence":
+        failures.append(f"{model_id or 'unknown'}-review-evidence-target-mismatch")
+    reviewer = properties.get("reviewer", "")
+    if reviewer and reviewer != entry.get("reviewer", ""):
+        failures.append(f"{model_id or 'unknown'}-review-evidence-reviewer-mismatch")
+    license_name = properties.get("licenseName", "")
+    if license_name and license_name != entry.get("licenseName", ""):
+        failures.append(f"{model_id or 'unknown'}-review-evidence-license-name-mismatch")
 
 if review.get("version") != 1:
     failures.append("review-version-invalid")
@@ -285,6 +335,9 @@ for entry in review_models:
             failures.append(f"{model_id or 'unknown'}-license-source-repository-mismatch")
         if not is_concrete_huggingface_license_source(license_source):
             failures.append(f"{model_id or 'unknown'}-license-source-not-concrete")
+        source_revision = huggingface_source_revision(license_source)
+        if source_revision != manifest_entry["upstreamRevision"]:
+            failures.append(f"{model_id or 'unknown'}-license-source-revision-mismatch")
 
     if not entry.get("attributionNotice"):
         failures.append(f"{model_id or 'unknown'}-attribution-notice-missing")
@@ -301,6 +354,7 @@ for entry in review_models:
             review_evidence_path,
             entry.get("reviewEvidenceSha256", ""),
         )
+        validate_review_evidence(model_id, review_evidence_path, entry)
     review_date = entry.get("reviewDate", "")
     if not review_date:
         failures.append(f"{model_id or 'unknown'}-review-date-missing")

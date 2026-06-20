@@ -348,6 +348,8 @@ write_flow_contract_fields() {
       printf 'remoteVisionUnsupportedOpenStreamCountCovered=true\n'
       printf 'remoteVisionUnsupportedOcrSkipped=true\n'
       printf 'remoteVisionMixedShareNonImageProtected=true\n'
+      printf 'remoteVisionSendPreviewConfirmed=true\n'
+      printf 'remoteVisionCancelKeepsRuntimeIdle=true\n'
       printf 'remoteVisionHttpFixtureImagePartCount=1\n'
       printf 'remoteVisionHttpFixtureStreamRequested=true\n'
       printf 'remoteVisionSupportedImageStreamOpenCount=1\n'
@@ -376,6 +378,10 @@ write_flow_contract_fields() {
       printf 'largeFontReachabilityCovered=true\n'
       printf 'landscapeReachabilityCovered=true\n'
       printf 'accessibleLabelsCovered=true\n'
+      ;;
+    mediaProjectionCancellation)
+      printf 'mediaProjectionOneShotConsentCovered=true\n'
+      printf 'currentScreenshotOcrRemoteContinuationBlocked=true\n'
       ;;
   esac
 }
@@ -572,6 +578,8 @@ def is_valid_evidence(flow, value):
             "remoteVisionUnsupportedOpenStreamCountCovered",
             "remoteVisionUnsupportedOcrSkipped",
             "remoteVisionMixedShareNonImageProtected",
+            "remoteVisionSendPreviewConfirmed",
+            "remoteVisionCancelKeepsRuntimeIdle",
             "remoteVisionHttpFixtureStreamRequested",
             "documentExcerptBounded",
             "pickerAttachmentPromptCovered",
@@ -594,6 +602,10 @@ def is_valid_evidence(flow, value):
             "largeFontReachabilityCovered",
             "landscapeReachabilityCovered",
             "accessibleLabelsCovered",
+        ],
+        "mediaProjectionCancellation": [
+            "mediaProjectionOneShotConsentCovered",
+            "currentScreenshotOcrRemoteContinuationBlocked",
         ],
     }.get(flow, [])
     for field in required_true_fields:

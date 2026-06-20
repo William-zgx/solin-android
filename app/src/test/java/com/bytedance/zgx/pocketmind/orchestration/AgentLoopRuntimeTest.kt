@@ -173,6 +173,60 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun remoteToolSnapshotFiltersToolsNotEligibleForScope() {
+        val traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L })
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = traceStore,
+        )
+        val result = runtime.runOnce(
+            input = "普通远程问题",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            options = AgentRunOptions(
+                initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
+                remoteToolScope = RemoteToolScope.ModelPlanning,
+            ),
+        )
+        runtime.recordRemoteToolsExposed(
+            runId = result.run.id,
+            scope = RemoteToolScope.ModelPlanning,
+            toolNames = setOf(
+                MobileActionFunctions.WEB_SEARCH,
+                MobileActionFunctions.SHARE_TEXT,
+                MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                "not_a_real_tool",
+            ),
+        )
+
+        val exposed = traceStore.steps(result.run.id)
+            .filterIsInstance<AgentStep.RemoteToolsExposed>()
+            .single()
+        assertEquals(
+            listOf(MobileActionFunctions.SHARE_TEXT, MobileActionFunctions.WEB_SEARCH),
+            exposed.toolNames,
+        )
+
+        val observed = runtime.observeModelToolRequest(
+            runId = result.run.id,
+            request = ToolRequest(
+                id = "call-screen",
+                toolName = MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+                reason = "remote attempted private screen context",
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        val decision = observed.decision as AgentObservationDecision.Fail
+        assertTrue(decision.reason.contains("current remote tool snapshot"))
+        assertEquals(null, runtime.latestPendingConfirmation())
+        assertTrue(observed.steps.any { step -> step is AgentStep.ToolRejected })
+        assertTrue(observed.steps.none { step -> step is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
     fun remoteModelCannotRequestScopeEligibleToolMissingFromExposedSnapshot() {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
@@ -210,6 +264,53 @@ class AgentLoopRuntimeTest {
         assertTrue(decision.reason.contains("current remote tool snapshot"))
         assertEquals(null, runtime.latestPendingConfirmation())
         assertTrue(observed.steps.any { step -> step is AgentStep.RemoteToolsExposed })
+        assertTrue(observed.steps.none { step -> step is AgentStep.UserConfirmationRequested })
+    }
+
+    @Test
+    fun remoteMixedBatchRejectionRecordsAttemptedToolNames() {
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RecordingActionRuntime(likelyAction = false),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "普通远程问题",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            options = AgentRunOptions(
+                initialPlanningMode = InitialPlanningMode.ModelFirstRemoteTools,
+                remoteToolScope = RemoteToolScope.PublicEvidenceOnly,
+            ),
+        )
+        val requests = listOf(
+            ToolRequest(
+                id = "search",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "天气"),
+            ),
+            ToolRequest(
+                id = "contacts",
+                toolName = MobileActionFunctions.QUERY_CONTACTS,
+                arguments = mapOf("query" to "张三"),
+            ),
+        )
+        runtime.recordRemoteToolsExposed(
+            runId = result.run.id,
+            scope = RemoteToolScope.PublicEvidenceOnly,
+            toolNames = requests.mapTo(linkedSetOf()) { request -> request.toolName },
+        )
+
+        val observed = runtime.observeModelToolRequests(result.run.id, requests)
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        val rejected = observed.steps.filterIsInstance<AgentStep.ToolRejected>().single().result
+        assertEquals(MobileActionFunctions.QUERY_CONTACTS, rejected.data["toolName"])
+        assertEquals(
+            "${MobileActionFunctions.WEB_SEARCH},${MobileActionFunctions.QUERY_CONTACTS}",
+            rejected.data["attemptedToolNames"],
+        )
         assertTrue(observed.steps.none { step -> step is AgentStep.UserConfirmationRequested })
     }
 
@@ -486,7 +587,7 @@ class AgentLoopRuntimeTest {
         requireNotNull(rejected)
         assertEquals(AgentRunState.Failed, rejected.run.state)
         val decision = rejected.decision as AgentObservationDecision.Fail
-        assertTrue(decision.reason.contains("current PublicEvidenceOnly tool scope"))
+        assertTrue(decision.reason.contains("current remote tool snapshot"))
         assertEquals(null, runtime.latestPendingConfirmation())
         assertTrue(rejected.steps.none { step -> step is AgentStep.UserConfirmationRequested })
     }

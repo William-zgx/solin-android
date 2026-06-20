@@ -24,6 +24,38 @@ data class IntentCandidate(
         get() = confidence == ActionIntentConfidence.Medium || confidence == ActionIntentConfidence.High
 }
 
+enum class IntentRoutingPath {
+    SkillFirst,
+    ActionPlanner,
+    RemoteToolPlanning,
+    ModelToolCall,
+}
+
+data class IntentRoutingDecision(
+    val input: String,
+    val selectedPath: IntentRoutingPath,
+    val selectedToolName: String?,
+    val selectedSkillId: String? = null,
+    val priority: Int,
+    val accepted: Boolean,
+    val confidence: ActionIntentConfidence = ActionIntentConfidence.None,
+    val rejectionReasons: List<String> = emptyList(),
+    val requiresConfirmation: Boolean? = null,
+) {
+    init {
+        require(input.isNotBlank()) { "Intent routing input must not be blank" }
+        require(priority >= 0) { "Intent routing priority must be >= 0" }
+        require(rejectionReasons.all { it.isNotBlank() }) { "Intent routing rejection reasons must not be blank" }
+        if (accepted) {
+            require(!selectedToolName.isNullOrBlank() || !selectedSkillId.isNullOrBlank()) {
+                "Accepted intent routing decisions must select a tool or skill"
+            }
+        } else {
+            require(rejectionReasons.isNotEmpty()) { "Rejected intent routing decisions must explain why" }
+        }
+    }
+}
+
 enum class ActionPlanKind {
     NoAction,
     Draft,

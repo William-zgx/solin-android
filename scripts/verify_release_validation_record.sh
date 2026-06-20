@@ -431,6 +431,16 @@ def validate_api_nested_device_report(api_level, regression_props):
         failures.append(f"{prefix}-instrumentation-not-passed")
     if props.get("instrumentation_output_file") != regression_props.get("instrumentation_output_file", ""):
         failures.append(f"{prefix}-instrumentation-output-mismatch")
+    validate_file_sha(
+        f"{prefix}-instrumentation-output",
+        props.get("instrumentation_output_file", ""),
+        props.get("instrumentation_output_sha256", ""),
+    )
+    if props.get("logcat_file") != regression_props.get("logcat_file", ""):
+        failures.append(f"{prefix}-logcat-mismatch")
+    validate_logcat_artifact(prefix, props.get("logcat_file", ""))
+    if non_empty_string(props.get("logcat_file", "")) and Path(props.get("logcat_file", "")).is_file():
+        validate_file_sha(f"{prefix}-logcat", props.get("logcat_file", ""), props.get("logcat_sha256", ""))
     instrumentation_output_count = validate_instrumentation_output(prefix, props.get("instrumentation_output_file", ""))
     try:
         device_count = int(props.get("instrumentation_test_count", ""))
@@ -443,6 +453,8 @@ def validate_api_nested_device_report(api_level, regression_props):
             regression_count = None
         if device_count < source_android_test_count:
             failures.append(f"{prefix}-test-count-too-low")
+        if props.get("test_count", "") and props.get("test_count") != props.get("instrumentation_test_count", ""):
+            failures.append(f"{prefix}-test-count-alias-mismatch")
         if regression_count is not None and device_count != regression_count:
             failures.append(f"{prefix}-test-count-mismatch")
         if instrumentation_output_count is not None and instrumentation_output_count != device_count:
@@ -459,10 +471,20 @@ def validate_api_nested_device_report(api_level, regression_props):
 def validate_performance_evidence(key, evidence_path):
     prefix = f"performance-{key}-evidence"
     props = properties_for(evidence_path)
+    if props.get("artifactSchema") != "PerfBaselineVerification/v1":
+        failures.append(f"{prefix}-schema-invalid")
     if props.get("status") != "passed":
         failures.append(f"{prefix}-status-not-passed")
     if props.get("target") != "perf-baseline":
         failures.append(f"{prefix}-target-invalid")
+    if not non_empty_string(props.get("owner", "")):
+        failures.append(f"{prefix}-owner-missing")
+    if not non_empty_string(props.get("command", "")):
+        failures.append(f"{prefix}-command-missing")
+    if not non_empty_string(props.get("reproduciblePath", "")):
+        failures.append(f"{prefix}-reproducible-path-missing")
+    if non_empty_string(props.get("failedTarget", "")):
+        failures.append(f"{prefix}-failed-target-not-empty")
     if props.get("performanceKey") != key:
         failures.append(f"{prefix}-key-mismatch")
     if props.get("missingFieldCount") != "0":
@@ -483,6 +505,8 @@ def validate_performance_evidence(key, evidence_path):
     else:
         if max_record_age_days <= 0:
             failures.append(f"{prefix}-max-record-age-invalid")
+        else:
+            validate_utc_timestamp_fresh(props.get("recordedAt", ""), max_record_age_days, prefix)
     baseline_file = props.get("baselineFile", "")
     if not non_empty_string(baseline_file):
         failures.append(f"{prefix}-baseline-file-missing")
@@ -495,6 +519,14 @@ def validate_performance_evidence(key, evidence_path):
         else:
             validate_file_sha(f"{prefix}-baseline", baseline_file, expected_baseline_sha)
         baseline_props = properties_for(baseline_file)
+        if baseline_props.get("artifactSchema") != "PerfBaseline/v1":
+            failures.append(f"{prefix}-baseline-schema-invalid")
+        if not non_empty_string(baseline_props.get("owner", "")):
+            failures.append(f"{prefix}-baseline-owner-missing")
+        if not non_empty_string(baseline_props.get("collectionCommand", "")):
+            failures.append(f"{prefix}-baseline-command-missing")
+        if not non_empty_string(baseline_props.get("reproduciblePath", "")):
+            failures.append(f"{prefix}-baseline-reproducible-path-missing")
         if baseline_props.get("status") != "passed":
             failures.append(f"{prefix}-baseline-status-not-passed")
         if baseline_props.get("releaseArtifactSha256") != expected_sha:
@@ -585,6 +617,8 @@ def validate_flow_evidence(key, evidence_path):
             "remoteVisionUnsupportedOpenStreamCountCovered": "remote-vision-unsupported-open-stream-count-missing",
             "remoteVisionUnsupportedOcrSkipped": "remote-vision-unsupported-ocr-skip-missing",
             "remoteVisionMixedShareNonImageProtected": "remote-vision-mixed-share-non-image-protection-missing",
+            "remoteVisionSendPreviewConfirmed": "remote-vision-send-preview-confirmation-missing",
+            "remoteVisionCancelKeepsRuntimeIdle": "remote-vision-cancel-runtime-idle-missing",
             "remoteVisionHttpFixtureStreamRequested": "remote-vision-http-fixture-stream-request-missing",
             "documentExcerptBounded": "document-excerpt-boundary-missing",
             "pickerAttachmentPromptCovered": "picker-attachment-prompt-missing",
@@ -607,6 +641,10 @@ def validate_flow_evidence(key, evidence_path):
             "largeFontReachabilityCovered": "large-font-reachability-missing",
             "landscapeReachabilityCovered": "landscape-reachability-missing",
             "accessibleLabelsCovered": "accessible-labels-missing",
+        },
+        "mediaProjectionCancellation": {
+            "mediaProjectionOneShotConsentCovered": "media-projection-one-shot-consent-missing",
+            "currentScreenshotOcrRemoteContinuationBlocked": "current-screenshot-ocr-remote-continuation-block-missing",
         },
     }.get(key, {})
     for field, reason in required_true_fields.items():
@@ -873,6 +911,14 @@ else:
     if props.get("instrumentation") != "passed":
         failures.append("physical-device-report-instrumentation-not-passed")
     instrumentation_output_count = validate_instrumentation_output("physical-device-report", props.get("instrumentation_output_file", ""))
+    validate_file_sha(
+        "physical-device-report-instrumentation-output",
+        props.get("instrumentation_output_file", ""),
+        props.get("instrumentation_output_sha256", ""),
+    )
+    validate_logcat_artifact("physical-device-report", props.get("logcat_file", ""))
+    if non_empty_string(props.get("logcat_file", "")) and Path(props.get("logcat_file", "")).is_file():
+        validate_file_sha("physical-device-report-logcat", props.get("logcat_file", ""), props.get("logcat_sha256", ""))
     try:
         actual_count = int(props.get("instrumentation_test_count", ""))
     except ValueError:
@@ -880,6 +926,8 @@ else:
     else:
         if actual_count < source_android_test_count:
             failures.append("physical-device-report-test-count-too-low")
+        if props.get("test_count", "") and props.get("test_count") != props.get("instrumentation_test_count", ""):
+            failures.append("physical-device-report-test-count-alias-mismatch")
         if instrumentation_output_count is not None and instrumentation_output_count != actual_count:
             failures.append("physical-device-report-instrumentation-output-count-mismatch")
     if props.get("debug_apk") != "app/build/outputs/apk/debug/app-debug.apk":

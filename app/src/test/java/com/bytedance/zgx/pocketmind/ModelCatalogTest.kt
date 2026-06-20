@@ -65,6 +65,12 @@ class ModelCatalogTest {
         )
         assertEquals(setOf(DEFAULT_CHAT_MODEL_ID), ModelCatalog.defaultSetupModelIds())
         assertNull(ModelCatalog.recommendedModelOrNull("unknown-model-id"))
+        assertTrue(ModelCatalog.isChatModel(DEFAULT_CHAT_MODEL_ID))
+        assertTrue(ModelCatalog.isChatModel("chat-e4b"))
+        assertFalse(ModelCatalog.isChatModel(MEMORY_EMBEDDING_MODEL_ID))
+        assertFalse(ModelCatalog.isChatModel(MOBILE_ACTION_MODEL_ID))
+        assertFalse(ModelCatalog.isChatModel("unknown-model-id"))
+        assertEquals(DEFAULT_CHAT_MODEL_ID, ModelCatalog.recommendedChatModelById(MEMORY_EMBEDDING_MODEL_ID).id)
     }
 
     @Test
@@ -81,11 +87,28 @@ class ModelCatalogTest {
         assertEquals(setOf(ModelInputModality.Text, ModelInputModality.Vision), chatProfile.inputModalities)
         assertTrue(ModelFeature.TextGeneration in chatProfile.features)
         assertTrue(ModelFeature.VisionInput in chatProfile.features)
+        assertTrue(chatProfile.supportsChatGeneration)
         assertTrue(chatProfile.supportsVisionInput)
+        assertFalse(chatProfile.supportsMemoryEmbedding)
+        assertFalse(chatProfile.supportsMobileActionPlanning)
+        assertEquals(LocalModelTokenLimits.MAX_TOTAL_TOKENS, chatProfile.contextWindowTokens)
+        assertEquals(setOf(BackendChoice.GPU, BackendChoice.CPU), chatProfile.preferredLocalBackends)
 
         assertEquals(ModelCapability.MemoryEmbedding, memoryProfile.capability)
         assertEquals(setOf(ModelFeature.MemoryEmbedding), memoryProfile.features)
+        assertFalse(memoryProfile.supportsChatGeneration)
         assertFalse(memoryProfile.supportsVisionInput)
+        assertTrue(memoryProfile.supportsMemoryEmbedding)
+        assertFalse(memoryProfile.supportsMobileActionPlanning)
+        assertNull(memoryProfile.contextWindowTokens)
+        assertEquals(setOf(BackendChoice.CPU), memoryProfile.preferredLocalBackends)
+
+        val actionProfile = ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)
+        assertFalse(actionProfile.supportsChatGeneration)
+        assertFalse(actionProfile.supportsVisionInput)
+        assertFalse(actionProfile.supportsMemoryEmbedding)
+        assertTrue(actionProfile.supportsMobileActionPlanning)
+        assertEquals(setOf(BackendChoice.CPU), actionProfile.preferredLocalBackends)
 
         assertEquals(ModelCapability.Chat, textOnlyChatProfile.capability)
         assertEquals(setOf(ModelInputModality.Text), textOnlyChatProfile.inputModalities)
@@ -95,6 +118,7 @@ class ModelCatalogTest {
         assertEquals(ModelCapability.Chat, remoteVisionProfile.capability)
         assertEquals(setOf(ModelInputModality.Text, ModelInputModality.Vision), remoteVisionProfile.inputModalities)
         assertTrue(remoteVisionProfile.supportsVisionInput)
+        assertTrue(remoteVisionProfile.preferredLocalBackends.isEmpty())
     }
 
     @Test
@@ -107,6 +131,44 @@ class ModelCatalogTest {
         assertEquals(ModelCapability.Chat, profile.capability)
         assertEquals(setOf(ModelInputModality.Text), profile.inputModalities)
         assertFalse(profile.supportsVisionInput)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun modelProfileRejectsVisionFeatureWithoutVisionModality() {
+        ModelProfile(
+            id = "bad-vision",
+            displayName = "Bad Vision",
+            capability = ModelCapability.Chat,
+            backendKind = ModelBackendKind.LocalLiteRt,
+            inputModalities = setOf(ModelInputModality.Text),
+            features = setOf(ModelFeature.TextGeneration, ModelFeature.VisionInput),
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun modelProfileRejectsLocalBackendsForRemoteProfiles() {
+        ModelProfile(
+            id = "bad-remote",
+            displayName = "Bad Remote",
+            capability = ModelCapability.Chat,
+            backendKind = ModelBackendKind.RemoteOpenAiCompatible,
+            inputModalities = setOf(ModelInputModality.Text),
+            features = setOf(ModelFeature.TextGeneration),
+            preferredLocalBackends = setOf(BackendChoice.GPU),
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun modelProfileRejectsNonPositiveContextWindow() {
+        ModelProfile(
+            id = "bad-context",
+            displayName = "Bad Context",
+            capability = ModelCapability.Chat,
+            backendKind = ModelBackendKind.LocalLiteRt,
+            inputModalities = setOf(ModelInputModality.Text),
+            features = setOf(ModelFeature.TextGeneration),
+            tokenBudget = 0,
+        )
     }
 
     @Test

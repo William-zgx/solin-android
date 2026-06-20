@@ -121,8 +121,41 @@ case "${1:-}" in
       am\ start\ -W\ -n*)
         echo "Status: ok"
         ;;
+      am\ broadcast\ -a\ com.bytedance.zgx.pocketmind.debug.DEVICE_CONTROL_EVAL*)
+        echo "Broadcast completed: result=-1"
+        ;;
       am\ force-stop\ *)
         echo "OK"
+        ;;
+      cmd\ package\ path\ *)
+        package_name="${*:4}"
+        if [[ ",${FAKE_REAL_APP_SEARCH_INSTALLED_PACKAGES:-}," == *",$package_name,"* ]]; then
+          echo "package:/data/app/${package_name}/base.apk"
+        else
+          exit 1
+        fi
+        ;;
+      cmd\ package\ resolve-activity\ --brief\ *)
+        package_name="${*:5}"
+        if [[ ",${FAKE_REAL_APP_SEARCH_INSTALLED_PACKAGES:-}," == *",$package_name,"* ]]; then
+          echo "${package_name}/.MainActivity"
+        else
+          exit 1
+        fi
+        ;;
+      dumpsys\ accessibility)
+        cat <<'FAKE_ACCESSIBILITY_DUMPSYS'
+Bound services:
+  ServiceRecord{com.bytedance.zgx.pocketmind/com.bytedance.zgx.pocketmind.device.PocketMindAccessibilityService}
+Enabled services: com.bytedance.zgx.pocketmind/com.bytedance.zgx.pocketmind.device.PocketMindAccessibilityService
+FAKE_ACCESSIBILITY_DUMPSYS
+        ;;
+      dumpsys\ window|dumpsys\ window\ windows)
+        cat <<'FAKE_WINDOW_DUMPSYS'
+mCurrentFocus=Window{com.taobao.taobao/com.taobao.taobao.MainActivity}
+mFocusedApp=ActivityRecord{com.taobao.taobao/.MainActivity}
+mFocusedWindow=Window{com.taobao.taobao/com.taobao.taobao.MainActivity}
+FAKE_WINDOW_DUMPSYS
         ;;
       dumpsys\ package\ com.bytedance.zgx.pocketmind)
         install_count="$(grep -c ' install ' "${FAKE_ADB_LOG:?}" 2>/dev/null || true)"
@@ -150,8 +183,17 @@ FAKE_PACKAGE_DUMPSYS
       pm\ clear\ com.bytedance.zgx.pocketmind|pm\ clear\ com.bytedance.zgx.pocketmind.test)
         echo "Success"
         ;;
+      run-as\ com.bytedance.zgx.pocketmind\ rm\ -f\ files/device_control_eval_result_*.properties)
+        echo "OK"
+        ;;
+      rm\ -f\ /sdcard/pocketmind-eval-*.xml)
+        echo "OK"
+        ;;
       input\ tap*|input\ text*|input\ keyevent*|input\ swipe*)
         echo "OK"
+        ;;
+      uiautomator\ dump\ /sdcard/pocketmind-eval-*.xml)
+        echo "UI hierchary dumped to: ${*:3}"
         ;;
       uiautomator\ dump\ /sdcard/pocketmind-live-remote.xml)
         echo "UI hierchary dumped to: /sdcard/pocketmind-live-remote.xml"
@@ -204,6 +246,74 @@ FAKE_PACKAGE_DUMPSYS
     case "$*" in
       "screencap -p")
         printf 'fake-png\n'
+        ;;
+      run-as\ com.bytedance.zgx.pocketmind\ cat\ files/device_control_eval_result_*.properties)
+        result_path="${*:4}"
+        request_id="${result_path#files/device_control_eval_result_}"
+        request_id="${request_id%.properties}"
+        case_name="${request_id%%-*}"
+        package_name="com.example.app"
+        case "$case_name" in
+          taobao) package_name="com.taobao.taobao" ;;
+          pdd) package_name="com.xunmeng.pinduoduo" ;;
+          gaode) package_name="com.autonavi.minimap" ;;
+          jd) package_name="com.jingdong.app.mall" ;;
+          chrome) package_name="com.android.chrome" ;;
+          android_browser) package_name="com.android.browser" ;;
+          quark) package_name="com.quark.browser" ;;
+          uc) package_name="com.UCMobile" ;;
+        esac
+        {
+          echo "requestId=$request_id"
+          if [[ "$request_id" == *"-observe-"* ]]; then
+            echo "resultType=available"
+            echo "packageName=$package_name"
+          elif [[ "$request_id" == *"-tap-"* && "${FAKE_REAL_APP_SEARCH_FAIL_STEP:-}" == "tap" ]]; then
+            echo "status=Failed"
+            echo "actionType=tap"
+            echo "failureKind=search_entry_not_found"
+            echo "targetResolution.available=true"
+            echo "targetResolution.kind=search_entry"
+            echo "targetResolution.target=搜索入口"
+            echo "targetResolution.packageName=$package_name"
+            echo "targetResolution.selectedNodeId="
+            echo "targetResolution.failureKind=search_entry_not_found"
+            echo "targetResolution.candidateCount=2"
+            echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"top-card","finalScore":430},{"nodeId":"camera-search","finalScore":120}]}'
+          elif [[ "$request_id" == *"-type-"* && "${FAKE_REAL_APP_SEARCH_FAIL_STEP:-}" == "type" ]]; then
+            echo "status=Failed"
+            echo "actionType=type_text"
+            echo "failureKind=editable_not_found"
+            echo "targetResolution.available=true"
+            echo "targetResolution.kind=editable_field"
+            echo "targetResolution.target=搜索输入框"
+            echo "targetResolution.packageName=$package_name"
+            echo "targetResolution.selectedNodeId="
+            echo "targetResolution.failureKind=editable_not_found"
+            echo "targetResolution.candidateCount=2"
+            echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"map-search-entry","finalScore":360},{"nodeId":"nearby-poi-list","finalScore":85}]}'
+          elif [[ "$request_id" == *"-verify-"* ]]; then
+            echo "status=Succeeded"
+            echo "searchVerificationStatus=verified"
+            echo "searchVerificationEvidence=query_visible"
+            echo "PocketMindAgentChrome"
+            echo "PocketMindAgentBrowser"
+            echo "PocketMindAgentQuark"
+            echo "PocketMindAgentUC"
+            echo "筛选"
+            echo "查看地图"
+          else
+            echo "status=Succeeded"
+          fi
+        }
+        ;;
+      cat\ /sdcard/pocketmind-eval-*.xml)
+        cat <<'FAKE_REAL_APP_UI'
+<hierarchy>
+  <node text="搜索商品" enabled="true" clickable="true" bounds="[16,72][1064,152]" />
+  <node text="扫一扫" enabled="true" clickable="true" bounds="[880,72][1064,152]" />
+</hierarchy>
+FAKE_REAL_APP_UI
         ;;
       *)
         echo "unexpected exec-out command: $*" >&2
@@ -413,6 +523,10 @@ if [[ "$*" == *":app:assembleDebug"* || "$*" == *" assembleDebug"* ]]; then
   mkdir -p app/build/outputs/apk/debug
   printf 'fake debug apk\n' > app/build/outputs/apk/debug/app-debug.apk
 fi
+if [[ -n "${AI_BEHAVIOR_ACTUAL_TRACE_FILE:-}" && -n "${FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE:-}" ]]; then
+  mkdir -p "$(dirname "$AI_BEHAVIOR_ACTUAL_TRACE_FILE")"
+  cp "$FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE" "$AI_BEHAVIOR_ACTUAL_TRACE_FILE"
+fi
 FAKE_GRADLE
   chmod +x "$path"
 }
@@ -549,6 +663,8 @@ write_model_release_flow_contract_fixture() {
       printf 'remoteVisionUnsupportedOpenStreamCountCovered=true\n'
       printf 'remoteVisionUnsupportedOcrSkipped=true\n'
       printf 'remoteVisionMixedShareNonImageProtected=true\n'
+      printf 'remoteVisionSendPreviewConfirmed=true\n'
+      printf 'remoteVisionCancelKeepsRuntimeIdle=true\n'
       printf 'remoteVisionHttpFixtureImagePartCount=1\n'
       printf 'remoteVisionHttpFixtureStreamRequested=true\n'
       printf 'remoteVisionSupportedImageStreamOpenCount=1\n'
@@ -577,6 +693,10 @@ write_model_release_flow_contract_fixture() {
       printf 'largeFontReachabilityCovered=true\n'
       printf 'landscapeReachabilityCovered=true\n'
       printf 'accessibleLabelsCovered=true\n'
+      ;;
+    mediaProjectionCancellation)
+      printf 'mediaProjectionOneShotConsentCovered=true\n'
+      printf 'currentScreenshotOcrRemoteContinuationBlocked=true\n'
       ;;
   esac
 }
@@ -745,7 +865,15 @@ grep -q 'currentVersionCodeRaw=' scripts/verify_upgrade_install_emulator.sh ||
   fail "upgrade install emulator report must preserve raw current versionCode"
 grep -q 'scripts/verify_ai_behavior_eval.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include verify_ai_behavior_eval.sh in shell syntax checks"
-grep -q -- '--require-boundary-map --report "$ARTIFACT_DIR/ai-behavior-eval.properties"' scripts/verify_release_gate.sh ||
+grep -q 'scripts/collect_ai_behavior_actual_trace.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include collect_ai_behavior_actual_trace.sh in shell syntax checks"
+grep -q -- '--trace-diff "$ARTIFACT_DIR/ai-behavior-planning-trace-diff.jsonl"' scripts/verify_release_gate.sh ||
+  fail "release gate must write AI behavior planning trace diff"
+grep -q 'REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1' scripts/verify_release_gate.sh ||
+  fail "public release gate must require AI behavior actual trace"
+grep -q 'REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1' scripts/verify_release_gate.sh ||
+  fail "public release gate must require AI behavior runtime trace source"
+grep -q -- '--require-boundary-map' scripts/verify_release_gate.sh ||
   fail "release gate must require AI behavior eval boundary mapping"
 grep -q 'docs/capability_matrix.json' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval gate must read MVP scenarios from capability matrix JSON"
@@ -788,6 +916,244 @@ grep -q 'underCoveredMvpScenarios=' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval report must expose under-covered MVP scenarios"
 grep -q 'missingRequiredMvpScenarios=' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval report must expose missing MVP scenarios"
+grep -q 'expectedTools' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must validate expected tool fixtures"
+grep -q 'expectedConfirmation' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must validate confirmation fixtures"
+grep -q 'expectedRiskLevel' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must validate risk level fixtures"
+grep -q 'privacy-mismatch' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must reject inconsistent privacy fixtures"
+grep -q 'val supported: Set<String>' app/src/main/java/com/bytedance/zgx/pocketmind/action/ActionModels.kt ||
+  fail "MobileActionFunctions must expose supported tool names for eval validation"
+grep -q 'supported_tool_names' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must validate expected tools against supported tool names"
+grep -q 'unknown-tool' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must reject unknown expected tools"
+grep -q 'casesWithExpectedTools=' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval report must expose expected tool coverage"
+grep -q 'confirmationBreakdown=' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval report must expose confirmation breakdown"
+grep -q 'riskLevelBreakdown=' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval report must expose risk level breakdown"
+grep -q 'privacyBreakdown=' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval report must expose privacy breakdown"
+grep -q 'missing-confirmation-coverage' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must require confirmation coverage"
+grep -q 'missing-risk-coverage' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must require risk coverage"
+grep -q 'traceDiffMissingActualCount=' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval report must expose planning trace diff missing-actual count"
+grep -q 'actualTools' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval trace diff must include actual tools"
+AI_BEHAVIOR_MISSING_ID_DIR="$TMP_DIR/ai-behavior-missing-id"
+mkdir -p "$AI_BEHAVIOR_MISSING_ID_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_ID_DIR/"
+sed '1s/"id":"[^"]*",//' "$AI_BEHAVIOR_MISSING_ID_DIR/memory_recall.jsonl" > "$AI_BEHAVIOR_MISSING_ID_DIR/memory_recall.tmp"
+mv "$AI_BEHAVIOR_MISSING_ID_DIR/memory_recall.tmp" "$AI_BEHAVIOR_MISSING_ID_DIR/memory_recall.jsonl"
+expect_failure \
+  "AI behavior eval rejects missing stable case id" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_MISSING_ID_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-missing-id.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-id.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-id.properties" "reason=missing-field:memory_recall:1:id"
+AI_BEHAVIOR_DUPLICATE_ID_DIR="$TMP_DIR/ai-behavior-duplicate-id"
+mkdir -p "$AI_BEHAVIOR_DUPLICATE_ID_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_DUPLICATE_ID_DIR/"
+sed '2s/"id":"[^"]*"/"id":"memory_style_concise"/' "$AI_BEHAVIOR_DUPLICATE_ID_DIR/memory_recall.jsonl" > "$AI_BEHAVIOR_DUPLICATE_ID_DIR/memory_recall.tmp"
+mv "$AI_BEHAVIOR_DUPLICATE_ID_DIR/memory_recall.tmp" "$AI_BEHAVIOR_DUPLICATE_ID_DIR/memory_recall.jsonl"
+expect_failure \
+  "AI behavior eval rejects duplicate stable case id" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_DUPLICATE_ID_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-duplicate-id.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-duplicate-id.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-duplicate-id.properties" "reason=duplicate-trace-case-id:memory_style_concise"
+AI_TRACE_DIFF_MISSING="$ARTIFACT_DIR/ai-behavior-trace-diff-missing.jsonl"
+expect_success \
+  "AI behavior eval writes planning trace diff without actual trace" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --trace-diff "$AI_TRACE_DIFF_MISSING" \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "artifactSchema=AgentBehaviorEvalVerification/v1"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "owner=agent-behavior"
+grep -Eq '^recordedAt=20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" ||
+  fail "AI behavior eval report must include UTC recordedAt"
+grep -q '^command=.*scripts/verify_ai_behavior_eval.sh.*--trace-diff ' "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" ||
+  fail "AI behavior eval report must include reproducible command"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" \
+  "reproduciblePath=$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "traceDiffFile=$AI_TRACE_DIFF_MISSING"
+grep -Eq '^traceDiffSha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" ||
+  fail "AI behavior eval report must hash trace diff evidence"
+ai_trace_missing_count="$(awk -F= '$1 == "caseCount" {print $2; exit}' "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties")"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "traceDiffMissingActualCount=$ai_trace_missing_count"
+assert_report_contains_text "$AI_TRACE_DIFF_MISSING" '"actualTools": []'
+assert_report_contains_text "$AI_TRACE_DIFF_MISSING" '"status": "missing_actual"'
+
+AI_ACTUAL_TRACE="$TMP_DIR/ai-behavior-actual-trace.jsonl"
+python3 - "$AI_ACTUAL_TRACE" <<'PY'
+import json
+import pathlib
+import sys
+
+fixture_dir = pathlib.Path("app/src/test/resources/ai_behavior_eval")
+categories = [
+    "memory_recall",
+    "planner_false_positive",
+    "tool_sequence",
+    "ocr_noise",
+    "runtime_failure",
+    "privacy_boundary",
+    "restart_recovery",
+]
+out = pathlib.Path(sys.argv[1])
+with out.open("w", encoding="utf-8") as handle:
+    for category in categories:
+        path = fixture_dir / f"{category}.jsonl"
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            handle.write(json.dumps({
+                "caseId": row["id"],
+                "category": category,
+                "input": row["input"],
+                "actualTools": row["expectedTools"],
+                "actualConfirmation": row["expectedConfirmation"],
+                "actualRiskLevel": row["expectedRiskLevel"],
+                "privacy": row["privacy"],
+                "localOnly": row["localOnly"],
+                "remoteEligible": row["remoteEligible"],
+                "traceRecordedAt": "2026-06-19T00:00:00Z",
+                "traceSource": "agent_loop_runtime",
+            }, ensure_ascii=False, sort_keys=True) + "\n")
+PY
+AI_ACTUAL_TRACE_SHA="$(shasum -a 256 "$AI_ACTUAL_TRACE" | awk '{print $1}')"
+AI_ACTUAL_TRACE_MISSING_SOURCE="$TMP_DIR/ai-behavior-actual-trace-missing-source.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_MISSING_SOURCE" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0].pop("traceSource", None)
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects missing runtime trace source in strict provenance mode" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE_MISSING_SOURCE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-source.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-source.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-source.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-source.properties" "reason=invalid-actual-trace:1:traceSource"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-source.properties" "requireRuntimeTraceSource=1"
+AI_TRACE_DIFF_MATCHED="$ARTIFACT_DIR/ai-behavior-trace-diff-matched.jsonl"
+expect_success \
+  "AI behavior eval accepts matching planning trace diff" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE" \
+    --trace-diff "$AI_TRACE_DIFF_MATCHED" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceFile=$AI_ACTUAL_TRACE"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceSha256=$AI_ACTUAL_TRACE_SHA"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "requireRuntimeTraceSource=1"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceSourceBreakdown=agent_loop_runtime:$ai_trace_missing_count"
+grep -Eq '^traceDiffSha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" ||
+  fail "AI behavior eval report must hash matched trace diff evidence"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "traceDiffMissingActualCount=0"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "traceDiffMismatchCount=0"
+assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"caseId": "memory_style_concise"'
+assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"status": "matched"'
+
+reset_logs
+AI_COLLECTOR_DIR="$ARTIFACT_DIR/ai-behavior-actual-trace-collector"
+expect_success \
+  "AI behavior actual trace collector records runtime trace evidence" \
+  env ARTIFACT_DIR="$AI_COLLECTOR_DIR" \
+  GRADLE_CMD="$FAKE_GRADLE" \
+  FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE="$AI_ACTUAL_TRACE" \
+  scripts/collect_ai_behavior_actual_trace.sh
+grep -q -- ":app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest" "$FAKE_GRADLE_LOG" ||
+  fail "AI behavior actual trace collector must run the generator test"
+AI_COLLECTOR_REPORT="$AI_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties"
+AI_COLLECTOR_TRACE="$AI_COLLECTOR_DIR/ai-behavior-actual-trace.jsonl"
+AI_COLLECTOR_DIFF="$AI_COLLECTOR_DIR/ai-behavior-planning-trace-diff.jsonl"
+AI_COLLECTOR_EVAL="$AI_COLLECTOR_DIR/ai-behavior-eval.properties"
+assert_report_contains "$AI_COLLECTOR_REPORT" "status=passed"
+assert_report_contains "$AI_COLLECTOR_REPORT" "artifactSchema=AgentBehaviorActualTraceCollection/v1"
+assert_report_contains "$AI_COLLECTOR_REPORT" "owner=agent-behavior"
+assert_report_contains "$AI_COLLECTOR_REPORT" "actualTraceFile=$AI_COLLECTOR_TRACE"
+assert_report_contains "$AI_COLLECTOR_REPORT" "actualTraceSha256=$(shasum -a 256 "$AI_COLLECTOR_TRACE" | awk '{print $1}')"
+assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffFile=$AI_COLLECTOR_DIFF"
+assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffSha256=$(shasum -a 256 "$AI_COLLECTOR_DIFF" | awk '{print $1}')"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalReportFile=$AI_COLLECTOR_EVAL"
+assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffMissingActualCount=0"
+assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffExtraActualCount=0"
+assert_report_contains "$AI_COLLECTOR_REPORT" "actualTraceSourceBreakdown=agent_loop_runtime:$ai_trace_missing_count"
+assert_report_contains "$AI_COLLECTOR_EVAL" "requireRuntimeTraceSource=1"
+assert_report_contains_text "$AI_COLLECTOR_DIFF" '"status": "matched"'
+
+AI_BAD_ACTUAL_TRACE="$TMP_DIR/ai-behavior-actual-trace-bad.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_BAD_ACTUAL_TRACE" <<'PY'
+import json
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1])
+target = pathlib.Path(sys.argv[2])
+rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["actualTools"] = ["share_text"]
+target.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+AI_TRACE_DIFF_MISMATCH="$ARTIFACT_DIR/ai-behavior-trace-diff-mismatch.jsonl"
+expect_failure \
+  "AI behavior eval rejects mismatched required planning trace diff" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_BAD_ACTUAL_TRACE" \
+    --trace-diff "$AI_TRACE_DIFF_MISMATCH" \
+    --require-actual-trace \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-mismatch.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-mismatch.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-mismatch.properties" "reason=trace-diff-mismatch"
+assert_report_contains_text "$AI_TRACE_DIFF_MISMATCH" '"status": "mismatch"'
+AI_EXTRA_ACTUAL_TRACE="$TMP_DIR/ai-behavior-actual-trace-extra.jsonl"
+cp "$AI_ACTUAL_TRACE" "$AI_EXTRA_ACTUAL_TRACE"
+cat >> "$AI_EXTRA_ACTUAL_TRACE" <<'AI_EXTRA_ACTUAL_TRACE_JSONL'
+{"caseId":"extra-case","category":"memory_recall","input":"extra","actualTools":[],"actualConfirmation":"none","actualRiskLevel":"low","privacy":"RemoteEligible","localOnly":false,"remoteEligible":true}
+AI_EXTRA_ACTUAL_TRACE_JSONL
+expect_failure \
+  "AI behavior eval rejects extra required planning trace rows" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_EXTRA_ACTUAL_TRACE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.jsonl" \
+    --require-actual-trace \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties" "reason=trace-diff-extra-actual"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties" "traceDiffExtraActualCount=1"
 grep -q 'scripts/privacy_scan.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include privacy_scan.sh in shell syntax checks"
 grep -q 'scripts/scan_android_artifacts.sh' scripts/verify_local.sh ||
@@ -957,7 +1323,15 @@ VALID_PERF_BASELINE
 expect_success \
   "perf baseline verifier accepts complete record" \
   scripts/verify_perf_baseline.sh --file "$VALID_PERF" --app-version 0.1.0 --report "$ARTIFACT_DIR/perf.properties"
+assert_report_contains "$ARTIFACT_DIR/perf.properties" "artifactSchema=PerfBaselineVerification/v1"
 assert_report_contains "$ARTIFACT_DIR/perf.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/perf.properties" "owner=release-engineering"
+assert_report_contains "$ARTIFACT_DIR/perf.properties" "failedTarget="
+grep -q '^recordedAt=' "$ARTIFACT_DIR/perf.properties" ||
+  fail "perf verifier report must include recordedAt"
+grep -q '^command=.*scripts/verify_perf_baseline.sh' "$ARTIFACT_DIR/perf.properties" ||
+  fail "perf verifier report must include reproducible command"
+assert_report_contains "$ARTIFACT_DIR/perf.properties" "reproduciblePath=$VALID_PERF"
 assert_report_contains "$ARTIFACT_DIR/perf.properties" "baselineSha256=$(shasum -a 256 "$VALID_PERF" | awk '{print $1}')"
 expect_success \
   "perf baseline verifier accepts matching artifact sha" \
@@ -982,11 +1356,13 @@ expect_failure \
   "perf baseline verifier rejects incomplete record" \
   scripts/verify_perf_baseline.sh --file "$INVALID_PERF" --report "$ARTIFACT_DIR/perf-invalid.properties"
 assert_report_contains "$ARTIFACT_DIR/perf-invalid.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/perf-invalid.properties" "failedTarget=baseline-fields"
 assert_report_contains_text "$ARTIFACT_DIR/perf-invalid.properties" "status-not-passed"
 expect_failure \
   "perf baseline verifier rejects mismatched artifact sha" \
   scripts/verify_perf_baseline.sh --file "$VALID_PERF" --artifact-sha256 different-sha --report "$ARTIFACT_DIR/perf-sha-failed.properties"
 assert_report_contains "$ARTIFACT_DIR/perf-sha-failed.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/perf-sha-failed.properties" "failedTarget=release-artifact"
 assert_report_contains_text "$ARTIFACT_DIR/perf-sha-failed.properties" "release-artifact-sha-mismatch"
 EMULATOR_PERF="$TMP_DIR/perf-baseline-emulator.properties"
 sed 's/deviceSerial=device-a/deviceSerial=emulator-5554/' "$VALID_PERF" > "$EMULATOR_PERF"
@@ -1001,6 +1377,30 @@ expect_failure \
   "perf baseline verifier rejects zero critical timings" \
   scripts/verify_perf_baseline.sh --file "$ZERO_PERF" --report "$ARTIFACT_DIR/perf-zero.properties"
 assert_report_contains "$ARTIFACT_DIR/perf-zero.properties" "status=failed"
+BACKEND_INVALID_PERF="$TMP_DIR/perf-baseline-backend-invalid.properties"
+sed 's/backend=GPU/backend=TPU/' "$VALID_PERF" > "$BACKEND_INVALID_PERF"
+expect_failure \
+  "perf baseline verifier rejects unsupported backend" \
+  scripts/verify_perf_baseline.sh --file "$BACKEND_INVALID_PERF" --report "$ARTIFACT_DIR/perf-backend-invalid.properties"
+assert_report_contains "$ARTIFACT_DIR/perf-backend-invalid.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/perf-backend-invalid.properties" "failedTarget=runtime-backend"
+assert_report_contains_text "$ARTIFACT_DIR/perf-backend-invalid.properties" "backend-invalid"
+GPU_FALLBACK_INVALID_PERF="$TMP_DIR/perf-baseline-gpu-fallback-invalid.properties"
+sed 's/gpuFallbackStatus=not-needed/gpuFallbackStatus=unknown/' "$VALID_PERF" > "$GPU_FALLBACK_INVALID_PERF"
+expect_failure \
+  "perf baseline verifier rejects unsupported gpu fallback status" \
+  scripts/verify_perf_baseline.sh --file "$GPU_FALLBACK_INVALID_PERF" --report "$ARTIFACT_DIR/perf-gpu-fallback-invalid.properties"
+assert_report_contains "$ARTIFACT_DIR/perf-gpu-fallback-invalid.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/perf-gpu-fallback-invalid.properties" "failedTarget=runtime-backend"
+assert_report_contains_text "$ARTIFACT_DIR/perf-gpu-fallback-invalid.properties" "gpu-fallback-status-invalid"
+MODEL_INVALID_PERF="$TMP_DIR/perf-baseline-model-invalid.properties"
+sed 's/modelId=chat-e2b/modelId=memory-embedding-gemma-300m/' "$VALID_PERF" > "$MODEL_INVALID_PERF"
+expect_failure \
+  "perf baseline verifier rejects non-chat model profile" \
+  scripts/verify_perf_baseline.sh --file "$MODEL_INVALID_PERF" --report "$ARTIFACT_DIR/perf-model-invalid.properties"
+assert_report_contains "$ARTIFACT_DIR/perf-model-invalid.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/perf-model-invalid.properties" "failedTarget=model-profile"
+assert_report_contains_text "$ARTIFACT_DIR/perf-model-invalid.properties" "model-id-invalid"
 FUTURE_PERF="$TMP_DIR/perf-baseline-future.properties"
 sed 's/recordedAt=.*/recordedAt=2999-01-01T00:00:00Z/' "$VALID_PERF" > "$FUTURE_PERF"
 expect_failure \
@@ -2058,7 +2458,11 @@ for api_level in 28 32 33 34 36; do
   api_regression_report="$TMP_DIR/validation-api-evidence/api-$api_level.properties"
   printf 'OK (%s tests)\n' "$SOURCE_ANDROID_TEST_COUNT" > "$api_instrumentation_output"
   printf 'clean api %s emulator validation logcat\n' "$api_level" > "$api_logcat_file"
+  api_instrumentation_sha="$(shasum -a 256 "$api_instrumentation_output" | awk '{print $1}')"
+  api_logcat_sha="$(shasum -a 256 "$api_logcat_file" | awk '{print $1}')"
   cat > "$api_device_report" <<VALIDATION_API_DEVICE_EVIDENCE_PROPERTIES
+artifact_schema=DeviceVerificationArtifact/v1
+artifact_id=device-emulator-$api_level-api$api_level-2026-06-06T000000Z
 status=passed
 exit_code=0
 target=device
@@ -2073,8 +2477,11 @@ clean_device=1
 data_free_kb=4194304
 instrumentation=passed
 instrumentation_test_count=$SOURCE_ANDROID_TEST_COUNT
+test_count=$SOURCE_ANDROID_TEST_COUNT
 instrumentation_output_file=$api_instrumentation_output
+instrumentation_output_sha256=$api_instrumentation_sha
 logcat_file=$api_logcat_file
+logcat_sha256=$api_logcat_sha
 logcat_captured=1
 logcat_tail_lines=500
 debug_apk=app/build/outputs/apk/debug/app-debug.apk
@@ -2127,6 +2534,7 @@ api_level=$api_level
 abi=arm64-v8a
 avd=api${api_level}-avd
 instrumentation_output_file=$api_instrumentation_output
+logcat_file=$api_logcat_file
 emulator_report_file=$api_emulator_report
 device_report_file=$api_device_report
 VALIDATION_API_EVIDENCE_PROPERTIES
@@ -2160,7 +2568,12 @@ VALIDATION_FLOW_EVIDENCE_PROPERTIES
 done
 VALIDATION_PERF_BASELINE="$TMP_DIR/validation-performance-evidence/perf-baseline.properties"
 cat > "$VALIDATION_PERF_BASELINE" <<VALIDATION_PERF_BASELINE_PROPERTIES
+artifactSchema=PerfBaseline/v1
 status=passed
+target=perf-baseline-record
+owner=release-engineering
+collectionCommand=scripts/collect_perf_baseline.sh
+reproduciblePath=$VALIDATION_PERF_BASELINE
 deviceSerial=device-a
 deviceModel=Pixel Test
 androidApi=36
@@ -2184,9 +2597,15 @@ VALIDATION_PERF_BASELINE_PROPERTIES
 VALIDATION_PERF_BASELINE_SHA="$(shasum -a 256 "$VALIDATION_PERF_BASELINE" | awk '{print $1}')"
 for perf_key in firstLaunch modelLoad firstToken streamingStopCancel backgroundReminderDelivery memoryPressure; do
   cat > "$TMP_DIR/validation-performance-evidence/$perf_key.properties" <<VALIDATION_PERFORMANCE_EVIDENCE_PROPERTIES
+artifactSchema=PerfBaselineVerification/v1
 status=passed
 target=perf-baseline
+owner=release-engineering
+recordedAt=$PERF_RECORDED_AT
+command=scripts/verify_perf_baseline.sh --file $VALIDATION_PERF_BASELINE --performance-key $perf_key
 performanceKey=$perf_key
+failedTarget=
+reproduciblePath=$VALIDATION_PERF_BASELINE
 baselineFile=$VALIDATION_PERF_BASELINE
 baselineSha256=$VALIDATION_PERF_BASELINE_SHA
 missingFieldCount=0
@@ -2223,10 +2642,13 @@ avd=test-avd
 api_level=36
 abi=arm64-v8a
 instrumentation_output_file=$VALIDATION_INSTRUMENTATION_OUTPUT
+logcat_file=$VALIDATION_EMULATOR_LOGCAT
 emulator_report_file=$VALIDATION_EMULATOR_HELPER_REPORT
 device_report_file=$VALIDATION_EMULATOR_DEVICE_REPORT
 VALIDATION_EMULATOR_REPORT_PROPERTIES
 cat > "$VALIDATION_DEVICE_REPORT" <<VALIDATION_DEVICE_REPORT_PROPERTIES
+artifact_schema=DeviceVerificationArtifact/v1
+artifact_id=device-device-a-api36-2026-06-06T000000Z
 status=passed
 exit_code=0
 target=device
@@ -2241,12 +2663,18 @@ clean_device=1
 data_free_kb=4194304
 instrumentation=passed
 instrumentation_test_count=$SOURCE_ANDROID_TEST_COUNT
+test_count=$SOURCE_ANDROID_TEST_COUNT
 releaseArtifactSha256=$VALID_PERF_SHA
 instrumentation_output_file=$VALIDATION_INSTRUMENTATION_OUTPUT
+instrumentation_output_sha256=$(shasum -a 256 "$VALIDATION_INSTRUMENTATION_OUTPUT" | awk '{print $1}')
+logcat_file=$VALIDATION_EMULATOR_LOGCAT
+logcat_sha256=$(shasum -a 256 "$VALIDATION_EMULATOR_LOGCAT" | awk '{print $1}')
 debug_apk=app/build/outputs/apk/debug/app-debug.apk
 android_test_apk=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 VALIDATION_DEVICE_REPORT_PROPERTIES
 cat > "$VALIDATION_EMULATOR_DEVICE_REPORT" <<VALIDATION_EMULATOR_DEVICE_REPORT_PROPERTIES
+artifact_schema=DeviceVerificationArtifact/v1
+artifact_id=device-emulator-5554-api36-2026-06-06T000000Z
 status=passed
 exit_code=0
 target=device
@@ -2261,8 +2689,11 @@ clean_device=1
 data_free_kb=4194304
 instrumentation=passed
 instrumentation_test_count=$SOURCE_ANDROID_TEST_COUNT
+test_count=$SOURCE_ANDROID_TEST_COUNT
 instrumentation_output_file=$VALIDATION_INSTRUMENTATION_OUTPUT
+instrumentation_output_sha256=$(shasum -a 256 "$VALIDATION_INSTRUMENTATION_OUTPUT" | awk '{print $1}')
 logcat_file=$VALIDATION_EMULATOR_LOGCAT
+logcat_sha256=$(shasum -a 256 "$VALIDATION_EMULATOR_LOGCAT" | awk '{print $1}')
 logcat_captured=1
 logcat_tail_lines=500
 debug_apk=app/build/outputs/apk/debug/app-debug.apk
@@ -2607,6 +3038,8 @@ assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.pr
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-remote-non-image-attachment-protection-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-remote-vision-supported-open-stream-count-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-remote-vision-unsupported-ocr-skip-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-remote-vision-send-preview-confirmation-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-remote-vision-cancel-runtime-idle-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-remote-vision-http-fixture-image-part-count-mismatch"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-remote-vision-supported-image-stream-count-mismatch"
 VALIDATION_WEAK_VOICE_FLOW="$TMP_DIR/release-validation-weak-voice-flow.json"
@@ -3340,6 +3773,8 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareA
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionUnsupportedOpenStreamCountCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionUnsupportedOcrSkipped=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionMixedShareNonImageProtected=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionSendPreviewConfirmed=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionCancelKeepsRuntimeIdle=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionHttpFixtureImagePartCount=1"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionHttpFixtureStreamRequested=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionSupportedImageStreamOpenCount=1"
@@ -3358,6 +3793,8 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-privac
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-adaptiveUi.properties" "largeFontReachabilityCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-adaptiveUi.properties" "landscapeReachabilityCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-adaptiveUi.properties" "accessibleLabelsCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-mediaProjectionCancellation.properties" "mediaProjectionOneShotConsentCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-mediaProjectionCancellation.properties" "currentScreenshotOcrRemoteContinuationBlocked=true"
 cat > "$FLOW_CANDIDATE_STALE_EMULATOR_REPORT" <<FLOW_CANDIDATE_STALE_EMULATOR_REPORT_PROPERTIES
 status=passed
 target=regression-emulator
@@ -3625,6 +4062,8 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionUnsupportedOpenStreamCountCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionUnsupportedOcrSkipped=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionMixedShareNonImageProtected=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionSendPreviewConfirmed=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionCancelKeepsRuntimeIdle=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionHttpFixtureImagePartCount=1"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionHttpFixtureStreamRequested=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionSupportedImageStreamOpenCount=1"
@@ -3633,6 +4072,8 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionUnsupportedImageOcrInvocationCount=0"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionMixedProtectedNonImageCount=1"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "documentExcerptBounded=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-mediaProjectionCancellation.properties" "mediaProjectionOneShotConsentCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-mediaProjectionCancellation.properties" "currentScreenshotOcrRemoteContinuationBlocked=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-voiceInput.properties" "voiceEntryDisclosureVisible=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-voiceInput.properties" "voiceDraftNoAutoSendCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-voiceInput.properties" "voicePermissionFailureRecoveryCovered=true"
@@ -4025,8 +4466,8 @@ MODEL_LICENSE_PENDING="$TMP_DIR/model-license-pending.json"
 MODEL_LICENSE_APPROVED="$TMP_DIR/model-license-approved.json"
 MODEL_LICENSE_CHAT_EVIDENCE="$TMP_DIR/model-license-chat-e2b-review.properties"
 MODEL_LICENSE_MEMORY_EVIDENCE="$TMP_DIR/model-license-memory-embedding-300m-review.properties"
-printf 'status=approved\nmodel=chat-e2b\nscope=license-redistribution-attribution\n' > "$MODEL_LICENSE_CHAT_EVIDENCE"
-printf 'status=approved\nmodel=memory-embedding-300m\nscope=license-redistribution-attribution\n' > "$MODEL_LICENSE_MEMORY_EVIDENCE"
+printf 'status=approved\ntarget=model-license-review-approved-evidence\nmodel=chat-e2b\nscope=license-redistribution-attribution\nredistributionDecision=approved\nlicenseName=Apache-2.0\nreviewer=Model Reviewer\n' > "$MODEL_LICENSE_CHAT_EVIDENCE"
+printf 'status=approved\ntarget=model-license-review-approved-evidence\nmodel=memory-embedding-300m\nscope=license-redistribution-attribution\nredistributionDecision=approved\nlicenseName=Apache-2.0\nreviewer=Model Reviewer\n' > "$MODEL_LICENSE_MEMORY_EVIDENCE"
 MODEL_LICENSE_CHAT_EVIDENCE_SHA="$(shasum -a 256 "$MODEL_LICENSE_CHAT_EVIDENCE" | awk '{print $1}')"
 MODEL_LICENSE_MEMORY_EVIDENCE_SHA="$(shasum -a 256 "$MODEL_LICENSE_MEMORY_EVIDENCE" | awk '{print $1}')"
 cat > "$MODEL_LICENSE_MANIFEST" <<'MODEL_LICENSE_MANIFEST_MD'
@@ -4204,6 +4645,13 @@ expect_failure \
   env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_REPO_ROOT" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-repo-root.properties"
 assert_report_contains_text "$ARTIFACT_DIR/model-license-repo-root.properties" "chat-e2b-license-source-not-concrete"
+MODEL_LICENSE_SOURCE_REVISION_MISMATCH="$TMP_DIR/model-license-source-revision-mismatch.json"
+sed 's#https://huggingface.co/example/chat-e2b/blob/chat-revision-a/README.md#https://huggingface.co/example/chat-e2b/blob/other-revision/README.md#' "$MODEL_LICENSE_APPROVED" > "$MODEL_LICENSE_SOURCE_REVISION_MISMATCH"
+expect_failure \
+  "model license verifier rejects Hugging Face license source for a different revision" \
+  env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_SOURCE_REVISION_MISMATCH" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-source-revision-mismatch.properties"
+assert_report_contains_text "$ARTIFACT_DIR/model-license-source-revision-mismatch.properties" "chat-e2b-license-source-revision-mismatch"
 MODEL_LICENSE_BAD_REVIEW_EVIDENCE_SHA="$TMP_DIR/model-license-bad-review-evidence-sha.json"
 sed 's/"reviewEvidenceSha256": "'"$MODEL_LICENSE_CHAT_EVIDENCE_SHA"'"/"reviewEvidenceSha256": "0000000000000000000000000000000000000000000000000000000000000000"/' "$MODEL_LICENSE_APPROVED" > "$MODEL_LICENSE_BAD_REVIEW_EVIDENCE_SHA"
 expect_failure \
@@ -4211,6 +4659,25 @@ expect_failure \
   env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_BAD_REVIEW_EVIDENCE_SHA" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-bad-review-evidence-sha.properties"
 assert_report_contains_text "$ARTIFACT_DIR/model-license-bad-review-evidence-sha.properties" "chat-e2b-review-evidence-sha-mismatch"
+MODEL_LICENSE_PENDING_REVIEW_EVIDENCE="$TMP_DIR/model-license-pending-review-evidence.properties"
+sed 's/status=approved/status=pending/' "$MODEL_LICENSE_CHAT_EVIDENCE" > "$MODEL_LICENSE_PENDING_REVIEW_EVIDENCE"
+MODEL_LICENSE_PENDING_REVIEW_EVIDENCE_SHA="$(shasum -a 256 "$MODEL_LICENSE_PENDING_REVIEW_EVIDENCE" | awk '{print $1}')"
+MODEL_LICENSE_BAD_REVIEW_EVIDENCE_CONTENT="$TMP_DIR/model-license-bad-review-evidence-content.json"
+python3 - "$MODEL_LICENSE_APPROVED" "$MODEL_LICENSE_BAD_REVIEW_EVIDENCE_CONTENT" "$MODEL_LICENSE_PENDING_REVIEW_EVIDENCE" "$MODEL_LICENSE_PENDING_REVIEW_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["models"][0]["reviewEvidencePath"] = sys.argv[3]
+record["models"][0]["reviewEvidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "model license verifier rejects pending review evidence content" \
+  env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_BAD_REVIEW_EVIDENCE_CONTENT" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-bad-review-evidence-content.properties"
+assert_report_contains_text "$ARTIFACT_DIR/model-license-bad-review-evidence-content.properties" "chat-e2b-review-evidence-status-mismatch"
 MODEL_LICENSE_STALE_REVIEW="$TMP_DIR/model-license-stale-review.json"
 sed 's/2026-06-06/2026-06-04/g' "$MODEL_LICENSE_APPROVED" > "$MODEL_LICENSE_STALE_REVIEW"
 expect_failure \
@@ -4387,8 +4854,55 @@ expect_failure \
   VERIFY_CONTRACT_TESTS=0 \
   scripts/verify_release_gate.sh
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "verifyPerfBaseline=1"
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "failedTarget=perf-baseline"
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "failedReason=PERF_BASELINE_FILE-not-set"
+assert_report_contains "$ARTIFACT_DIR/release-missing-perf/ai-behavior-eval.properties" \
+  "traceDiffFile=$ARTIFACT_DIR/release-missing-perf/ai-behavior-planning-trace-diff.jsonl"
+[[ -s "$ARTIFACT_DIR/release-missing-perf/ai-behavior-planning-trace-diff.jsonl" ]] ||
+  fail "release gate must preserve AI behavior planning trace diff"
+expect_failure \
+  "release gate fails closed when required AI behavior actual trace is missing" \
+  env ARTIFACT_DIR="$ARTIFACT_DIR/release-ai-behavior-actual-required" \
+  PERF_BASELINE_FILE="$VALID_GATE_PERF" \
+  RELEASE_APK="$SAFE_APK" \
+  RELEASE_AAB="$TMP_DIR/missing.aab" \
+  VERIFY_CONTRACT_TESTS=0 \
+  REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1 \
+  scripts/verify_release_gate.sh
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-actual-required/ai-behavior-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-actual-required/ai-behavior-eval.properties" "reason=actual-trace-file-missing"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-actual-required/release-gate.properties" "failedTarget=ai-behavior-eval"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-actual-required/release-gate.properties" "failedReason=actual-trace-file-missing"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-actual-required/release-gate.properties" "requireAiBehaviorActualTrace=1"
+expect_failure \
+  "release gate fails closed when required AI behavior runtime trace source is missing" \
+  env ARTIFACT_DIR="$ARTIFACT_DIR/release-ai-behavior-runtime-source-required" \
+  PERF_BASELINE_FILE="$VALID_GATE_PERF" \
+  RELEASE_APK="$SAFE_APK" \
+  RELEASE_AAB="$TMP_DIR/missing.aab" \
+  VERIFY_CONTRACT_TESTS=0 \
+  AI_BEHAVIOR_ACTUAL_TRACE_FILE="$AI_ACTUAL_TRACE_MISSING_SOURCE" \
+  REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1 \
+  REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1 \
+  scripts/verify_release_gate.sh
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/ai-behavior-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/ai-behavior-eval.properties" "reason=invalid-actual-trace:1:traceSource"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/release-gate.properties" "failedTarget=ai-behavior-eval"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/release-gate.properties" "requireAiBehaviorRuntimeTraceSource=1"
+expect_failure \
+  "release gate can skip perf baseline for non-public owner evidence checks" \
+  env ARTIFACT_DIR="$ARTIFACT_DIR/release-store-policy-without-perf" \
+  RELEASE_APK="$SAFE_APK" \
+  RELEASE_AAB="$TMP_DIR/missing.aab" \
+  VERIFY_CONTRACT_TESTS=0 \
+  VERIFY_PERF_BASELINE=0 \
+  VERIFY_STORE_POLICY=1 \
+  scripts/verify_release_gate.sh
+assert_report_contains "$ARTIFACT_DIR/release-store-policy-without-perf/perf-baseline-verification.properties" "status=skipped"
+assert_report_contains "$ARTIFACT_DIR/release-store-policy-without-perf/perf-baseline-verification.properties" "reason=VERIFY_PERF_BASELINE-not-enabled"
+assert_report_contains "$ARTIFACT_DIR/release-store-policy-without-perf/release-gate.properties" "verifyPerfBaseline=0"
+assert_report_contains "$ARTIFACT_DIR/release-store-policy-without-perf/release-gate.properties" "failedTarget=store-policy-record"
 VALID_GATE_BAD_SHA_PERF="$TMP_DIR/perf-baseline-safe-apk-bad-sha.properties"
 sed 's/releaseArtifactSha256='"$SAFE_APK_SHA"'/releaseArtifactSha256=0000000000000000000000000000000000000000000000000000000000000000/' "$VALID_GATE_PERF" > "$VALID_GATE_BAD_SHA_PERF"
 expect_failure \
@@ -4432,6 +4946,9 @@ expect_failure \
   RELEASE_APK="$SAFE_APK" \
   RELEASE_AAB="$TMP_DIR/missing.aab" \
   PUBLIC_RELEASE=1 \
+  VERIFY_PERF_BASELINE=0 \
+  REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=0 \
+  REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=0 \
   VERIFY_CONTRACT_TESTS=0 \
   scripts/verify_release_gate.sh
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "publicRelease=1"
@@ -4441,6 +4958,9 @@ assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.p
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "verifyReleaseValidation=1"
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "verifyPrivacyReview=1"
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "verifyModelLicenses=1"
+assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "verifyPerfBaseline=1"
+assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "requireAiBehaviorActualTrace=1"
+assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "requireAiBehaviorRuntimeTraceSource=1"
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "requireAab=1"
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "requireSignedArtifact=1"
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "verifyReleaseMapping=1"
@@ -4625,7 +5145,12 @@ expect_failure \
   OOM_OR_ANR_OBSERVED=false \
   scripts/collect_perf_baseline.sh
 assert_report_contains "$COLLECTED_PERF_MISSING_ENV" "status=failed"
+assert_report_contains "$COLLECTED_PERF_MISSING_ENV" "artifactSchema=PerfBaselineCollection/v1"
 assert_report_contains "$COLLECTED_PERF_MISSING_ENV" "target=perf-baseline-collector"
+assert_report_contains "$COLLECTED_PERF_MISSING_ENV" "owner=release-engineering"
+grep -q '^command=.*scripts/collect_perf_baseline.sh' "$COLLECTED_PERF_MISSING_ENV" ||
+  fail "perf collector failure report must include reproducible command"
+assert_report_contains "$COLLECTED_PERF_MISSING_ENV" "reproduciblePath=$COLLECTED_PERF_MISSING_ENV"
 assert_report_contains "$COLLECTED_PERF_MISSING_ENV" "failedTarget=environment"
 assert_report_contains "$COLLECTED_PERF_MISSING_ENV" "reason=missing-release-artifact"
 
@@ -4712,6 +5237,14 @@ expect_success \
   OOM_OR_ANR_OBSERVED=false \
   scripts/collect_perf_baseline.sh
 assert_report_contains "$COLLECTED_PERF" "status=passed"
+assert_report_contains "$COLLECTED_PERF" "artifactSchema=PerfBaseline/v1"
+assert_report_contains "$COLLECTED_PERF" "target=perf-baseline-record"
+assert_report_contains "$COLLECTED_PERF" "owner=release-engineering"
+grep -q '^collectionCommand=.*scripts/collect_perf_baseline.sh' "$COLLECTED_PERF" ||
+  fail "perf collector success report must include collection command"
+assert_report_contains "$COLLECTED_PERF" "reproduciblePath=$COLLECTED_PERF"
+assert_report_contains "$COLLECTED_PERF" "releaseArtifact=$SAFE_APK"
+assert_report_contains "$COLLECTED_PERF.verification.properties" "artifactSchema=PerfBaselineVerification/v1"
 assert_report_contains "$COLLECTED_PERF.verification.properties" "expectedAppVersion=1.0"
 assert_report_contains "$COLLECTED_PERF.verification.properties" "baselineSha256=$(shasum -a 256 "$COLLECTED_PERF" | awk '{print $1}')"
 
@@ -4724,6 +5257,108 @@ expect_failure \
   "doctor device without adb" \
   env ANDROID_SDK_ROOT="$NO_ADB_SDK" ANDROID_HOME="$NO_ADB_SDK" \
   scripts/doctor.sh --device
+
+reset_logs
+expect_failure \
+  "real app search eval archives resolver failure evidence" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
+  FAKE_REAL_APP_SEARCH_INSTALLED_PACKAGES="com.taobao.taobao" \
+  FAKE_REAL_APP_SEARCH_FAIL_STEP="tap" \
+  SKIP_BUILD=1 SKIP_INSTALL=1 FORCE_STOP_TARGET_APP=0 \
+  REPORT_FILE="$ARTIFACT_DIR/real-app-search-eval.properties" \
+  LOGCAT_FILE="$ARTIFACT_DIR/real-app-search-logcat.txt" \
+  DIAGNOSTICS_DIR="$ARTIFACT_DIR/real-app-diagnostics" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/run_real_app_search_eval.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "reason=real-app-search-case-failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_count=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "fail_count=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_count=7"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "case_artifact_schema=RealAppSearchCaseArtifact/v1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "cases=taobao,pdd,gaode,jd,chrome,android_browser,quark,uc"
+REAL_APP_CASE_REPORT="$ARTIFACT_DIR/taobao.case.properties"
+assert_report_contains "$REAL_APP_CASE_REPORT" "artifact_schema=RealAppSearchCaseArtifact/v1"
+assert_report_contains "$REAL_APP_CASE_REPORT" "case=taobao"
+assert_report_contains "$REAL_APP_CASE_REPORT" "status=failed"
+assert_report_contains "$REAL_APP_CASE_REPORT" "reason=search_entry_not_found"
+assert_report_contains "$REAL_APP_CASE_REPORT" "failed_step=tap"
+assert_report_contains "$REAL_APP_CASE_REPORT" "result_file=$ARTIFACT_DIR/taobao-tap.properties"
+grep -Eq '^result_file_sha256=[0-9a-f]{64}$' "$REAL_APP_CASE_REPORT" ||
+  fail "Expected real app case report to hash the debug receiver result file"
+assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_available=true"
+assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_kind=search_entry"
+assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_target=搜索入口"
+assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_package_name=com.taobao.taobao"
+assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_failure_kind=search_entry_not_found"
+assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_candidate_count=2"
+assert_report_contains_text "$REAL_APP_CASE_REPORT" 'target_resolution_candidates_json={"candidates"'
+assert_report_contains "$REAL_APP_CASE_REPORT" "diagnostics_dir=$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap"
+assert_report_contains "$REAL_APP_CASE_REPORT" "screenshot_file=$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/screenshot.png"
+assert_report_contains "$REAL_APP_CASE_REPORT" "uiautomator_dump_file=$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/uiautomator.xml"
+assert_report_contains "$REAL_APP_CASE_REPORT" "focused_window_file=$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/focused-window.txt"
+assert_report_contains "$REAL_APP_CASE_REPORT" "case_logcat_file=$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/logcat.txt"
+for key in screenshot_sha256 uiautomator_dump_sha256 focused_window_sha256 case_logcat_sha256; do
+  grep -Eq "^${key}=[0-9a-f]{64}$" "$REAL_APP_CASE_REPORT" ||
+    fail "Expected real app case report to include $key"
+done
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/uiautomator.xml" ]] ||
+  fail "Expected real app failure diagnostics to preserve a UIAutomator dump"
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/screenshot.png" ]] ||
+  fail "Expected real app failure diagnostics to preserve a screenshot"
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/logcat.txt" ]] ||
+  fail "Expected real app failure diagnostics to preserve logcat"
+
+reset_logs
+expect_failure \
+  "real app search eval archives editable failure evidence" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
+  FAKE_REAL_APP_SEARCH_INSTALLED_PACKAGES="com.autonavi.minimap" \
+  FAKE_REAL_APP_SEARCH_FAIL_STEP="type" \
+  SKIP_BUILD=1 SKIP_INSTALL=1 FORCE_STOP_TARGET_APP=0 \
+  REPORT_FILE="$ARTIFACT_DIR/real-app-search-eval.properties" \
+  LOGCAT_FILE="$ARTIFACT_DIR/real-app-search-logcat.txt" \
+  DIAGNOSTICS_DIR="$ARTIFACT_DIR/real-app-diagnostics" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/run_real_app_search_eval.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "reason=real-app-search-case-failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_count=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "fail_count=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_count=7"
+GAODE_CASE_REPORT="$ARTIFACT_DIR/gaode.case.properties"
+assert_report_contains "$GAODE_CASE_REPORT" "artifact_schema=RealAppSearchCaseArtifact/v1"
+assert_report_contains "$GAODE_CASE_REPORT" "case=gaode"
+assert_report_contains "$GAODE_CASE_REPORT" "status=failed"
+assert_report_contains "$GAODE_CASE_REPORT" "reason=editable_not_found"
+assert_report_contains "$GAODE_CASE_REPORT" "failed_step=type_text"
+assert_report_contains "$GAODE_CASE_REPORT" "result_file=$ARTIFACT_DIR/gaode-type.properties"
+grep -Eq '^result_file_sha256=[0-9a-f]{64}$' "$GAODE_CASE_REPORT" ||
+  fail "Expected Gaode case report to hash the debug receiver result file"
+assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_available=true"
+assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_kind=editable_field"
+assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_target=搜索输入框"
+assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_package_name=com.autonavi.minimap"
+assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_failure_kind=editable_not_found"
+assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_candidate_count=2"
+assert_report_contains_text "$GAODE_CASE_REPORT" 'target_resolution_candidates_json={"candidates"'
+assert_report_contains "$GAODE_CASE_REPORT" "diagnostics_dir=$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type"
+assert_report_contains "$GAODE_CASE_REPORT" "screenshot_file=$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/screenshot.png"
+assert_report_contains "$GAODE_CASE_REPORT" "uiautomator_dump_file=$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/uiautomator.xml"
+assert_report_contains "$GAODE_CASE_REPORT" "focused_window_file=$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/focused-window.txt"
+assert_report_contains "$GAODE_CASE_REPORT" "case_logcat_file=$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/logcat.txt"
+for key in screenshot_sha256 uiautomator_dump_sha256 focused_window_sha256 case_logcat_sha256; do
+  grep -Eq "^${key}=[0-9a-f]{64}$" "$GAODE_CASE_REPORT" ||
+    fail "Expected Gaode case report to include $key"
+done
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/uiautomator.xml" ]] ||
+  fail "Expected Gaode failure diagnostics to preserve a UIAutomator dump"
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/screenshot.png" ]] ||
+  fail "Expected Gaode failure diagnostics to preserve a screenshot"
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/logcat.txt" ]] ||
+  fail "Expected Gaode failure diagnostics to preserve logcat"
 
 reset_logs
 expect_failure \
@@ -4808,6 +5443,9 @@ expect_success \
   scripts/install_and_test_device.sh
 assert_gradle_called
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "artifact_schema=DeviceVerificationArtifact/v1"
+grep -Eq '^artifact_id=device-device-a-api36-' "$ARTIFACT_DIR/device-verification.properties" ||
+  fail "Expected install helper to write a stable device artifact id"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "failedTarget="
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason="
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "serial=device-a"
@@ -4816,9 +5454,14 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "abi=arm64
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reset_app_data_after_tests=1"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=passed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=20"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "test_count=20"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "releaseArtifactSha256=$VALID_PERF_SHA"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
+grep -Eq '^instrumentation_output_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/device-verification.properties" ||
+  fail "Expected install helper to write instrumentation output SHA-256"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "logcat_file=$ARTIFACT_DIR/logcat.txt"
+grep -Eq '^logcat_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/device-verification.properties" ||
+  fail "Expected install helper to write logcat SHA-256"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "logcat_captured=1"
 grep -q "OK (20 tests)" "$ARTIFACT_DIR/instrumentation.txt" ||
   fail "Expected install helper to persist instrumentation output"
@@ -5075,11 +5718,17 @@ assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "logcat_
 assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "crash_anr_smoke_report_file=$ARTIFACT_DIR/crash-anr-smoke.properties"
 assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "device_report_file=$ARTIFACT_DIR/device-verification.properties"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "artifact_schema=DeviceVerificationArtifact/v1"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "serial=emulator-5554"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=passed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=20"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "test_count=20"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
+grep -Eq '^instrumentation_output_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/device-verification.properties" ||
+  fail "Expected emulator nested device report to write instrumentation output SHA-256"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "logcat_file=$ARTIFACT_DIR/logcat.txt"
+grep -Eq '^logcat_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/device-verification.properties" ||
+  fail "Expected emulator nested device report to write logcat SHA-256"
 assert_report_contains "$ARTIFACT_DIR/crash-anr-smoke.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/crash-anr-smoke.properties" "logcatFile=$ARTIFACT_DIR/logcat.txt"
 assert_report_contains "$ARTIFACT_DIR/crash-anr-smoke.properties" "noReproducibleAnr=true"

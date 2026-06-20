@@ -7,6 +7,7 @@ import com.bytedance.zgx.pocketmind.GenerationStats
 import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
 import com.bytedance.zgx.pocketmind.LocalImageAttachment
 import com.bytedance.zgx.pocketmind.MessageRole
+import com.bytedance.zgx.pocketmind.ModelCapabilityProfile
 import com.bytedance.zgx.pocketmind.isUsable
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
@@ -28,12 +29,38 @@ data class LocalModelRequest(
     val imageAttachments: List<LocalImageAttachment> = emptyList(),
 )
 
+data class LocalModelRuntimeCapabilities(
+    val supportsVisionInput: Boolean = false,
+    val contextWindowTokens: Int = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
+    val preferredBackends: Set<BackendChoice> = emptySet(),
+) {
+    init {
+        require(contextWindowTokens > 0) { "Local model context window must be positive" }
+    }
+
+    companion object {
+        fun fromProfile(profile: ModelCapabilityProfile?): LocalModelRuntimeCapabilities =
+            LocalModelRuntimeCapabilities(
+                supportsVisionInput = profile?.supportsVisionInput == true,
+                contextWindowTokens = profile?.contextWindowTokens
+                    ?: LocalModelTokenLimits.MAX_TOTAL_TOKENS,
+                preferredBackends = profile?.preferredLocalBackends.orEmpty(),
+            )
+    }
+}
+
 interface LocalChatRuntime {
     val isLoaded: Boolean
 
     fun configureModelCapabilities(
         supportsVisionInput: Boolean,
     ) = Unit
+
+    fun configureModelCapabilities(
+        capabilities: LocalModelRuntimeCapabilities,
+    ) {
+        configureModelCapabilities(supportsVisionInput = capabilities.supportsVisionInput)
+    }
 
     fun load(
         modelPath: String,
@@ -78,15 +105,15 @@ class RealLiteRtRuntime(
     private var currentBackend: BackendChoice? = null
     private var lastLoadMs: Long? = null
     private var lastFirstTokenMs: Long? = null
-    private var supportsVisionInput: Boolean = false
+    private var capabilities: LocalModelRuntimeCapabilities = LocalModelRuntimeCapabilities()
 
     override val isLoaded: Boolean
         get() = engine != null && conversation != null
 
     override fun configureModelCapabilities(
-        supportsVisionInput: Boolean,
+        capabilities: LocalModelRuntimeCapabilities,
     ) {
-        this.supportsVisionInput = supportsVisionInput
+        this.capabilities = capabilities
     }
 
     override fun load(
@@ -102,7 +129,7 @@ class RealLiteRtRuntime(
                 modelPath = modelPath,
                 backend = backend,
                 cacheDir = cacheDir,
-                supportsVisionInput = supportsVisionInput,
+                capabilities = capabilities,
             ),
         )
         try {
@@ -155,7 +182,7 @@ class RealLiteRtRuntime(
 
     override fun send(request: LocalModelRequest): Flow<String> {
         val activeConversation = conversation ?: error("模型尚未就绪")
-        if (request.imageAttachments.isNotEmpty() && !supportsVisionInput) {
+        if (request.imageAttachments.isNotEmpty() && !capabilities.supportsVisionInput) {
             error("当前本地模型不支持图片输入")
         }
         val startedAtNanos = System.nanoTime()
@@ -226,28 +253,41 @@ internal fun defaultEngineConfigSpec(
     modelPath: String,
     backend: BackendChoice,
     cacheDir: File,
-    supportsVisionInput: Boolean = false,
+    capabilities: LocalModelRuntimeCapabilities = LocalModelRuntimeCapabilities(),
 ): LiteRtEngineConfigSpec =
     LiteRtEngineConfigSpec(
         modelPath = modelPath,
         backend = backend,
-        visionBackend = if (supportsVisionInput) backend else null,
-        maxNumTokens = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
-        maxNumImages = if (supportsVisionInput) MAX_LOCAL_MODEL_IMAGES else null,
+        visionBackend = if (capabilities.supportsVisionInput) backend else null,
+        maxNumTokens = capabilities.contextWindowTokens,
+        maxNumImages = if (capabilities.supportsVisionInput) MAX_LOCAL_MODEL_IMAGES else null,
         cacheDir = cacheDir.absolutePath,
+    )
+
+internal fun defaultEngineConfigSpec(
+    modelPath: String,
+    backend: BackendChoice,
+    cacheDir: File,
+    supportsVisionInput: Boolean,
+): LiteRtEngineConfigSpec =
+    defaultEngineConfigSpec(
+        modelPath = modelPath,
+        backend = backend,
+        cacheDir = cacheDir,
+        capabilities = LocalModelRuntimeCapabilities(supportsVisionInput = supportsVisionInput),
     )
 
 internal fun defaultEngineConfig(
     modelPath: String,
     backend: BackendChoice,
     cacheDir: File,
-    supportsVisionInput: Boolean = false,
+    capabilities: LocalModelRuntimeCapabilities = LocalModelRuntimeCapabilities(),
 ): EngineConfig {
     val spec = defaultEngineConfigSpec(
         modelPath = modelPath,
         backend = backend,
         cacheDir = cacheDir,
-        supportsVisionInput = supportsVisionInput,
+        capabilities = capabilities,
     )
     return EngineConfig(
         modelPath = spec.modelPath,
@@ -285,7 +325,7 @@ internal fun budgetLocalRuntimeHistory(
         estimateLocalRuntimeTokens(currentPrompt),
     )
     val inputBudget = (maxInputTokens ?: LocalModelTokenLimits.MAX_INPUT_TOKENS)
-        .coerceIn(0, LocalModelTokenLimits.MAX_INPUT_TOKENS)
+        .coerceAtLeast(0)
     val historyBudget = (
         inputBudget -
             LocalModelTokenLimits.SYSTEM_PROMPT_TOKEN_RESERVE -

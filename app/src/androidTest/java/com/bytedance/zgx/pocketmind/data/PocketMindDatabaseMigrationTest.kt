@@ -4,6 +4,8 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import com.bytedance.zgx.pocketmind.MessagePrivacy
+import com.bytedance.zgx.pocketmind.memory.MemoryRecordSensitivity
+import com.bytedance.zgx.pocketmind.memory.MemoryRecordSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -51,6 +53,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
                 PocketMindDatabase.MIGRATION_13_14,
+                PocketMindDatabase.MIGRATION_14_15,
             )
             .allowMainThreadQueries()
             .build()
@@ -189,6 +192,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
                 PocketMindDatabase.MIGRATION_13_14,
+                PocketMindDatabase.MIGRATION_14_15,
             )
             .allowMainThreadQueries()
             .build()
@@ -236,6 +240,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
                 PocketMindDatabase.MIGRATION_13_14,
+                PocketMindDatabase.MIGRATION_14_15,
             )
             .allowMainThreadQueries()
             .build()
@@ -295,6 +300,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
                 PocketMindDatabase.MIGRATION_13_14,
+                PocketMindDatabase.MIGRATION_14_15,
             )
             .allowMainThreadQueries()
             .build()
@@ -408,6 +414,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
                 PocketMindDatabase.MIGRATION_13_14,
+                PocketMindDatabase.MIGRATION_14_15,
             )
             .allowMainThreadQueries()
             .build()
@@ -446,6 +453,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
                 PocketMindDatabase.MIGRATION_13_14,
+                PocketMindDatabase.MIGRATION_14_15,
             )
             .allowMainThreadQueries()
             .build()
@@ -509,6 +517,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
                 PocketMindDatabase.MIGRATION_13_14,
+                PocketMindDatabase.MIGRATION_14_15,
             )
             .allowMainThreadQueries()
             .build()
@@ -590,6 +599,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
                 PocketMindDatabase.MIGRATION_13_14,
+                PocketMindDatabase.MIGRATION_14_15,
             )
             .allowMainThreadQueries()
             .build()
@@ -637,6 +647,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_11_12,
                 PocketMindDatabase.MIGRATION_12_13,
                 PocketMindDatabase.MIGRATION_13_14,
+                PocketMindDatabase.MIGRATION_14_15,
             )
             .allowMainThreadQueries()
             .build()
@@ -684,13 +695,17 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_13_14)
+            .addMigrations(
+                PocketMindDatabase.MIGRATION_13_14,
+                PocketMindDatabase.MIGRATION_14_15,
+            )
             .allowMainThreadQueries()
             .build()
 
         try {
             assertTrue(database.memoryEmbeddingsTableExists())
             assertTrue(database.memoryEmbeddingsHasExpectedColumns())
+            assertTrue(database.memoryRecordsMetadataHasExpectedColumns())
             database.memoryRecordDao().upsert(
                 MemoryRecordEntity(
                     id = "pref-1",
@@ -718,6 +733,46 @@ class PocketMindDatabaseMigrationTest {
             database.memoryRecordDao().delete("pref-1")
 
             assertNull(database.memoryEmbeddingDao().embedding("pref-1", "memory-embedding-300m"))
+        } finally {
+            database.close()
+            context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
+    @Test
+    fun migration14To15AddsMemoryRecordMetadataDefaults() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB_NAME)
+        val dbFile = context.getDatabasePath(TEST_DB_NAME)
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createVersion14Schema(db)
+            db.execSQL(
+                """
+                INSERT INTO memory_records(id, type, text, createdAtMillis, updatedAtMillis)
+                VALUES('pref-legacy', 'Preference', '用户偏好：简洁回答', 1, 1)
+                """.trimIndent(),
+            )
+            db.version = 14
+        }
+
+        val database = Room.databaseBuilder(
+            context,
+            PocketMindDatabase::class.java,
+            TEST_DB_NAME,
+        )
+            .addMigrations(PocketMindDatabase.MIGRATION_14_15)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            assertTrue(database.memoryRecordsMetadataHasExpectedColumns())
+            val record = database.memoryRecordDao().record("pref-legacy")
+            assertEquals(MemoryRecordSource.LegacyImport.name, record?.source)
+            assertEquals(MemoryRecordSensitivity.Normal.name, record?.sensitivity)
+            assertEquals(MessagePrivacy.LocalOnly.name, record?.privacy)
+            assertNull(record?.expiresAtMillis)
+            assertNull(record?.conflictKey)
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
@@ -768,6 +823,22 @@ class PocketMindDatabaseMigrationTest {
             "vectorBlob",
             "updatedAtMillis",
         )
+    }
+
+    private fun PocketMindDatabase.memoryRecordsMetadataHasExpectedColumns(): Boolean {
+        val columns = mutableSetOf<String>()
+        openHelper.writableDatabase.query("PRAGMA table_info(`memory_records`)").use { cursor ->
+            while (cursor.moveToNext()) {
+                columns += cursor.getString(cursor.getColumnIndexOrThrow("name"))
+            }
+        }
+        return setOf(
+            "source",
+            "sensitivity",
+            "privacy",
+            "expiresAtMillis",
+            "conflictKey",
+        ).all { column -> column in columns }
     }
 
     private fun createVersion3Schema(db: SQLiteDatabase) {
@@ -1040,6 +1111,26 @@ class PocketMindDatabaseMigrationTest {
             )
             """.trimIndent(),
         )
+    }
+
+    private fun createVersion14Schema(db: SQLiteDatabase) {
+        createVersion13Schema(db)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `memory_embeddings` (
+                `recordId` TEXT NOT NULL,
+                `modelId` TEXT NOT NULL,
+                `sourceHash` TEXT NOT NULL,
+                `dimension` INTEGER NOT NULL,
+                `vectorBlob` BLOB NOT NULL,
+                `updatedAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`recordId`, `modelId`),
+                FOREIGN KEY(`recordId`) REFERENCES `memory_records`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent(),
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_memory_embeddings_recordId` ON `memory_embeddings` (`recordId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_memory_embeddings_modelId` ON `memory_embeddings` (`modelId`)")
     }
 
     private fun PocketMindDatabase.agentTraceTablesExist(): Boolean {

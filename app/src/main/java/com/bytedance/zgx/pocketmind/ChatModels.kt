@@ -5,7 +5,10 @@ import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskType
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
+import com.bytedance.zgx.pocketmind.evidence.EvidenceReceiptSummary
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
+import com.bytedance.zgx.pocketmind.memory.MemoryRecordSensitivity
+import com.bytedance.zgx.pocketmind.memory.MemoryRecordSource
 import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
 import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
@@ -104,6 +107,11 @@ data class LongTermMemorySummary(
     val id: String,
     val type: MemoryRecordType,
     val text: String,
+    val source: MemoryRecordSource = MemoryRecordSource.LegacyImport,
+    val sensitivity: MemoryRecordSensitivity = MemoryRecordSensitivity.Normal,
+    val privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+    val expiresAtMillis: Long? = null,
+    val conflictKey: String? = null,
 )
 
 data class BackgroundTaskSummary(
@@ -204,6 +212,13 @@ data class SharedInputDraft(
     val imageAttachments: List<ChatImageAttachment> = emptyList(),
     val localImageAttachments: List<LocalImageAttachment> = emptyList(),
     val privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+    val evidenceReceiptSummary: EvidenceReceiptSummary = EvidenceReceiptSummary(
+        evidenceCardCount = 0,
+        localOnlyEvidenceCardCount = 0,
+        truncatedEvidenceCardCount = 0,
+        lowQualityEvidenceCardCount = 0,
+        sourceTypes = emptyList(),
+    ),
 )
 
 data class PendingAgentConfirmation(
@@ -239,9 +254,8 @@ data class PendingRemoteModeDisclosure(
  * - [OnlyWhenSensitive]: stay silent for ordinary sends; only flagged-sensitive payloads
  *   require the audited sensitive confirmation.
  *
- * Note: sensitive sends are ALWAYS confirmed (fail-closed). Image attachments are covered by
- * the remote-mode disclosure and the inline remote attachment notice, so they do not force a
- * per-send popup by default.
+ * Note: sensitive sends and image attachments are ALWAYS confirmed (fail-closed). Image sends
+ * include a per-send preview because their bytes cross the local/remote trust boundary.
  */
 enum class RemoteSendDisclosurePolicy {
     OnRemoteModeSwitch,
@@ -375,6 +389,7 @@ data class ChatUiState(
     val backend: BackendChoice = BackendChoice.GPU,
     val generationParameters: GenerationParameters = GenerationParameters(),
     val localMaxTotalTokens: Int = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
+    val localPreferredBackends: Set<BackendChoice> = emptySet(),
     val modelHealth: ModelHealth = ModelHealth(
         profileId = DEFAULT_CHAT_MODEL_ID,
         state = ModelHealthState.NotInstalled,

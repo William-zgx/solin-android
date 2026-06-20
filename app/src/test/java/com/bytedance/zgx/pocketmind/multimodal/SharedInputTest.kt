@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.multimodal
 
 import com.bytedance.zgx.pocketmind.ChatImageAttachment
 import com.bytedance.zgx.pocketmind.LocalImageAttachment
+import com.bytedance.zgx.pocketmind.evidence.EvidenceSourceType
 import java.io.ByteArrayOutputStream
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.ZipEntry
@@ -305,6 +306,31 @@ class SharedInputTest {
         assertTrue(prompt.contains("PDF 扫描页 OCR"))
         assertTrue(prompt.contains("PDF 扫描页 OCR 摘录（已截断）"))
         assertTrue(prompt.contains("扫描页文字"))
+    }
+
+    @Test
+    fun evidenceReceiptSummaryClassifiesTruncatedPdfImageOcrAsLocalOcrEvidence() {
+        val summary = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/pdf",
+                    displayName = "scan.pdf",
+                    sizeBytes = 512L,
+                    textPreview = SharedTextPreview(
+                        text = "private scanned pdf OCR excerpt",
+                        truncated = true,
+                        source = SharedTextPreviewSource.PdfImageOcr,
+                    ),
+                ),
+            ),
+        ).toSharedEvidenceReceiptSummary()
+
+        assertEquals(1, summary.evidenceCardCount)
+        assertEquals(1, summary.localOnlyEvidenceCardCount)
+        assertEquals(1, summary.truncatedEvidenceCardCount)
+        assertEquals(listOf(EvidenceSourceType.OcrText), summary.sourceTypes)
     }
 
     @Test

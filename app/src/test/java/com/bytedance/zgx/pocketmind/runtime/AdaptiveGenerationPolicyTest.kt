@@ -31,6 +31,20 @@ class AdaptiveGenerationPolicyTest {
     }
 
     @Test
+    fun healthyRuntimeUsesProfileContextWindowForInputBudget() {
+        val decision = AdaptiveGenerationPolicy.decide(
+            AdaptiveGenerationPolicyInput(
+                preferredBackend = BackendChoice.CPU,
+                contextWindowTokens = 4 * 1024,
+            ),
+        )
+
+        assertEquals(BackendChoice.CPU, decision.backend)
+        assertEquals(2 * 1024, decision.maxInputTokens)
+        assertEquals(LocalModelTokenLimits.OUTPUT_TOKEN_RESERVE, decision.outputReserveTokens)
+    }
+
+    @Test
     fun fallbackSlowOrQualityIssueUsesConservativeBudgets() {
         val decision = AdaptiveGenerationPolicy.decide(
             AdaptiveGenerationPolicyInput(

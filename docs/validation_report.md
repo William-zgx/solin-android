@@ -23,6 +23,765 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-20 AI Behavior Actual Trace Runtime Evidence, Remote Scope Filter, OCR Evidence, Recovery Restore, and Gaode Evidence Guard
+
+本轮覆盖项：
+
+- `AgentBehaviorTraceProjector` 将 `RiskLevel.HighExternalSend` 投影为 eval 侧
+  `sensitive`，用于表达“本地隐私上下文 + 外发/分享”的发布门禁语义；不改变线上
+  `RiskLevel`、SafetyPolicy 或工具执行策略。
+- `AgentBehaviorTraceProjector` 不再把 no-tool answer 一律投为 `RemoteEligible/low`；
+  会读取 `ContextLoaded.memoryHits`、`RunDataReceiptRecorded` 和
+  `ModelOutputQualityGuardTriggered`，把本地记忆、LocalOnly receipt、质量保护和
+  metadata-only recovery 投成机器可审计 actual trace。
+- `AgentLoopRuntime.observeModelToolRequests()` 在 mixed remote tool batch 被拒时写入
+  `attemptedToolNames`，让 actual trace 能从 runtime rejected result 还原模型真实尝试的
+  public/private 混合工具批次。
+- `AgentLoopRuntime.recordRemoteToolsExposed()` 现在按 `RemoteToolScope` 过滤远程可见工具快照：
+  `PublicEvidenceOnly` 只暴露 public evidence 工具，`ModelPlanning` 只暴露远程模型规划允许的工具；
+  私有屏幕文本、截图 OCR、未知工具即使被上层误传入，也不会出现在远程可见工具清单。
+- `AgentBehaviorTraceProjector` 在 runtime 实际 `ToolRequested` 历史比初始 plan 更丰富时，
+  使用真实步骤链投影工具顺序；同时保留 composite `SkillPlan` 中尚未执行的后续步骤，避免
+  只看到第一步就截断分享类 skill evidence。
+- `AgentBehaviorTraceProjector` 将无私密本地证据的低风险设备入口（例如
+  `open_wifi_settings`）投影为 `low/RemoteEligible`，但对本地 OCR、屏幕文字、联系人等
+  private local evidence 继续投影为 `sensitive/LocalOnly`。
+- `AgentBehaviorTraceProjector` 归一化远程 OCR 边界失败：`read_recent_image_ocr` 远程发送
+  阻断输出 `local_only_blocks_remote`，`read_recent_screenshot_ocr` 多截图请求输出
+  `multi_screenshot_ocr_rejected`。
+- `AiBehaviorActualTraceGeneratorTest` 对 memory、runtime quality guard、GPU fallback、
+  trust-center metadata-only、remote private contacts、mixed public/private batch 等 case
+  使用 runtime API 生成 actual evidence；不复制 fixture expected 值。
+- `AiBehaviorActualTraceGeneratorTest` 真实驱动 `sequence_weather_then_wifi`：先让 runtime 规划
+  `web_search`，喂入 Web 搜索成功结果，再由 `SequentialActionObservationReplanner` 规划
+  `open_wifi_settings` 确认卡；同时真实驱动远程 OCR 摘录阻断和最近 5 张截图 OCR schema 拒绝。
+- `AiBehaviorActualTraceGeneratorTest` 对远程私有屏幕文本/当前截图 OCR 使用中性 remote prompt
+  进入 `GeneratingAnswer` 后再模拟远程工具请求，确保 actual evidence 来自 runtime
+  fail-closed，而不是本地 planner 抢跑出的确认卡；同时真实驱动
+  `sequence_search_then_share` 的 `web_search` -> `share_text` 二次确认链。
+- `AgentBehaviorTraceProjector` 识别远程图片发送 receipt：`RunDataReceipt(destination=Remote,
+  currentPromptPrivacy=RemoteEligible, imageAttachmentCount>0)` 投影为
+  `remote_send_confirmation/medium/RemoteEligible`，对应真实 UI disclosure 后才调用远程
+  runtime 的产品路径。
+- `SharedInput` 现在为分享文本、PDF/Office/text preview、PDF 扫描页 OCR、图片 OCR 和图片附件
+  生成 metadata-only `EvidenceReceiptSummary`；`SharedInputDraft` 将该 summary 带到
+  `RunDataReceipt`，只记录 evidence 计数、来源类型、截断/低质量标记，不持久化 raw OCR 文本。
+- `AgentBehaviorTraceProjector` 将 no-tool 本地截断 evidence receipt 投影为
+  `truncated_local_evidence` allowed failure；`ocr_pdf_scan_truncated` 因此不再错误呈现为
+  `RemoteEligible/low`，也不会硬路由到 `query_recent_files`。
+- `AiBehaviorActualTraceGeneratorTest` 用真实 `RoomAgentTraceStore` pending confirmation 恢复路径驱动
+  `recovery_confirmation_no_auto_execute`：进程重启后仅恢复确认卡，不写入 `UserConfirmed` 或
+  `ToolObserved`，actual trace 输出 `actualTools=[]`、`tool_confirmation`、`medium/LocalOnly`。
+- `AiBehaviorActualTraceGeneratorTest` 用 `RoomAgentTraceStore` 持久化恢复路径真实驱动
+  `recovery_pending_payload_not_restored`：剪贴板摘要分享 pending 在重启后不可恢复，run
+  fail-closed，pending 被清空，actual trace 记录 `pending_payload_not_restored`。
+- `AiBehaviorPlanningTraceProjectorTest` 同步断言屏幕读取后分享的 skill chain 必须输出
+  `SecondConfirmation`、`LocalOnly`、`Sensitive`，并新增 weather→Wi-Fi、远程 OCR 和多截图
+  OCR failureMode 投影断言。
+- `AgentLoopRuntimeTest.remoteMixedBatchRejectionRecordsAttemptedToolNames` 固化 mixed batch
+  reject evidence，防止 rejected result 丢失模型尝试的工具列表。
+- `AgentLoopRuntimeTest.remoteToolSnapshotFiltersToolsNotEligibleForScope` 固化远程工具快照
+  scope 过滤，防止 LocalOnly/private 工具被记录为已暴露给远程模型。
+- `scripts/test_validation_scripts.sh` 的 fake ADB 增加高德 `type_text` 失败路径，覆盖
+  `editable_not_found`、`editable_field`、`搜索输入框`、ranked candidates JSON、result file
+  SHA、截图、UIAutomator dump、focused window 和 case logcat SHA。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localSharedPdfImageOcrTruncationIsRecordedInRunDataReceipt' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.stagedSharedImageWaitsForExplicitSendAndStaysLocalOnly' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeRejectsSharedPdfImageOcrPreviewBeforeBuildingPrompt' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.remoteToolSnapshotFiltersToolsNotEligibleForScope' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.remoteModelCannotRequestScopeEligibleToolMissingFromExposedSnapshot' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.remoteMixedBatchRejectionRecordsAttemptedToolNames'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+  ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-collector-ocr-recovery-v13 \
+  scripts/collect_ai_behavior_actual_trace.sh
+
+bash -n scripts/run_real_app_search_eval.sh scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+  scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+
+git diff --check
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+  /data00/home/zouguoxue/android-sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：目标 JVM 测试返回 `BUILD SUCCESSFUL`。
+- 通过：`collect_ai_behavior_actual_trace.sh` 生成
+  `build/verification/ai-behavior-actual-trace-collector-ocr-recovery-v13/ai-behavior-actual-trace-collection.properties`，
+  记录 `caseCount=31`、`actualTraceSourceBreakdown=agent_loop_runtime:31`、
+  `traceDiffMatchedCount=17`、`traceDiffAllowedFailureCount=9`、
+  `traceDiffMismatchCount=5`、
+  `traceDiffMissingActualCount=0`、`traceDiffExtraActualCount=0`。
+- 审计绑定：collection report 记录 `actualTraceSha256=f562951c050b2318eecaa5288f3c766eb3988d902c6f63fc579b84819418d56f`、
+  `traceDiffSha256=f41bbb91818a7ed93610f23b64ddff6b5eecbce6fc5f232d56e8d2225c46fe26`、
+  `evalReportSha256=0134e69a9c326bd095cbe931eed106104f60ee6035a1fe4394220106f64a603f`。
+- 改善：相较 2026-06-20 早前 `8 matched / 23 mismatch` 的 baseline，本轮 runtime
+  evidence 让 memory no-tool、quality guard、metadata-only recovery、contacts remote block、
+  mixed public/private batch、weather→Wi-Fi sequential planning、远程 OCR 摘录阻断和多截图
+  OCR fail-closed、当前屏幕/当前截图远程阻断、search→share 二次确认、远程图片发送确认和
+  重启后 pending payload 不可恢复 fail-closed、PDF 扫描页 OCR 截断 LocalOnly evidence、
+  以及重启后确认卡只恢复不自动执行进入 actual trace；剩余 mismatch 主要集中在
+  memory forget confirmation、淘宝搜索后返回、真实 App 搜索 checkpoint budget、外部 App
+  outcome 恢复/失败语义、提醒重启后 reschedule 证据链。
+- 通过：shell 语法检查返回 0。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`，新增覆盖
+  `gaode.case.properties` 中 `reason=editable_not_found`、`failed_step=type_text`、
+  `target_resolution_failure_kind=editable_not_found` 和 candidates JSON/diagnostics SHA。
+- 通过：`scripts/verify_local.sh` 返回 `Local verification passed`，并完成 artifact scan。
+- 通过：`git diff --check` 返回 0。
+- 未执行真机：`adb devices -l` 只输出 `List of devices attached` 表头，没有可见
+  authorized device；因此本轮没有新增 physical-device instrumentation evidence。
+- 仍未完成：当前 actual trace 仍有 7 条 mismatch，不能作为 public release strict actual trace
+  pass；下一步应继续接入 memory forget 产品确认语义、PDF/recent-file OCR、淘宝搜索后返回、
+  真实 App 搜索 checkpoint budget 和剩余 restart recovery failureMode，
+  而不是复制 fixture expected 值。
+
+## 2026-06-19 Real-App Debug Eval Result Formatter Contract
+
+本轮覆盖项：
+
+- 新增 debug-only `DeviceControlEvalResultFormatter`，把真实 debug receiver 的
+  `targetResolution.candidatesJson` 统一为脚本/fake ADB 已使用的对象形态：
+  `{"candidates":[...]}`，避免真实 receiver 输出 raw array 导致 case report schema 漂移。
+- `DeviceControlEvalReceiver` 继续保留原 key，不重命名
+  `targetResolution.*` 字段；只把 candidates JSON、request result 文件名和 value 清洗委托给
+  formatter。
+- 新增 `DeviceControlEvalResultFormatterTest`，覆盖 ranked candidates JSON 对象合同、换行/NUL
+  清洗、request id 文件名安全。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.debug.DeviceControlEvalResultFormatterTest' \
+  --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest'
+
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：目标 JVM 测试返回 `BUILD SUCCESSFUL`。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`，继续覆盖
+  `run_real_app_search_eval.sh` 失败 case report 中的 `target_resolution_candidates_json`。
+
+## 2026-06-19 AI Behavior Eval Evidence Audit Schema
+
+本轮覆盖项：
+
+- 新增 `AiBehaviorActualTraceGeneratorTest`：读取 31 条 eval fixture 的
+  `id/category/input`，逐条运行真实 `AgentLoopRuntime.runOnce()`，再通过
+  `AgentBehaviorTraceProjector` 生成 actual trace JSONL；actual 工具、确认策略、risk、
+  privacy 均来自 runtime/projector，不复制 expected 字段。
+- 新增 `scripts/collect_ai_behavior_actual_trace.sh`：运行 generator test、调用
+  `verify_ai_behavior_eval.sh` 生成 planning trace diff，并输出
+  `AgentBehaviorActualTraceCollection/v1` collection report，绑定 actual trace、diff、
+  eval report 的 SHA-256。
+- `verify_ai_behavior_eval.sh` 的 report 增加 `artifactSchema=AgentBehaviorEvalVerification/v1`、
+  `owner=agent-behavior`、UTC `recordedAt`、可复现 `command`、`reproduciblePath`。
+- 当提供 actual trace 或 trace diff 文件时，report 会写出 `actualTraceSha256` 和
+  `traceDiffSha256`，把行为评测输入/输出证据纳入 SHA-256 审计链。
+- `verify_ai_behavior_eval.sh` 新增 `--require-runtime-trace-source`；严格模式要求每条
+  actual trace 带有 `traceSource`（`agent_loop_runtime` / `android_instrumentation` /
+  `device_debug_eval`）和 UTC `traceRecordedAt`。`PUBLIC_RELEASE=1` 会强制开启
+  `REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1`，防止 expected fixture 被复制成“actual”。
+- `scripts/test_validation_scripts.sh` 增加字段回归：AI behavior eval report 必须含 schema、
+  owner、UTC 时间、命令、可复现路径；missing-actual diff 和 matched actual diff 都必须写出
+  trace diff SHA，matched actual trace 必须写出 actual trace SHA。
+- `docs/release_checklist.md` 和 `docs/release_readiness.md` 同步 public release 执行要求：
+  最终 gate 必须提供 `AI_BEHAVIOR_ACTUAL_TRACE_FILE`，并保存
+  `ai-behavior-eval.properties` / `ai-behavior-planning-trace-diff.jsonl` 证据。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/verify_release_gate.sh \
+  scripts/test_validation_scripts.sh
+
+scripts/verify_ai_behavior_eval.sh --require-boundary-map \
+  --trace-diff /tmp/pocketmind-ai-behavior-audit-check.jsonl \
+  --report /tmp/pocketmind-ai-behavior-audit-check.properties
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew \
+  -PaiBehaviorActualTraceFile=build/verification/ai-behavior-actual-trace-generator-check/ai-behavior-actual-trace.jsonl \
+  :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
+  --rerun-tasks
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-collector-check \
+  scripts/collect_ai_behavior_actual_trace.sh
+
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell 语法检查返回 0。
+- 通过：`verify_ai_behavior_eval.sh` 返回
+  `AI behavior eval fixtures passed: 31 cases across 7 categories and 6 MVP scenarios`。
+- 通过：`AiBehaviorActualTraceGeneratorTest` 返回 `BUILD SUCCESSFUL`，并写出 31 行
+  `ai-behavior-actual-trace.jsonl`，每行带 `traceSource=agent_loop_runtime` 和 UTC
+  `traceRecordedAt`。
+- 通过：`collect_ai_behavior_actual_trace.sh` 写出
+  `ai-behavior-actual-trace-collection.properties`，记录 `caseCount=31`、
+  `traceDiffMissingActualCount=0`、`traceDiffExtraActualCount=0`、
+  `actualTraceSourceBreakdown=agent_loop_runtime:31`。当前真实 runtime trace 只有
+  `traceDiffMatchedCount=6`，另有 `traceDiffMismatchCount=25`；这是后续能力缺口，
+  不能作为 public release strict actual trace pass。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`。
+
+## 2026-06-19 Public Release AI Behavior Actual Trace Gate
+
+本轮覆盖项：
+
+- `PUBLIC_RELEASE=1` profile 自动强制 `REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1`，即使调用方显式传
+  `REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=0` 也会在 release gate report 中回写为 `1`。
+- `verify_release_gate.sh` 在 AI behavior eval 阶段把 `--require-actual-trace` 接入
+  `verify_ai_behavior_eval.sh`；缺少 `AI_BEHAVIOR_ACTUAL_TRACE_FILE` 时 fail-closed 到
+  `ai-behavior-eval`，原因是 `actual-trace-file-missing`。
+- `scripts/test_validation_scripts.sh` 增加 release gate 负例：非 public 严格 actual trace
+  缺失会失败；public 缺 signing cert 的早期失败仍会保留 `requireAiBehaviorActualTrace=1`
+  证据，证明 public profile 已覆盖调用方开关。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell 语法检查返回 0。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`。
+- 覆盖：`release-ai-behavior-actual-required/ai-behavior-eval.properties` 写出
+  `status=failed`、`reason=actual-trace-file-missing`；`release-gate.properties` 写出
+  `failedTarget=ai-behavior-eval`、`requireAiBehaviorActualTrace=1`。
+
+## 2026-06-19 Phase 3 Agent Behavior Eval Stable Case IDs
+
+本轮覆盖项：
+
+- 7 个 `ai_behavior_eval` JSONL fixture 的 31 条 case 全部增加稳定 `id`，不再依赖
+  `category:lineNumber` 作为 trace diff 绑定键。
+- `verify_ai_behavior_eval.sh` 将 `id` 纳入必填字段，要求匹配稳定 ASCII 命名
+  `^[a-z0-9][a-z0-9_.-]*$`，并保留全局 duplicate id fail-closed 校验。
+- `AiBehaviorEvalFixturesTest` 增加跨 category 的 id 非空、格式和唯一性断言。
+- `scripts/test_validation_scripts.sh` 增加缺失 id、重复 id 两个负例；matching actual trace
+  生成逻辑改为使用 fixture `id`，并断言 diff JSONL 输出稳定 caseId。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
+
+scripts/verify_ai_behavior_eval.sh --require-boundary-map \
+  --trace-diff /tmp/pocketmind-ai-behavior-id-check.jsonl \
+  --report /tmp/pocketmind-ai-behavior-id-check.properties
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest'
+```
+
+结果：
+
+- 通过：shell 语法检查返回 0。
+- 通过：`verify_ai_behavior_eval.sh` 返回 `AI behavior eval fixtures passed: 31 cases across 7 categories and 6 MVP scenarios`，
+  trace diff 第一条输出 `caseId=memory_style_concise`。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`，覆盖 missing id、
+  duplicate id、matching/mismatch/extra actual trace diff。
+- 通过：目标 JVM 测试返回 `BUILD SUCCESSFUL`。
+
+## 2026-06-18 Phase 3 Agent Behavior Planning Trace Diff
+
+本轮覆盖项：
+
+- `AgentBehaviorEvalCase` 增加实际规划轨迹投影配套模型：
+  `AgentBehaviorActualTrace`、`AgentBehaviorPlanningTraceDiff`、`AgentBehaviorTraceDiffStatus`
+  和 `diffAgainst()`，可机器比较 expected/actual 工具序列、确认策略、risk、privacy、
+  `LocalOnly` / `RemoteEligible` 与允许失败模式。
+- 新增 `AgentBehaviorTraceProjector`，把本地 `AgentLoopResult` 投影为
+  `AgentBehaviorActualTrace`：纯回答输出 no-tool trace；`web_search` 输出
+  `RemoteEligible/public_evidence/none`；多步 Skill 输出有序工具序列并标记
+  `LocalOnly/second_confirmation`；安全拒绝输出 `FailClosed` 与标准化 failure mode。
+- `verify_ai_behavior_eval.sh` 新增 `--actual-trace`、`--trace-diff` 和
+  `--require-actual-trace`：默认会写 planning trace diff JSONL，缺实际 trace 时标记
+  `missing_actual`；严格模式下缺 actual、mismatch 或 extra actual row 都 fail-closed。
+- `verify_release_gate.sh` 默认将 AI behavior eval 的 trace diff 写到
+  `ai-behavior-planning-trace-diff.jsonl`；后续可通过 `AI_BEHAVIOR_ACTUAL_TRACE_FILE` 和
+  `REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1` 把真实 planner actual trace 升级为 release gate。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/verify_release_gate.sh \
+  scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest'
+```
+
+结果：
+
+- 通过：shell 语法检查返回 0。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`；覆盖无
+  actual trace 时的 `missing_actual` diff、匹配 actual trace、mismatch 失败和 extra actual
+  失败。
+- 通过：目标 JVM 测试返回 `BUILD SUCCESSFUL`，覆盖 projector 的 no-tool、public evidence、
+  LocalOnly 多步 Skill 和 allowed failure diff。
+
+剩余风险：
+
+- 当前 projector 是 JVM 本地投影，release gate 默认仍不强制真实 runtime actual trace；要把
+  `REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1` 打开，还需要接入自动执行/采集 fixture 子集 actual trace。
+
+## 2026-06-18 Phase 6 Perf Baseline Evidence Schema 与 Release Gate 分层
+
+本轮覆盖项：
+
+- `collect_perf_baseline.sh` 产出的成功记录增加 `artifactSchema=PerfBaseline/v1`、
+  `target=perf-baseline-record`、`owner`、`collectionCommand`、`reproduciblePath` 和
+  `releaseArtifact`，失败记录增加 `artifactSchema=PerfBaselineCollection/v1`、
+  `command`、`failedTarget`、`reason`、`recordedAt` 等审计字段。
+- `verify_perf_baseline.sh` 的 verifier report 增加
+  `artifactSchema=PerfBaselineVerification/v1`、`owner`、`recordedAt`、`command`、
+  `failedTarget`、`reproduciblePath` 和 baseline SHA；失败会落到
+  `baseline-fields`、`release-artifact`、`runtime-backend`、`model-profile` 等机器可读目标。
+- Perf verifier 新增语义约束：`modelId` 仅允许 release chat profile
+  `chat-e2b` / `chat-e4b`，`backend` 仅允许 `CPU` / `GPU`，
+  `gpuFallbackStatus` 仅允许 `not-needed` / `cpu-fallback-passed`。
+- `verify_release_validation_record.sh` 的 performance evidence 校验同步提升：正式 release
+  validation record 中的 perf verifier report 和 baseline record 必须携带 schema、owner、命令、
+  可复现路径和匹配 SHA。
+- `verify_release_gate.sh` 增加 `VERIFY_PERF_BASELINE` 分层开关：默认仍为 `1`；
+  `PUBLIC_RELEASE=1` 会强制回 `1`；非 public owner evidence 检查可显式设为 `0`，
+  写出 `perf-baseline-verification.properties` 的 skipped 记录后继续进入 store/privacy 等子门禁。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_perf_baseline.sh scripts/collect_perf_baseline.sh \
+  scripts/verify_release_validation_record.sh scripts/verify_release_gate.sh \
+  scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  "$HOME/android-sdk/platform-tools/adb" devices -l
+```
+
+结果：
+
+- 通过：shell 语法检查返回 0。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`。
+- 覆盖的负例包括：缺字段、artifact SHA mismatch、emulator serial、零耗时、
+  `backend=TPU`、未知 `gpuFallbackStatus`、非 chat `modelId`。
+- 覆盖的 release gate 行为包括：默认缺 `PERF_BASELINE_FILE` 仍 fail-closed；
+  非 public `VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1` 可以跳过 perf 并继续失败在
+  `store-policy-record`；`PUBLIC_RELEASE=1 VERIFY_PERF_BASELINE=0` 仍在 gate report 中强制显示
+  `verifyPerfBaseline=1`。
+
+未执行：
+
+- ADB 输出仅有 `List of devices attached`，未列出任何设备；因此未执行 physical validation、
+  Android instrumentation、真实 App 搜索真机 eval 或 RC perf baseline。
+- 未采集 RC perf baseline；真实模型加载、首 token、tokens/s、OOM/ANR 和 GPU fallback
+  仍需要 arm64 真机 evidence。
+
+## 2026-06-18 Phase 5 长期记忆 Metadata 与远程边界
+
+本轮覆盖项：
+
+- `PersistedMemoryRecord` 和 Room `memory_records` 增加长期记忆 metadata：
+  `source`、`sensitivity`、`privacy`、`expiresAtMillis`、`conflictKey`。
+  新列默认值为 `LegacyImport` / `Normal` / `LocalOnly` / null / null，旧数据不迁移删除。
+- `MemoryHit` 携带同一组边界字段；`MemoryRepository` 在显式偏好、用户事实和自动任务状态中分别标记
+  `ExplicitUser`、`Sensitive`、`AutoTaskState` / `Internal` 和稳定 conflict key。
+- 过期长期记忆不进入 `savedRecords()`、search 或 prompt context，但底层 store 先保留原记录，
+  避免迁移阶段物理删除用户数据。
+- `MemoryQualityContract` 增加 memory boundary 校验：远程模式任何 memory hit 或
+  memory context 都 fail-closed，本地模式只允许 `LocalOnly` memory hit 进入 context。
+- `AgentLoopRuntime` 的 prompt evidence 使用 `MemoryHit.isAvailableForLocalContext()` 过滤，
+  即使误传非 LocalOnly 或过期 hit，也不会拼进模型 prompt fallback。
+- `PocketMindViewModel` 远程语义记忆测试扩展到敏感 `UserFact`，断言 remote prompt/history
+  不包含敏感事实原文。
+- 数据库版本升至 15，并新增 `MIGRATION_14_15`；Android migration test 覆盖旧
+  `memory_records` 默认 metadata。该 instrumentation 测试已编译，尚未在真机执行。
+
+验证命令：
+
+```bash
+git diff --check
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryQualityContractTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteModeKeepsSemanticMemoryRuntimeButDoesNotSendMemoryContext' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.memoryContextBuildFailureStillAllowsDeviceContextPrompt'
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：`git diff --check` 返回 0。
+- 通过：targeted JVM 测试返回 `BUILD SUCCESSFUL`，覆盖长期记忆 metadata、过期过滤、
+  memory boundary contract、远程敏感记忆不进 prompt/history，以及 AgentLoop prompt
+  fallback 的本地 context 保护。
+- 通过：提升权限后运行 `scripts/verify_local.sh`，返回 `Validation script tests passed`、
+  Gradle `BUILD SUCCESSFUL`、`Android artifact scan passed`、`Local verification passed`。
+- 未执行：`PocketMindDatabaseMigrationTest.migration14To15AddsMemoryRecordMetadataDefaults`
+  是 Android instrumentation 测试；本轮因为 ADB 无设备未运行，只通过 `verify_local.sh`
+  编译了 debug AndroidTest APK。
+
+剩余风险：
+
+- 记忆 metadata 目前已进入数据层和 `LongTermMemorySummary`，但 UI 仍只展示类型与文本；
+  后续若要让用户看到来源、过期时间或敏感标记，需要再补 UI 呈现和截图 evidence。
+- 真机 migration、真实 semantic memory 性能、RC perf baseline 仍依赖 arm64 设备 evidence。
+
+## 2026-06-18 Phase 5 ModelCapabilityProfile Runtime/UI 贯通
+
+本轮覆盖项：
+
+- `LocalModelRuntimeCapabilities` 从 `ModelCapabilityProfile` 派生
+  `supportsVisionInput`、`contextWindowTokens` 和 `preferredBackends`，并传入
+  LiteRT engine config；本地图片输入、上下文窗口和 engine `maxNumTokens` 不再依赖全局假设。
+- `AdaptiveGenerationPolicy` 改为按当前模型 `contextWindowTokens` 计算输入预算；
+  健康运行时保留 profile 可用窗口，降级/质量保护时仍保守收缩。
+- `PocketMindViewModel` 在加载模型前按 active profile 选择可用 backend，拒绝不支持的
+  GPU/CPU 切换，并把 profile 的 context/backend 能力同步到 `ChatUiState`。
+- Compose 设置面板按 `localPreferredBackends` 禁用不支持的 backend 按钮，token 上限展示继续来自
+  active profile。
+- `ModelCatalog.isChatModel`、`recommendedChatModelById` 和
+  `ModelRepository` active chat 候选收口到 `supportsChatGeneration`，防止已验证的
+  embedding/action 推荐模型被误当作对话模型。
+
+验证命令：
+
+```bash
+git diff --check
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.ModelCatalogTest' \
+  --tests 'com.bytedance.zgx.pocketmind.data.ModelRepositoryPathTest' \
+  --tests 'com.bytedance.zgx.pocketmind.runtime.LiteRtRuntimeConfigTest' \
+  --tests 'com.bytedance.zgx.pocketmind.runtime.AdaptiveGenerationPolicyTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.loadModelConfiguresRuntimeFromActiveModelCapabilityProfile'
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：`git diff --check` 返回 0。
+- 通过：targeted JVM 测试返回 `BUILD SUCCESSFUL`，覆盖 catalog chat gate、active chat
+  candidate、LiteRT config、adaptive policy 和 ViewModel runtime capability 配置。
+  首次在 sandbox 内执行 Gradle 被 `~/.gradle` wrapper lock 的只读文件系统拒绝，提升权限后通过。
+- 通过：提升权限后运行 `scripts/verify_local.sh`，返回 `Validation script tests passed`、
+  Gradle `BUILD SUCCESSFUL`、`Android artifact scan passed`、`Local verification passed`。
+
+剩余风险：
+
+- 本轮只完成 runtime/UI 的 profile 能力贯通和 JVM/本地门禁，尚未采集新的真机模型性能
+  baseline；加载时间、首 token、tokens/s、OOM/ANR 和 GPU fallback 仍需要 Phase 4 RC
+  perf evidence 覆盖。
+
+## 2026-06-18 真机验证探测
+
+本轮覆盖项：
+
+- 按用户已连接真机的上下文检查 ADB 设备可见性，并尝试用标准
+  `DeviceVerificationArtifact/v1` 流程生成真机验证证据。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  "$HOME/android-sdk/platform-tools/adb" devices -l
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  ARTIFACT_DIR=build/verification/device-probe-20260618-no-device \
+  scripts/install_and_test_device.sh
+```
+
+结果：
+
+- 未通过：`adb devices -l` 只输出 `List of devices attached`，没有 authorized device。
+- 未通过：`scripts/install_and_test_device.sh` 生成
+  `build/verification/device-probe-20260618-no-device/device-verification.properties`；
+  机器可读字段为 `status=failed`、`failedTarget=device-selection`、
+  `reason=device-selection-ambiguous`、`instrumentation=not-run`、`serial=`、
+  `api_level=`、`abi=`。
+
+剩余风险：
+
+- 当前机器无法看见真机，因此 arm64 physical instrumentation、device-control eval 和
+  real-app-search eval 均未执行；这不能作为 release physical evidence。
+
+## 2026-06-18 Phase 5 隐私/多模态边界加固
+
+本轮覆盖项：
+
+- 远程模式下，用户主动选择的 `image/*` 附件不再受普通文本发送策略静默放行；
+  只要请求带有 `ChatImageAttachment`，`PocketMindViewModel` 都会先生成
+  `PendingRemoteSendDisclosure`，并在用户确认前保持 remote runtime idle。
+- 图片远程发送确认不能被 `OncePerSession` 的“本会话不再提示”静默覆盖；
+  UI 也不再在图片确认卡上提供 suppress 选项。
+- 新增 ViewModel 回归：远程图片确认后才进入 vision runtime，取消确认不会写会话消息或调用
+  remote runtime；`OnlyWhenSensitive` 与 `OncePerSession` 仍只让普通文本静默，图片保持逐次确认。
+- 新增当前屏幕截图 OCR 远程保护回归：`capture_current_screenshot_ocr` 工具结果为
+  `LocalOnly` / `requiresLocalModel=true` 时，远程模式下不自动续写到 remote runtime，
+  不把 OCR 原文写入消息，并将 Agent run 标记为失败。
+- `privacy_boundary.jsonl` 增加两条离线行为 eval：远程图片必须
+  `remote_send_confirmation`，当前屏幕截图 OCR 必须 `LocalOnly` fail-closed。
+- release flow evidence contract 新增 `remoteVisionSendPreviewConfirmed`、
+  `remoteVisionCancelKeepsRuntimeIdle`、`mediaProjectionOneShotConsentCovered` 和
+  `currentScreenshotOcrRemoteContinuationBlocked`，并同步 recorder、candidate collector、
+  verifier、自测和 checklist。
+
+验证命令：
+
+```bash
+bash -n scripts/record_release_flow_evidence.sh \
+  scripts/collect_release_flow_matrix_evidence.sh \
+  scripts/verify_release_validation_record.sh \
+  scripts/test_validation_scripts.sh \
+  scripts/verify_ai_behavior_eval.sh
+
+scripts/verify_ai_behavior_eval.sh --require-boundary-map
+scripts/test_validation_scripts.sh
+git diff --check
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查返回 0。
+- 通过：`scripts/verify_ai_behavior_eval.sh --require-boundary-map` 返回
+  `AI behavior eval fixtures passed: 31 cases across 7 categories and 6 MVP scenarios`。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`；
+  弱 `shareAndPickerInput` evidence 会因缺少远程图片发送预览确认和取消 idle 证明而被拒绝。
+- 通过：`git diff --check` 返回 0。
+- 通过：提升权限后运行 `scripts/verify_local.sh`，返回 `Validation script tests passed`、
+  Gradle `BUILD SUCCESSFUL`、`Android artifact scan passed`、`Local verification passed`。
+
+剩余风险：
+
+- 本轮是 JVM/脚本级 contract 加固，未替代真机 MediaProjection 前台同意、真实远程视觉 endpoint
+  或 arm64 physical validation。
+- 远程图片已强制逐次确认，但真实 provider 对 OpenAI-compatible `image_url` 的兼容性仍需发布前
+  远程视觉 fixture 和真机 flow 证据继续覆盖。
+
+## 2026-06-18 Phase 5/6 Capability 与 License Evidence 加固
+
+本轮覆盖项：
+
+- `ModelProfile` / `ModelCapabilityProfile` 增加显式 capability 派生字段：
+  `supportsChatGeneration`、`supportsMemoryEmbedding`、
+  `supportsMobileActionPlanning`、`contextWindowTokens` 和
+  `preferredLocalBackends`。
+- `ModelProfile` 增加 fail-fast invariant：vision feature 必须声明 vision modality；
+  text generation / embedding / action planning 必须与对应 profile capability 匹配；
+  只有本地 LiteRT profile 可以声明本地性能 backend。
+- 推荐模型 profile 明确区分 chat、embedding、action 的能力、上下文窗口和默认本地
+  backend；远程 OpenAI-compatible profile 不声明本地 backend，vision 继续默认
+  fail-closed。
+- `scripts/verify_model_license_review.sh` 收紧发布证据：Hugging Face license source
+  的 revision 必须等于 manifest `upstreamRevision`；每个 review evidence
+  properties 必须声明 `status=approved`、`model=<id>`、
+  `scope=license-redistribution-attribution` 和
+  `redistributionDecision=approved`，并继续校验 SHA-256。
+- `scripts/test_validation_scripts.sh` 增加 model license 负例：不同 revision 的
+  license source、pending review evidence 内容即使 SHA 匹配也必须被拒绝。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.ModelCatalogTest' \
+  --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest'
+
+bash -n scripts/verify_model_license_review.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：targeted JVM 测试返回 `BUILD SUCCESSFUL`，覆盖 ModelCapabilityProfile 的显式
+  chat/vision/embedding/action/context/backend contract 与非法 profile 拒绝。
+- 通过：shell 语法检查返回 0。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`；
+  新增用例覆盖 `license-source-revision-mismatch` 和
+  `review-evidence-status-mismatch`。
+- 未完成：本轮尚未把 `contextWindowTokens` / `preferredLocalBackends` 贯通到所有 runtime
+  和 UI 控件，也未采集新的真机模型性能 baseline；这些仍属于 Phase 5/4 后续切片。
+
+## 2026-06-18 Phase 2 Real App Search 失败证据归档
+
+本轮覆盖项：
+
+- `scripts/run_real_app_search_eval.sh` 的真实 App 搜索矩阵扩展到淘宝、拼多多、高德、
+  京东、Chrome、Android Browser、Quark 和 UC；未安装的目标仍按 case 级 skipped
+  记录，不扩大自动化到支付、下单、授权等高风险动作。
+- 每个 case report 升级为 `RealAppSearchCaseArtifact/v1`：失败时记录
+  `failed_step`、debug receiver `result_file` 和 SHA-256、`targetResolution.*`
+  resolver evidence、diagnostics 目录、截图、UIAutomator dump、focused-window dump
+  和 logcat 的 SHA-256。
+- `capture_failure_diagnostics` 产出的 `diagnostics.properties` 绑定截图、XML dump、
+  window dump 和 logcat 路径与 SHA，避免真实 App UI 变更时只留下不可复现的人工描述。
+- `scripts/test_validation_scripts.sh` 增加 fake ADB 回归，模拟淘宝 tap 阶段
+  `search_entry_not_found`，要求 case artifact 带上 resolver failure kind、ranked
+  candidates JSON 和所有失败快照文件。
+
+验证命令：
+
+```bash
+bash -n scripts/run_real_app_search_eval.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查返回 0。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`；
+  新增用例覆盖 `RealAppSearchCaseArtifact/v1`、`target_resolution_failure_kind=search_entry_not_found`、
+  `target_resolution_candidate_count=2`、result file SHA，以及 screenshot /
+  UIAutomator XML / focused-window / logcat SHA。
+- 通过：提升权限后重跑 `scripts/verify_local.sh`，返回 `Validation script tests passed`、
+  `BUILD SUCCESSFUL`、`Android artifact scan passed`、`Local verification passed`。首次在
+  sandbox 内执行失败于 ADB daemon 权限（`Failed to open netlink socket` /
+  `could not install smartsocket listener`），重跑通过。
+- 未执行：本轮未连接真机运行新的 `scripts/run_real_app_search_eval.sh`；该脚本仍是
+  debug eval receiver 验收，不替代 release physical instrumentation evidence。
+
+## 2026-06-18 Phase 3/4 Eval 与设备证据加固
+
+本轮覆盖项：
+
+- 将 `app/src/test/resources/ai_behavior_eval/*.jsonl` 从场景说明升级为 trace expectation
+  contract：每条 fixture 必须声明 `expectedTools`、`expectedConfirmation`、
+  `expectedRiskLevel`、`privacy`、`localOnly`、`remoteEligible` 和
+  `allowedFailureModes`。
+- `scripts/verify_ai_behavior_eval.sh` 增加机器校验：字段类型、LocalOnly /
+  RemoteEligible 镜像一致性、fail-closed 允许失败模式、工具名必须在
+  `MobileActionFunctions.supported` 中、确认策略/风险/隐私覆盖分布必须完整。
+- `AiBehaviorEvalFixturesTest` 使用 `ToolRegistry` 做 JVM 侧权威工具名校验，防止
+  JSONL 出现不存在的工具名。
+- `scripts/install_and_test_device.sh` 的 `device-verification.properties` 升级为
+  `DeviceVerificationArtifact/v1` properties 形态，增加 `artifact_id`、
+  `test_count`、`instrumentation_output_sha256` 和 `logcat_sha256`。
+- `scripts/verify_release_validation_record.sh` 对 physical device report 和 API matrix
+  nested device report 强制校验 instrumentation/logcat SHA-256 与实际文件匹配。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest'
+
+scripts/verify_ai_behavior_eval.sh --require-boundary-map \
+  --report build/verification/ai-behavior-eval-phase3.properties
+
+bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh \
+  scripts/install_and_test_device.sh scripts/verify_release_validation_record.sh
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：`AiBehaviorEvalFixturesTest` 返回 `BUILD SUCCESSFUL`，覆盖 29 个 eval cases。
+- 通过：`verify_ai_behavior_eval.sh` 生成
+  `build/verification/ai-behavior-eval-phase3.properties`，记录
+  `caseCount=29`、`casesWithExpectedTools=16`、`expectedToolCount=29`、
+  `localOnlyCaseCount=21`、`remoteEligibleCaseCount=8`。
+- 通过：脚本语法检查返回 0。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`，
+  覆盖 fake ADB device report v1 字段、AI eval gate 字段分布、未知工具拒绝、
+  release validation physical/API nested device report SHA 校验。
+- 未执行：本轮未连接真机运行新的 physical instrumentation，也未采集新的 RC perf baseline。
+
+## 2026-06-18 Phase 1 多 Agent 稳定性底座
+
+本轮覆盖项：
+
+- 修复 `打开WiFi` / `打开 WiFi` / `打开 Wi-Fi` 路由回归：系统 Wi-Fi 设置动作优先命中
+  `device_settings_skill` / `open_wifi_settings`，不落到 `open_app_by_name`。
+- 增加负例：`打开名为 WiFi 的 App` 不应误触系统 Wi-Fi 设置。
+- 落地 Phase 1 合同模型：`IntentRoutingDecision`、`UiTargetResolutionEvidence`、
+  `AgentBehaviorEvalCase`、`DeviceVerificationArtifact`、`ModelCapabilityProfile`。
+- 为真实 App 搜索失败增加 resolver 可解释证据旁路：debug eval receiver 在 tap/type/submit
+  result 中输出 `targetResolution.*`、ranked candidates 和 failure kind。
+- 新增 `docs/intent_routing_skill_arbitration.md`，记录路由优先级矩阵和 resolver evidence 策略。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersDeviceSettingsDraftsOnlyForExplicitSettingsCommands' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansPlainWifiOpenAsWifiSettingsWithoutSettingsWord' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.naturalWifiCommandsPlanToolBeforeModelAnswer'
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest.explainIncludesRankedScoreEvidenceAndFailureKind'
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest'
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest' \
+  --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest' \
+  --tests 'com.bytedance.zgx.pocketmind.action.ActionPlannerTest.infersDeviceSettingsDraftsOnlyForExplicitSettingsCommands' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansPlainWifiOpenAsWifiSettingsWithoutSettingsWord' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.naturalWifiCommandsPlanToolBeforeModelAnswer'
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：三条 Wi-Fi 路由回归目标测试返回 `BUILD SUCCESSFUL`。
+- 通过：`UiTargetResolverTest.explainIncludesRankedScoreEvidenceAndFailureKind` 先因缺少
+  `UiTargetResolver.explain()` 和 evidence model 编译失败，补齐实现后返回 `BUILD SUCCESSFUL`。
+- 通过：`PhaseOneContractModelsTest` 先因缺少合同模型编译失败，补齐实现后返回
+  `BUILD SUCCESSFUL`。
+- 通过：合并后的 targeted Phase 1 JVM 回归返回 `BUILD SUCCESSFUL`。
+- 通过：`scripts/verify_local.sh` 返回 `Validation script tests passed`、
+  `Android artifact scan passed`、`Local verification passed`。本轮同时将 release
+  verifier 脚本中的 Python 3.9+ `removeprefix` 用法改为 Python 3.7 兼容写法。
+- 未执行：本轮尚未运行真机 `scripts/run_real_app_search_eval.sh` 或完整
+  instrumentation；真机 release evidence 仍以已记录的失败/通过 artifact 为准。
+
 ## 2026-06-17 文档边界同步与真机回归抽测
 
 本轮覆盖项：

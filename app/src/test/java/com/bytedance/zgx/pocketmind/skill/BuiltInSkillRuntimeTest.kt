@@ -975,6 +975,7 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("Wi-Fi 设置页面怎么设计"))
         assertEquals(null, runtime.plan("不要打开 Wi-Fi 设置，只解释一下"))
         assertEquals(null, runtime.plan("Do not open Wi-Fi settings; explain only"))
+        assertFalse(runtime.plan("打开名为 WiFi 的 App")?.request?.skillId == BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL)
         assertEquals(null, runtime.plan("手电筒 API 怎么用"))
         assertEquals(null, runtime.plan("打开手电筒"))
         assertEquals(null, runtime.plan("Usage Access API 怎么用"))

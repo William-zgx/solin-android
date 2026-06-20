@@ -874,6 +874,99 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun longTermRecordsCarrySourceSensitivityPrivacyAndConflictMetadata() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+        val factId = explicitUserFactRecordId("my rcode is xb83")
+
+        repository.indexPreference("pref-1", "回答尽量简洁")
+        repository.indexUserFact(factId, "my rcode is xb83")
+        repository.indexTaskState("task-1", "等待确认分享摘要")
+
+        val recordsById = repository.savedRecords().associateBy { it.id }
+        val preference = requireNotNull(recordsById["pref-1"])
+        val fact = requireNotNull(recordsById[factId])
+        val task = requireNotNull(recordsById["task-1"])
+
+        assertEquals(MemoryRecordSource.ExplicitUser, preference.source)
+        assertEquals(MemoryRecordSensitivity.Normal, preference.sensitivity)
+        assertEquals(MessagePrivacy.LocalOnly, preference.privacy)
+        assertEquals("response-length", preference.conflictKey)
+
+        assertEquals(MemoryRecordSource.ExplicitUser, fact.source)
+        assertEquals(MemoryRecordSensitivity.Sensitive, fact.sensitivity)
+        assertEquals(MessagePrivacy.LocalOnly, fact.privacy)
+        assertEquals("en:rcode", fact.conflictKey)
+
+        assertEquals(MemoryRecordSource.AutoTaskState, task.source)
+        assertEquals(MemoryRecordSensitivity.Internal, task.sensitivity)
+        assertEquals(MessagePrivacy.LocalOnly, task.privacy)
+        assertEquals("task-1", task.conflictKey)
+
+        val hit = repository.search("rcode xb83", topK = 3).single()
+        assertEquals(MemoryRecordSensitivity.Sensitive, hit.sensitivity)
+        assertEquals(MessagePrivacy.LocalOnly, hit.privacy)
+        assertEquals("en:rcode", hit.conflictKey)
+    }
+
+    @Test
+    fun expiredPersistedRecordsAreHiddenAndNotRecalled() {
+        val store = FakeMemoryRecordStore()
+        store.upsert(
+            PersistedMemoryRecord(
+                id = "pref-expired",
+                type = MemoryRecordType.Preference,
+                text = "用户偏好：回答尽量简洁",
+                source = MemoryRecordSource.ExplicitUser,
+                expiresAtMillis = 100L,
+                conflictKey = "response-length",
+            ),
+        )
+        val repository = MemoryRepository(
+            recordStore = store,
+            clockMillis = { 200L },
+        )
+
+        repository.rebuild(emptyList())
+
+        assertTrue(repository.savedRecords().isEmpty())
+        assertTrue(repository.search("简洁回答").isEmpty())
+        assertEquals(listOf("pref-expired"), store.records().map { it.id })
+    }
+
+    @Test
+    fun memoryContextSkipsExpiredOrNonLocalOnlyHits() {
+        val repository = MemoryRepository(clockMillis = { 200L })
+        val context = repository.buildContext(
+            listOf(
+                MemoryHit(
+                    id = "active",
+                    text = "用户偏好：回答尽量简洁",
+                    score = 0.9f,
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+                MemoryHit(
+                    id = "expired",
+                    text = "用户事实：过期内容",
+                    score = 0.9f,
+                    privacy = MessagePrivacy.LocalOnly,
+                    expiresAtMillis = 100L,
+                ),
+                MemoryHit(
+                    id = "remote-eligible",
+                    text = "用户事实：不应进入本地记忆 context",
+                    score = 0.9f,
+                    privacy = MessagePrivacy.RemoteEligible,
+                ),
+            ),
+        )
+
+        assertTrue(context.contains("回答尽量简洁"))
+        assertFalse(context.contains("过期内容"))
+        assertFalse(context.contains("不应进入本地记忆 context"))
+    }
+
+    @Test
     fun suppressedTaskStateRecordsAreHiddenAndNotIndexed() {
         val store = FakeMemoryRecordStore()
         val repository = MemoryRepository(recordStore = store)

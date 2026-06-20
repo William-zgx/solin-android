@@ -6,6 +6,7 @@ import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
 
 data class AdaptiveGenerationPolicyInput(
     val preferredBackend: BackendChoice,
+    val contextWindowTokens: Int = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
     val lastGenerationStats: GenerationStats? = null,
     val qualityIssue: GenerationQualityIssue? = null,
     val requestedImageCount: Int = 0,
@@ -34,6 +35,14 @@ object AdaptiveGenerationPolicy {
         val fallbackObserved = stats?.usedFallbackBackend == true
         val qualityStopped = input.qualityIssue != null
         val shouldConserve = slowDecode || slowFirstToken || fallbackObserved || qualityStopped
+        val outputReserveTokens = if (qualityStopped) {
+            MIN_OUTPUT_RESERVE_TOKENS
+        } else {
+            LocalModelTokenLimits.OUTPUT_TOKEN_RESERVE
+        }
+        val profileMaxInputTokens = (input.contextWindowTokens - outputReserveTokens)
+            .coerceAtLeast(0)
+        val conservativeInputTokens = minOf(MIN_INPUT_TOKENS, profileMaxInputTokens)
 
         val notices = buildList {
             if (fallbackObserved) add("GPU fallback observed; prefer conservative local budget.")
@@ -43,12 +52,8 @@ object AdaptiveGenerationPolicy {
         }
         return AdaptiveGenerationPolicyDecision(
             backend = stats?.backend ?: input.preferredBackend,
-            maxInputTokens = if (shouldConserve) MIN_INPUT_TOKENS else LocalModelTokenLimits.MAX_INPUT_TOKENS,
-            outputReserveTokens = if (qualityStopped) {
-                MIN_OUTPUT_RESERVE_TOKENS
-            } else {
-                LocalModelTokenLimits.OUTPUT_TOKEN_RESERVE
-            },
+            maxInputTokens = if (shouldConserve) conservativeInputTokens else profileMaxInputTokens,
+            outputReserveTokens = outputReserveTokens,
             maxImages = if (shouldConserve) {
                 minOf(input.requestedImageCount.coerceAtLeast(0), DEGRADED_MAX_IMAGES)
             } else {

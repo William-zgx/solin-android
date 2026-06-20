@@ -134,7 +134,7 @@ for model in parse_manifest(manifest_path):
         metadata = json.loads(response.read().decode("utf-8"))
     tags = metadata.get("tags") or []
     license_tags = [
-        tag.removeprefix("license:")
+        tag[len("license:"):]
         for tag in tags
         if isinstance(tag, str) and tag.startswith("license:")
     ]

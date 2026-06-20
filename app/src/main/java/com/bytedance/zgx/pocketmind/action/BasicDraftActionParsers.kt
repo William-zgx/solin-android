@@ -114,7 +114,7 @@ internal object CalendarDraftActionParser {
 
 internal object DeviceSettingsActionParser {
     private val wifiPattern =
-        Regex("""(?i)\b(?:wi[-\s]?fi|wifi|wlan|wireless)\b""")
+        Regex("""(?i)(^|[^a-z0-9])(?:wi[-\s]?fi|wifi|wlan|wireless)(?=$|[^a-z0-9])""")
     private val englishWifiSettingsPattern =
         Regex("""\b(?:(?:open|show|go\s+to|launch)\s+(?:the\s+)?(?:wi[-\s]?fi|wifi|wlan|wireless)\s+(?:settings?|preferences?)|(?:wi[-\s]?fi|wifi|wlan|wireless)\s+(?:settings?|preferences?))\b""", RegexOption.IGNORE_CASE)
     private val englishFlashlightSettingsPattern =
@@ -153,12 +153,22 @@ internal object DeviceSettingsActionParser {
 
     private fun targetTool(input: String): String? {
         if (input.looksLikeDiscussion() || input.looksLikeDeviceSettingsNonAction()) return null
+        if (input.looksLikeExplicitAppNameOpen()) return null
         return when {
             input.requestsWifiSettings() -> MobileActionFunctions.OPEN_WIFI_SETTINGS
             input.requestsUsageAccessSettings() -> MobileActionFunctions.OPEN_USAGE_ACCESS_SETTINGS
             input.requestsFlashlightSettings() -> MobileActionFunctions.OPEN_FLASHLIGHT_SETTINGS
             else -> null
         }
+    }
+
+    private fun String.looksLikeExplicitAppNameOpen(): Boolean {
+        val normalized = lowercase()
+        val referencesApp = listOf("app", "应用", "应用程序").any { it in this } ||
+            Regex("""\bapp(?:lication)?\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        val namesTarget = listOf("名为", "叫做", "叫").any { it in this } ||
+            Regex("""\b(?:named|called)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+        return referencesApp && namesTarget
     }
 
     private fun String.requestsWifiSettings(): Boolean {

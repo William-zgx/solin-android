@@ -48,10 +48,23 @@ REQUIRED_FREE_KB=$((3 * 1024 * 1024))
 write_verification_report() {
   local exit_code="$1"
   local status_label="failed"
+  local artifact_id
+  local instrumentation_output_sha256=""
+  local logcat_sha256=""
   [[ "$exit_code" -eq 0 ]] && status_label="passed"
+  artifact_id="device-${SELECTED_SERIAL:-unselected}-api${API_LEVEL:-unknown}-${STARTED_AT_UTC}"
+  artifact_id="${artifact_id//:/}"
+  if [[ -f "$INSTRUMENTATION_OUTPUT_FILE" ]]; then
+    instrumentation_output_sha256="$(shasum -a 256 "$INSTRUMENTATION_OUTPUT_FILE" | awk '{print $1}')"
+  fi
+  if [[ -f "$LOGCAT_FILE" ]]; then
+    logcat_sha256="$(shasum -a 256 "$LOGCAT_FILE" | awk '{print $1}')"
+  fi
 
   mkdir -p "$(dirname "$VERIFICATION_REPORT_FILE")"
   {
+    echo "artifact_schema=DeviceVerificationArtifact/v1"
+    echo "artifact_id=$artifact_id"
     echo "status=$status_label"
     echo "exit_code=$exit_code"
     echo "target=device"
@@ -73,8 +86,11 @@ write_verification_report() {
     echo "instrumentation_class=${INSTRUMENTATION_CLASS:-}"
     echo "instrumentation_timeout_seconds=$INSTRUMENTATION_TIMEOUT_SECONDS"
     echo "instrumentation_output_file=$INSTRUMENTATION_OUTPUT_FILE"
+    echo "instrumentation_output_sha256=$instrumentation_output_sha256"
+    echo "test_count=${INSTRUMENTATION_TEST_COUNT:-}"
     echo "releaseArtifactSha256=$RELEASE_ARTIFACT_SHA256"
     echo "logcat_file=$LOGCAT_FILE"
+    echo "logcat_sha256=$logcat_sha256"
     echo "logcat_captured=$LOGCAT_CAPTURED"
     echo "logcat_tail_lines=$LOGCAT_TAIL_LINES"
     echo "debug_apk=$DEBUG_APK"

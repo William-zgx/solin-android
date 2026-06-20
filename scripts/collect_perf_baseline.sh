@@ -7,12 +7,25 @@ ANDROID_SERIAL="${ANDROID_SERIAL:-}"
 STATUS="${STATUS:-passed}"
 VERIFY_REPORT_FILE="${VERIFY_REPORT_FILE:-${OUT_FILE}.verification.properties}"
 PERFORMANCE_KEY="${PERFORMANCE_KEY:-}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
 FAILED_TARGET=""
 FAILURE_REASON=""
 device_serial="$ANDROID_SERIAL"
 device_model="${DEVICE_MODEL:-}"
 android_api="${ANDROID_API:-}"
 abi="${ABI:-}"
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
 
 report_value() {
   local file="$1"
@@ -25,9 +38,14 @@ write_failure_report() {
   local exit_code="$1"
   mkdir -p "$(dirname "$OUT_FILE")"
   {
+    printf 'artifactSchema=PerfBaselineCollection/v1\n'
     printf 'status=failed\n'
     printf 'exit_code=%s\n' "$exit_code"
     printf 'target=perf-baseline-collector\n'
+    printf 'owner=%s\n' "$EVIDENCE_OWNER"
+    printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    printf 'command=%s\n' "$(command_line)"
+    printf 'reproduciblePath=%s\n' "$OUT_FILE"
     printf 'failedTarget=%s\n' "${FAILED_TARGET:-}"
     printf 'reason=%s\n' "${FAILURE_REASON:-unexpected-collector-failure}"
     printf 'releaseArtifact=%s\n' "$RELEASE_ARTIFACT"
@@ -44,7 +62,6 @@ write_failure_report() {
     printf 'backend=%s\n' "${BACKEND:-}"
     printf 'verificationReport=%s\n' "$VERIFY_REPORT_FILE"
     printf 'verificationReason=%s\n' "$(report_value "$VERIFY_REPORT_FILE" reason)"
-    printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   } > "$OUT_FILE"
   echo "Perf baseline collection report: $OUT_FILE"
 }
@@ -140,12 +157,18 @@ require_value abi "$abi"
 
 mkdir -p "$(dirname "$OUT_FILE")"
 {
+  printf 'artifactSchema=PerfBaseline/v1\n'
   printf 'status=%s\n' "$STATUS"
+  printf 'target=perf-baseline-record\n'
+  printf 'owner=%s\n' "$EVIDENCE_OWNER"
+  printf 'collectionCommand=%s\n' "$(command_line)"
+  printf 'reproduciblePath=%s\n' "$OUT_FILE"
   printf 'deviceSerial=%s\n' "$device_serial"
   printf 'deviceModel=%s\n' "$device_model"
   printf 'androidApi=%s\n' "$android_api"
   printf 'abi=%s\n' "$abi"
   printf 'appVersion=%s\n' "$APP_VERSION"
+  printf 'releaseArtifact=%s\n' "$RELEASE_ARTIFACT"
   printf 'releaseArtifactSha256=%s\n' "$(shasum -a 256 "$RELEASE_ARTIFACT" | awk '{print $1}')"
   printf 'modelId=%s\n' "$MODEL_ID"
   printf 'backend=%s\n' "$BACKEND"

@@ -596,12 +596,7 @@ class ModelRepository(
         )
 
     private fun InstalledModelEntity.canBecomeActiveChatModel(): Boolean =
-        if (recommendedModelId == null) {
-            true
-        } else {
-            catalogRecommendedModel(recommendedModelId)?.capability == ModelCapability.Chat &&
-                verificationStatus == ModelVerificationStatus.VerifiedRecommended.name
-        }
+        installedModelCanBecomeActiveChatModel(this)
 
     private fun hasCurrentVerifiedRecommendedFile(
         entity: InstalledModelEntity,
@@ -645,6 +640,14 @@ internal fun verifiedRecommendedModelPath(
             model.hasVerifiedRecommendedEvidence(catalogModel) &&
             currentFileVerifier(model, catalogModel)
     }?.path
+
+internal fun installedModelCanBecomeActiveChatModel(model: InstalledModelEntity): Boolean =
+    if (model.recommendedModelId == null) {
+        true
+    } else {
+        ModelCatalog.profileForModelIdOrNull(model.recommendedModelId)?.supportsChatGeneration == true &&
+            model.verificationStatus == ModelVerificationStatus.VerifiedRecommended.name
+    }
 
 private fun InstalledModelEntity.hasVerifiedRecommendedEvidence(model: RecommendedModel): Boolean =
     verificationStatus == ModelVerificationStatus.VerifiedRecommended.name &&

@@ -26,15 +26,38 @@ class LiteRtRuntimeConfigTest {
     }
 
     @Test
+    fun engineConfigUsesCapabilityProfileContextWindow() {
+        val config = defaultEngineConfigSpec(
+            modelPath = "/tmp/model.litertlm",
+            backend = BackendChoice.CPU,
+            cacheDir = File("/tmp/cache"),
+            capabilities = LocalModelRuntimeCapabilities(
+                supportsVisionInput = false,
+                contextWindowTokens = 4096,
+                preferredBackends = setOf(BackendChoice.CPU),
+            ),
+        )
+
+        assertEquals(4096, config.maxNumTokens)
+        assertEquals(null, config.visionBackend)
+        assertEquals(null, config.maxNumImages)
+    }
+
+    @Test
     fun engineConfigEnablesVisionBackendOnlyForVisionCapableLocalModel() {
         val config = defaultEngineConfigSpec(
             modelPath = "/tmp/model.litertlm",
             backend = BackendChoice.GPU,
             cacheDir = File("/tmp/cache"),
-            supportsVisionInput = true,
+            capabilities = LocalModelRuntimeCapabilities(
+                supportsVisionInput = true,
+                contextWindowTokens = 4096,
+                preferredBackends = setOf(BackendChoice.GPU, BackendChoice.CPU),
+            ),
         )
 
         assertTrue(config.visionBackend != null)
+        assertEquals(4096, config.maxNumTokens)
         assertEquals(5, config.maxNumImages)
     }
 

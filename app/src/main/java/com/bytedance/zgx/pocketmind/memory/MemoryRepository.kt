@@ -28,7 +28,15 @@ data class MemoryHit(
     val semanticScore: Float? = if (recallMode == MemoryRecallMode.Semantic) score else null,
     val finalScore: Float = score,
     val rankingReason: String = recallMode.name.lowercase(Locale.ROOT),
+    val source: MemoryRecordSource = MemoryRecordSource.LegacyImport,
+    val sensitivity: MemoryRecordSensitivity = MemoryRecordSensitivity.Normal,
+    val privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+    val expiresAtMillis: Long? = null,
+    val conflictKey: String? = null,
 )
+
+internal fun MemoryHit.isAvailableForLocalContext(nowMillis: Long = System.currentTimeMillis()): Boolean =
+    privacy == MessagePrivacy.LocalOnly && !isExpired(nowMillis)
 
 enum class MemoryRecordType {
     Conversation,
@@ -36,6 +44,19 @@ enum class MemoryRecordType {
     UserFact,
     TaskState,
     SuppressedTaskState,
+}
+
+enum class MemoryRecordSource {
+    LegacyImport,
+    ConversationHistory,
+    ExplicitUser,
+    AutoTaskState,
+}
+
+enum class MemoryRecordSensitivity {
+    Normal,
+    Sensitive,
+    Internal,
 }
 
 enum class SemanticMemoryRuntimeStatus {
@@ -236,6 +257,11 @@ class MemoryRepository(
                 text = record.text,
                 type = record.type,
                 persist = false,
+                source = record.source,
+                sensitivity = record.sensitivity,
+                privacy = record.privacy,
+                expiresAtMillis = record.expiresAtMillis,
+                conflictKey = record.conflictKey,
             )
         }
         messages.forEach { message ->
@@ -256,7 +282,14 @@ class MemoryRepository(
     }
 
     override fun index(id: String, text: String) {
-        indexRecord(id, text, MemoryRecordType.Conversation, persist = false)
+        indexRecord(
+            id = id,
+            text = text,
+            type = MemoryRecordType.Conversation,
+            persist = false,
+            source = MemoryRecordSource.ConversationHistory,
+            privacy = MessagePrivacy.LocalOnly,
+        )
     }
 
     override fun savedRecords(): List<PersistedMemoryRecord> =
@@ -265,18 +298,45 @@ class MemoryRepository(
     override fun indexPreference(id: String, text: String) {
         if (text.isBlank()) return
         forgetConflictingPreferences(id, text)
-        indexRecord(id, "用户偏好：$text", MemoryRecordType.Preference, persist = true)
+        indexRecord(
+            id = id,
+            text = "用户偏好：$text",
+            type = MemoryRecordType.Preference,
+            persist = true,
+            source = MemoryRecordSource.ExplicitUser,
+            sensitivity = MemoryRecordSensitivity.Normal,
+            privacy = MessagePrivacy.LocalOnly,
+            conflictKey = explicitPreferenceConflictKeys(text).sorted().joinToString(",").takeIf { it.isNotBlank() },
+        )
     }
 
     override fun indexUserFact(id: String, text: String) {
         if (text.isBlank()) return
         forgetConflictingUserFacts(id, text)
-        indexRecord(id, "用户事实：$text", MemoryRecordType.UserFact, persist = true)
+        indexRecord(
+            id = id,
+            text = "用户事实：$text",
+            type = MemoryRecordType.UserFact,
+            persist = true,
+            source = MemoryRecordSource.ExplicitUser,
+            sensitivity = MemoryRecordSensitivity.Sensitive,
+            privacy = MessagePrivacy.LocalOnly,
+            conflictKey = userFactKeyFrom(text),
+        )
     }
 
     override fun indexTaskState(id: String, text: String) {
         if (isAutoManagedTaskStateSuppressed(id)) return
-        indexRecord(id, "任务状态：$text", MemoryRecordType.TaskState, persist = true)
+        indexRecord(
+            id = id,
+            text = "任务状态：$text",
+            type = MemoryRecordType.TaskState,
+            persist = true,
+            source = MemoryRecordSource.AutoTaskState,
+            sensitivity = MemoryRecordSensitivity.Internal,
+            privacy = MessagePrivacy.LocalOnly,
+            conflictKey = id,
+        )
     }
 
     override fun suppressAutoManagedTaskState(id: String) {
@@ -290,6 +350,10 @@ class MemoryRepository(
                 id = suppressedTaskStateMemoryRecordId(id),
                 type = MemoryRecordType.SuppressedTaskState,
                 text = id,
+                source = MemoryRecordSource.AutoTaskState,
+                sensitivity = MemoryRecordSensitivity.Internal,
+                privacy = MessagePrivacy.LocalOnly,
+                conflictKey = id,
             ),
         )
     }
@@ -319,7 +383,7 @@ class MemoryRepository(
         val conflictKeys = explicitPreferenceForgetConflictKeys(normalizedTarget)
         if (conflictKeys.isEmpty()) return exactRemoved
         val conflictIds = (entries.values.map { entry ->
-            PersistedMemoryRecord(entry.id, entry.type, entry.text)
+            entry.toPersistedRecord()
         } + recordStore.records())
             .filter { record ->
                 record.type == MemoryRecordType.Preference &&
@@ -341,7 +405,7 @@ class MemoryRepository(
         val targetKey = userFactKeyFrom(normalizedTarget)
         if (targetKey == null) return exactRemoved
         val matchingIds = (entries.values.map { entry ->
-            PersistedMemoryRecord(entry.id, entry.type, entry.text)
+            entry.toPersistedRecord()
         } + recordStore.records())
             .filter { record ->
                 record.type == MemoryRecordType.UserFact &&
@@ -365,9 +429,12 @@ class MemoryRepository(
 
     private fun visibleRecords(): List<PersistedMemoryRecord> =
         recordStore.records().filter { record ->
-            record.type == MemoryRecordType.Preference ||
-                record.type == MemoryRecordType.UserFact ||
-                record.type == MemoryRecordType.TaskState
+            !record.isExpired(clockMillis()) &&
+                (
+                    record.type == MemoryRecordType.Preference ||
+                        record.type == MemoryRecordType.UserFact ||
+                        record.type == MemoryRecordType.TaskState
+                    )
         }
 
     private fun indexRecord(
@@ -375,9 +442,15 @@ class MemoryRepository(
         text: String,
         type: MemoryRecordType,
         persist: Boolean,
+        source: MemoryRecordSource = MemoryRecordSource.LegacyImport,
+        sensitivity: MemoryRecordSensitivity = MemoryRecordSensitivity.Normal,
+        privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+        expiresAtMillis: Long? = null,
+        conflictKey: String? = null,
     ) {
         val normalized = text.trim()
         if (normalized.isBlank()) return
+        if (expiresAtMillis != null && expiresAtMillis <= clockMillis()) return
         val searchText = searchTextFor(type, normalized)
         val originalTokens = tokenize(normalized).toSet()
         val tokens = tokenize(searchText).toSet()
@@ -395,6 +468,11 @@ class MemoryRepository(
                 text = normalized,
                 type = type,
             ),
+            source = source,
+            sensitivity = sensitivity,
+            privacy = privacy,
+            expiresAtMillis = expiresAtMillis,
+            conflictKey = conflictKey,
         )
         if (persist && type != MemoryRecordType.Conversation) {
             recordStore.upsert(
@@ -402,6 +480,11 @@ class MemoryRepository(
                     id = id,
                     type = type,
                     text = normalized,
+                    source = source,
+                    sensitivity = sensitivity,
+                    privacy = privacy,
+                    expiresAtMillis = expiresAtMillis,
+                    conflictKey = conflictKey,
                 ),
             )
         }
@@ -420,6 +503,7 @@ class MemoryRepository(
         val semanticQueryEmbedding = if (supportsSemanticRecall) embedSemanticQuery(query) else null
         return entries.values
             .mapNotNull { entry ->
+                if (entry.isExpired(clockMillis())) return@mapNotNull null
                 if (entry.shouldSuppressTaskStateHitFor(normalizedQuery)) return@mapNotNull null
                 val hasLexicalOverlap = entry.tokens.any { it in requiredOverlapTokens }
                 val lexicalScore = if (hasLexicalOverlap) {
@@ -461,6 +545,11 @@ class MemoryRepository(
                     semanticScore = semanticScore,
                     finalScore = finalScore,
                     rankingReason = rankingReason,
+                    source = entry.source,
+                    sensitivity = entry.sensitivity,
+                    privacy = entry.privacy,
+                    expiresAtMillis = entry.expiresAtMillis,
+                    conflictKey = entry.conflictKey,
                 )
             }
             .sortedWith(
@@ -471,7 +560,9 @@ class MemoryRepository(
     }
 
     override fun buildContext(hits: List<MemoryHit>): String =
-        hits.joinToString(separator = "\n") { "- ${it.text}" }
+        hits
+            .filter { hit -> hit.isAvailableForLocalContext(clockMillis()) }
+            .joinToString(separator = "\n") { "- ${it.text}" }
 
     private fun semanticEmbeddingFor(
         id: String,
@@ -783,6 +874,11 @@ data class PersistedMemoryRecord(
     val id: String,
     val type: MemoryRecordType,
     val text: String,
+    val source: MemoryRecordSource = MemoryRecordSource.LegacyImport,
+    val sensitivity: MemoryRecordSensitivity = MemoryRecordSensitivity.Normal,
+    val privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+    val expiresAtMillis: Long? = null,
+    val conflictKey: String? = null,
 )
 
 interface MemoryRecordStore {
@@ -836,6 +932,14 @@ class RoomMemoryRecordStore(
                 id = entity.id,
                 type = type,
                 text = entity.text,
+                source = runCatching { MemoryRecordSource.valueOf(entity.source) }
+                    .getOrDefault(MemoryRecordSource.LegacyImport),
+                sensitivity = runCatching { MemoryRecordSensitivity.valueOf(entity.sensitivity) }
+                    .getOrDefault(MemoryRecordSensitivity.Normal),
+                privacy = runCatching { MessagePrivacy.valueOf(entity.privacy) }
+                    .getOrDefault(MessagePrivacy.LocalOnly),
+                expiresAtMillis = entity.expiresAtMillis,
+                conflictKey = entity.conflictKey?.takeIf { it.isNotBlank() },
             )
         }
 
@@ -847,6 +951,11 @@ class RoomMemoryRecordStore(
                 id = record.id,
                 type = record.type.name,
                 text = record.text,
+                source = record.source.name,
+                sensitivity = record.sensitivity.name,
+                privacy = record.privacy.name,
+                expiresAtMillis = record.expiresAtMillis,
+                conflictKey = record.conflictKey,
                 createdAtMillis = existing?.createdAtMillis ?: now,
                 updatedAtMillis = now,
             ),
@@ -927,7 +1036,33 @@ private data class MemoryEntry(
     val searchText: String,
     val lexicalEmbedding: FloatArray,
     val semanticEmbedding: FloatArray?,
+    val source: MemoryRecordSource,
+    val sensitivity: MemoryRecordSensitivity,
+    val privacy: MessagePrivacy,
+    val expiresAtMillis: Long?,
+    val conflictKey: String?,
 )
+
+private fun MemoryEntry.toPersistedRecord(): PersistedMemoryRecord =
+    PersistedMemoryRecord(
+        id = id,
+        type = type,
+        text = text,
+        source = source,
+        sensitivity = sensitivity,
+        privacy = privacy,
+        expiresAtMillis = expiresAtMillis,
+        conflictKey = conflictKey,
+    )
+
+private fun PersistedMemoryRecord.isExpired(nowMillis: Long): Boolean =
+    expiresAtMillis?.let { expiresAt -> expiresAt <= nowMillis } == true
+
+private fun MemoryHit.isExpired(nowMillis: Long): Boolean =
+    expiresAtMillis?.let { expiresAt -> expiresAt <= nowMillis } == true
+
+private fun MemoryEntry.isExpired(nowMillis: Long): Boolean =
+    expiresAtMillis?.let { expiresAt -> expiresAt <= nowMillis } == true
 
 private fun MemoryRecordType.isSemanticRecallEligible(): Boolean =
     this == MemoryRecordType.Preference ||

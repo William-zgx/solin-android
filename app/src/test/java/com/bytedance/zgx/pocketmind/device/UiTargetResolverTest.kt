@@ -256,6 +256,58 @@ class UiTargetResolverTest {
     }
 
     @Test
+    fun explainIncludesRankedScoreEvidenceAndFailureKind() {
+        val snapshot = snapshot(
+            packageName = "com.taobao.taobao",
+            nodes = listOf(
+                node(
+                    id = "result-list",
+                    text = "搜索 海河牛奶 综合 销量 筛选 商品列表 旗舰店 ￥29 已售1000 评价",
+                    bounds = ScreenBounds(0, 220, 1080, 1800),
+                    clickable = true,
+                    scrollable = true,
+                ),
+                node(
+                    id = "search-entry",
+                    text = "搜索商品",
+                    bounds = ScreenBounds(16, 72, 1064, 152),
+                    clickable = true,
+                ),
+            ),
+        )
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")
+
+        assertEquals(UiTargetKind.SearchEntry, evidence.kind)
+        assertEquals("搜索入口", evidence.target)
+        assertEquals("com.taobao.taobao", evidence.packageName)
+        assertEquals(null, evidence.failureKind)
+        assertEquals("search-entry", evidence.selectedNodeId)
+        assertEquals("search-entry", evidence.rankedCandidates.firstOrNull()?.nodeId)
+        assertEquals("搜索商品", evidence.rankedCandidates.firstOrNull()?.label)
+        assertTrue(evidence.rankedCandidates.firstOrNull()?.clickable == true)
+        assertTrue(evidence.rankedCandidates.firstOrNull()?.score?.semanticScore ?: 0 > 0)
+        assertTrue(evidence.rankedCandidates.firstOrNull()?.score?.profileHintScore ?: 0 > 0)
+        assertEquals(
+            UiTargetResolver.resolve(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")?.confidence,
+            evidence.rankedCandidates.firstOrNull()?.score?.finalScore,
+        )
+
+        val failed = UiTargetResolver.explain(
+            snapshot(
+                nodes = listOf(
+                    node(id = "home", text = "首页", bounds = ScreenBounds(0, 0, 200, 120), clickable = true),
+                ),
+            ),
+            UiTargetKind.SearchEntry,
+            target = "搜索入口",
+        )
+
+        assertEquals(UiActionFailureKind.SearchEntryNotFound, failed.failureKind)
+        assertTrue(failed.rankedCandidates.isEmpty())
+    }
+
+    @Test
     fun doesNotResolveLargeResultListAsSearchEntry() {
         val snapshot = snapshot(
             packageName = "com.taobao.taobao",

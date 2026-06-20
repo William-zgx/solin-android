@@ -19,6 +19,7 @@ import com.bytedance.zgx.pocketmind.evidence.EvidenceQualityLevel
 import com.bytedance.zgx.pocketmind.evidence.EvidenceSourceType
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
+import com.bytedance.zgx.pocketmind.memory.isAvailableForLocalContext
 import com.bytedance.zgx.pocketmind.runtime.estimateLocalRuntimeTokens
 import com.bytedance.zgx.pocketmind.safety.SafetyContext
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
@@ -42,6 +43,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolResultContinuationPolicy
+import com.bytedance.zgx.pocketmind.tool.ToolSpec
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import com.bytedance.zgx.pocketmind.tool.cancelled
 import com.bytedance.zgx.pocketmind.tool.failed
@@ -548,7 +550,9 @@ class AgentLoopRuntime(
         val run = traceStore.run(runId) ?: return
         if (run.state != AgentRunState.GeneratingAnswer) return
         val sanitizedNames = toolNames
-            .filter { toolName -> toolRegistry.isKnownTool(toolName) }
+            .mapNotNull { toolName -> toolRegistry.specFor(toolName) }
+            .filter { spec -> spec.isExposableInRemoteToolScope(scope) }
+            .map { spec -> spec.name }
             .toSortedSet()
         remoteToolScopesByRunId[runId] = scope
         remoteExposedToolNamesByRunId[runId] = sanitizedNames
@@ -703,28 +707,28 @@ class AgentLoopRuntime(
         val plans = mutableListOf<AgentPlan.UseTool>()
         requests.forEach { request ->
             rejectRemoteToolIfNotExposedInCurrentScope(runId, request)?.let { rejection ->
-                return rejectModelToolBatch(runId = runId, result = rejection)
+                return rejectModelToolBatch(runId = runId, result = rejection.withAttemptedToolNames(requests))
             }
             toolRegistry.validate(request)?.let { rejection ->
-                return rejectModelToolBatch(runId = runId, result = rejection)
+                return rejectModelToolBatch(runId = runId, result = rejection.withAttemptedToolNames(requests))
             }
             val spec = toolRegistry.specFor(request.toolName) ?: return rejectModelToolBatch(
                 runId = runId,
-                result = request.rejected("Unknown tool: ${request.toolName}"),
+                result = request.rejected("Unknown tool: ${request.toolName}").withAttemptedToolNames(requests),
             )
             if (!spec.isPublicEvidenceBatchEligible()) {
                 return rejectModelToolBatch(
                     runId = runId,
                     result = request.rejected(
                         "Tool ${request.toolName} is not eligible for parallel public evidence execution.",
-                    ),
+                    ).withAttemptedToolNames(requests),
                 )
             }
             val safetyDecision = safetyPolicy.evaluate(spec, request, SafetyContext(userConfirmed = false))
             if (safetyDecision.outcome != SafetyOutcome.Allow) {
                 return rejectModelToolBatch(
                     runId = runId,
-                    result = request.rejected(safetyDecision.reason),
+                    result = request.rejected(safetyDecision.reason).withAttemptedToolNames(requests),
                     safetyDecision = safetyDecision,
                 )
             }
@@ -1921,16 +1925,17 @@ class AgentLoopRuntime(
         memoryHits: List<MemoryHit>,
         deviceContext: DeviceContextSnapshot?,
     ): String {
-        if (memoryHits.isEmpty() && deviceContext == null) return input
+        val localMemoryHits = memoryHits.filter { hit -> hit.isAvailableForLocalContext() }
+        if (localMemoryHits.isEmpty() && deviceContext == null) return input
         val evidenceCards = budgetEvidenceCards(
-            cards = evidenceCardsForAnswerContext(memoryHits, deviceContext),
+            cards = evidenceCardsForAnswerContext(localMemoryHits, deviceContext),
             input = input,
         )
         val memoryBlock = evidenceCards
             .filter { card -> card.sourceType == EvidenceSourceType.Memory }
             .joinToString(separator = "\n") { card -> card.toPromptLine() }
             .ifBlank {
-                runCatching { memoryIndex.buildContext(memoryHits) }.getOrDefault("")
+                runCatching { memoryIndex.buildContext(localMemoryHits) }.getOrDefault("")
             }
         val safeMemoryBlock = if (memoryBlock.isBlank()) {
             "无"
@@ -1959,19 +1964,21 @@ class AgentLoopRuntime(
         deviceContext: DeviceContextSnapshot?,
     ): List<EvidenceCard> =
         buildList {
-            memoryHits.forEach { hit ->
-                add(
-                    EvidenceCard(
-                        id = "memory:${hit.id}",
-                        sourceType = EvidenceSourceType.Memory,
-                        privacy = MessagePrivacy.LocalOnly,
-                        requiresLocalModel = true,
-                        text = hit.text,
-                        quality = EvidenceQuality(hit.memoryEvidenceQualityLevel()),
-                        tokenEstimate = estimateLocalRuntimeTokens(hit.text),
-                    ),
-                )
-            }
+            memoryHits
+                .filter { hit -> hit.isAvailableForLocalContext() }
+                .forEach { hit ->
+                    add(
+                        EvidenceCard(
+                            id = "memory:${hit.id}",
+                            sourceType = EvidenceSourceType.Memory,
+                            privacy = MessagePrivacy.LocalOnly,
+                            requiresLocalModel = true,
+                            text = hit.text,
+                            quality = EvidenceQuality(hit.memoryEvidenceQualityLevel()),
+                            tokenEstimate = estimateLocalRuntimeTokens(hit.text),
+                        ),
+                    )
+                }
             val deviceText = deviceContext?.toPromptContext()?.takeIf { it.isNotBlank() }
             if (deviceText != null) {
                 add(
@@ -2724,11 +2731,7 @@ class AgentLoopRuntime(
                 "Remote tool ${request.toolName} was not exposed in the current remote tool snapshot.",
             )
         }
-        val exposed = when (scope) {
-            RemoteToolScope.PublicEvidenceOnly -> spec.isPublicEvidenceBatchEligible()
-            RemoteToolScope.ModelPlanning -> spec.isRemoteModelPlanningEligible()
-        }
-        return if (exposed) {
+        return if (spec.isExposableInRemoteToolScope(scope)) {
             null
         } else {
             request.rejected(
@@ -2736,6 +2739,12 @@ class AgentLoopRuntime(
             )
         }
     }
+
+    private fun ToolSpec.isExposableInRemoteToolScope(scope: RemoteToolScope): Boolean =
+        when (scope) {
+            RemoteToolScope.PublicEvidenceOnly -> isPublicEvidenceBatchEligible()
+            RemoteToolScope.ModelPlanning -> isRemoteModelPlanningEligible()
+        }
 
     private fun AgentPlan.UseTool.withConfirmationBypassForRun(runId: String): AgentPlan.UseTool {
         if (lowRiskDeviceActionConfirmationBypassByRunId[runId] != true) return this
@@ -2910,6 +2919,13 @@ class AgentLoopRuntime(
     private fun ToolResult.requiresLocalModelContinuation(): Boolean =
         data["requiresLocalModel"]?.toBooleanStrictOrNull() == true ||
             data["privacy"] == MessagePrivacy.LocalOnly.name
+
+    private fun ToolResult.withAttemptedToolNames(requests: List<ToolRequest>): ToolResult =
+        copy(
+            data = data + mapOf(
+                "attemptedToolNames" to requests.joinToString(",") { request -> request.toolName },
+            ),
+        )
 
     private fun ToolResult.redactedForTrace(request: ToolRequest?): ToolResult {
         val toolName = request?.toolName ?: return this

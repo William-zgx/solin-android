@@ -36,8 +36,16 @@ SKIP_COUNT=0
 FAIL_COUNT=0
 REQUEST_COUNT=0
 CONTROL_SESSION_ACTIVE=0
+LAST_DIAGNOSTICS_DIR=""
 
 mkdir -p "$ARTIFACT_DIR"
+
+sha256_file() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  fi
+}
 
 sanitize_artifact_name() {
   local value="$1"
@@ -55,6 +63,7 @@ capture_failure_diagnostics() {
   fi
   safe_label="$(sanitize_artifact_name "$label")"
   diag_dir="${DIAGNOSTICS_DIR}/${safe_label}"
+  LAST_DIAGNOSTICS_DIR="$diag_dir"
   remote_dump="/sdcard/pocketmind-eval-${safe_label}.xml"
   mkdir -p "$diag_dir"
   {
@@ -76,6 +85,16 @@ capture_failure_diagnostics() {
     "$ADB_BIN" -s "$SELECTED_SERIAL" shell dumpsys window windows 2>/dev/null | tr -d '\r' || true
   } > "${diag_dir}/focused-window.txt"
   "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t 1000 > "${diag_dir}/logcat.txt" 2>/dev/null || true
+  {
+    echo "screenshot_file=${diag_dir}/screenshot.png"
+    echo "screenshot_sha256=$(sha256_file "${diag_dir}/screenshot.png")"
+    echo "uiautomator_dump_file=${diag_dir}/uiautomator.xml"
+    echo "uiautomator_dump_sha256=$(sha256_file "${diag_dir}/uiautomator.xml")"
+    echo "focused_window_file=${diag_dir}/focused-window.txt"
+    echo "focused_window_sha256=$(sha256_file "${diag_dir}/focused-window.txt")"
+    echo "logcat_file=${diag_dir}/logcat.txt"
+    echo "logcat_sha256=$(sha256_file "${diag_dir}/logcat.txt")"
+  } >> "${diag_dir}/diagnostics.properties"
   echo "Failure diagnostics: ${diag_dir}" >&2
 }
 
@@ -100,7 +119,8 @@ write_report() {
     echo "logcat_file=$LOGCAT_FILE"
     echo "diagnostics_dir=$DIAGNOSTICS_DIR"
     echo "result_file_pattern=${RESULT_FILE_PREFIX}<requestId>${RESULT_FILE_SUFFIX}"
-    echo "cases=taobao,pdd,gaode,chrome"
+    echo "case_artifact_schema=RealAppSearchCaseArtifact/v1"
+    echo "cases=taobao,pdd,gaode,jd,chrome,android_browser,quark,uc"
   } > "$REPORT_FILE"
   echo "Real app search eval report: $REPORT_FILE"
 }
@@ -243,11 +263,12 @@ case_broadcast_command() {
   local output_var="$1"
   local case_name="$2"
   local failure_reason="$3"
-  local output_file
+  local command_name output_file
   shift 3
+  command_name="${1:-unknown}"
   if ! output_file="$(broadcast_command "$@")"; then
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "$failure_reason"
+    write_case_result "$case_name" "failed" "$failure_reason" "$command_name" ""
     return 1
   fi
   printf -v "$output_var" '%s' "$output_file"
@@ -279,12 +300,53 @@ write_case_result() {
   local case_name="$1"
   local status="$2"
   local reason="$3"
+  local failed_step="${4:-}"
+  local result_file="${5:-}"
   local file="${ARTIFACT_DIR}/${case_name}.case.properties"
   {
+    echo "artifact_schema=RealAppSearchCaseArtifact/v1"
     echo "case=$case_name"
     echo "status=$status"
     echo "reason=$reason"
+    echo "failed_step=$failed_step"
+    echo "result_file=$result_file"
+    if [[ -n "$result_file" && -f "$result_file" ]]; then
+      echo "result_file_sha256=$(sha256_file "$result_file")"
+      copy_result_property "$result_file" "targetResolution.available" "target_resolution_available"
+      copy_result_property "$result_file" "targetResolution.kind" "target_resolution_kind"
+      copy_result_property "$result_file" "targetResolution.target" "target_resolution_target"
+      copy_result_property "$result_file" "targetResolution.packageName" "target_resolution_package_name"
+      copy_result_property "$result_file" "targetResolution.selectedNodeId" "target_resolution_selected_node_id"
+      copy_result_property "$result_file" "targetResolution.failureKind" "target_resolution_failure_kind"
+      copy_result_property "$result_file" "targetResolution.candidateCount" "target_resolution_candidate_count"
+      copy_result_property "$result_file" "targetResolution.candidatesJson" "target_resolution_candidates_json"
+    else
+      echo "result_file_sha256="
+      echo "target_resolution_available=false"
+      echo "target_resolution_failure_kind="
+      echo "target_resolution_candidate_count=0"
+    fi
+    echo "diagnostics_dir=$LAST_DIAGNOSTICS_DIR"
+    if [[ -n "$LAST_DIAGNOSTICS_DIR" && -f "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" ]]; then
+      copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "screenshot_file" "screenshot_file"
+      copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "screenshot_sha256" "screenshot_sha256"
+      copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "uiautomator_dump_file" "uiautomator_dump_file"
+      copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "uiautomator_dump_sha256" "uiautomator_dump_sha256"
+      copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "focused_window_file" "focused_window_file"
+      copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "focused_window_sha256" "focused_window_sha256"
+      copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "logcat_file" "case_logcat_file"
+      copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "logcat_sha256" "case_logcat_sha256"
+    fi
   } > "$file"
+}
+
+copy_result_property() {
+  local source_file="$1"
+  local source_key="$2"
+  local target_key="$3"
+  local value
+  value="$(grep -m 1 "^${source_key}=" "$source_file" 2>/dev/null | cut -d= -f2- | tr -d '\r\n' || true)"
+  echo "${target_key}=$value"
 }
 
 package_installed() {
@@ -329,16 +391,18 @@ run_case() {
   if ! package_installed "$package_name"; then
     echo "Skipping $case_name: package not installed ($package_name)"
     SKIP_COUNT=$((SKIP_COUNT + 1))
-    write_case_result "$case_name" "skipped" "package_not_installed:$package_name"
+    LAST_DIAGNOSTICS_DIR=""
+    write_case_result "$case_name" "skipped" "package_not_installed:$package_name" "package_check" ""
     return 0
   fi
 
   RUN_COUNT=$((RUN_COUNT + 1))
+  LAST_DIAGNOSTICS_DIR=""
   echo "Running $case_name on $package_name"
   force_stop_target_app "$package_name"
   if ! start_control_session_for_case "$case_name" "$app_name"; then
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "control_session_failed"
+    write_case_result "$case_name" "failed" "control_session_failed" "start_control_session" ""
     return 1
   fi
   launch_package "$package_name"
@@ -347,12 +411,12 @@ run_case() {
     "${case_name}-observe" --es command observe || return 1
   assert_file_contains "$observe_file" "resultType=available" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "observe_failed"
+    write_case_result "$case_name" "failed" "observe_failed" "observe" "$observe_file"
     return 1
   }
   assert_file_contains "$observe_file" "packageName=$package_name" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "app_not_foreground"
+    write_case_result "$case_name" "failed" "app_not_foreground" "observe" "$observe_file"
     return 1
   }
 
@@ -360,7 +424,7 @@ run_case() {
     "${case_name}-tap" --es command tap --es target "$tap_target" --el timeoutMillis 2000 || return 1
   assert_file_contains "$tap_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "search_entry_not_found"
+    write_case_result "$case_name" "failed" "search_entry_not_found" "tap" "$tap_file"
     return 1
   }
 
@@ -368,7 +432,7 @@ run_case() {
     "${case_name}-type" --es command type_text --es target "$type_target" --es text "$query" --el timeoutMillis 2000 || return 1
   assert_file_contains "$type_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "editable_not_found"
+    write_case_result "$case_name" "failed" "editable_not_found" "type_text" "$type_file"
     return 1
   }
 
@@ -376,7 +440,7 @@ run_case() {
     "${case_name}-submit" --es command submit_search --el timeoutMillis 2000 || return 1
   assert_file_contains "$submit_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "submit_not_found"
+    write_case_result "$case_name" "failed" "submit_not_found" "submit_search" "$submit_file"
     return 1
   }
 
@@ -384,24 +448,25 @@ run_case() {
     "${case_name}-verify" --es command wait --es verifySearchQuery "$query" --es expectedPackageName "$package_name" --es expectedAppName "$app_name" --el timeoutMillis 1000 || return 1
   assert_file_contains "$verify_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "result_not_verified"
+    write_case_result "$case_name" "failed" "result_not_verified" "verify" "$verify_file"
     return 1
   }
   assert_file_contains "$verify_file" "searchVerificationStatus=verified" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "result_not_verified"
+    write_case_result "$case_name" "failed" "result_not_verified" "verify" "$verify_file"
     return 1
   }
   if [[ -n "$required_hint" ]]; then
     assert_file_contains "$verify_file" "$required_hint" || {
       FAIL_COUNT=$((FAIL_COUNT + 1))
-      write_case_result "$case_name" "failed" "required_hint_missing"
+      write_case_result "$case_name" "failed" "required_hint_missing" "verify" "$verify_file"
       return 1
     }
   fi
 
   PASS_COUNT=$((PASS_COUNT + 1))
-  write_case_result "$case_name" "passed" ""
+  LAST_DIAGNOSTICS_DIR=""
+  write_case_result "$case_name" "passed" "" "" "$verify_file"
   stop_control_session
 }
 
@@ -409,7 +474,11 @@ overall_status=0
 run_case taobao com.taobao.taobao "淘宝" "海河牛奶" "搜索入口" "搜索输入框" "筛选" || overall_status=1
 run_case pdd com.xunmeng.pinduoduo "拼多多" "纸巾" "搜索入口" "搜索输入框" "筛选" || overall_status=1
 run_case gaode com.autonavi.minimap "高德" "机场" "搜索入口" "搜索输入框" "查看地图" || overall_status=1
+run_case jd com.jingdong.app.mall "京东" "数据线" "搜索入口" "搜索输入框" "筛选" || overall_status=1
 run_case chrome com.android.chrome "浏览器" "PocketMindAgentChrome" "地址栏" "地址栏" "PocketMindAgentChrome" || overall_status=1
+run_case android_browser com.android.browser "浏览器" "PocketMindAgentBrowser" "地址栏" "地址栏" "PocketMindAgentBrowser" || overall_status=1
+run_case quark com.quark.browser "夸克" "PocketMindAgentQuark" "地址栏" "地址栏" "PocketMindAgentQuark" || overall_status=1
+run_case uc com.UCMobile "UC浏览器" "PocketMindAgentUC" "地址栏" "地址栏" "PocketMindAgentUC" || overall_status=1
 
 if [[ "$RUN_COUNT" -eq 0 ]]; then
   fail_with_reason no-target-apps-installed "No target app packages were installed; all cases skipped."

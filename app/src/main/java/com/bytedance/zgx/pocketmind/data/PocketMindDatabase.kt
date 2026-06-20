@@ -17,6 +17,8 @@ import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.bytedance.zgx.pocketmind.MessagePrivacy
+import com.bytedance.zgx.pocketmind.memory.MemoryRecordSensitivity
+import com.bytedance.zgx.pocketmind.memory.MemoryRecordSource
 
 @Entity(tableName = "chat_sessions")
 data class ChatSessionEntity(
@@ -102,6 +104,14 @@ data class MemoryRecordEntity(
     @PrimaryKey val id: String,
     val type: String,
     val text: String,
+    @ColumnInfo(defaultValue = "'LegacyImport'")
+    val source: String = MemoryRecordSource.LegacyImport.name,
+    @ColumnInfo(defaultValue = "'Normal'")
+    val sensitivity: String = MemoryRecordSensitivity.Normal.name,
+    @ColumnInfo(defaultValue = "'LocalOnly'")
+    val privacy: String = MessagePrivacy.LocalOnly.name,
+    val expiresAtMillis: Long? = null,
+    val conflictKey: String? = null,
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
 )
@@ -604,7 +614,7 @@ interface AgentTraceDao {
         PendingAgentConfirmationEntity::class,
         AgentSkillRunCheckpointEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = false,
 )
 abstract class PocketMindDatabase : RoomDatabase() {
@@ -886,6 +896,22 @@ abstract class PocketMindDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `memory_records` ADD COLUMN `source` TEXT NOT NULL DEFAULT '${MemoryRecordSource.LegacyImport.name}'",
+                )
+                db.execSQL(
+                    "ALTER TABLE `memory_records` ADD COLUMN `sensitivity` TEXT NOT NULL DEFAULT '${MemoryRecordSensitivity.Normal.name}'",
+                )
+                db.execSQL(
+                    "ALTER TABLE `memory_records` ADD COLUMN `privacy` TEXT NOT NULL DEFAULT '${MessagePrivacy.LocalOnly.name}'",
+                )
+                db.execSQL("ALTER TABLE `memory_records` ADD COLUMN `expiresAtMillis` INTEGER")
+                db.execSQL("ALTER TABLE `memory_records` ADD COLUMN `conflictKey` TEXT")
+            }
+        }
+
         fun get(context: Context): PocketMindDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -907,6 +933,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
                         MIGRATION_11_12,
                         MIGRATION_12_13,
                         MIGRATION_13_14,
+                        MIGRATION_14_15,
                     )
                     .allowMainThreadQueries()
                     .build()

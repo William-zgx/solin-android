@@ -242,6 +242,20 @@ with each RC before treating this checklist as complete.
   artifact so crash stacks can be decoded. Attach
   `release-mapping.properties` from `scripts/verify_release_mapping.sh`; the
   `PUBLIC_RELEASE=1` gate requires this mapping check.
+- [ ] Public-release AI behavior eval is run with a real planner actual trace
+  file. Attach `ai-behavior-eval.properties` and
+  `ai-behavior-planning-trace-diff.jsonl`; the report must include
+  `artifactSchema=AgentBehaviorEvalVerification/v1`, owner, UTC `recordedAt`,
+  reproducible command, `actualTraceSha256`, `traceDiffSha256`, and
+  `requireActualTrace=1` / `requireRuntimeTraceSource=1`. Each actual trace row
+  must include a machine source such as `agent_loop_runtime`,
+  `android_instrumentation`, or `device_debug_eval`, plus a UTC
+  `traceRecordedAt`. `PUBLIC_RELEASE=1` requires
+  `AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl>` and fails closed if the
+  file is missing, lacks runtime provenance, is stale, mismatched, or has extra
+  rows. Use `scripts/collect_ai_behavior_actual_trace.sh` for the deterministic
+  local `agent_loop_runtime` trace collection step; do not replace it with a
+  hand-copied fixture file.
 
 ## Test Matrix
 
@@ -274,15 +288,26 @@ with each RC before treating this checklist as complete.
   `instrumentation_test_count` from the verification report. Physical device
   reports must also include `exit_code=0`, empty `failedTarget`/`reason`, UTC
   start/finish fields, sufficient `data_free_kb`, and a readable
-  `instrumentation_output_file` containing the final `OK` marker. The `OK`
-  count must match `instrumentation_test_count`, and `debug_apk` /
-  `android_test_apk` must match the project-approved debug APK paths. Emulator
-  release records should link `regression-emulator.properties` plus the nested
-  emulator/device reports, and each linked report must include a matching
-  SHA-256 in `docs/release_validation_record.json`.
+  `instrumentation_output_file` containing the final `OK` marker. The report
+  must also bind `instrumentation_output_sha256`, `logcat_file`, and
+  `logcat_sha256`; physical and API-matrix nested device reports without
+  matching instrumentation/logcat SHA are not acceptable release evidence. The
+  `OK` count must match `instrumentation_test_count`, `test_count` should mirror
+  that value, and `debug_apk` / `android_test_apk` must match the
+  project-approved debug APK paths. Emulator release records should link
+  `regression-emulator.properties` plus the nested emulator/device reports, and
+  each linked report must include a matching SHA-256 in
+  `docs/release_validation_record.json`.
 - [ ] Failed device, emulator, or regression reports include machine-readable
   `failedTarget` and `reason` fields plus any generated screenshot, window dump,
   logcat, or instrumentation evidence paths.
+- [ ] Debug real-app search evidence, when sampled for App-control readiness, is
+  attached separately from release physical evidence. Each failed
+  `run_real_app_search_eval.sh` case must include a
+  `RealAppSearchCaseArtifact/v1` case report with `failed_step`,
+  `result_file_sha256`, `target_resolution_failure_kind`,
+  `target_resolution_candidates_json`, and screenshot/UIAutomator/window/logcat
+  files with SHA-256.
 - [ ] Manual acceptance in `docs/phone_acceptance.md` is sampled for model
   setup, remote-mode privacy, tool confirmation, permissions, background
   reminders, sharing, and multimodal entry points.
@@ -321,8 +346,9 @@ with each RC before treating this checklist as complete.
   ACTION_SEND text staging, remote-mode text-share protection, remote vision
   image attachment staging through an endpoint/model that supports
   OpenAI-compatible `image_url` content, unsupported-vision protection, no
-  implicit image OCR, bounded document excerpts, and picker attachment
-  prompting.
+  implicit image OCR, per-send remote vision preview confirmation, cancel path
+  that keeps the remote runtime idle, bounded document excerpts, and picker
+  attachment prompting.
 - [ ] `privacyAndDataControls` release flow evidence must explicitly record
   the App privacy notice entry, long-term memory clear and forget controls,
   current-session deletion, remote configuration clearing, and deletion/control
@@ -361,7 +387,8 @@ with each RC before treating this checklist as complete.
   HTTPS configuration, encrypted API key clear, session persistence, memory
   controls, privacy/data controls, reminders after reboot, share/picker input,
   voice input, Accessibility text, recent media OCR, and MediaProjection
-  cancellation.
+  cancellation, including one-shot MediaProjection consent and LocalOnly
+  current-screen screenshot OCR remote-continuation blocking.
   Candidate evidence files marked `candidateOnly=true`,
   `releaseFlowPassed=false`, or `target=release-flow-matrix-candidate-evidence`
   are reviewer input only and must not be referenced as passed flow evidence in

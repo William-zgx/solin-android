@@ -86,8 +86,18 @@ items below.
   raw prompts, tool parameters, screenshots, clipboard content, or API keys.
 - `scripts/verify_ai_behavior_eval.sh` now emits machine-readable behavior
   coverage metrics and the release gate requires `mvpScenario` boundary mapping
-  for the fixture suite. This makes Agent behavior coverage auditable without
-  requiring live model execution in CI.
+  for the fixture suite. Public release gate runs also require
+  `AI_BEHAVIOR_ACTUAL_TRACE_FILE` and bind the actual trace / planning diff
+  evidence by SHA-256. Strict runs require per-row machine provenance
+  (`traceSource` plus UTC `traceRecordedAt`), so final Agent behavior evidence
+  cannot be a fixture-only dry run. `scripts/collect_ai_behavior_actual_trace.sh`
+  now produces the local `agent_loop_runtime` actual trace collection report; the
+  latest local OCR/recovery collector report
+  `build/verification/ai-behavior-actual-trace-collector-ocr-recovery-v13/ai-behavior-actual-trace-collection.properties`
+  records 31 runtime-sourced rows, `traceDiffMatchedCount=17`,
+  `traceDiffAllowedFailureCount=9`, and `traceDiffMismatchCount=5`. It now includes
+  metadata-only OCR truncation evidence and restart-restored confirmation evidence. This evidence is intentionally diagnostic until
+  the mismatch count reaches zero or only allowed failures remain.
 
 ## Remaining release blockers by ownership
 
@@ -103,4 +113,4 @@ items below.
 | Physical hardware required | Device validation owner | Investigate the current full physical-device instrumentation crash before binding physical-device release evidence. On 2026-06-17, `fb6272c` (`Xiaomi 23127PN0CC`, API 36, `arm64-v8a`) crashed in `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`; see `build/verification/device-20260617-000355/device-verification.properties` (`failedTarget=instrumentation`, `reason=instrumentation-failed`) and `instrumentation.txt` (`shortMsg=Process crashed.`). | A passing physical `scripts/install_and_test_device.sh` report, plus failure evidence for any remaining crash or timeout. |
 | SDK/AVD environment required | CI / emulator owner | Prepare API 28/32/33/34 arm64 emulator system images and AVDs before claiming API matrix coverage. | `scripts/check_emulator_api_matrix.sh` records missing packages/AVDs; `scripts/prepare_emulator_api_matrix.sh` produces dry-run/apply commands; `scripts/regression_emulator_api_matrix.sh` generates matrix evidence. |
 | Physical hardware required | Performance owner | Run final release-candidate validation and performance SLO collection on target physical arm64 hardware. Emulator validation does not cover LiteRT-LM GPU/performance behavior. | `scripts/collect_perf_baseline.sh` or equivalent `perf-baseline.properties`, then `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh`; verifier rejects emulator serials, stale/future timestamps, wrong ABI/version/artifact SHA, OOM/ANR, and zero timing/memory values. |
-| Public-release final gate | Release owner | After production signing, AAB generation, approvals, validation, and perf evidence are complete, run the public release gate. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> PERF_BASELINE_FILE=<rc perf baseline> scripts/verify_release_gate.sh`; this enables release record, store policy, operations, validation, privacy review, model license, signed artifact/AAB, cert fingerprint, and mapping checks. |
+| Public-release final gate | Release owner | After production signing, AAB generation, approvals, validation, perf evidence, and Agent behavior actual trace evidence are complete, run the public release gate. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> PERF_BASELINE_FILE=<rc perf baseline> AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl> scripts/verify_release_gate.sh`; this enables release record, store policy, operations, validation, privacy review, model license, signed artifact/AAB, cert fingerprint, mapping, perf, and AI behavior actual trace checks. |

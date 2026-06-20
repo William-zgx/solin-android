@@ -497,6 +497,10 @@ class ActionPlannerTest {
         assertEquals(ActionPlanKind.NoAction, planner.plan("Wi-Fi 设置页面怎么设计").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("不要打开 Wi-Fi 设置，只解释一下").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("Do not open Wi-Fi settings; explain only").kind)
+        assertFalse(
+            planner.plan("打开名为 WiFi 的 App").draft?.functionName ==
+                MobileActionFunctions.OPEN_WIFI_SETTINGS,
+        )
         assertEquals(ActionPlanKind.NoAction, planner.plan("手电筒 API 怎么用").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("打开手电筒").kind)
         assertEquals(ActionPlanKind.NoAction, planner.plan("Usage Access API 怎么用").kind)

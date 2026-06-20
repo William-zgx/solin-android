@@ -42,6 +42,7 @@ import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.evidence.EvidenceCard
 import com.bytedance.zgx.pocketmind.evidence.EvidenceQuality
 import com.bytedance.zgx.pocketmind.evidence.EvidenceQualityLevel
+import com.bytedance.zgx.pocketmind.evidence.EvidenceReceiptSummary
 import com.bytedance.zgx.pocketmind.evidence.EvidenceSourceType
 import com.bytedance.zgx.pocketmind.evidence.toEvidenceReceiptSummary
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
@@ -61,6 +62,7 @@ import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachment
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachmentKind
 import com.bytedance.zgx.pocketmind.multimodal.SharedInput
+import com.bytedance.zgx.pocketmind.multimodal.toSharedEvidenceReceiptSummary
 import com.bytedance.zgx.pocketmind.orchestration.AgentModelObservationResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
@@ -86,6 +88,7 @@ import com.bytedance.zgx.pocketmind.runtime.GenerationRuntimeKind
 import com.bytedance.zgx.pocketmind.runtime.AdaptiveGenerationPolicy
 import com.bytedance.zgx.pocketmind.runtime.AdaptiveGenerationPolicyInput
 import com.bytedance.zgx.pocketmind.runtime.LocalModelRequest
+import com.bytedance.zgx.pocketmind.runtime.LocalModelRuntimeCapabilities
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.ModelOutputQualityGuard
 import com.bytedance.zgx.pocketmind.runtime.OkHttpRemoteModelConnectivityProbe
@@ -847,6 +850,12 @@ class PocketMindViewModel(
 
     fun selectBackend(choice: BackendChoice) {
         if (_uiState.value.isBusy || _uiState.value.backend == choice) return
+        if (!backendAllowedForActiveModel(_uiState.value, choice)) {
+            _uiState.update {
+                it.copy(statusText = "当前模型不支持 ${choice.label()}，请使用可用后端")
+            }
+            return
+        }
         generationParametersRepository.saveBackend(choice)
         _uiState.update {
             it.copy(
@@ -1094,12 +1103,16 @@ class PocketMindViewModel(
     fun loadModel() {
         val path = _uiState.value.modelPath ?: return
         if (_uiState.value.isBusy) return
-        val backendChoice = _uiState.value.backend
+        val backendChoice = preferredBackendForActiveModel(_uiState.value, _uiState.value.backend)
         remoteModelRepository.saveMode(InferenceMode.Local)
+        if (backendChoice != _uiState.value.backend) {
+            generationParametersRepository.saveBackend(backendChoice)
+        }
 
         _uiState.update {
             it.copy(
                 inferenceMode = InferenceMode.Local,
+                backend = backendChoice,
                 isBusy = true,
                 isDownloading = false,
                 isReady = false,
@@ -1116,10 +1129,10 @@ class PocketMindViewModel(
         }
 
         viewModelScope.launch(ioDispatcher) {
-            val supportsVisionInput = _uiState.value.activeLocalModelSupportsVisionInput
+            val runtimeCapabilities = localModelRuntimeCapabilitiesFor(_uiState.value)
             val result = runCatching {
                 runtimeLock.withLock {
-                    runtime.configureModelCapabilities(supportsVisionInput = supportsVisionInput)
+                    runtime.configureModelCapabilities(runtimeCapabilities)
                     runtime.load(
                         modelPath = path,
                         backend = backendChoice,
@@ -1150,10 +1163,12 @@ class PocketMindViewModel(
                 },
                 onFailure = { throwable ->
                     var fallbackFailure: Throwable? = null
-                    if (backendChoice == BackendChoice.GPU) {
+                    if (backendChoice == BackendChoice.GPU &&
+                        backendAllowedForActiveModel(_uiState.value, BackendChoice.CPU)
+                    ) {
                         val cpuResult = runCatching {
                             runtimeLock.withLock {
-                                runtime.configureModelCapabilities(supportsVisionInput = supportsVisionInput)
+                                runtime.configureModelCapabilities(runtimeCapabilities)
                                 runtime.load(
                                     modelPath = path,
                                     backend = BackendChoice.CPU,
@@ -1333,6 +1348,7 @@ class PocketMindViewModel(
         imageAttachments: List<ChatImageAttachment> = emptyList(),
         localImageAttachments: List<LocalImageAttachment> = emptyList(),
         remoteSendConfirmed: Boolean = false,
+        currentPromptEvidenceSummary: EvidenceReceiptSummary? = null,
     ) {
         val trimmed = prompt.trim()
         if (trimmed.isNotEmpty() && _uiState.value.pendingConfirmation != null) {
@@ -1528,7 +1544,7 @@ class PocketMindViewModel(
             effectiveMessagePrivacy == MessagePrivacy.RemoteEligible &&
             remoteConfig.isConfigured &&
             !remoteSendConfirmed &&
-            shouldRequireRemoteSendDisclosure()
+            shouldRequireRemoteSendDisclosure(imageAttachmentCount = imageAttachments.size)
         ) {
             _uiState.update {
                 it.copy(
@@ -1582,6 +1598,7 @@ class PocketMindViewModel(
                     currentPromptPrivacy = effectiveMessagePrivacy,
                     remoteHistoryCount = remoteHistory.size,
                     imageAttachmentCount = imageAttachments.size + localImageAttachmentCount,
+                    currentPromptEvidenceSummary = currentPromptEvidenceSummary,
                 )
                 route.runIdOrNull()?.let { runId ->
                     assistantOrchestrator.recordRunDataReceipt(
@@ -2128,7 +2145,7 @@ class PocketMindViewModel(
         if (pending.requiresSensitiveConsent) return
         // Only honor "don't ask again this session" for non-forced sends.
         // Sensitive disclosures must never be silenced — they re-prompt every time regardless.
-        if (suppressForSession && !pending.forcedBySensitiveContent) {
+        if (suppressForSession && !pending.forcedBySensitiveContent && pending.imageAttachmentCount == 0) {
             remoteSendDisclosureSuppressedForSession = true
         }
         recordRemoteSendDecision(RemoteSendDecision.Confirmed, pending)
@@ -2429,6 +2446,7 @@ class PocketMindViewModel(
                     } else {
                         MessagePrivacy.LocalOnly
                     },
+                    evidenceReceiptSummary = sharedInput.toSharedEvidenceReceiptSummary(),
                 ),
                 statusText = statusText,
             )
@@ -2650,6 +2668,7 @@ class PocketMindViewModel(
             explicitMessagePrivacy = draft.privacy,
             imageAttachments = draft.imageAttachments,
             localImageAttachments = draft.localImageAttachments,
+            currentPromptEvidenceSummary = draft.evidenceReceiptSummary,
         )
     }
 
@@ -3885,7 +3904,8 @@ class PocketMindViewModel(
      * non-sensitive send. Sensitive payloads are intercepted earlier in [sendMessageInternal]
      * and always require an audited choice.
      */
-    private fun shouldRequireRemoteSendDisclosure(): Boolean {
+    private fun shouldRequireRemoteSendDisclosure(imageAttachmentCount: Int = 0): Boolean {
+        if (imageAttachmentCount > 0) return true
         if (!requireRemoteSendDisclosure) return false
         return when (_uiState.value.remoteSendDisclosurePolicy) {
             RemoteSendDisclosurePolicy.OnRemoteModeSwitch -> false
@@ -4439,6 +4459,7 @@ class PocketMindViewModel(
         val policyDecision = AdaptiveGenerationPolicy.decide(
             AdaptiveGenerationPolicyInput(
                 preferredBackend = _uiState.value.backend,
+                contextWindowTokens = _uiState.value.localMaxTotalTokens,
                 lastGenerationStats = _uiState.value.lastGenerationStatsForAdaptivePolicy(),
                 qualityIssue = _uiState.value.lastOutputQualityIssueForAdaptivePolicy(),
                 requestedImageCount = imageAttachments.size,
@@ -4654,6 +4675,8 @@ class PocketMindViewModel(
             inferenceMode = inferenceMode,
             remoteModelConfig = remoteConfig,
             backend = backend,
+            localMaxTotalTokens = modelState.localContextWindowTokens(),
+            localPreferredBackends = modelState.localPreferredBackends(),
             modelHealth = modelState.modelHealthForCurrentSelection(backend),
             showFirstRunSetup = showFirstRunSetup,
             memoryEnabled = memoryEnabled,
@@ -4690,6 +4713,20 @@ class PocketMindViewModel(
     ): Boolean =
         modelState.activeModelPath != null || remoteConfig.isConfigured
 
+    private fun ModelSelectionState.activeLocalCapabilityProfile(): ModelCapabilityProfile? =
+        installedModels
+            .firstOrNull { model -> model.id == activeInstalledModelId }
+            ?.takeIf { model -> model.isUsable }
+            ?.recommendedModelId
+            ?.let { modelId -> ModelCatalog.profileForModelIdOrNull(modelId) }
+
+    private fun ModelSelectionState.localContextWindowTokens(): Int =
+        activeLocalCapabilityProfile()?.contextWindowTokens
+            ?: LocalModelTokenLimits.MAX_TOTAL_TOKENS
+
+    private fun ModelSelectionState.localPreferredBackends(): Set<BackendChoice> =
+        activeLocalCapabilityProfile()?.preferredLocalBackends.orEmpty()
+
     private fun updateModelState(modelState: ModelSelectionState) {
         syncSemanticMemoryRuntime()
         _uiState.update {
@@ -4698,6 +4735,8 @@ class PocketMindViewModel(
                 activeInstalledModelId = modelState.activeInstalledModelId,
                 installedModels = modelState.installedModels,
                 selectedModelId = modelState.selectedModelId,
+                localMaxTotalTokens = modelState.localContextWindowTokens(),
+                localPreferredBackends = modelState.localPreferredBackends(),
                 modelHealth = modelState.modelHealthForCurrentSelection(it.backend),
                 semanticMemoryEnabled = currentSemanticMemoryEnabled(),
                 semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
@@ -4885,6 +4924,11 @@ class PocketMindViewModel(
                     id = record.id,
                     type = record.type,
                     text = record.text,
+                    source = record.source,
+                    sensitivity = record.sensitivity,
+                    privacy = record.privacy,
+                    expiresAtMillis = record.expiresAtMillis,
+                    conflictKey = record.conflictKey,
                 )
             }
         }.getOrDefault(emptyList())
@@ -5788,6 +5832,25 @@ private fun ChatUiState.activeModelProfileId(): String =
     installedModels.firstOrNull { model -> model.id == activeInstalledModelId }?.recommendedModelId
         ?: selectedModelId
 
+private fun localModelRuntimeCapabilitiesFor(state: ChatUiState): LocalModelRuntimeCapabilities {
+    val profile = state.installedModels
+        .firstOrNull { model -> model.id == state.activeInstalledModelId }
+        ?.takeIf { model -> model.isUsable }
+        ?.recommendedModelId
+        ?.let { modelId -> ModelCatalog.profileForModelIdOrNull(modelId) }
+    return LocalModelRuntimeCapabilities.fromProfile(profile)
+}
+
+private fun backendAllowedForActiveModel(state: ChatUiState, backend: BackendChoice): Boolean =
+    state.localPreferredBackends.isEmpty() || backend in state.localPreferredBackends
+
+private fun preferredBackendForActiveModel(state: ChatUiState, current: BackendChoice): BackendChoice =
+    if (backendAllowedForActiveModel(state, current)) {
+        current
+    } else {
+        state.localPreferredBackends.firstOrNull() ?: current
+    }
+
 private fun AssistantRoute.runIdOrNull(): String? =
     when (this) {
         is AssistantRoute.Chat -> runId
@@ -5803,6 +5866,7 @@ private fun AssistantRoute.runDataReceipt(
     remoteHistoryCount: Int,
     imageAttachmentCount: Int,
     protectedSourceCount: Int = 0,
+    currentPromptEvidenceSummary: EvidenceReceiptSummary? = null,
 ): RunDataReceipt {
     val memoryHits = (this as? AssistantRoute.Chat)?.memoryHits.orEmpty()
     val deviceContext = (this as? AssistantRoute.Chat)?.deviceContext
@@ -5858,6 +5922,18 @@ private fun AssistantRoute.runDataReceipt(
             }
         }
     }.toEvidenceReceiptSummary()
+    val evidenceCardCount = evidenceReceiptSummary.evidenceCardCount +
+        (currentPromptEvidenceSummary?.evidenceCardCount ?: 0)
+    val localOnlyEvidenceCardCount = evidenceReceiptSummary.localOnlyEvidenceCardCount +
+        (currentPromptEvidenceSummary?.localOnlyEvidenceCardCount ?: 0)
+    val truncatedEvidenceCardCount = evidenceReceiptSummary.truncatedEvidenceCardCount +
+        (currentPromptEvidenceSummary?.truncatedEvidenceCardCount ?: 0)
+    val lowQualityEvidenceCardCount = evidenceReceiptSummary.lowQualityEvidenceCardCount +
+        (currentPromptEvidenceSummary?.lowQualityEvidenceCardCount ?: 0)
+    val evidenceSourceTypes = (
+        evidenceReceiptSummary.sourceTypes.map { it.name } +
+            currentPromptEvidenceSummary.orEmptyEvidenceSourceTypeNames()
+        ).distinct()
     return RunDataReceipt(
         destination = destination,
         currentPromptPrivacy = currentPromptPrivacy.name,
@@ -5870,11 +5946,11 @@ private fun AssistantRoute.runDataReceipt(
         deviceContextIncluded = deviceContextIncluded,
         imageAttachmentCount = if (isRemote) imageAttachmentCount else 0,
         protectedSourceCount = protectedSourceCount,
-        evidenceCardCount = evidenceReceiptSummary.evidenceCardCount,
-        localOnlyEvidenceCardCount = evidenceReceiptSummary.localOnlyEvidenceCardCount,
-        truncatedEvidenceCardCount = evidenceReceiptSummary.truncatedEvidenceCardCount,
-        lowQualityEvidenceCardCount = evidenceReceiptSummary.lowQualityEvidenceCardCount,
-        evidenceSourceTypes = evidenceReceiptSummary.sourceTypes.map { it.name },
+        evidenceCardCount = evidenceCardCount,
+        localOnlyEvidenceCardCount = localOnlyEvidenceCardCount,
+        truncatedEvidenceCardCount = truncatedEvidenceCardCount,
+        lowQualityEvidenceCardCount = lowQualityEvidenceCardCount,
+        evidenceSourceTypes = evidenceSourceTypes,
         rawContentPersisted = false,
         protectedContentTypes = buildList {
             if (isRemote) {
@@ -5884,6 +5960,12 @@ private fun AssistantRoute.runDataReceipt(
             if (localOnlyHistoryFilteredCount > 0) add("LocalOnly 历史")
             if (protectedSourceCount > 0) add("受保护分享源")
             if (isRemote && imageAttachmentCount == 0) add("非图片附件")
+            if ((currentPromptEvidenceSummary?.localOnlyEvidenceCardCount ?: 0) > 0) {
+                add("LocalOnly 输入证据")
+            }
+            if ((currentPromptEvidenceSummary?.truncatedEvidenceCardCount ?: 0) > 0) {
+                add("截断输入证据")
+            }
         },
         deletableRecordTypes = buildList {
             add("对话消息")
@@ -5892,6 +5974,9 @@ private fun AssistantRoute.runDataReceipt(
         },
     )
 }
+
+private fun EvidenceReceiptSummary?.orEmptyEvidenceSourceTypeNames(): List<String> =
+    this?.sourceTypes?.map { sourceType -> sourceType.name }.orEmpty()
 
 private fun JSONArray?.toStringList(): List<String> {
     if (this == null) return emptyList()

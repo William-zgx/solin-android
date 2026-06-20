@@ -79,6 +79,13 @@ ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
 release validation；完成 debug 验收后，使用 `adb install -r` 覆盖安装最新签名
 release 包，以保留已下载模型数据并恢复正式包。
 
+真实 App UI 会持续变化；每次失败必须保留 case 级 artifact，而不是只写人工现象。
+`<case>.case.properties` 使用 `RealAppSearchCaseArtifact/v1`，失败时必须包含
+`failed_step`、debug receiver `result_file` 与 SHA-256、`target_resolution_*`
+resolver evidence、`diagnostics_dir`、截图、UIAutomator XML、focused-window dump 和
+logcat 的路径及 SHA-256。淘宝、拼多多、高德、京东、Chrome、Android Browser、Quark
+和 UC 作为低风险搜索矩阵目标；未安装 App 只记录 skipped。
+
 ```mermaid
 flowchart TD
     Device["Authorized physical device"] --> DebugEval["run_device_control_debug_eval.sh"]

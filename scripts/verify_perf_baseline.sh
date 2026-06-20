@@ -7,6 +7,62 @@ EXPECTED_ARTIFACT_SHA256=""
 EXPECTED_APP_VERSION=""
 PERFORMANCE_KEY="${PERFORMANCE_KEY:-}"
 MAX_RECORD_AGE_DAYS="${MAX_RECORD_AGE_DAYS:-30}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+failed_target_for_reason() {
+  local reason="$1"
+  local first="${reason%%,*}"
+  case "$first" in
+    "")
+      printf ''
+      ;;
+    baseline-file-missing)
+      printf 'baseline-file'
+      ;;
+    *-missing)
+      printf 'baseline-fields'
+      ;;
+    status-not-passed|oom-or-anr-observed)
+      printf 'baseline-status'
+      ;;
+    device-serial-is-emulator|abi-not-arm64-v8a|android-api-out-of-range)
+      printf 'device-metadata'
+      ;;
+    release-artifact-sha-*)
+      printf 'release-artifact'
+      ;;
+    model-id-invalid)
+      printf 'model-profile'
+      ;;
+    backend-invalid|gpu-fallback-status-invalid)
+      printf 'runtime-backend'
+      ;;
+    app-version-mismatch)
+      printf 'app-version'
+      ;;
+    recorded-at-*)
+      printf 'baseline-timestamp'
+      ;;
+    *-not-integer|*-not-positive|tokens-per-second-*)
+      printf 'baseline-metrics'
+      ;;
+    *)
+      printf 'perf-baseline'
+      ;;
+  esac
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -41,13 +97,23 @@ write_report() {
   local status="$1"
   local missing="$2"
   local reason="${3:-}"
+  local failed_target=""
+  if [[ "$status" != "passed" ]]; then
+    failed_target="$(failed_target_for_reason "$reason")"
+  fi
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
+      printf 'artifactSchema=PerfBaselineVerification/v1\n'
       printf 'status=%s\n' "$status"
       printf 'target=perf-baseline\n'
+      printf 'owner=%s\n' "$EVIDENCE_OWNER"
+      printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      printf 'command=%s\n' "$(command_line)"
       printf 'performanceKey=%s\n' "$PERFORMANCE_KEY"
+      printf 'failedTarget=%s\n' "$failed_target"
       printf 'reason=%s\n' "$reason"
+      printf 'reproduciblePath=%s\n' "${BASELINE_FILE:-}"
       printf 'baselineFile=%s\n' "${BASELINE_FILE:-}"
       if [[ -n "${BASELINE_FILE:-}" && -f "$BASELINE_FILE" ]]; then
         printf 'baselineSha256=%s\n' "$(shasum -a 256 "$BASELINE_FILE" | awk '{print $1}')"
@@ -134,6 +200,42 @@ if [[ "$abi" != "arm64-v8a" ]]; then
   echo "Perf baseline abi must be arm64-v8a." >&2
   record_failure "abi-not-arm64-v8a"
 fi
+
+model_id="$(awk -F= '$1 == "modelId" {print $2; exit}' "$BASELINE_FILE")"
+case "$model_id" in
+  chat-e2b|chat-e4b)
+    ;;
+  "")
+    ;;
+  *)
+    echo "Perf baseline modelId must be a release chat profile: chat-e2b or chat-e4b." >&2
+    record_failure "model-id-invalid"
+    ;;
+esac
+
+backend="$(awk -F= '$1 == "backend" {print $2; exit}' "$BASELINE_FILE")"
+case "$backend" in
+  CPU|GPU)
+    ;;
+  "")
+    ;;
+  *)
+    echo "Perf baseline backend must be CPU or GPU." >&2
+    record_failure "backend-invalid"
+    ;;
+esac
+
+gpu_fallback_status="$(awk -F= '$1 == "gpuFallbackStatus" {print $2; exit}' "$BASELINE_FILE")"
+case "$gpu_fallback_status" in
+  not-needed|cpu-fallback-passed)
+    ;;
+  "")
+    ;;
+  *)
+    echo "Perf baseline gpuFallbackStatus must be not-needed or cpu-fallback-passed." >&2
+    record_failure "gpu-fallback-status-invalid"
+    ;;
+esac
 
 if [[ -n "$EXPECTED_ARTIFACT_SHA256" ]]; then
   recorded_sha="$(awk -F= '$1 == "releaseArtifactSha256" {print $2; exit}' "$BASELINE_FILE")"

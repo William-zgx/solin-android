@@ -36,6 +36,10 @@ VERIFY_RELEASE_MAPPING="${VERIFY_RELEASE_MAPPING:-0}"
 RELEASE_MAPPING_FILE="${RELEASE_MAPPING_FILE:-app/build/outputs/mapping/release/mapping.txt}"
 VERIFY_CONTRACT_TESTS="${VERIFY_CONTRACT_TESTS:-1}"
 VERIFY_AI_BEHAVIOR_EVAL="${VERIFY_AI_BEHAVIOR_EVAL:-1}"
+VERIFY_PERF_BASELINE="${VERIFY_PERF_BASELINE:-1}"
+AI_BEHAVIOR_ACTUAL_TRACE_FILE="${AI_BEHAVIOR_ACTUAL_TRACE_FILE:-}"
+REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE="${REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE:-0}"
+REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE="${REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE:-0}"
 EXTRA_PRIVACY_SCAN_TARGETS="${EXTRA_PRIVACY_SCAN_TARGETS:-}"
 EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
@@ -53,6 +57,9 @@ if [[ "$PUBLIC_RELEASE" == "1" ]]; then
   REQUIRE_AAB=1
   REQUIRE_SIGNED_ARTIFACT=1
   VERIFY_RELEASE_MAPPING=1
+  VERIFY_PERF_BASELINE=1
+  REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1
+  REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1
 fi
 
 if [[ "$REQUIRE_AAB" == "1" && "$REQUIRE_SIGNED_ARTIFACT" == "1" && "$RELEASE_AAB_WAS_SET" == "0" ]]; then
@@ -86,6 +93,10 @@ write_gate_report() {
     printf 'releaseMappingFile=%s\n' "$RELEASE_MAPPING_FILE"
     printf 'verifyContractTests=%s\n' "$VERIFY_CONTRACT_TESTS"
     printf 'verifyAiBehaviorEval=%s\n' "$VERIFY_AI_BEHAVIOR_EVAL"
+    printf 'verifyPerfBaseline=%s\n' "$VERIFY_PERF_BASELINE"
+    printf 'aiBehaviorActualTraceFile=%s\n' "$AI_BEHAVIOR_ACTUAL_TRACE_FILE"
+    printf 'requireAiBehaviorActualTrace=%s\n' "$REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE"
+    printf 'requireAiBehaviorRuntimeTraceSource=%s\n' "$REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE"
     printf 'extraPrivacyScanTargets=%s\n' "$EXTRA_PRIVACY_SCAN_TARGETS"
     printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
     printf 'releaseApk=%s\n' "$RELEASE_APK"
@@ -167,7 +178,21 @@ else
 fi
 
 if [[ "$VERIFY_AI_BEHAVIOR_EVAL" == "1" ]]; then
-  if ! scripts/verify_ai_behavior_eval.sh --require-boundary-map --report "$ARTIFACT_DIR/ai-behavior-eval.properties"; then
+  ai_behavior_args=(
+    --require-boundary-map
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-planning-trace-diff.jsonl"
+    --report "$ARTIFACT_DIR/ai-behavior-eval.properties"
+  )
+  if [[ -n "$AI_BEHAVIOR_ACTUAL_TRACE_FILE" ]]; then
+    ai_behavior_args+=(--actual-trace "$AI_BEHAVIOR_ACTUAL_TRACE_FILE")
+  fi
+  if [[ "$REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE" == "1" ]]; then
+    ai_behavior_args+=(--require-actual-trace)
+  fi
+  if [[ "$REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE" == "1" ]]; then
+    ai_behavior_args+=(--require-runtime-trace-source)
+  fi
+  if ! scripts/verify_ai_behavior_eval.sh "${ai_behavior_args[@]}"; then
     fail_gate ai-behavior-eval "$ARTIFACT_DIR/ai-behavior-eval.properties"
   fi
 else
@@ -232,7 +257,14 @@ if [[ -f "$RELEASE_MAPPING_FILE" ]]; then
 fi
 head_commit_sha="$(git rev-parse HEAD 2>/dev/null || true)"
 
-if [[ -n "$PERF_BASELINE_FILE" ]]; then
+if [[ "$VERIFY_PERF_BASELINE" != "1" ]]; then
+  {
+    printf 'status=skipped\n'
+    printf 'target=perf-baseline\n'
+    printf 'reason=VERIFY_PERF_BASELINE-not-enabled\n'
+    printf 'publicRelease=%s\n' "$PUBLIC_RELEASE"
+  } > "$ARTIFACT_DIR/perf-baseline-verification.properties"
+elif [[ -n "$PERF_BASELINE_FILE" ]]; then
   expected_app_version="$(awk -F\" '/versionName[[:space:]]*=/ {print $2; exit}' "$GRADLE_FILE")"
   perf_args=(
     --file "$PERF_BASELINE_FILE" \

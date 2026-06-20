@@ -12,7 +12,11 @@ import com.bytedance.zgx.pocketmind.device.PocketMindAccessibilityService
 import com.bytedance.zgx.pocketmind.device.ScreenStateReadResult
 import com.bytedance.zgx.pocketmind.device.ScreenStateSnapshot
 import com.bytedance.zgx.pocketmind.device.UiActionReadResult
+import com.bytedance.zgx.pocketmind.device.UiActionExecutionResult
+import com.bytedance.zgx.pocketmind.device.UiActionFailureKind
 import com.bytedance.zgx.pocketmind.device.UiScrollDirection
+import com.bytedance.zgx.pocketmind.device.UiTargetKind
+import com.bytedance.zgx.pocketmind.device.UiTargetResolver
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import java.io.File
@@ -73,13 +77,19 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                         COMMAND_TAP -> provider.tap(
                             target = intent.getStringExtra(EXTRA_TARGET).orEmpty(),
                             timeoutMillis = intent.timeoutMillis(),
-                        ).toLines(command)
+                        ).toLines(
+                            command = command,
+                            target = intent.getStringExtra(EXTRA_TARGET),
+                        )
 
                         COMMAND_TYPE_TEXT -> provider.typeText(
                             text = intent.getStringExtra(EXTRA_TEXT).orEmpty(),
                             target = intent.getStringExtra(EXTRA_TARGET),
                             timeoutMillis = intent.timeoutMillis(),
-                        ).toLines(command)
+                        ).toLines(
+                            command = command,
+                            target = intent.getStringExtra(EXTRA_TARGET),
+                        )
 
                         COMMAND_SUBMIT_SEARCH -> provider.submitSearch(
                             timeoutMillis = intent.timeoutMillis(),
@@ -91,7 +101,10 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                             ) ?: UiScrollDirection.Down,
                             target = intent.getStringExtra(EXTRA_TARGET),
                             timeoutMillis = intent.timeoutMillis(),
-                        ).toLines(command)
+                        ).toLines(
+                            command = command,
+                            target = intent.getStringExtra(EXTRA_TARGET),
+                        )
 
                         COMMAND_BACK -> provider.pressBack(
                             timeoutMillis = intent.timeoutMillis(),
@@ -156,6 +169,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
 
     private fun UiActionReadResult.toLines(
         command: String,
+        target: String? = null,
         verifySearchQuery: String? = null,
         expectedPackageName: String? = null,
         expectedAppName: String? = null,
@@ -171,6 +185,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                 "beforeObservationId=${result.before?.id.orEmpty()}",
                 "afterObservationId=${result.after?.id.orEmpty()}",
             ) +
+                result.targetResolutionLines(command = command, target = target) +
                 searchVerificationLines(
                     verifySearchQuery = verifySearchQuery,
                     expectedPackageName = expectedPackageName,
@@ -192,6 +207,46 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
                 "retryable=$retryable",
                 "failureKind=${failureKind.name}",
             )
+        }
+
+    private fun UiActionExecutionResult.targetResolutionLines(
+        command: String,
+        target: String?,
+    ): List<String> {
+        val kind = resolutionKindFor(command, target) ?: return emptyList()
+        val snapshot = before ?: return listOf(
+            "targetResolution.available=false",
+            "targetResolution.kind=${kind.schemaValue}",
+            "targetResolution.target=${target.orEmpty().cleanValue()}",
+            "targetResolution.reason=missing_before_snapshot",
+        )
+        val evidence = UiTargetResolver.explain(
+            snapshot = snapshot,
+            kind = kind,
+            target = target,
+        )
+        return listOf(
+            "targetResolution.available=true",
+            "targetResolution.kind=${evidence.kind.schemaValue}",
+            "targetResolution.target=${evidence.target.orEmpty().cleanValue()}",
+            "targetResolution.packageName=${evidence.packageName.orEmpty().cleanValue()}",
+            "targetResolution.selectedNodeId=${evidence.selectedNodeId.orEmpty().cleanValue()}",
+            "targetResolution.failureKind=${evidence.failureKind?.schemaValue.orEmpty()}",
+            "targetResolution.candidateCount=${evidence.rankedCandidates.size}",
+            "targetResolution.candidatesJson=${DeviceControlEvalResultFormatter.candidatesJson(evidence.rankedCandidates.take(5))}",
+        )
+    }
+
+    private fun resolutionKindFor(
+        command: String,
+        target: String?,
+    ): UiTargetKind? =
+        when (command) {
+            COMMAND_TAP -> UiTargetResolver.kindForTarget(target)
+            COMMAND_TYPE_TEXT -> UiTargetKind.EditableField
+            COMMAND_SUBMIT_SEARCH -> UiTargetKind.SubmitSearch
+            COMMAND_SCROLL -> UiTargetResolver.kindForTarget(target) ?: UiTargetKind.ScrollContainer
+            else -> null
         }
 
     private fun searchVerificationLines(
@@ -248,32 +303,10 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             .map { (key, value) -> "data.${key.cleanValue()}=${value.cleanValue()}" }
 
     private fun String.cleanValue(): String =
-        replace('\r', ' ')
-            .replace('\n', ' ')
-            .replace('\u0000', ' ')
-            .take(MAX_RESULT_VALUE_CHARS)
+        DeviceControlEvalResultFormatter.cleanValue(this)
 
     private fun String.resultFileName(): String =
-        "$RESULT_FILE_PREFIX${fileToken()}.properties"
-
-    private fun String.fileToken(): String =
-        map { char ->
-            if (
-                char in 'a'..'z' ||
-                char in 'A'..'Z' ||
-                char in '0'..'9' ||
-                char == '_' ||
-                char == '-' ||
-                char == '.'
-            ) {
-                char
-            } else {
-                '_'
-            }
-        }
-            .joinToString(separator = "")
-            .take(MAX_RESULT_ID_CHARS)
-            .ifBlank { "missing" }
+        DeviceControlEvalResultFormatter.resultFileName(this)
 
     private fun Throwable.toResultReason(): String =
         "${javaClass.simpleName}:${message.orEmpty()}".cleanValue()
@@ -299,10 +332,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         const val COMMAND_SCROLL = "scroll"
         const val COMMAND_BACK = "back"
         const val COMMAND_WAIT = "wait"
-        const val RESULT_FILE_PREFIX = "device_control_eval_result_"
         const val LEGACY_RESULT_FILE_NAME = "device_control_eval_result.properties"
         const val DEFAULT_TIMEOUT_MILLIS = 1_500L
-        const val MAX_RESULT_VALUE_CHARS = 8_000
-        const val MAX_RESULT_ID_CHARS = 120
     }
 }
