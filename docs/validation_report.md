@@ -23,6 +23,44 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Store Policy Mechanical Drift Normalization
+
+本轮覆盖项：
+
+- `docs/store_policy_record.json` 同步当前 `docs/privacy_notice.md` SHA-256：
+  `6d1f1f3424fc80a92fa9ffc5c0cedcb127921d460993e9bfe5fbc0026cf62bbc`。
+- Store listing 文案补充明确的 `confirmed device actions` 表述，满足 verifier 对
+  confirmed actions disclosure 的机器检查。
+- Store policy permissions 同步当前 Android manifest 中新增的
+  `com.android.alarm.permission.SET_ALARM`、`android.permission.FOREGROUND_SERVICE` 和
+  `android.permission.FOREGROUND_SERVICE_SPECIAL_USE`，并保留对应用途说明。
+- `docs/store_policy_review_evidence/pending.properties` 仅同步 privacy notice SHA；
+  仍保持 `status=pending`、`approvalStatus=not-approved` 和 candidate target，不伪造审批。
+- `docs/store_policy_record.json` 同步 pending evidence 文件 SHA：
+  `4447efb08e1793217554743e26b23049562c1269a5a734a2fb43435da8c7087b`。
+
+验证命令：
+
+```bash
+scripts/privacy_scan.sh --report /tmp/pocketmind-privacy-current.properties app/src/main docs scripts
+
+scripts/verify_store_policy_record.sh \
+  --file docs/store_policy_record.json \
+  --report /tmp/pocketmind-store-after-mechanical.properties
+```
+
+结果：
+
+- 通过：privacy scan 返回 `status=passed`、`scanTargetCount=3`、`findingCount=0`。
+- 符合预期失败：store policy verifier 不再报告 `privacy-notice-sha-mismatch`、
+  `app-listing-confirmed-actions-missing`、`manifest-permissions-mismatch`、
+  `review-evidence-sha-mismatch` 或 `review-evidence-privacy-notice-sha-mismatch`。
+- 剩余 blocker 保留为人工/发布资料项：
+  `status-not-approved`、`contact-email-placeholder`、`privacy-policy-url-placeholder`、
+  `reviewer-missing`、`review-evidence-status-not-approved`、
+  `review-evidence-approval-status-not-approved`、`review-evidence-target-invalid`、
+  `review-date-missing`。
+
 ## 2026-06-21 CI Final Release Gate AI Behavior Actual Trace Input
 
 本轮覆盖项：
