@@ -351,8 +351,13 @@ with each RC before treating this checklist as complete.
   image attachment staging through an endpoint/model that supports
   OpenAI-compatible `image_url` content, unsupported-vision protection, no
   implicit image OCR, per-send remote vision preview confirmation, cancel path
-  that keeps the remote runtime idle, bounded document excerpts, and picker
-  attachment prompting.
+  that keeps the remote runtime idle, verified local-vision model image
+  attachment staging, local runtime image-attachment sending, LocalOnly
+  persistence, prompt metadata redaction, remote runtime idle protection for
+  local vision, unsupported local-vision OCR skip behavior, bounded document
+  excerpts, and picker attachment prompting. The local-vision runtime send count
+  must be at least one, while remote runtime calls, unsupported local runtime
+  image sends, and unsupported image OCR invocations must be zero.
 - [ ] `privacyAndDataControls` release flow evidence must explicitly record
   the App privacy notice entry, long-term memory clear and forget controls,
   current-session deletion, remote configuration clearing, and deletion/control

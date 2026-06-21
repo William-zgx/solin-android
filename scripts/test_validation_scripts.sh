@@ -730,6 +730,16 @@ write_model_release_flow_contract_fixture() {
       printf 'remoteVisionUnsupportedImageStreamOpenCount=0\n'
       printf 'remoteVisionUnsupportedImageOcrInvocationCount=0\n'
       printf 'remoteVisionMixedProtectedNonImageCount=1\n'
+      printf 'localVisionVerifiedModelImageAttachmentStaged=true\n'
+      printf 'localVisionRuntimeImageAttachmentSent=true\n'
+      printf 'localVisionLocalOnlyPersistenceCovered=true\n'
+      printf 'localVisionPromptMetadataRedacted=true\n'
+      printf 'localVisionRemoteRuntimeIdle=true\n'
+      printf 'localVisionUnsupportedOcrSkipped=true\n'
+      printf 'localVisionRuntimeImageAttachmentSendCount=1\n'
+      printf 'localVisionRemoteRuntimeRequestCount=0\n'
+      printf 'localVisionUnsupportedRuntimeImageSendCount=0\n'
+      printf 'localVisionUnsupportedImageOcrInvocationCount=0\n'
       printf 'documentExcerptBounded=true\n'
       printf 'pickerAttachmentPromptCovered=true\n'
       ;;
@@ -3206,6 +3216,28 @@ expect_success \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_APPROVED" --report "$ARTIFACT_DIR/release-validation-current-artifact.properties"
 assert_release_verifier_passed_report "$ARTIFACT_DIR/release-validation-current-artifact.properties" "ReleaseValidationRecordVerification/v1"
 assert_report_contains "$ARTIFACT_DIR/release-validation-current-artifact.properties" "expectedReleaseArtifactSha256=$VALID_PERF_SHA"
+VALIDATION_LOCAL_VISION_COUNT_TWO="$TMP_DIR/release-validation-local-vision-count-two.json"
+VALIDATION_LOCAL_VISION_COUNT_TWO_EVIDENCE="$TMP_DIR/validation-flow-evidence/local-vision-count-two.properties"
+sed 's/^localVisionRuntimeImageAttachmentSendCount=1$/localVisionRuntimeImageAttachmentSendCount=2/' \
+  "$TMP_DIR/validation-flow-evidence/shareAndPickerInput.properties" > "$VALIDATION_LOCAL_VISION_COUNT_TWO_EVIDENCE"
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_LOCAL_VISION_COUNT_TWO" "$VALIDATION_LOCAL_VISION_COUNT_TWO_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+evidence = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["flowMatrix"]["shareAndPickerInput"]["evidencePath"] = str(evidence)
+record["flowMatrix"]["shareAndPickerInput"]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_success \
+  "release validation verifier accepts local vision runtime send count above minimum" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_LOCAL_VISION_COUNT_TWO" --report "$ARTIFACT_DIR/release-validation-local-vision-count-two.properties"
+assert_report_contains "$ARTIFACT_DIR/release-validation-local-vision-count-two.properties" "status=passed"
 VALIDATION_X86_EMULATOR="$TMP_DIR/release-validation-x86-emulator.json"
 VALIDATION_X86_EMULATOR_REPORT="$TMP_DIR/x86-regression-emulator.properties"
 VALIDATION_X86_EMULATOR_HELPER_REPORT="$TMP_DIR/x86-emulator-verification.properties"
@@ -3538,6 +3570,38 @@ assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.pr
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-remote-vision-cancel-runtime-idle-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-remote-vision-http-fixture-image-part-count-mismatch"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-remote-vision-supported-image-stream-count-mismatch"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-local-vision-image-staging-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-local-vision-runtime-image-attachment-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-local-vision-local-only-persistence-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-local-vision-prompt-metadata-redaction-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-local-vision-remote-runtime-idle-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-local-vision-unsupported-ocr-skip-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-local-vision-runtime-image-attachment-send-count-mismatch"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-local-vision-remote-runtime-request-count-mismatch"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-local-vision-unsupported-runtime-image-send-count-mismatch"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-share-flow.properties" "flow-shareAndPickerInput-local-vision-unsupported-image-ocr-count-mismatch"
+VALIDATION_LOCAL_VISION_ZERO_COUNT="$TMP_DIR/release-validation-local-vision-zero-count.json"
+VALIDATION_LOCAL_VISION_ZERO_COUNT_EVIDENCE="$TMP_DIR/validation-flow-evidence/local-vision-zero-count.properties"
+sed 's/^localVisionRuntimeImageAttachmentSendCount=1$/localVisionRuntimeImageAttachmentSendCount=0/' \
+  "$TMP_DIR/validation-flow-evidence/shareAndPickerInput.properties" > "$VALIDATION_LOCAL_VISION_ZERO_COUNT_EVIDENCE"
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_LOCAL_VISION_ZERO_COUNT" "$VALIDATION_LOCAL_VISION_ZERO_COUNT_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+evidence = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["flowMatrix"]["shareAndPickerInput"]["evidencePath"] = str(evidence)
+record["flowMatrix"]["shareAndPickerInput"]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects zero local vision runtime image send count" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_LOCAL_VISION_ZERO_COUNT" --report "$ARTIFACT_DIR/release-validation-local-vision-zero-count.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-local-vision-zero-count.properties" "flow-shareAndPickerInput-local-vision-runtime-image-attachment-send-count-mismatch"
 VALIDATION_WEAK_VOICE_FLOW="$TMP_DIR/release-validation-weak-voice-flow.json"
 VALIDATION_WEAK_VOICE_FLOW_EVIDENCE="$TMP_DIR/validation-flow-evidence/weak-voice.properties"
 cat > "$VALIDATION_WEAK_VOICE_FLOW_EVIDENCE" <<'VALIDATION_WEAK_VOICE_FLOW_EVIDENCE_PROPERTIES'
@@ -4316,6 +4380,16 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareA
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionUnsupportedImageStreamOpenCount=0"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionUnsupportedImageOcrInvocationCount=0"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionMixedProtectedNonImageCount=1"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "localVisionVerifiedModelImageAttachmentStaged=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "localVisionRuntimeImageAttachmentSent=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "localVisionLocalOnlyPersistenceCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "localVisionPromptMetadataRedacted=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "localVisionRemoteRuntimeIdle=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "localVisionUnsupportedOcrSkipped=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "localVisionRuntimeImageAttachmentSendCount=1"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "localVisionRemoteRuntimeRequestCount=0"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "localVisionUnsupportedRuntimeImageSendCount=0"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "localVisionUnsupportedImageOcrInvocationCount=0"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-voiceInput.properties" "voiceEntryDisclosureVisible=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-voiceInput.properties" "voiceDraftNoAutoSendCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-voiceInput.properties" "voicePermissionFailureRecoveryCovered=true"
@@ -4622,6 +4696,16 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionUnsupportedImageStreamOpenCount=0"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionUnsupportedImageOcrInvocationCount=0"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionMixedProtectedNonImageCount=1"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "localVisionVerifiedModelImageAttachmentStaged=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "localVisionRuntimeImageAttachmentSent=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "localVisionLocalOnlyPersistenceCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "localVisionPromptMetadataRedacted=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "localVisionRemoteRuntimeIdle=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "localVisionUnsupportedOcrSkipped=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "localVisionRuntimeImageAttachmentSendCount=1"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "localVisionRemoteRuntimeRequestCount=0"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "localVisionUnsupportedRuntimeImageSendCount=0"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "localVisionUnsupportedImageOcrInvocationCount=0"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "documentExcerptBounded=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-mediaProjectionCancellation.properties" "mediaProjectionOneShotConsentCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-mediaProjectionCancellation.properties" "currentScreenshotOcrRemoteContinuationBlocked=true"

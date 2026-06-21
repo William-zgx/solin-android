@@ -189,7 +189,7 @@ flow_summary() {
       printf 'Repository tests cover BOOT_COMPLETED and package-replaced reminder rescheduling, catch-up scheduling, stale-running recovery, and metadata-only reminder audit boundaries.'
       ;;
     shareAndPickerInput)
-      printf 'API 36 emulator regression covers ACTION_SEND text and image staging; androidTest provider counters cover remote vision image stream/OCR boundaries; JVM shared-input tests cover in-app picker attachment prompts, remote-mode protection, non-image attachment protection, document excerpts, and no implicit image OCR.'
+      printf 'API 36 emulator regression covers ACTION_SEND text and image staging; androidTest provider counters cover remote vision image stream/OCR boundaries; JVM shared-input tests cover local vision runtime image sends, LocalOnly persistence, prompt metadata redaction, remote runtime idle protection, in-app picker attachment prompts, remote-mode protection, non-image attachment protection, document excerpts, and no implicit image OCR.'
       ;;
     voiceInput)
       printf 'API 36 emulator accessibility regression covers the voice entry disclosure and button label; ViewModel tests cover one-shot transcript drafts, partial transcript state, cancellation, and no auto-send.'
@@ -379,6 +379,16 @@ write_flow_contract_fields() {
       printf 'remoteVisionUnsupportedImageStreamOpenCount=0\n'
       printf 'remoteVisionUnsupportedImageOcrInvocationCount=0\n'
       printf 'remoteVisionMixedProtectedNonImageCount=1\n'
+      printf 'localVisionVerifiedModelImageAttachmentStaged=true\n'
+      printf 'localVisionRuntimeImageAttachmentSent=true\n'
+      printf 'localVisionLocalOnlyPersistenceCovered=true\n'
+      printf 'localVisionPromptMetadataRedacted=true\n'
+      printf 'localVisionRemoteRuntimeIdle=true\n'
+      printf 'localVisionUnsupportedOcrSkipped=true\n'
+      printf 'localVisionRuntimeImageAttachmentSendCount=1\n'
+      printf 'localVisionRemoteRuntimeRequestCount=0\n'
+      printf 'localVisionUnsupportedRuntimeImageSendCount=0\n'
+      printf 'localVisionUnsupportedImageOcrInvocationCount=0\n'
       printf 'documentExcerptBounded=true\n'
       printf 'pickerAttachmentPromptCovered=true\n'
       ;;
@@ -651,6 +661,12 @@ def is_valid_evidence(flow, value):
             "remoteVisionSendPreviewConfirmed",
             "remoteVisionCancelKeepsRuntimeIdle",
             "remoteVisionHttpFixtureStreamRequested",
+            "localVisionVerifiedModelImageAttachmentStaged",
+            "localVisionRuntimeImageAttachmentSent",
+            "localVisionLocalOnlyPersistenceCovered",
+            "localVisionPromptMetadataRedacted",
+            "localVisionRemoteRuntimeIdle",
+            "localVisionUnsupportedOcrSkipped",
             "documentExcerptBounded",
             "pickerAttachmentPromptCovered",
         ],
@@ -710,10 +726,25 @@ def is_valid_evidence(flow, value):
             "remoteVisionUnsupportedImageStreamOpenCount": "0",
             "remoteVisionUnsupportedImageOcrInvocationCount": "0",
             "remoteVisionMixedProtectedNonImageCount": "1",
+            "localVisionRemoteRuntimeRequestCount": "0",
+            "localVisionUnsupportedRuntimeImageSendCount": "0",
+            "localVisionUnsupportedImageOcrInvocationCount": "0",
         },
     }.get(flow, {})
     for field, expected in required_exact_fields.items():
         if props.get(field) != expected:
+            return False
+    required_min_fields = {
+        "shareAndPickerInput": {
+            "localVisionRuntimeImageAttachmentSendCount": 1,
+        },
+    }.get(flow, {})
+    for field, minimum in required_min_fields.items():
+        try:
+            count_value = int(props.get(field, ""))
+        except ValueError:
+            return False
+        if count_value < minimum:
             return False
     recorded_date = value.get("date", "")
     if not non_empty_string(recorded_date) or not date_pattern.match(recorded_date):

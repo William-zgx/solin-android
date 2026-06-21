@@ -23,6 +23,59 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-22 Local Vision Release-Flow Evidence Gate
+
+本轮覆盖项：
+
+- `shareAndPickerInput` release-flow evidence 不再只覆盖 remote vision；正式
+  `scripts/record_release_flow_evidence.sh` 和 candidate
+  `scripts/collect_release_flow_matrix_evidence.sh` 都输出 local vision 字段。
+- 新增 local vision 机器可校验字段：verified local image staging、local runtime image
+  attachment sent、LocalOnly persistence、prompt metadata redaction、remote runtime idle、
+  unsupported OCR skipped，以及 local runtime send count / remote runtime request count /
+  unsupported runtime image send count / unsupported image OCR invocation count。
+- `scripts/verify_release_validation_record.sh` 要求 local vision runtime image send
+  count 至少为 1，远程 runtime request、unsupported runtime image send 和 unsupported
+  image OCR invocation 均为 0。
+- `scripts/test_validation_scripts.sh` 增加 count=2 仍通过、count=0 失败、弱
+  share/picker evidence 缺 local vision 字段失败，以及 candidate/full flow 输出断言。
+- `docs/release_checklist.md` 和 `docs/release_readiness.md` 同步 release-flow 合同。
+
+验证命令：
+
+```bash
+bash -n scripts/record_release_flow_evidence.sh scripts/collect_release_flow_matrix_evidence.sh \
+  scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localVisionSharedImageIsSentToLocalRuntimeAndStaysLocalOnly' \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.SharedInputTest.localVisionPromptOmitsAttachmentMetadataAndDoesNotClaimUnsupported' \
+  --tests 'com.bytedance.zgx.pocketmind.MainActivitySharedInputModeTest'
+
+rm -rf build/verification/local-vision-release-flow-smoke && \
+  OWNER=QA RELEASE_FLOW_ALL=1 \
+  ARTIFACT_DIR=build/verification/local-vision-release-flow-smoke \
+  scripts/record_release_flow_evidence.sh && \
+  rg -n 'localVision' \
+    build/verification/local-vision-release-flow-smoke/flow-shareAndPickerInput.properties
+```
+
+结果：
+
+- 通过：shell syntax 检查。
+- 通过：validation script tests 全量通过，覆盖 local vision release-flow 正例和负例。
+- 通过：目标 JVM 测试覆盖本地视觉共享图片进入本地 runtime、LocalOnly、prompt
+  metadata 不泄漏、不误触 unsupported OCR，以及共享输入 UI 模式。
+- 通过：release-flow 生成侧 smoke 输出 10 个 `localVision*` 字段。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮按要求只做本地脚本/JVM 验证。
+
+剩余风险：
+
+- 本轮强化的是 release-flow evidence contract，不替代最终真机视觉模型性能、真实图片
+  选择器端到端或 release candidate 全量矩阵。
+
 ## 2026-06-22 Release Operations Monitoring/Rollback Evidence Gate
 
 本轮覆盖项：

@@ -732,6 +732,12 @@ def validate_flow_evidence(key, evidence_path):
             "remoteVisionSendPreviewConfirmed": "remote-vision-send-preview-confirmation-missing",
             "remoteVisionCancelKeepsRuntimeIdle": "remote-vision-cancel-runtime-idle-missing",
             "remoteVisionHttpFixtureStreamRequested": "remote-vision-http-fixture-stream-request-missing",
+            "localVisionVerifiedModelImageAttachmentStaged": "local-vision-image-staging-missing",
+            "localVisionRuntimeImageAttachmentSent": "local-vision-runtime-image-attachment-missing",
+            "localVisionLocalOnlyPersistenceCovered": "local-vision-local-only-persistence-missing",
+            "localVisionPromptMetadataRedacted": "local-vision-prompt-metadata-redaction-missing",
+            "localVisionRemoteRuntimeIdle": "local-vision-remote-runtime-idle-missing",
+            "localVisionUnsupportedOcrSkipped": "local-vision-unsupported-ocr-skip-missing",
             "documentExcerptBounded": "document-excerpt-boundary-missing",
             "pickerAttachmentPromptCovered": "picker-attachment-prompt-missing",
         },
@@ -791,10 +797,26 @@ def validate_flow_evidence(key, evidence_path):
             "remoteVisionUnsupportedImageStreamOpenCount": ("0", "remote-vision-unsupported-image-stream-count-mismatch"),
             "remoteVisionUnsupportedImageOcrInvocationCount": ("0", "remote-vision-unsupported-image-ocr-count-mismatch"),
             "remoteVisionMixedProtectedNonImageCount": ("1", "remote-vision-mixed-protected-non-image-count-mismatch"),
+            "localVisionRemoteRuntimeRequestCount": ("0", "local-vision-remote-runtime-request-count-mismatch"),
+            "localVisionUnsupportedRuntimeImageSendCount": ("0", "local-vision-unsupported-runtime-image-send-count-mismatch"),
+            "localVisionUnsupportedImageOcrInvocationCount": ("0", "local-vision-unsupported-image-ocr-count-mismatch"),
         },
     }.get(key, {})
     for field, (expected, reason) in required_exact_fields.items():
         if props.get(field) != expected:
+            failures.append(f"{prefix}-{reason}")
+    required_min_fields = {
+        "shareAndPickerInput": {
+            "localVisionRuntimeImageAttachmentSendCount": (1, "local-vision-runtime-image-attachment-send-count-mismatch"),
+        },
+    }.get(key, {})
+    for field, (minimum, reason) in required_min_fields.items():
+        try:
+            value = int(props.get(field, ""))
+        except ValueError:
+            failures.append(f"{prefix}-{reason}")
+            continue
+        if value < minimum:
             failures.append(f"{prefix}-{reason}")
 
 def validate_png_file(name, path):
