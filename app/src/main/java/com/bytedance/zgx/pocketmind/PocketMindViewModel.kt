@@ -1046,10 +1046,15 @@ class PocketMindViewModel(
         if (_uiState.value.isBusy || _uiState.value.activeInstalledModelId == modelId) return
         val installed = modelRepository.selectInstalledModel(modelId) ?: return
         remoteModelRepository.saveMode(InferenceMode.Local)
+        pendingRemoteContinuation = null
+        remoteSendPendingStore.clearPendingRemoteSend()
+        resetRemoteSendDisclosureSuppression()
         updateModelState(modelRepository.currentState())
         _uiState.update {
             it.copy(
                 inferenceMode = InferenceMode.Local,
+                pendingRemoteModeDisclosure = null,
+                pendingRemoteSendDisclosure = null,
                 isReady = false,
                 statusText = "已切换到 ${installed.displayName}，点击加载模型",
             )

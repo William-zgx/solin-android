@@ -41,6 +41,7 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 ```bash
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
   --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteSendDisclosurePersistsNonSensitiveMarkerUntilDecision' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.selectingInstalledLocalModelClearsPendingRemoteSendMarker' \
   --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupConsumesPendingRemoteSendMarkerFailClosedWithoutPromptLeak' \
   --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupConsumesToolContinuationMarkerAndFailsModelRun'
 
@@ -52,7 +53,8 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app
 结果：
 
 - 通过：目标 JVM 测试验证 marker 保存/清理、启动消费、无 prompt 泄漏、无远程调用、
-  tool continuation run fail-closed。
+  tool continuation run fail-closed，以及 pending 远程发送期间切到已安装本地模型会清理
+  marker 和 pending disclosure。
 - 通过：完整 `PocketMindViewModelTest` 与 `RemoteModelRepositoryTest` 回归。
 - 未执行：真机 instrumentation、arm64/x86 模拟器；本轮按要求只做本地 JVM 验证。
 

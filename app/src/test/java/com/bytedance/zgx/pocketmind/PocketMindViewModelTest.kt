@@ -221,6 +221,44 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun selectingInstalledLocalModelClearsPendingRemoteSendMarker() = runTest(dispatcher) {
+        val pendingStore = FakeRemoteSendPendingStore()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val installed = installedModelSummary(
+            id = "local-chat",
+            displayName = "本地对话模型",
+            path = "/tmp/local-chat.litertlm",
+        )
+        val viewModel = createViewModel(
+            modelRepository = FakeModelRepository(initialInstalledModels = listOf(installed)),
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            remoteSendPendingStore = pendingStore,
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertNotNull(pendingStore.pending)
+
+        viewModel.selectInstalledModel("local-chat")
+        advanceUntilIdle()
+
+        assertEquals(null, pendingStore.pending)
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+        assertEquals("local-chat", viewModel.uiState.value.activeInstalledModelId)
+        assertTrue(remoteRuntime.calls.isEmpty())
+    }
+
+    @Test
     fun startupConsumesPendingRemoteSendMarkerFailClosedWithoutPromptLeak() = runTest(dispatcher) {
         val pendingStore = FakeRemoteSendPendingStore(
             pending = PendingRemoteSendMarker(
@@ -9210,7 +9248,14 @@ class PocketMindViewModelTest {
             return ModelSelectionResult(state, null)
         }
 
-        override fun selectInstalledModel(modelId: String): InstalledModelSummary? = null
+        override fun selectInstalledModel(modelId: String): InstalledModelSummary? {
+            val selected = state.installedModels.firstOrNull { it.id == modelId } ?: return null
+            state = state.copy(
+                activeInstalledModelId = selected.id,
+                activeModelPath = selected.path,
+            )
+            return selected
+        }
 
         override fun deleteInstalledModel(modelId: String): Boolean {
             deletedModelIds += modelId
