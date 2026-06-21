@@ -635,7 +635,8 @@ assert_release_verifier_report_schema() {
 assert_release_verifier_passed_report() {
   local file="$1"
   local schema="$2"
-  assert_release_verifier_report_schema "$file" "$schema"
+  local owner="${3:-release-engineering}"
+  assert_release_verifier_report_schema "$file" "$schema" "$owner"
   assert_report_contains "$file" "status=passed"
   assert_report_contains "$file" "failedTarget="
   assert_report_contains "$file" "reason=approved"
@@ -644,7 +645,8 @@ assert_release_verifier_passed_report() {
 assert_release_verifier_failed_report() {
   local file="$1"
   local schema="$2"
-  assert_release_verifier_report_schema "$file" "$schema"
+  local owner="${3:-release-engineering}"
+  assert_release_verifier_report_schema "$file" "$schema" "$owner"
   assert_report_contains "$file" "status=failed"
   grep -Eq '^reason=.+$' "$file" ||
     fail "Expected non-empty failure reason in $file"
@@ -4978,11 +4980,19 @@ expect_failure \
   "privacy review verifier rejects pending records" \
   env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_PENDING" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-pending.properties"
-assert_report_contains "$ARTIFACT_DIR/privacy-review-pending.properties" "status=failed"
+assert_release_verifier_failed_report \
+  "$ARTIFACT_DIR/privacy-review-pending.properties" \
+  "PrivacyReviewVerification/v1" \
+  "privacy-security"
+assert_report_contains "$ARTIFACT_DIR/privacy-review-pending.properties" "failedTarget=privacy-review-record"
+assert_report_contains "$ARTIFACT_DIR/privacy-review-pending.properties" "noticeSha256=$PRIVACY_NOTICE_SHA"
 expect_failure \
   "checked-in privacy review candidate has current notice and evidence hashes" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-checked-in-pending.properties"
-assert_report_contains "$ARTIFACT_DIR/privacy-review-checked-in-pending.properties" "status=failed"
+assert_release_verifier_failed_report \
+  "$ARTIFACT_DIR/privacy-review-checked-in-pending.properties" \
+  "PrivacyReviewVerification/v1" \
+  "privacy-security"
 for privacy_review_sha_failure in \
   "notice-sha-mismatch" \
   "release-evidence-sha-mismatch" \
@@ -5033,7 +5043,11 @@ expect_success \
   "privacy review verifier accepts approved current notice" \
   env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_APPROVED" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-approved.properties"
-assert_report_contains "$ARTIFACT_DIR/privacy-review-approved.properties" "status=passed"
+assert_release_verifier_passed_report \
+  "$ARTIFACT_DIR/privacy-review-approved.properties" \
+  "PrivacyReviewVerification/v1" \
+  "privacy-security"
+assert_report_contains "$ARTIFACT_DIR/privacy-review-approved.properties" "reviewSha256=$(shasum -a 256 "$PRIVACY_REVIEW_APPROVED" | awk '{print $1}')"
 PRIVACY_REVIEW_FUTURE="$TMP_DIR/privacy-review-future.json"
 sed 's/2026-06-06/2999-01-01/g' "$PRIVACY_REVIEW_APPROVED" > "$PRIVACY_REVIEW_FUTURE"
 expect_failure \
@@ -5247,7 +5261,12 @@ expect_failure \
   "model license verifier rejects incomplete review records" \
   env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_PENDING" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-pending.properties"
-assert_report_contains "$ARTIFACT_DIR/model-license-pending.properties" "status=failed"
+assert_release_verifier_failed_report \
+  "$ARTIFACT_DIR/model-license-pending.properties" \
+  "ModelLicenseReviewVerification/v1" \
+  "model-license-review"
+assert_report_contains "$ARTIFACT_DIR/model-license-pending.properties" "metadataMaxAgeDays=36500"
+assert_report_contains "$ARTIFACT_DIR/model-license-pending.properties" "failedTarget=model-license-review-record"
 cat > "$MODEL_LICENSE_APPROVED" <<MODEL_LICENSE_APPROVED_JSON
 {
   "version": 1,
@@ -5287,7 +5306,11 @@ expect_success \
   "model license verifier accepts approved metadata-aligned records" \
   env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_APPROVED" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-approved.properties"
-assert_report_contains "$ARTIFACT_DIR/model-license-approved.properties" "status=passed"
+assert_release_verifier_passed_report \
+  "$ARTIFACT_DIR/model-license-approved.properties" \
+  "ModelLicenseReviewVerification/v1" \
+  "model-license-review"
+assert_report_contains "$ARTIFACT_DIR/model-license-approved.properties" "reviewSha256=$(shasum -a 256 "$MODEL_LICENSE_APPROVED" | awk '{print $1}')"
 MODEL_LICENSE_SOURCE_MISMATCH="$TMP_DIR/model-license-source-mismatch.json"
 sed 's#https://huggingface.co/example/chat-e2b/blob/chat-revision-a/README.md#https://huggingface.co/example/wrong-model/blob/chat-revision-a/README.md#' "$MODEL_LICENSE_APPROVED" > "$MODEL_LICENSE_SOURCE_MISMATCH"
 expect_failure \

@@ -6,7 +6,52 @@ cd "$ROOT_DIR"
 
 REVIEW_FILE="${PRIVACY_REVIEW_FILE:-docs/privacy_review.json}"
 NOTICE_FILE="${PRIVACY_NOTICE_FILE:-docs/privacy_notice.md}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-privacy-security}}"
 REPORT_FILE=""
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+failed_target_for_reason() {
+  local reason="$1"
+  local first="${reason%%,*}"
+  case "$first" in
+    "")
+      printf ''
+      ;;
+    missing-review-file)
+      printf 'privacy-review-file'
+      ;;
+    missing-notice-file|notice-*)
+      printf 'privacy-notice'
+      ;;
+    release-evidence-*|security-evidence-*|legal-evidence-*|*-evidence-*)
+      printf 'privacy-review-evidence'
+      ;;
+    release-review-*|security-review-*|legal-review-*|*-decision-*|*-review-date-*|*-reviewer-*)
+      printf 'privacy-review-approval'
+      ;;
+    *)
+      printf 'privacy-review-record'
+      ;;
+  esac
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,14 +69,26 @@ done
 write_report() {
   local status="$1"
   local reason="$2"
+  local failed_target=""
+  if [[ "$status" != "passed" ]]; then
+    failed_target="$(failed_target_for_reason "$reason")"
+  fi
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
+      printf 'artifactSchema=PrivacyReviewVerification/v1\n'
       printf 'status=%s\n' "$status"
       printf 'target=privacy-review\n'
-      printf 'reviewFile=%s\n' "$REVIEW_FILE"
-      printf 'noticeFile=%s\n' "$NOTICE_FILE"
+      printf 'owner=%s\n' "$EVIDENCE_OWNER"
+      printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      printf 'command=%s\n' "$(command_line)"
+      printf 'failedTarget=%s\n' "$failed_target"
       printf 'reason=%s\n' "$reason"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
+      printf 'reviewFile=%s\n' "$REVIEW_FILE"
+      printf 'reviewSha256=%s\n' "$(sha256_or_empty "$REVIEW_FILE")"
+      printf 'noticeFile=%s\n' "$NOTICE_FILE"
+      printf 'noticeSha256=%s\n' "$(sha256_or_empty "$NOTICE_FILE")"
     } > "$REPORT_FILE"
   fi
 }

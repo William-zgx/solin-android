@@ -8,7 +8,58 @@ REVIEW_FILE="${MODEL_LICENSE_REVIEW_FILE:-docs/model_license_review.json}"
 METADATA_FILE="${MODEL_LICENSE_METADATA_FILE:-docs/model_license_metadata.json}"
 MANIFEST_FILE="${MODEL_MANIFEST_FILE:-docs/model_manifest.md}"
 METADATA_MAX_AGE_DAYS="${MODEL_LICENSE_METADATA_MAX_AGE_DAYS:-30}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-model-license-review}}"
 REPORT_FILE=""
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+failed_target_for_reason() {
+  local reason="$1"
+  local first="${reason%%,*}"
+  case "$first" in
+    "")
+      printf ''
+      ;;
+    missing-review-file|review-version-invalid|review-models-missing|review-entry-invalid|review-model-*)
+      printf 'model-license-review-file'
+      ;;
+    missing-metadata-file|metadata-*)
+      printf 'model-license-metadata'
+      ;;
+    missing-manifest-file|manifest-*|*-manifest-*)
+      printf 'model-manifest'
+      ;;
+    *-review-evidence-*)
+      printf 'model-license-review-evidence'
+      ;;
+    *-license-source-*|*-license-source-*)
+      printf 'model-license-source'
+      ;;
+    *-license-*|*-redistribution-*|*-status-*|*-repository-*|*-upstream-revision-*|*-attribution-*|*-reviewer-*|*-review-date-*)
+      printf 'model-license-review-record'
+      ;;
+    *)
+      printf 'model-license-review'
+      ;;
+  esac
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -26,15 +77,29 @@ done
 write_report() {
   local status="$1"
   local reason="$2"
+  local failed_target=""
+  if [[ "$status" != "passed" ]]; then
+    failed_target="$(failed_target_for_reason "$reason")"
+  fi
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
+      printf 'artifactSchema=ModelLicenseReviewVerification/v1\n'
       printf 'status=%s\n' "$status"
       printf 'target=model-license-review\n'
-      printf 'reviewFile=%s\n' "$REVIEW_FILE"
-      printf 'metadataFile=%s\n' "$METADATA_FILE"
-      printf 'manifestFile=%s\n' "$MANIFEST_FILE"
+      printf 'owner=%s\n' "$EVIDENCE_OWNER"
+      printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      printf 'command=%s\n' "$(command_line)"
+      printf 'failedTarget=%s\n' "$failed_target"
       printf 'reason=%s\n' "$reason"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
+      printf 'reviewFile=%s\n' "$REVIEW_FILE"
+      printf 'reviewSha256=%s\n' "$(sha256_or_empty "$REVIEW_FILE")"
+      printf 'metadataFile=%s\n' "$METADATA_FILE"
+      printf 'metadataSha256=%s\n' "$(sha256_or_empty "$METADATA_FILE")"
+      printf 'manifestFile=%s\n' "$MANIFEST_FILE"
+      printf 'manifestSha256=%s\n' "$(sha256_or_empty "$MANIFEST_FILE")"
+      printf 'metadataMaxAgeDays=%s\n' "$METADATA_MAX_AGE_DAYS"
     } > "$REPORT_FILE"
   fi
 }

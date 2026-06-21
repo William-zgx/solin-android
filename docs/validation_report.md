@@ -112,7 +112,37 @@ scripts/test_validation_scripts.sh
 
 - 本轮强化的是 release operations evidence 内容合同，不替代真实 Android Vitals、
   rollout 值班、production signing、CI artifact 或人工 release operations review。
-- 多 Agent 探索发现的 local vision release-flow contract 仍待后续补齐。
+- 多 Agent 探索发现的 real-app submit/result verifier 本地覆盖仍待后续补齐。
+
+## 2026-06-22 Privacy/Model License Verifier Evidence Schema Gate
+
+本轮覆盖项：
+
+- `scripts/verify_privacy_review.sh` 和
+  `scripts/verify_model_license_review.sh` 的 report 统一输出
+  `artifactSchema`、`owner`、UTC `recordedAt`、`command`、`failedTarget`、
+  `reason`、`reproduciblePath` 和输入文件 SHA-256。
+- privacy review report 绑定 review JSON 与 privacy notice SHA；model license
+  review report 绑定 review JSON、metadata JSON、model manifest SHA 和
+  metadata freshness window。
+- `scripts/test_validation_scripts.sh` 的 release verifier schema helper 支持
+  verifier-specific owner，并覆盖 privacy/model-license 的 pending 失败路径和
+  approved 成功路径，防止这两类发布审批报告回退成只含 `status/reason` 的弱证据。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_privacy_review.sh scripts/verify_model_license_review.sh \
+  scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell syntax 检查。
+- 通过：validation script tests 全量通过，新增断言覆盖 privacy/model-license 两类
+  verifier 的 schema、owner、UTC 时间、命令、可复现路径、失败目标和 SHA-256 绑定。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮按要求只做本地脚本门禁。
 
 ## 2026-06-22 Release Verifier Evidence Schema Gate
 

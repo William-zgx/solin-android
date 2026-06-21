@@ -20,10 +20,10 @@ items below.
   license review records, RC perf-baseline verification, artifact SHA matching,
   and optional public release enforcement for signed artifacts plus AAB presence
   and release mapping output.
-- Release record, store policy, and release validation verifier reports now
-  share a machine-readable evidence schema with `artifactSchema`, owner, UTC
-  timestamp, command, failed target, reproducible report path, and SHA-256
-  binding for their input records.
+- Release record, store policy, release validation, privacy review, and model
+  license review verifier reports now share a machine-readable evidence schema
+  with `artifactSchema`, owner, UTC timestamp, command, failed target,
+  reproducible report path, and SHA-256 binding for their input records.
 - Release operations monitoring and rollback evidence now require passed typed
   properties reports bound to the approved operations record fields, not only
   path/SHA presence.
