@@ -28,9 +28,9 @@ class ModelCapabilityProfilesDocumentationTest {
             assertProfileMatchesJson(
                 profile = profile,
                 item = documented.getJSONObject(index),
-                remoteEligible = false,
             )
-            assertFalse(documented.getJSONObject(index).getBoolean("remoteEligible"))
+            assertFalse(profile.remoteEligible)
+            assertFalse(profile.requiresRemoteSendConfirmation)
         }
     }
 
@@ -48,10 +48,14 @@ class ModelCapabilityProfilesDocumentationTest {
         ).modelProfile()
 
         assertEquals(listOf(textTemplate.id, visionTemplate.id), documented.ids())
-        assertProfileMatchesJson(textTemplate, documented.getJSONObject(0), remoteEligible = true)
-        assertProfileMatchesJson(visionTemplate, documented.getJSONObject(1), remoteEligible = true)
+        assertProfileMatchesJson(textTemplate, documented.getJSONObject(0))
+        assertProfileMatchesJson(visionTemplate, documented.getJSONObject(1))
         assertFalse(textTemplate.supportsVisionInput)
         assertTrue(visionTemplate.supportsVisionInput)
+        assertTrue(textTemplate.remoteEligible)
+        assertTrue(visionTemplate.remoteEligible)
+        assertTrue(textTemplate.requiresRemoteSendConfirmation)
+        assertTrue(visionTemplate.requiresRemoteSendConfirmation)
 
         for (index in 0 until documented.length()) {
             val item = documented.getJSONObject(index)
@@ -68,18 +72,19 @@ class ModelCapabilityProfilesDocumentationTest {
         val profile = ModelCatalog.customLocalChatProfile("custom-local-template")
 
         assertEquals(listOf(profile.id), documented.ids())
-        assertProfileMatchesJson(profile, documented.getJSONObject(0), remoteEligible = false)
+        assertProfileMatchesJson(profile, documented.getJSONObject(0))
         assertTrue(profile.supportsChatGeneration)
         assertFalse(profile.supportsVisionInput)
         assertFalse(profile.supportsMemoryEmbedding)
         assertFalse(profile.supportsMobileActionPlanning)
+        assertFalse(profile.remoteEligible)
+        assertFalse(profile.requiresRemoteSendConfirmation)
         assertTrue(profile.preferredLocalBackends.isEmpty())
     }
 
     private fun assertProfileMatchesJson(
         profile: ModelProfile,
         item: JSONObject,
-        remoteEligible: Boolean,
     ) {
         assertEquals(profile.id, item.getString("id"))
         assertEquals(profile.displayName, item.getString("displayName"))
@@ -93,7 +98,8 @@ class ModelCapabilityProfilesDocumentationTest {
         assertEquals(profile.byteSize, item.nullableLong("byteSize"))
         assertEquals(profile.sha256Hex, item.nullableString("sha256Hex"))
         assertEquals(profile.sourceRevision, item.nullableString("sourceRevision"))
-        assertEquals(remoteEligible, item.getBoolean("remoteEligible"))
+        assertEquals(profile.remoteEligible, item.getBoolean("remoteEligible"))
+        assertEquals(profile.requiresRemoteSendConfirmation, item.getBoolean("requiresRemoteSendConfirmation"))
 
         val capabilities = item.getJSONObject("capabilities")
         assertEquals(profile.supportsChatGeneration, capabilities.getBoolean("chat"))

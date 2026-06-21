@@ -23,6 +23,33 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Model Capability Remote Boundary Gate
+
+本轮覆盖项：
+
+- `ModelProfile` / `ModelCapabilityProfile` 新增 `remoteEligible` 和
+  `requiresRemoteSendConfirmation` 派生字段；远程 OpenAI-compatible backend 才能为
+  true，本地 LiteRT 模型、记忆模型、动作模型和自定义本地模型均 fail-closed。
+- `docs/model_capability_profiles.json` 对所有 profile/template 显式记录
+  `requiresRemoteSendConfirmation`，文档契约测试从 runtime profile 反推 JSON，避免文档
+  与运行时远程边界分叉。
+- 远程 text-only profile 仍要求远程发送确认；vision capability 只影响图片输入能力，不降低
+  remote confirmation 要求。
+
+验证命令：
+
+```bash
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.ModelCatalogTest' \
+  --tests 'com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.RemoteModelConfigTest'
+```
+
+结果：
+
+- 通过：本地 JVM 单测覆盖 catalog、remote config 和文档 JSON 契约。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮按要求只做本地验证。
+
 ## 2026-06-21 Release Flow Evidence Semantic Field Gate
 
 本轮覆盖项：

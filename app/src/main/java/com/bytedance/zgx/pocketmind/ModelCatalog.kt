@@ -76,6 +76,12 @@ data class ModelProfile(
     val contextWindowTokens: Int?
         get() = tokenBudget
 
+    val remoteEligible: Boolean
+        get() = backendKind == ModelBackendKind.RemoteOpenAiCompatible
+
+    val requiresRemoteSendConfirmation: Boolean
+        get() = remoteEligible
+
     init {
         require(ModelInputModality.Text in inputModalities) { "Model profiles must declare text input support" }
         require(ModelFeature.VisionInput !in features || ModelInputModality.Vision in inputModalities) {

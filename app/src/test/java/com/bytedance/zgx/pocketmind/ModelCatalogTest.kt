@@ -91,6 +91,8 @@ class ModelCatalogTest {
         assertTrue(chatProfile.supportsVisionInput)
         assertFalse(chatProfile.supportsMemoryEmbedding)
         assertFalse(chatProfile.supportsMobileActionPlanning)
+        assertFalse(chatProfile.remoteEligible)
+        assertFalse(chatProfile.requiresRemoteSendConfirmation)
         assertEquals(LocalModelTokenLimits.MAX_TOTAL_TOKENS, chatProfile.contextWindowTokens)
         assertEquals(setOf(BackendChoice.GPU, BackendChoice.CPU), chatProfile.preferredLocalBackends)
 
@@ -100,6 +102,8 @@ class ModelCatalogTest {
         assertFalse(memoryProfile.supportsVisionInput)
         assertTrue(memoryProfile.supportsMemoryEmbedding)
         assertFalse(memoryProfile.supportsMobileActionPlanning)
+        assertFalse(memoryProfile.remoteEligible)
+        assertFalse(memoryProfile.requiresRemoteSendConfirmation)
         assertNull(memoryProfile.contextWindowTokens)
         assertEquals(setOf(BackendChoice.CPU), memoryProfile.preferredLocalBackends)
 
@@ -108,11 +112,15 @@ class ModelCatalogTest {
         assertFalse(actionProfile.supportsVisionInput)
         assertFalse(actionProfile.supportsMemoryEmbedding)
         assertTrue(actionProfile.supportsMobileActionPlanning)
+        assertFalse(actionProfile.remoteEligible)
+        assertFalse(actionProfile.requiresRemoteSendConfirmation)
         assertEquals(setOf(BackendChoice.CPU), actionProfile.preferredLocalBackends)
 
         assertEquals(ModelCapability.Chat, textOnlyChatProfile.capability)
         assertEquals(setOf(ModelInputModality.Text), textOnlyChatProfile.inputModalities)
         assertFalse(textOnlyChatProfile.supportsVisionInput)
+        assertFalse(textOnlyChatProfile.remoteEligible)
+        assertFalse(textOnlyChatProfile.requiresRemoteSendConfirmation)
         assertNull(ModelCatalog.profileForModelIdOrNull("unknown-model-id"))
 
         val customProfile = ModelCatalog.customLocalChatProfile("导入模型")
@@ -125,6 +133,8 @@ class ModelCatalogTest {
         assertFalse(customProfile.supportsVisionInput)
         assertFalse(customProfile.supportsMemoryEmbedding)
         assertFalse(customProfile.supportsMobileActionPlanning)
+        assertFalse(customProfile.remoteEligible)
+        assertFalse(customProfile.requiresRemoteSendConfirmation)
         assertNull(customProfile.contextWindowTokens)
         assertTrue(customProfile.preferredLocalBackends.isEmpty())
 
@@ -132,6 +142,8 @@ class ModelCatalogTest {
         assertEquals(setOf(ModelInputModality.Text, ModelInputModality.Vision), remoteVisionProfile.inputModalities)
         assertTrue(remoteVisionProfile.supportsVisionInput)
         assertTrue(remoteVisionProfile.preferredLocalBackends.isEmpty())
+        assertTrue(remoteVisionProfile.remoteEligible)
+        assertTrue(remoteVisionProfile.requiresRemoteSendConfirmation)
     }
 
     @Test
@@ -144,6 +156,8 @@ class ModelCatalogTest {
         assertEquals(ModelCapability.Chat, profile.capability)
         assertEquals(setOf(ModelInputModality.Text), profile.inputModalities)
         assertFalse(profile.supportsVisionInput)
+        assertTrue(profile.remoteEligible)
+        assertTrue(profile.requiresRemoteSendConfirmation)
     }
 
     @Test(expected = IllegalArgumentException::class)
