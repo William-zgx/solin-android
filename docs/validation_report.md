@@ -23,6 +23,34 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-22 Local Verification Gate
+
+本轮覆盖项：
+
+- 当前分支最新本地总门禁：doctor、shell syntax、validation script tests、JVM
+  `testDebugUnitTest`、`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest`、
+  `assembleRelease`、`bundleRelease`、APK/AAB 不含 `.litertlm`、release artifact scan、
+  arm64 native-code badging、artifact size budget、model URL pinning guard、remote API key
+  plaintext storage guard。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：`Validation script tests passed.`
+- 通过：Gradle `BUILD SUCCESSFUL`，145 个 task 中 30 executed / 115 up-to-date。
+- 通过：`Android artifact scan passed.`
+- 通过：`Local verification passed.`
+- 备注：`MainActivity.kt` 仍有既有 `unsafeCheckOpNoThrow` deprecation warning，但未导致
+  lint/build 失败。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；`verify_local.sh`
+  明确不要求 adb。
+
 ## 2026-06-22 Device Verification Artifact Model Invariants
 
 本轮覆盖项：
