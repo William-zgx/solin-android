@@ -31,6 +31,7 @@ import com.bytedance.zgx.pocketmind.data.ModelSelectionResult
 import com.bytedance.zgx.pocketmind.data.ModelSelectionState
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.data.RemoteModelStore
+import com.bytedance.zgx.pocketmind.data.RemoteSendPendingStore
 import com.bytedance.zgx.pocketmind.data.SessionStore
 import com.bytedance.zgx.pocketmind.data.TransferProgress
 import com.bytedance.zgx.pocketmind.device.DeviceContextAuthorizationSnapshot
@@ -184,6 +185,126 @@ class PocketMindViewModelTest {
 
         assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
         assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+    }
+
+    @Test
+    fun remoteSendDisclosurePersistsNonSensitiveMarkerUntilDecision() = runTest(dispatcher) {
+        val pendingStore = FakeRemoteSendPendingStore()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            remoteSendPendingStore = pendingStore,
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val marker = requireNotNull(pendingStore.pending)
+        assertEquals(RemoteSendDisclosureKind.CurrentInput, marker.kind)
+        assertEquals("model-a", marker.remoteModelName)
+        assertEquals(0, marker.imageAttachmentCount)
+        assertEquals(0, remoteRuntime.calls.size)
+
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals(null, pendingStore.pending)
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+    }
+
+    @Test
+    fun startupConsumesPendingRemoteSendMarkerFailClosedWithoutPromptLeak() = runTest(dispatcher) {
+        val pendingStore = FakeRemoteSendPendingStore(
+            pending = PendingRemoteSendMarker(
+                kind = RemoteSendDisclosureKind.CurrentInput,
+                remoteModelName = "model-a",
+                remoteHistoryCount = 1,
+                localOnlyHistoryFilteredCount = 2,
+                imageAttachmentCount = 1,
+                protectedSourceCount = 2,
+            ),
+        )
+        val sessionStore = FakeSessionStore(
+            initialSessions = mapOf(
+                "session-1" to listOf(
+                    ChatMessage(
+                        role = MessageRole.User,
+                        text = "之前的本地会话内容",
+                        privacy = MessagePrivacy.RemoteEligible,
+                    ),
+                ),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            remoteSendPendingStore = pendingStore,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertEquals(null, pendingStore.pending)
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        val note = sessionStore.messages.last()
+        assertEquals(MessagePrivacy.LocalOnly, note.privacy)
+        assertTrue(note.text.contains("远程发送确认"))
+        assertTrue(note.text.contains("没有发送"))
+        assertFalse(note.text.contains("model-a"))
+        assertFalse(note.text.contains("之前的本地会话内容"))
+    }
+
+    @Test
+    fun startupConsumesToolContinuationMarkerAndFailsModelRun() = runTest(dispatcher) {
+        val pendingStore = FakeRemoteSendPendingStore(
+            pending = PendingRemoteSendMarker(
+                kind = RemoteSendDisclosureKind.ToolResultContinuation,
+                remoteModelName = "model-a",
+                remoteHistoryCount = 1,
+                localOnlyHistoryFilteredCount = 0,
+                imageAttachmentCount = 0,
+                protectedSourceCount = 0,
+                runId = "run-pending-continuation",
+            ),
+        )
+        val assistantRouter = FakeAssistantRouter()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            remoteSendPendingStore = pendingStore,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertEquals(null, pendingStore.pending)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(1, assistantRouter.failModelGenerationCallCount)
+        assertEquals("run-pending-continuation", assistantRouter.lastFailedModelRunId)
+        assertTrue(assistantRouter.lastFailedModelReason.orEmpty().contains("应用重启"))
+        assertTrue(sessionStore.messages.last().text.contains("工具结果没有发送到远程模型"))
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
     }
 
     @Test
@@ -8059,6 +8180,7 @@ class PocketMindViewModelTest {
         requireRemoteSendDisclosure: Boolean = false,
         remoteConnectivityProbe: RemoteModelConnectivityProbe = FakeRemoteModelConnectivityProbe(),
         huggingFaceAuthStore: HuggingFaceAuthStore = FakeHuggingFaceAuthStore(),
+        remoteSendPendingStore: RemoteSendPendingStore = FakeRemoteSendPendingStore(),
         actionExecutor: ToolExecutor = object : ToolExecutor {
             override fun execute(request: ToolRequest): ToolResult =
                 ToolResult(
@@ -8088,6 +8210,7 @@ class PocketMindViewModelTest {
             ioDispatcher = ioDispatcher,
             requireRemoteSendDisclosure = requireRemoteSendDisclosure,
             remoteConnectivityProbe = remoteConnectivityProbe,
+            remoteSendPendingStore = remoteSendPendingStore,
         )
 
     private fun installedModelSummary(
@@ -9210,6 +9333,21 @@ class PocketMindViewModelTest {
         override fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig> {
             this.config = config.normalized()
             return Result.success(this.config)
+        }
+    }
+
+    private class FakeRemoteSendPendingStore(
+        var pending: PendingRemoteSendMarker? = null,
+    ) : RemoteSendPendingStore {
+        override fun savePendingRemoteSend(marker: PendingRemoteSendMarker) {
+            pending = marker
+        }
+
+        override fun consumePendingRemoteSend(): PendingRemoteSendMarker? =
+            pending.also { pending = null }
+
+        override fun clearPendingRemoteSend() {
+            pending = null
         }
     }
 

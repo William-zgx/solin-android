@@ -29,8 +29,10 @@ import com.bytedance.zgx.pocketmind.data.ModelRepositoryFacade
 import com.bytedance.zgx.pocketmind.data.ModelRepository
 import com.bytedance.zgx.pocketmind.data.ModelSelectionState
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
+import com.bytedance.zgx.pocketmind.data.NoOpRemoteSendPendingStore
 import com.bytedance.zgx.pocketmind.data.RemoteModelStore
 import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
+import com.bytedance.zgx.pocketmind.data.RemoteSendPendingStore
 import com.bytedance.zgx.pocketmind.data.SessionStore
 import com.bytedance.zgx.pocketmind.data.NoOpHuggingFaceAuthStore
 import com.bytedance.zgx.pocketmind.device.DeviceContextAuthorizationSnapshot
@@ -136,6 +138,10 @@ private const val USER_STOPPED_AGENT_RUN_REASON =
     "User stopped this Agent run."
 private const val PUBLIC_EVIDENCE_BATCH_TOOL_NAME = "public_evidence_batch"
 private const val REMOTE_SEND_PROMPT_PREVIEW_MAX_CHARS = 240
+private const val REMOTE_SEND_RESTART_DISCARDED_TEXT =
+    "上次远程发送确认因应用重启已失效，内容没有发送。请重新发起请求。"
+private const val REMOTE_TOOL_CONTINUATION_RESTART_DISCARDED_TEXT =
+    "上次远程工具结果续写确认因应用重启已失效，工具结果没有发送到远程模型。请重新发起请求。"
 internal const val NO_MODEL_READY_STATUS_TEXT =
     "选择远程模型或下载本地模型后即可开始"
 private val VOICE_WAVEFORM_MULTIPLIERS =
@@ -175,6 +181,7 @@ class PocketMindViewModel(
     remoteSendAuditStore: InMemoryRemoteSendAuditStore = InMemoryRemoteSendAuditStore(),
     private val remoteSendAuditSink: RemoteSendAuditSink = remoteSendAuditStore,
     private val remoteSendAuditLog: RemoteSendAuditLog = remoteSendAuditStore,
+    private val remoteSendPendingStore: RemoteSendPendingStore = NoOpRemoteSendPendingStore,
 ) : ViewModel() {
     private val runtimeLock = Mutex()
     private var generationJob: Job? = null
@@ -214,6 +221,7 @@ class PocketMindViewModel(
         if (startupRestored) return
         startupRestored = true
 
+        failClosedPendingRemoteSendOnStartup()
         recoverBackgroundTasksOnStartup()
         syncTaskStateMemories()
         refreshDeviceStatus()
@@ -887,6 +895,7 @@ class PocketMindViewModel(
     fun selectInferenceMode(mode: InferenceMode) {
         if (_uiState.value.isBusy || _uiState.value.inferenceMode == mode) return
         pendingRemoteContinuation = null
+        remoteSendPendingStore.clearPendingRemoteSend()
         // Trust boundary changed (inference mode switch): a prior session-scoped
         // "don't ask again" must not silently carry into the new destination.
         resetRemoteSendDisclosureSuppression()
@@ -933,6 +942,7 @@ class PocketMindViewModel(
     fun updateRemoteModelConfig(config: RemoteModelConfig) {
         if (_uiState.value.isBusy) return
         pendingRemoteContinuation = null
+        remoteSendPendingStore.clearPendingRemoteSend()
         remoteConnectivityProbeJob?.cancel()
         // Trust boundary changed (remote destination/credential): never let a prior
         // session-scoped "don't ask again" carry over to a new remote endpoint.
@@ -1105,6 +1115,8 @@ class PocketMindViewModel(
         if (_uiState.value.isBusy) return
         val backendChoice = preferredBackendForActiveModel(_uiState.value, _uiState.value.backend)
         remoteModelRepository.saveMode(InferenceMode.Local)
+        pendingRemoteContinuation = null
+        remoteSendPendingStore.clearPendingRemoteSend()
         if (backendChoice != _uiState.value.backend) {
             generationParametersRepository.saveBackend(backendChoice)
         }
@@ -1233,6 +1245,7 @@ class PocketMindViewModel(
     fun createNewSession() {
         if (_uiState.value.isBusy) return
         pendingRemoteContinuation = null
+        remoteSendPendingStore.clearPendingRemoteSend()
         // New session is a fresh trust context; drop any session-scoped disclosure suppression.
         resetRemoteSendDisclosureSuppression()
         val messages = sessionRepository.createNewSession()
@@ -1268,6 +1281,7 @@ class PocketMindViewModel(
     fun selectSession(sessionId: String) {
         if (_uiState.value.isBusy || _uiState.value.activeSessionId == sessionId) return
         pendingRemoteContinuation = null
+        remoteSendPendingStore.clearPendingRemoteSend()
         // Switching sessions is a trust-context change; drop session-scoped disclosure suppression.
         resetRemoteSendDisclosureSuppression()
         val messages = sessionRepository.selectSession(sessionId) ?: return
@@ -1302,6 +1316,7 @@ class PocketMindViewModel(
     fun deleteActiveSession() {
         if (_uiState.value.isBusy) return
         pendingRemoteContinuation = null
+        remoteSendPendingStore.clearPendingRemoteSend()
         val deletedSessionId = sessionRepository.activeSessionId
         val messages = sessionRepository.deleteActiveSession() ?: return
         val activeSessionId = sessionRepository.activeSessionId
@@ -1497,16 +1512,18 @@ class PocketMindViewModel(
             // forced disclosure that offers graded choices — mask & send, send anyway
             // (audited), or cancel. This is always force-shown (fail-closed) and can never be
             // silenced by the session-suppression flag.
+            val disclosure = buildSensitiveRemoteSendDisclosure(
+                prompt = trimmed,
+                messagePrivacy = effectiveMessagePrivacy,
+                remoteConfig = remoteConfig,
+                remoteHistory = remoteHistory,
+                imageAttachments = imageAttachments,
+                stateBeforeSend = stateBeforeSend,
+            )
+            savePendingRemoteSendMarker(disclosure)
             _uiState.update {
                 it.copy(
-                    pendingRemoteSendDisclosure = buildSensitiveRemoteSendDisclosure(
-                        prompt = trimmed,
-                        messagePrivacy = effectiveMessagePrivacy,
-                        remoteConfig = remoteConfig,
-                        remoteHistory = remoteHistory,
-                        imageAttachments = imageAttachments,
-                        stateBeforeSend = stateBeforeSend,
-                    ),
+                    pendingRemoteSendDisclosure = disclosure,
                     pendingExternalOutcome = null,
                     latestRecoveryAction = null,
                     statusText = "敏感内容待确认",
@@ -1546,17 +1563,19 @@ class PocketMindViewModel(
             !remoteSendConfirmed &&
             shouldRequireRemoteSendDisclosure(imageAttachmentCount = imageAttachments.size)
         ) {
+            val disclosure = buildPendingRemoteSendDisclosure(
+                kind = RemoteSendDisclosureKind.CurrentInput,
+                prompt = trimmed,
+                messagePrivacy = effectiveMessagePrivacy,
+                remoteConfig = remoteConfig,
+                remoteHistory = remoteHistory,
+                imageAttachments = imageAttachments,
+                stateBeforeSend = stateBeforeSend,
+            )
+            savePendingRemoteSendMarker(disclosure)
             _uiState.update {
                 it.copy(
-                    pendingRemoteSendDisclosure = buildPendingRemoteSendDisclosure(
-                        kind = RemoteSendDisclosureKind.CurrentInput,
-                        prompt = trimmed,
-                        messagePrivacy = effectiveMessagePrivacy,
-                        remoteConfig = remoteConfig,
-                        remoteHistory = remoteHistory,
-                        imageAttachments = imageAttachments,
-                        stateBeforeSend = stateBeforeSend,
-                    ),
+                    pendingRemoteSendDisclosure = disclosure,
                     pendingExternalOutcome = null,
                     latestRecoveryAction = null,
                     statusText = "远程发送待确认",
@@ -2149,6 +2168,7 @@ class PocketMindViewModel(
             remoteSendDisclosureSuppressedForSession = true
         }
         recordRemoteSendDecision(RemoteSendDecision.Confirmed, pending)
+        remoteSendPendingStore.clearPendingRemoteSend()
         val continuation = pendingRemoteContinuation
         _uiState.update {
             if (it.pendingRemoteSendDisclosure == pending) {
@@ -2195,6 +2215,7 @@ class PocketMindViewModel(
                 if (maskedCategories.isNotBlank()) "（$maskedCategories）。" else "。",
         )
         recordRemoteSendDecision(RemoteSendDecision.MaskedSend, pending)
+        remoteSendPendingStore.clearPendingRemoteSend()
         _uiState.update {
             if (it.pendingRemoteSendDisclosure == pending) {
                 it.copy(pendingRemoteSendDisclosure = null, statusText = "处理中")
@@ -2224,6 +2245,7 @@ class PocketMindViewModel(
                 if (hitCategories.isNotBlank()) "（$hitCategories）。" else "。",
         )
         recordRemoteSendDecision(RemoteSendDecision.SentAnyway, pending)
+        remoteSendPendingStore.clearPendingRemoteSend()
         _uiState.update {
             if (it.pendingRemoteSendDisclosure == pending) {
                 it.copy(pendingRemoteSendDisclosure = null, statusText = "处理中")
@@ -2267,6 +2289,52 @@ class PocketMindViewModel(
             imageCount = pending.imageAttachmentCount,
             remoteHistoryCount = pending.remoteHistoryCount,
         )
+    }
+
+    private fun savePendingRemoteSendMarker(
+        pending: PendingRemoteSendDisclosure,
+        runId: String? = null,
+    ) {
+        remoteSendPendingStore.savePendingRemoteSend(
+            PendingRemoteSendMarker(
+                kind = pending.kind,
+                remoteModelName = pending.remoteModelName,
+                remoteHistoryCount = pending.remoteHistoryCount,
+                localOnlyHistoryFilteredCount = pending.localOnlyHistoryFilteredCount,
+                imageAttachmentCount = pending.imageAttachmentCount,
+                protectedSourceCount = pending.protectedSourceCount,
+                runId = runId,
+            ),
+        )
+    }
+
+    private fun failClosedPendingRemoteSendOnStartup() {
+        val marker = remoteSendPendingStore.consumePendingRemoteSend() ?: return
+        pendingRemoteContinuation = null
+        val reason = when (marker.kind) {
+            RemoteSendDisclosureKind.CurrentInput -> REMOTE_SEND_RESTART_DISCARDED_TEXT
+            RemoteSendDisclosureKind.ToolResultContinuation -> REMOTE_TOOL_CONTINUATION_RESTART_DISCARDED_TEXT
+        }
+        marker.runId?.let { runId ->
+            assistantOrchestrator.failModelGeneration(runId, reason)
+        }
+        replaceActiveSessionMessages(
+            _uiState.value.messages + ChatMessage(
+                role = MessageRole.Assistant,
+                text = reason,
+                privacy = MessagePrivacy.LocalOnly,
+            ),
+            persistNow = true,
+        )
+        _uiState.update {
+            it.copy(
+                pendingRemoteSendDisclosure = null,
+                isBusy = false,
+                isGenerating = false,
+                agentTraceRuns = loadAgentTraceRuns(),
+                statusText = "远程发送确认已失效",
+            )
+        }
     }
 
     private fun recordRemoteSendAuditEvent(
@@ -2328,6 +2396,7 @@ class PocketMindViewModel(
         }
         val continuation = pendingRemoteContinuation
         pendingRemoteContinuation = null
+        remoteSendPendingStore.clearPendingRemoteSend()
         if (continuation != null) {
             val reason = "用户取消远程工具结果续写，工具结果未发送到远程模型。"
             continuation.runId?.let { runId ->
@@ -3467,17 +3536,19 @@ class PocketMindViewModel(
                 responsePrivacy = responsePrivacy,
                 remoteToolScope = remoteToolScope,
             )
+            val disclosure = buildPendingRemoteSendDisclosure(
+                kind = RemoteSendDisclosureKind.ToolResultContinuation,
+                prompt = promptForModel,
+                messagePrivacy = responsePrivacy,
+                remoteConfig = remoteConfig,
+                remoteHistory = remoteHistory,
+                imageAttachments = emptyList(),
+                stateBeforeSend = stateAtStart,
+            )
+            savePendingRemoteSendMarker(disclosure, runId = runId)
             _uiState.update {
                 it.copy(
-                    pendingRemoteSendDisclosure = buildPendingRemoteSendDisclosure(
-                        kind = RemoteSendDisclosureKind.ToolResultContinuation,
-                        prompt = promptForModel,
-                        messagePrivacy = responsePrivacy,
-                        remoteConfig = remoteConfig,
-                        remoteHistory = remoteHistory,
-                        imageAttachments = emptyList(),
-                        stateBeforeSend = stateAtStart,
-                    ),
+                    pendingRemoteSendDisclosure = disclosure,
                     isBusy = false,
                     isGenerating = false,
                     statusText = "远程续写待确认",
@@ -4781,6 +4852,7 @@ class PocketMindViewModel(
     ) {
         val config = _uiState.value.remoteModelConfig
         pendingRemoteContinuation = null
+        remoteSendPendingStore.clearPendingRemoteSend()
         val modeDisclosure = if (showModeDisclosure) {
             buildRemoteModeDisclosure(config)
         } else {

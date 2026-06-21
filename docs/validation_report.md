@@ -23,6 +23,39 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Remote Send Pending Confirmation Fail-Closed
+
+本轮覆盖项：
+
+- 新增 `PendingRemoteSendMarker` / `RemoteSendPendingStore`，只保存远程发送确认的
+  kind、模型名、计数、runId 和时间戳；不保存 prompt、图片 bytes、OCR 文本、工具结果或
+  host。
+- 创建 current input / sensitive input / tool-result continuation 远程发送确认时写入 marker；
+  用户确认、打码发送、原样发送、取消、切换会话/模式/远程配置/本地模型时清除 marker。
+- App 启动时消费遗留 marker，fail-closed 地丢弃 pending confirmation，追加一条
+  `LocalOnly` 本地说明；tool-result continuation marker 会用通用原因 fail 对应 run，
+  不会恢复或继续远程发送。
+
+验证命令：
+
+```bash
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteSendDisclosurePersistsNonSensitiveMarkerUntilDecision' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupConsumesPendingRemoteSendMarkerFailClosedWithoutPromptLeak' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.startupConsumesToolContinuationMarkerAndFailsModelRun'
+
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest' \
+  --tests 'com.bytedance.zgx.pocketmind.data.RemoteModelRepositoryTest'
+```
+
+结果：
+
+- 通过：目标 JVM 测试验证 marker 保存/清理、启动消费、无 prompt 泄漏、无远程调用、
+  tool continuation run fail-closed。
+- 通过：完整 `PocketMindViewModelTest` 与 `RemoteModelRepositoryTest` 回归。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮按要求只做本地 JVM 验证。
+
 ## 2026-06-21 Model License Metadata Freshness Gate
 
 本轮覆盖项：

@@ -321,6 +321,17 @@ data class PendingRemoteSendDisclosure(
         get() = sensitiveHitCategories.isNotEmpty()
 }
 
+data class PendingRemoteSendMarker(
+    val kind: RemoteSendDisclosureKind,
+    val remoteModelName: String,
+    val remoteHistoryCount: Int,
+    val localOnlyHistoryFilteredCount: Int,
+    val imageAttachmentCount: Int,
+    val protectedSourceCount: Int,
+    val runId: String? = null,
+    val createdAtMillis: Long = System.currentTimeMillis(),
+)
+
 data class PendingExternalOutcomeConfirmation(
     val runId: String,
     val requestId: String,

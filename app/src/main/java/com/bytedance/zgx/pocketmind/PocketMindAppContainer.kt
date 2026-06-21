@@ -21,6 +21,7 @@ import com.bytedance.zgx.pocketmind.data.ModelRepository
 import com.bytedance.zgx.pocketmind.data.PocketMindDatabase
 import com.bytedance.zgx.pocketmind.data.PreferenceSettingsStore
 import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
+import com.bytedance.zgx.pocketmind.data.RemoteSendPendingStore
 import com.bytedance.zgx.pocketmind.data.SessionRepository
 import com.bytedance.zgx.pocketmind.device.AndroidCalendarAvailabilityProvider
 import com.bytedance.zgx.pocketmind.device.AndroidContactSummaryProvider
@@ -179,6 +180,7 @@ class PocketMindAppContainer(context: Context) {
             backgroundTaskScheduler = backgroundTaskSchedulerInternal,
             toolAuditLog = toolAuditRepository,
             remoteSendAuditRepository = remoteSendAuditRepository,
+            remoteSendPendingStore = settingsStore,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = {
@@ -208,6 +210,7 @@ private class PocketMindViewModelFactory(
     private val backgroundTaskScheduler: AndroidBackgroundTaskScheduler,
     private val toolAuditLog: ToolAuditLog,
     private val remoteSendAuditRepository: RemoteSendAuditRepository,
+    private val remoteSendPendingStore: RemoteSendPendingStore,
     private val actionExecutor: ToolExecutor,
     private val assistantOrchestrator: AssistantOrchestrator,
     private val isArm64DeviceProvider: () -> Boolean,
@@ -233,6 +236,7 @@ private class PocketMindViewModelFactory(
             toolAuditLog = toolAuditLog,
             remoteSendAuditSink = remoteSendAuditRepository,
             remoteSendAuditLog = remoteSendAuditRepository,
+            remoteSendPendingStore = remoteSendPendingStore,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = isArm64DeviceProvider,
