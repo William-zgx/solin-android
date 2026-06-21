@@ -118,6 +118,16 @@ items below.
   policy record intentionally remains pending until a real reviewer, contact
   email, public privacy policy URL, review date, and approved evidence are
   supplied.
+- Model capability profile evidence is now machine-readable in
+  `docs/model_capability_profiles.json` and bound to
+  `ModelCatalog.recommendedProfiles()` plus remote OpenAI-compatible text/vision
+  templates by `ModelCapabilityProfilesDocumentationTest`. The release gate
+  contract-test set includes this test, so chat/vision/embedding/action/context
+  window/backend drift fails before release evidence is accepted.
+- Agent behavior allowed failures are now safety-bounded. JVM and shell
+  verifiers require allowed-failure traces to preserve risk, privacy,
+  LocalOnly/remote eligibility, and FailClosed invariants; script self-tests add
+  negative cases for safety-boundary drift and FailClosed weakening.
 
 ## Remaining release blockers by ownership
 

@@ -157,6 +157,7 @@ if [[ "$VERIFY_CONTRACT_TESTS" == "1" ]]; then
   if ! "$GRADLE_CMD" :app:testDebugUnitTest \
     --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest \
     --tests com.bytedance.zgx.pocketmind.docs.ModelManifestDocumentationTest \
+    --tests com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest \
     --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest; then
     {
       printf 'status=failed\n'

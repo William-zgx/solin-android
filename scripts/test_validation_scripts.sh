@@ -1083,6 +1083,109 @@ assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties"
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"caseId": "memory_style_concise"'
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"status": "matched"'
 
+AI_BEHAVIOR_ALLOWED_FAILURE_SAFETY_DIR="$TMP_DIR/ai-behavior-allowed-failure-safety"
+AI_ALLOWED_FAILURE_SAFETY_TRACE="$TMP_DIR/ai-behavior-actual-trace-allowed-failure-safety.jsonl"
+AI_ALLOWED_FAILURE_SAFETY_DIFF="$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-safety.jsonl"
+AI_ALLOWED_FAILURE_SAFETY_MODE="allowed_script_safety_drift"
+mkdir -p "$AI_BEHAVIOR_ALLOWED_FAILURE_SAFETY_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_ALLOWED_FAILURE_SAFETY_DIR/"
+python3 - "$AI_BEHAVIOR_ALLOWED_FAILURE_SAFETY_DIR" "$AI_ACTUAL_TRACE" "$AI_ALLOWED_FAILURE_SAFETY_TRACE" "$AI_ALLOWED_FAILURE_SAFETY_MODE" <<'PY'
+import json
+import pathlib
+import sys
+
+fixture_dir = pathlib.Path(sys.argv[1])
+source = pathlib.Path(sys.argv[2])
+target = pathlib.Path(sys.argv[3])
+mode = sys.argv[4]
+
+fixture_path = fixture_dir / "memory_recall.jsonl"
+fixture_rows = [json.loads(line) for line in fixture_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+fixture_rows[0]["allowedFailureModes"] = [mode]
+fixture_path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in fixture_rows),
+    encoding="utf-8",
+)
+
+trace_rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+trace_rows[0]["failureMode"] = mode
+trace_rows[0]["actualRiskLevel"] = "sensitive" if trace_rows[0]["actualRiskLevel"] != "sensitive" else "low"
+if trace_rows[0]["privacy"] == "LocalOnly":
+    trace_rows[0]["privacy"] = "RemoteEligible"
+    trace_rows[0]["localOnly"] = False
+    trace_rows[0]["remoteEligible"] = True
+else:
+    trace_rows[0]["privacy"] = "LocalOnly"
+    trace_rows[0]["localOnly"] = True
+    trace_rows[0]["remoteEligible"] = False
+target.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in trace_rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects allowed failure with safety boundary drift" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_ALLOWED_FAILURE_SAFETY_DIR" \
+    --require-boundary-map \
+    --actual-trace "$AI_ALLOWED_FAILURE_SAFETY_TRACE" \
+    --trace-diff "$AI_ALLOWED_FAILURE_SAFETY_DIFF" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-safety.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-safety.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-safety.properties" "reason=trace-diff-mismatch"
+assert_report_contains_text "$AI_ALLOWED_FAILURE_SAFETY_DIFF" '"actualFailureMode": "allowed_script_safety_drift"'
+assert_report_contains_text "$AI_ALLOWED_FAILURE_SAFETY_DIFF" '"status": "mismatch"'
+
+AI_BEHAVIOR_ALLOWED_FAILURE_FAIL_CLOSED_DIR="$TMP_DIR/ai-behavior-allowed-failure-fail-closed"
+AI_ALLOWED_FAILURE_FAIL_CLOSED_TRACE="$TMP_DIR/ai-behavior-actual-trace-allowed-failure-fail-closed.jsonl"
+AI_ALLOWED_FAILURE_FAIL_CLOSED_DIFF="$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-fail-closed.jsonl"
+AI_ALLOWED_FAILURE_FAIL_CLOSED_MODE="allowed_script_fail_closed_drift"
+mkdir -p "$AI_BEHAVIOR_ALLOWED_FAILURE_FAIL_CLOSED_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_ALLOWED_FAILURE_FAIL_CLOSED_DIR/"
+python3 - "$AI_BEHAVIOR_ALLOWED_FAILURE_FAIL_CLOSED_DIR" "$AI_ACTUAL_TRACE" "$AI_ALLOWED_FAILURE_FAIL_CLOSED_TRACE" "$AI_ALLOWED_FAILURE_FAIL_CLOSED_MODE" <<'PY'
+import json
+import pathlib
+import sys
+
+fixture_dir = pathlib.Path(sys.argv[1])
+source = pathlib.Path(sys.argv[2])
+target = pathlib.Path(sys.argv[3])
+mode = sys.argv[4]
+
+fixture_path = fixture_dir / "memory_recall.jsonl"
+fixture_rows = [json.loads(line) for line in fixture_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+fixture_rows[0]["expectedConfirmation"] = "fail_closed"
+fixture_rows[0]["allowedFailureModes"] = [mode]
+fixture_path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in fixture_rows),
+    encoding="utf-8",
+)
+
+trace_rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+trace_rows[0]["actualConfirmation"] = "none"
+trace_rows[0]["failureMode"] = mode
+target.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in trace_rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects allowed failure that weakens fail closed" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_ALLOWED_FAILURE_FAIL_CLOSED_DIR" \
+    --require-boundary-map \
+    --actual-trace "$AI_ALLOWED_FAILURE_FAIL_CLOSED_TRACE" \
+    --trace-diff "$AI_ALLOWED_FAILURE_FAIL_CLOSED_DIFF" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-fail-closed.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-fail-closed.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-fail-closed.properties" "reason=trace-diff-mismatch"
+assert_report_contains_text "$AI_ALLOWED_FAILURE_FAIL_CLOSED_DIFF" '"actualFailureMode": "allowed_script_fail_closed_drift"'
+assert_report_contains_text "$AI_ALLOWED_FAILURE_FAIL_CLOSED_DIFF" '"status": "mismatch"'
+
 reset_logs
 AI_COLLECTOR_DIR="$ARTIFACT_DIR/ai-behavior-actual-trace-collector"
 expect_success \

@@ -23,6 +23,83 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Model Capability Evidence 与 Allowed-Failure 安全门禁
+
+本轮覆盖项：
+
+- 新增 `docs/model_capability_profiles.json`，把 `ModelCatalog.recommendedProfiles()` 中
+  chat、memory embedding、mobile action 和本地 vision/context/backend 能力导出为
+  machine-readable evidence，并增加远程 OpenAI-compatible text/vision template。
+- 新增 `ModelCapabilityProfilesDocumentationTest`，要求 JSON 中的
+  `capabilities.chat/vision/memoryEmbedding/mobileAction`、`inputModalities`、
+  `features`、`contextWindowTokens`、`preferredLocalBackends`、
+  SHA-256 与 `sourceRevision` 必须与 Kotlin catalog / remote profile 完全一致。
+- `scripts/verify_release_gate.sh` 的 contract-test 集合纳入
+  `ModelCapabilityProfilesDocumentationTest`，避免模型能力文档漂移绕过 release gate。
+- 收紧 `AgentBehaviorPlanningTraceDiff` 和 `scripts/verify_ai_behavior_eval.sh`：
+  `allowedFailureModes` 只能解释工具/确认降级，不能掩盖 `risk`、`privacy`、
+  `LocalOnly`、`remoteEligible` 漂移；若 expected confirmation 是 `FailClosed`，
+  actual confirmation 也必须保持 `fail_closed`。
+- planning trace diff 现在输出 `allowedFailureModeMatches`、
+  `allowedFailureSafetyMatches`、`safetyBoundaryMatches` 和
+  `failClosedInvariantMatches`，便于 release reviewer 解释为什么某个 allowed failure
+  仍被拒绝。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.docs.ModelManifestDocumentationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest'
+
+scripts/test_validation_scripts.sh
+
+scripts/verify_ai_behavior_eval.sh --require-boundary-map \
+  --actual-trace build/verification/ai-behavior-actual-trace-collector-memory-forget-v20/ai-behavior-actual-trace.jsonl \
+  --trace-diff /tmp/pocketmind-ai-behavior-allowed-failure-tighten.jsonl \
+  --require-actual-trace \
+  --require-runtime-trace-source \
+  --report /tmp/pocketmind-ai-behavior-allowed-failure-tighten.properties
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_CONTRACT_TESTS=1 \
+  ARTIFACT_DIR=build/verification/release-gate-contract-model-profile \
+  scripts/verify_release_gate.sh
+
+python3 -m json.tool docs/model_capability_profiles.json >/dev/null
+bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh scripts/verify_release_gate.sh
+git diff --check
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：targeted JVM 测试返回 `BUILD SUCCESSFUL`，覆盖模型 profile 文档合同、
+  AI behavior actual trace 生成器、planning trace projector，以及 allowed failure
+  不能掩盖安全边界漂移 / FailClosed 弱化的负例。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`；
+  新增 shell 负例会拒绝带白名单 failure mode 但 risk/privacy/LocalOnly/RemoteEligible
+  漂移或 FailClosed 被降级的 actual trace。
+- 通过：严格 AI behavior eval 返回
+  `AI behavior eval fixtures passed: 31 cases across 7 categories and 6 MVP scenarios`。
+- 通过：contract-only release gate 返回 `Release gate passed`；
+  `build/verification/release-gate-contract-model-profile/contract-tests.properties`
+  记录 `status=passed`。本轮按目标暂时关闭 `VERIFY_AI_BEHAVIOR_EVAL` 和
+  `VERIFY_PERF_BASELINE`，对应报告为显式 `status=skipped`，不替代最终 release evidence。
+- 通过：JSON 格式检查、shell 语法检查和 `git diff --check` 返回 0。
+- 通过：`scripts/verify_local.sh` 返回 `Validation script tests passed`、
+  Gradle `BUILD SUCCESSFUL`、`Android artifact scan passed` 和
+  `Local verification passed`，覆盖 JVM、lint、debug/androidTest APK、release APK/AAB
+  构建与 artifact 扫描。
+- 未执行：真机 instrumentation、real-app-search 真机 eval、arm64 physical perf baseline；
+  这些按当前目标暂时跳过，不能作为 physical release evidence。
+
 ## 2026-06-21 Store Policy Mechanical Drift Normalization
 
 本轮覆盖项：
