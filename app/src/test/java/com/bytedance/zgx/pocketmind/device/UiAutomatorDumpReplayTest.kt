@@ -42,6 +42,24 @@ class UiAutomatorDumpReplayTest {
     }
 
     @Test
+    fun taobaoInputDumpResolvesEditableFieldAndSubmitButton() {
+        val snapshot = loadDump("ui_dumps/real_app_search/taobao_search_input.xml")
+
+        val editable = UiTargetResolver.explain(snapshot, UiTargetKind.EditableField, target = "搜索输入框")
+        val submit = UiTargetResolver.explain(snapshot, UiTargetKind.SubmitSearch, target = "提交搜索")
+
+        assertNull(editable.failureKind)
+        assertEquals("com.taobao.taobao:id/search_edit_text", editable.selectedNodeId)
+        assertEquals("com.taobao.taobao:id/search_edit_text", editable.rankedCandidates.firstOrNull()?.nodeId)
+        assertTrue(editable.rankedCandidates.none { candidate -> candidate.nodeId == "com.taobao.taobao:id/camera_search" })
+
+        assertNull(submit.failureKind)
+        assertEquals("com.taobao.taobao:id/search_submit", submit.selectedNodeId)
+        assertEquals("com.taobao.taobao:id/search_submit", submit.rankedCandidates.firstOrNull()?.nodeId)
+        assertTrue(submit.rankedCandidates.none { candidate -> candidate.nodeId == "com.taobao.taobao:id/search_edit_text" })
+    }
+
+    @Test
     fun gaodeHomeDumpResolvesDestinationSearchEntryAndDemotesMapCanvas() {
         val snapshot = loadDump("ui_dumps/real_app_search/gaode_destination_home.xml")
 
