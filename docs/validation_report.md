@@ -23,6 +23,65 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Memory Forget Runtime Evidence and Local Gate
+
+本轮覆盖项：
+
+- `memory_forget_language` 的 eval contract 与现有产品行为对齐：显式“忘记我的回答语言偏好”
+  是本地记忆删除命令，走 `MemoryRepository` / 显式 forget parser，不进入 remote runtime，
+  不需要工具确认；删除失败才应作为产品缺口处理。
+- `AiBehaviorActualTraceGeneratorTest` 不复制 fixture expected 值，而是用真实
+  `MemoryRepository` 种子数据、`explicitUserPreferenceForgetFrom()` 解析和
+  `forgetPreference()` / `forgetUserFact()` 删除路径生成 actual trace。
+- actual trace 断言覆盖：无工具调用、`none` confirmation、`sensitive`、
+  `LocalOnly`、`remoteEligible=false`，并确认语言偏好被删除、无关简洁回答偏好仍可召回。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest.forgetPreferenceCanDeleteResponsePreferenceFamily' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetPreferenceFamilyCommandDeletesMatchingPreferenceAndBypassesRemoteRuntime' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.forgetPreferenceCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+  ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-collector-memory-forget-v20 \
+  scripts/collect_ai_behavior_actual_trace.sh
+
+git diff --check
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk scripts/verify_local.sh
+
+/data00/home/zouguoxue/android-sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：目标 JVM 测试返回 `BUILD SUCCESSFUL`，覆盖 actual trace 生成器、记忆偏好族删除和
+  ViewModel 显式本地遗忘不走 router/remote runtime 的产品合同。
+- 通过：`collect_ai_behavior_actual_trace.sh` 生成
+  `build/verification/ai-behavior-actual-trace-collector-memory-forget-v20/ai-behavior-actual-trace-collection.properties`，
+  记录 `caseCount=31`、`actualTraceSourceBreakdown=agent_loop_runtime:31`、
+  `traceDiffMatchedCount=21`、`traceDiffAllowedFailureCount=10`、
+  `traceDiffMismatchCount=0`、`traceDiffMissingActualCount=0`、
+  `traceDiffExtraActualCount=0`。
+- 审计绑定：collection report 记录
+  `actualTraceSha256=0e84a385f57d4a259984e316f728547c47fdc7d7d0f2efe913eeab67a81363a1`、
+  `traceDiffSha256=6ef4099ed3b55b2123b6d94c36210a62dab368e23add7cab6fca13ae1ee6b2e2`、
+  `evalReportSha256=c215dc4aacabc8258b96bb2a78b0a9d8a5722ec00fb98be2a60e696d29ee81d6`。
+- 改善：上一轮剩余的 `memory_forget_language` mismatch 已关闭；本地 behavior actual trace
+  当前没有 mismatch，剩余 10 条均为显式 allowed failure。
+- 通过：`git diff --check` 返回 0。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`。
+- 通过：`scripts/verify_local.sh` 返回 `Local verification passed`，并完成 JVM tests、
+  AndroidTest APK 组装、debug APK、release APK/AAB、lint 和 artifact scan。
+- 未执行真机：`adb devices -l` 只输出 `List of devices attached` 表头，没有可见
+  authorized device；机器可读状态仍为 `failedTarget=physical-device-smoke`、
+  `reason=adb-no-authorized-device`。本轮没有新增 physical-device instrumentation evidence。
+
 ## 2026-06-20 Sequential App Search Back Runtime, Checkpoint Evidence, and Local Gate
 
 本轮覆盖项：

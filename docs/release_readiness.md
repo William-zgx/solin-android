@@ -92,15 +92,16 @@ items below.
   (`traceSource` plus UTC `traceRecordedAt`), so final Agent behavior evidence
   cannot be a fixture-only dry run. `scripts/collect_ai_behavior_actual_trace.sh`
   now produces the local `agent_loop_runtime` actual trace collection report; the
-  latest local app-search/checkpoint/recovery collector report
-  `build/verification/ai-behavior-actual-trace-collector-app-search-back-v18/ai-behavior-actual-trace-collection.properties`
-  records 31 runtime-sourced rows, `traceDiffMatchedCount=20`,
-  `traceDiffAllowedFailureCount=10`, and `traceDiffMismatchCount=1`. It now includes
+  latest local memory-forget collector report
+  `build/verification/ai-behavior-actual-trace-collector-memory-forget-v20/ai-behavior-actual-trace-collection.properties`
+  records 31 runtime-sourced rows, `traceDiffMatchedCount=21`,
+  `traceDiffAllowedFailureCount=10`, and `traceDiffMismatchCount=0`. It includes
   app search then back checkpoint evidence, low-risk app-control checkpoint budget
   evidence, mixed public/private remote batch fail-closed evidence, restart
   external-outcome fail-closed evidence, metadata-only OCR truncation evidence,
-  and restart-restored confirmation evidence. This evidence remains diagnostic
-  until `memory_forget_language` is implemented or explicitly accepted.
+  restart-restored confirmation evidence, and explicit local memory forget
+  evidence through `MemoryRepository`. The evidence is now mismatch-free, while
+  the 10 allowed failures remain release-owner review items before public release.
 
 ## Remaining release blockers by ownership
 
