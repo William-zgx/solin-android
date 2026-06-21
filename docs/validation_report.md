@@ -23,6 +23,33 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Privacy Review Notice SHA Convergence
+
+本轮覆盖项：
+
+- `docs/privacy_notice.md` 当前 SHA-256 同步到 `docs/privacy_review.json` 和
+  release/security/legal 三份 pending privacy review evidence。
+- 三份 pending evidence 的 `evidenceSha256` 重新计算并写回 privacy review record。
+- `scripts/test_validation_scripts.sh` 增加 checked-in pending privacy review 防回归：
+  允许因 `pending_manual_review`、reviewer/reviewDate 缺失、pending evidence 状态失败；
+  不允许再出现 `notice-sha-mismatch`、`*-evidence-sha-mismatch` 或
+  `*-evidence-notice-sha-mismatch`。
+
+验证命令：
+
+```bash
+scripts/verify_privacy_review.sh --report /tmp/pocketmind-privacy-review.properties || true
+bash -n scripts/verify_privacy_review.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：默认 checked-in privacy review verifier 仍 fail-closed，但失败原因只剩人工审批
+  pending / reviewer / reviewDate / pending evidence 状态，未再出现 notice 或 evidence SHA
+  mismatch。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮只做本地 evidence/schema 验证。
+
 ## 2026-06-21 Model Capability Remote Boundary Gate
 
 本轮覆盖项：

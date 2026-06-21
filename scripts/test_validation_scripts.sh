@@ -4733,6 +4733,22 @@ expect_failure \
   env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_PENDING" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-pending.properties"
 assert_report_contains "$ARTIFACT_DIR/privacy-review-pending.properties" "status=failed"
+expect_failure \
+  "checked-in privacy review candidate has current notice and evidence hashes" \
+  scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-checked-in-pending.properties"
+assert_report_contains "$ARTIFACT_DIR/privacy-review-checked-in-pending.properties" "status=failed"
+for privacy_review_sha_failure in \
+  "notice-sha-mismatch" \
+  "release-evidence-sha-mismatch" \
+  "security-evidence-sha-mismatch" \
+  "legal-evidence-sha-mismatch" \
+  "release-evidence-notice-sha-mismatch" \
+  "security-evidence-notice-sha-mismatch" \
+  "legal-evidence-notice-sha-mismatch"; do
+  if grep -q "$privacy_review_sha_failure" "$ARTIFACT_DIR/privacy-review-checked-in-pending.properties"; then
+    fail "checked-in privacy review candidate must not fail on stale SHA: $privacy_review_sha_failure"
+  fi
+done
 cat > "$PRIVACY_REVIEW_APPROVED" <<PRIVACY_REVIEW_APPROVED_JSON
 {
   "version": 1,
