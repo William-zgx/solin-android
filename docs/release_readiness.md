@@ -76,9 +76,11 @@ items below.
   XML fixtures for Taobao, Amap/Gaode, JD, and Quark/browser search-entry
   ranking, plus a local evidence gate for ranked candidates JSON,
   target-resolution SHA-256 files, expected package/app fields, failure kind,
-  and window-dump SHA; see `docs/validation_report.md`. This improves the
-  resolver regression harness, but it is not a replacement for a passing
-  physical real-app-search eval.
+  window-dump SHA, submit failure, result verification failure, required hint
+  failure, no-target-app fail-closed behavior, and an all-fake-apps success
+  path; see `docs/validation_report.md`. This improves the resolver and eval
+  regression harness, but it is not a replacement for a passing physical
+  real-app-search eval.
 - Current release-candidate emulator regression passed with
   `scripts/regression_emulator.sh` on `pocketmind_api36_arm64` /
   `emulator-5554` (API 36, `arm64-v8a`):

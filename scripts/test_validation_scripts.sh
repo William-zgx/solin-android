@@ -296,6 +296,33 @@ FAKE_PACKAGE_DUMPSYS
             echo "targetResolution.candidateTotalCount=2"
             echo "targetResolution.archivedCandidateCount=2"
             echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"map-search-entry","label":"你要去哪儿 搜地点、公交、地铁","bounds":{"left":40,"top":96,"right":1040,"bottom":176},"clickable":true,"editable":false,"scrollable":false,"enabled":true,"matchedProfileHint":"你要去哪儿","confidence":360,"finalScore":360,"riskPenalty":0,"noisePenalty":0,"totalPenalty":0,"reason":"matched 你要去哪儿 搜地点、公交、地铁","score":{"semantic":300,"profileHint":400,"targetText":0,"actionability":120,"position":140,"riskPenalty":0,"noisePenalty":0,"final":360}},{"nodeId":"nearby-poi-list","label":"附近 美食 酒店 查看地图 展开列表","bounds":{"left":0,"top":220,"right":1080,"bottom":1900},"clickable":true,"editable":false,"scrollable":true,"enabled":true,"matchedProfileHint":"","confidence":85,"finalScore":85,"riskPenalty":820,"noisePenalty":0,"totalPenalty":820,"reason":"matched 附近 美食 酒店 查看地图 展开列表","score":{"semantic":0,"profileHint":0,"targetText":0,"actionability":200,"position":0,"riskPenalty":820,"noisePenalty":0,"final":85}}]}'
+          elif [[ "$request_id" == *"-submit-"* && "${FAKE_REAL_APP_SEARCH_FAIL_STEP:-}" == "submit" ]]; then
+            echo "status=Failed"
+            echo "actionType=submit_search"
+            echo "failureKind=submit_not_found"
+            echo "targetResolution.available=true"
+            echo "targetResolution.kind=submit_button"
+            echo "targetResolution.target=搜索提交"
+            echo "targetResolution.packageName=$package_name"
+            echo "targetResolution.selectedNodeId="
+            echo "targetResolution.failureKind=submit_not_found"
+            echo "targetResolution.candidateCount=1"
+            echo "targetResolution.candidateTotalCount=1"
+            echo "targetResolution.archivedCandidateCount=1"
+            echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"keyboard-action","label":"键盘搜索","bounds":{"left":820,"top":2100,"right":1080,"bottom":2316},"clickable":true,"editable":false,"scrollable":false,"enabled":false,"matchedProfileHint":"搜索","confidence":180,"finalScore":180,"riskPenalty":0,"noisePenalty":80,"totalPenalty":80,"reason":"matched disabled keyboard action","score":{"semantic":300,"profileHint":100,"targetText":0,"actionability":0,"position":120,"riskPenalty":0,"noisePenalty":80,"final":180}}]}'
+          elif [[ "$request_id" == *"-verify-"* && "${FAKE_REAL_APP_SEARCH_FAIL_STEP:-}" == "verify" ]]; then
+            echo "status=Failed"
+            echo "failureKind=result_not_verified"
+            echo "searchVerificationStatus=not_verified"
+            echo "searchVerificationEvidence=query_missing"
+          elif [[ "$request_id" == *"-verify-"* && "${FAKE_REAL_APP_SEARCH_FAIL_STEP:-}" == "required_hint" ]]; then
+            echo "status=Succeeded"
+            echo "searchVerificationStatus=verified"
+            echo "searchVerificationEvidence=query_visible"
+            echo "PocketMindAgentChrome"
+            echo "PocketMindAgentBrowser"
+            echo "PocketMindAgentQuark"
+            echo "PocketMindAgentUC"
           elif [[ "$request_id" == *"-verify-"* ]]; then
             echo "status=Succeeded"
             echo "searchVerificationStatus=verified"
@@ -6123,6 +6150,154 @@ done
   fail "Expected Gaode failure diagnostics to preserve a window dump"
 [[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/logcat.txt" ]] ||
   fail "Expected Gaode failure diagnostics to preserve logcat"
+
+reset_logs
+expect_failure \
+  "real app search eval archives submit failure evidence" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
+  FAKE_REAL_APP_SEARCH_INSTALLED_PACKAGES="com.jingdong.app.mall" \
+  FAKE_REAL_APP_SEARCH_FAIL_STEP="submit" \
+  SKIP_BUILD=1 SKIP_INSTALL=1 FORCE_STOP_TARGET_APP=0 \
+  REPORT_FILE="$ARTIFACT_DIR/real-app-search-eval.properties" \
+  LOGCAT_FILE="$ARTIFACT_DIR/real-app-search-logcat.txt" \
+  DIAGNOSTICS_DIR="$ARTIFACT_DIR/real-app-diagnostics" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/run_real_app_search_eval.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "reason=real-app-search-case-failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_count=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "fail_count=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_count=7"
+JD_CASE_REPORT="$ARTIFACT_DIR/jd.case.properties"
+JD_RANKED_CANDIDATES="$ARTIFACT_DIR/jd.ranked-candidates.json"
+JD_TARGET_RESOLUTION="$ARTIFACT_DIR/jd.target-resolution.properties"
+assert_report_contains "$JD_CASE_REPORT" "case=jd"
+assert_report_contains "$JD_CASE_REPORT" "expected_package_name=com.jingdong.app.mall"
+assert_report_contains "$JD_CASE_REPORT" "status=failed"
+assert_report_contains "$JD_CASE_REPORT" "reason=submit_not_found"
+assert_report_contains "$JD_CASE_REPORT" "failure_kind=submit_not_found"
+assert_report_contains "$JD_CASE_REPORT" "failed_step=submit_search"
+assert_report_contains "$JD_CASE_REPORT" "result_file=$ARTIFACT_DIR/jd-submit.properties"
+grep -Eq '^result_file_sha256=[0-9a-f]{64}$' "$JD_CASE_REPORT" ||
+  fail "Expected JD case report to hash the submit result file"
+assert_report_contains "$JD_CASE_REPORT" "target_resolution_available=true"
+assert_report_contains "$JD_CASE_REPORT" "target_resolution_kind=submit_button"
+assert_report_contains "$JD_CASE_REPORT" "target_resolution_failure_kind=submit_not_found"
+assert_report_contains "$JD_CASE_REPORT" "target_resolution_candidate_count=1"
+assert_report_contains "$JD_CASE_REPORT" "target_resolution_evidence_file=$JD_TARGET_RESOLUTION"
+assert_report_contains "$JD_CASE_REPORT" "ranked_candidates_file=$JD_RANKED_CANDIDATES"
+assert_report_contains "$JD_TARGET_RESOLUTION" "target_resolution_failure_kind=submit_not_found"
+assert_report_contains_text "$JD_RANKED_CANDIDATES" '"label":"键盘搜索"'
+assert_report_contains_text "$JD_RANKED_CANDIDATES" '"enabled":false'
+
+reset_logs
+expect_failure \
+  "real app search eval archives result verification failure evidence" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
+  FAKE_REAL_APP_SEARCH_INSTALLED_PACKAGES="com.android.chrome" \
+  FAKE_REAL_APP_SEARCH_FAIL_STEP="verify" \
+  SKIP_BUILD=1 SKIP_INSTALL=1 FORCE_STOP_TARGET_APP=0 \
+  REPORT_FILE="$ARTIFACT_DIR/real-app-search-eval.properties" \
+  LOGCAT_FILE="$ARTIFACT_DIR/real-app-search-logcat.txt" \
+  DIAGNOSTICS_DIR="$ARTIFACT_DIR/real-app-diagnostics" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/run_real_app_search_eval.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "reason=real-app-search-case-failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_count=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "fail_count=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_count=7"
+CHROME_CASE_REPORT="$ARTIFACT_DIR/chrome.case.properties"
+assert_report_contains "$CHROME_CASE_REPORT" "case=chrome"
+assert_report_contains "$CHROME_CASE_REPORT" "expected_package_name=com.android.chrome"
+assert_report_contains "$CHROME_CASE_REPORT" "status=failed"
+assert_report_contains "$CHROME_CASE_REPORT" "reason=result_not_verified"
+assert_report_contains "$CHROME_CASE_REPORT" "failure_kind=result_not_verified"
+assert_report_contains "$CHROME_CASE_REPORT" "failed_step=verify"
+assert_report_contains "$CHROME_CASE_REPORT" "result_file=$ARTIFACT_DIR/chrome-verify.properties"
+grep -Eq '^result_file_sha256=[0-9a-f]{64}$' "$CHROME_CASE_REPORT" ||
+  fail "Expected Chrome case report to hash the verify result file"
+assert_report_contains "$CHROME_CASE_REPORT" "target_resolution_available=false"
+
+reset_logs
+expect_failure \
+  "real app search eval archives required hint failure evidence" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
+  FAKE_REAL_APP_SEARCH_INSTALLED_PACKAGES="com.xunmeng.pinduoduo" \
+  FAKE_REAL_APP_SEARCH_FAIL_STEP="required_hint" \
+  SKIP_BUILD=1 SKIP_INSTALL=1 FORCE_STOP_TARGET_APP=0 \
+  REPORT_FILE="$ARTIFACT_DIR/real-app-search-eval.properties" \
+  LOGCAT_FILE="$ARTIFACT_DIR/real-app-search-logcat.txt" \
+  DIAGNOSTICS_DIR="$ARTIFACT_DIR/real-app-diagnostics" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/run_real_app_search_eval.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "reason=real-app-search-case-failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_count=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "fail_count=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_count=7"
+PDD_CASE_REPORT="$ARTIFACT_DIR/pdd.case.properties"
+assert_report_contains "$PDD_CASE_REPORT" "case=pdd"
+assert_report_contains "$PDD_CASE_REPORT" "expected_package_name=com.xunmeng.pinduoduo"
+assert_report_contains "$PDD_CASE_REPORT" "status=failed"
+assert_report_contains "$PDD_CASE_REPORT" "reason=required_hint_missing"
+assert_report_contains "$PDD_CASE_REPORT" "failure_kind=required_hint_missing"
+assert_report_contains "$PDD_CASE_REPORT" "failed_step=verify"
+assert_report_contains "$PDD_CASE_REPORT" "result_file=$ARTIFACT_DIR/pdd-verify.properties"
+grep -Eq '^result_file_sha256=[0-9a-f]{64}$' "$PDD_CASE_REPORT" ||
+  fail "Expected PDD case report to hash the verify result file"
+assert_report_contains "$PDD_CASE_REPORT" "target_resolution_available=false"
+
+reset_logs
+expect_failure \
+  "real app search eval fails closed when no target apps are installed" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
+  FAKE_REAL_APP_SEARCH_INSTALLED_PACKAGES="" \
+  SKIP_BUILD=1 SKIP_INSTALL=1 FORCE_STOP_TARGET_APP=0 \
+  REPORT_FILE="$ARTIFACT_DIR/real-app-search-eval.properties" \
+  LOGCAT_FILE="$ARTIFACT_DIR/real-app-search-logcat.txt" \
+  DIAGNOSTICS_DIR="$ARTIFACT_DIR/real-app-diagnostics" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/run_real_app_search_eval.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "reason=no-target-apps-installed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_count=0"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "pass_count=0"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "fail_count=0"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_count=8"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "case=taobao"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "status=skipped"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "reason=package_not_installed:com.taobao.taobao"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "failed_step=package_check"
+
+reset_logs
+expect_success \
+  "real app search eval passes when all fake target apps verify" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
+  FAKE_REAL_APP_SEARCH_INSTALLED_PACKAGES="com.taobao.taobao,com.xunmeng.pinduoduo,com.autonavi.minimap,com.jingdong.app.mall,com.android.chrome,com.android.browser,com.quark.browser,com.UCMobile" \
+  SKIP_BUILD=1 SKIP_INSTALL=1 FORCE_STOP_TARGET_APP=0 \
+  REPORT_FILE="$ARTIFACT_DIR/real-app-search-eval.properties" \
+  LOGCAT_FILE="$ARTIFACT_DIR/real-app-search-logcat.txt" \
+  DIAGNOSTICS_DIR="$ARTIFACT_DIR/real-app-diagnostics" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/run_real_app_search_eval.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "reason="
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_count=8"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "pass_count=8"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "fail_count=0"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_count=0"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "case=taobao"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "result_file=$ARTIFACT_DIR/taobao-verify.properties"
+assert_report_contains "$ARTIFACT_DIR/uc.case.properties" "case=uc"
+assert_report_contains "$ARTIFACT_DIR/uc.case.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/uc.case.properties" "result_file=$ARTIFACT_DIR/uc-verify.properties"
 
 reset_logs
 expect_failure \

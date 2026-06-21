@@ -112,7 +112,36 @@ scripts/test_validation_scripts.sh
 
 - 本轮强化的是 release operations evidence 内容合同，不替代真实 Android Vitals、
   rollout 值班、production signing、CI artifact 或人工 release operations review。
-- 多 Agent 探索发现的 real-app submit/result verifier 本地覆盖仍待后续补齐。
+- 真实 App UI 回放仍需继续补 after-tap/input、submit button 和 result page XML
+  fixtures；本轮未替代真机 real-app-search eval。
+
+## 2026-06-22 Real-App Search Eval Branch Coverage
+
+本轮覆盖项：
+
+- `scripts/test_validation_scripts.sh` 的 fake adb real-app result 生成器新增
+  `submit_not_found`、`result_not_verified` 和 `required_hint_missing` 分支。
+- real-app eval self-test 新增 submit failure、result verification failure、required
+  hint missing、no target apps installed fail-closed，以及 8 个 fake target apps
+  全部通过的本地路径。
+- 新断言覆盖 top-level report 的 run/pass/fail/skip 计数，以及对应 case artifact
+  的 `reason`、`failure_kind`、`failed_step`、result SHA；submit 失败还绑定
+  `UiTargetResolutionEvidenceArtifact/v1` 和 ranked candidates JSON。
+
+验证命令：
+
+```bash
+bash -n scripts/run_real_app_search_eval.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell syntax 检查。
+- 通过：validation script tests 全量通过，覆盖 real-app eval 的 tap/type/submit/verify
+  失败、required hint 缺失、全 skipped fail-closed 和全 fake App 成功路径。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮按要求只做
+  本地 fake-adb 脚本验证。
 
 ## 2026-06-22 Privacy/Model License Verifier Evidence Schema Gate
 
