@@ -12,7 +12,61 @@ EXPECTED_RELEASE_ARTIFACT_PATH="${EXPECTED_RELEASE_ARTIFACT_PATH:-}"
 EXPECTED_RELEASE_ARTIFACT_TYPE="${EXPECTED_RELEASE_ARTIFACT_TYPE:-}"
 EXPECTED_RELEASE_ARTIFACT_SHA256="${EXPECTED_RELEASE_ARTIFACT_SHA256:-}"
 EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
 REPORT_FILE=""
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+failed_target_for_reason() {
+  local reason="$1"
+  local first="${reason%%,*}"
+  case "$first" in
+    "")
+      printf ''
+      ;;
+    missing-release-record-file|record-file-sha-*)
+      printf 'release-record-file'
+      ;;
+    missing-gradle-file|gradle-file-sha-*)
+      printf 'gradle-file'
+      ;;
+    artifact-*|expected-artifact-*|signing-certificate-*)
+      printf 'release-artifact'
+      ;;
+    git-*)
+      printf 'source-control'
+      ;;
+    public-release-target-channel-invalid|target-channel-invalid)
+      printf 'target-channel'
+      ;;
+    verification-report-*)
+      printf 'verification-report'
+      ;;
+    blocker-*|*-evidence-*)
+      printf 'blocker-evidence'
+      ;;
+    *)
+      printf 'release-record'
+      ;;
+  esac
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,20 +88,32 @@ done
 write_report() {
   local status="$1"
   local reason="$2"
+  local failed_target=""
+  if [[ "$status" != "passed" ]]; then
+    failed_target="$(failed_target_for_reason "$reason")"
+  fi
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
+      printf 'artifactSchema=ReleaseRecordVerification/v1\n'
       printf 'status=%s\n' "$status"
       printf 'target=release-record\n'
+      printf 'owner=%s\n' "$EVIDENCE_OWNER"
+      printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      printf 'command=%s\n' "$(command_line)"
+      printf 'failedTarget=%s\n' "$failed_target"
+      printf 'reason=%s\n' "$reason"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'recordFile=%s\n' "$RELEASE_RECORD_FILE"
+      printf 'recordSha256=%s\n' "$(sha256_or_empty "$RELEASE_RECORD_FILE")"
       printf 'gradleFile=%s\n' "$GRADLE_FILE"
+      printf 'gradleSha256=%s\n' "$(sha256_or_empty "$GRADLE_FILE")"
       printf 'publicReleaseContext=%s\n' "$PUBLIC_RELEASE_CONTEXT"
       printf 'allowDirtyRelease=%s\n' "$ALLOW_DIRTY_RELEASE"
       printf 'expectedReleaseArtifactPath=%s\n' "$EXPECTED_RELEASE_ARTIFACT_PATH"
       printf 'expectedReleaseArtifactType=%s\n' "$EXPECTED_RELEASE_ARTIFACT_TYPE"
       printf 'expectedReleaseArtifactSha256=%s\n' "$EXPECTED_RELEASE_ARTIFACT_SHA256"
       printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
-      printf 'reason=%s\n' "$reason"
     } > "$REPORT_FILE"
   fi
 }

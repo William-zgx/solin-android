@@ -618,6 +618,38 @@ assert_report_contains_text() {
     fail "Expected $file to contain text: $expected"
 }
 
+assert_release_verifier_report_schema() {
+  local file="$1"
+  local schema="$2"
+  local owner="${3:-release-engineering}"
+  [[ -f "$file" ]] || fail "Expected release verifier report at $file"
+  assert_report_contains "$file" "artifactSchema=$schema"
+  assert_report_contains "$file" "owner=$owner"
+  assert_report_contains "$file" "reproduciblePath=$file"
+  grep -Eq '^command=.+$' "$file" ||
+    fail "Expected command in $file"
+  grep -Eq '^recordedAt=20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' "$file" ||
+    fail "Expected UTC recordedAt in $file"
+}
+
+assert_release_verifier_passed_report() {
+  local file="$1"
+  local schema="$2"
+  assert_release_verifier_report_schema "$file" "$schema"
+  assert_report_contains "$file" "status=passed"
+  assert_report_contains "$file" "failedTarget="
+  assert_report_contains "$file" "reason=approved"
+}
+
+assert_release_verifier_failed_report() {
+  local file="$1"
+  local schema="$2"
+  assert_release_verifier_report_schema "$file" "$schema"
+  assert_report_contains "$file" "status=failed"
+  grep -Eq '^reason=.+$' "$file" ||
+    fail "Expected non-empty failure reason in $file"
+}
+
 write_model_release_flow_contract_fixture() {
   local flow="$1"
   case "$flow" in
@@ -1704,10 +1736,13 @@ cat > "$RELEASE_RECORD_PENDING" <<'RELEASE_RECORD_PENDING_JSON'
   "release": {}
 }
 RELEASE_RECORD_PENDING_JSON
+RELEASE_RECORD_PENDING_SHA="$(shasum -a 256 "$RELEASE_RECORD_PENDING" | awk '{print $1}')"
 expect_failure \
   "release record verifier rejects pending records" \
   scripts/verify_release_record.sh --file "$RELEASE_RECORD_PENDING" --report "$ARTIFACT_DIR/release-record-pending.properties"
-assert_report_contains "$ARTIFACT_DIR/release-record-pending.properties" "status=failed"
+assert_release_verifier_failed_report "$ARTIFACT_DIR/release-record-pending.properties" "ReleaseRecordVerification/v1"
+assert_report_contains "$ARTIFACT_DIR/release-record-pending.properties" "failedTarget=release-record"
+assert_report_contains "$ARTIFACT_DIR/release-record-pending.properties" "recordSha256=$RELEASE_RECORD_PENDING_SHA"
 cat > "$RELEASE_RECORD_APPROVED" <<RELEASE_RECORD_APPROVED_JSON
 {
   "version": 1,
@@ -1757,10 +1792,14 @@ cat > "$RELEASE_RECORD_APPROVED" <<RELEASE_RECORD_APPROVED_JSON
   }
 }
 RELEASE_RECORD_APPROVED_JSON
+RELEASE_RECORD_APPROVED_SHA="$(shasum -a 256 "$RELEASE_RECORD_APPROVED" | awk '{print $1}')"
 expect_success \
   "release record verifier accepts approved current record" \
   scripts/verify_release_record.sh --file "$RELEASE_RECORD_APPROVED" --report "$ARTIFACT_DIR/release-record-approved.properties"
-assert_report_contains "$ARTIFACT_DIR/release-record-approved.properties" "status=passed"
+assert_release_verifier_passed_report "$ARTIFACT_DIR/release-record-approved.properties" "ReleaseRecordVerification/v1"
+assert_report_contains "$ARTIFACT_DIR/release-record-approved.properties" "recordSha256=$RELEASE_RECORD_APPROVED_SHA"
+grep -Eq '^gradleSha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/release-record-approved.properties" ||
+  fail "release record verifier report must include gradleSha256"
 expect_failure \
   "release record verifier rejects internal channel in public context" \
   env PUBLIC_RELEASE_CONTEXT=1 \
@@ -1887,17 +1926,21 @@ cat > "$STORE_POLICY_MANIFEST" <<'STORE_POLICY_MANIFEST_XML'
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 </manifest>
 STORE_POLICY_MANIFEST_XML
+STORE_POLICY_MANIFEST_SHA="$(shasum -a 256 "$STORE_POLICY_MANIFEST" | awk '{print $1}')"
 cat > "$STORE_POLICY_PENDING" <<'STORE_POLICY_PENDING_JSON'
 {
   "version": 1,
   "status": "pending_policy_review"
 }
 STORE_POLICY_PENDING_JSON
+STORE_POLICY_PENDING_SHA="$(shasum -a 256 "$STORE_POLICY_PENDING" | awk '{print $1}')"
 expect_failure \
   "store policy verifier rejects pending records" \
   env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
   scripts/verify_store_policy_record.sh --file "$STORE_POLICY_PENDING" --report "$ARTIFACT_DIR/store-policy-pending.properties"
-assert_report_contains "$ARTIFACT_DIR/store-policy-pending.properties" "status=failed"
+assert_release_verifier_failed_report "$ARTIFACT_DIR/store-policy-pending.properties" "StorePolicyRecordVerification/v1"
+assert_report_contains "$ARTIFACT_DIR/store-policy-pending.properties" "failedTarget=store-policy-record"
+assert_report_contains "$ARTIFACT_DIR/store-policy-pending.properties" "storePolicySha256=$STORE_POLICY_PENDING_SHA"
 cat > "$STORE_POLICY_APPROVED" <<STORE_POLICY_APPROVED_JSON
 {
   "version": 1,
@@ -1965,11 +2008,15 @@ cat > "$STORE_POLICY_APPROVED" <<STORE_POLICY_APPROVED_JSON
   }
 }
 STORE_POLICY_APPROVED_JSON
+STORE_POLICY_APPROVED_SHA="$(shasum -a 256 "$STORE_POLICY_APPROVED" | awk '{print $1}')"
 expect_success \
   "store policy verifier accepts approved manifest-aligned record" \
   env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
   scripts/verify_store_policy_record.sh --file "$STORE_POLICY_APPROVED" --report "$ARTIFACT_DIR/store-policy-approved.properties"
-assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "status=passed"
+assert_release_verifier_passed_report "$ARTIFACT_DIR/store-policy-approved.properties" "StorePolicyRecordVerification/v1"
+assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "storePolicySha256=$STORE_POLICY_APPROVED_SHA"
+assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "privacyNoticeSha256=$STORE_POLICY_NOTICE_SHA"
+assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "manifestSha256=$STORE_POLICY_MANIFEST_SHA"
 STORE_POLICY_INCOMPLETE_NOTICE="$TMP_DIR/store-policy-incomplete-notice.md"
 printf 'PocketMind stores user-entered chat text locally.\n' > "$STORE_POLICY_INCOMPLETE_NOTICE"
 expect_failure \
@@ -2870,10 +2917,13 @@ cat > "$VALIDATION_PENDING" <<'VALIDATION_PENDING_JSON'
   "status": "pending_validation"
 }
 VALIDATION_PENDING_JSON
+VALIDATION_PENDING_SHA="$(shasum -a 256 "$VALIDATION_PENDING" | awk '{print $1}')"
 expect_failure \
   "release validation verifier rejects pending records" \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_PENDING" --report "$ARTIFACT_DIR/release-validation-pending.properties"
-assert_report_contains "$ARTIFACT_DIR/release-validation-pending.properties" "status=failed"
+assert_release_verifier_failed_report "$ARTIFACT_DIR/release-validation-pending.properties" "ReleaseValidationRecordVerification/v1"
+assert_report_contains "$ARTIFACT_DIR/release-validation-pending.properties" "failedTarget=release-validation-record"
+assert_report_contains "$ARTIFACT_DIR/release-validation-pending.properties" "validationRecordSha256=$VALIDATION_PENDING_SHA"
 cat > "$VALIDATION_EMULATOR_REPORT" <<VALIDATION_EMULATOR_REPORT_PROPERTIES
 status=passed
 exit_code=0
@@ -3083,15 +3133,18 @@ for entry in record["screenshots"]:
 
 record_path.write_text(json.dumps(record, indent=2))
 PY
+VALIDATION_APPROVED_SHA="$(shasum -a 256 "$VALIDATION_APPROVED" | awk '{print $1}')"
 expect_success \
   "release validation verifier accepts approved evidence record" \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_APPROVED" --report "$ARTIFACT_DIR/release-validation-approved.properties"
-assert_report_contains "$ARTIFACT_DIR/release-validation-approved.properties" "status=passed"
+assert_release_verifier_passed_report "$ARTIFACT_DIR/release-validation-approved.properties" "ReleaseValidationRecordVerification/v1"
+assert_report_contains "$ARTIFACT_DIR/release-validation-approved.properties" "validationRecordSha256=$VALIDATION_APPROVED_SHA"
 expect_success \
   "release validation verifier accepts current release artifact context" \
   env EXPECTED_RELEASE_ARTIFACT_SHA256="$VALID_PERF_SHA" \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_APPROVED" --report "$ARTIFACT_DIR/release-validation-current-artifact.properties"
-assert_report_contains "$ARTIFACT_DIR/release-validation-current-artifact.properties" "status=passed"
+assert_release_verifier_passed_report "$ARTIFACT_DIR/release-validation-current-artifact.properties" "ReleaseValidationRecordVerification/v1"
+assert_report_contains "$ARTIFACT_DIR/release-validation-current-artifact.properties" "expectedReleaseArtifactSha256=$VALID_PERF_SHA"
 VALIDATION_X86_EMULATOR="$TMP_DIR/release-validation-x86-emulator.json"
 VALIDATION_X86_EMULATOR_REPORT="$TMP_DIR/x86-regression-emulator.properties"
 VALIDATION_X86_EMULATOR_HELPER_REPORT="$TMP_DIR/x86-emulator-verification.properties"

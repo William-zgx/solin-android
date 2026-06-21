@@ -23,6 +23,43 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-22 Release Verifier Evidence Schema Gate
+
+本轮覆盖项：
+
+- `scripts/verify_release_record.sh`、`scripts/verify_store_policy_record.sh` 和
+  `scripts/verify_release_validation_record.sh` 的 report 统一输出
+  `artifactSchema`、`owner`、UTC `recordedAt`、`command`、`failedTarget`、
+  `reason`、`reproduciblePath` 和输入文件 SHA-256。
+- release record report 绑定 release JSON 与 Gradle 文件 SHA；store policy report
+  绑定 policy JSON、privacy notice 与 Android manifest SHA；release validation report
+  绑定 validation JSON SHA。
+- `scripts/test_validation_scripts.sh` 新增统一 schema 断言，覆盖 pending 失败路径与
+  approved 成功路径，防止发布 verifier report 回退成只含 status/reason 的弱证据。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_record.sh scripts/verify_store_policy_record.sh \
+  scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell syntax 检查。
+- 通过：validation script tests 全量通过，新增断言覆盖 release/store/validation 三类
+  verifier 的 schema、owner、UTC 时间、命令、可复现路径、失败目标和 SHA-256 绑定。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮按要求只做本地脚本验证。
+
+剩余风险：
+
+- 本轮强化的是 verifier 自身的报告证据链，不替代真实 release record、store policy
+  审批、physical device、API matrix、性能基线或发布签名。
+- 多 Agent 探索发现的下一批缺口仍待处理：release operations monitoring/rollback
+  evidence 内容校验，以及 local vision release-flow contract。
+
 ## 2026-06-21 Remote Send Pending Confirmation Fail-Closed
 
 本轮覆盖项：

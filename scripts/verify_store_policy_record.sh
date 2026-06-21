@@ -7,7 +7,61 @@ cd "$ROOT_DIR"
 STORE_POLICY_FILE="${STORE_POLICY_FILE:-docs/store_policy_record.json}"
 PRIVACY_NOTICE_FILE="${PRIVACY_NOTICE_FILE:-docs/privacy_notice.md}"
 MANIFEST_FILE="${MANIFEST_FILE:-app/src/main/AndroidManifest.xml}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
 REPORT_FILE=""
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+failed_target_for_reason() {
+  local reason="$1"
+  local first="${reason%%,*}"
+  case "$first" in
+    "")
+      printf ''
+      ;;
+    missing-store-policy-file|store-policy-sha-*)
+      printf 'store-policy-record-file'
+      ;;
+    missing-privacy-notice-file|privacy-notice-*)
+      printf 'privacy-notice'
+      ;;
+    missing-manifest-file|manifest-*|android.permission.*)
+      printf 'android-manifest'
+      ;;
+    app-listing-*|contact-email-*|privacy-policy-url-*|short-description-*|full-description-*)
+      printf 'store-listing'
+      ;;
+    data-safety-*|userData*|encryptedInTransit-*|external-recipients-*)
+      printf 'data-safety'
+      ;;
+    review-*|reviewer-*|approvalStatus-*|approval-status-*)
+      printf 'policy-review-evidence'
+      ;;
+    *special-access*)
+      printf 'special-access-disclosure'
+      ;;
+    *)
+      printf 'store-policy-record'
+      ;;
+  esac
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,15 +83,28 @@ done
 write_report() {
   local status="$1"
   local reason="$2"
+  local failed_target=""
+  if [[ "$status" != "passed" ]]; then
+    failed_target="$(failed_target_for_reason "$reason")"
+  fi
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
+      printf 'artifactSchema=StorePolicyRecordVerification/v1\n'
       printf 'status=%s\n' "$status"
       printf 'target=store-policy-record\n'
-      printf 'storePolicyFile=%s\n' "$STORE_POLICY_FILE"
-      printf 'privacyNoticeFile=%s\n' "$PRIVACY_NOTICE_FILE"
-      printf 'manifestFile=%s\n' "$MANIFEST_FILE"
+      printf 'owner=%s\n' "$EVIDENCE_OWNER"
+      printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      printf 'command=%s\n' "$(command_line)"
+      printf 'failedTarget=%s\n' "$failed_target"
       printf 'reason=%s\n' "$reason"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
+      printf 'storePolicyFile=%s\n' "$STORE_POLICY_FILE"
+      printf 'storePolicySha256=%s\n' "$(sha256_or_empty "$STORE_POLICY_FILE")"
+      printf 'privacyNoticeFile=%s\n' "$PRIVACY_NOTICE_FILE"
+      printf 'privacyNoticeSha256=%s\n' "$(sha256_or_empty "$PRIVACY_NOTICE_FILE")"
+      printf 'manifestFile=%s\n' "$MANIFEST_FILE"
+      printf 'manifestSha256=%s\n' "$(sha256_or_empty "$MANIFEST_FILE")"
     } > "$REPORT_FILE"
   fi
 }

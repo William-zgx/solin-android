@@ -7,7 +7,67 @@ cd "$ROOT_DIR"
 VALIDATION_RECORD_FILE="${VALIDATION_RECORD_FILE:-docs/release_validation_record.json}"
 ANDROID_TEST_SOURCE_DIR="${ANDROID_TEST_SOURCE_DIR:-app/src/androidTest}"
 EXPECTED_RELEASE_ARTIFACT_SHA256="${EXPECTED_RELEASE_ARTIFACT_SHA256:-}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
 REPORT_FILE=""
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+failed_target_for_reason() {
+  local reason="$1"
+  local first="${reason%%,*}"
+  case "$first" in
+    "")
+      printf ''
+      ;;
+    missing-validation-record-file|validation-record-sha-*)
+      printf 'release-validation-record-file'
+      ;;
+    emulator-*|api-*-emulator-*|*-serial-not-emulator)
+      printf 'emulator-regression'
+      ;;
+    physical-device-*|device-*|*-serial-is-emulator)
+      printf 'physical-device'
+      ;;
+    api-*)
+      printf 'api-matrix'
+      ;;
+    manual-*)
+      printf 'manual-acceptance'
+      ;;
+    flow-*)
+      printf 'flow-matrix'
+      ;;
+    performance-*|perf-*)
+      printf 'performance-sanity'
+      ;;
+    screenshot-*|*-screenshot-*)
+      printf 'screenshot-evidence'
+      ;;
+    review-*)
+      printf 'validation-review'
+      ;;
+    *)
+      printf 'release-validation-record'
+      ;;
+  esac
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,15 +89,26 @@ done
 write_report() {
   local status="$1"
   local reason="$2"
+  local failed_target=""
+  if [[ "$status" != "passed" ]]; then
+    failed_target="$(failed_target_for_reason "$reason")"
+  fi
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
+      printf 'artifactSchema=ReleaseValidationRecordVerification/v1\n'
       printf 'status=%s\n' "$status"
       printf 'target=release-validation-record\n'
+      printf 'owner=%s\n' "$EVIDENCE_OWNER"
+      printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      printf 'command=%s\n' "$(command_line)"
+      printf 'failedTarget=%s\n' "$failed_target"
+      printf 'reason=%s\n' "$reason"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
+      printf 'validationRecordSha256=%s\n' "$(sha256_or_empty "$VALIDATION_RECORD_FILE")"
       printf 'androidTestSourceDir=%s\n' "$ANDROID_TEST_SOURCE_DIR"
       printf 'expectedReleaseArtifactSha256=%s\n' "$EXPECTED_RELEASE_ARTIFACT_SHA256"
-      printf 'reason=%s\n' "$reason"
     } > "$REPORT_FILE"
   fi
 }
