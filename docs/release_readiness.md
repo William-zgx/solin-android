@@ -107,6 +107,11 @@ items below.
   restart-restored confirmation evidence, and explicit local memory forget
   evidence through `MemoryRepository`. The evidence is now mismatch-free, while
   the 10 allowed failures remain release-owner review items before public release.
+- GitHub Actions `workflow_dispatch` final release gate now requires an
+  `ai_behavior_actual_trace_file` input and passes it to
+  `AI_BEHAVIOR_ACTUAL_TRACE_FILE`, so the CI public-release path can satisfy the
+  strict Agent behavior actual trace gate instead of failing from a missing
+  environment value.
 
 ## Remaining release blockers by ownership
 

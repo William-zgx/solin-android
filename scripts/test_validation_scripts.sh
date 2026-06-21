@@ -1193,6 +1193,21 @@ def fail(message):
     print(f"validation-script-test: {message}", file=sys.stderr)
     sys.exit(1)
 
+actual_trace_input = re.search(
+    r"^      ai_behavior_actual_trace_file:\n(?P<body>.*?)(?=^      [A-Za-z0-9_]+:|^  [A-Za-z0-9_-]+:|\Z)",
+    workflow,
+    re.MULTILINE | re.DOTALL,
+)
+if not actual_trace_input:
+    fail("android workflow missing ai_behavior_actual_trace_file workflow_dispatch input")
+for required in (
+    "Path to the AI behavior actual-trace JSONL file",
+    "required: true",
+    "type: string",
+):
+    if required not in actual_trace_input.group("body"):
+        fail(f"ai_behavior_actual_trace_file input missing marker: {required}")
+
 def job_block(name):
     match = re.search(
         rf"^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)",
@@ -1233,6 +1248,8 @@ for required in (
     "PUBLIC_RELEASE=1",
     "scripts/verify_release_gate.sh",
     "PERF_BASELINE_FILE",
+    "AI_BEHAVIOR_ACTUAL_TRACE_FILE",
+    "inputs.ai_behavior_actual_trace_file",
     "EXPECTED_SIGNING_CERT_SHA256",
     "android-emulator-api-matrix-evidence",
     "android-final-release-gate-evidence",

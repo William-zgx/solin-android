@@ -23,6 +23,63 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 CI Final Release Gate AI Behavior Actual Trace Input
+
+本轮覆盖项：
+
+- GitHub Actions `workflow_dispatch` 新增必填 `ai_behavior_actual_trace_file` 输入，用于指向
+  final public release gate 可访问的 AI behavior actual trace JSONL。
+- `final-release-gate` job 将该输入传入 `AI_BEHAVIOR_ACTUAL_TRACE_FILE`，并在
+  `PUBLIC_RELEASE=1 scripts/verify_release_gate.sh` 调用环境中继续传递。
+- `scripts/test_validation_scripts.sh` 新增 workflow 静态合同检查：`ai_behavior_actual_trace_file`
+  必须是 required string，且 final gate 必须同时包含 `AI_BEHAVIOR_ACTUAL_TRACE_FILE` 和
+  `inputs.ai_behavior_actual_trace_file`。
+- `verify_release_gate.sh` 未放松：`PUBLIC_RELEASE=1` 仍强制
+  `REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1` 与 `REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1`。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+
+scripts/verify_ai_behavior_eval.sh --require-boundary-map \
+  --actual-trace build/verification/ai-behavior-actual-trace-collector-memory-forget-v20/ai-behavior-actual-trace.jsonl \
+  --trace-diff /tmp/pocketmind-ci-final-gate-ai-trace-diff.jsonl \
+  --require-actual-trace \
+  --require-runtime-trace-source \
+  --report /tmp/pocketmind-ci-final-gate-ai.properties
+
+ARTIFACT_DIR=/tmp/pocketmind-ci-final-gate-public-dry-run \
+  PUBLIC_RELEASE=1 \
+  VERIFY_CONTRACT_TESTS=0 \
+  EXPECTED_SIGNING_CERT_SHA256=0000000000000000000000000000000000000000000000000000000000000000 \
+  AI_BEHAVIOR_ACTUAL_TRACE_FILE=build/verification/ai-behavior-actual-trace-collector-memory-forget-v20/ai-behavior-actual-trace.jsonl \
+  scripts/verify_release_gate.sh
+```
+
+结果：
+
+- 通过：shell 语法检查返回 0。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`，覆盖 workflow
+  actual trace 输入和 final gate marker。
+- 通过：strict `verify_ai_behavior_eval.sh` 返回 `AI behavior eval fixtures passed: 31 cases across
+  7 categories and 6 MVP scenarios`，报告
+  `/tmp/pocketmind-ci-final-gate-ai.properties` 记录 `requireActualTrace=1`、
+  `requireRuntimeTraceSource=1`、`traceDiffMismatchCount=0`。
+- 符合预期失败：public gate dry-run 使用
+  `AI_BEHAVIOR_ACTUAL_TRACE_FILE=build/verification/ai-behavior-actual-trace-collector-memory-forget-v20/ai-behavior-actual-trace.jsonl`
+  后，`ai-behavior-eval.properties` 记录 `status=passed`、
+  `requireActualTrace=1`、`requireRuntimeTraceSource=1`、
+  `actualTraceSha256=0e84a385f57d4a259984e316f728547c47fdc7d7d0f2efe913eeab67a81363a1`、
+  `traceDiffMismatchCount=0`；随后 gate 停在
+  `failedTarget=android-artifact-scan`、
+  `failedReason=REQUIRE_AAB-but-release-aab-missing`，说明本轮修复的是 CI actual trace
+  参数链路，不是生产签名/AAB blocker。
+- 限制：本轮只修 CI 参数链路，不改变 release record、签名 AAB、perf baseline、privacy/store/model
+  license 等 public release blocker 状态。
+
 ## 2026-06-21 Real-App Search Resolver Replay Fixtures and JD Profile Runtime Coverage
 
 本轮覆盖项：
