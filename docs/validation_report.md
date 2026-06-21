@@ -529,6 +529,51 @@ ANDROID_HOME=/data00/home/zouguoxue/android-sdk scripts/verify_local.sh
   authorized device；机器可读状态仍为 `failedTarget=physical-device-smoke`、
   `reason=adb-no-authorized-device`。本轮没有新增 physical-device real-app-search pass evidence。
 
+## 2026-06-22 Real-App Search Ranked Evidence Gate
+
+本轮覆盖项：
+
+- `DeviceControlEvalResultFormatter` 的 ranked candidates JSON 增加 top-level
+  `confidence`、`finalScore`、`riskPenalty`、`noisePenalty`、`totalPenalty`，保留原
+  nested `score`，便于脚本门禁直接检查候选证据。
+- debug eval receiver 明确输出 `targetResolution.candidateTotalCount` 和
+  `targetResolution.archivedCandidateCount`，说明真实 ranked list 与归档前 5 个候选的边界。
+- `scripts/run_real_app_search_eval.sh` 的 case artifact 增加
+  `expected_package_name`、`expected_app_name`、`failure_kind`、
+  `target_resolution_evidence_file/sha256`、`ranked_candidates_file/sha256`，并将
+  window dump 拆成独立 `window_dump_file/sha256`。
+- `scripts/test_validation_scripts.sh` 的 fake ADB 覆盖淘宝 `search_entry_not_found` 和
+  高德 `editable_not_found` 两类失败，要求 candidates JSON 含 label、bounds、
+  actionability、profile hint、penalty 和 final score。
+- 新增 JD 与 Quark UIAutomator replay fixture，覆盖京东搜索框、浏览器地址栏胜过 feed /
+  扫码入口；新增 resolver evidence contract 测试，固定 bounds、hint、penalty 与
+  confidence/finalScore 关系。
+
+验证命令：
+
+```bash
+bash -n scripts/run_real_app_search_eval.sh scripts/test_validation_scripts.sh
+
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest' \
+  --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest'
+
+./scripts/test_validation_scripts.sh
+
+git diff --check
+```
+
+结果：
+
+- 通过：shell 语法检查返回 0。
+- 通过：目标 JVM 测试返回 `BUILD SUCCESSFUL`，覆盖淘宝/高德/JD/Quark replay 与
+  resolver evidence contract。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`，覆盖
+  ranked candidates 独立文件、target resolution evidence 文件、SHA-256、failure kind、
+  expected package/app 和 window dump 归档。
+- 通过：`git diff --check` 返回 0。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮按要求只做本地 JVM 与脚本验证。
+
 ## 2026-06-21 Memory Forget Runtime Evidence and Local Gate
 
 本轮覆盖项：

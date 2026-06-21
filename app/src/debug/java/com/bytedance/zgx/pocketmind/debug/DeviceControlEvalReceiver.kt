@@ -225,6 +225,7 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             kind = kind,
             target = target,
         )
+        val archivedCandidates = evidence.rankedCandidates.take(MAX_TARGET_RESOLUTION_CANDIDATES)
         return listOf(
             "targetResolution.available=true",
             "targetResolution.kind=${evidence.kind.schemaValue}",
@@ -233,7 +234,9 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
             "targetResolution.selectedNodeId=${evidence.selectedNodeId.orEmpty().cleanValue()}",
             "targetResolution.failureKind=${evidence.failureKind?.schemaValue.orEmpty()}",
             "targetResolution.candidateCount=${evidence.rankedCandidates.size}",
-            "targetResolution.candidatesJson=${DeviceControlEvalResultFormatter.candidatesJson(evidence.rankedCandidates.take(5))}",
+            "targetResolution.candidateTotalCount=${evidence.rankedCandidates.size}",
+            "targetResolution.archivedCandidateCount=${archivedCandidates.size}",
+            "targetResolution.candidatesJson=${DeviceControlEvalResultFormatter.candidatesJson(archivedCandidates)}",
         )
     }
 
@@ -334,5 +337,6 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         const val COMMAND_WAIT = "wait"
         const val LEGACY_RESULT_FILE_NAME = "device_control_eval_result.properties"
         const val DEFAULT_TIMEOUT_MILLIS = 1_500L
+        const val MAX_TARGET_RESOLUTION_CANDIDATES = 5
     }
 }

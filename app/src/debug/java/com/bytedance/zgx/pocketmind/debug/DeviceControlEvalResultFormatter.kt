@@ -58,6 +58,11 @@ internal object DeviceControlEvalResultFormatter {
                     .put("scrollable", candidate.scrollable)
                     .put("enabled", candidate.enabled)
                     .put("matchedProfileHint", candidate.matchedProfileHint.orEmpty())
+                    .put("confidence", candidate.score.finalScore)
+                    .put("finalScore", candidate.score.finalScore)
+                    .put("riskPenalty", candidate.score.riskPenalty)
+                    .put("noisePenalty", candidate.score.noisePenalty)
+                    .put("totalPenalty", candidate.score.riskPenalty + candidate.score.noisePenalty)
                     .put("reason", candidate.reason)
                     .put(
                         "score",

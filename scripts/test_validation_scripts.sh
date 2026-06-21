@@ -279,7 +279,9 @@ FAKE_PACKAGE_DUMPSYS
             echo "targetResolution.selectedNodeId="
             echo "targetResolution.failureKind=search_entry_not_found"
             echo "targetResolution.candidateCount=2"
-            echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"top-card","finalScore":430},{"nodeId":"camera-search","finalScore":120}]}'
+            echo "targetResolution.candidateTotalCount=2"
+            echo "targetResolution.archivedCandidateCount=2"
+            echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"top-card","label":"搜索推荐","bounds":{"left":0,"top":96,"right":1080,"bottom":220},"clickable":true,"editable":false,"scrollable":false,"enabled":true,"matchedProfileHint":"搜索","confidence":430,"finalScore":430,"riskPenalty":360,"noisePenalty":0,"totalPenalty":360,"reason":"matched 搜索推荐","score":{"semantic":300,"profileHint":100,"targetText":0,"actionability":120,"position":270,"riskPenalty":360,"noisePenalty":0,"final":430}},{"nodeId":"camera-search","label":"拍照搜索","bounds":{"left":920,"top":96,"right":1012,"bottom":172},"clickable":true,"editable":false,"scrollable":false,"enabled":true,"matchedProfileHint":"搜索","confidence":120,"finalScore":120,"riskPenalty":520,"noisePenalty":0,"totalPenalty":520,"reason":"matched 拍照搜索","score":{"semantic":300,"profileHint":100,"targetText":0,"actionability":120,"position":120,"riskPenalty":520,"noisePenalty":0,"final":120}}]}'
           elif [[ "$request_id" == *"-type-"* && "${FAKE_REAL_APP_SEARCH_FAIL_STEP:-}" == "type" ]]; then
             echo "status=Failed"
             echo "actionType=type_text"
@@ -291,7 +293,9 @@ FAKE_PACKAGE_DUMPSYS
             echo "targetResolution.selectedNodeId="
             echo "targetResolution.failureKind=editable_not_found"
             echo "targetResolution.candidateCount=2"
-            echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"map-search-entry","finalScore":360},{"nodeId":"nearby-poi-list","finalScore":85}]}'
+            echo "targetResolution.candidateTotalCount=2"
+            echo "targetResolution.archivedCandidateCount=2"
+            echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"map-search-entry","label":"你要去哪儿 搜地点、公交、地铁","bounds":{"left":40,"top":96,"right":1040,"bottom":176},"clickable":true,"editable":false,"scrollable":false,"enabled":true,"matchedProfileHint":"你要去哪儿","confidence":360,"finalScore":360,"riskPenalty":0,"noisePenalty":0,"totalPenalty":0,"reason":"matched 你要去哪儿 搜地点、公交、地铁","score":{"semantic":300,"profileHint":400,"targetText":0,"actionability":120,"position":140,"riskPenalty":0,"noisePenalty":0,"final":360}},{"nodeId":"nearby-poi-list","label":"附近 美食 酒店 查看地图 展开列表","bounds":{"left":0,"top":220,"right":1080,"bottom":1900},"clickable":true,"editable":false,"scrollable":true,"enabled":true,"matchedProfileHint":"","confidence":85,"finalScore":85,"riskPenalty":820,"noisePenalty":0,"totalPenalty":820,"reason":"matched 附近 美食 酒店 查看地图 展开列表","score":{"semantic":0,"profileHint":0,"targetText":0,"actionability":200,"position":0,"riskPenalty":820,"noisePenalty":0,"final":85}}]}'
           elif [[ "$request_id" == *"-verify-"* ]]; then
             echo "status=Succeeded"
             echo "searchVerificationStatus=verified"
@@ -5718,10 +5722,15 @@ assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_cou
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "case_artifact_schema=RealAppSearchCaseArtifact/v1"
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "cases=taobao,pdd,gaode,jd,chrome,android_browser,quark,uc"
 REAL_APP_CASE_REPORT="$ARTIFACT_DIR/taobao.case.properties"
+REAL_APP_RANKED_CANDIDATES="$ARTIFACT_DIR/taobao.ranked-candidates.json"
+REAL_APP_TARGET_RESOLUTION="$ARTIFACT_DIR/taobao.target-resolution.properties"
 assert_report_contains "$REAL_APP_CASE_REPORT" "artifact_schema=RealAppSearchCaseArtifact/v1"
 assert_report_contains "$REAL_APP_CASE_REPORT" "case=taobao"
+assert_report_contains "$REAL_APP_CASE_REPORT" "expected_package_name=com.taobao.taobao"
+assert_report_contains "$REAL_APP_CASE_REPORT" "expected_app_name=淘宝"
 assert_report_contains "$REAL_APP_CASE_REPORT" "status=failed"
 assert_report_contains "$REAL_APP_CASE_REPORT" "reason=search_entry_not_found"
+assert_report_contains "$REAL_APP_CASE_REPORT" "failure_kind=search_entry_not_found"
 assert_report_contains "$REAL_APP_CASE_REPORT" "failed_step=tap"
 assert_report_contains "$REAL_APP_CASE_REPORT" "result_file=$ARTIFACT_DIR/taobao-tap.properties"
 grep -Eq '^result_file_sha256=[0-9a-f]{64}$' "$REAL_APP_CASE_REPORT" ||
@@ -5732,13 +5741,34 @@ assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_target=搜索�
 assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_package_name=com.taobao.taobao"
 assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_failure_kind=search_entry_not_found"
 assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_candidate_count=2"
+assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_candidate_total_count=2"
+assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_archived_candidate_count=2"
 assert_report_contains_text "$REAL_APP_CASE_REPORT" 'target_resolution_candidates_json={"candidates"'
+assert_report_contains "$REAL_APP_CASE_REPORT" "target_resolution_evidence_file=$REAL_APP_TARGET_RESOLUTION"
+grep -Eq '^target_resolution_evidence_sha256=[0-9a-f]{64}$' "$REAL_APP_CASE_REPORT" ||
+  fail "Expected real app case report to hash target resolution evidence"
+assert_report_contains "$REAL_APP_CASE_REPORT" "ranked_candidates_file=$REAL_APP_RANKED_CANDIDATES"
+grep -Eq '^ranked_candidates_sha256=[0-9a-f]{64}$' "$REAL_APP_CASE_REPORT" ||
+  fail "Expected real app case report to hash ranked resolver candidates"
+assert_report_contains "$REAL_APP_TARGET_RESOLUTION" "artifact_schema=UiTargetResolutionEvidenceArtifact/v1"
+assert_report_contains "$REAL_APP_TARGET_RESOLUTION" "case=taobao"
+assert_report_contains "$REAL_APP_TARGET_RESOLUTION" "target_resolution_failure_kind=search_entry_not_found"
+assert_report_contains "$REAL_APP_TARGET_RESOLUTION" "ranked_candidates_file=$REAL_APP_RANKED_CANDIDATES"
+assert_report_contains_text "$REAL_APP_RANKED_CANDIDATES" '"label":"搜索推荐"'
+assert_report_contains_text "$REAL_APP_RANKED_CANDIDATES" '"bounds":{"left":0'
+assert_report_contains_text "$REAL_APP_RANKED_CANDIDATES" '"clickable":true'
+assert_report_contains_text "$REAL_APP_RANKED_CANDIDATES" '"editable":false'
+assert_report_contains_text "$REAL_APP_RANKED_CANDIDATES" '"matchedProfileHint":"搜索"'
+assert_report_contains_text "$REAL_APP_RANKED_CANDIDATES" '"riskPenalty":360'
+assert_report_contains_text "$REAL_APP_RANKED_CANDIDATES" '"noisePenalty":0'
+assert_report_contains_text "$REAL_APP_RANKED_CANDIDATES" '"finalScore":430'
 assert_report_contains "$REAL_APP_CASE_REPORT" "diagnostics_dir=$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap"
 assert_report_contains "$REAL_APP_CASE_REPORT" "screenshot_file=$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/screenshot.png"
 assert_report_contains "$REAL_APP_CASE_REPORT" "uiautomator_dump_file=$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/uiautomator.xml"
 assert_report_contains "$REAL_APP_CASE_REPORT" "focused_window_file=$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/focused-window.txt"
+assert_report_contains "$REAL_APP_CASE_REPORT" "window_dump_file=$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/window-dump.txt"
 assert_report_contains "$REAL_APP_CASE_REPORT" "case_logcat_file=$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/logcat.txt"
-for key in screenshot_sha256 uiautomator_dump_sha256 focused_window_sha256 case_logcat_sha256; do
+for key in screenshot_sha256 uiautomator_dump_sha256 focused_window_sha256 window_dump_sha256 case_logcat_sha256; do
   grep -Eq "^${key}=[0-9a-f]{64}$" "$REAL_APP_CASE_REPORT" ||
     fail "Expected real app case report to include $key"
 done
@@ -5746,6 +5776,8 @@ done
   fail "Expected real app failure diagnostics to preserve a UIAutomator dump"
 [[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/screenshot.png" ]] ||
   fail "Expected real app failure diagnostics to preserve a screenshot"
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/window-dump.txt" ]] ||
+  fail "Expected real app failure diagnostics to preserve a window dump"
 [[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/logcat.txt" ]] ||
   fail "Expected real app failure diagnostics to preserve logcat"
 
@@ -5768,10 +5800,15 @@ assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_coun
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "fail_count=1"
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_count=7"
 GAODE_CASE_REPORT="$ARTIFACT_DIR/gaode.case.properties"
+GAODE_RANKED_CANDIDATES="$ARTIFACT_DIR/gaode.ranked-candidates.json"
+GAODE_TARGET_RESOLUTION="$ARTIFACT_DIR/gaode.target-resolution.properties"
 assert_report_contains "$GAODE_CASE_REPORT" "artifact_schema=RealAppSearchCaseArtifact/v1"
 assert_report_contains "$GAODE_CASE_REPORT" "case=gaode"
+assert_report_contains "$GAODE_CASE_REPORT" "expected_package_name=com.autonavi.minimap"
+assert_report_contains "$GAODE_CASE_REPORT" "expected_app_name=高德"
 assert_report_contains "$GAODE_CASE_REPORT" "status=failed"
 assert_report_contains "$GAODE_CASE_REPORT" "reason=editable_not_found"
+assert_report_contains "$GAODE_CASE_REPORT" "failure_kind=editable_not_found"
 assert_report_contains "$GAODE_CASE_REPORT" "failed_step=type_text"
 assert_report_contains "$GAODE_CASE_REPORT" "result_file=$ARTIFACT_DIR/gaode-type.properties"
 grep -Eq '^result_file_sha256=[0-9a-f]{64}$' "$GAODE_CASE_REPORT" ||
@@ -5782,13 +5819,34 @@ assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_target=搜索输�
 assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_package_name=com.autonavi.minimap"
 assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_failure_kind=editable_not_found"
 assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_candidate_count=2"
+assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_candidate_total_count=2"
+assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_archived_candidate_count=2"
 assert_report_contains_text "$GAODE_CASE_REPORT" 'target_resolution_candidates_json={"candidates"'
+assert_report_contains "$GAODE_CASE_REPORT" "target_resolution_evidence_file=$GAODE_TARGET_RESOLUTION"
+grep -Eq '^target_resolution_evidence_sha256=[0-9a-f]{64}$' "$GAODE_CASE_REPORT" ||
+  fail "Expected Gaode case report to hash target resolution evidence"
+assert_report_contains "$GAODE_CASE_REPORT" "ranked_candidates_file=$GAODE_RANKED_CANDIDATES"
+grep -Eq '^ranked_candidates_sha256=[0-9a-f]{64}$' "$GAODE_CASE_REPORT" ||
+  fail "Expected Gaode case report to hash ranked resolver candidates"
+assert_report_contains "$GAODE_TARGET_RESOLUTION" "artifact_schema=UiTargetResolutionEvidenceArtifact/v1"
+assert_report_contains "$GAODE_TARGET_RESOLUTION" "case=gaode"
+assert_report_contains "$GAODE_TARGET_RESOLUTION" "target_resolution_failure_kind=editable_not_found"
+assert_report_contains "$GAODE_TARGET_RESOLUTION" "ranked_candidates_file=$GAODE_RANKED_CANDIDATES"
+assert_report_contains_text "$GAODE_RANKED_CANDIDATES" '"label":"你要去哪儿 搜地点、公交、地铁"'
+assert_report_contains_text "$GAODE_RANKED_CANDIDATES" '"bounds":{"left":40'
+assert_report_contains_text "$GAODE_RANKED_CANDIDATES" '"clickable":true'
+assert_report_contains_text "$GAODE_RANKED_CANDIDATES" '"editable":false'
+assert_report_contains_text "$GAODE_RANKED_CANDIDATES" '"matchedProfileHint":"你要去哪儿"'
+assert_report_contains_text "$GAODE_RANKED_CANDIDATES" '"riskPenalty":0'
+assert_report_contains_text "$GAODE_RANKED_CANDIDATES" '"noisePenalty":0'
+assert_report_contains_text "$GAODE_RANKED_CANDIDATES" '"finalScore":360'
 assert_report_contains "$GAODE_CASE_REPORT" "diagnostics_dir=$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type"
 assert_report_contains "$GAODE_CASE_REPORT" "screenshot_file=$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/screenshot.png"
 assert_report_contains "$GAODE_CASE_REPORT" "uiautomator_dump_file=$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/uiautomator.xml"
 assert_report_contains "$GAODE_CASE_REPORT" "focused_window_file=$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/focused-window.txt"
+assert_report_contains "$GAODE_CASE_REPORT" "window_dump_file=$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/window-dump.txt"
 assert_report_contains "$GAODE_CASE_REPORT" "case_logcat_file=$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/logcat.txt"
-for key in screenshot_sha256 uiautomator_dump_sha256 focused_window_sha256 case_logcat_sha256; do
+for key in screenshot_sha256 uiautomator_dump_sha256 focused_window_sha256 window_dump_sha256 case_logcat_sha256; do
   grep -Eq "^${key}=[0-9a-f]{64}$" "$GAODE_CASE_REPORT" ||
     fail "Expected Gaode case report to include $key"
 done
@@ -5796,6 +5854,8 @@ done
   fail "Expected Gaode failure diagnostics to preserve a UIAutomator dump"
 [[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/screenshot.png" ]] ||
   fail "Expected Gaode failure diagnostics to preserve a screenshot"
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/window-dump.txt" ]] ||
+  fail "Expected Gaode failure diagnostics to preserve a window dump"
 [[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-gaode-type/logcat.txt" ]] ||
   fail "Expected Gaode failure diagnostics to preserve logcat"
 

@@ -80,10 +80,9 @@ capture_failure_diagnostics() {
     "$ADB_BIN" -s "$SELECTED_SERIAL" shell dumpsys window 2>/dev/null |
       tr -d '\r' |
       grep -E 'mCurrentFocus|mFocusedApp|mFocusedWindow|mInputMethodTarget|mTopFocusedDisplayId' || true
-    echo
-    echo "window_dump:"
-    "$ADB_BIN" -s "$SELECTED_SERIAL" shell dumpsys window windows 2>/dev/null | tr -d '\r' || true
   } > "${diag_dir}/focused-window.txt"
+  "$ADB_BIN" -s "$SELECTED_SERIAL" shell dumpsys window windows 2>/dev/null |
+    tr -d '\r' > "${diag_dir}/window-dump.txt" || true
   "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t 1000 > "${diag_dir}/logcat.txt" 2>/dev/null || true
   {
     echo "screenshot_file=${diag_dir}/screenshot.png"
@@ -92,6 +91,8 @@ capture_failure_diagnostics() {
     echo "uiautomator_dump_sha256=$(sha256_file "${diag_dir}/uiautomator.xml")"
     echo "focused_window_file=${diag_dir}/focused-window.txt"
     echo "focused_window_sha256=$(sha256_file "${diag_dir}/focused-window.txt")"
+    echo "window_dump_file=${diag_dir}/window-dump.txt"
+    echo "window_dump_sha256=$(sha256_file "${diag_dir}/window-dump.txt")"
     echo "logcat_file=${diag_dir}/logcat.txt"
     echo "logcat_sha256=$(sha256_file "${diag_dir}/logcat.txt")"
   } >> "${diag_dir}/diagnostics.properties"
@@ -303,29 +304,103 @@ write_case_result() {
   local failed_step="${4:-}"
   local result_file="${5:-}"
   local file="${ARTIFACT_DIR}/${case_name}.case.properties"
+  local expected_package expected_app result_file_sha failure_kind
+  local target_resolution_available target_resolution_kind target_resolution_target
+  local target_resolution_package_name target_resolution_selected_node_id
+  local target_resolution_failure_kind target_resolution_candidate_count
+  local target_resolution_candidate_total_count target_resolution_archived_candidate_count
+  local target_resolution_candidates_json ranked_candidates_file ranked_candidates_sha
+  local target_resolution_evidence_file target_resolution_evidence_sha
+  expected_package="$(case_expected_package "$case_name")"
+  expected_app="$(case_expected_app_name "$case_name")"
+  result_file_sha=""
+  failure_kind="$reason"
+  target_resolution_available="false"
+  target_resolution_kind=""
+  target_resolution_target=""
+  target_resolution_package_name=""
+  target_resolution_selected_node_id=""
+  target_resolution_failure_kind=""
+  target_resolution_candidate_count="0"
+  target_resolution_candidate_total_count="0"
+  target_resolution_archived_candidate_count="0"
+  target_resolution_candidates_json=""
+  ranked_candidates_file=""
+  ranked_candidates_sha=""
+  target_resolution_evidence_file=""
+  target_resolution_evidence_sha=""
+
+  if [[ -n "$result_file" && -f "$result_file" ]]; then
+    result_file_sha="$(sha256_file "$result_file")"
+    target_resolution_available="$(read_result_property "$result_file" "targetResolution.available")"
+    target_resolution_kind="$(read_result_property "$result_file" "targetResolution.kind")"
+    target_resolution_target="$(read_result_property "$result_file" "targetResolution.target")"
+    target_resolution_package_name="$(read_result_property "$result_file" "targetResolution.packageName")"
+    target_resolution_selected_node_id="$(read_result_property "$result_file" "targetResolution.selectedNodeId")"
+    target_resolution_failure_kind="$(read_result_property "$result_file" "targetResolution.failureKind")"
+    target_resolution_candidate_count="$(read_result_property "$result_file" "targetResolution.candidateCount")"
+    target_resolution_candidate_total_count="$(read_result_property "$result_file" "targetResolution.candidateTotalCount")"
+    target_resolution_archived_candidate_count="$(read_result_property "$result_file" "targetResolution.archivedCandidateCount")"
+    target_resolution_candidates_json="$(read_result_property "$result_file" "targetResolution.candidatesJson")"
+    failure_kind="${target_resolution_failure_kind:-$(read_result_property "$result_file" "failureKind")}"
+    failure_kind="${failure_kind:-$reason}"
+    if [[ -n "$target_resolution_candidates_json" ]]; then
+      ranked_candidates_file="${ARTIFACT_DIR}/${case_name}.ranked-candidates.json"
+      printf '%s\n' "$target_resolution_candidates_json" > "$ranked_candidates_file"
+      ranked_candidates_sha="$(sha256_file "$ranked_candidates_file")"
+    fi
+    if [[ "$target_resolution_available" == "true" ]]; then
+      target_resolution_evidence_file="${ARTIFACT_DIR}/${case_name}.target-resolution.properties"
+      {
+        echo "artifact_schema=UiTargetResolutionEvidenceArtifact/v1"
+        echo "case=$case_name"
+        echo "result_file=$result_file"
+        echo "result_file_sha256=$result_file_sha"
+        echo "target_resolution_available=$target_resolution_available"
+        echo "target_resolution_kind=$target_resolution_kind"
+        echo "target_resolution_target=$target_resolution_target"
+        echo "target_resolution_package_name=$target_resolution_package_name"
+        echo "target_resolution_selected_node_id=$target_resolution_selected_node_id"
+        echo "target_resolution_failure_kind=$target_resolution_failure_kind"
+        echo "target_resolution_candidate_count=${target_resolution_candidate_count:-0}"
+        echo "target_resolution_candidate_total_count=${target_resolution_candidate_total_count:-${target_resolution_candidate_count:-0}}"
+        echo "target_resolution_archived_candidate_count=${target_resolution_archived_candidate_count:-${target_resolution_candidate_count:-0}}"
+        echo "ranked_candidates_file=$ranked_candidates_file"
+        echo "ranked_candidates_sha256=$ranked_candidates_sha"
+      } > "$target_resolution_evidence_file"
+      target_resolution_evidence_sha="$(sha256_file "$target_resolution_evidence_file")"
+    fi
+  fi
+  target_resolution_available="${target_resolution_available:-false}"
+  target_resolution_candidate_count="${target_resolution_candidate_count:-0}"
+  target_resolution_candidate_total_count="${target_resolution_candidate_total_count:-$target_resolution_candidate_count}"
+  target_resolution_archived_candidate_count="${target_resolution_archived_candidate_count:-$target_resolution_candidate_count}"
+
   {
     echo "artifact_schema=RealAppSearchCaseArtifact/v1"
     echo "case=$case_name"
+    echo "expected_package_name=$expected_package"
+    echo "expected_app_name=$expected_app"
     echo "status=$status"
     echo "reason=$reason"
+    echo "failure_kind=$failure_kind"
     echo "failed_step=$failed_step"
     echo "result_file=$result_file"
-    if [[ -n "$result_file" && -f "$result_file" ]]; then
-      echo "result_file_sha256=$(sha256_file "$result_file")"
-      copy_result_property "$result_file" "targetResolution.available" "target_resolution_available"
-      copy_result_property "$result_file" "targetResolution.kind" "target_resolution_kind"
-      copy_result_property "$result_file" "targetResolution.target" "target_resolution_target"
-      copy_result_property "$result_file" "targetResolution.packageName" "target_resolution_package_name"
-      copy_result_property "$result_file" "targetResolution.selectedNodeId" "target_resolution_selected_node_id"
-      copy_result_property "$result_file" "targetResolution.failureKind" "target_resolution_failure_kind"
-      copy_result_property "$result_file" "targetResolution.candidateCount" "target_resolution_candidate_count"
-      copy_result_property "$result_file" "targetResolution.candidatesJson" "target_resolution_candidates_json"
-    else
-      echo "result_file_sha256="
-      echo "target_resolution_available=false"
-      echo "target_resolution_failure_kind="
-      echo "target_resolution_candidate_count=0"
-    fi
+    echo "result_file_sha256=$result_file_sha"
+    echo "target_resolution_available=$target_resolution_available"
+    echo "target_resolution_kind=$target_resolution_kind"
+    echo "target_resolution_target=$target_resolution_target"
+    echo "target_resolution_package_name=$target_resolution_package_name"
+    echo "target_resolution_selected_node_id=$target_resolution_selected_node_id"
+    echo "target_resolution_failure_kind=$target_resolution_failure_kind"
+    echo "target_resolution_candidate_count=${target_resolution_candidate_count:-0}"
+    echo "target_resolution_candidate_total_count=${target_resolution_candidate_total_count:-${target_resolution_candidate_count:-0}}"
+    echo "target_resolution_archived_candidate_count=${target_resolution_archived_candidate_count:-${target_resolution_candidate_count:-0}}"
+    echo "target_resolution_candidates_json=$target_resolution_candidates_json"
+    echo "target_resolution_evidence_file=$target_resolution_evidence_file"
+    echo "target_resolution_evidence_sha256=$target_resolution_evidence_sha"
+    echo "ranked_candidates_file=$ranked_candidates_file"
+    echo "ranked_candidates_sha256=$ranked_candidates_sha"
     echo "diagnostics_dir=$LAST_DIAGNOSTICS_DIR"
     if [[ -n "$LAST_DIAGNOSTICS_DIR" && -f "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" ]]; then
       copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "screenshot_file" "screenshot_file"
@@ -334,10 +409,18 @@ write_case_result() {
       copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "uiautomator_dump_sha256" "uiautomator_dump_sha256"
       copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "focused_window_file" "focused_window_file"
       copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "focused_window_sha256" "focused_window_sha256"
+      copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "window_dump_file" "window_dump_file"
+      copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "window_dump_sha256" "window_dump_sha256"
       copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "logcat_file" "case_logcat_file"
       copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "logcat_sha256" "case_logcat_sha256"
     fi
   } > "$file"
+}
+
+read_result_property() {
+  local source_file="$1"
+  local source_key="$2"
+  grep -m 1 "^${source_key}=" "$source_file" 2>/dev/null | cut -d= -f2- | tr -d '\r\n' || true
 }
 
 copy_result_property() {
@@ -345,8 +428,35 @@ copy_result_property() {
   local source_key="$2"
   local target_key="$3"
   local value
-  value="$(grep -m 1 "^${source_key}=" "$source_file" 2>/dev/null | cut -d= -f2- | tr -d '\r\n' || true)"
+  value="$(read_result_property "$source_file" "$source_key")"
   echo "${target_key}=$value"
+}
+
+case_expected_package() {
+  case "$1" in
+    taobao) echo "com.taobao.taobao" ;;
+    pdd) echo "com.xunmeng.pinduoduo" ;;
+    gaode) echo "com.autonavi.minimap" ;;
+    jd) echo "com.jingdong.app.mall" ;;
+    chrome) echo "com.android.chrome" ;;
+    android_browser) echo "com.android.browser" ;;
+    quark) echo "com.quark.browser" ;;
+    uc) echo "com.UCMobile" ;;
+    *) echo "" ;;
+  esac
+}
+
+case_expected_app_name() {
+  case "$1" in
+    taobao) echo "淘宝" ;;
+    pdd) echo "拼多多" ;;
+    gaode) echo "高德" ;;
+    jd) echo "京东" ;;
+    chrome | android_browser) echo "浏览器" ;;
+    quark) echo "夸克" ;;
+    uc) echo "UC浏览器" ;;
+    *) echo "" ;;
+  esac
 }
 
 package_installed() {

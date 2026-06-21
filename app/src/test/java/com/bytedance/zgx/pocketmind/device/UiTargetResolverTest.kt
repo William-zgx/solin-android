@@ -434,6 +434,53 @@ class UiTargetResolverTest {
     }
 
     @Test
+    fun explainCandidateEvidenceIncludesActionabilityBoundsHintPenaltyAndConfidenceScore() {
+        val snapshot = snapshot(
+            packageName = "com.jingdong.app.mall",
+            nodes = listOf(
+                node(
+                    id = "home-feed",
+                    text = "京东物流 百亿补贴 秒杀 推荐 搜索好物 商品列表",
+                    bounds = ScreenBounds(0, 360, 1080, 1900),
+                    clickable = true,
+                    scrollable = true,
+                ),
+                node(
+                    id = "jd-search",
+                    text = "搜索京东商品",
+                    className = "android.widget.TextView",
+                    bounds = ScreenBounds(36, 84, 1044, 168),
+                    clickable = true,
+                ),
+            ),
+        )
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "搜索京东商品")
+        val candidate = requireNotNull(evidence.rankedCandidates.firstOrNull())
+
+        assertEquals("jd-search", evidence.selectedNodeId)
+        assertEquals("jd-search", candidate.nodeId)
+        assertEquals("搜索京东商品", candidate.label)
+        assertEquals(ScreenBounds(36, 84, 1044, 168), candidate.bounds)
+        assertTrue(candidate.clickable)
+        assertTrue(!candidate.editable)
+        assertTrue(!candidate.scrollable)
+        assertTrue(candidate.enabled)
+        assertEquals("搜索京东商品", candidate.matchedProfileHint)
+        assertTrue(candidate.score.semanticScore > 0)
+        assertTrue(candidate.score.profileHintScore > 0)
+        assertTrue(candidate.score.targetTextScore > 0)
+        assertTrue(candidate.score.actionabilityScore > 0)
+        assertTrue(candidate.score.positionScore > 0)
+        assertEquals(0, candidate.score.riskPenalty)
+        assertEquals(0, candidate.score.noisePenalty)
+        assertEquals(
+            UiTargetResolver.resolve(snapshot, UiTargetKind.SearchEntry, target = "搜索京东商品")?.confidence,
+            candidate.score.finalScore,
+        )
+    }
+
+    @Test
     fun doesNotResolveLargeResultListAsSearchEntry() {
         val snapshot = snapshot(
             packageName = "com.taobao.taobao",

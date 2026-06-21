@@ -35,6 +35,32 @@ class UiAutomatorDumpReplayTest {
         assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.autonavi.minimap:id/map_canvas" })
     }
 
+    @Test
+    fun jdSearchHomeDumpResolvesProfileSearchEntryAndDemotesFeed() {
+        val snapshot = loadDump("ui_dumps/real_app_search/jd_search_home.xml")
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")
+
+        assertNull(evidence.failureKind)
+        assertEquals("com.jingdong.app.mall:id/search_box", evidence.selectedNodeId)
+        assertEquals("搜索京东商品/店铺", evidence.rankedCandidates.firstOrNull()?.label)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.jingdong.app.mall:id/scan_entry" })
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.jingdong.app.mall:id/home_feed" })
+    }
+
+    @Test
+    fun browserHomeDumpResolvesAddressBarAndDemotesFeed() {
+        val snapshot = loadDump("ui_dumps/real_app_search/quark_address_home.xml")
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "地址栏")
+
+        assertNull(evidence.failureKind)
+        assertEquals("com.quark.browser:id/address_bar", evidence.selectedNodeId)
+        assertEquals("请输入搜索词或网址 地址栏", evidence.rankedCandidates.firstOrNull()?.label)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.quark.browser:id/scan_entry" })
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.quark.browser:id/web_feed" })
+    }
+
     private fun loadDump(resourcePath: String): ScreenStateSnapshot {
         val document = requireNotNull(javaClass.classLoader?.getResourceAsStream(resourcePath)) {
             "Missing test UIAutomator dump fixture: $resourcePath"
