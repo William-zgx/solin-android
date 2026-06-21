@@ -227,13 +227,16 @@ scripts/test_validation_scripts.sh
   `搜索商品 多多搜索` 搜索栏，并固定扫码入口和首页 feed 不会抢占搜索入口。
 - 新增 `chrome_address_home.xml` UIAutomator fixture，表示 Chrome 首页 omnibox，覆盖
   `搜索或输入网址 地址栏` 地址栏，并固定语音搜索和 feed 不会抢占搜索入口。
+- 新增 `android_browser_address_home.xml` 和 `uc_address_home.xml` UIAutomator
+  fixtures，表示 Android Browser 与 UC 浏览器首页地址栏，并固定语音搜索、扫一扫、
+  web/news feed 不会抢占搜索入口。
 - 新增 `quark_search_input.xml` 和 `quark_search_results.xml` UIAutomator fixtures，
   表示 Quark/browser 输入态和结果页，覆盖地址栏 `EditText`、非 editable “搜索”
   提交按钮，以及 `Kotlin 协程` 结果页验证。
 - `UiAutomatorDumpReplayTest` 新增输入页 `EditableField` / `SubmitSearch` resolver
-  回放测试、拼多多/Chrome/Quark search-entry replay，并新增首页 dump -> 结果页
-  dump 的 `AppSearchResultVerifier` 回放测试，要求 query 在页面变化后出现在非输入框
-  结果内容中。
+  回放测试、拼多多/Chrome/Android Browser/Quark/UC search-entry replay，并新增首页
+  dump -> 结果页 dump 的 `AppSearchResultVerifier` 回放测试，要求 query 在页面变化后
+  出现在非输入框结果内容中。
 - `UiTargetResolver` 修复 `SubmitSearch` 候选过滤：editable 搜索输入框即使命中
   browser profile hint，也不能进入提交按钮 ranked candidates；实际 Accessibility
   submit path 保持同样的非 editable / clickable 约束。

@@ -124,6 +124,32 @@ class UiAutomatorDumpReplayTest {
     }
 
     @Test
+    fun androidBrowserHomeDumpResolvesAddressBarAndDemotesToolbarActions() {
+        val snapshot = loadDump("ui_dumps/real_app_search/android_browser_address_home.xml")
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "地址栏")
+
+        assertNull(evidence.failureKind)
+        assertEquals("com.android.browser:id/url", evidence.selectedNodeId)
+        assertEquals("搜索或输入网址 地址栏", evidence.rankedCandidates.firstOrNull()?.label)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.android.browser:id/voice_search" })
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.android.browser:id/web_feed" })
+    }
+
+    @Test
+    fun ucBrowserHomeDumpResolvesAddressBarAndDemotesNewsFeed() {
+        val snapshot = loadDump("ui_dumps/real_app_search/uc_address_home.xml")
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "地址栏")
+
+        assertNull(evidence.failureKind)
+        assertEquals("com.UCMobile:id/search_address_bar", evidence.selectedNodeId)
+        assertEquals("搜索或输入网址 地址栏", evidence.rankedCandidates.firstOrNull()?.label)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.UCMobile:id/scan_entry" })
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.UCMobile:id/news_feed" })
+    }
+
+    @Test
     fun browserInputDumpResolvesEditableFieldAndSubmitButton() {
         val snapshot = loadDump("ui_dumps/real_app_search/quark_search_input.xml")
 
