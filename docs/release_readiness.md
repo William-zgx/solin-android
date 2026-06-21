@@ -24,6 +24,11 @@ items below.
   license review verifier reports now share a machine-readable evidence schema
   with `artifactSchema`, owner, UTC timestamp, command, failed target,
   reproducible report path, and SHA-256 binding for their input records.
+- The top-level `release-gate.properties` report is now also a first-class
+  evidence artifact with `artifactSchema`, owner, UTC timestamp, command,
+  reproducible path, current git head SHA, and path/status/SHA-256 bindings for
+  generated child reports such as privacy scan, AI behavior eval, artifact scan,
+  perf baseline, signing cert, and release owner records.
 - Release operations monitoring and rollback evidence now require passed typed
   properties reports bound to the approved operations record fields, not only
   path/SHA presence.

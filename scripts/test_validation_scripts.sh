@@ -679,6 +679,24 @@ assert_release_verifier_failed_report() {
     fail "Expected non-empty failure reason in $file"
 }
 
+assert_release_gate_report_schema() {
+  local file="$1"
+  assert_release_verifier_report_schema "$file" "ReleaseGateVerification/v1"
+  grep -Eq '^headCommitSha=[0-9a-f]{40}$' "$file" ||
+    fail "Expected release gate report to include current git head SHA"
+}
+
+assert_release_gate_child_report_bound() {
+  local gate_report="$1"
+  local child_key="$2"
+  local child_report="$3"
+  local expected_status="$4"
+  assert_report_contains "$gate_report" "${child_key}ReportPath=$child_report"
+  assert_report_contains "$gate_report" "${child_key}ReportStatus=$expected_status"
+  grep -Eq "^${child_key}ReportSha256=[0-9a-f]{64}$" "$gate_report" ||
+    fail "Expected release gate report to bind $child_key report SHA"
+}
+
 write_model_release_flow_contract_fixture() {
   local flow="$1"
   case "$flow" in
@@ -5582,6 +5600,40 @@ PRIVACY_GATE_TARGET="$TMP_DIR/privacy-gate-scan-target"
 mkdir -p "$PRIVACY_GATE_TARGET"
 PRIVACY_GATE_SECRET="$PRIVACY_GATE_TARGET/privacy-scan-gate-secret.tmp"
 printf 'token=sk-%s\n' "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" > "$PRIVACY_GATE_SECRET"
+expect_success \
+  "release gate passed report has evidence schema" \
+  env ARTIFACT_DIR="$ARTIFACT_DIR/release-gate-passed-schema" \
+  RELEASE_APK="$TMP_DIR/missing.apk" \
+  RELEASE_AAB="$TMP_DIR/missing.aab" \
+  VERIFY_CONTRACT_TESTS=0 \
+  VERIFY_AI_BEHAVIOR_EVAL=0 \
+  VERIFY_PERF_BASELINE=0 \
+  scripts/verify_release_gate.sh
+assert_release_gate_report_schema "$ARTIFACT_DIR/release-gate-passed-schema/release-gate.properties"
+assert_report_contains "$ARTIFACT_DIR/release-gate-passed-schema/release-gate.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/release-gate-passed-schema/release-gate.properties" "failedTarget="
+assert_report_contains "$ARTIFACT_DIR/release-gate-passed-schema/release-gate.properties" "failedReason="
+assert_report_contains "$ARTIFACT_DIR/release-gate-passed-schema/release-gate.properties" "reason=approved"
+assert_release_gate_child_report_bound \
+  "$ARTIFACT_DIR/release-gate-passed-schema/release-gate.properties" \
+  "privacyScan" \
+  "$ARTIFACT_DIR/release-gate-passed-schema/privacy-scan.properties" \
+  "passed"
+assert_release_gate_child_report_bound \
+  "$ARTIFACT_DIR/release-gate-passed-schema/release-gate.properties" \
+  "aiBehaviorEval" \
+  "$ARTIFACT_DIR/release-gate-passed-schema/ai-behavior-eval.properties" \
+  "skipped"
+assert_release_gate_child_report_bound \
+  "$ARTIFACT_DIR/release-gate-passed-schema/release-gate.properties" \
+  "androidArtifactScan" \
+  "$ARTIFACT_DIR/release-gate-passed-schema/android-artifact-scan.properties" \
+  "skipped"
+assert_release_gate_child_report_bound \
+  "$ARTIFACT_DIR/release-gate-passed-schema/release-gate.properties" \
+  "perfBaseline" \
+  "$ARTIFACT_DIR/release-gate-passed-schema/perf-baseline-verification.properties" \
+  "skipped"
 expect_failure \
   "release gate reports privacy scan child reason" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-privacy-scan-failed" \
@@ -5595,6 +5647,12 @@ assert_report_contains "$ARTIFACT_DIR/release-privacy-scan-failed/privacy-scan.p
 assert_report_contains "$ARTIFACT_DIR/release-privacy-scan-failed/privacy-scan.properties" "reason=secret-pattern-detected"
 assert_report_contains "$ARTIFACT_DIR/release-privacy-scan-failed/release-gate.properties" "failedTarget=privacy-scan"
 assert_report_contains "$ARTIFACT_DIR/release-privacy-scan-failed/release-gate.properties" "failedReason=secret-pattern-detected"
+assert_release_gate_report_schema "$ARTIFACT_DIR/release-privacy-scan-failed/release-gate.properties"
+assert_release_gate_child_report_bound \
+  "$ARTIFACT_DIR/release-privacy-scan-failed/release-gate.properties" \
+  "privacyScan" \
+  "$ARTIFACT_DIR/release-privacy-scan-failed/privacy-scan.properties" \
+  "failed"
 expect_failure \
   "release gate rejects option-like extra privacy scan target" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-privacy-scan-invalid-extra-target" \
@@ -5619,6 +5677,17 @@ assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properti
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "verifyPerfBaseline=1"
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "failedTarget=perf-baseline"
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" "failedReason=PERF_BASELINE_FILE-not-set"
+assert_release_gate_report_schema "$ARTIFACT_DIR/release-missing-perf/release-gate.properties"
+assert_release_gate_child_report_bound \
+  "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" \
+  "perfBaseline" \
+  "$ARTIFACT_DIR/release-missing-perf/perf-baseline-verification.properties" \
+  "failed"
+assert_release_gate_child_report_bound \
+  "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" \
+  "aiBehaviorEval" \
+  "$ARTIFACT_DIR/release-missing-perf/ai-behavior-eval.properties" \
+  "passed"
 assert_report_contains "$ARTIFACT_DIR/release-missing-perf/ai-behavior-eval.properties" \
   "traceDiffFile=$ARTIFACT_DIR/release-missing-perf/ai-behavior-planning-trace-diff.jsonl"
 [[ -s "$ARTIFACT_DIR/release-missing-perf/ai-behavior-planning-trace-diff.jsonl" ]] ||
@@ -5728,6 +5797,12 @@ assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.p
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "verifyReleaseMapping=1"
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "failedTarget=signing-cert"
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" "failedReason=PUBLIC_RELEASE-EXPECTED_SIGNING_CERT_SHA256-not-set"
+assert_release_gate_report_schema "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties"
+assert_release_gate_child_report_bound \
+  "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" \
+  "signingCert" \
+  "$ARTIFACT_DIR/public-release-missing-cert/signing-cert.properties" \
+  "failed"
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/signing-cert.properties" "status=failed"
 
 expect_failure \

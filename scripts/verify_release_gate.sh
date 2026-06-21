@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+ORIGINAL_ARGS=("$@")
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/release-gate}"
+RELEASE_GATE_OWNER="${RELEASE_GATE_OWNER:-release-engineering}"
 PERF_BASELINE_FILE="${PERF_BASELINE_FILE:-}"
 DEFAULT_RELEASE_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
 DEFAULT_RELEASE_AAB="app/build/outputs/bundle/release/app-release.aab"
@@ -46,6 +48,13 @@ GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 GRADLE_FILE="${GRADLE_FILE:-app/build.gradle.kts}"
 
 mkdir -p "$ARTIFACT_DIR"
+RELEASE_GATE_REPORT="$ARTIFACT_DIR/release-gate.properties"
+printf -v release_gate_command '%q' "scripts/verify_release_gate.sh"
+for release_gate_arg in "${ORIGINAL_ARGS[@]}"; do
+  printf -v quoted_release_gate_arg '%q' "$release_gate_arg"
+  release_gate_command+=" $quoted_release_gate_arg"
+done
+head_commit_sha="$(git rev-parse HEAD 2>/dev/null || true)"
 
 if [[ "$PUBLIC_RELEASE" == "1" ]]; then
   VERIFY_RELEASE_RECORD=1
@@ -66,15 +75,63 @@ if [[ "$REQUIRE_AAB" == "1" && "$REQUIRE_SIGNED_ARTIFACT" == "1" && "$RELEASE_AA
   RELEASE_AAB="$DEFAULT_SIGNED_RELEASE_AAB"
 fi
 
+report_value_for() {
+  local report_file="$1"
+  local key="$2"
+  if [[ -f "$report_file" ]]; then
+    awk -F= -v key="$key" '$1 == key {print $2; exit}' "$report_file"
+  fi
+}
+
+report_status_for() {
+  report_value_for "$1" "status"
+}
+
+report_reason_for() {
+  report_value_for "$1" "reason"
+}
+
+report_sha_for() {
+  local report_file="$1"
+  if [[ -f "$report_file" ]]; then
+    shasum -a 256 "$report_file" | awk '{print $1}'
+  fi
+}
+
+write_child_report_binding() {
+  local child_key="$1"
+  local report_file="$2"
+  printf '%sReportPath=%s\n' "$child_key" "$report_file"
+  printf '%sReportStatus=%s\n' "$child_key" "$(report_status_for "$report_file")"
+  printf '%sReportSha256=%s\n' "$child_key" "$(report_sha_for "$report_file")"
+}
+
 write_gate_report() {
   local status="$1"
   local failed_target="${2:-}"
   local failed_reason="${3:-}"
+  local reason="$failed_reason"
+  if [[ -z "$reason" ]]; then
+    if [[ "$status" == "passed" ]]; then
+      reason="approved"
+    elif [[ -n "$failed_target" ]]; then
+      reason="${failed_target}-failed"
+    else
+      reason="failed"
+    fi
+  fi
   {
+    printf 'artifactSchema=ReleaseGateVerification/v1\n'
     printf 'status=%s\n' "$status"
     printf 'target=release-gate\n'
+    printf 'owner=%s\n' "$RELEASE_GATE_OWNER"
+    printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    printf 'command=%s\n' "$release_gate_command"
     printf 'failedTarget=%s\n' "$failed_target"
     printf 'failedReason=%s\n' "$failed_reason"
+    printf 'reason=%s\n' "$reason"
+    printf 'reproduciblePath=%s\n' "$RELEASE_GATE_REPORT"
+    printf 'headCommitSha=%s\n' "$head_commit_sha"
     printf 'artifactDir=%s\n' "$ARTIFACT_DIR"
     printf 'publicRelease=%s\n' "$PUBLIC_RELEASE"
     printf 'verifyReleaseRecord=%s\n' "$VERIFY_RELEASE_RECORD"
@@ -101,14 +158,20 @@ write_gate_report() {
     printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
     printf 'releaseApk=%s\n' "$RELEASE_APK"
     printf 'releaseAab=%s\n' "$RELEASE_AAB"
-  } > "$ARTIFACT_DIR/release-gate.properties"
-}
-
-report_reason_for() {
-  local report_file="$1"
-  if [[ -f "$report_file" ]]; then
-    awk -F= '$1 == "reason" {print $2; exit}' "$report_file"
-  fi
+    write_child_report_binding signingCert "$ARTIFACT_DIR/signing-cert.properties"
+    write_child_report_binding privacyScan "$ARTIFACT_DIR/privacy-scan.properties"
+    write_child_report_binding contractTests "$ARTIFACT_DIR/contract-tests.properties"
+    write_child_report_binding aiBehaviorEval "$ARTIFACT_DIR/ai-behavior-eval.properties"
+    write_child_report_binding androidArtifactScan "$ARTIFACT_DIR/android-artifact-scan.properties"
+    write_child_report_binding perfBaseline "$ARTIFACT_DIR/perf-baseline-verification.properties"
+    write_child_report_binding releaseMapping "$ARTIFACT_DIR/release-mapping.properties"
+    write_child_report_binding releaseRecord "$ARTIFACT_DIR/release-record.properties"
+    write_child_report_binding storePolicyRecord "$ARTIFACT_DIR/store-policy-record.properties"
+    write_child_report_binding releaseOperationsRecord "$ARTIFACT_DIR/release-operations-record.properties"
+    write_child_report_binding releaseValidationRecord "$ARTIFACT_DIR/release-validation-record.properties"
+    write_child_report_binding modelLicenseReview "$ARTIFACT_DIR/model-license-review.properties"
+    write_child_report_binding privacyReview "$ARTIFACT_DIR/privacy-review.properties"
+  } > "$RELEASE_GATE_REPORT"
 }
 
 fail_gate() {
@@ -256,7 +319,6 @@ release_mapping_sha256=""
 if [[ -f "$RELEASE_MAPPING_FILE" ]]; then
   release_mapping_sha256="$(shasum -a 256 "$RELEASE_MAPPING_FILE" | awk '{print $1}')"
 fi
-head_commit_sha="$(git rev-parse HEAD 2>/dev/null || true)"
 
 if [[ "$VERIFY_PERF_BASELINE" != "1" ]]; then
   {

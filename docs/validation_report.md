@@ -23,6 +23,39 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-22 Release Gate Evidence Artifact Schema
+
+本轮覆盖项：
+
+- `scripts/verify_release_gate.sh` 的顶层 `release-gate.properties` 升级为一等
+  evidence artifact，输出 `artifactSchema=ReleaseGateVerification/v1`、owner、UTC
+  `recordedAt`、可复现 `command`、`reproduciblePath`、`headCommitSha`、`reason`、
+  `failedTarget` 和 `failedReason`。
+- release gate report 绑定已生成子报告的 path/status/SHA-256，包括 signing cert、
+  privacy scan、contract tests、AI behavior eval、artifact scan、perf baseline、
+  release mapping、release/store/operations/validation records、model license review
+  和 privacy review。
+- `scripts/test_validation_scripts.sh` 新增 release gate schema helper，并在隐私扫描失败、
+  缺 perf baseline、public release 缺签名证书三个不同时序的失败路径上断言顶层 schema
+  与 child report 绑定；同时新增 passed release gate smoke，固定成功报告
+  `reason=approved` 和 skipped/passed child report 绑定。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell syntax 检查。
+- 通过：validation script tests 全量通过，覆盖 release gate 顶层 schema、UTC
+  timestamp、command、head commit SHA、reproducible path、child report path/status/SHA
+  绑定、passed `reason=approved`，以及既有失败摘要回归。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮只做本地
+  release gate 脚本验证。
+
 ## 2026-06-22 Local Vision Release-Flow Evidence Gate
 
 本轮覆盖项：
