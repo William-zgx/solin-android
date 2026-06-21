@@ -307,6 +307,13 @@ write_flow_contract_fields() {
       printf 'firstRunDefaultChatModelSelected=true\n'
       printf 'firstRunSkipReachesMainShell=true\n'
       ;;
+    upgradeInstall)
+      printf 'upgradeInstallUsesAdbInstallR=true\n'
+      printf 'upgradeInstallPreservesFirstInstallTime=true\n'
+      printf 'upgradeInstallUpdatesLastUpdateTime=true\n'
+      printf 'upgradeInstallVersionCodeIncreased=true\n'
+      printf 'upgradeInstallInstrumentationCovered=true\n'
+      ;;
     localModelDownloadVerification)
       printf 'localModelDownloadVerified=true\n'
       printf 'modelSha256VerificationCovered=true\n'
@@ -335,6 +342,21 @@ write_flow_contract_fields() {
       printf 'remoteNetworkFailureRecoveryCovered=true\n'
       printf 'remoteUnconfiguredModelFailureCovered=true\n'
       printf 'remoteLocalMemoryNotAutoIncluded=true\n'
+      ;;
+    encryptedApiKeyClear)
+      printf 'encryptedApiKeyBlankInputClearsSecret=true\n'
+      printf 'legacyPlaintextApiKeyNotPersisted=true\n'
+      ;;
+    sessionPersistence)
+      printf 'sessionCreateSwitchRestoreCovered=true\n'
+      printf 'activeSessionPersistenceCovered=true\n'
+      printf 'sessionDeleteCovered=true\n'
+      ;;
+    memoryControls)
+      printf 'memoryCreateControlCovered=true\n'
+      printf 'memoryForgetControlCovered=true\n'
+      printf 'memoryClearControlCovered=true\n'
+      printf 'memoryPanelControlCovered=true\n'
       ;;
     shareAndPickerInput)
       printf 'actionSendTextStaged=true\n'
@@ -374,10 +396,31 @@ write_flow_contract_fields() {
       printf 'remoteConfigClearCovered=true\n'
       printf 'dataDeletionCopyCovered=true\n'
       ;;
+    remindersAfterReboot)
+      printf 'bootCompletedReminderRescheduleCovered=true\n'
+      printf 'packageReplacedReminderRescheduleCovered=true\n'
+      printf 'reminderCatchUpSchedulingCovered=true\n'
+      printf 'staleRunningReminderRecoveryCovered=true\n'
+      printf 'reminderAuditMetadataOnly=true\n'
+      ;;
     adaptiveUi)
       printf 'largeFontReachabilityCovered=true\n'
       printf 'landscapeReachabilityCovered=true\n'
       printf 'accessibleLabelsCovered=true\n'
+      ;;
+    accessibilityText)
+      printf 'accessibilityTextConfirmationCovered=true\n'
+      printf 'accessibilityTextCancellationCovered=true\n'
+      printf 'accessibilityTextLocalOnlyMetadataCovered=true\n'
+      printf 'accessibilityTextTraceRecorded=true\n'
+      ;;
+    recentMediaOcr)
+      printf 'recentScreenshotOcrRoutingCovered=true\n'
+      printf 'recentImageOcrRoutingCovered=true\n'
+      printf 'recentMediaOcrConfirmationCovered=true\n'
+      printf 'recentScreenshotOneItemLimitCovered=true\n'
+      printf 'recentMediaOcrLocalOnlyProtected=true\n'
+      printf 'recentMediaOcrRemoteLeakageBlocked=true\n'
       ;;
     mediaProjectionCancellation)
       printf 'mediaProjectionOneShotConsentCovered=true\n'
@@ -542,6 +585,13 @@ def is_valid_evidence(flow, value):
             "firstRunDefaultChatModelSelected",
             "firstRunSkipReachesMainShell",
         ],
+        "upgradeInstall": [
+            "upgradeInstallUsesAdbInstallR",
+            "upgradeInstallPreservesFirstInstallTime",
+            "upgradeInstallUpdatesLastUpdateTime",
+            "upgradeInstallVersionCodeIncreased",
+            "upgradeInstallInstrumentationCovered",
+        ],
         "localModelDownloadVerification": [
             "localModelDownloadVerified",
             "modelSha256VerificationCovered",
@@ -565,6 +615,26 @@ def is_valid_evidence(flow, value):
             "customInvalidUrlRejected",
             "customCredentialedUrlRejected",
             "customUnverifiedModelMarked",
+        ],
+        "remoteHttpsConfiguration": [
+            "remoteNetworkFailureRecoveryCovered",
+            "remoteUnconfiguredModelFailureCovered",
+            "remoteLocalMemoryNotAutoIncluded",
+        ],
+        "encryptedApiKeyClear": [
+            "encryptedApiKeyBlankInputClearsSecret",
+            "legacyPlaintextApiKeyNotPersisted",
+        ],
+        "sessionPersistence": [
+            "sessionCreateSwitchRestoreCovered",
+            "activeSessionPersistenceCovered",
+            "sessionDeleteCovered",
+        ],
+        "memoryControls": [
+            "memoryCreateControlCovered",
+            "memoryForgetControlCovered",
+            "memoryClearControlCovered",
+            "memoryPanelControlCovered",
         ],
         "shareAndPickerInput": [
             "actionSendTextStaged",
@@ -598,10 +668,31 @@ def is_valid_evidence(flow, value):
             "remoteConfigClearCovered",
             "dataDeletionCopyCovered",
         ],
+        "remindersAfterReboot": [
+            "bootCompletedReminderRescheduleCovered",
+            "packageReplacedReminderRescheduleCovered",
+            "reminderCatchUpSchedulingCovered",
+            "staleRunningReminderRecoveryCovered",
+            "reminderAuditMetadataOnly",
+        ],
         "adaptiveUi": [
             "largeFontReachabilityCovered",
             "landscapeReachabilityCovered",
             "accessibleLabelsCovered",
+        ],
+        "accessibilityText": [
+            "accessibilityTextConfirmationCovered",
+            "accessibilityTextCancellationCovered",
+            "accessibilityTextLocalOnlyMetadataCovered",
+            "accessibilityTextTraceRecorded",
+        ],
+        "recentMediaOcr": [
+            "recentScreenshotOcrRoutingCovered",
+            "recentImageOcrRoutingCovered",
+            "recentMediaOcrConfirmationCovered",
+            "recentScreenshotOneItemLimitCovered",
+            "recentMediaOcrLocalOnlyProtected",
+            "recentMediaOcrRemoteLeakageBlocked",
         ],
         "mediaProjectionCancellation": [
             "mediaProjectionOneShotConsentCovered",

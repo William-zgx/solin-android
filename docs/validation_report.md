@@ -23,6 +23,42 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Release Flow Evidence Semantic Field Gate
+
+本轮覆盖项：
+
+- `upgradeInstall` formal release-flow evidence 新增升级安装语义字段：
+  `adb install -r`、firstInstallTime 保留、lastUpdateTime 更新、versionCode 增长和
+  instrumentation coverage。
+- `encryptedApiKeyClear`、`sessionPersistence`、`memoryControls`、
+  `remindersAfterReboot`、`accessibilityText`、`recentMediaOcr` 不再只靠
+  `releaseFlowPassed=true`；正式 recorder、candidate collector、release validation
+  verifier 和 flow-matrix approved-record checker 都要求机器可读的细字段。
+- 新增弱证据负例：upgrade/session/recent-media-OCR 的 status-only flow evidence
+  会被 `verify_release_validation_record.sh` fail-closed。
+- `docs/release_checklist.md` 同步列出新字段，避免人工验收记录和机器 verifier
+  的证据语义分叉。
+
+验证命令：
+
+```bash
+bash -n scripts/record_release_flow_evidence.sh \
+  scripts/collect_release_flow_matrix_evidence.sh \
+  scripts/verify_release_validation_record.sh \
+  scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：validation script tests 返回 `Validation script tests passed`。
+- 通过：formal release-flow recorder 与 candidate collector 均输出新增 flow 语义字段。
+- 通过：弱 upgrade/session/recent-media-OCR flow evidence 被 release validation
+  verifier 拒绝，并输出对应缺失原因。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、release flow 人工验收；
+  本轮只收紧本地证据契约，不声明任何设备/模拟器/人工验收通过。
+
 ## 2026-06-21 Intent Routing Runtime Trace and Eval Gate
 
 本轮覆盖项：

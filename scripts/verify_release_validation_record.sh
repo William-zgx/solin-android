@@ -595,6 +595,13 @@ def validate_flow_evidence(key, evidence_path):
             "firstRunDefaultChatModelSelected": "first-run-default-chat-model-missing",
             "firstRunSkipReachesMainShell": "first-run-skip-main-shell-missing",
         },
+        "upgradeInstall": {
+            "upgradeInstallUsesAdbInstallR": "upgrade-install-adb-install-r-missing",
+            "upgradeInstallPreservesFirstInstallTime": "upgrade-install-first-install-time-preservation-missing",
+            "upgradeInstallUpdatesLastUpdateTime": "upgrade-install-last-update-time-update-missing",
+            "upgradeInstallVersionCodeIncreased": "upgrade-install-version-code-increase-missing",
+            "upgradeInstallInstrumentationCovered": "upgrade-install-instrumentation-missing",
+        },
         "localModelDownloadVerification": {
             "localModelDownloadVerified": "model-download-verification-missing",
             "modelSha256VerificationCovered": "model-sha-verification-missing",
@@ -623,6 +630,21 @@ def validate_flow_evidence(key, evidence_path):
             "remoteNetworkFailureRecoveryCovered": "remote-network-failure-recovery-missing",
             "remoteUnconfiguredModelFailureCovered": "remote-unconfigured-model-failure-missing",
             "remoteLocalMemoryNotAutoIncluded": "remote-local-memory-boundary-missing",
+        },
+        "encryptedApiKeyClear": {
+            "encryptedApiKeyBlankInputClearsSecret": "encrypted-api-key-clear-missing",
+            "legacyPlaintextApiKeyNotPersisted": "legacy-plaintext-api-key-boundary-missing",
+        },
+        "sessionPersistence": {
+            "sessionCreateSwitchRestoreCovered": "session-create-switch-restore-missing",
+            "activeSessionPersistenceCovered": "active-session-persistence-missing",
+            "sessionDeleteCovered": "session-delete-missing",
+        },
+        "memoryControls": {
+            "memoryCreateControlCovered": "memory-create-control-missing",
+            "memoryForgetControlCovered": "memory-forget-control-missing",
+            "memoryClearControlCovered": "memory-clear-control-missing",
+            "memoryPanelControlCovered": "memory-panel-control-missing",
         },
         "shareAndPickerInput": {
             "actionSendTextStaged": "action-send-text-staging-missing",
@@ -656,10 +678,31 @@ def validate_flow_evidence(key, evidence_path):
             "remoteConfigClearCovered": "remote-config-clear-control-missing",
             "dataDeletionCopyCovered": "data-deletion-copy-missing",
         },
+        "remindersAfterReboot": {
+            "bootCompletedReminderRescheduleCovered": "boot-completed-reminder-reschedule-missing",
+            "packageReplacedReminderRescheduleCovered": "package-replaced-reminder-reschedule-missing",
+            "reminderCatchUpSchedulingCovered": "reminder-catch-up-scheduling-missing",
+            "staleRunningReminderRecoveryCovered": "stale-running-reminder-recovery-missing",
+            "reminderAuditMetadataOnly": "reminder-audit-metadata-only-missing",
+        },
         "adaptiveUi": {
             "largeFontReachabilityCovered": "large-font-reachability-missing",
             "landscapeReachabilityCovered": "landscape-reachability-missing",
             "accessibleLabelsCovered": "accessible-labels-missing",
+        },
+        "accessibilityText": {
+            "accessibilityTextConfirmationCovered": "accessibility-text-confirmation-missing",
+            "accessibilityTextCancellationCovered": "accessibility-text-cancellation-missing",
+            "accessibilityTextLocalOnlyMetadataCovered": "accessibility-text-local-only-metadata-missing",
+            "accessibilityTextTraceRecorded": "accessibility-text-trace-recorded-missing",
+        },
+        "recentMediaOcr": {
+            "recentScreenshotOcrRoutingCovered": "recent-screenshot-ocr-routing-missing",
+            "recentImageOcrRoutingCovered": "recent-image-ocr-routing-missing",
+            "recentMediaOcrConfirmationCovered": "recent-media-ocr-confirmation-missing",
+            "recentScreenshotOneItemLimitCovered": "recent-screenshot-one-item-limit-missing",
+            "recentMediaOcrLocalOnlyProtected": "recent-media-ocr-local-only-protection-missing",
+            "recentMediaOcrRemoteLeakageBlocked": "recent-media-ocr-remote-leakage-block-missing",
         },
         "mediaProjectionCancellation": {
             "mediaProjectionOneShotConsentCovered": "media-projection-one-shot-consent-missing",

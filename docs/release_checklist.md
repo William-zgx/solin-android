@@ -354,6 +354,14 @@ with each RC before treating this checklist as complete.
   the App privacy notice entry, long-term memory clear and forget controls,
   current-session deletion, remote configuration clearing, and deletion/control
   copy visible to the user.
+- [ ] `upgradeInstall` release flow evidence must explicitly record `adb install -r`
+  upgrade execution, first-install timestamp preservation, last-update timestamp
+  refresh, versionCode increase, and instrumentation coverage. `encryptedApiKeyClear`
+  must prove blank-key save clears the encrypted secret and legacy plaintext
+  preference is not populated. `sessionPersistence`, `memoryControls`, and
+  `remindersAfterReboot` must each expose their create/restore/delete, memory
+  create/forget/clear, boot/package-replaced reschedule, catch-up, stale-running
+  recovery, and metadata-only audit checks as machine-readable fields.
 - [ ] `voiceInput` release flow evidence must explicitly record the near-field
   voice disclosure, one-shot transcript draft with no auto-send, microphone
   permission failure/recovery behavior, and voice-capture cancellation.
@@ -363,6 +371,10 @@ with each RC before treating this checklist as complete.
 - [ ] `adaptiveUi` release flow evidence must explicitly record large-font
   reachability, landscape reachability, and accessible labels/actions for core
   controls.
+- [ ] `accessibilityText` and `recentMediaOcr` release flow evidence must
+  explicitly record confirmation/cancel paths, LocalOnly metadata, trace
+  recording, screenshot/image OCR routing, one-item recent screenshot limits,
+  and remote-leakage fail-closed coverage.
 - [ ] Release flow evidence is generated from explicit owner sign-off, for
   example `OWNER="<reviewer>" RELEASE_FLOW_ALL=1
   scripts/record_release_flow_evidence.sh`; partial runs must remain failed

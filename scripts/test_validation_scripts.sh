@@ -622,10 +622,32 @@ write_model_release_flow_contract_fixture() {
       printf 'firstRunDefaultChatModelSelected=true\n'
       printf 'firstRunSkipReachesMainShell=true\n'
       ;;
+    upgradeInstall)
+      printf 'upgradeInstallUsesAdbInstallR=true\n'
+      printf 'upgradeInstallPreservesFirstInstallTime=true\n'
+      printf 'upgradeInstallUpdatesLastUpdateTime=true\n'
+      printf 'upgradeInstallVersionCodeIncreased=true\n'
+      printf 'upgradeInstallInstrumentationCovered=true\n'
+      ;;
     remoteHttpsConfiguration)
       printf 'remoteNetworkFailureRecoveryCovered=true\n'
       printf 'remoteUnconfiguredModelFailureCovered=true\n'
       printf 'remoteLocalMemoryNotAutoIncluded=true\n'
+      ;;
+    encryptedApiKeyClear)
+      printf 'encryptedApiKeyBlankInputClearsSecret=true\n'
+      printf 'legacyPlaintextApiKeyNotPersisted=true\n'
+      ;;
+    sessionPersistence)
+      printf 'sessionCreateSwitchRestoreCovered=true\n'
+      printf 'activeSessionPersistenceCovered=true\n'
+      printf 'sessionDeleteCovered=true\n'
+      ;;
+    memoryControls)
+      printf 'memoryCreateControlCovered=true\n'
+      printf 'memoryForgetControlCovered=true\n'
+      printf 'memoryClearControlCovered=true\n'
+      printf 'memoryPanelControlCovered=true\n'
       ;;
     localModelDownloadVerification)
       printf 'localModelDownloadVerified=true\n'
@@ -689,10 +711,31 @@ write_model_release_flow_contract_fixture() {
       printf 'remoteConfigClearCovered=true\n'
       printf 'dataDeletionCopyCovered=true\n'
       ;;
+    remindersAfterReboot)
+      printf 'bootCompletedReminderRescheduleCovered=true\n'
+      printf 'packageReplacedReminderRescheduleCovered=true\n'
+      printf 'reminderCatchUpSchedulingCovered=true\n'
+      printf 'staleRunningReminderRecoveryCovered=true\n'
+      printf 'reminderAuditMetadataOnly=true\n'
+      ;;
     adaptiveUi)
       printf 'largeFontReachabilityCovered=true\n'
       printf 'landscapeReachabilityCovered=true\n'
       printf 'accessibleLabelsCovered=true\n'
+      ;;
+    accessibilityText)
+      printf 'accessibilityTextConfirmationCovered=true\n'
+      printf 'accessibilityTextCancellationCovered=true\n'
+      printf 'accessibilityTextLocalOnlyMetadataCovered=true\n'
+      printf 'accessibilityTextTraceRecorded=true\n'
+      ;;
+    recentMediaOcr)
+      printf 'recentScreenshotOcrRoutingCovered=true\n'
+      printf 'recentImageOcrRoutingCovered=true\n'
+      printf 'recentMediaOcrConfirmationCovered=true\n'
+      printf 'recentScreenshotOneItemLimitCovered=true\n'
+      printf 'recentMediaOcrLocalOnlyProtected=true\n'
+      printf 'recentMediaOcrRemoteLeakageBlocked=true\n'
       ;;
     mediaProjectionCancellation)
       printf 'mediaProjectionOneShotConsentCovered=true\n'
@@ -3143,6 +3186,35 @@ assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-flow.properti
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-flow.properties" "flow-firstInstall-first-run-setup-visibility-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-flow.properties" "flow-firstInstall-first-run-default-chat-model-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-flow.properties" "flow-firstInstall-first-run-skip-main-shell-missing"
+VALIDATION_WEAK_UPGRADE_FLOW="$TMP_DIR/release-validation-weak-upgrade-flow.json"
+VALIDATION_WEAK_UPGRADE_FLOW_EVIDENCE="$TMP_DIR/validation-flow-evidence/weak-upgrade-install.properties"
+cat > "$VALIDATION_WEAK_UPGRADE_FLOW_EVIDENCE" <<'VALIDATION_WEAK_UPGRADE_FLOW_EVIDENCE_PROPERTIES'
+status=passed
+target=release-flow
+flowKey=upgradeInstall
+releaseFlowPassed=true
+candidateOnly=false
+VALIDATION_WEAK_UPGRADE_FLOW_EVIDENCE_PROPERTIES
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_WEAK_UPGRADE_FLOW" "$VALIDATION_WEAK_UPGRADE_FLOW_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+evidence = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["flowMatrix"]["upgradeInstall"]["evidencePath"] = str(evidence)
+record["flowMatrix"]["upgradeInstall"]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects weak upgrade install evidence" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_WEAK_UPGRADE_FLOW" --report "$ARTIFACT_DIR/release-validation-weak-upgrade-flow.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-upgrade-flow.properties" "flow-upgradeInstall-upgrade-install-adb-install-r-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-upgrade-flow.properties" "flow-upgradeInstall-upgrade-install-first-install-time-preservation-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-upgrade-flow.properties" "flow-upgradeInstall-upgrade-install-version-code-increase-missing"
 VALIDATION_WEAK_LOCAL_MODEL_FLOW="$TMP_DIR/release-validation-weak-local-model-flow.json"
 VALIDATION_WEAK_LOCAL_MODEL_FLOW_EVIDENCE="$TMP_DIR/validation-flow-evidence/weak-local-model-download.properties"
 cat > "$VALIDATION_WEAK_LOCAL_MODEL_FLOW_EVIDENCE" <<'VALIDATION_WEAK_LOCAL_MODEL_FLOW_EVIDENCE_PROPERTIES'
@@ -3239,6 +3311,35 @@ expect_failure \
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-remote-flow.properties" "flow-remoteHttpsConfiguration-remote-network-failure-recovery-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-remote-flow.properties" "flow-remoteHttpsConfiguration-remote-unconfigured-model-failure-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-remote-flow.properties" "flow-remoteHttpsConfiguration-remote-local-memory-boundary-missing"
+VALIDATION_WEAK_SESSION_FLOW="$TMP_DIR/release-validation-weak-session-flow.json"
+VALIDATION_WEAK_SESSION_FLOW_EVIDENCE="$TMP_DIR/validation-flow-evidence/weak-session.properties"
+cat > "$VALIDATION_WEAK_SESSION_FLOW_EVIDENCE" <<'VALIDATION_WEAK_SESSION_FLOW_EVIDENCE_PROPERTIES'
+status=passed
+target=release-flow
+flowKey=sessionPersistence
+releaseFlowPassed=true
+candidateOnly=false
+VALIDATION_WEAK_SESSION_FLOW_EVIDENCE_PROPERTIES
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_WEAK_SESSION_FLOW" "$VALIDATION_WEAK_SESSION_FLOW_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+evidence = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["flowMatrix"]["sessionPersistence"]["evidencePath"] = str(evidence)
+record["flowMatrix"]["sessionPersistence"]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects weak session persistence evidence" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_WEAK_SESSION_FLOW" --report "$ARTIFACT_DIR/release-validation-weak-session-flow.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-session-flow.properties" "flow-sessionPersistence-session-create-switch-restore-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-session-flow.properties" "flow-sessionPersistence-active-session-persistence-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-session-flow.properties" "flow-sessionPersistence-session-delete-missing"
 VALIDATION_WEAK_SHARE_FLOW="$TMP_DIR/release-validation-weak-share-flow.json"
 VALIDATION_WEAK_SHARE_FLOW_EVIDENCE="$TMP_DIR/validation-flow-evidence/weak-share-picker.properties"
 cat > "$VALIDATION_WEAK_SHARE_FLOW_EVIDENCE" <<'VALIDATION_WEAK_SHARE_FLOW_EVIDENCE_PROPERTIES'
@@ -3363,6 +3464,35 @@ expect_failure \
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-adaptive-ui-flow.properties" "flow-adaptiveUi-large-font-reachability-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-adaptive-ui-flow.properties" "flow-adaptiveUi-landscape-reachability-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-adaptive-ui-flow.properties" "flow-adaptiveUi-accessible-labels-missing"
+VALIDATION_WEAK_RECENT_MEDIA_OCR_FLOW="$TMP_DIR/release-validation-weak-recent-media-ocr-flow.json"
+VALIDATION_WEAK_RECENT_MEDIA_OCR_FLOW_EVIDENCE="$TMP_DIR/validation-flow-evidence/weak-recent-media-ocr.properties"
+cat > "$VALIDATION_WEAK_RECENT_MEDIA_OCR_FLOW_EVIDENCE" <<'VALIDATION_WEAK_RECENT_MEDIA_OCR_FLOW_EVIDENCE_PROPERTIES'
+status=passed
+target=release-flow
+flowKey=recentMediaOcr
+releaseFlowPassed=true
+candidateOnly=false
+VALIDATION_WEAK_RECENT_MEDIA_OCR_FLOW_EVIDENCE_PROPERTIES
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_WEAK_RECENT_MEDIA_OCR_FLOW" "$VALIDATION_WEAK_RECENT_MEDIA_OCR_FLOW_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+evidence = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["flowMatrix"]["recentMediaOcr"]["evidencePath"] = str(evidence)
+record["flowMatrix"]["recentMediaOcr"]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects weak recent media OCR evidence" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_WEAK_RECENT_MEDIA_OCR_FLOW" --report "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties" "flow-recentMediaOcr-recent-screenshot-ocr-routing-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties" "flow-recentMediaOcr-recent-media-ocr-local-only-protection-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties" "flow-recentMediaOcr-recent-media-ocr-remote-leakage-block-missing"
 VALIDATION_BARE_MANUAL="$TMP_DIR/release-validation-bare-manual.json"
 python3 - "$VALIDATION_APPROVED" "$VALIDATION_BARE_MANUAL" <<'PY'
 import json
@@ -3967,6 +4097,13 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-firstI
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-firstInstall.properties" "firstRunSetupVisibleCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-firstInstall.properties" "firstRunDefaultChatModelSelected=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-firstInstall.properties" "firstRunSkipReachesMainShell=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-encryptedApiKeyClear.properties" "encryptedApiKeyBlankInputClearsSecret=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-encryptedApiKeyClear.properties" "legacyPlaintextApiKeyNotPersisted=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-sessionPersistence.properties" "sessionCreateSwitchRestoreCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-memoryControls.properties" "memoryPanelControlCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-remindersAfterReboot.properties" "bootCompletedReminderRescheduleCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-accessibilityText.properties" "accessibilityTextLocalOnlyMetadataCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-recentMediaOcr.properties" "recentMediaOcrRemoteLeakageBlocked=true"
 for generated_flow_key in \
   firstInstall localModelDownloadVerification customModelImportOrUrlRejection \
   remoteHttpsConfiguration encryptedApiKeyClear sessionPersistence memoryControls \
@@ -4276,6 +4413,11 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-localModelDownloadV
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-localModelDownloadVerification.properties" "downloadInsufficientStorageFailureCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-localModelDownloadVerification.properties" "pendingDownloadMissingTaskRecoveryCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-localModelDownloadVerification.properties" "remoteFallbackExplained=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-upgradeInstall.properties" "upgradeInstallUsesAdbInstallR=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-upgradeInstall.properties" "upgradeInstallPreservesFirstInstallTime=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-upgradeInstall.properties" "upgradeInstallUpdatesLastUpdateTime=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-upgradeInstall.properties" "upgradeInstallVersionCodeIncreased=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-upgradeInstall.properties" "upgradeInstallInstrumentationCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-customModelImportOrUrlRejection.properties" "customLitertlmImportCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-customModelImportOrUrlRejection.properties" "customLocalNonLitertlmImportRejected=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-customModelImportOrUrlRejection.properties" "customImportStoragePreflightCovered=true"
@@ -4287,6 +4429,18 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-customModelImportOr
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteNetworkFailureRecoveryCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteUnconfiguredModelFailureCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteLocalMemoryNotAutoIncluded=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-encryptedApiKeyClear.properties" "encryptedApiKeyBlankInputClearsSecret=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-encryptedApiKeyClear.properties" "legacyPlaintextApiKeyNotPersisted=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-sessionPersistence.properties" "sessionCreateSwitchRestoreCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-sessionPersistence.properties" "activeSessionPersistenceCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-sessionPersistence.properties" "sessionDeleteCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-memoryControls.properties" "memoryCreateControlCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-memoryControls.properties" "memoryForgetControlCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-memoryControls.properties" "memoryClearControlCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-memoryControls.properties" "memoryPanelControlCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remindersAfterReboot.properties" "bootCompletedReminderRescheduleCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remindersAfterReboot.properties" "packageReplacedReminderRescheduleCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remindersAfterReboot.properties" "reminderAuditMetadataOnly=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "actionSendTextStaged=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteTextShareProtected=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-shareAndPickerInput.properties" "remoteVisionImageAttachmentStaged=true"
@@ -4320,6 +4474,12 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-privacyAndDataContr
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-adaptiveUi.properties" "largeFontReachabilityCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-adaptiveUi.properties" "landscapeReachabilityCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-adaptiveUi.properties" "accessibleLabelsCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-accessibilityText.properties" "accessibilityTextConfirmationCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-accessibilityText.properties" "accessibilityTextLocalOnlyMetadataCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-accessibilityText.properties" "accessibilityTextTraceRecorded=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-recentMediaOcr.properties" "recentScreenshotOcrRoutingCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-recentMediaOcr.properties" "recentImageOcrRoutingCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-recentMediaOcr.properties" "recentMediaOcrRemoteLeakageBlocked=true"
 
 FAKE_SDKMANAGER="$TMP_DIR/fake-sdkmanager"
 FAKE_AVDMANAGER="$TMP_DIR/fake-avdmanager"
