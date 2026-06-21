@@ -4897,7 +4897,7 @@ cat > "$MODEL_LICENSE_METADATA" <<'MODEL_LICENSE_METADATA_JSON'
       "repository": "example/chat-e2b",
       "manifestRevision": "chat-revision-a",
       "apiUrl": "https://huggingface.co/api/models/example/chat-e2b",
-      "modelSha": "chat-current-api-sha",
+      "modelSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "gated": false,
       "requiresUserAuthorization": false,
       "licenseTags": ["apache-2.0"],
@@ -4909,7 +4909,7 @@ cat > "$MODEL_LICENSE_METADATA" <<'MODEL_LICENSE_METADATA_JSON'
       "repository": "example/memory-embedding-300m",
       "manifestRevision": "memory-revision-a",
       "apiUrl": "https://huggingface.co/api/models/example/memory-embedding-300m",
-      "modelSha": "memory-current-api-sha",
+      "modelSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "gated": false,
       "requiresUserAuthorization": false,
       "licenseTags": ["apache-2.0"],
@@ -4999,7 +4999,7 @@ assert_report_contains "$ARTIFACT_DIR/model-license-collector-missing-review.pro
 assert_report_contains "$ARTIFACT_DIR/model-license-collector-missing-review.properties" "reason=missing-review-file"
 expect_failure \
   "model license verifier rejects incomplete review records" \
-  env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_PENDING" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_PENDING" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-pending.properties"
 assert_report_contains "$ARTIFACT_DIR/model-license-pending.properties" "status=failed"
 cat > "$MODEL_LICENSE_APPROVED" <<MODEL_LICENSE_APPROVED_JSON
@@ -5039,35 +5039,35 @@ cat > "$MODEL_LICENSE_APPROVED" <<MODEL_LICENSE_APPROVED_JSON
 MODEL_LICENSE_APPROVED_JSON
 expect_success \
   "model license verifier accepts approved metadata-aligned records" \
-  env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_APPROVED" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_APPROVED" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-approved.properties"
 assert_report_contains "$ARTIFACT_DIR/model-license-approved.properties" "status=passed"
 MODEL_LICENSE_SOURCE_MISMATCH="$TMP_DIR/model-license-source-mismatch.json"
 sed 's#https://huggingface.co/example/chat-e2b/blob/chat-revision-a/README.md#https://huggingface.co/example/wrong-model/blob/chat-revision-a/README.md#' "$MODEL_LICENSE_APPROVED" > "$MODEL_LICENSE_SOURCE_MISMATCH"
 expect_failure \
   "model license verifier rejects Hugging Face license source for a different repository" \
-  env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_SOURCE_MISMATCH" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_SOURCE_MISMATCH" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-source-mismatch.properties"
 assert_report_contains "$ARTIFACT_DIR/model-license-source-mismatch.properties" "status=failed"
 MODEL_LICENSE_REPO_ROOT="$TMP_DIR/model-license-repo-root.json"
 sed 's#https://huggingface.co/example/chat-e2b/blob/chat-revision-a/README.md#https://huggingface.co/example/chat-e2b#' "$MODEL_LICENSE_APPROVED" > "$MODEL_LICENSE_REPO_ROOT"
 expect_failure \
   "model license verifier rejects Hugging Face repository root as license source" \
-  env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_REPO_ROOT" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_REPO_ROOT" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-repo-root.properties"
 assert_report_contains_text "$ARTIFACT_DIR/model-license-repo-root.properties" "chat-e2b-license-source-not-concrete"
 MODEL_LICENSE_SOURCE_REVISION_MISMATCH="$TMP_DIR/model-license-source-revision-mismatch.json"
 sed 's#https://huggingface.co/example/chat-e2b/blob/chat-revision-a/README.md#https://huggingface.co/example/chat-e2b/blob/other-revision/README.md#' "$MODEL_LICENSE_APPROVED" > "$MODEL_LICENSE_SOURCE_REVISION_MISMATCH"
 expect_failure \
   "model license verifier rejects Hugging Face license source for a different revision" \
-  env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_SOURCE_REVISION_MISMATCH" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_SOURCE_REVISION_MISMATCH" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-source-revision-mismatch.properties"
 assert_report_contains_text "$ARTIFACT_DIR/model-license-source-revision-mismatch.properties" "chat-e2b-license-source-revision-mismatch"
 MODEL_LICENSE_BAD_REVIEW_EVIDENCE_SHA="$TMP_DIR/model-license-bad-review-evidence-sha.json"
 sed 's/"reviewEvidenceSha256": "'"$MODEL_LICENSE_CHAT_EVIDENCE_SHA"'"/"reviewEvidenceSha256": "0000000000000000000000000000000000000000000000000000000000000000"/' "$MODEL_LICENSE_APPROVED" > "$MODEL_LICENSE_BAD_REVIEW_EVIDENCE_SHA"
 expect_failure \
   "model license verifier rejects review evidence sha mismatch" \
-  env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_BAD_REVIEW_EVIDENCE_SHA" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_BAD_REVIEW_EVIDENCE_SHA" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-bad-review-evidence-sha.properties"
 assert_report_contains_text "$ARTIFACT_DIR/model-license-bad-review-evidence-sha.properties" "chat-e2b-review-evidence-sha-mismatch"
 MODEL_LICENSE_PENDING_REVIEW_EVIDENCE="$TMP_DIR/model-license-pending-review-evidence.properties"
@@ -5086,21 +5086,49 @@ Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
 PY
 expect_failure \
   "model license verifier rejects pending review evidence content" \
-  env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_BAD_REVIEW_EVIDENCE_CONTENT" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_BAD_REVIEW_EVIDENCE_CONTENT" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-bad-review-evidence-content.properties"
 assert_report_contains_text "$ARTIFACT_DIR/model-license-bad-review-evidence-content.properties" "chat-e2b-review-evidence-status-mismatch"
+MODEL_LICENSE_STALE_METADATA="$TMP_DIR/model-license-stale-metadata.json"
+sed 's/"recordedAt": "2026-06-05T00:00:00Z"/"recordedAt": "2000-01-01T00:00:00Z"/' "$MODEL_LICENSE_METADATA" > "$MODEL_LICENSE_STALE_METADATA"
+expect_failure \
+  "model license verifier rejects stale metadata collection" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=7 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_APPROVED" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_STALE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-stale-metadata.properties"
+assert_report_contains_text "$ARTIFACT_DIR/model-license-stale-metadata.properties" "metadata-recorded-at-stale"
+MODEL_LICENSE_FUTURE_METADATA="$TMP_DIR/model-license-future-metadata.json"
+sed 's/"recordedAt": "2026-06-05T00:00:00Z"/"recordedAt": "2999-01-01T00:00:00Z"/' "$MODEL_LICENSE_METADATA" > "$MODEL_LICENSE_FUTURE_METADATA"
+expect_failure \
+  "model license verifier rejects future metadata collection time" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_APPROVED" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_FUTURE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-future-metadata.properties"
+assert_report_contains_text "$ARTIFACT_DIR/model-license-future-metadata.properties" "metadata-recorded-at-in-future"
+MODEL_LICENSE_NON_UTC_METADATA="$TMP_DIR/model-license-non-utc-metadata.json"
+sed 's/"recordedAt": "2026-06-05T00:00:00Z"/"recordedAt": "2026-06-05"/' "$MODEL_LICENSE_METADATA" > "$MODEL_LICENSE_NON_UTC_METADATA"
+expect_failure \
+  "model license verifier rejects non-UTC metadata collection time" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_APPROVED" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_NON_UTC_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-non-utc-metadata.properties"
+assert_report_contains_text "$ARTIFACT_DIR/model-license-non-utc-metadata.properties" "metadata-recorded-at-not-utc"
+MODEL_LICENSE_BAD_MODEL_SHA="$TMP_DIR/model-license-bad-model-sha.json"
+sed 's/"modelSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/"modelSha": "chat-current-api-sha"/' "$MODEL_LICENSE_METADATA" > "$MODEL_LICENSE_BAD_MODEL_SHA"
+expect_failure \
+  "model license verifier rejects invalid metadata model sha" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_APPROVED" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_BAD_MODEL_SHA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-bad-model-sha.properties"
+assert_report_contains_text "$ARTIFACT_DIR/model-license-bad-model-sha.properties" "chat-e2b-metadata-model-sha-invalid"
 MODEL_LICENSE_STALE_REVIEW="$TMP_DIR/model-license-stale-review.json"
 sed 's/2026-06-06/2026-06-04/g' "$MODEL_LICENSE_APPROVED" > "$MODEL_LICENSE_STALE_REVIEW"
 expect_failure \
   "model license verifier rejects review dates before metadata collection" \
-  env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_STALE_REVIEW" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_STALE_REVIEW" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-stale-review.properties"
 assert_report_contains "$ARTIFACT_DIR/model-license-stale-review.properties" "status=failed"
 MODEL_LICENSE_FUTURE="$TMP_DIR/model-license-future.json"
 sed 's/2026-06-06/2999-01-01/g' "$MODEL_LICENSE_APPROVED" > "$MODEL_LICENSE_FUTURE"
 expect_failure \
   "model license verifier rejects future review dates" \
-  env MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_FUTURE" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_FUTURE" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-future.properties"
 assert_report_contains "$ARTIFACT_DIR/model-license-future.properties" "status=failed"
 

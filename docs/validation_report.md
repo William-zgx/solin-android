@@ -23,6 +23,34 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Model License Metadata Freshness Gate
+
+本轮覆盖项：
+
+- `scripts/verify_model_license_review.sh` 要求
+  `docs/model_license_metadata.json` 的 `recordedAt` 为严格 UTC
+  `YYYY-MM-DDTHH:MM:SSZ`、不可来自未来、且默认不超过
+  `MODEL_LICENSE_METADATA_MAX_AGE_DAYS=30`。
+- metadata `modelSha` 从“非空字符串”收紧为 40-64 位 hex，避免把占位文案当成上游
+  API SHA 证据。
+- `scripts/test_validation_scripts.sh` 增加 stale / future / non-UTC
+  metadata 和 invalid `modelSha` 负例；静态通过用例显式拉长 freshness window，避免测试
+  fixture 随时间漂移。
+- `docs/release_checklist.md` 同步 release 要求：模型 metadata 必须新鲜、UTC、含上游
+  `modelSha`，并且人工 review date 不早于 metadata collection date。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_model_license_review.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：validation script 自测覆盖模型许可证 metadata freshness 和 modelSha 负例。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮只做本地 release gate 脚本验证。
+
 ## 2026-06-21 Privacy Review Notice SHA Convergence
 
 本轮覆盖项：

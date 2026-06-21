@@ -171,7 +171,9 @@ with each RC before treating this checklist as complete.
 - [ ] `scripts/collect_model_license_metadata.sh` is run with `REPORT_FILE`
   before manual model review. Attach the collector report and confirm
   `docs/model_license_metadata.json` includes `licenseSourceCandidates` for
-  Hugging Face-hosted models. These candidates are reviewer input only; they do
+  Hugging Face-hosted models, a non-future UTC `recordedAt` within
+  `MODEL_LICENSE_METADATA_MAX_AGE_DAYS` (default 30 days), and concrete
+  upstream `modelSha` values. These candidates are reviewer input only; they do
   not approve redistribution and do not replace the concrete license source
   recorded in `docs/model_license_review.json`.
 - [ ] `docs/model_license_review.json` is updated from pending to approved
@@ -179,10 +181,11 @@ with each RC before treating this checklist as complete.
   scripts/verify_release_gate.sh` passes for the release candidate. The gate
   runs `scripts/verify_model_license_review.sh`, requiring all model IDs,
   repositories, and pinned upstream revisions to match `docs/model_manifest.md`,
-  metadata to match that manifest, and approvals to include aligned license
-  names, approved redistribution, attribution or notice, reviewer, and a valid
-  concrete license source plus a non-future review date not older than the
-  metadata collection date, with review evidence bound by SHA-256.
+  metadata to match that manifest and be freshly collected, and approvals to
+  include aligned license names, approved redistribution, attribution or notice,
+  reviewer, and a valid concrete license source plus a non-future review date
+  not older than the metadata collection date, with review evidence bound by
+  SHA-256.
 - [ ] README License wording distinguishes app code from third-party model
   artifacts.
 - [ ] No API keys, bearer tokens, private model endpoints, raw prompts, or

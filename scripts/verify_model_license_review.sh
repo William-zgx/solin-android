@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 REVIEW_FILE="${MODEL_LICENSE_REVIEW_FILE:-docs/model_license_review.json}"
 METADATA_FILE="${MODEL_LICENSE_METADATA_FILE:-docs/model_license_metadata.json}"
 MANIFEST_FILE="${MODEL_MANIFEST_FILE:-docs/model_manifest.md}"
+METADATA_MAX_AGE_DAYS="${MODEL_LICENSE_METADATA_MAX_AGE_DAYS:-30}"
 REPORT_FILE=""
 
 while [[ $# -gt 0 ]]; do
@@ -60,18 +61,19 @@ TMP_FAILURES="$(mktemp)"
 trap 'rm -f "$TMP_FAILURES"' EXIT
 
 set +e
-python3 - "$REVIEW_FILE" "$METADATA_FILE" "$MANIFEST_FILE" <<'PY' > "$TMP_FAILURES"
+python3 - "$REVIEW_FILE" "$METADATA_FILE" "$MANIFEST_FILE" "$METADATA_MAX_AGE_DAYS" <<'PY' > "$TMP_FAILURES"
 import hashlib
 import json
 import re
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
 review_path = Path(sys.argv[1])
 metadata_path = Path(sys.argv[2])
 manifest_path = Path(sys.argv[3])
+max_age_days_raw = sys.argv[4]
 
 try:
     review = json.loads(review_path.read_text())
@@ -81,6 +83,14 @@ except Exception:
     sys.exit(1)
 
 failures = []
+
+try:
+    metadata_max_age_days = int(max_age_days_raw)
+    if metadata_max_age_days < 0:
+        raise ValueError
+except ValueError:
+    metadata_max_age_days = None
+    failures.append("metadata-max-age-days-invalid")
 
 def non_empty_string(value):
     return isinstance(value, str) and bool(value.strip())
@@ -230,14 +240,29 @@ manifest_ids = [entry["id"] for entry in manifest_models]
 manifest_by_id = {entry["id"]: entry for entry in manifest_models}
 
 recorded_at = metadata.get("recordedAt", "")
+metadata_recorded_at = None
 metadata_record_date = None
 if not recorded_at:
     failures.append("metadata-recorded-at-missing")
+elif not re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", recorded_at):
+    failures.append("metadata-recorded-at-not-utc")
 else:
     try:
-        metadata_record_date = date.fromisoformat(recorded_at.split("T", 1)[0])
+        metadata_recorded_at = datetime.strptime(recorded_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc,
+        )
+        metadata_record_date = metadata_recorded_at.date()
     except ValueError:
         failures.append("metadata-recorded-at-invalid")
+    else:
+        now_utc = datetime.now(timezone.utc)
+        if metadata_recorded_at > now_utc:
+            failures.append("metadata-recorded-at-in-future")
+        elif (
+            metadata_max_age_days is not None and
+            now_utc - metadata_recorded_at > timedelta(days=metadata_max_age_days)
+        ):
+            failures.append("metadata-recorded-at-stale")
 
 metadata_ids = []
 metadata_by_id = {}
@@ -263,8 +288,11 @@ for entry in metadata_models:
         expected_api_url = f"https://huggingface.co/api/models/{manifest_entry['repository']}"
         if api_url != expected_api_url:
             failures.append(f"{model_id}-metadata-api-url-mismatch")
-    if not non_empty_string(entry.get("modelSha")):
+    model_sha = entry.get("modelSha")
+    if not non_empty_string(model_sha):
         failures.append(f"{model_id or 'unknown'}-metadata-model-sha-missing")
+    elif not re.match(r"^[0-9a-fA-F]{40,64}$", model_sha):
+        failures.append(f"{model_id or 'unknown'}-metadata-model-sha-invalid")
     gated = entry.get("gated")
     if not isinstance(gated, bool):
         failures.append(f"{model_id or 'unknown'}-metadata-gated-invalid")
