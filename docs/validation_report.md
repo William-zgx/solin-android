@@ -182,6 +182,30 @@ scripts/test_validation_scripts.sh
 - 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮按要求只做
   本地 eval/fixture/脚本验证。
 
+## 2026-06-22 Real-App Result Dump Replay
+
+本轮覆盖项：
+
+- 新增 `taobao_search_results.xml` UIAutomator fixture，表示淘宝搜索“海河牛奶”后的
+  结果页，包含搜索框、提交按钮、综合/销量/筛选和商品卡片。
+- `UiAutomatorDumpReplayTest` 新增首页 dump -> 结果页 dump 的
+  `AppSearchResultVerifier` 回放测试，要求 query 在页面变化后出现在非输入框结果内容中。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  ./gradlew :app:testDebugUnitTest \
+    --tests 'com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest' \
+    --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest'
+```
+
+结果：
+
+- 通过：目标 JVM 测试。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮只补本地
+  XML replay fixture。
+
 ## 2026-06-22 Privacy/Model License Verifier Evidence Schema Gate
 
 本轮覆盖项：

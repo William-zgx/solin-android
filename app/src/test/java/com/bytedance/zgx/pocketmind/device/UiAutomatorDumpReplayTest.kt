@@ -24,6 +24,24 @@ class UiAutomatorDumpReplayTest {
     }
 
     @Test
+    fun taobaoResultDumpVerifiesSearchResultAfterPageChange() {
+        val before = loadDump("ui_dumps/real_app_search/taobao_search_home.xml")
+        val after = loadDump("ui_dumps/real_app_search/taobao_search_results.xml")
+
+        val verification = AppSearchResultVerifier.verify(
+            before = before,
+            after = after,
+            query = "海河牛奶",
+            expectedPackageName = "com.taobao.taobao",
+            expectedAppName = "淘宝",
+        )
+
+        assertTrue(verification.summary, verification.verified)
+        assertEquals("query_visible_after_change", verification.evidence)
+        assertNull(verification.failureKind)
+    }
+
+    @Test
     fun gaodeHomeDumpResolvesDestinationSearchEntryAndDemotesMapCanvas() {
         val snapshot = loadDump("ui_dumps/real_app_search/gaode_destination_home.xml")
 

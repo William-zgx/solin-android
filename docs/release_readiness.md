@@ -74,7 +74,7 @@ items below.
   replacement for production signing or the final release-candidate matrix.
 - Current local real-app search resolver replay coverage includes UIAutomator
   XML fixtures for Taobao, Amap/Gaode, JD, and Quark/browser search-entry
-  ranking, plus a local evidence gate for ranked candidates JSON,
+  ranking, Taobao result-page verification replay, plus a local evidence gate for ranked candidates JSON,
   target-resolution SHA-256 files, expected package/app fields, failure kind,
   window-dump SHA, submit failure, result verification failure, required hint
   failure, no-target-app fail-closed behavior, and an all-fake-apps success
