@@ -78,6 +78,7 @@ if ! scripts/verify_ai_behavior_eval.sh \
   --require-boundary-map \
   --actual-trace "$ACTUAL_TRACE_FILE" \
   --trace-diff "$TRACE_DIFF_FILE" \
+  --require-actual-trace \
   --require-runtime-trace-source \
   --report "$EVAL_REPORT_FILE"; then
   reason="$(report_value "$EVAL_REPORT_FILE" reason)"
@@ -87,12 +88,18 @@ if ! scripts/verify_ai_behavior_eval.sh \
 fi
 
 missing_actual_count="$(report_value "$EVAL_REPORT_FILE" traceDiffMissingActualCount)"
+mismatch_count="$(report_value "$EVAL_REPORT_FILE" traceDiffMismatchCount)"
 extra_actual_count="$(report_value "$EVAL_REPORT_FILE" traceDiffExtraActualCount)"
 source_breakdown="$(report_value "$EVAL_REPORT_FILE" actualTraceSourceBreakdown)"
 
 if [[ "$missing_actual_count" != "0" ]]; then
   write_report failed "actual-trace-missing-cases"
   echo "AI behavior actual trace is missing fixture cases." >&2
+  exit 1
+fi
+if [[ "$mismatch_count" != "0" ]]; then
+  write_report failed "trace-diff-mismatch"
+  echo "AI behavior actual trace does not match fixture expectations." >&2
   exit 1
 fi
 if [[ "$extra_actual_count" != "0" ]]; then

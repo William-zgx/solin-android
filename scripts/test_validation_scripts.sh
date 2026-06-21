@@ -987,6 +987,8 @@ grep -q 'privacyBreakdown=' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval report must expose privacy breakdown"
 grep -q 'missing-confirmation-coverage' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval gate must require confirmation coverage"
+grep -q 'remote_send_confirmation' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must require remote send confirmation coverage"
 grep -q 'missing-risk-coverage' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval gate must require risk coverage"
 grep -q 'traceDiffMissingActualCount=' scripts/verify_ai_behavior_eval.sh ||
@@ -1023,6 +1025,32 @@ expect_failure \
     --report "$ARTIFACT_DIR/ai-behavior-duplicate-id.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-duplicate-id.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-duplicate-id.properties" "reason=duplicate-trace-case-id:memory_style_concise"
+AI_BEHAVIOR_MISSING_REMOTE_CONFIRMATION_DIR="$TMP_DIR/ai-behavior-missing-remote-confirmation"
+mkdir -p "$AI_BEHAVIOR_MISSING_REMOTE_CONFIRMATION_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_REMOTE_CONFIRMATION_DIR/"
+python3 - "$AI_BEHAVIOR_MISSING_REMOTE_CONFIRMATION_DIR/privacy_boundary.jsonl" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row["id"] == "privacy_remote_image_preview":
+        row["expectedConfirmation"] = "none"
+path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval requires remote send confirmation coverage" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_MISSING_REMOTE_CONFIRMATION_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-missing-remote-confirmation.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-remote-confirmation.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-remote-confirmation.properties" "reason=missing-confirmation-coverage:remote_send_confirmation"
 AI_TRACE_DIFF_MISSING="$ARTIFACT_DIR/ai-behavior-trace-diff-missing.jsonl"
 expect_success \
   "AI behavior eval writes planning trace diff without actual trace" \
@@ -1327,6 +1355,22 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-mismatch.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-mismatch.properties" "reason=trace-diff-mismatch"
 assert_report_contains_text "$AI_TRACE_DIFF_MISMATCH" '"status": "mismatch"'
+
+reset_logs
+AI_COLLECTOR_MISMATCH_DIR="$ARTIFACT_DIR/ai-behavior-actual-trace-collector-mismatch"
+expect_failure \
+  "AI behavior actual trace collector rejects mismatched runtime trace evidence" \
+  env ARTIFACT_DIR="$AI_COLLECTOR_MISMATCH_DIR" \
+  GRADLE_CMD="$FAKE_GRADLE" \
+  FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE="$AI_BAD_ACTUAL_TRACE" \
+  scripts/collect_ai_behavior_actual_trace.sh
+AI_COLLECTOR_MISMATCH_REPORT="$AI_COLLECTOR_MISMATCH_DIR/ai-behavior-actual-trace-collection.properties"
+AI_COLLECTOR_MISMATCH_EVAL="$AI_COLLECTOR_MISMATCH_DIR/ai-behavior-eval.properties"
+assert_report_contains "$AI_COLLECTOR_MISMATCH_REPORT" "status=failed"
+assert_report_contains "$AI_COLLECTOR_MISMATCH_REPORT" "reason=trace-diff-mismatch"
+assert_report_contains "$AI_COLLECTOR_MISMATCH_REPORT" "traceDiffMismatchCount=1"
+assert_report_contains "$AI_COLLECTOR_MISMATCH_EVAL" "requireActualTrace=1"
+assert_report_contains "$AI_COLLECTOR_MISMATCH_EVAL" "traceDiffMismatchCount=1"
 AI_EXTRA_ACTUAL_TRACE="$TMP_DIR/ai-behavior-actual-trace-extra.jsonl"
 cp "$AI_ACTUAL_TRACE" "$AI_EXTRA_ACTUAL_TRACE"
 cat >> "$AI_EXTRA_ACTUAL_TRACE" <<'AI_EXTRA_ACTUAL_TRACE_JSONL'

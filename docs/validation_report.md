@@ -574,6 +574,53 @@ git diff --check
 - 通过：`git diff --check` 返回 0。
 - 未执行：真机 instrumentation、arm64/x86 模拟器；本轮按要求只做本地 JVM 与脚本验证。
 
+## 2026-06-22 AI Behavior Remote Send Confirmation Gate
+
+本轮覆盖项：
+
+- `scripts/verify_ai_behavior_eval.sh` 将 `remote_send_confirmation` 纳入必需确认类型覆盖，
+  不再只要求 tool / second / fail-closed confirmation；缺少远程发送确认 fixture 会
+  fail-closed 为 `missing-confirmation-coverage:remote_send_confirmation`。
+- `AiBehaviorEvalFixturesTest` 增加 JVM 断言，固定离线 eval suite 必须包含远程发送确认场景。
+- `scripts/collect_ai_behavior_actual_trace.sh` 调用 verifier 时强制
+  `--require-actual-trace`，并显式拒绝 `traceDiffMismatchCount != 0`，避免 collector
+  evidence 在 actual trace 与 fixture 不一致时仍写出 `status=passed`。
+- `scripts/test_validation_scripts.sh` 增加两个负例：删除 remote-send confirmation 覆盖必须失败；
+  fake Gradle 生成 mismatched actual trace 时 collector 必须失败并写出
+  `reason=trace-diff-mismatch`。
+
+验证命令：
+
+```bash
+bash -n scripts/collect_ai_behavior_actual_trace.sh scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
+
+scripts/verify_ai_behavior_eval.sh --require-boundary-map \
+  --report build/verification/ai-behavior-remote-send-confirmation-gate.properties
+
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest'
+
+ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-remote-send-gate \
+  ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
+  scripts/collect_ai_behavior_actual_trace.sh
+
+./scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：AI behavior fixture gate 返回 `31 cases across 7 categories and 6 MVP scenarios`，
+  report 中 `confirmationBreakdown=fail_closed:8,none:14,remote_send_confirmation:1,second_confirmation:5,tool_confirmation:3`。
+- 通过：目标 JVM 测试返回 `BUILD SUCCESSFUL`。
+- 通过：actual trace collector 返回 `status=passed`，`requireActualTrace=1`、
+  `requireRuntimeTraceSource=1`、`traceDiffMatchedCount=21`、
+  `traceDiffAllowedFailureCount=10`、`traceDiffMissingActualCount=0`、
+  `traceDiffMismatchCount=0`、`traceDiffExtraActualCount=0`。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`，覆盖 remote-send
+  confirmation 缺失负例和 collector mismatch 负例。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮按要求只做本地 JVM 与脚本验证。
+
 ## 2026-06-21 Memory Forget Runtime Evidence and Local Gate
 
 本轮覆盖项：

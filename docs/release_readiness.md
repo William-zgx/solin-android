@@ -103,16 +103,20 @@ items below.
   (`traceSource` plus UTC `traceRecordedAt`), so final Agent behavior evidence
   cannot be a fixture-only dry run. `scripts/collect_ai_behavior_actual_trace.sh`
   now produces the local `agent_loop_runtime` actual trace collection report; the
-  latest local memory-forget collector report
-  `build/verification/ai-behavior-actual-trace-collector-memory-forget-v20/ai-behavior-actual-trace-collection.properties`
+  latest local collector report
+  `build/verification/ai-behavior-actual-trace-remote-send-gate/ai-behavior-actual-trace-collection.properties`
   records 31 runtime-sourced rows, `traceDiffMatchedCount=21`,
-  `traceDiffAllowedFailureCount=10`, and `traceDiffMismatchCount=0`. It includes
+  `traceDiffAllowedFailureCount=10`, `traceDiffMissingActualCount=0`,
+  `traceDiffMismatchCount=0`, and `traceDiffExtraActualCount=0`. It includes
   app search then back checkpoint evidence, low-risk app-control checkpoint budget
   evidence, mixed public/private remote batch fail-closed evidence, restart
   external-outcome fail-closed evidence, metadata-only OCR truncation evidence,
-  restart-restored confirmation evidence, and explicit local memory forget
-  evidence through `MemoryRepository`. The evidence is now mismatch-free, while
-  the 10 allowed failures remain release-owner review items before public release.
+  restart-restored confirmation evidence, explicit local memory forget evidence
+  through `MemoryRepository`, and remote-send confirmation coverage. The collector
+  now invokes the eval verifier with `--require-actual-trace`, so mismatched
+  actual runtime traces fail the collector evidence itself instead of relying on a
+  later public release gate. The evidence is now mismatch-free, while the 10
+  allowed failures remain release-owner review items before public release.
 - GitHub Actions `workflow_dispatch` final release gate now requires an
   `ai_behavior_actual_trace_file` input and passes it to
   `AI_BEHAVIOR_ACTUAL_TRACE_FILE`, so the CI public-release path can satisfy the

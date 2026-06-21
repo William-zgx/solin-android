@@ -87,6 +87,9 @@ class AiBehaviorEvalFixturesTest {
         assertTrue("eval suite should include fail-closed cases", rows.any { row ->
             row.getString("expectedConfirmation") == "fail_closed"
         })
+        assertTrue("eval suite should include remote-send confirmation cases", rows.any { row ->
+            row.getString("expectedConfirmation") == "remote_send_confirmation"
+        })
         assertTrue("eval suite should include remote-eligible cases", rows.any { row ->
             row.getBoolean("remoteEligible")
         })
