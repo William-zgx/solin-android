@@ -443,7 +443,14 @@ with each RC before treating this checklist as complete.
 - [ ] Crash-free and ANR thresholds for staged rollout are written in the
   release record, with a named person watching the first 24 hours after each
   rollout step. Monitoring setup and rollback plan evidence files are recorded
-  with SHA-256 values so release operations approval cannot rely only on prose.
+  with SHA-256 values and typed properties content. Monitoring evidence must
+  declare `status=passed`, `target=release-monitoring-evidence`,
+  `operationsRecordField=monitoring.evidence`, owner, signal sources, watcher,
+  thresholds, and crash SDK privacy review; rollback evidence must declare
+  `status=passed`, `target=release-rollback-evidence`,
+  `operationsRecordField=rollback.evidence`, owner, rollback criteria, decision
+  channel, Play version-code policy, model-manifest rollback path, data
+  compatibility, and previous-known-good or initial-release binding.
 - [ ] `docs/release_operations_record.json` is updated and approved, then
   `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh` passes. The gate
   checks CI local verification, connected Android tests, release artifact

@@ -138,6 +138,19 @@ def properties_for(path):
         pass
     return props
 
+def csv_tokens(value):
+    if not isinstance(value, str):
+        return set()
+    return {item.strip() for item in value.split(",") if item.strip()}
+
+def number_property_matches(value, expected):
+    if not non_empty_string(value):
+        return False
+    try:
+        return float(value) == float(expected)
+    except (TypeError, ValueError):
+        return False
+
 def is_sha256(value):
     return isinstance(value, str) and bool(re.fullmatch(r"[0-9a-f]{64}", value))
 
@@ -388,7 +401,33 @@ if not number_between(monitoring.get("anrRateThresholdPercent"), 0, 10):
     failures.append("anr-threshold-invalid")
 if monitoring.get("privacyReviewedForCrashSdk") is not True:
     failures.append("crash-sdk-privacy-review-not-confirmed")
-validate_evidence_file("monitoring", monitoring.get("evidence"))
+monitoring_evidence_path = validate_evidence_file("monitoring", monitoring.get("evidence"))
+if monitoring_evidence_path is not None:
+    monitoring_props = properties_for(monitoring_evidence_path)
+    if monitoring_props.get("status") != "passed":
+        failures.append("monitoring-evidence-status-not-passed")
+    if monitoring_props.get("target") != "release-monitoring-evidence":
+        failures.append("monitoring-evidence-target-invalid")
+    if monitoring_props.get("operationsRecordField") != "monitoring.evidence":
+        failures.append("monitoring-evidence-operations-record-field-invalid")
+    if non_empty_string(monitoring.get("owner")) and monitoring_props.get("owner") != monitoring.get("owner"):
+        failures.append("monitoring-evidence-owner-mismatch")
+    if sources and csv_tokens(monitoring_props.get("signalSources", "")) != set(sources):
+        failures.append("monitoring-evidence-signal-sources-mismatch")
+    if non_empty_string(monitoring.get("first24HoursWatcher")) and monitoring_props.get("first24HoursWatcher") != monitoring.get("first24HoursWatcher"):
+        failures.append("monitoring-evidence-first-24-hours-watcher-mismatch")
+    if number_between(monitoring.get("crashFreeRateThresholdPercent"), 90, 100) and not number_property_matches(
+        monitoring_props.get("crashFreeRateThresholdPercent", ""),
+        monitoring.get("crashFreeRateThresholdPercent"),
+    ):
+        failures.append("monitoring-evidence-crash-free-rate-threshold-mismatch")
+    if number_between(monitoring.get("anrRateThresholdPercent"), 0, 10) and not number_property_matches(
+        monitoring_props.get("anrRateThresholdPercent", ""),
+        monitoring.get("anrRateThresholdPercent"),
+    ):
+        failures.append("monitoring-evidence-anr-rate-threshold-mismatch")
+    if monitoring.get("privacyReviewedForCrashSdk") is True and monitoring_props.get("privacyReviewedForCrashSdk") != "true":
+        failures.append("monitoring-evidence-crash-sdk-privacy-review-not-confirmed")
 
 smoke = record.get("crashAnrSmoke")
 if not isinstance(smoke, dict):
@@ -519,7 +558,7 @@ if not isinstance(criteria, list):
 criteria_set = {criterion for criterion in criteria if isinstance(criterion, str)}
 for criterion in sorted(required_criteria - criteria_set):
     failures.append("rollback-criterion-missing-" + re.sub(r"[^a-z0-9]+", "-", criterion.lower()).strip("-"))
-validate_evidence_file("rollback", rollback.get("evidence"))
+rollback_evidence_path = validate_evidence_file("rollback", rollback.get("evidence"))
 
 previous = rollback.get("previousKnownGood")
 if not isinstance(previous, dict):
@@ -553,6 +592,43 @@ elif previous_status == "available":
         failures.append("previous-known-good-release-notes-missing")
 else:
     failures.append("previous-known-good-status-invalid")
+
+if rollback_evidence_path is not None:
+    rollback_props = properties_for(rollback_evidence_path)
+    if rollback_props.get("status") != "passed":
+        failures.append("rollback-evidence-status-not-passed")
+    if rollback_props.get("target") != "release-rollback-evidence":
+        failures.append("rollback-evidence-target-invalid")
+    if rollback_props.get("operationsRecordField") != "rollback.evidence":
+        failures.append("rollback-evidence-operations-record-field-invalid")
+    for field in (
+        "owner",
+        "decisionChannel",
+        "firstStagedRolloutAction",
+        "playVersionCodePolicy",
+        "modelManifestRollbackPath",
+        "userDataCompatibility",
+    ):
+        if non_empty_string(rollback.get(field)) and rollback_props.get(field) != rollback.get(field):
+            failures.append(f"rollback-evidence-{kebab(field)}-mismatch")
+    if criteria_set and csv_tokens(rollback_props.get("criteria", "")) != criteria_set:
+        failures.append("rollback-evidence-criteria-mismatch")
+    if non_empty_string(previous_status) and rollback_props.get("previousKnownGoodStatus") != previous_status:
+        failures.append("rollback-evidence-previous-known-good-status-mismatch")
+    if previous_status == "not_applicable_initial_release" and non_empty_string(previous.get("releaseNotes")) and rollback_props.get("previousKnownGoodReleaseNotes") != previous.get("releaseNotes"):
+        failures.append("rollback-evidence-previous-known-good-release-notes-mismatch")
+    if previous_status == "available":
+        if isinstance(previous.get("versionCode"), int) and rollback_props.get("previousKnownGoodVersionCode") != str(previous.get("versionCode")):
+            failures.append("rollback-evidence-previous-known-good-version-code-mismatch")
+        for source_key, prop_key in (
+            ("versionName", "previousKnownGoodVersionName"),
+            ("gitCommit", "previousKnownGoodGitCommit"),
+            ("artifactPath", "previousKnownGoodArtifactPath"),
+            ("artifactSha256", "previousKnownGoodArtifactSha256"),
+            ("releaseNotes", "previousKnownGoodReleaseNotes"),
+        ):
+            if non_empty_string(previous.get(source_key)) and rollback_props.get(prop_key) != previous.get(source_key):
+                failures.append(f"rollback-evidence-{kebab(prop_key)}-mismatch")
 
 review = record.get("review")
 if not isinstance(review, dict):

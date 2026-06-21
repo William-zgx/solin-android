@@ -2121,6 +2121,8 @@ OPERATIONS_PENDING="$TMP_DIR/release-operations-pending.json"
 OPERATIONS_APPROVED="$TMP_DIR/release-operations-approved.json"
 OPERATIONS_DATE="$(date +%F)"
 OPERATIONS_MONITORING_EVIDENCE="$TMP_DIR/release-operations-monitoring.properties"
+OPERATIONS_MONITORING_PENDING_EVIDENCE="$TMP_DIR/release-operations-monitoring-pending.properties"
+OPERATIONS_MONITORING_PENDING_RECORD="$TMP_DIR/release-operations-monitoring-pending.json"
 OPERATIONS_SMOKE_EVIDENCE="$TMP_DIR/release-operations-smoke.properties"
 OPERATIONS_SMOKE_FAILED_EVIDENCE="$TMP_DIR/release-operations-smoke-failed.properties"
 OPERATIONS_SMOKE_FAILED_RECORD="$TMP_DIR/release-operations-smoke-failed.json"
@@ -2136,6 +2138,8 @@ OPERATIONS_SMOKE_JAVA_CRASH_REPORT="$TMP_DIR/release-operations-smoke-java-crash
 OPERATIONS_SMOKE_INSTRUMENTATION_CRASH="$TMP_DIR/release-operations-smoke-instrumentation-crash.txt"
 OPERATIONS_SMOKE_INSTRUMENTATION_CRASH_REPORT="$TMP_DIR/release-operations-smoke-instrumentation-crash.properties"
 OPERATIONS_ROLLBACK_EVIDENCE="$TMP_DIR/release-operations-rollback.properties"
+OPERATIONS_ROLLBACK_PENDING_EVIDENCE="$TMP_DIR/release-operations-rollback-pending.properties"
+OPERATIONS_ROLLBACK_PENDING_RECORD="$TMP_DIR/release-operations-rollback-pending.json"
 OPERATIONS_CI_LOCAL_EVIDENCE="$TMP_DIR/release-operations-ci-local.properties"
 OPERATIONS_CI_CONNECTED_EVIDENCE="$TMP_DIR/release-operations-ci-connected.properties"
 OPERATIONS_CI_API_MATRIX_EVIDENCE="$TMP_DIR/release-operations-ci-api-matrix.properties"
@@ -2148,7 +2152,17 @@ OPERATIONS_FAKE_SHA_1="111111111111111111111111111111111111111111111111111111111
 OPERATIONS_FAKE_SHA_2="2222222222222222222222222222222222222222222222222222222222222222"
 OPERATIONS_FAKE_SHA_3="3333333333333333333333333333333333333333333333333333333333333333"
 OPERATIONS_FAKE_SHA_4="4444444444444444444444444444444444444444444444444444444444444444"
-printf 'status=passed\nsource=Android Vitals\nwatcher=Launch Watcher\n' > "$OPERATIONS_MONITORING_EVIDENCE"
+cat > "$OPERATIONS_MONITORING_EVIDENCE" <<OPERATIONS_MONITORING_EVIDENCE_PROPERTIES
+status=passed
+target=release-monitoring-evidence
+operationsRecordField=monitoring.evidence
+owner=Release Owner
+signalSources=Android Vitals,Internal dogfood feedback
+first24HoursWatcher=Launch Watcher
+crashFreeRateThresholdPercent=99.5
+anrRateThresholdPercent=1.0
+privacyReviewedForCrashSdk=true
+OPERATIONS_MONITORING_EVIDENCE_PROPERTIES
 cat > "$OPERATIONS_CI_LOCAL_EVIDENCE" <<OPERATIONS_CI_LOCAL_EVIDENCE_PROPERTIES
 status=passed
 target=ci-local-verification
@@ -2347,7 +2361,20 @@ expect_failure \
 assert_report_contains "$OPERATIONS_SMOKE_INSTRUMENTATION_CRASH_REPORT" "status=failed"
 assert_report_contains "$OPERATIONS_SMOKE_INSTRUMENTATION_CRASH_REPORT" "noLaunchCrash=false"
 assert_report_contains_text "$OPERATIONS_SMOKE_INSTRUMENTATION_CRASH_REPORT" "instrumentation-crash-signal-detected"
-printf 'status=passed\nrollback=initial-release\n' > "$OPERATIONS_ROLLBACK_EVIDENCE"
+cat > "$OPERATIONS_ROLLBACK_EVIDENCE" <<OPERATIONS_ROLLBACK_EVIDENCE_PROPERTIES
+status=passed
+target=release-rollback-evidence
+operationsRecordField=rollback.evidence
+owner=Release Owner
+decisionChannel=#pocketmind-release
+criteria=install failure,crash loop,model download verification failure,privacy boundary failure,critical tool execution regression
+firstStagedRolloutAction=Halt rollout, keep collecting Android Vitals and user reports, then decide whether to resume, replace, or ship a fixed build.
+playVersionCodePolicy=Any replacement artifact must use a higher versionCode; Play cannot ordinary-update users to a lower versionCode.
+modelManifestRollbackPath=Revert model download metadata when supported; otherwise ship a fixed APK with a higher versionCode.
+userDataCompatibility=Room migrations are forward-only, so downgrade is unsupported unless explicitly tested.
+previousKnownGoodStatus=not_applicable_initial_release
+previousKnownGoodReleaseNotes=Initial release has no previous production artifact.
+OPERATIONS_ROLLBACK_EVIDENCE_PROPERTIES
 OPERATIONS_MONITORING_SHA="$(shasum -a 256 "$OPERATIONS_MONITORING_EVIDENCE" | awk '{print $1}')"
 OPERATIONS_SMOKE_SHA="$(shasum -a 256 "$OPERATIONS_SMOKE_EVIDENCE" | awk '{print $1}')"
 OPERATIONS_ROLLBACK_SHA="$(shasum -a 256 "$OPERATIONS_ROLLBACK_EVIDENCE" | awk '{print $1}')"
@@ -2495,6 +2522,40 @@ expect_success \
   EXPECTED_SIGNING_CERT_SHA256="$OPERATIONS_FAKE_SHA_4" \
   scripts/verify_release_operations_record.sh --file "$OPERATIONS_APPROVED" --report "$ARTIFACT_DIR/release-operations-current-context.properties"
 assert_report_contains "$ARTIFACT_DIR/release-operations-current-context.properties" "status=passed"
+sed 's/^status=passed$/status=pending/' "$OPERATIONS_MONITORING_EVIDENCE" > "$OPERATIONS_MONITORING_PENDING_EVIDENCE"
+python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_MONITORING_PENDING_RECORD" "$OPERATIONS_MONITORING_PENDING_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+record_path, target_path, evidence_path = map(Path, sys.argv[1:])
+record = json.loads(record_path.read_text())
+record["monitoring"]["evidence"]["path"] = str(evidence_path)
+record["monitoring"]["evidence"]["sha256"] = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+target_path.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release operations verifier rejects pending monitoring evidence with matching sha" \
+  scripts/verify_release_operations_record.sh --file "$OPERATIONS_MONITORING_PENDING_RECORD" --report "$ARTIFACT_DIR/release-operations-monitoring-pending.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-monitoring-pending.properties" "monitoring-evidence-status-not-passed"
+sed 's/^status=passed$/status=pending/' "$OPERATIONS_ROLLBACK_EVIDENCE" > "$OPERATIONS_ROLLBACK_PENDING_EVIDENCE"
+python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_ROLLBACK_PENDING_RECORD" "$OPERATIONS_ROLLBACK_PENDING_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+record_path, target_path, evidence_path = map(Path, sys.argv[1:])
+record = json.loads(record_path.read_text())
+record["rollback"]["evidence"]["path"] = str(evidence_path)
+record["rollback"]["evidence"]["sha256"] = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+target_path.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release operations verifier rejects pending rollback evidence with matching sha" \
+  scripts/verify_release_operations_record.sh --file "$OPERATIONS_ROLLBACK_PENDING_RECORD" --report "$ARTIFACT_DIR/release-operations-rollback-pending.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-rollback-pending.properties" "rollback-evidence-status-not-passed"
 expect_failure \
   "release operations verifier rejects stale release artifact context" \
   env EXPECTED_COMMIT_SHA="$OPERATIONS_COMMIT_SHA" \

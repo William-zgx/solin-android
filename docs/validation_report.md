@@ -23,6 +23,44 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-22 Release Operations Monitoring/Rollback Evidence Gate
+
+本轮覆盖项：
+
+- `scripts/verify_release_operations_record.sh` 不再只检查 monitoring/rollback evidence
+  的 path 和 SHA。monitoring evidence 现在必须是 typed properties，包含
+  `status=passed`、`target=release-monitoring-evidence`、
+  `operationsRecordField=monitoring.evidence`，并绑定 owner、signal sources、
+  first-24-hour watcher、crash-free/ANR threshold 和 crash SDK privacy review。
+- rollback evidence 现在必须是 typed properties，包含
+  `status=passed`、`target=release-rollback-evidence`、
+  `operationsRecordField=rollback.evidence`，并绑定 owner、decision channel、rollback
+  criteria、staged rollout action、Play version-code policy、model manifest rollback
+  path、data compatibility，以及 previous-known-good / initial-release metadata。
+- `scripts/test_validation_scripts.sh` 的 release operations fixture 改为生成 typed
+  monitoring/rollback evidence，并新增 matching SHA 但 `status=pending` 的负例。
+- `docs/release_checklist.md` 同步记录 typed properties evidence 要求。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_operations_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell syntax 检查。
+- 通过：validation script tests 全量通过，覆盖 approved operations 正例、matching SHA
+  但 pending monitoring evidence 失败、matching SHA 但 pending rollback evidence 失败。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮按要求只做本地脚本验证。
+
+剩余风险：
+
+- 本轮强化的是 release operations evidence 内容合同，不替代真实 Android Vitals、
+  rollout 值班、production signing、CI artifact 或人工 release operations review。
+- 多 Agent 探索发现的 local vision release-flow contract 仍待后续补齐。
+
 ## 2026-06-22 Release Verifier Evidence Schema Gate
 
 本轮覆盖项：
