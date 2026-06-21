@@ -73,7 +73,7 @@ items below.
   `adb install -r` after debug eval, preserving app data. This is not a
   replacement for production signing or the final release-candidate matrix.
 - Current local real-app search resolver replay coverage includes UIAutomator
-  XML fixtures for Taobao, Amap/Gaode, JD, and Quark/browser search-entry
+  XML fixtures for Taobao, Pinduoduo, Amap/Gaode, JD, and Quark/browser search-entry
   ranking, Taobao input-field / submit-button / result-page verification replay,
   plus a local evidence gate for ranked candidates JSON,
   target-resolution SHA-256 files, expected package/app fields, failure kind,

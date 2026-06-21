@@ -190,9 +190,11 @@ scripts/test_validation_scripts.sh
   `EditText` 搜索输入框、可点击“搜索”提交按钮、搜索建议和拍照搜索噪声节点。
 - 新增 `taobao_search_results.xml` UIAutomator fixture，表示淘宝搜索“海河牛奶”后的
   结果页，包含搜索框、提交按钮、综合/销量/筛选和商品卡片。
+- 新增 `pdd_search_home.xml` UIAutomator fixture，表示拼多多首页搜索入口，覆盖
+  `搜索商品 多多搜索` 搜索栏，并固定扫码入口和首页 feed 不会抢占搜索入口。
 - `UiAutomatorDumpReplayTest` 新增输入页 `EditableField` / `SubmitSearch` resolver
-  回放测试，并新增首页 dump -> 结果页 dump 的 `AppSearchResultVerifier` 回放测试，
-  要求 query 在页面变化后出现在非输入框结果内容中。
+  回放测试、拼多多首页 search-entry replay，并新增首页 dump -> 结果页 dump 的
+  `AppSearchResultVerifier` 回放测试，要求 query 在页面变化后出现在非输入框结果内容中。
 
 验证命令：
 

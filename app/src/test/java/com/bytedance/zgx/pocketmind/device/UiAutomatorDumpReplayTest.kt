@@ -72,6 +72,19 @@ class UiAutomatorDumpReplayTest {
     }
 
     @Test
+    fun pddSearchHomeDumpResolvesProductSearchEntryAndDemotesFeed() {
+        val snapshot = loadDump("ui_dumps/real_app_search/pdd_search_home.xml")
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")
+
+        assertNull(evidence.failureKind)
+        assertEquals("com.xunmeng.pinduoduo:id/search_bar", evidence.selectedNodeId)
+        assertEquals("搜索商品 多多搜索", evidence.rankedCandidates.firstOrNull()?.label)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.xunmeng.pinduoduo:id/scan_entry" })
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.xunmeng.pinduoduo:id/home_feed" })
+    }
+
+    @Test
     fun jdSearchHomeDumpResolvesProfileSearchEntryAndDemotesFeed() {
         val snapshot = loadDump("ui_dumps/real_app_search/jd_search_home.xml")
 
