@@ -110,6 +110,54 @@ class UiAutomatorDumpReplayTest {
         assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.quark.browser:id/web_feed" })
     }
 
+    @Test
+    fun chromeHomeDumpResolvesOmniboxAndDemotesToolbarActions() {
+        val snapshot = loadDump("ui_dumps/real_app_search/chrome_address_home.xml")
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "地址栏")
+
+        assertNull(evidence.failureKind)
+        assertEquals("com.android.chrome:id/search_box_text", evidence.selectedNodeId)
+        assertEquals("搜索或输入网址 地址栏", evidence.rankedCandidates.firstOrNull()?.label)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.android.chrome:id/voice_search_button" })
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.android.chrome:id/feed_stream" })
+    }
+
+    @Test
+    fun browserInputDumpResolvesEditableFieldAndSubmitButton() {
+        val snapshot = loadDump("ui_dumps/real_app_search/quark_search_input.xml")
+
+        val editable = UiTargetResolver.explain(snapshot, UiTargetKind.EditableField, target = "地址栏")
+        val submit = UiTargetResolver.explain(snapshot, UiTargetKind.SubmitSearch, target = "提交搜索")
+
+        assertNull(editable.failureKind)
+        assertEquals("com.quark.browser:id/address_edit_text", editable.selectedNodeId)
+        assertEquals("搜索或输入网址", editable.rankedCandidates.firstOrNull()?.label)
+
+        assertNull(submit.failureKind)
+        assertEquals("com.quark.browser:id/search_submit", submit.selectedNodeId)
+        assertEquals("搜索", submit.rankedCandidates.firstOrNull()?.label)
+        assertTrue(submit.rankedCandidates.none { candidate -> candidate.nodeId == "com.quark.browser:id/address_edit_text" })
+    }
+
+    @Test
+    fun browserResultDumpVerifiesSearchResultAfterPageChange() {
+        val before = loadDump("ui_dumps/real_app_search/quark_address_home.xml")
+        val after = loadDump("ui_dumps/real_app_search/quark_search_results.xml")
+
+        val verification = AppSearchResultVerifier.verify(
+            before = before,
+            after = after,
+            query = "Kotlin 协程",
+            expectedPackageName = "com.quark.browser",
+            expectedAppName = "浏览器",
+        )
+
+        assertTrue(verification.summary, verification.verified)
+        assertEquals("query_visible_after_change", verification.evidence)
+        assertNull(verification.failureKind)
+    }
+
     private fun loadDump(resourcePath: String): ScreenStateSnapshot {
         val document = requireNotNull(javaClass.classLoader?.getResourceAsStream(resourcePath)) {
             "Missing test UIAutomator dump fixture: $resourcePath"

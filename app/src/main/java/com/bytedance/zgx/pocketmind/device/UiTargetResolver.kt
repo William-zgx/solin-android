@@ -189,6 +189,7 @@ object UiTargetResolver {
         metrics: SnapshotBoundsMetrics,
     ): UiTargetEvidenceCandidate? {
         if (!node.enabled) return null
+        if (kind == UiTargetKind.SubmitSearch && node.editable) return null
         val label = node.visibleLabel()
         val normalizedLabel = label.normalizedLookupKey()
         val normalizedTarget = target.normalizedLookupKey()
