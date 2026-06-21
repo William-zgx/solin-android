@@ -350,6 +350,15 @@ data class InstalledModelSummary(
         get() = recommendedModelId == null ||
             (ModelCatalog.recommendedModelOrNull(recommendedModelId) != null &&
                 verificationStatus == ModelVerificationStatus.VerifiedRecommended)
+
+    val capabilityProfile: ModelCapabilityProfile?
+        get() = if (!isUsable) {
+            null
+        } else {
+            recommendedModelId
+                ?.let { modelId -> ModelCatalog.profileForModelIdOrNull(modelId) }
+                ?: ModelCatalog.customLocalChatProfile(displayName)
+        }
 }
 
 data class ChatUiState(
@@ -425,12 +434,12 @@ data class ChatUiState(
         get() = ModelCatalog.optionalChatModels()
 
     val activeLocalModelSupportsVisionInput: Boolean
+        get() = activeLocalCapabilityProfile?.supportsVisionInput == true
+
+    val activeLocalCapabilityProfile: ModelCapabilityProfile?
         get() = installedModels
             .firstOrNull { it.id == activeInstalledModelId }
-            ?.takeIf { it.isUsable }
-            ?.recommendedModelId
-            ?.let { ModelCatalog.profileForModelIdOrNull(it)?.supportsVisionInput }
-            ?: false
+            ?.capabilityProfile
 
     val installedCapabilities: Set<ModelCapability>
         get() = installedModels

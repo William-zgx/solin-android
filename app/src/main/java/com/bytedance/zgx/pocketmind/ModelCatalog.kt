@@ -152,6 +152,7 @@ data class RecommendedModelCompanionFile(
 const val DEFAULT_CHAT_MODEL_ID = "chat-e2b"
 const val MEMORY_EMBEDDING_MODEL_ID = "memory-embedding-gemma-300m"
 const val MOBILE_ACTION_MODEL_ID = "mobile-action-270m"
+const val CUSTOM_LOCAL_CHAT_PROFILE_ID = "custom-local-chat"
 const val HUGGING_FACE_TOKEN_SETTINGS_URL = "https://huggingface.co/settings/tokens"
 private const val HIGH_QUALITY_CHAT_MODEL_ID = "chat-e4b"
 
@@ -280,6 +281,16 @@ internal object ModelCatalog {
 
     fun recommendedProfiles(): List<ModelProfile> =
         RECOMMENDED_MODELS.map(::profileFor)
+
+    fun customLocalChatProfile(displayName: String = "自定义本地模型"): ModelProfile =
+        ModelProfile(
+            id = CUSTOM_LOCAL_CHAT_PROFILE_ID,
+            displayName = displayName.ifBlank { "自定义本地模型" },
+            capability = ModelCapability.Chat,
+            backendKind = ModelBackendKind.LocalLiteRt,
+            inputModalities = setOf(ModelInputModality.Text),
+            features = setOf(ModelFeature.TextGeneration),
+        )
 
     fun profileForModelId(modelId: String?): ModelProfile =
         profileFor(recommendedModelById(modelId))

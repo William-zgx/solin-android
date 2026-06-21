@@ -61,6 +61,21 @@ class ModelCapabilityProfilesDocumentationTest {
         }
     }
 
+    @Test
+    fun customLocalTemplateStaysTextOnlyWithoutCatalogAssetEvidence() {
+        val documented = JSONObject(readRepoFile("docs/model_capability_profiles.json"))
+            .getJSONArray("customLocalTemplates")
+        val profile = ModelCatalog.customLocalChatProfile("custom-local-template")
+
+        assertEquals(listOf(profile.id), documented.ids())
+        assertProfileMatchesJson(profile, documented.getJSONObject(0), remoteEligible = false)
+        assertTrue(profile.supportsChatGeneration)
+        assertFalse(profile.supportsVisionInput)
+        assertFalse(profile.supportsMemoryEmbedding)
+        assertFalse(profile.supportsMobileActionPlanning)
+        assertTrue(profile.preferredLocalBackends.isEmpty())
+    }
+
     private fun assertProfileMatchesJson(
         profile: ModelProfile,
         item: JSONObject,

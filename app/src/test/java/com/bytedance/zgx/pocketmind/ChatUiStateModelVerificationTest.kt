@@ -60,6 +60,7 @@ class ChatUiStateModelVerificationTest {
         )
 
         assertFalse(state.isModelInstalled("unknown-model-id"))
+        assertEquals(null, state.activeLocalCapabilityProfile)
         assertFalse(state.activeLocalModelSupportsVisionInput)
         assertTrue(state.installedCapabilities.isEmpty())
     }
@@ -67,6 +68,7 @@ class ChatUiStateModelVerificationTest {
     @Test
     fun customImportedModelStillCountsAsChatCapability() {
         val state = ChatUiState(
+            activeInstalledModelId = "custom-chat",
             installedModels = listOf(
                 installedModel(
                     id = "custom-chat",
@@ -78,6 +80,9 @@ class ChatUiStateModelVerificationTest {
 
         assertFalse(state.isModelInstalled(DEFAULT_CHAT_MODEL_ID))
         assertEquals(setOf(ModelCapability.Chat), state.installedCapabilities)
+        assertEquals(CUSTOM_LOCAL_CHAT_PROFILE_ID, state.activeLocalCapabilityProfile?.id)
+        assertEquals(setOf(ModelInputModality.Text), state.activeLocalCapabilityProfile?.inputModalities)
+        assertFalse(state.activeLocalModelSupportsVisionInput)
     }
 
     private fun installedModel(

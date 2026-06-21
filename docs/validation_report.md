@@ -23,6 +23,60 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Custom Local Model Capability Profile Boundary
+
+本轮覆盖项：
+
+- `ModelCatalog` 新增 `custom-local-chat` text-only profile template，用于自定义导入模型；
+  它只声明 `TextGeneration`，不声明 vision、embedding、mobile action、context window
+  或 preferred backend。
+- `InstalledModelSummary.capabilityProfile` 和 `ChatUiState.activeLocalCapabilityProfile`
+  成为 active local profile 的单一入口；推荐模型走 catalog profile，自定义模型走
+  `custom-local-chat`，unknown/stale recommended id 返回 null。
+- `PocketMindViewModel` 的 `modelHealth.profileId`、`loadModel()` runtime capabilities、
+  `localMaxTotalTokens` 和 `localPreferredBackends` 全部改走 active capability profile，
+  避免自定义 active 模型在健康状态、runtime 配置或 evidence 中回退显示为
+  `chat-e2b` / 默认视觉 profile。
+- `modelHealthForCurrentSelection()` 的 `Verified` 状态现在要求 active model 可解析为 usable
+  capability profile；unknown/stale recommended id 即使带有 `VerifiedRecommended` 标记，也只报告
+  `InstalledUnverified`，并保持 vision fail-closed。
+- `docs/model_capability_profiles.json` 增加 `customLocalTemplates`，由
+  `ModelCapabilityProfilesDocumentationTest` 绑定到 Kotlin custom profile。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.ModelCatalogTest' \
+  --tests 'com.bytedance.zgx.pocketmind.ChatUiStateModelVerificationTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.loadCustomImportedModelConfiguresTextOnlyRuntimeCapabilities' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.unknownRecommendedActiveModelDoesNotReportDefaultOrVerifiedProfile' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.loadModelConfiguresRuntimeFromActiveModelCapabilityProfile' \
+  --tests 'com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest'
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  VERIFY_AI_BEHAVIOR_EVAL=0 VERIFY_PERF_BASELINE=0 VERIFY_CONTRACT_TESTS=1 \
+  ARTIFACT_DIR=build/verification/release-gate-contract-custom-local-profile-rerun \
+  scripts/verify_release_gate.sh
+
+python3 -m json.tool docs/model_capability_profiles.json >/dev/null
+git diff --check
+```
+
+结果：
+
+- 通过：targeted JVM 测试返回 `BUILD SUCCESSFUL`，覆盖 custom local text-only runtime
+  capabilities、custom `modelHealth.profileId=custom-local-chat`、unknown active model 不回退
+  `DEFAULT_CHAT_MODEL_ID` 且不报告 verified/vision。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`。
+- 通过：contract-only release gate 返回 `Release gate passed`；
+  本轮仍显式跳过 AI behavior/perf release evidence，不替代最终 public release gate。
+- 通过：`docs/model_capability_profiles.json` JSON 格式检查和 `git diff --check` 返回 0。
+- 未执行：真机 instrumentation、真实模型加载、real-app-search 真机 eval、arm64 physical perf
+  baseline；这些按当前目标暂时跳过，不能作为 physical release evidence。
+
 ## 2026-06-21 Model Capability Evidence 与 Allowed-Failure 安全门禁
 
 本轮覆盖项：

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "source": "ModelCatalog.recommendedProfiles and RemoteModelConfig.modelProfile",
+  "source": "ModelCatalog.recommendedProfiles, ModelCatalog.customLocalChatProfile, and RemoteModelConfig.modelProfile",
   "contractTest": "ModelCapabilityProfilesDocumentationTest",
   "privacyBoundary": "LocalOnly memory, screenshots, Accessibility text, OCR excerpts, and device context are never implied remote-eligible by a model capability profile.",
   "profiles": [
@@ -117,6 +117,30 @@
       "byteSize": 3659530240,
       "sha256Hex": "0b2a8980ce155fd97673d8e820b4d29d9c7d99b8fa6806f425d969b145bd52e0",
       "sourceRevision": "65ce5ba80d8790d66ef11d82d7d079a06f3fef97"
+    }
+  ],
+  "customLocalTemplates": [
+    {
+      "id": "custom-local-chat",
+      "displayName": "custom-local-template",
+      "backendKind": "LocalLiteRt",
+      "capability": "Chat",
+      "capabilities": {
+        "chat": true,
+        "vision": false,
+        "memoryEmbedding": false,
+        "mobileAction": false
+      },
+      "inputModalities": [
+        "Text"
+      ],
+      "features": [
+        "TextGeneration"
+      ],
+      "contextWindowTokens": null,
+      "preferredLocalBackends": [],
+      "remoteEligible": false,
+      "experimental": false
     }
   ],
   "remoteOpenAiCompatibleTemplates": [

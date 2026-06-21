@@ -124,6 +124,10 @@ items below.
   templates by `ModelCapabilityProfilesDocumentationTest`. The release gate
   contract-test set includes this test, so chat/vision/embedding/action/context
   window/backend drift fails before release evidence is accepted.
+- Custom imported local models now resolve to an explicit `custom-local-chat`
+  text-only capability profile instead of inheriting the selected recommended
+  chat/vision profile in health/runtime evidence. Unknown or stale recommended
+  model ids remain unverified and vision fail-closed.
 - Agent behavior allowed failures are now safety-bounded. JVM and shell
   verifiers require allowed-failure traces to preserve risk, privacy,
   LocalOnly/remote eligibility, and FailClosed invariants; script self-tests add

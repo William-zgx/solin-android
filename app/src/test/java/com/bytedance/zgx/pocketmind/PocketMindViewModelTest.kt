@@ -823,6 +823,60 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun loadCustomImportedModelConfiguresTextOnlyRuntimeCapabilities() = runTest(dispatcher) {
+        val active = installedModelSummary(
+            id = "custom-chat",
+            displayName = "导入模型",
+            path = "/tmp/custom.litertlm",
+            recommendedModelId = null,
+            verificationStatus = ModelVerificationStatus.UnverifiedCustom,
+        )
+        val modelRepository = FakeModelRepository(
+            activeInstalledModelId = active.id,
+            initialInstalledModels = listOf(active),
+        )
+        val runtime = FakeLiteRtRuntime()
+        val viewModel = createViewModel(
+            modelRepository = modelRepository,
+            runtime = runtime,
+        )
+
+        assertEquals(CUSTOM_LOCAL_CHAT_PROFILE_ID, viewModel.uiState.value.modelHealth.profileId)
+
+        viewModel.loadModel()
+        advanceUntilIdle()
+
+        val capabilities = runtime.configuredCapabilities.single()
+        assertFalse(capabilities.supportsVisionInput)
+        assertEquals(LocalModelTokenLimits.MAX_TOTAL_TOKENS, capabilities.contextWindowTokens)
+        assertTrue(capabilities.preferredBackends.isEmpty())
+        assertEquals(CUSTOM_LOCAL_CHAT_PROFILE_ID, viewModel.uiState.value.modelHealth.profileId)
+        assertEquals(ModelHealthState.Loaded, viewModel.uiState.value.modelHealth.state)
+    }
+
+    @Test
+    fun unknownRecommendedActiveModelDoesNotReportDefaultOrVerifiedProfile() = runTest(dispatcher) {
+        val active = installedModelSummary(
+            id = "unknown-recommended",
+            displayName = "未知推荐模型",
+            path = "/tmp/unknown.litertlm",
+            recommendedModelId = "unknown-model-id",
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val modelRepository = FakeModelRepository(
+            activeInstalledModelId = active.id,
+            initialInstalledModels = listOf(active),
+        )
+
+        val viewModel = createViewModel(modelRepository = modelRepository)
+
+        assertEquals("unknown-model-id", viewModel.uiState.value.modelHealth.profileId)
+        assertEquals(ModelHealthState.InstalledUnverified, viewModel.uiState.value.modelHealth.state)
+        assertEquals(null, viewModel.uiState.value.activeLocalCapabilityProfile)
+        assertFalse(viewModel.uiState.value.activeLocalModelSupportsVisionInput)
+    }
+
+    @Test
     fun deleteInactiveInstalledModelKeepsActiveRuntimeReady() = runTest(dispatcher) {
         val active = installedModelSummary(id = "active-chat", displayName = "当前对话", path = "/tmp/active.litertlm")
         val extra = installedModelSummary(id = "extra-chat", displayName = "额外对话", path = "/tmp/extra.litertlm")

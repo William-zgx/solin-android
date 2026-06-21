@@ -4716,9 +4716,7 @@ class PocketMindViewModel(
     private fun ModelSelectionState.activeLocalCapabilityProfile(): ModelCapabilityProfile? =
         installedModels
             .firstOrNull { model -> model.id == activeInstalledModelId }
-            ?.takeIf { model -> model.isUsable }
-            ?.recommendedModelId
-            ?.let { modelId -> ModelCatalog.profileForModelIdOrNull(modelId) }
+            ?.capabilityProfile
 
     private fun ModelSelectionState.localContextWindowTokens(): Int =
         activeLocalCapabilityProfile()?.contextWindowTokens
@@ -5813,10 +5811,13 @@ private fun RemoteModelConfig.hasSameConnectivityTarget(other: RemoteModelConfig
 
 private fun ModelSelectionState.modelHealthForCurrentSelection(backend: BackendChoice): ModelHealth {
     val activeModel = installedModels.firstOrNull { model -> model.id == activeInstalledModelId }
-    val profileId = activeModel?.recommendedModelId ?: selectedModelId
+    val profileId = activeModel?.capabilityProfile?.id
+        ?: activeModel?.recommendedModelId
+        ?: selectedModelId
     val healthState = when {
         activeModel == null && activeModelPath == null -> ModelHealthState.NotInstalled
-        activeModel?.verificationStatus == ModelVerificationStatus.VerifiedRecommended -> ModelHealthState.Verified
+        activeModel?.isUsable == true &&
+            activeModel.verificationStatus == ModelVerificationStatus.VerifiedRecommended -> ModelHealthState.Verified
         activeModel?.recommendedModelId == null && activeModelPath != null -> ModelHealthState.InstalledUnverified
         activeModelPath != null -> ModelHealthState.InstalledUnverified
         else -> ModelHealthState.NotInstalled
@@ -5829,17 +5830,13 @@ private fun ModelSelectionState.modelHealthForCurrentSelection(backend: BackendC
 }
 
 private fun ChatUiState.activeModelProfileId(): String =
-    installedModels.firstOrNull { model -> model.id == activeInstalledModelId }?.recommendedModelId
+    installedModels.firstOrNull { model -> model.id == activeInstalledModelId }?.let { model ->
+        model.capabilityProfile?.id ?: model.recommendedModelId
+    }
         ?: selectedModelId
 
-private fun localModelRuntimeCapabilitiesFor(state: ChatUiState): LocalModelRuntimeCapabilities {
-    val profile = state.installedModels
-        .firstOrNull { model -> model.id == state.activeInstalledModelId }
-        ?.takeIf { model -> model.isUsable }
-        ?.recommendedModelId
-        ?.let { modelId -> ModelCatalog.profileForModelIdOrNull(modelId) }
-    return LocalModelRuntimeCapabilities.fromProfile(profile)
-}
+private fun localModelRuntimeCapabilitiesFor(state: ChatUiState): LocalModelRuntimeCapabilities =
+    LocalModelRuntimeCapabilities.fromProfile(state.activeLocalCapabilityProfile)
 
 private fun backendAllowedForActiveModel(state: ChatUiState, backend: BackendChoice): Boolean =
     state.localPreferredBackends.isEmpty() || backend in state.localPreferredBackends
