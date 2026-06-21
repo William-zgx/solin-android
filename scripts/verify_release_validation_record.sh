@@ -138,6 +138,21 @@ def validate_release_artifact_binding(prefix, props):
     elif actual_sha.lower() != expected_release_artifact_sha.lower():
         failures.append(f"{prefix}-release-artifact-sha-mismatch")
 
+def abi_tokens(value):
+    if not non_empty_string(value):
+        return set()
+    return {item.strip() for item in re.split(r"[,\s]+", value) if item.strip()}
+
+def validate_release_arm64_abi(prefix, value):
+    tokens = abi_tokens(value)
+    if "arm64-v8a" not in tokens:
+        failures.append(f"{prefix}-abi-not-arm64")
+    validate_no_x86_abi(prefix, tokens)
+
+def validate_no_x86_abi(prefix, tokens):
+    if tokens.intersection({"x86", "x86_64"}):
+        failures.append(f"{prefix}-abi-x86-not-allowed")
+
 def validate_evidence_record(section, key, value):
     prefix = f"{section}-{key}"
     if isinstance(value, str):
@@ -205,9 +220,10 @@ def validate_api_matrix_evidence(api_level, evidence_path):
     if props.get("api_level") != str(api_level):
         failures.append(f"{prefix}-api-mismatch")
     report_abi = props.get("abi", "")
-    report_abis = {item.strip() for item in report_abi.split(",") if item.strip()}
+    report_abis = abi_tokens(report_abi)
     if "arm64-v8a" not in report_abis:
         failures.append(f"{prefix}-abi-mismatch")
+    validate_release_arm64_abi(prefix, report_abi)
     report_serial = props.get("serial", "")
     if not report_serial.startswith("emulator-"):
         failures.append(f"{prefix}-serial-not-emulator")
@@ -332,9 +348,10 @@ def validate_nested_emulator_report(prefix, regression_props, expected_api_level
         failures.append(f"{prefix}-emulator-report-serial-mismatch")
     if props.get("api_level") != str(expected_api_level):
         failures.append(f"{prefix}-emulator-report-api-mismatch")
-    report_abis = {item.strip() for item in props.get("abi", "").split(",") if item.strip()}
+    report_abis = abi_tokens(props.get("abi", ""))
     if expected_abi not in report_abis:
         failures.append(f"{prefix}-emulator-report-abi-mismatch")
+    validate_release_arm64_abi(f"{prefix}-emulator-report", props.get("abi", ""))
     if props.get("avd") != expected_avd:
         failures.append(f"{prefix}-emulator-report-avd-mismatch")
     if props.get("device_report_file") != regression_props.get("device_report_file", ""):
@@ -378,9 +395,10 @@ def validate_api_nested_emulator_report(api_level, regression_props):
         failures.append(f"{prefix}-serial-mismatch")
     if props.get("api_level") != str(api_level):
         failures.append(f"{prefix}-api-mismatch")
-    report_abis = {item.strip() for item in props.get("abi", "").split(",") if item.strip()}
+    report_abis = abi_tokens(props.get("abi", ""))
     if "arm64-v8a" not in report_abis:
         failures.append(f"{prefix}-abi-mismatch")
+    validate_release_arm64_abi(prefix, props.get("abi", ""))
     if props.get("avd") != regression_props.get("avd", ""):
         failures.append(f"{prefix}-avd-mismatch")
     if props.get("device_report_file") != regression_props.get("device_report_file", ""):
@@ -422,9 +440,10 @@ def validate_api_nested_device_report(api_level, regression_props):
         failures.append(f"{prefix}-serial-mismatch")
     if props.get("api_level") != str(api_level):
         failures.append(f"{prefix}-api-mismatch")
-    report_abis = {item.strip() for item in props.get("abi", "").split(",") if item.strip()}
+    report_abis = abi_tokens(props.get("abi", ""))
     if "arm64-v8a" not in report_abis:
         failures.append(f"{prefix}-abi-mismatch")
+    validate_release_arm64_abi(prefix, props.get("abi", ""))
     if props.get("clean_device") != "1":
         failures.append(f"{prefix}-clean-device-not-true")
     if props.get("instrumentation") != "passed":
@@ -816,6 +835,7 @@ if not isinstance(emulator, dict):
     emulator = {}
 if emulator.get("status") != "passed":
     failures.append("emulator-regression-not-passed")
+validate_release_arm64_abi("emulator-regression", emulator.get("abi", ""))
 emulator_report = emulator.get("reportPath", "")
 if not emulator_report:
     failures.append("emulator-report-path-missing")
@@ -837,6 +857,7 @@ else:
         failures.append("emulator-report-api-mismatch")
     if props.get("abi") != emulator.get("abi"):
         failures.append("emulator-report-abi-mismatch")
+    validate_release_arm64_abi("emulator-report", props.get("abi", ""))
     try:
         actual_count = int(props.get("actual_android_test_count", ""))
     except ValueError:
@@ -893,9 +914,10 @@ else:
         failures.append("physical-device-report-api-mismatch")
     report_abi = props.get("abi", "")
     expected_abi = physical.get("abi", "")
-    report_abis = {item.strip() for item in report_abi.split(",") if item.strip()}
+    report_abis = abi_tokens(report_abi)
     if "arm64-v8a" not in report_abis:
         failures.append("physical-device-report-abi-not-arm64")
+    validate_no_x86_abi("physical-device-report", report_abis)
     if non_empty_string(expected_abi) and expected_abi not in report_abis:
         failures.append("physical-device-report-abi-mismatch")
     expected_clean = "1" if physical.get("cleanDevice") is True else "0"

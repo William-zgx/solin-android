@@ -23,6 +23,35 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Release Emulator ABI Evidence Gate
+
+本轮覆盖项：
+
+- `verify_release_validation_record.sh` 新增 release ABI gate：approved release
+  validation 中的顶层 emulator regression、嵌套 emulator report、API matrix report
+  和嵌套 device report 都必须包含 `arm64-v8a`，且不能包含 `x86` / `x86_64`。
+- `test_validation_scripts.sh` 增加 x86/x86_64 顶层 emulator release evidence
+  负例，以及 `arm64-v8a,x86_64` 混合 API matrix 负例。
+- 模拟器 report 冒充 physical device evidence 的负例现在断言具体
+  `physical-device-serial-invalid` 和 `physical-device-report-serial-is-emulator`
+  reason，不再只看 `status=failed`。
+- `release_checklist` / `release_readiness` 同步明确：x86 模拟器只能作为
+  developer smoke，不能作为 release evidence，也不能混入 API matrix ABI 列表。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`。
+- 未执行：真机 instrumentation、arm64/x86 模拟器启动、API matrix emulator regression；
+  本轮只验证本地脚本门禁和 fixture，不声明任何设备或模拟器流程通过。
+
 ## 2026-06-21 Custom Local Model Capability Profile Boundary
 
 本轮覆盖项：

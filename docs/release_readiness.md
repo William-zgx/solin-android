@@ -81,6 +81,10 @@ items below.
   `scripts/prepare_emulator_api_matrix.sh` to produce a dry-run report with the
   exact SDK packages and AVD creation commands; rerun with `APPLY=1` only after
   approving those installs.
+- Release validation now rejects `x86` / `x86_64` emulator evidence at the
+  approved-record verifier. Arm64 emulator reports can support release
+  evidence; x86 emulator reports are limited to developer smoke and cannot be
+  mixed into API matrix ABI lists.
 - API 36 has also passed through the new matrix runner:
   `build/verification/regression-emulator-api36-no-implicit-image-ocr/regression-emulator-api-matrix.properties`
   records `status=passed`, `passedApis=36`, and links the nested API 36

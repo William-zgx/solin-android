@@ -275,10 +275,11 @@ with each RC before treating this checklist as complete.
   nested API `regression-emulator.properties` report and matching SHA-256.
   Each nested report must have `status=passed`, `target=regression-emulator`,
   `exit_code=0`, empty `failedTarget`/`reason`, UTC start/finish fields,
-  `clean_device=1`, matching API level, an ABI list containing `arm64-v8a`, a
-  non-empty emulator serial and AVD name, source/expected/actual AndroidTest
-  counts, and a readable instrumentation output whose final `OK` count matches
-  `actual_android_test_count`. Each nested report must also link matching
+  `clean_device=1`, matching API level, an ABI list containing `arm64-v8a`
+  with no `x86` or `x86_64` token, a non-empty emulator serial and AVD name,
+  source/expected/actual AndroidTest counts, and a readable instrumentation
+  output whose final `OK` count matches `actual_android_test_count`.
+  Each nested report must also link matching
   `emulator-verification.properties` and `device-verification.properties`
   reports from the same API run.
 - [ ] `scripts/install_and_test_device.sh` passes on at least one physical

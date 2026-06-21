@@ -2962,6 +2962,80 @@ expect_success \
   env EXPECTED_RELEASE_ARTIFACT_SHA256="$VALID_PERF_SHA" \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_APPROVED" --report "$ARTIFACT_DIR/release-validation-current-artifact.properties"
 assert_report_contains "$ARTIFACT_DIR/release-validation-current-artifact.properties" "status=passed"
+VALIDATION_X86_EMULATOR="$TMP_DIR/release-validation-x86-emulator.json"
+VALIDATION_X86_EMULATOR_REPORT="$TMP_DIR/x86-regression-emulator.properties"
+VALIDATION_X86_EMULATOR_HELPER_REPORT="$TMP_DIR/x86-emulator-verification.properties"
+VALIDATION_X86_EMULATOR_DEVICE_REPORT="$TMP_DIR/x86-emulator-device-verification.properties"
+sed 's/^abi=.*/abi=x86_64/' "$VALIDATION_EMULATOR_DEVICE_REPORT" > "$VALIDATION_X86_EMULATOR_DEVICE_REPORT"
+sed \
+  -e 's/^abi=.*/abi=x86_64/' \
+  -e "s#^device_report_file=.*#device_report_file=$VALIDATION_X86_EMULATOR_DEVICE_REPORT#" \
+  "$VALIDATION_EMULATOR_HELPER_REPORT" > "$VALIDATION_X86_EMULATOR_HELPER_REPORT"
+sed \
+  -e 's/^abi=.*/abi=x86_64/' \
+  -e "s#^emulator_report_file=.*#emulator_report_file=$VALIDATION_X86_EMULATOR_HELPER_REPORT#" \
+  -e "s#^device_report_file=.*#device_report_file=$VALIDATION_X86_EMULATOR_DEVICE_REPORT#" \
+  "$VALIDATION_EMULATOR_REPORT" > "$VALIDATION_X86_EMULATOR_REPORT"
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_X86_EMULATOR" "$VALIDATION_X86_EMULATOR_REPORT" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+report = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["emulatorRegression"]["abi"] = "x86_64"
+record["emulatorRegression"]["reportPath"] = str(report)
+record["emulatorRegression"]["reportSha256"] = hashlib.sha256(report.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects x86 emulator release evidence" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_X86_EMULATOR" --report "$ARTIFACT_DIR/release-validation-x86-emulator.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-x86-emulator.properties" "emulator-regression-abi-not-arm64"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-x86-emulator.properties" "emulator-regression-abi-x86-not-allowed"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-x86-emulator.properties" "emulator-report-abi-not-arm64"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-x86-emulator.properties" "emulator-report-abi-x86-not-allowed"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-x86-emulator.properties" "emulator-regression-emulator-report-abi-x86-not-allowed"
+VALIDATION_API_MIXED_ABI="$TMP_DIR/release-validation-api-mixed-abi.json"
+VALIDATION_API_MIXED_ABI_DIR="$TMP_DIR/validation-api-evidence/mixed-abi-api-28"
+VALIDATION_API_MIXED_ABI_EVIDENCE="$TMP_DIR/validation-api-evidence/mixed-abi-api-28.properties"
+VALIDATION_API_MIXED_ABI_EMULATOR_REPORT="$VALIDATION_API_MIXED_ABI_DIR/emulator-verification.properties"
+VALIDATION_API_MIXED_ABI_DEVICE_REPORT="$VALIDATION_API_MIXED_ABI_DIR/device-verification.properties"
+mkdir -p "$VALIDATION_API_MIXED_ABI_DIR"
+sed 's/^abi=.*/abi=arm64-v8a,x86_64/' \
+  "$TMP_DIR/validation-api-evidence/api-28/device-verification.properties" > "$VALIDATION_API_MIXED_ABI_DEVICE_REPORT"
+sed \
+  -e 's/^abi=.*/abi=arm64-v8a,x86_64/' \
+  -e "s#^device_report_file=.*#device_report_file=$VALIDATION_API_MIXED_ABI_DEVICE_REPORT#" \
+  "$TMP_DIR/validation-api-evidence/api-28/emulator-verification.properties" > "$VALIDATION_API_MIXED_ABI_EMULATOR_REPORT"
+sed \
+  -e 's/^abi=.*/abi=arm64-v8a,x86_64/' \
+  -e "s#^emulator_report_file=.*#emulator_report_file=$VALIDATION_API_MIXED_ABI_EMULATOR_REPORT#" \
+  -e "s#^device_report_file=.*#device_report_file=$VALIDATION_API_MIXED_ABI_DEVICE_REPORT#" \
+  "$TMP_DIR/validation-api-evidence/api-28.properties" > "$VALIDATION_API_MIXED_ABI_EVIDENCE"
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_API_MIXED_ABI" "$VALIDATION_API_MIXED_ABI_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+evidence = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["apiMatrix"][0]["evidencePath"] = str(evidence)
+record["apiMatrix"][0]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects mixed x86 api matrix evidence" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_API_MIXED_ABI" --report "$ARTIFACT_DIR/release-validation-api-mixed-abi.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-api-mixed-abi.properties" "api-28-evidence-abi-x86-not-allowed"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-api-mixed-abi.properties" "api-28-emulator-report-abi-x86-not-allowed"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-api-mixed-abi.properties" "api-28-device-report-abi-x86-not-allowed"
 expect_failure \
   "release validation verifier rejects stale release artifact context" \
   env EXPECTED_RELEASE_ARTIFACT_SHA256=2222222222222222222222222222222222222222222222222222222222222222 \
@@ -3763,6 +3837,8 @@ expect_failure \
   "release validation verifier rejects emulator device report as physical evidence" \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_EMULATOR_AS_PHYSICAL" --report "$ARTIFACT_DIR/release-validation-emulator-as-physical.properties"
 assert_report_contains "$ARTIFACT_DIR/release-validation-emulator-as-physical.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-emulator-as-physical.properties" "physical-device-serial-invalid"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-emulator-as-physical.properties" "physical-device-report-serial-is-emulator"
 VALIDATION_API_GAP="$TMP_DIR/release-validation-api-gap.json"
 python3 - "$VALIDATION_APPROVED" "$VALIDATION_API_GAP" <<'PY'
 import json
