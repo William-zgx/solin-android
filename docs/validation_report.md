@@ -143,6 +143,45 @@ scripts/test_validation_scripts.sh
 - 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮按要求只做
   本地 fake-adb 脚本验证。
 
+## 2026-06-22 Agent Behavior Real-App Failure Modes
+
+本轮覆盖项：
+
+- `runtime_failure.jsonl` 新增真实 App 搜索失败语义：
+  `search_entry_not_found`、`editable_not_found`、`submit_not_found`、
+  `result_not_verified`、`required_hint_missing`。
+- `AiBehaviorEvalFixturesTest` 要求 runtime failure fixtures 必须覆盖上述 5 个
+  failure modes。
+- `AiBehaviorActualTraceGeneratorTest` 为这 5 个 case 输出 LocalOnly、low-risk、
+  fail-closed、`open_app_ui_search_skill` routing 的 actual trace。
+- `verify_ai_behavior_eval.sh` 新增必达覆盖 gate，并在 report 写入
+  `requiredRealAppSearchFailureModes` / `missingRealAppSearchFailureModes`；
+  `scripts/test_validation_scripts.sh` 增加缺失 `submit_not_found` 的负例。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  ./gradlew :app:testDebugUnitTest \
+    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest' \
+    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest'
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  ARTIFACT_DIR=build/verification/ai-behavior-real-app-failure-modes \
+  scripts/collect_ai_behavior_actual_trace.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：目标 JVM 测试。
+- 通过：AI behavior actual trace collector，`caseCount=36`，
+  `traceDiffMissingActualCount=0`、`traceDiffMismatchCount=0`、
+  `traceDiffExtraActualCount=0`。
+- 通过：validation script tests 全量通过，覆盖 real-app failure mode 缺失负例。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮按要求只做
+  本地 eval/fixture/脚本验证。
+
 ## 2026-06-22 Privacy/Model License Verifier Evidence Schema Gate
 
 本轮覆盖项：

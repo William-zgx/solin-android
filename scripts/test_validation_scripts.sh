@@ -1122,6 +1122,33 @@ expect_failure \
     --report "$ARTIFACT_DIR/ai-behavior-missing-remote-confirmation.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-remote-confirmation.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-remote-confirmation.properties" "reason=missing-confirmation-coverage:remote_send_confirmation"
+AI_BEHAVIOR_MISSING_REAL_APP_FAILURE_DIR="$TMP_DIR/ai-behavior-missing-real-app-failure"
+mkdir -p "$AI_BEHAVIOR_MISSING_REAL_APP_FAILURE_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_REAL_APP_FAILURE_DIR/"
+python3 - "$AI_BEHAVIOR_MISSING_REAL_APP_FAILURE_DIR/runtime_failure.jsonl" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row["id"] == "runtime_app_search_submit_not_found":
+        row["allowedFailureModes"] = ["submit_failure_unclassified"]
+path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval requires real app search failure mode coverage" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_MISSING_REAL_APP_FAILURE_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-missing-real-app-failure.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-real-app-failure.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-real-app-failure.properties" "reason=missing-real-app-search-failure-mode-coverage:submit_not_found"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-real-app-failure.properties" "missingRealAppSearchFailureModes=submit_not_found"
 AI_TRACE_DIFF_MISSING="$ARTIFACT_DIR/ai-behavior-trace-diff-missing.jsonl"
 expect_success \
   "AI behavior eval writes planning trace diff without actual trace" \

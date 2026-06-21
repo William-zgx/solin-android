@@ -97,6 +97,8 @@ write_report() {
     localOnlyCaseCount
     remoteEligibleCaseCount
     allowedFailureModeCount
+    requiredRealAppSearchFailureModes
+    missingRealAppSearchFailureModes
     actualTraceFile
     traceDiffFile
     traceDiffCaseCount
@@ -108,7 +110,7 @@ write_report() {
     traceDiffStatusBreakdown
     actualTraceSourceBreakdown
   )
-  local metric_defaults=(0 0 "" "" 0 0 0 "" "" "" "" "" 0 0 "" "" "" 0 0 0 "" "" 0 0 0 0 0 0 "" "")
+  local metric_defaults=(0 0 "" "" 0 0 0 "" "" "" "" "" 0 0 "" "" "" 0 0 0 "" "" "" "" 0 0 0 0 0 0 "" "")
   local index metric_key metric_value
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
@@ -225,6 +227,7 @@ privacy_counts = collections.Counter()
 local_only_case_count = 0
 remote_eligible_case_count = 0
 allowed_failure_mode_count = 0
+observed_failure_modes = set()
 eval_cases = []
 
 allowed_confirmations = {
@@ -246,6 +249,13 @@ allowed_runtime_trace_sources = {
     "agent_loop_runtime",
     "android_instrumentation",
     "device_debug_eval",
+}
+required_real_app_search_failure_modes = {
+    "search_entry_not_found",
+    "editable_not_found",
+    "submit_not_found",
+    "result_not_verified",
+    "required_hint_missing",
 }
 allowed_routing_paths = {
     "",
@@ -362,6 +372,7 @@ for category in required:
         if remote_eligible:
             remote_eligible_case_count += 1
         allowed_failure_mode_count += len(allowed_failure_modes)
+        observed_failure_modes.update(allowed_failure_modes)
         eval_cases.append(
             {
                 "caseId": case_id,
@@ -394,6 +405,7 @@ under_covered_mvp_scenarios = sorted(
     for scenario in required_mvp_scenarios
     if mvp_counts[scenario] < 2
 )
+missing_real_app_search_failure_modes = sorted(required_real_app_search_failure_modes - observed_failure_modes)
 
 case_ids = [case["caseId"] for case in eval_cases]
 duplicate_case_ids = sorted(case_id for case_id, count in collections.Counter(case_ids).items() if count > 1)
@@ -678,6 +690,8 @@ def emit_metrics(reason=""):
     print(f"localOnlyCaseCount={local_only_case_count}")
     print(f"remoteEligibleCaseCount={remote_eligible_case_count}")
     print(f"allowedFailureModeCount={allowed_failure_mode_count}")
+    print(f"requiredRealAppSearchFailureModes={encode_list(sorted(required_real_app_search_failure_modes))}")
+    print(f"missingRealAppSearchFailureModes={encode_list(missing_real_app_search_failure_modes)}")
     print(f"actualTraceFile={actual_trace_arg}")
     print(f"traceDiffFile={trace_diff_arg}")
     print(f"requireActualTrace={int(require_actual_trace)}")
@@ -719,6 +733,9 @@ if missing_confirmations:
     sys.exit(1)
 if missing_risks:
     emit_metrics(f"missing-risk-coverage:{','.join(missing_risks)}")
+    sys.exit(1)
+if missing_real_app_search_failure_modes:
+    emit_metrics(f"missing-real-app-search-failure-mode-coverage:{','.join(missing_real_app_search_failure_modes)}")
     sys.exit(1)
 if require_actual_trace and trace_diff_counts["missing_actual"] > 0:
     emit_metrics("trace-diff-missing-actual")

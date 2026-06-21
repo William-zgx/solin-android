@@ -98,6 +98,25 @@ class AiBehaviorEvalFixturesTest {
         })
     }
 
+    @Test
+    fun runtimeFailureFixturesCoverRealAppSearchFailureModes() {
+        val expectedFailureModes = setOf(
+            "search_entry_not_found",
+            "editable_not_found",
+            "submit_not_found",
+            "result_not_verified",
+            "required_hint_missing",
+        )
+        val observedFailureModes = loadFixtureRows("runtime_failure.jsonl")
+            .flatMap { row -> row.getJSONArray("allowedFailureModes").toStringList() }
+            .toSet()
+
+        assertTrue(
+            "runtime failure fixtures must cover real-app search failure modes",
+            observedFailureModes.containsAll(expectedFailureModes),
+        )
+    }
+
     private fun assertTraceExpectationFields(row: JSONObject) {
         val tools = row.get("expectedTools")
         assertTrue("expectedTools must be an array", tools is JSONArray)

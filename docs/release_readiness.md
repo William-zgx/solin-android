@@ -128,8 +128,11 @@ items below.
   through `MemoryRepository`, and remote-send confirmation coverage. The collector
   now invokes the eval verifier with `--require-actual-trace`, so mismatched
   actual runtime traces fail the collector evidence itself instead of relying on a
-  later public release gate. The evidence is now mismatch-free, while the 10
-  allowed failures remain release-owner review items before public release.
+  later public release gate. Real-app search failure modes are now required in
+  the eval suite: `search_entry_not_found`, `editable_not_found`,
+  `submit_not_found`, `result_not_verified`, and `required_hint_missing`.
+  The evidence is now mismatch-free, while allowed failures remain release-owner
+  review items before public release.
 - GitHub Actions `workflow_dispatch` final release gate now requires an
   `ai_behavior_actual_trace_file` input and passes it to
   `AI_BEHAVIOR_ACTUAL_TRACE_FILE`, so the CI public-release path can satisfy the

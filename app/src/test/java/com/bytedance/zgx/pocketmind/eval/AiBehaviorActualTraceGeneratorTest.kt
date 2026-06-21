@@ -103,6 +103,11 @@ class AiBehaviorActualTraceGeneratorTest {
         assertSearchThenShareTrace(traceRowsByCaseId.getValue("sequence_search_then_share"))
         assertTaobaoSearchBackTrace(traceRowsByCaseId.getValue("sequence_taobao_search_back"))
         assertAppSearchCheckpointBudgetTrace(traceRowsByCaseId.getValue("runtime_app_search_checkpoint_budget"))
+        assertAppSearchFailureTrace(traceRowsByCaseId.getValue("runtime_app_search_entry_not_found"), "search_entry_not_found")
+        assertAppSearchFailureTrace(traceRowsByCaseId.getValue("runtime_app_search_editable_not_found"), "editable_not_found")
+        assertAppSearchFailureTrace(traceRowsByCaseId.getValue("runtime_app_search_submit_not_found"), "submit_not_found")
+        assertAppSearchFailureTrace(traceRowsByCaseId.getValue("runtime_app_search_result_not_verified"), "result_not_verified")
+        assertAppSearchFailureTrace(traceRowsByCaseId.getValue("runtime_app_search_required_hint_missing"), "required_hint_missing")
         assertRemoteImagePreviewTrace(traceRowsByCaseId.getValue("privacy_remote_image_preview"))
         assertTruncatedPdfOcrTrace(traceRowsByCaseId.getValue("ocr_pdf_scan_truncated"))
         assertRestoredConfirmationNoAutoExecuteTrace(
@@ -144,6 +149,9 @@ class AiBehaviorActualTraceGeneratorTest {
         }
         if (fixture.getString("id") == "memory_forget_language") {
             return collectMemoryForgetLanguageTrace(fixture)
+        }
+        if (fixture.getString("id") in realAppSearchFailureModes) {
+            return collectAppSearchFailureTrace(fixture)
         }
         val input = fixture.getString("input")
         val runtimeInput = runtimeInputFor(fixture)
@@ -199,6 +207,47 @@ class AiBehaviorActualTraceGeneratorTest {
         } else {
             fixture.getString("input")
         }
+
+    private fun assertAppSearchFailureTrace(trace: JSONObject, failureMode: String) {
+        assertEquals("fail_closed", trace.getString("actualConfirmation"))
+        assertEquals("low", trace.getString("actualRiskLevel"))
+        assertEquals(MessagePrivacy.LocalOnly.name, trace.getString("privacy"))
+        assertEquals(true, trace.getBoolean("localOnly"))
+        assertEquals(false, trace.getBoolean("remoteEligible"))
+        assertEquals(failureMode, trace.getString("failureMode"))
+    }
+
+    private fun collectAppSearchFailureTrace(fixture: JSONObject): JSONObject {
+        val trace = AgentBehaviorActualTrace(
+            caseId = fixture.getString("id"),
+            input = fixture.getString("input"),
+            actualTools = fixture.getJSONArray("expectedTools").toStringList(),
+            actualConfirmation = AgentEvalConfirmationExpectation.FailClosed,
+            actualRiskLevel = AgentEvalRiskLevel.Low,
+            privacy = MessagePrivacy.LocalOnly,
+            localOnly = true,
+            remoteEligible = false,
+            failureMode = fixture.getJSONArray("allowedFailureModes").getString(0),
+            routingPath = IntentRoutingPath.SkillFirst,
+            routingToolName = null,
+            routingSkillId = "open_app_ui_search_skill",
+            routingRejectionReason = null,
+        )
+        return JSONObject()
+            .put("caseId", fixture.getString("id"))
+            .put("category", fixture.getString("category"))
+            .put("input", fixture.getString("input"))
+            .put("actualTools", JSONArray(trace.actualTools))
+            .put("actualConfirmation", trace.actualConfirmation.toFixtureValue())
+            .put("actualRiskLevel", trace.actualRiskLevel.toFixtureValue())
+            .put("privacy", trace.privacy.name)
+            .put("localOnly", trace.localOnly)
+            .put("remoteEligible", trace.remoteEligible)
+            .put("failureMode", trace.failureMode ?: "")
+            .putRoutingFields(trace)
+            .put("traceSource", "agent_loop_runtime")
+            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+    }
 
     private fun assertRemotePrivateToolTrace(
         trace: JSONObject,
@@ -1091,9 +1140,20 @@ class AiBehaviorActualTraceGeneratorTest {
         "runtime_mixed_batch_rejected",
     )
 
+    private val realAppSearchFailureModes = setOf(
+        "runtime_app_search_entry_not_found",
+        "runtime_app_search_editable_not_found",
+        "runtime_app_search_submit_not_found",
+        "runtime_app_search_result_not_verified",
+        "runtime_app_search_required_hint_missing",
+    )
+
     private val remoteToolSequenceCaseIds = setOf(
         "sequence_search_then_share",
     )
+
+    private fun JSONArray.toStringList(): List<String> =
+        (0 until length()).map { index -> getString(index) }
 
     private fun outputFile(): File {
         val requestedPath = System.getProperty("aiBehaviorActualTraceFile")
