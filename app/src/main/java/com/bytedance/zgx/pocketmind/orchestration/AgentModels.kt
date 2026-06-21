@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.IntentRoutingDecision
 import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
@@ -163,6 +164,10 @@ sealed class AgentStep {
 
     data class ModelPlanned(
         val plan: AgentPlan,
+    ) : AgentStep()
+
+    data class IntentRouted(
+        val decision: IntentRoutingDecision,
     ) : AgentStep()
 
     data class RemoteToolsExposed(

@@ -5,6 +5,7 @@ import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
+import com.bytedance.zgx.pocketmind.action.IntentRoutingPath
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
 import com.bytedance.zgx.pocketmind.background.ReminderRescheduler
@@ -183,6 +184,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("localOnly", trace.localOnly)
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
+            .putRoutingFields(trace)
             .put("traceSource", "agent_loop_runtime")
             .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
     }
@@ -262,6 +264,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("localOnly", trace.localOnly)
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
+            .putRoutingFields(trace)
             .put("traceSource", "agent_loop_runtime")
             .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
     }
@@ -407,6 +410,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("localOnly", trace.localOnly)
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
+            .putRoutingFields(trace)
             .put("traceSource", "agent_loop_runtime")
             .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
     }
@@ -482,6 +486,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("localOnly", trace.localOnly)
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
+            .putRoutingFields(trace)
             .put("traceSource", "agent_loop_runtime")
             .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
     }
@@ -602,6 +607,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("localOnly", trace.localOnly)
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
+            .putRoutingFields(trace)
             .put("traceSource", "agent_loop_runtime")
                 .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString()),
         )
@@ -659,6 +665,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("localOnly", trace.localOnly)
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
+            .putRoutingFields(trace)
             .put("traceSource", "agent_loop_runtime")
             .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
     }
@@ -1139,6 +1146,23 @@ class AiBehaviorActualTraceGeneratorTest {
             AgentEvalRiskLevel.Medium -> "medium"
             AgentEvalRiskLevel.High -> "high"
             AgentEvalRiskLevel.Sensitive -> "sensitive"
+        }
+
+    private fun JSONObject.putRoutingFields(trace: AgentBehaviorActualTrace): JSONObject {
+        trace.routingPath?.let { path -> put("routingPath", path.toFixtureValue()) }
+        trace.routingToolName?.let { toolName -> put("routingToolName", toolName) }
+        trace.routingSkillId?.let { skillId -> put("routingSkillId", skillId) }
+        trace.routingRejectionReason?.let { reason -> put("routingRejectionReason", reason) }
+        return this
+    }
+
+    private fun IntentRoutingPath.toFixtureValue(): String =
+        when (this) {
+            IntentRoutingPath.SkillFirst -> "skill_first"
+            IntentRoutingPath.ActionPlanner -> "action_planner"
+            IntentRoutingPath.RemoteToolPlanning -> "remote_tool_planning"
+            IntentRoutingPath.ModelToolCall -> "model_tool_call"
+            IntentRoutingPath.NoAction -> "no_action"
         }
 
     private fun webSearchResultData(

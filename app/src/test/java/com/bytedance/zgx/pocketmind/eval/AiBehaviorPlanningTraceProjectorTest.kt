@@ -2,6 +2,9 @@ package com.bytedance.zgx.pocketmind.eval
 
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.ActionIntentConfidence
+import com.bytedance.zgx.pocketmind.action.IntentRoutingDecision
+import com.bytedance.zgx.pocketmind.action.IntentRoutingPath
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.orchestration.AgentLoopResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentPlan
@@ -15,6 +18,7 @@ import com.bytedance.zgx.pocketmind.orchestration.RunDataReceipt
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
+import com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.pocketmind.skill.SkillManifest
 import com.bytedance.zgx.pocketmind.skill.SkillPlan
 import com.bytedance.zgx.pocketmind.skill.SkillRequest
@@ -370,6 +374,48 @@ class AiBehaviorPlanningTraceProjectorTest {
         assertEquals(MessagePrivacy.RemoteEligible, trace.privacy)
         assertEquals(false, trace.localOnly)
         assertEquals(true, trace.remoteEligible)
+    }
+
+    @Test
+    fun projectsRoutingDecisionEvidenceWithoutRawInput() {
+        val request = ToolRequest(
+            id = "wifi-settings",
+            toolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+            arguments = emptyMap(),
+        )
+        val rawInput = "打开 Wi-Fi 设置，secret@example.com 不应进入 trace JSON"
+        val result = toolResult(
+            input = rawInput,
+            request = request,
+            safetyOutcome = SafetyOutcome.RequireConfirmation,
+        ).copy(
+            steps = listOf(
+                AgentStep.IntentRouted(
+                    IntentRoutingDecision(
+                        input = rawInput,
+                        selectedPath = IntentRoutingPath.SkillFirst,
+                        selectedToolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                        selectedSkillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+                        priority = 100,
+                        accepted = true,
+                        confidence = ActionIntentConfidence.High,
+                        rejectionReasons = emptyList(),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                AgentStep.ToolRequested(request, draft(request)),
+                AgentStep.UserConfirmationRequested(request, draft(request)),
+            ),
+        )
+
+        val trace = projector.project(result)
+
+        assertEquals(IntentRoutingPath.SkillFirst, trace.routingPath)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, trace.routingToolName)
+        assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, trace.routingSkillId)
+        assertEquals(null, trace.routingRejectionReason)
+        assertEquals(listOf(MobileActionFunctions.OPEN_WIFI_SETTINGS), trace.actualTools)
+        assertEquals(AgentEvalConfirmationExpectation.ToolConfirmation, trace.actualConfirmation)
     }
 
     @Test

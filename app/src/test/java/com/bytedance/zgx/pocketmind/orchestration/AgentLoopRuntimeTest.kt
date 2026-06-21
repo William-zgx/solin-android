@@ -11,6 +11,7 @@ import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
 import com.bytedance.zgx.pocketmind.action.IntentCandidate
+import com.bytedance.zgx.pocketmind.action.IntentRoutingPath
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
 import com.bytedance.zgx.pocketmind.action.ModelToolOutputParseResult
@@ -1627,9 +1628,16 @@ class AgentLoopRuntimeTest {
         assertTrue(!result.plan.plannedByModel)
         assertEquals("test fallback", result.plan.fallbackReason)
         assertEquals(1, actionRuntime.planCallCount)
+        val routing = result.steps.filterIsInstance<AgentStep.IntentRouted>().single()
+        assertEquals(IntentRoutingPath.ActionPlanner, routing.decision.selectedPath)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, routing.decision.selectedToolName)
+        assertEquals(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL, routing.decision.selectedSkillId)
+        assertEquals(true, routing.decision.accepted)
+        assertEquals(true, routing.decision.requiresConfirmation)
         assertEquals(
             listOf(
                 AgentStep.ContextLoaded::class,
+                AgentStep.IntentRouted::class,
                 AgentStep.ModelPlanned::class,
                 AgentStep.SkillPlanned::class,
                 AgentStep.SafetyChecked::class,

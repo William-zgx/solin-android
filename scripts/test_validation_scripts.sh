@@ -946,6 +946,10 @@ grep -q 'traceDiffMissingActualCount=' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval report must expose planning trace diff missing-actual count"
 grep -q 'actualTools' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval trace diff must include actual tools"
+grep -q 'routingPath' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval trace diff must validate routing path evidence"
+grep -q 'actualRoutingPath' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval trace diff must emit routing path evidence"
 AI_BEHAVIOR_MISSING_ID_DIR="$TMP_DIR/ai-behavior-missing-id"
 mkdir -p "$AI_BEHAVIOR_MISSING_ID_DIR"
 cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_ID_DIR/"
@@ -1021,7 +1025,7 @@ with out.open("w", encoding="utf-8") as handle:
             if not line:
                 continue
             row = json.loads(line)
-            handle.write(json.dumps({
+            trace = {
                 "caseId": row["id"],
                 "category": category,
                 "input": row["input"],
@@ -1033,7 +1037,14 @@ with out.open("w", encoding="utf-8") as handle:
                 "remoteEligible": row["remoteEligible"],
                 "traceRecordedAt": "2026-06-19T00:00:00Z",
                 "traceSource": "agent_loop_runtime",
-            }, ensure_ascii=False, sort_keys=True) + "\n")
+            }
+            if row["expectedTools"]:
+                trace["routingPath"] = "action_planner"
+                trace["routingToolName"] = row["expectedTools"][0]
+            else:
+                trace["routingPath"] = "no_action"
+                trace["routingRejectionReason"] = "no_action_intent_detected"
+            handle.write(json.dumps(trace, ensure_ascii=False, sort_keys=True) + "\n")
 PY
 AI_ACTUAL_TRACE_SHA="$(shasum -a 256 "$AI_ACTUAL_TRACE" | awk '{print $1}')"
 AI_ACTUAL_TRACE_MISSING_SOURCE="$TMP_DIR/ai-behavior-actual-trace-missing-source.jsonl"
@@ -1082,6 +1093,34 @@ assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "traceDiffMismatchCount=0"
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"caseId": "memory_style_concise"'
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"status": "matched"'
+assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualRoutingPath": "no_action"'
+assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualRoutingPath": "action_planner"'
+
+AI_BAD_ROUTING_TRACE="$TMP_DIR/ai-behavior-actual-trace-bad-routing.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_BAD_ROUTING_TRACE" <<'PY'
+import json
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1])
+target = pathlib.Path(sys.argv[2])
+rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["routingPath"] = "model guessed path"
+target.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects invalid routing evidence" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_BAD_ROUTING_TRACE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-routing.jsonl" \
+    --require-actual-trace \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-routing.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-routing.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-routing.properties" "reason=invalid-actual-trace:1:routingPath"
 
 AI_BEHAVIOR_ALLOWED_FAILURE_SAFETY_DIR="$TMP_DIR/ai-behavior-allowed-failure-safety"
 AI_ALLOWED_FAILURE_SAFETY_TRACE="$TMP_DIR/ai-behavior-actual-trace-allowed-failure-safety.jsonl"

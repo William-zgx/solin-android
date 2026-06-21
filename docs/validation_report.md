@@ -23,6 +23,51 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Intent Routing Runtime Trace and Eval Gate
+
+本轮覆盖项：
+
+- `AgentStep.IntentRouted` 接入运行时 trace：本地 Skill-first、ActionPlanner、
+  remote tool planning、model tool call 和 no-action 都输出统一
+  `IntentRoutingDecision`，用于解释“为什么选择/拒绝某个工具路径”。
+- persisted trace JSON 只保存 `selectedPath`、tool/skill id、priority、accepted、
+  confidence、rejection reason slug 和 confirmation flag，不写入原始用户输入。
+- `AgentBehaviorActualTrace` 与 actual-trace JSONL 增加可选 routing 字段；
+  `verify_ai_behavior_eval.sh` 会校验 routing path 枚举、routing tool allowlist、
+  skill id 格式和 rejection reason slug，并在 planning trace diff 中透传
+  `actualRoutingPath` / `actualRoutingToolName` / `actualRoutingSkillId` /
+  `actualRoutingRejectionReason`。
+- remote 单工具拒绝和 public-evidence batch fail-closed 拒绝都会记录
+  `RemoteToolPlanning` rejected routing decision；no-action 答复记录
+  `no_action_intent_detected`。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentTraceStoreTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest'
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：定向 JVM 测试 5 个测试类全部通过。
+- 通过：validation script tests 返回 `Validation script tests passed`，覆盖 routing
+  evidence 字段透传和非法 routing path 负例。
+- 通过：`scripts/verify_local.sh` 返回 `Local verification passed`，包含本地
+  validation scripts、Debug/Release 构建、Debug unit tests、lint 和 Android artifact scan。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、real-app-search eval；
+  按本轮目标暂时跳过所有设备/模拟器验证，本条不声明真机或模拟器通过。
+
 ## 2026-06-21 Release Emulator ABI Evidence Gate
 
 本轮覆盖项：

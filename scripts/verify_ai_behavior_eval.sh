@@ -247,6 +247,14 @@ allowed_runtime_trace_sources = {
     "android_instrumentation",
     "device_debug_eval",
 }
+allowed_routing_paths = {
+    "",
+    "skill_first",
+    "action_planner",
+    "remote_tool_planning",
+    "model_tool_call",
+    "no_action",
+}
 
 for category in required:
     path = fixture_dir / f"{category}.jsonl"
@@ -478,6 +486,22 @@ def load_actual_traces():
         if not isinstance(failure_mode, str):
             print(f"reason=invalid-actual-trace:{line_number}:failureMode")
             sys.exit(1)
+        routing_path = str(row.get("routingPath", "")).strip()
+        if routing_path not in allowed_routing_paths:
+            print(f"reason=invalid-actual-trace:{line_number}:routingPath")
+            sys.exit(1)
+        routing_tool_name = str(row.get("routingToolName", "")).strip()
+        if routing_tool_name and routing_tool_name not in supported_tool_names and routing_tool_name != "tool_batch":
+            print(f"reason=invalid-actual-trace:{line_number}:routingToolName")
+            sys.exit(1)
+        routing_skill_id = str(row.get("routingSkillId", "")).strip()
+        if routing_skill_id and not re.match(r"^[A-Za-z0-9_.-]+$", routing_skill_id):
+            print(f"reason=invalid-actual-trace:{line_number}:routingSkillId")
+            sys.exit(1)
+        routing_rejection_reason = str(row.get("routingRejectionReason", "")).strip()
+        if routing_rejection_reason and not re.match(r"^[a-z0-9][a-z0-9_.-]*$", routing_rejection_reason):
+            print(f"reason=invalid-actual-trace:{line_number}:routingRejectionReason")
+            sys.exit(1)
         trace_source = str(row.get("traceSource", "")).strip()
         trace_recorded_at = row.get("traceRecordedAt", "")
         if require_runtime_trace_source:
@@ -500,6 +524,10 @@ def load_actual_traces():
                 "localOnly": local_only,
                 "remoteEligible": remote_eligible,
                 "failureMode": failure_mode.strip(),
+                "routingPath": routing_path,
+                "routingToolName": routing_tool_name,
+                "routingSkillId": routing_skill_id,
+                "routingRejectionReason": routing_rejection_reason,
                 "traceSource": trace_source,
                 "matched": False,
             }
@@ -533,6 +561,10 @@ for case in eval_cases:
     actual_local_only = actual["localOnly"] if actual is not None else None
     actual_remote_eligible = actual["remoteEligible"] if actual is not None else None
     actual_failure_mode = actual["failureMode"] if actual is not None else ""
+    actual_routing_path = actual["routingPath"] if actual is not None else ""
+    actual_routing_tool_name = actual["routingToolName"] if actual is not None else ""
+    actual_routing_skill_id = actual["routingSkillId"] if actual is not None else ""
+    actual_routing_rejection_reason = actual["routingRejectionReason"] if actual is not None else ""
     tools_match = case["expectedTools"] == actual_tools
     confirmation_match = case["expectedConfirmation"] == actual_confirmation
     risk_match = case["expectedRiskLevel"] == actual_risk
@@ -591,6 +623,10 @@ for case in eval_cases:
             "actualRemoteEligible": actual_remote_eligible,
             "allowedFailureModes": case["allowedFailureModes"],
             "actualFailureMode": actual_failure_mode,
+            "actualRoutingPath": actual_routing_path,
+            "actualRoutingToolName": actual_routing_tool_name,
+            "actualRoutingSkillId": actual_routing_skill_id,
+            "actualRoutingRejectionReason": actual_routing_rejection_reason,
             "toolsMatch": tools_match,
             "confirmationMatches": confirmation_match,
             "riskMatches": risk_match,

@@ -4,8 +4,11 @@ import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.ActionIntentConfidence
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
+import com.bytedance.zgx.pocketmind.action.IntentRoutingDecision
+import com.bytedance.zgx.pocketmind.action.IntentRoutingPath
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.ModelToolOutputParseResult
 import com.bytedance.zgx.pocketmind.audit.NoOpToolAuditSink
@@ -143,6 +146,22 @@ class AgentLoopRuntime(
             else -> Unit
         }
 
+        traceStore.appendStep(
+            createdRun.id,
+            AgentStep.IntentRouted(
+                IntentRoutingDecision(
+                    input = input,
+                    selectedPath = IntentRoutingPath.NoAction,
+                    selectedToolName = null,
+                    selectedSkillId = null,
+                    priority = 0,
+                    accepted = false,
+                    confidence = ActionIntentConfidence.None,
+                    rejectionReasons = listOf("no_action_intent_detected"),
+                    requiresConfirmation = null,
+                ),
+            ),
+        )
         val answerPlan = AgentPlan.Answer(
             promptForModel = promptWithContextIfUseful(input, memoryHits, deviceContext),
             memoryHits = memoryHits,
@@ -587,6 +606,12 @@ class AgentLoopRuntime(
             return failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
         }
         rejectRemoteToolIfNotExposedInCurrentScope(runId, request)?.let { rejected ->
+            traceStore.appendRejectedRoutingDecision(
+                runId = runId,
+                path = IntentRoutingPath.RemoteToolPlanning,
+                toolName = request.toolName,
+                reason = "remote_tool_not_exposed",
+            )
             traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
             auditRejectedTool(runId, rejected)
@@ -602,6 +627,12 @@ class AgentLoopRuntime(
         }
         if (toolRequestFor(runId, request.id) != null) {
             val rejected = request.rejected("Model tool request id already exists: ${request.id}")
+            traceStore.appendRejectedRoutingDecision(
+                runId = runId,
+                path = IntentRoutingPath.RemoteToolPlanning,
+                toolName = request.toolName,
+                reason = "duplicate_model_tool_request_id",
+            )
             traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
             auditRejectedTool(runId, rejected)
@@ -645,6 +676,12 @@ class AgentLoopRuntime(
             }
 
             is AgentPlan.RejectedTool -> {
+                traceStore.appendRejectedRoutingDecision(
+                    runId = runId,
+                    path = IntentRoutingPath.RemoteToolPlanning,
+                    toolName = request.toolName,
+                    reason = plan.result.summary.toRoutingReasonSlug(),
+                )
                 traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
                 traceStore.appendStep(runId, AgentStep.ToolRejected(plan.result))
                 auditRejectedTool(runId, plan.result)
@@ -907,6 +944,14 @@ class AgentLoopRuntime(
         safetyDecision?.let { decision ->
             traceStore.appendStep(runId, AgentStep.SafetyChecked(decision))
         }
+        traceStore.appendRejectedRoutingDecision(
+            runId = runId,
+            path = IntentRoutingPath.RemoteToolPlanning,
+            toolName = result.data["toolName"]
+                ?: result.data["attemptedToolNames"]?.substringBefore(',')?.trim()?.takeIf { it.isNotBlank() }
+                ?: "tool_batch",
+            reason = result.summary.toRoutingReasonSlug(),
+        )
         traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(result)))
         traceStore.appendStep(runId, AgentStep.ToolRejected(result))
         auditRejectedTool(runId, result)
@@ -1528,6 +1573,9 @@ class AgentLoopRuntime(
         runId: String,
         plan: AgentPlan.UseTool,
     ) {
+        traceStore.run(runId)?.let { run ->
+            traceStore.appendStep(runId, AgentStep.IntentRouted(plan.toIntentRoutingDecision(run.input)))
+        }
         traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
         plan.skillRequest?.let { skillRequest ->
             traceStore.appendStep(runId, AgentStep.SkillPlanned(skillRequest, plan.skillPlan))
@@ -3365,6 +3413,71 @@ fun AgentLoopResult.toAssistantRoute(): AssistantRoute =
 
 private fun AgentPlan.UseTool.requiresUserConfirmation(): Boolean =
     safetyDecision.outcome == SafetyOutcome.RequireConfirmation
+
+private fun AgentPlan.UseTool.toIntentRoutingDecision(input: String): IntentRoutingDecision {
+    val path = routingPath()
+    return IntentRoutingDecision(
+        input = input,
+        selectedPath = path,
+        selectedToolName = request.toolName,
+        selectedSkillId = skillRequest?.skillId,
+        priority = path.routingPriority(),
+        accepted = true,
+        confidence = ActionIntentConfidence.High,
+        rejectionReasons = emptyList(),
+        requiresConfirmation = requiresUserConfirmation(),
+    )
+}
+
+private fun AgentPlan.UseTool.routingPath(): IntentRoutingPath =
+    when (fallbackReason) {
+        "skill-first",
+        "skill model step" -> IntentRoutingPath.SkillFirst
+        "remote tool call",
+        "remote tool batch" -> IntentRoutingPath.RemoteToolPlanning
+        "local model tool call" -> IntentRoutingPath.ModelToolCall
+        else -> IntentRoutingPath.ActionPlanner
+    }
+
+private fun AgentTraceStore.appendRejectedRoutingDecision(
+    runId: String,
+    path: IntentRoutingPath,
+    toolName: String?,
+    reason: String,
+) {
+    val run = run(runId) ?: return
+    appendStep(
+        runId,
+        AgentStep.IntentRouted(
+            IntentRoutingDecision(
+                input = run.input,
+                selectedPath = path,
+                selectedToolName = toolName?.takeIf { it.isNotBlank() },
+                selectedSkillId = null,
+                priority = path.routingPriority(),
+                accepted = false,
+                confidence = ActionIntentConfidence.None,
+                rejectionReasons = listOf(reason.toRoutingReasonSlug()),
+                requiresConfirmation = null,
+            ),
+        ),
+    )
+}
+
+private fun IntentRoutingPath.routingPriority(): Int =
+    when (this) {
+        IntentRoutingPath.SkillFirst -> 100
+        IntentRoutingPath.ActionPlanner -> 80
+        IntentRoutingPath.RemoteToolPlanning -> 70
+        IntentRoutingPath.ModelToolCall -> 60
+        IntentRoutingPath.NoAction -> 0
+    }
+
+private fun String.toRoutingReasonSlug(): String =
+    lowercase()
+        .replace(Regex("[^a-z0-9]+"), "_")
+        .trim('_')
+        .ifBlank { "tool_rejected" }
 
 private fun ActionDraft.withSafetyDecision(safetyDecision: SafetyDecision): ActionDraft =
     if (safetyDecision.outcome == SafetyOutcome.RequireConfirmation && !requiresConfirmation) {

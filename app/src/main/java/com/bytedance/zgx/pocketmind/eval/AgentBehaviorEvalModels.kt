@@ -1,6 +1,8 @@
 package com.bytedance.zgx.pocketmind.eval
 
 import com.bytedance.zgx.pocketmind.MessagePrivacy
+import com.bytedance.zgx.pocketmind.action.IntentRoutingDecision
+import com.bytedance.zgx.pocketmind.action.IntentRoutingPath
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.orchestration.AgentLoopResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentPlan
@@ -76,12 +78,21 @@ data class AgentBehaviorActualTrace(
     val localOnly: Boolean,
     val remoteEligible: Boolean,
     val failureMode: String? = null,
+    val routingPath: IntentRoutingPath? = null,
+    val routingToolName: String? = null,
+    val routingSkillId: String? = null,
+    val routingRejectionReason: String? = null,
 ) {
     init {
         require(caseId.isNotBlank()) { "Agent behavior trace case id must not be blank" }
         require(input.isNotBlank()) { "Agent behavior trace input must not be blank" }
         require(actualTools.all { it.isNotBlank() }) { "Agent behavior trace tool names must not be blank" }
         require(failureMode == null || failureMode.isNotBlank()) { "Agent behavior trace failure mode must not be blank" }
+        require(routingToolName == null || routingToolName.isNotBlank()) { "Routing tool name must not be blank" }
+        require(routingSkillId == null || routingSkillId.isNotBlank()) { "Routing skill id must not be blank" }
+        require(routingRejectionReason == null || routingRejectionReason.isNotBlank()) {
+            "Routing rejection reason must not be blank"
+        }
         if (localOnly) {
             require(privacy == MessagePrivacy.LocalOnly) { "LocalOnly traces must use LocalOnly privacy" }
             require(!remoteEligible) { "LocalOnly traces cannot be remote eligible" }
@@ -214,6 +225,7 @@ class AgentBehaviorTraceProjector(
             ?.riskLevel
             ?.toEvalRiskLevel()
             ?: AgentEvalRiskLevel.Medium
+        val routingTrace = steps.routingTrace()
         return AgentBehaviorActualTrace(
             caseId = snapshot.run.id,
             input = snapshot.run.input,
@@ -224,6 +236,10 @@ class AgentBehaviorTraceProjector(
             localOnly = true,
             remoteEligible = false,
             failureMode = null,
+            routingPath = routingTrace?.path,
+            routingToolName = routingTrace?.toolName,
+            routingSkillId = routingTrace?.skillId,
+            routingRejectionReason = routingTrace?.rejectionReason,
         )
     }
 
@@ -290,6 +306,7 @@ class AgentBehaviorTraceProjector(
         val actualRiskLevel = actualRiskLevelOverride
             ?: specs.toEvalRiskLevel(sensitivePrivateEvidence = sensitivePrivateEvidence)
         val privacy = specs.toTracePrivacy()
+        val routingTrace = result.routingTrace()
         return AgentBehaviorActualTrace(
             caseId = result.run.id,
             input = result.run.input,
@@ -300,6 +317,10 @@ class AgentBehaviorTraceProjector(
             localOnly = privacy == MessagePrivacy.LocalOnly,
             remoteEligible = privacy == MessagePrivacy.RemoteEligible,
             failureMode = failureMode,
+            routingPath = routingTrace?.path,
+            routingToolName = routingTrace?.toolName,
+            routingSkillId = routingTrace?.skillId,
+            routingRejectionReason = routingTrace?.rejectionReason,
         )
     }
 
@@ -397,6 +418,7 @@ class AgentBehaviorTraceProjector(
         val riskLevel = runDataReceipt
             ?.toNoToolEvalRiskLevel(memoryHits)
             ?: memoryHits.toNoToolEvalRiskLevel()
+        val routingTrace = result.routingTrace()
         return AgentBehaviorActualTrace(
             caseId = result.run.id,
             input = result.run.input,
@@ -412,6 +434,10 @@ class AgentBehaviorTraceProjector(
             localOnly = privacy == MessagePrivacy.LocalOnly,
             remoteEligible = privacy == MessagePrivacy.RemoteEligible,
             failureMode = failureMode ?: qualityGuardFailureMode ?: evidenceFailureMode,
+            routingPath = routingTrace?.path,
+            routingToolName = routingTrace?.toolName,
+            routingSkillId = routingTrace?.skillId,
+            routingRejectionReason = routingTrace?.rejectionReason,
         )
     }
 
@@ -438,6 +464,7 @@ class AgentBehaviorTraceProjector(
                 .takeIf { decision -> decision.outcome == SafetyOutcome.Reject }
                 ?.reason
                 ?.toEvalFailureMode()
+        val routingTrace = result.routingTrace()
 
         return AgentBehaviorActualTrace(
             caseId = result.run.id,
@@ -460,8 +487,29 @@ class AgentBehaviorTraceProjector(
             localOnly = privacy == MessagePrivacy.LocalOnly,
             remoteEligible = privacy == MessagePrivacy.RemoteEligible,
             failureMode = failureMode,
+            routingPath = routingTrace?.path,
+            routingToolName = routingTrace?.toolName,
+            routingSkillId = routingTrace?.skillId,
+            routingRejectionReason = routingTrace?.rejectionReason,
         )
     }
+
+    private fun AgentLoopResult.routingTrace(): ProjectedRoutingTrace? =
+        steps.routingTrace()
+
+    private fun List<AgentStep>.routingTrace(): ProjectedRoutingTrace? =
+        filterIsInstance<AgentStep.IntentRouted>()
+            .lastOrNull()
+            ?.decision
+            ?.toProjectedRoutingTrace()
+
+    private fun IntentRoutingDecision.toProjectedRoutingTrace(): ProjectedRoutingTrace =
+        ProjectedRoutingTrace(
+            path = selectedPath,
+            toolName = selectedToolName,
+            skillId = selectedSkillId,
+            rejectionReason = rejectionReasons.firstOrNull(),
+        )
 
     private fun List<com.bytedance.zgx.pocketmind.tool.ToolSpec>.toTracePrivacy(): MessagePrivacy =
         if (isNotEmpty() && none { spec -> spec.hasPrivateLocalEvidence() }) {
@@ -626,4 +674,11 @@ class AgentBehaviorTraceProjector(
             else ->
                 summary.toEvalFailureMode()
         }
+
+    private data class ProjectedRoutingTrace(
+        val path: IntentRoutingPath,
+        val toolName: String?,
+        val skillId: String?,
+        val rejectionReason: String?,
+    )
 }

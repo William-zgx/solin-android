@@ -29,6 +29,7 @@ enum class IntentRoutingPath {
     ActionPlanner,
     RemoteToolPlanning,
     ModelToolCall,
+    NoAction,
 }
 
 data class IntentRoutingDecision(
