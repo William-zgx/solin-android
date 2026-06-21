@@ -105,6 +105,10 @@ data class DeviceVerificationArtifact(
         if (status == VerificationStatus.Failed) {
             require(!failedTarget.isNullOrBlank()) { "Failed device verification artifacts must include failedTarget" }
             require(!reason.isNullOrBlank()) { "Failed device verification artifacts must include reason" }
+        } else {
+            require(failedTarget.isNullOrBlank() && reason.isNullOrBlank()) {
+                "Passed or skipped device verification artifacts must not include failure metadata"
+            }
         }
         instrumentationOutputPath?.let {
             require(it.isNotBlank()) { "Instrumentation output path must not be blank" }

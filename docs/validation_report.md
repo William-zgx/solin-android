@@ -23,6 +23,30 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-22 Device Verification Artifact Model Invariants
+
+本轮覆盖项：
+
+- `DeviceVerificationArtifact` 明确区分 failed 与 passed/skipped：failed artifact 必须
+  包含非空 `failedTarget` 和 `reason`；passed/skipped artifact 不能携带失败元数据。
+- JVM 测试覆盖 failed artifact 缺 failedTarget、缺 reason、passed artifact 携带失败元数据、
+  invalid SHA-256 被拒绝，以及现有 phase-one 合同中的失败 artifact 样例。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  ./gradlew :app:testDebugUnitTest \
+    --tests 'com.bytedance.zgx.pocketmind.evidence.EvidenceModelsTest' \
+    --tests 'com.bytedance.zgx.pocketmind.contracts.PhaseOneContractModelsTest'
+```
+
+结果：
+
+- 通过：目标 JVM 测试。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮只做本地
+  evidence model / contract JVM 验证。
+
 ## 2026-06-22 Release Gate Evidence Artifact Schema
 
 本轮覆盖项：
