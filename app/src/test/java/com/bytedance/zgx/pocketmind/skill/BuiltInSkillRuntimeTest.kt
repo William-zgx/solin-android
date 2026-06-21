@@ -883,6 +883,12 @@ class BuiltInSkillRuntimeTest {
                 expectedPackageName = "com.autonavi.minimap",
             ),
             OpenAppSearchExpectation(
+                input = "打开京东搜索数据线",
+                appName = "京东",
+                query = "数据线",
+                expectedPackageName = "com.jingdong.app.mall",
+            ),
+            OpenAppSearchExpectation(
                 input = "打开浏览器搜索 Kotlin 协程",
                 appName = "浏览器",
                 query = "Kotlin 协程",

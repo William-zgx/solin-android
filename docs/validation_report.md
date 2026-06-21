@@ -23,6 +23,59 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-21 Real-App Search Resolver Replay Fixtures and JD Profile Runtime Coverage
+
+本轮覆盖项：
+
+- `AppInteractionProfiles` 扩充淘宝、高德、京东和浏览器族的真实搜索入口提示词：
+  淘宝搜索发现/搜索宝贝、 高德“你要去哪儿”/公交地铁、京东商品/店铺搜索、Quark/UC
+  常见“搜索词或网址”地址栏。
+- `UiTargetResolver` 和 `PocketMindAccessibilityService` 同步搜索入口强语义与负向语义，
+  让 explain 证据路径和实际 Accessibility 点击路径都降低拍照搜索、相机、扫一扫、找同款等
+  视觉搜索入口的优先级。
+- 新增 UIAutomator XML replay 测试基础设施：
+  `UiAutomatorDumpReplayTest` 从 `app/src/test/resources/ui_dumps/real_app_search/`
+  读取 XML，解析 `text/content-desc/class/package/bounds/clickable/editable/scrollable/enabled`
+  为 `ScreenStateSnapshot` 后回放 resolver。
+- 新增淘宝和高德真实形态 fixture，固定“文本搜索入口胜过拍照/找同款/大结果容器”和
+  “高德目的地搜索入口胜过地图画布/POI 容器”的回归。
+- `BuiltInSkillRuntimeTest` 和 `AgentLoopRuntimeTest` 将京东加入 common open-app-search
+  profile 覆盖，验证 `打开京东搜索数据线` 的 skill plan、expected package 和 runtime
+  搜索结果验证链。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest' \
+  --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest' \
+  --tests 'com.bytedance.zgx.pocketmind.skill.BuiltInSkillRuntimeTest.plansCurrentAppUiSkillsAsObserveActVerifyTemplates' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.openAppUiSearchRuntimeFlowCoversCommonAppProfiles'
+
+git diff --check
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk scripts/verify_local.sh
+
+/data00/home/zouguoxue/android-sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：目标 JVM 测试返回 `BUILD SUCCESSFUL`，覆盖 UIAutomator XML replay、resolver ranking、
+  Accessibility runtime 同步编译、京东 skill/runtime profile。
+- 通过：`git diff --check` 返回 0。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`。
+- 通过：`scripts/verify_local.sh` 返回 `Local verification passed`，并完成 JVM tests、
+  AndroidTest APK 组装、debug APK、release APK/AAB、lint 和 artifact scan。
+- 限制：新增 XML 是可回放 fixture，不声明为 2026-06-17 真机 dump；当前 workspace 仍没有
+  可引用的真实 `real-app-search` 失败 dump artifact。后续真机失败 dump 应直接补进同一
+  `ui_dumps/real_app_search/` 回放路径。
+- 未执行真机：`adb devices -l` 只输出 `List of devices attached` 表头，没有可见
+  authorized device；机器可读状态仍为 `failedTarget=physical-device-smoke`、
+  `reason=adb-no-authorized-device`。本轮没有新增 physical-device real-app-search pass evidence。
+
 ## 2026-06-21 Memory Forget Runtime Evidence and Local Gate
 
 本轮覆盖项：

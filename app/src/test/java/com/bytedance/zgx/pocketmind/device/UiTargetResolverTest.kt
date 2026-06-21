@@ -256,6 +256,132 @@ class UiTargetResolverTest {
     }
 
     @Test
+    fun taobaoReplayShapePrefersTextSearchDiscoveryOverVisualSearchEntrypoints() {
+        val snapshot = snapshot(
+            packageName = "com.taobao.taobao",
+            nodes = listOf(
+                node(
+                    id = "camera-search",
+                    contentDescription = "拍照搜索",
+                    className = "android.widget.ImageView",
+                    bounds = ScreenBounds(920, 86, 1012, 172),
+                    clickable = true,
+                ),
+                node(
+                    id = "same-style-search",
+                    text = "找同款",
+                    className = "android.widget.TextView",
+                    bounds = ScreenBounds(1012, 86, 1072, 172),
+                    clickable = true,
+                ),
+                node(
+                    id = "result-card",
+                    text = "搜索发现 耳机 综合 销量 筛选 商品列表 旗舰店 ￥199",
+                    bounds = ScreenBounds(0, 420, 1080, 1180),
+                    clickable = true,
+                    scrollable = true,
+                ),
+                node(
+                    id = "search-discovery-entry",
+                    text = "搜索发现",
+                    contentDescription = "搜索宝贝和店铺",
+                    className = "android.widget.TextView",
+                    bounds = ScreenBounds(48, 86, 900, 172),
+                    clickable = true,
+                ),
+            ),
+        )
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")
+
+        assertEquals("search-discovery-entry", evidence.selectedNodeId)
+        assertEquals("search-discovery-entry", evidence.rankedCandidates.firstOrNull()?.nodeId)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "same-style-search" })
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "result-card" })
+        val cameraScore = evidence.rankedCandidates.firstOrNull { candidate -> candidate.nodeId == "camera-search" }
+            ?.score
+            ?.finalScore
+            ?: 0
+        assertTrue(cameraScore < (evidence.rankedCandidates.firstOrNull()?.score?.finalScore ?: 0))
+    }
+
+    @Test
+    fun gaodeReplayShapeResolvesClickableDestinationEntryWithoutChoosingMapCanvas() {
+        val snapshot = snapshot(
+            packageName = "com.autonavi.minimap",
+            nodes = listOf(
+                node(
+                    id = "map-canvas",
+                    text = "路线 导航 附近 美食 酒店 公交 地铁 查看地图 展开列表",
+                    className = "android.view.View",
+                    bounds = ScreenBounds(0, 220, 1080, 1900),
+                    clickable = true,
+                    scrollable = true,
+                ),
+                node(
+                    id = "destination-entry",
+                    text = "你要去哪儿",
+                    contentDescription = "搜地点、公交、地铁",
+                    className = "android.widget.TextView",
+                    bounds = ScreenBounds(40, 96, 1040, 176),
+                    clickable = true,
+                ),
+            ),
+        )
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")
+
+        assertEquals("destination-entry", evidence.selectedNodeId)
+        assertEquals("你要去哪儿 搜地点、公交、地铁", evidence.rankedCandidates.firstOrNull()?.label)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "map-canvas" })
+    }
+
+    @Test
+    fun jdAndBrowserReplayShapesUseProfileSpecificSearchHints() {
+        val jd = snapshot(
+            packageName = "com.jingdong.app.mall",
+            nodes = listOf(
+                node(
+                    id = "home-feed",
+                    text = "京东物流 百亿补贴 秒杀 推荐 商品列表",
+                    bounds = ScreenBounds(0, 360, 1080, 1900),
+                    clickable = true,
+                    scrollable = true,
+                ),
+                node(
+                    id = "jd-search",
+                    text = "搜索京东商品/店铺",
+                    className = "android.widget.TextView",
+                    bounds = ScreenBounds(36, 84, 1044, 168),
+                    clickable = true,
+                ),
+            ),
+        )
+        val browser = snapshot(
+            packageName = "com.quark.browser",
+            nodes = listOf(
+                node(
+                    id = "web-feed",
+                    text = "热搜 新闻 推荐",
+                    bounds = ScreenBounds(0, 320, 1080, 1900),
+                    clickable = true,
+                    scrollable = true,
+                ),
+                node(
+                    id = "quark-address",
+                    text = "请输入搜索词或网址",
+                    className = "android.widget.TextView",
+                    bounds = ScreenBounds(48, 80, 1032, 168),
+                    clickable = true,
+                ),
+            ),
+        )
+
+        assertEquals("jd-search", UiTargetResolver.resolve(jd, UiTargetKind.SearchEntry)?.nodeId)
+        assertEquals("quark-address", UiTargetResolver.resolve(browser, UiTargetKind.SearchEntry, target = "地址栏")?.nodeId)
+    }
+
+    @Test
     fun explainIncludesRankedScoreEvidenceAndFailureKind() {
         val snapshot = snapshot(
             packageName = "com.taobao.taobao",

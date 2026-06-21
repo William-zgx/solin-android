@@ -3014,6 +3014,13 @@ class AgentLoopRuntimeTest {
                 resultSummary = "高德地图 机场 路线 导航 到这去 地点列表",
             ),
             OpenAppUiSearchRuntimeCase(
+                input = "打开京东搜索数据线",
+                appName = "京东",
+                query = "数据线",
+                expectedPackageName = "com.jingdong.app.mall",
+                resultSummary = "京东 数据线 综合 销量 筛选 京东物流",
+            ),
+            OpenAppUiSearchRuntimeCase(
                 input = "打开浏览器搜索 Kotlin 协程",
                 appName = "浏览器",
                 query = "Kotlin 协程",

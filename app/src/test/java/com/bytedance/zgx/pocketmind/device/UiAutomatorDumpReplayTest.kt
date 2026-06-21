@@ -1,0 +1,115 @@
+package com.bytedance.zgx.pocketmind.device
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.w3c.dom.Element
+import org.w3c.dom.Node as DomNode
+import javax.xml.parsers.DocumentBuilderFactory
+
+class UiAutomatorDumpReplayTest {
+    @Test
+    fun taobaoSearchHomeDumpResolvesTextSearchEntryAndDemotesVisualSearch() {
+        val snapshot = loadDump("ui_dumps/real_app_search/taobao_search_home.xml")
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")
+
+        assertNull(evidence.failureKind)
+        assertEquals("com.taobao.taobao:id/search_bar", evidence.selectedNodeId)
+        assertEquals("com.taobao.taobao:id/search_bar", evidence.rankedCandidates.firstOrNull()?.nodeId)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.taobao.taobao:id/camera_search" })
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.taobao.taobao:id/same_style" })
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.taobao.taobao:id/result_feed" })
+    }
+
+    @Test
+    fun gaodeHomeDumpResolvesDestinationSearchEntryAndDemotesMapCanvas() {
+        val snapshot = loadDump("ui_dumps/real_app_search/gaode_destination_home.xml")
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")
+
+        assertNull(evidence.failureKind)
+        assertEquals("com.autonavi.minimap:id/search_entry", evidence.selectedNodeId)
+        assertEquals("你要去哪儿 搜地点、公交、地铁", evidence.rankedCandidates.firstOrNull()?.label)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.autonavi.minimap:id/map_canvas" })
+    }
+
+    private fun loadDump(resourcePath: String): ScreenStateSnapshot {
+        val document = requireNotNull(javaClass.classLoader?.getResourceAsStream(resourcePath)) {
+            "Missing test UIAutomator dump fixture: $resourcePath"
+        }.use { input ->
+            DocumentBuilderFactory.newInstance()
+                .newDocumentBuilder()
+                .parse(input)
+        }
+        val nodes = mutableListOf<ScreenNode>()
+        val root = document.documentElement
+        collectNodes(root, path = "root", output = nodes)
+        val packageName = firstPackageName(root)
+            ?: nodes.firstOrNull { node -> node.id.contains(":id/") }
+            ?.id
+            ?.substringBefore(":id/")
+        return ScreenStateSnapshot(
+            id = resourcePath.substringAfterLast('/').substringBeforeLast('.'),
+            packageName = packageName,
+            capturedAtMillis = 1L,
+            nodes = nodes,
+            textSummary = nodes.joinToString(" ") { node -> node.text.ifBlank { node.contentDescription } },
+            truncated = false,
+        )
+    }
+
+    private fun collectNodes(element: Element, path: String, output: MutableList<ScreenNode>) {
+        if (element.tagName == "node") {
+            val resourceId = element.attr("resource-id")
+            output += ScreenNode(
+                id = resourceId.ifBlank { path },
+                text = element.attr("text"),
+                contentDescription = element.attr("content-desc"),
+                className = element.attr("class"),
+                bounds = parseBounds(element.attr("bounds")),
+                clickable = element.attr("clickable").toBoolean(),
+                editable = element.attr("class").contains("EditText") || element.attr("editable").toBoolean(),
+                scrollable = element.attr("scrollable").toBoolean(),
+                enabled = element.attr("enabled").ifBlank { "true" }.toBoolean(),
+            )
+        }
+        val children = element.childNodes
+        for (index in 0 until children.length) {
+            val child = children.item(index)
+            if (child.nodeType == DomNode.ELEMENT_NODE) {
+                collectNodes(child as Element, path = "$path/$index", output = output)
+            }
+        }
+    }
+
+    private fun firstPackageName(element: Element): String? {
+        element.attr("package").takeIf { it.isNotBlank() }?.let { return it }
+        val children = element.childNodes
+        for (index in 0 until children.length) {
+            val child = children.item(index)
+            if (child.nodeType == DomNode.ELEMENT_NODE) {
+                firstPackageName(child as Element)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun parseBounds(raw: String): ScreenBounds? {
+        val match = BoundsRegex.matchEntire(raw) ?: return null
+        val (left, top, right, bottom) = match.destructured
+        return ScreenBounds(
+            left = left.toInt(),
+            top = top.toInt(),
+            right = right.toInt(),
+            bottom = bottom.toInt(),
+        )
+    }
+
+    private fun Element.attr(name: String): String = getAttribute(name).orEmpty()
+
+    private companion object {
+        val BoundsRegex = Regex("""\[(\d+),(\d+)]\[(\d+),(\d+)]""")
+    }
+}

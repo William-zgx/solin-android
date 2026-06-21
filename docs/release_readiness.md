@@ -61,6 +61,11 @@ items below.
 - Latest local signed release APK was installed back on `fb6272c` with
   `adb install -r` after debug eval, preserving app data. This is not a
   replacement for production signing or the final release-candidate matrix.
+- Current local real-app search resolver replay coverage includes UIAutomator
+  XML fixtures for Taobao and Amap/Gaode search-entry ranking, plus JD in the
+  common open-app-search skill/runtime profile tests; see
+  `docs/validation_report.md`. This improves the resolver regression harness,
+  but it is not a replacement for a passing physical real-app-search eval.
 - Current release-candidate emulator regression passed with
   `scripts/regression_emulator.sh` on `pocketmind_api36_arm64` /
   `emulator-5554` (API 36, `arm64-v8a`):

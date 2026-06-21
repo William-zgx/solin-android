@@ -7,7 +7,7 @@ object AppInteractionProfiles {
         AppInteractionProfile(
             appNameAliases = setOf("淘宝", "taobao", "tb"),
             packageNames = setOf("com.taobao.taobao"),
-            searchEntryHints = setOf("搜索", "搜一搜", "搜索商品"),
+            searchEntryHints = setOf("搜索", "搜一搜", "搜索商品", "搜索发现", "搜索宝贝", "搜索宝贝和店铺", "淘宝搜索"),
             submitHints = setOf("搜索", "搜一下"),
             resultHints = setOf("综合", "销量", "筛选"),
         ),
@@ -21,7 +21,7 @@ object AppInteractionProfiles {
         AppInteractionProfile(
             appNameAliases = setOf("高德", "高德地图", "amap", "gaode", "autonavi"),
             packageNames = setOf("com.autonavi.minimap"),
-            searchEntryHints = setOf("搜索", "搜地点", "目的地", "去哪儿", "查找地点"),
+            searchEntryHints = setOf("搜索", "搜地点", "目的地", "去哪儿", "你要去哪儿", "查找地点", "公交地铁"),
             submitHints = setOf("搜索", "确定", "去这里"),
             resultHints = setOf("路线", "导航", "到这去", "查看地图", "展开列表"),
         ),
@@ -35,7 +35,7 @@ object AppInteractionProfiles {
         AppInteractionProfile(
             appNameAliases = setOf("京东", "jd", "jingdong"),
             packageNames = setOf("com.jingdong.app.mall"),
-            searchEntryHints = setOf("搜索", "搜索商品", "搜一搜"),
+            searchEntryHints = setOf("搜索", "搜索商品", "搜一搜", "搜索京东", "搜索京东商品", "搜索京东商品店铺", "搜索好物"),
             submitHints = setOf("搜索"),
             resultHints = setOf("综合", "销量", "筛选", "京东物流"),
         ),
@@ -48,7 +48,20 @@ object AppInteractionProfiles {
                 "com.UCMobile",
                 "com.google.android.googlequicksearchbox",
             ),
-            searchEntryHints = setOf("搜索", "搜", "검색", "地址", "地址栏", "网址", "url", "omnibox", "输入网址", "搜索或输入网址"),
+            searchEntryHints = setOf(
+                "搜索",
+                "搜",
+                "검색",
+                "地址",
+                "地址栏",
+                "网址",
+                "url",
+                "omnibox",
+                "输入网址",
+                "搜索或输入网址",
+                "请输入搜索词或网址",
+                "搜索词或网址",
+            ),
             submitHints = setOf("搜索", "검색", "前往", "search"),
             resultHints = setOf("搜索结果", "검색결과", "网页", "相关搜索"),
         ),
@@ -382,9 +395,12 @@ private fun ScreenNode.targetRiskPenalty(
             if (
                 normalizedLabel.contains("拍照") ||
                 normalizedLabel.contains("拍立淘") ||
+                normalizedLabel.contains("拍照搜") ||
+                normalizedLabel.contains("相机") ||
                 normalizedLabel.contains("扫一扫") ||
                 normalizedLabel.contains("语音") ||
-                normalizedLabel.contains("图片")
+                normalizedLabel.contains("图片") ||
+                normalizedLabel.contains("找同款")
             ) {
                 penalty += 520
             }
@@ -505,13 +521,21 @@ internal fun hasStrongSearchEntryEvidence(normalized: String): Boolean =
         "搜索栏",
         "搜索框",
         "搜索商品",
+        "搜索发现",
+        "搜索宝贝",
+        "搜索京东",
+        "搜索好物",
         "搜索输入",
         "输入文字",
         "输入关键词",
+        "请输入搜索词",
         "地址栏",
         "网址",
         "目的地",
         "去哪儿",
+        "搜地点",
+        "公交地铁",
+        "搜索词或网址",
         "searchbox",
         "searchfield",
         "omnibox",
