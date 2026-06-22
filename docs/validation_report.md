@@ -23,6 +23,56 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-22 Agent Eval / MobileAction Capability Gate
+
+本轮覆盖项：
+
+- `AgentBehaviorTraceProjector` 现在从 failed `ToolObserved` 结合对应
+  `ToolRequested(requestId -> toolName)` 投影真实 App 搜索失败模式；`ui_wait` 验证阶段的
+  `failureKind=result_not_verified` + `searchVerificationEvidence=page_not_changed` 会投影为
+  `page_not_changed`，但 eval 暴露工具序列仍过滤内部 `ui_wait`。
+- `AiBehaviorActualTraceGeneratorTest` 的真实 App 搜索失败 trace 不再手工构造
+  `AgentBehaviorActualTrace`，而是用 runtime-style `AgentLoopResult` 交给 projector 生成。
+- `AgentLoopRuntime` 将 `installedCapabilities` 接入初始动作规划：`usedModel=true` 的动作规划
+  必须安装 `ModelCapability.MobileAction`；规则规划和 skill-first 路径不需要 action model。
+
+验证命令：
+
+```bash
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
+  ./gradlew :app:testDebugUnitTest --rerun-tasks \
+  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest \
+  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest.writesAgentLoopRuntimeActualTraceJsonl \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWithoutMobileActionReturnsMissingModel \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.ruleBackedActionPlanningDoesNotRequireMobileAction \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWorksWhenMobileActionInstalled
+
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
+  ARTIFACT_DIR=build/verification/ai-behavior-actual-trace-jvm \
+  scripts/collect_ai_behavior_actual_trace.sh
+
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：聚焦 JVM 测试强制重跑，`BUILD SUCCESSFUL`，28 个 task 全部 executed。
+- 通过：AI behavior actual trace collector，38 个 case / 7 categories / 6 MVP scenarios；
+  `actualTraceSourceBreakdown=agent_loop_runtime:38`，`traceDiffMissingActualCount=0`，
+  `traceDiffMismatchCount=0`。
+- 通过：`scripts/verify_local.sh`，Gradle `BUILD SUCCESSFUL`，145 个 task 中
+  31 executed / 114 up-to-date；`Android artifact scan passed.`；`Local verification passed.`。
+- 关键证据：`build/verification/ai-behavior-actual-trace-jvm/ai-behavior-actual-trace-collection.properties`。
+- 抽查：`runtime_app_search_page_not_changed` 输出 `failureMode=page_not_changed`、
+  `actualTools=[open_app_by_name, ui_tap, ui_type_text, ui_submit_search]`、
+  `traceSource=agent_loop_runtime`。
+
+剩余风险：
+
+- 本轮仍未跑真机/模拟器；真实 App 搜索 runtime trace 合同已在 JVM 侧闭环，实际淘宝/高德等
+  UI dump 和 Accessibility 行为仍需后续物理 arm64 设备验证。
+
 ## 2026-06-22 Device Eval Report Contract
 
 本轮覆盖项：

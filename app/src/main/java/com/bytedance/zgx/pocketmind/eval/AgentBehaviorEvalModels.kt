@@ -22,6 +22,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolPermission
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolResultContinuationPolicy
 import com.bytedance.zgx.pocketmind.tool.ToolSpec
+import com.bytedance.zgx.pocketmind.tool.ToolStatus
 
 enum class AgentEvalConfirmationExpectation {
     None,
@@ -185,6 +186,13 @@ fun AgentBehaviorEvalCase.diffAgainst(actual: AgentBehaviorActualTrace?): AgentB
 class AgentBehaviorTraceProjector(
     private val toolRegistry: ToolRegistry = ToolRegistry(),
 ) {
+    private val appSearchObservedFailureToolNames = setOf(
+        MobileActionFunctions.UI_TAP,
+        MobileActionFunctions.UI_TYPE_TEXT,
+        MobileActionFunctions.UI_SUBMIT_SEARCH,
+        MobileActionFunctions.UI_WAIT,
+    )
+
     fun project(result: AgentLoopResult): AgentBehaviorActualTrace =
         rejectedToolStepTrace(result)
             ?:
@@ -371,6 +379,7 @@ class AgentBehaviorTraceProjector(
     }
 
     private fun AgentLoopResult.failedStepFailureMode(): String? {
+        failedObservedToolFailureMode()?.let { failureMode -> return failureMode }
         val reason = steps
             .filterIsInstance<AgentStep.Failed>()
             .lastOrNull()
@@ -387,6 +396,44 @@ class AgentBehaviorTraceProjector(
                 "external_outcome_missing"
             else ->
                 reason.toEvalFailureMode()
+        }
+    }
+
+    private fun AgentLoopResult.failedObservedToolFailureMode(): String? =
+        steps.failedObservedToolFailureMode()
+
+    private fun List<AgentStep>.failedObservedToolFailureMode(): String? {
+        val requestedToolNamesById = filterIsInstance<AgentStep.ToolRequested>()
+            .associate { step -> step.request.id to step.request.toolName }
+        return this
+            .filterIsInstance<AgentStep.ToolObserved>()
+            .asReversed()
+            .firstNotNullOfOrNull { step ->
+                step.result.toObservedToolFailureMode(
+                    requestedToolName = requestedToolNamesById[step.result.requestId],
+                )
+            }
+    }
+
+    private fun ToolResult.toObservedToolFailureMode(requestedToolName: String?): String? {
+        if (status != ToolStatus.Failed) return null
+        val toolName = requestedToolName ?: data["toolName"]
+        if (toolName !in appSearchObservedFailureToolNames) return null
+        val failureKind = data["failureKind"]?.takeIf { kind -> kind.isNotBlank() } ?: return null
+        return when (failureKind) {
+            "result_not_verified" ->
+                if (data["searchVerificationEvidence"] == "page_not_changed") {
+                    "page_not_changed"
+                } else {
+                    failureKind
+                }
+            "search_entry_not_found",
+            "editable_not_found",
+            "submit_not_found",
+            "required_hint_missing" ->
+                failureKind
+            else ->
+                null
         }
     }
 

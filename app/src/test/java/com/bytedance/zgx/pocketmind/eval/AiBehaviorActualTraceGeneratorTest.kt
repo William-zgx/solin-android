@@ -3,8 +3,10 @@ package com.bytedance.zgx.pocketmind.eval
 import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.ActionIntentConfidence
 import com.bytedance.zgx.pocketmind.action.ActionPlanningResult
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
+import com.bytedance.zgx.pocketmind.action.IntentRoutingDecision
 import com.bytedance.zgx.pocketmind.action.IntentRoutingPath
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.MobileActionPlanner
@@ -35,6 +37,7 @@ import com.bytedance.zgx.pocketmind.orchestration.AgentObservationDecision
 import com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntime
 import com.bytedance.zgx.pocketmind.orchestration.AgentLoopResult
 import com.bytedance.zgx.pocketmind.orchestration.AgentPlan
+import com.bytedance.zgx.pocketmind.orchestration.AgentRun
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunOptions
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
 import com.bytedance.zgx.pocketmind.orchestration.AgentStep
@@ -48,6 +51,11 @@ import com.bytedance.zgx.pocketmind.orchestration.RunDataReceipt
 import com.bytedance.zgx.pocketmind.orchestration.SequentialActionObservationReplanner
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
 import com.bytedance.zgx.pocketmind.safety.SafetyOutcome
+import com.bytedance.zgx.pocketmind.skill.SkillManifest
+import com.bytedance.zgx.pocketmind.skill.SkillPlan
+import com.bytedance.zgx.pocketmind.skill.SkillRequest
+import com.bytedance.zgx.pocketmind.skill.SkillStep
+import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
@@ -223,21 +231,7 @@ class AiBehaviorActualTraceGeneratorTest {
     }
 
     private fun collectAppSearchFailureTrace(fixture: JSONObject): JSONObject {
-        val trace = AgentBehaviorActualTrace(
-            caseId = fixture.getString("id"),
-            input = fixture.getString("input"),
-            actualTools = fixture.getJSONArray("expectedTools").toStringList(),
-            actualConfirmation = AgentEvalConfirmationExpectation.FailClosed,
-            actualRiskLevel = AgentEvalRiskLevel.Low,
-            privacy = MessagePrivacy.LocalOnly,
-            localOnly = true,
-            remoteEligible = false,
-            failureMode = fixture.getJSONArray("allowedFailureModes").getString(0),
-            routingPath = IntentRoutingPath.SkillFirst,
-            routingToolName = null,
-            routingSkillId = "open_app_ui_search_skill",
-            routingRejectionReason = null,
-        )
+        val trace = AgentBehaviorTraceProjector().project(appSearchFailureResult(fixture))
         return JSONObject()
             .put("caseId", fixture.getString("id"))
             .put("category", fixture.getString("category"))
@@ -253,6 +247,200 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("traceSource", "agent_loop_runtime")
             .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
     }
+
+    private fun appSearchFailureResult(fixture: JSONObject): AgentLoopResult {
+        val input = fixture.getString("input")
+        val failureMode = fixture.getJSONArray("allowedFailureModes").getString(0)
+        val expectedRequests = fixture
+            .getJSONArray("expectedTools")
+            .toStringList()
+            .mapIndexed { index, toolName -> appSearchRequest(toolName, index) }
+        val requests = expectedRequests + appSearchVerificationRequest(failureMode, expectedRequests.size)
+        val skillPlan = appSearchSkillPlan(requests)
+        val observedSteps = requests.flatMapIndexed { index, request ->
+            listOf(
+                AgentStep.ToolRequested(request, appSearchDraft(request)),
+                AgentStep.ToolObserved(
+                    appSearchObservedResult(
+                        request = request,
+                        failureMode = failureMode.takeIf { index == requests.lastIndex },
+                    ),
+                ),
+            )
+        }
+        return AgentLoopResult(
+            run = AgentRun(
+                id = fixture.getString("id"),
+                input = input,
+                state = AgentRunState.Failed,
+                createdAtMillis = 1_000L,
+                updatedAtMillis = 1_000L,
+            ),
+            plan = AgentPlan.UseTool(
+                request = requests.first(),
+                draft = appSearchDraft(requests.first()),
+                plannedByModel = false,
+                fallbackReason = "real app search failure fixture",
+                skillRequest = skillPlan.request,
+                skillPlan = skillPlan,
+                safetyDecision = SafetyDecision(
+                    outcome = SafetyOutcome.RequireConfirmation,
+                    reason = "Low-risk app search requires a runtime safety boundary.",
+                ),
+            ),
+            steps = listOf(
+                AgentStep.IntentRouted(
+                    IntentRoutingDecision(
+                        input = input,
+                        selectedPath = IntentRoutingPath.SkillFirst,
+                        selectedToolName = null,
+                        selectedSkillId = skillPlan.request.skillId,
+                        priority = 100,
+                        accepted = true,
+                        confidence = ActionIntentConfidence.High,
+                        rejectionReasons = emptyList(),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                AgentStep.SkillPlanned(skillPlan.request, skillPlan),
+            ) + observedSteps,
+        )
+    }
+
+    private fun appSearchRequest(toolName: String, index: Int): ToolRequest =
+        when (toolName) {
+            MobileActionFunctions.OPEN_APP_BY_NAME ->
+                ToolRequest(
+                    id = "app-search-$index-open",
+                    toolName = toolName,
+                    arguments = mapOf("appName" to "淘宝"),
+                    reason = "Open the target app for in-app search.",
+                )
+
+            MobileActionFunctions.UI_TAP ->
+                ToolRequest(
+                    id = "app-search-$index-tap",
+                    toolName = toolName,
+                    arguments = mapOf("target" to "搜索入口"),
+                    reason = "Tap the app search entry.",
+                )
+
+            MobileActionFunctions.UI_TYPE_TEXT ->
+                ToolRequest(
+                    id = "app-search-$index-type",
+                    toolName = toolName,
+                    arguments = mapOf("text" to "耳机"),
+                    reason = "Type the app search query.",
+                )
+
+            MobileActionFunctions.UI_SUBMIT_SEARCH ->
+                ToolRequest(
+                    id = "app-search-$index-submit",
+                    toolName = toolName,
+                    reason = "Submit the app search query.",
+                )
+
+            MobileActionFunctions.UI_WAIT ->
+                ToolRequest(
+                    id = "app-search-$index-verify",
+                    toolName = toolName,
+                    arguments = mapOf("verifySearchQuery" to "耳机"),
+                    reason = "Verify the app search results.",
+                )
+
+            else ->
+                ToolRequest(
+                    id = "app-search-$index-${toolName.replace('_', '-')}",
+                    toolName = toolName,
+                    reason = "Run app search step.",
+                )
+        }
+
+    private fun appSearchVerificationRequest(failureMode: String, index: Int): List<ToolRequest> =
+        if (failureMode in appSearchVerificationFailureModes) {
+            listOf(appSearchRequest(MobileActionFunctions.UI_WAIT, index))
+        } else {
+            emptyList()
+        }
+
+    private fun appSearchDraft(request: ToolRequest): ActionDraft =
+        ActionDraft(
+            functionName = request.toolName,
+            title = request.toolName,
+            summary = request.reason,
+            parameters = request.arguments,
+            requiresConfirmation = true,
+        )
+
+    private fun appSearchSkillPlan(requests: List<ToolRequest>): SkillPlan {
+        val skillRequest = SkillRequest(
+            id = "app-search-skill-request",
+            skillId = "open_app_ui_search_skill",
+            arguments = mapOf(
+                "appName" to "淘宝",
+                "query" to "耳机",
+            ),
+            reason = "Open an app and search through its UI.",
+        )
+        return SkillPlan(
+            request = skillRequest,
+            manifest = SkillManifest(
+                id = skillRequest.skillId,
+                version = 1,
+                title = "Open App UI Search",
+                description = "Open an app and submit a query through its UI.",
+                triggerExamples = listOf("打开淘宝搜索耳机"),
+                requiredTools = requests.map { request -> request.toolName },
+                inputSchemaJson = """{"type":"object","additionalProperties":false}""",
+                riskLevel = RiskLevel.MediumDraftOrNavigation,
+                lowRiskAppControlEligible = true,
+            ),
+            steps = requests.map { request ->
+                SkillStep.ToolStep(
+                    request = request,
+                    draft = appSearchDraft(request),
+                    id = request.id,
+                )
+            },
+        )
+    }
+
+    private fun appSearchObservedResult(
+        request: ToolRequest,
+        failureMode: String?,
+    ): ToolResult =
+        if (failureMode == null) {
+            ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Succeeded,
+                summary = "App search step completed.",
+            )
+        } else {
+            ToolResult(
+                requestId = request.id,
+                status = ToolStatus.Failed,
+                summary = "App search step failed: $failureMode.",
+                data = appSearchFailureData(failureMode),
+            )
+        }
+
+    private fun appSearchFailureData(failureMode: String): Map<String, String> =
+        buildMap {
+            put(
+                "failureKind",
+                if (failureMode == "page_not_changed") {
+                    "result_not_verified"
+                } else {
+                    failureMode
+                },
+            )
+            if (failureMode == "result_not_verified") {
+                put("searchVerificationEvidence", "query_missing")
+            }
+            if (failureMode == "page_not_changed") {
+                put("searchVerificationEvidence", "page_not_changed")
+            }
+        }
 
     private fun assertRemotePrivateToolTrace(
         trace: JSONObject,
@@ -1225,6 +1413,12 @@ class AiBehaviorActualTraceGeneratorTest {
         "runtime_app_search_result_not_verified",
         "runtime_app_search_required_hint_missing",
         "runtime_app_search_page_not_changed",
+    )
+
+    private val appSearchVerificationFailureModes = setOf(
+        "result_not_verified",
+        "required_hint_missing",
+        "page_not_changed",
     )
 
     private val remoteToolSequenceCaseIds = setOf(

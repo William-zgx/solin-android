@@ -8386,7 +8386,7 @@ class AgentLoopRuntimeTest {
 
         val result = runtime.runOnce(
             input = "帮我写邮件",
-            installedCapabilities = setOf(ModelCapability.Chat),
+            installedCapabilities = setOf(ModelCapability.Chat, ModelCapability.MobileAction),
             memoryEnabled = false,
         )
 
@@ -8398,6 +8398,93 @@ class AgentLoopRuntimeTest {
             step is AgentStep.ToolRejected &&
                 step.result.status == ToolStatus.Rejected
         })
+    }
+
+    @Test
+    fun modelBackedActionPlanningWithoutMobileActionReturnsMissingModel() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = modelBackedWifiPlanningResult(),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            actionModelPath = "/verified/action-model.task",
+        )
+
+        assertEquals(AgentRunState.Failed, result.run.state)
+        require(result.plan is AgentPlan.MissingModel)
+        assertEquals(ModelCapability.MobileAction, result.plan.capability)
+        assertEquals(1, actionRuntime.planCallCount)
+        assertTrue(result.steps.any { step ->
+            step is AgentStep.ModelPlanned &&
+                step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
+        })
+        assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
+        assertNull(runtime.latestPendingConfirmation())
+    }
+
+    @Test
+    fun ruleBackedActionPlanningDoesNotRequireMobileAction() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = wifiPlanningResult(),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, result.plan.request.toolName)
+        assertFalse(result.plan.plannedByModel)
+        assertEquals("test fallback", result.plan.fallbackReason)
+        assertEquals(1, actionRuntime.planCallCount)
+    }
+
+    @Test
+    fun modelBackedActionPlanningWorksWhenMobileActionInstalled() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = modelBackedWifiPlanningResult(),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat, ModelCapability.MobileAction),
+            memoryEnabled = false,
+            actionModelPath = "/verified/action-model.task",
+        )
+
+        assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
+        require(result.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.OPEN_WIFI_SETTINGS, result.plan.request.toolName)
+        assertTrue(result.plan.plannedByModel)
+        assertNull(result.plan.fallbackReason)
+        assertEquals(1, actionRuntime.planCallCount)
     }
 
     @Test
@@ -9537,6 +9624,12 @@ class AgentLoopRuntimeTest {
             ),
             usedModel = false,
             fallbackReason = "test fallback",
+        )
+
+    private fun modelBackedWifiPlanningResult(): ActionPlanningResult =
+        wifiPlanningResult().copy(
+            usedModel = true,
+            fallbackReason = null,
         )
 
     private fun uiTapPlanningResult(target: String): ActionPlanningResult =

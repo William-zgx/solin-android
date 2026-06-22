@@ -97,7 +97,6 @@ class AgentLoopRuntime(
     private val remoteExposedToolNamesByRunId = mutableMapOf<String, Set<String>>()
     private val lowRiskDeviceActionConfirmationBypassByRunId = mutableMapOf<String, Boolean>()
 
-    @Suppress("UNUSED_PARAMETER")
     fun runOnce(
         input: String,
         installedCapabilities: Set<ModelCapability>,
@@ -121,7 +120,11 @@ class AgentLoopRuntime(
         traceStore.updateState(createdRun.id, AgentRunState.Planning)
 
         val initialToolPlan = when (options.initialPlanningMode) {
-            InitialPlanningMode.RuleFirst -> planToolIfSupported(input, actionModelPath)
+            InitialPlanningMode.RuleFirst -> planToolIfSupported(
+                input = input,
+                installedCapabilities = installedCapabilities,
+                actionModelPath = actionModelPath,
+            )
             InitialPlanningMode.ModelFirstRemoteTools -> planLocalOnlySkillBeforeRemote(input)
         }
         when (initialToolPlan) {
@@ -140,6 +143,10 @@ class AgentLoopRuntime(
                     plan = initialToolPlan,
                     steps = traceStore.steps(createdRun.id),
                 )
+            }
+
+            is AgentPlan.MissingModel -> {
+                return failMissingModelPlan(createdRun, initialToolPlan)
             }
 
             null -> Unit
@@ -1636,6 +1643,22 @@ class AgentLoopRuntime(
         )
     }
 
+    private fun failMissingModelPlan(
+        run: AgentRun,
+        plan: AgentPlan.MissingModel,
+    ): AgentLoopResult {
+        val reason = "Missing model capability ${plan.capability.name}."
+        traceStore.appendStep(run.id, AgentStep.ModelPlanned(plan))
+        traceStore.appendStep(run.id, AgentStep.Failed(reason))
+        val failedRun = traceStore.updateState(run.id, AgentRunState.Failed)
+        clearEphemeralRunState(run.id)
+        return AgentLoopResult(
+            run = failedRun,
+            plan = plan,
+            steps = traceStore.steps(run.id),
+        )
+    }
+
     fun latestPendingConfirmation(sessionId: String? = null): PendingToolConfirmationSnapshot? =
         traceStore.latestPendingConfirmation(sessionId)
             ?.takeIf { snapshot -> restoredPendingConfirmationIsAuthorized(snapshot) }
@@ -1783,14 +1806,19 @@ class AgentLoopRuntime(
         ) : NextObservationPlan()
     }
 
-    private fun planToolIfSupported(input: String, actionModelPath: String?): AgentPlan? =
+    private fun planToolIfSupported(
+        input: String,
+        installedCapabilities: Set<ModelCapability>,
+        actionModelPath: String?,
+    ): AgentPlan? =
         planToolForInput(
             input = input,
+            installedCapabilities = installedCapabilities,
             actionModelPath = actionModelPath,
             allowDirectSkillPlan = true,
             allowMultiStepSkillPlan = true,
         ) ?: input.initialSequentialActionInput()?.let { firstActionInput ->
-            planInitialSequentialSegment(firstActionInput, actionModelPath)
+            planInitialSequentialSegment(firstActionInput, installedCapabilities, actionModelPath)
         }
 
     private fun planLocalOnlySkillBeforeRemote(input: String): AgentPlan? {
@@ -1800,11 +1828,13 @@ class AgentLoopRuntime(
 
     private fun planInitialSequentialSegment(
         input: String,
+        installedCapabilities: Set<ModelCapability> = emptySet(),
         actionModelPath: String?,
     ): AgentPlan? =
         planCompositeSkillForInitialSequentialSegment(input)
             ?: planToolForInput(
                 input = input,
+                installedCapabilities = installedCapabilities,
                 actionModelPath = actionModelPath,
                 allowDirectSkillPlan = false,
                 allowMultiStepSkillPlan = false,
@@ -1851,6 +1881,7 @@ class AgentLoopRuntime(
 
     private fun planToolForInput(
         input: String,
+        installedCapabilities: Set<ModelCapability>,
         actionModelPath: String?,
         allowDirectSkillPlan: Boolean,
         allowMultiStepSkillPlan: Boolean,
@@ -1864,6 +1895,9 @@ class AgentLoopRuntime(
         val intent = actionPlanningRuntime.classifyIntent(input)
         if (!intent.isAction || !intent.confidence.isActionableForAgentPlan()) return null
         val result = actionPlanningRuntime.plan(input, actionModelPath)
+        if (result.usedModel && ModelCapability.MobileAction !in installedCapabilities) {
+            return AgentPlan.MissingModel(ModelCapability.MobileAction)
+        }
         val draft = result.plan.draft
         if (result.plan.kind != ActionPlanKind.Draft || draft == null) return null
         if (!allowMultiStepSkillPlan && draft.functionName.requiresLocalModelBeforeSequentialTail()) return null
