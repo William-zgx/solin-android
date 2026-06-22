@@ -51,6 +51,64 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
 - 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；`verify_local.sh`
   明确不要求 adb。
 
+## 2026-06-22 Agent Behavior Real-App And Public Batch Gates
+
+本轮覆盖项：
+
+- 新增 `runtime_app_search_page_not_changed` Agent behavior eval fixture，覆盖真实 App 搜索后
+  页面未变化但首页 feed 含 `综合` / `销量` / `筛选` 等结果页提示词的假阳性场景。
+- `verify_ai_behavior_eval.sh` 将 `page_not_changed` 加入 real-app search 必达失败模式；
+  若 fixture 或 actual trace 丢失该模式，release behavior gate 会 fail closed。
+- `AiBehaviorActualTraceGeneratorTest` 生成该 case 的 `agent_loop_runtime` actual trace，并验证
+  工具序列、`fail_closed`、`LocalOnly`、低风险和 `page_not_changed` failure mode。
+- `test_validation_scripts.sh` 新增负例：把该 fixture 的 allowed failure mode 改成
+  `unchanged_page_unclassified` 时，verifier 必须报告
+  `missing-real-app-search-failure-mode-coverage:page_not_changed`。
+- 新增 `privacy_public_weather_batch_allowed` Agent behavior eval fixture，用两个
+  `web_search` 工具调用覆盖真正的 public evidence batch，而不是单次 public search。
+- `verify_ai_behavior_eval.sh` 新增必达 boundary gate：
+  `public_evidence_multi_search_batch_allowed` 缺失时必须 fail closed。
+- `AiBehaviorActualTraceGeneratorTest` 使用 `observeModelToolRequests` 生成两次
+  `web_search` 的真实 batch trace，并验证无需确认、`RemoteEligible`、`public_evidence`。
+- `test_validation_scripts.sh` 新增负例：篡改该 fixture 的 `expectedBoundary` 时，verifier
+  必须报告 `missing-required-boundary-coverage:public_evidence_multi_search_batch_allowed`。
+
+验证命令：
+
+```bash
+bash scripts/test_validation_scripts.sh
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  ./gradlew :app:testDebugUnitTest \
+    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
+    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest'
+
+scripts/verify_ai_behavior_eval.sh --require-boundary-map \
+  --report build/verification/ai-behavior-page-not-changed.properties
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
+  AI_BEHAVIOR_ACTUAL_TRACE_FILE=build/verification/ai-behavior-page-not-changed/actual-trace.jsonl \
+  scripts/collect_ai_behavior_actual_trace.sh
+```
+
+结果：
+
+- 红灯确认：新增 validation 负例前，`test_validation_scripts.sh` 报
+  `AI behavior eval requires unchanged real app page coverage unexpectedly succeeded`。
+- 红灯确认：新增 public batch validation 负例前，`test_validation_scripts.sh` 报
+  `AI behavior eval requires public evidence multi-search batch coverage unexpectedly succeeded`。
+- 通过：`Validation script tests passed.`
+- 通过：目标 JVM eval 测试 `BUILD SUCCESSFUL`。
+- 通过：strict fixture verifier 返回 `AI behavior eval fixtures passed: 38 cases across 7
+  categories and 6 MVP scenarios`。
+- 通过：actual trace collector 报告 `caseCount=38`、`traceDiffMismatchCount=0`、
+  `traceDiffMissingActualCount=0`，并在 `requiredRealAppSearchFailureModes` 中包含
+  `editable_not_found,page_not_changed,required_hint_missing,result_not_verified,search_entry_not_found,submit_not_found`。
+- 通过：actual trace diff 中 `privacy_public_weather_batch_allowed` 为 `matched`，实际工具为
+  `["web_search","web_search"]`，`requiredBoundaryIds=public_evidence_multi_search_batch_allowed`
+  且 `missingRequiredBoundaryIds=`。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮只增强本地 behavior eval gate。
+
 ## 2026-06-22 Release Gate Missing Child Report Status
 
 本轮覆盖项：

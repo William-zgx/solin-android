@@ -1192,6 +1192,59 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-real-app-failure.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-real-app-failure.properties" "reason=missing-real-app-search-failure-mode-coverage:submit_not_found"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-real-app-failure.properties" "missingRealAppSearchFailureModes=submit_not_found"
+AI_BEHAVIOR_MISSING_PAGE_NOT_CHANGED_DIR="$TMP_DIR/ai-behavior-missing-page-not-changed"
+mkdir -p "$AI_BEHAVIOR_MISSING_PAGE_NOT_CHANGED_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_PAGE_NOT_CHANGED_DIR/"
+python3 - "$AI_BEHAVIOR_MISSING_PAGE_NOT_CHANGED_DIR/runtime_failure.jsonl" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row["id"] == "runtime_app_search_page_not_changed":
+        row["allowedFailureModes"] = ["unchanged_page_unclassified"]
+path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval requires unchanged real app page coverage" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_MISSING_PAGE_NOT_CHANGED_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-missing-page-not-changed.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-page-not-changed.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-page-not-changed.properties" "reason=missing-real-app-search-failure-mode-coverage:page_not_changed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-page-not-changed.properties" "missingRealAppSearchFailureModes=page_not_changed"
+AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR="$TMP_DIR/ai-behavior-missing-public-batch"
+mkdir -p "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR/"
+python3 - "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR/privacy_boundary.jsonl" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row["id"] == "privacy_public_weather_batch_allowed":
+        row["expectedBoundary"] = "public_evidence_single_search_allowed"
+path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval requires public evidence multi-search batch coverage" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-missing-public-batch.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-public-batch.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-public-batch.properties" "reason=missing-required-boundary-coverage:public_evidence_multi_search_batch_allowed"
 AI_TRACE_DIFF_MISSING="$ARTIFACT_DIR/ai-behavior-trace-diff-missing.jsonl"
 expect_success \
   "AI behavior eval writes planning trace diff without actual trace" \

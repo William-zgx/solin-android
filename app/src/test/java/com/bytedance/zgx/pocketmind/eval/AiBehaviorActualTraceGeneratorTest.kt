@@ -108,6 +108,8 @@ class AiBehaviorActualTraceGeneratorTest {
         assertAppSearchFailureTrace(traceRowsByCaseId.getValue("runtime_app_search_submit_not_found"), "submit_not_found")
         assertAppSearchFailureTrace(traceRowsByCaseId.getValue("runtime_app_search_result_not_verified"), "result_not_verified")
         assertAppSearchFailureTrace(traceRowsByCaseId.getValue("runtime_app_search_required_hint_missing"), "required_hint_missing")
+        assertAppSearchFailureTrace(traceRowsByCaseId.getValue("runtime_app_search_page_not_changed"), "page_not_changed")
+        assertPublicEvidenceBatchTrace(traceRowsByCaseId.getValue("privacy_public_weather_batch_allowed"))
         assertRemoteImagePreviewTrace(traceRowsByCaseId.getValue("privacy_remote_image_preview"))
         assertTruncatedPdfOcrTrace(traceRowsByCaseId.getValue("ocr_pdf_scan_truncated"))
         assertRestoredConfirmationNoAutoExecuteTrace(
@@ -149,6 +151,9 @@ class AiBehaviorActualTraceGeneratorTest {
         }
         if (fixture.getString("id") == "memory_forget_language") {
             return collectMemoryForgetLanguageTrace(fixture)
+        }
+        if (fixture.getString("id") == "privacy_public_weather_batch_allowed") {
+            return collectPublicEvidenceBatchTrace(fixture)
         }
         if (fixture.getString("id") in realAppSearchFailureModes) {
             return collectAppSearchFailureTrace(fixture)
@@ -329,6 +334,79 @@ class AiBehaviorActualTraceGeneratorTest {
         assertEquals(false, trace.getBoolean("localOnly"))
         assertEquals(true, trace.getBoolean("remoteEligible"))
         assertEquals("", trace.getString("failureMode"))
+    }
+
+    private fun assertPublicEvidenceBatchTrace(trace: JSONObject) {
+        assertEquals(
+            JSONArray(listOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.WEB_SEARCH)).toString(),
+            trace.getJSONArray("actualTools").toString(),
+        )
+        assertEquals("none", trace.getString("actualConfirmation"))
+        assertEquals("public_evidence", trace.getString("actualRiskLevel"))
+        assertEquals(MessagePrivacy.RemoteEligible.name, trace.getString("privacy"))
+        assertEquals(false, trace.getBoolean("localOnly"))
+        assertEquals(true, trace.getBoolean("remoteEligible"))
+        assertEquals("", trace.getString("failureMode"))
+    }
+
+    private fun collectPublicEvidenceBatchTrace(fixture: JSONObject): JSONObject {
+        val input = fixture.getString("input")
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = RuleActionRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "普通远程公开问题",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        runtime.recordRemoteToolsExposed(
+            runId = result.run.id,
+            scope = RemoteToolScope.PublicEvidenceOnly,
+            toolNames = setOf(MobileActionFunctions.WEB_SEARCH),
+        )
+        val requests = listOf(
+            ToolRequest(
+                id = "public-batch-beijing-weather",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "北京天气"),
+                reason = "remote model requested first public weather evidence",
+            ),
+            ToolRequest(
+                id = "public-batch-shanghai-weather",
+                toolName = MobileActionFunctions.WEB_SEARCH,
+                arguments = mapOf("query" to "上海天气"),
+                reason = "remote model requested second public weather evidence",
+            ),
+        )
+        val observed = requireNotNull(
+            runtime.observeModelToolRequests(
+                runId = result.run.id,
+                requests = requests,
+            ),
+        )
+        val trace = AgentBehaviorTraceProjector().project(
+            AgentLoopResult(
+                run = observed.run,
+                plan = result.plan,
+                steps = observed.steps,
+            ),
+        )
+        return JSONObject()
+            .put("caseId", fixture.getString("id"))
+            .put("category", fixture.getString("category"))
+            .put("input", input)
+            .put("actualTools", JSONArray(trace.actualTools))
+            .put("actualConfirmation", trace.actualConfirmation.toFixtureValue())
+            .put("actualRiskLevel", trace.actualRiskLevel.toFixtureValue())
+            .put("privacy", trace.privacy.name)
+            .put("localOnly", trace.localOnly)
+            .put("remoteEligible", trace.remoteEligible)
+            .put("failureMode", trace.failureMode ?: "")
+            .putRoutingFields(trace)
+            .put("traceSource", "agent_loop_runtime")
+            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
     }
 
     private fun assertTaobaoSearchBackTrace(trace: JSONObject) {
@@ -1146,6 +1224,7 @@ class AiBehaviorActualTraceGeneratorTest {
         "runtime_app_search_submit_not_found",
         "runtime_app_search_result_not_verified",
         "runtime_app_search_required_hint_missing",
+        "runtime_app_search_page_not_changed",
     )
 
     private val remoteToolSequenceCaseIds = setOf(
