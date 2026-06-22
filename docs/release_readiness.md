@@ -180,6 +180,12 @@ items below.
   gate contracts continue to harden. This is not yet release-ready: physical
   arm64 validation, arm64 emulator matrix, real-app device loops, perf baseline,
   screenshots, manual approvals, and production signing remain blocking evidence.
+- The latest local hardening also rejects contradictory instrumentation outputs
+  that contain both failure markers and final OK, requires audit headers on
+  monitoring / crash-smoke / rollback operations evidence, binds strict Agent
+  actual traces to fixture category and input, and adds a direct UI-state contract
+  for verified local vision model capability. These are local gates only; they do
+  not replace physical validation or release-owner evidence.
 
 ## Remaining release blockers by ownership
 

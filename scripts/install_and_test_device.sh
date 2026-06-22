@@ -371,7 +371,7 @@ if [[ "$TEST_STATUS" -eq 124 ]]; then
   FAILURE_REASON="instrumentation-timeout"
   cleanup_test_device_state
 fi
-if [[ "$TEST_STATUS" -eq 0 && "$INSTRUMENTATION_SUCCEEDED" != "1" ]] && instrumentation_output_failed "$TEST_OUTPUT"; then
+if [[ "$TEST_STATUS" -eq 0 ]] && instrumentation_output_failed "$TEST_OUTPUT"; then
   TEST_STATUS=1
   FAILED_TARGET="instrumentation"
   FAILURE_REASON="instrumentation-failed"

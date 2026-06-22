@@ -1626,6 +1626,56 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-unknown-case-id.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-unknown-case-id.properties" "reason=actual-trace-unknown-case-id:1:unknown_case_from_runtime"
 
+AI_ACTUAL_TRACE_WRONG_CATEGORY="$TMP_DIR/ai-behavior-actual-trace-wrong-category.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_WRONG_CATEGORY" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["category"] = "runtime_failure"
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects actual trace category drift for known case id" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE_WRONG_CATEGORY" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-wrong-category.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-wrong-category.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-wrong-category.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-wrong-category.properties" "reason=actual-trace-category-mismatch:1:memory_style_concise"
+
+AI_ACTUAL_TRACE_WRONG_INPUT="$TMP_DIR/ai-behavior-actual-trace-wrong-input.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_WRONG_INPUT" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["input"] = "wrong input for the same case id"
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects actual trace input drift for known case id" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE_WRONG_INPUT" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-wrong-input.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-wrong-input.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-wrong-input.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-wrong-input.properties" "reason=actual-trace-input-mismatch:1:memory_style_concise"
+
 AI_ACTUAL_TRACE_MISSING_FAILURE_MODE="$TMP_DIR/ai-behavior-actual-trace-missing-failure-mode.jsonl"
 python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_MISSING_FAILURE_MODE" <<'PY'
 import json
@@ -2734,6 +2784,7 @@ assert_report_contains_text "$ARTIFACT_DIR/store-policy-placeholder-contact.prop
 OPERATIONS_PENDING="$TMP_DIR/release-operations-pending.json"
 OPERATIONS_APPROVED="$TMP_DIR/release-operations-approved.json"
 OPERATIONS_DATE="$(date +%F)"
+OPERATIONS_RECORDED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 OPERATIONS_MONITORING_EVIDENCE="$TMP_DIR/release-operations-monitoring.properties"
 OPERATIONS_MONITORING_PENDING_EVIDENCE="$TMP_DIR/release-operations-monitoring-pending.properties"
 OPERATIONS_MONITORING_PENDING_RECORD="$TMP_DIR/release-operations-monitoring-pending.json"
@@ -2768,10 +2819,14 @@ OPERATIONS_FAKE_SHA_2="222222222222222222222222222222222222222222222222222222222
 OPERATIONS_FAKE_SHA_3="3333333333333333333333333333333333333333333333333333333333333333"
 OPERATIONS_FAKE_SHA_4="4444444444444444444444444444444444444444444444444444444444444444"
 cat > "$OPERATIONS_MONITORING_EVIDENCE" <<OPERATIONS_MONITORING_EVIDENCE_PROPERTIES
+artifactSchema=ReleaseMonitoringEvidence/v1
 status=passed
 target=release-monitoring-evidence
-operationsRecordField=monitoring.evidence
 owner=Release Owner
+recordedAt=$OPERATIONS_RECORDED_AT
+command=manual-release-monitoring-review
+reproduciblePath=$OPERATIONS_MONITORING_EVIDENCE
+operationsRecordField=monitoring.evidence
 signalSources=Android Vitals,Internal dogfood feedback
 first24HoursWatcher=Launch Watcher
 crashFreeRateThresholdPercent=99.5
@@ -2991,6 +3046,9 @@ expect_success \
     --window "2026-06-06 internal smoke" \
     --track internal_testing
 assert_report_contains "$OPERATIONS_SMOKE_EVIDENCE" "status=passed"
+assert_release_verifier_report_schema \
+  "$OPERATIONS_SMOKE_EVIDENCE" \
+  "CrashAnrSmokeEvidence/v1"
 assert_report_contains "$OPERATIONS_SMOKE_EVIDENCE" "operationsRecordField=crashAnrSmoke.evidence"
 assert_report_contains "$OPERATIONS_SMOKE_EVIDENCE" "logcatAnalyzed=true"
 assert_report_contains "$OPERATIONS_SMOKE_EVIDENCE" "instrumentationFailureSignalCount=0"
@@ -3043,10 +3101,14 @@ assert_report_contains "$OPERATIONS_SMOKE_INSTRUMENTATION_CRASH_REPORT" "status=
 assert_report_contains "$OPERATIONS_SMOKE_INSTRUMENTATION_CRASH_REPORT" "noLaunchCrash=false"
 assert_report_contains_text "$OPERATIONS_SMOKE_INSTRUMENTATION_CRASH_REPORT" "instrumentation-crash-signal-detected"
 cat > "$OPERATIONS_ROLLBACK_EVIDENCE" <<OPERATIONS_ROLLBACK_EVIDENCE_PROPERTIES
+artifactSchema=ReleaseRollbackEvidence/v1
 status=passed
 target=release-rollback-evidence
-operationsRecordField=rollback.evidence
 owner=Release Owner
+recordedAt=$OPERATIONS_RECORDED_AT
+command=manual-release-rollback-review
+reproduciblePath=$OPERATIONS_ROLLBACK_EVIDENCE
+operationsRecordField=rollback.evidence
 decisionChannel=#pocketmind-release
 criteria=install failure,crash loop,model download verification failure,privacy boundary failure,critical tool execution regression
 firstStagedRolloutAction=Halt rollout, keep collecting Android Vitals and user reports, then decide whether to resume, replace, or ship a fixed build.
@@ -3275,6 +3337,27 @@ expect_failure \
   "release operations verifier rejects pending monitoring evidence with matching sha" \
   scripts/verify_release_operations_record.sh --file "$OPERATIONS_MONITORING_PENDING_RECORD" --report "$ARTIFACT_DIR/release-operations-monitoring-pending.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-operations-monitoring-pending.properties" "monitoring-evidence-status-not-passed"
+OPERATIONS_MONITORING_WEAK_EVIDENCE="$TMP_DIR/release-operations-monitoring-weak-audit.properties"
+grep -Ev '^(artifactSchema|recordedAt|command|reproduciblePath)=' \
+  "$OPERATIONS_MONITORING_EVIDENCE" > "$OPERATIONS_MONITORING_WEAK_EVIDENCE"
+OPERATIONS_MONITORING_WEAK_RECORD="$TMP_DIR/release-operations-monitoring-weak-audit.json"
+python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_MONITORING_WEAK_RECORD" "$OPERATIONS_MONITORING_WEAK_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+record_path, target_path, evidence_path = map(Path, sys.argv[1:])
+record = json.loads(record_path.read_text())
+record["monitoring"]["evidence"]["path"] = str(evidence_path)
+record["monitoring"]["evidence"]["sha256"] = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+target_path.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release operations verifier rejects monitoring evidence without audit header" \
+  scripts/verify_release_operations_record.sh --file "$OPERATIONS_MONITORING_WEAK_RECORD" --report "$ARTIFACT_DIR/release-operations-monitoring-weak-audit.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-monitoring-weak-audit.properties" "monitoring-evidence-artifact-schema-invalid"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-monitoring-weak-audit.properties" "monitoring-evidence-command-missing"
 sed 's/^status=passed$/status=pending/' "$OPERATIONS_ROLLBACK_EVIDENCE" > "$OPERATIONS_ROLLBACK_PENDING_EVIDENCE"
 python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_ROLLBACK_PENDING_RECORD" "$OPERATIONS_ROLLBACK_PENDING_EVIDENCE" <<'PY'
 import hashlib
@@ -3292,6 +3375,27 @@ expect_failure \
   "release operations verifier rejects pending rollback evidence with matching sha" \
   scripts/verify_release_operations_record.sh --file "$OPERATIONS_ROLLBACK_PENDING_RECORD" --report "$ARTIFACT_DIR/release-operations-rollback-pending.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-operations-rollback-pending.properties" "rollback-evidence-status-not-passed"
+OPERATIONS_ROLLBACK_WEAK_EVIDENCE="$TMP_DIR/release-operations-rollback-weak-audit.properties"
+grep -Ev '^(artifactSchema|recordedAt|command|reproduciblePath)=' \
+  "$OPERATIONS_ROLLBACK_EVIDENCE" > "$OPERATIONS_ROLLBACK_WEAK_EVIDENCE"
+OPERATIONS_ROLLBACK_WEAK_RECORD="$TMP_DIR/release-operations-rollback-weak-audit.json"
+python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_ROLLBACK_WEAK_RECORD" "$OPERATIONS_ROLLBACK_WEAK_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+record_path, target_path, evidence_path = map(Path, sys.argv[1:])
+record = json.loads(record_path.read_text())
+record["rollback"]["evidence"]["path"] = str(evidence_path)
+record["rollback"]["evidence"]["sha256"] = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+target_path.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release operations verifier rejects rollback evidence without audit header" \
+  scripts/verify_release_operations_record.sh --file "$OPERATIONS_ROLLBACK_WEAK_RECORD" --report "$ARTIFACT_DIR/release-operations-rollback-weak-audit.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-rollback-weak-audit.properties" "rollback-evidence-artifact-schema-invalid"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-rollback-weak-audit.properties" "rollback-evidence-command-missing"
 expect_failure \
   "release operations verifier rejects stale release artifact context" \
   env EXPECTED_COMMIT_SHA="$OPERATIONS_COMMIT_SHA" \
@@ -3432,6 +3536,27 @@ expect_failure \
   "release operations verifier rejects crash smoke evidence sha mismatch" \
   scripts/verify_release_operations_record.sh --file "$OPERATIONS_SMOKE_BAD_SHA" --report "$ARTIFACT_DIR/release-operations-smoke-bad-sha.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-operations-smoke-bad-sha.properties" "crash-anr-smoke-evidence-sha-mismatch"
+OPERATIONS_SMOKE_WEAK_EVIDENCE="$TMP_DIR/release-operations-smoke-weak-audit.properties"
+grep -Ev '^(artifactSchema|recordedAt|command|reproduciblePath)=' \
+  "$OPERATIONS_SMOKE_EVIDENCE" > "$OPERATIONS_SMOKE_WEAK_EVIDENCE"
+OPERATIONS_SMOKE_WEAK_RECORD="$TMP_DIR/release-operations-smoke-weak-audit.json"
+python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_SMOKE_WEAK_RECORD" "$OPERATIONS_SMOKE_WEAK_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+record_path, target_path, evidence_path = map(Path, sys.argv[1:])
+record = json.loads(record_path.read_text())
+record["crashAnrSmoke"]["evidence"]["path"] = str(evidence_path)
+record["crashAnrSmoke"]["evidence"]["sha256"] = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+target_path.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release operations verifier rejects crash smoke evidence without audit header" \
+  scripts/verify_release_operations_record.sh --file "$OPERATIONS_SMOKE_WEAK_RECORD" --report "$ARTIFACT_DIR/release-operations-smoke-weak-audit.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-smoke-weak-audit.properties" "crash-anr-smoke-evidence-artifact-schema-invalid"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-smoke-weak-audit.properties" "crash-anr-smoke-evidence-command-missing"
 python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_SMOKE_FAILED_RECORD" "$OPERATIONS_SMOKE_EVIDENCE" "$OPERATIONS_SMOKE_FAILED_EVIDENCE" <<'PY'
 import hashlib
 import json
@@ -5031,6 +5156,50 @@ expect_failure \
   "release validation verifier rejects physical report output count mismatch" \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_DEVICE_OUTPUT_COUNT_MISMATCH" --report "$ARTIFACT_DIR/release-validation-device-output-count-mismatch.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-device-output-count-mismatch.properties" "physical-device-report-instrumentation-output-count-mismatch"
+VALIDATION_DEVICE_CONFLICTING_OUTPUT="$TMP_DIR/release-validation-device-conflicting-output.json"
+VALIDATION_DEVICE_CONFLICTING_OUTPUT_REPORT="$TMP_DIR/device-conflicting-output.properties"
+VALIDATION_DEVICE_CONFLICTING_INSTRUMENTATION="$TMP_DIR/instrumentation-conflicting.txt"
+printf 'FAILURES!!!\nTests run: %s,  Failures: 1\nOK (%s tests)\n' "$SOURCE_ANDROID_TEST_COUNT" "$SOURCE_ANDROID_TEST_COUNT" > "$VALIDATION_DEVICE_CONFLICTING_INSTRUMENTATION"
+cat > "$VALIDATION_DEVICE_CONFLICTING_OUTPUT_REPORT" <<VALIDATION_DEVICE_CONFLICTING_OUTPUT_PROPERTIES
+status=passed
+exit_code=0
+target=device
+failedTarget=
+reason=
+started_at_utc=2026-06-06T00:00:00Z
+finished_at_utc=2026-06-06T00:01:00Z
+serial=device-a
+api_level=36
+abi=arm64-v8a
+clean_device=1
+data_free_kb=4194304
+instrumentation=passed
+instrumentation_test_count=$SOURCE_ANDROID_TEST_COUNT
+instrumentation_output_file=$VALIDATION_DEVICE_CONFLICTING_INSTRUMENTATION
+instrumentation_output_sha256=$(shasum -a 256 "$VALIDATION_DEVICE_CONFLICTING_INSTRUMENTATION" | awk '{print $1}')
+logcat_file=$VALIDATION_EMULATOR_LOGCAT
+logcat_sha256=$(shasum -a 256 "$VALIDATION_EMULATOR_LOGCAT" | awk '{print $1}')
+debug_apk=app/build/outputs/apk/debug/app-debug.apk
+android_test_apk=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+VALIDATION_DEVICE_CONFLICTING_OUTPUT_PROPERTIES
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_DEVICE_CONFLICTING_OUTPUT" "$VALIDATION_DEVICE_CONFLICTING_OUTPUT_REPORT" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+report = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["physicalDevice"]["reportPath"] = str(report)
+record["physicalDevice"]["reportSha256"] = hashlib.sha256(report.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects contradictory physical instrumentation output" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_DEVICE_CONFLICTING_OUTPUT" --report "$ARTIFACT_DIR/release-validation-device-conflicting-output.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-device-conflicting-output.properties" "physical-device-report-instrumentation-output-failure-marker"
 VALIDATION_EMULATOR_AS_PHYSICAL="$TMP_DIR/release-validation-emulator-as-physical.json"
 sed \
   -e 's#"reportPath": "'"$VALIDATION_DEVICE_REPORT"'"#"reportPath": "'"$VALIDATION_EMULATOR_DEVICE_REPORT"'"#' \
@@ -7795,6 +7964,22 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason=in
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=3"
 grep -q "FAILURES!!!" "$ARTIFACT_DIR/instrumentation.txt" ||
   fail "Expected failed instrumentation output to be persisted"
+
+reset_logs
+expect_failure \
+  "install helper rejects contradictory instrumentation output even with final OK" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+  FAKE_INSTRUMENTATION_OUTPUT=$'FAILURES!!!\nTests run: 20,  Failures: 1\nOK (20 tests)\nINSTRUMENTATION_CODE: -1' \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
+assert_gradle_called
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=failed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "failedTarget=instrumentation"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason=instrumentation-failed"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=20"
+grep -q "OK (20 tests)" "$ARTIFACT_DIR/instrumentation.txt" ||
+  fail "Expected contradictory instrumentation output to be persisted"
 
 reset_logs
 expect_failure \

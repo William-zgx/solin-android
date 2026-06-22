@@ -13998,3 +13998,60 @@ ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   真实 App 搜索闭环、截图和 perf baseline 不能标记为 passed。
 - Release/privacy/store/model license/manual acceptance/production signing 仍保持
   pending/fail-closed，需要真实 owner 证据和生产环境材料。
+
+## 2026-06-22 Release evidence, strict trace, and local vision hardening
+
+本轮覆盖项：
+
+- 多 Agent 并行审计 Phase 3/4/5 缺口；本轮吸收本地可验证、无需真机/模拟器的三类改进。
+- `scripts/collect_crash_anr_smoke_evidence.sh` 产出
+  `CrashAnrSmokeEvidence/v1` 审计头，包含 owner、UTC `recordedAt`、可复现 command 和
+  `reproduciblePath`。
+- `scripts/verify_release_operations_record.sh` 要求 monitoring、crash/ANR smoke、rollback
+  evidence 均携带对应 schema 审计头；弱 evidence 即使 SHA 正确也会 fail-closed。
+- `scripts/install_and_test_device.sh` 与 `scripts/verify_release_validation_record.sh` 拒绝
+  同时包含 `FAILURES!!!` 和 `OK (...)` 的矛盾 instrumentation 输出，避免失败标记被最终 OK
+  覆盖。
+- `scripts/verify_ai_behavior_eval.sh --require-actual-trace` 要求 actual trace 的 `caseId`、
+  `category`、`input` 与 fixture 同时匹配，避免用正确 caseId 包装错误场景。
+- `ChatUiStateModelVerificationTest` 新增本地视觉正例：active verified recommended chat model
+  必须暴露 text+vision capability，并让 UI state 报告支持本地图片输入。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/install_and_test_device.sh \
+  scripts/verify_release_validation_record.sh scripts/collect_crash_anr_smoke_evidence.sh \
+  scripts/verify_release_operations_record.sh scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+    --tests 'com.bytedance.zgx.pocketmind.ChatUiStateModelVerificationTest' \
+    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
+    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 operations evidence audit headers、弱 monitoring /
+  rollback / crash smoke evidence 拒绝、矛盾 instrumentation 输出拒绝、strict actual trace
+  category/input drift 拒绝。
+- 通过：Chat UI state / AI behavior targeted JVM tests。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM tests、debug/release
+  build、AndroidTest assemble、lint 和 artifact scan。
+
+剩余风险：
+
+- 本轮仍未跑真机或模拟器 instrumentation；physical validation、arm64 emulator API matrix、
+  真实 App 真机闭环、截图和 perf baseline 仍未完成。
+- 子 Agent 发现但本轮未改的后续项：`permissiondenied` 需要真实生成 actual trace；
+  AI collector 可继续收紧为全量 `agent_loop_runtime` 来源；recent image/screenshot OCR
+  metadata 策略需先明确；release memory boundary 可拆成更细的机器字段；store/privacy
+  verifier 可进一步锁定远程多模态边界文案。

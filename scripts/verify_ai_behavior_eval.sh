@@ -440,6 +440,7 @@ missing_required_boundary_ids = sorted(required_boundary_ids - boundaries)
 
 case_ids = [case["caseId"] for case in eval_cases]
 case_id_set = set(case_ids)
+case_by_id = {case["caseId"]: case for case in eval_cases}
 duplicate_case_ids = sorted(case_id for case_id, count in collections.Counter(case_ids).items() if count > 1)
 if duplicate_case_ids:
     print(f"reason=duplicate-trace-case-id:{','.join(duplicate_case_ids)}")
@@ -497,6 +498,13 @@ def load_actual_traces():
                 sys.exit(1)
             if case_id not in case_id_set:
                 print(f"reason=actual-trace-unknown-case-id:{line_number}:{case_id}")
+                sys.exit(1)
+            expected_case = case_by_id[case_id]
+            if category != expected_case["category"]:
+                print(f"reason=actual-trace-category-mismatch:{line_number}:{case_id}")
+                sys.exit(1)
+            if input_text != expected_case["input"]:
+                print(f"reason=actual-trace-input-mismatch:{line_number}:{case_id}")
                 sys.exit(1)
             if case_id in seen_actual_case_ids:
                 print(f"reason=actual-trace-duplicate-case-id:{case_id}")

@@ -23,6 +23,28 @@ class ChatUiStateModelVerificationTest {
     }
 
     @Test
+    fun activeVerifiedRecommendedVisionModelReportsLocalVisionSupport() {
+        val state = ChatUiState(
+            activeInstalledModelId = DEFAULT_CHAT_MODEL_ID,
+            installedModels = listOf(
+                installedModel(
+                    id = DEFAULT_CHAT_MODEL_ID,
+                    recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+                    verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+                ),
+            ),
+        )
+
+        assertEquals(DEFAULT_CHAT_MODEL_ID, state.activeLocalCapabilityProfile?.id)
+        assertEquals(
+            setOf(ModelInputModality.Text, ModelInputModality.Vision),
+            state.activeLocalCapabilityProfile?.inputModalities,
+        )
+        assertTrue(state.activeLocalCapabilityProfile?.supportsVisionInput == true)
+        assertTrue(state.activeLocalModelSupportsVisionInput)
+    }
+
+    @Test
     fun unverifiedRecommendedModelsDoNotCountAsInstalledOrCapabilities() {
         val state = ChatUiState(
             activeInstalledModelId = "legacy-chat",

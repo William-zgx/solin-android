@@ -518,6 +518,13 @@ if monitoring.get("privacyReviewedForCrashSdk") is not True:
 monitoring_evidence_path = validate_evidence_file("monitoring", monitoring.get("evidence"))
 if monitoring_evidence_path is not None:
     monitoring_props = properties_for(monitoring_evidence_path)
+    validate_report_schema(
+        "monitoring-evidence",
+        monitoring_props,
+        monitoring_evidence_path,
+        "ReleaseMonitoringEvidence/v1",
+        expected_owner=monitoring.get("owner", ""),
+    )
     if monitoring_props.get("status") != "passed":
         failures.append("monitoring-evidence-status-not-passed")
     if monitoring_props.get("target") != "release-monitoring-evidence":
@@ -562,6 +569,12 @@ for field in (
 smoke_evidence_path = validate_evidence_file("crash-anr-smoke", smoke.get("evidence"))
 if smoke_evidence_path is not None:
     smoke_props = properties_for(smoke_evidence_path)
+    validate_report_schema(
+        "crash-anr-smoke-evidence",
+        smoke_props,
+        smoke_evidence_path,
+        "CrashAnrSmokeEvidence/v1",
+    )
     if smoke_props.get("status") != "passed":
         failures.append("crash-anr-smoke-evidence-status-not-passed")
     if smoke_props.get("target") != "crash-anr-smoke-evidence":
@@ -709,6 +722,13 @@ else:
 
 if rollback_evidence_path is not None:
     rollback_props = properties_for(rollback_evidence_path)
+    validate_report_schema(
+        "rollback-evidence",
+        rollback_props,
+        rollback_evidence_path,
+        "ReleaseRollbackEvidence/v1",
+        expected_owner=rollback.get("owner", ""),
+    )
     if rollback_props.get("status") != "passed":
         failures.append("rollback-evidence-status-not-passed")
     if rollback_props.get("target") != "release-rollback-evidence":
