@@ -1028,6 +1028,32 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun localOnlyOcrAndScreenToolsUseLocalEvidenceContinuationPolicy() {
+        val localEvidenceTools = setOf(
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+        )
+
+        localEvidenceTools.forEach { toolName ->
+            val spec = registry.specFor(toolName)
+            assertNotNull(spec)
+            requireNotNull(spec)
+
+            assertEquals(
+                "$toolName must keep local-only evidence inside local continuation",
+                ToolResultContinuationPolicy.LocalEvidence,
+                spec.resultContinuationPolicy,
+            )
+            assertTrue("$toolName must declare private outputs", spec.privateOutputKeys.isNotEmpty())
+            assertEquals(ConfirmationPolicy.Required, spec.confirmationPolicy)
+            assertFalse("$toolName must not be remote planning eligible", spec.isRemoteModelPlanningEligible())
+            assertFalse("$toolName must not be public evidence batch eligible", spec.isPublicEvidenceBatchEligible())
+        }
+    }
+
+    @Test
     fun pendingArgumentAllowlistsAreDeclaredByToolPolicy() {
         val expectedAllowlists = mapOf(
             MobileActionFunctions.OPEN_APP_BY_NAME to setOf("appName"),

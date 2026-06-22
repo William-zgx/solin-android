@@ -1195,6 +1195,34 @@ expect_failure \
     --report "$ARTIFACT_DIR/ai-behavior-missing-remote-confirmation.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-remote-confirmation.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-remote-confirmation.properties" "reason=missing-confirmation-coverage:remote_send_confirmation"
+AI_BEHAVIOR_REMOTE_CONFIRMATION_LOCALONLY_DIR="$TMP_DIR/ai-behavior-remote-confirmation-localonly"
+mkdir -p "$AI_BEHAVIOR_REMOTE_CONFIRMATION_LOCALONLY_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_REMOTE_CONFIRMATION_LOCALONLY_DIR/"
+python3 - "$AI_BEHAVIOR_REMOTE_CONFIRMATION_LOCALONLY_DIR/privacy_boundary.jsonl" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row["id"] == "privacy_remote_image_preview":
+        row["privacy"] = "LocalOnly"
+        row["localOnly"] = True
+        row["remoteEligible"] = False
+path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects remote confirmation on LocalOnly fixture boundary" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_REMOTE_CONFIRMATION_LOCALONLY_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-remote-confirmation-localonly.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-remote-confirmation-localonly.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-remote-confirmation-localonly.properties" "reason=remote-confirmation-privacy-mismatch:privacy_boundary:6"
 AI_BEHAVIOR_MISSING_REAL_APP_FAILURE_DIR="$TMP_DIR/ai-behavior-missing-real-app-failure"
 mkdir -p "$AI_BEHAVIOR_MISSING_REAL_APP_FAILURE_DIR"
 cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_REAL_APP_FAILURE_DIR/"
@@ -1420,6 +1448,66 @@ expect_failure \
     --report "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-routing.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-routing.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-routing.properties" "reason=invalid-actual-trace:1:routingPath"
+AI_NO_ACTION_WITH_TOOL_TRACE="$TMP_DIR/ai-behavior-actual-trace-no-action-with-tool.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_NO_ACTION_WITH_TOOL_TRACE" <<'PY'
+import json
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1])
+target = pathlib.Path(sys.argv[2])
+rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row.get("actualTools"):
+        row["routingPath"] = "no_action"
+        row["routingRejectionReason"] = "no_action_intent_detected"
+        break
+target.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects no-action routing with actual tool evidence" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_NO_ACTION_WITH_TOOL_TRACE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-no-action-with-tool.jsonl" \
+    --require-actual-trace \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-no-action-with-tool.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-no-action-with-tool.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-no-action-with-tool.properties" "reason=actual-trace-routing-conflict:"
+
+AI_REMOTE_CONFIRMATION_LOCALONLY_TRACE="$TMP_DIR/ai-behavior-actual-trace-remote-confirmation-localonly.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_REMOTE_CONFIRMATION_LOCALONLY_TRACE" <<'PY'
+import json
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1])
+target = pathlib.Path(sys.argv[2])
+rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row.get("actualConfirmation") == "remote_send_confirmation":
+        row["privacy"] = "LocalOnly"
+        row["localOnly"] = True
+        row["remoteEligible"] = False
+        break
+target.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects actual remote confirmation on LocalOnly boundary" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_REMOTE_CONFIRMATION_LOCALONLY_TRACE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-remote-confirmation-localonly.jsonl" \
+    --require-actual-trace \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-remote-confirmation-localonly.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-remote-confirmation-localonly.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-remote-confirmation-localonly.properties" "reason=actual-trace-remote-confirmation-privacy-mismatch:"
 
 AI_BEHAVIOR_ALLOWED_FAILURE_SAFETY_DIR="$TMP_DIR/ai-behavior-allowed-failure-safety"
 AI_ALLOWED_FAILURE_SAFETY_TRACE="$TMP_DIR/ai-behavior-actual-trace-allowed-failure-safety.jsonl"
@@ -1562,6 +1650,9 @@ source = pathlib.Path(sys.argv[1])
 target = pathlib.Path(sys.argv[2])
 rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
 rows[0]["actualTools"] = ["share_text"]
+rows[0]["routingPath"] = "action_planner"
+rows[0]["routingToolName"] = "share_text"
+rows[0].pop("routingRejectionReason", None)
 target.write_text(
     "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
     encoding="utf-8",

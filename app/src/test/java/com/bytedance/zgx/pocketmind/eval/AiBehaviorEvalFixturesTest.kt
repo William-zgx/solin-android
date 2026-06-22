@@ -148,6 +148,11 @@ class AiBehaviorEvalFixturesTest {
                 assertEquals(true, remoteEligible)
             }
         }
+        if (confirmation == "remote_send_confirmation") {
+            assertEquals("remote send confirmation must be RemoteEligible", "RemoteEligible", privacy)
+            assertEquals(false, localOnly)
+            assertEquals(true, remoteEligible)
+        }
         assertTrue("allowedFailureModes must be an array", row.get("allowedFailureModes") is JSONArray)
     }
 

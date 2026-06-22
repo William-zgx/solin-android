@@ -168,6 +168,51 @@ bash scripts/test_validation_scripts.sh
   artifact scan report 绑定 `artifact1Sha256` 和 `artifact1SizeBytes`。
 - 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮只增强本地 release evidence schema。
 
+## 2026-06-22 LocalOnly Multimodal Tool Policy and AI Eval Invariants
+
+本轮覆盖项：
+
+- `READ_RECENT_SCREENSHOT_OCR`、`READ_RECENT_IMAGE_OCR`、`READ_CURRENT_SCREEN_TEXT`、
+  `CAPTURE_CURRENT_SCREENSHOT_OCR` 的 ToolRegistry policy 显式声明为
+  `ToolResultContinuationPolicy.LocalEvidence`，让 OCR/屏幕 LocalOnly 证据不会依赖分散的
+  tags/private-output fallback。
+- `ToolRegistryTest` 新增契约：上述工具必须有 private outputs、需要确认、不得 remote planning
+  eligible、不得 public evidence batch eligible。
+- `verify_ai_behavior_eval.sh` 新增语义 gate：`remote_send_confirmation` 必须绑定
+  `RemoteEligible/localOnly=false/remoteEligible=true`；actual trace 中
+  `routingPath=no_action` 不能同时携带 actual tools、routing tool 或 skill metadata。
+- `AiBehaviorEvalFixturesTest` 同步 remote-send confirmation 的 RemoteEligible fixture invariant。
+
+验证命令：
+
+```bash
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.localOnlyOcrAndScreenToolsUseLocalEvidenceContinuationPolicy'
+
+ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace' \
+  --tests 'com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContractTest'
+
+bash scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 红灯确认：新增 ToolRegistry 契约先失败于
+  `ToolRegistryTest.localOnlyOcrAndScreenToolsUseLocalEvidenceContinuationPolicy`，证明四个
+  OCR/屏幕工具缺少显式 `LocalEvidence` policy。
+- 红灯确认：`privacy_remote_image_preview` 保持 `remote_send_confirmation` 但改为
+  `LocalOnly` 时，旧 `verify_ai_behavior_eval.sh` 仍接受；新增 gate 后拒绝
+  `remote-confirmation-privacy-mismatch`。
+- 红灯确认：actual trace 中 `routingPath=no_action` 同时带 `actualTools` 时，新增 gate 拒绝
+  `actual-trace-routing-conflict`。
+- 通过：targeted JVM 测试返回 `BUILD SUCCESSFUL`；`scripts/test_validation_scripts.sh`
+  返回 `Validation script tests passed`。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮只增强本地 JVM 和
+  shell eval gate。
+
 ## 2026-06-22 Release Gate Missing Child Report Status
 
 本轮覆盖项：

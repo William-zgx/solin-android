@@ -344,6 +344,11 @@ for category in required:
         if privacy == "RemoteEligible" and (local_only or not remote_eligible):
             print(f"reason=privacy-mismatch:{category}:{line_number}:RemoteEligible")
             sys.exit(1)
+        if expected_confirmation == "remote_send_confirmation" and (
+            privacy != "RemoteEligible" or local_only or not remote_eligible
+        ):
+            print(f"reason=remote-confirmation-privacy-mismatch:{category}:{line_number}")
+            sys.exit(1)
         allowed_failure_modes = row["allowedFailureModes"]
         if (
             not isinstance(allowed_failure_modes, list) or
@@ -499,6 +504,11 @@ def load_actual_traces():
         if privacy == "RemoteEligible" and (local_only or not remote_eligible):
             print(f"reason=actual-trace-privacy-mismatch:{line_number}:RemoteEligible")
             sys.exit(1)
+        if actual_confirmation == "remote_send_confirmation" and (
+            privacy != "RemoteEligible" or local_only or not remote_eligible
+        ):
+            print(f"reason=actual-trace-remote-confirmation-privacy-mismatch:{line_number}")
+            sys.exit(1)
         failure_mode = row.get("failureMode", "")
         if failure_mode is None:
             failure_mode = ""
@@ -520,6 +530,9 @@ def load_actual_traces():
         routing_rejection_reason = str(row.get("routingRejectionReason", "")).strip()
         if routing_rejection_reason and not re.match(r"^[a-z0-9][a-z0-9_.-]*$", routing_rejection_reason):
             print(f"reason=invalid-actual-trace:{line_number}:routingRejectionReason")
+            sys.exit(1)
+        if routing_path == "no_action" and (actual_tools or routing_tool_name or routing_skill_id):
+            print(f"reason=actual-trace-routing-conflict:{line_number}:no_action")
             sys.exit(1)
         trace_source = str(row.get("traceSource", "")).strip()
         trace_recorded_at = row.get("traceRecordedAt", "")
