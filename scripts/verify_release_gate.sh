@@ -102,8 +102,13 @@ write_child_report_binding() {
   local child_key="$1"
   local report_file="$2"
   printf '%sReportPath=%s\n' "$child_key" "$report_file"
-  printf '%sReportStatus=%s\n' "$child_key" "$(report_status_for "$report_file")"
-  printf '%sReportSha256=%s\n' "$child_key" "$(report_sha_for "$report_file")"
+  if [[ -f "$report_file" ]]; then
+    printf '%sReportStatus=%s\n' "$child_key" "$(report_status_for "$report_file")"
+    printf '%sReportSha256=%s\n' "$child_key" "$(report_sha_for "$report_file")"
+  else
+    printf '%sReportStatus=not-produced\n' "$child_key"
+    printf '%sReportSha256=\n' "$child_key"
+  fi
 }
 
 write_gate_report() {

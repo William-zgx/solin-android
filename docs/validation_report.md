@@ -51,6 +51,32 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
 - 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；`verify_local.sh`
   明确不要求 adb。
 
+## 2026-06-22 Release Gate Missing Child Report Status
+
+本轮覆盖项：
+
+- `release-gate.properties` 的 child report binding 对未生成的子报告明确写入
+  `ReportStatus=not-produced` 和空 `ReportSha256`，避免早失败路径留下不可区分的空
+  status。
+- `scripts/test_validation_scripts.sh` 新增 not-produced helper，并覆盖
+  `PUBLIC_RELEASE=1` 缺签名证书时 signing cert 之后所有 downstream child reports
+  尚未运行的早失败路径。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell syntax 检查。
+- 通过：validation script tests 全量通过，覆盖 release gate 早失败 child report
+  `not-produced` 状态。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮只做本地
+  release gate 脚本验证。
+
 ## 2026-06-22 Device Verification Artifact Model Invariants
 
 本轮覆盖项：

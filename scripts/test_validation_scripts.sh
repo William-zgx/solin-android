@@ -697,6 +697,31 @@ assert_release_gate_child_report_bound() {
     fail "Expected release gate report to bind $child_key report SHA"
 }
 
+assert_release_gate_child_report_not_produced() {
+  local gate_report="$1"
+  local child_key="$2"
+  local child_report="$3"
+  assert_report_contains "$gate_report" "${child_key}ReportPath=$child_report"
+  assert_report_contains "$gate_report" "${child_key}ReportStatus=not-produced"
+  assert_report_contains "$gate_report" "${child_key}ReportSha256="
+}
+
+assert_release_gate_children_not_produced() {
+  local gate_report="$1"
+  local report_dir="$2"
+  shift 2
+  local child_key
+  local child_report_name
+  for child_binding in "$@"; do
+    child_key="${child_binding%%:*}"
+    child_report_name="${child_binding#*:}"
+    assert_release_gate_child_report_not_produced \
+      "$gate_report" \
+      "$child_key" \
+      "$report_dir/$child_report_name"
+  done
+}
+
 write_model_release_flow_contract_fixture() {
   local flow="$1"
   case "$flow" in
@@ -5803,6 +5828,21 @@ assert_release_gate_child_report_bound \
   "signingCert" \
   "$ARTIFACT_DIR/public-release-missing-cert/signing-cert.properties" \
   "failed"
+assert_release_gate_children_not_produced \
+  "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" \
+  "$ARTIFACT_DIR/public-release-missing-cert" \
+  "privacyScan:privacy-scan.properties" \
+  "contractTests:contract-tests.properties" \
+  "aiBehaviorEval:ai-behavior-eval.properties" \
+  "androidArtifactScan:android-artifact-scan.properties" \
+  "perfBaseline:perf-baseline-verification.properties" \
+  "releaseMapping:release-mapping.properties" \
+  "releaseRecord:release-record.properties" \
+  "storePolicyRecord:store-policy-record.properties" \
+  "releaseOperationsRecord:release-operations-record.properties" \
+  "releaseValidationRecord:release-validation-record.properties" \
+  "modelLicenseReview:model-license-review.properties" \
+  "privacyReview:privacy-review.properties"
 assert_report_contains "$ARTIFACT_DIR/public-release-missing-cert/signing-cert.properties" "status=failed"
 
 expect_failure \
