@@ -23,6 +23,57 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-23 Agent Action Model Capability Profile Gate
+
+本轮覆盖项：
+
+- `AgentLoopRuntime` 的 model-backed action 规划从只看
+  `installedCapabilities: Set<ModelCapability>` 升级为只看已验证
+  `ModelCapabilityProfile.supportsMobileActionPlanning`；未传 profile 时 fail-closed，不再由旧
+  capability set 放行。
+- `AssistantRouter` / `AssistantOrchestrator` 新增可选
+  `installedCapabilityProfiles` 参数；`PocketMindViewModel` 发送消息时传入
+  `ChatUiState.installedCapabilityProfiles`，该列表只来自可用模型的
+  `InstalledModelSummary.capabilityProfile`。
+- 新增 JVM 覆盖：初始 model-backed action planning 和 observation replan 都在
+  profile 不含 `MobileActionPlanning` 时 fail-closed；即使 capability set 没有
+  `MobileAction`，包含 mobile-action profile 时仍继续规划；ViewModel 会把已验证 chat/action
+  profile 传给 Agent route，未验证 action profile 不会进入列表。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.invalidActionDraftIsRejectedBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWithoutMobileActionReturnsMissingModel' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningPrefersCapabilityProfilesOverCapabilitySet' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedActionPlanningWorksWhenMobileActionInstalled' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWithoutMobileActionReturnsMissingModel' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanPrefersCapabilityProfilesOverCapabilitySet' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWorksWhenMobileActionInstalled' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.sendMessagePassesVerifiedInstalledCapabilityProfilesToAgentRoute'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AssistantOrchestratorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeCompatibilityTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.sendMessagePassesVerifiedInstalledCapabilityProfilesToAgentRoute'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：新增/调整的 Agent action profile gate 目标测试。
+- 通过：`AgentLoopRuntimeTest`、`AssistantOrchestratorTest`、
+  `AgentLoopRuntimeCompatibilityTest` 目标集，覆盖接口兼容性。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM、lint、
+  debug/release assemble、release bundle 和 Android artifact scan。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮是本地 JVM 能力边界推进。
+
 ## 2026-06-23 Model Capability Store Policy Boundary Gate
 
 本轮覆盖项：

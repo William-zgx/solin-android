@@ -1038,6 +1038,53 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun sendMessagePassesVerifiedInstalledCapabilityProfilesToAgentRoute() = runTest(dispatcher) {
+        val chat = installedModelSummary(
+            id = "chat-model",
+            displayName = "当前对话",
+            path = "/tmp/chat.litertlm",
+            recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val action = installedModelSummary(
+            id = "action-model",
+            displayName = "设备动作模型",
+            path = "/tmp/action.litertlm",
+            recommendedModelId = MOBILE_ACTION_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val unverifiedAction = installedModelSummary(
+            id = "unverified-action",
+            displayName = "未验证动作模型",
+            path = "/tmp/unverified-action.litertlm",
+            recommendedModelId = MOBILE_ACTION_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.UnverifiedCustom,
+        )
+        val assistantRouter = FakeAssistantRouter()
+        val viewModel = createViewModel(
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(
+                activeInstalledModelId = chat.id,
+                initialInstalledModels = listOf(chat, action, unverifiedAction),
+            ),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通问题")
+        advanceUntilIdle()
+
+        assertEquals(1, assistantRouter.routeCallCount)
+        assertEquals(
+            listOf(DEFAULT_CHAT_MODEL_ID, MOBILE_ACTION_MODEL_ID),
+            assistantRouter.lastRouteCapabilityProfiles.map { profile -> profile.id },
+        )
+        assertTrue(assistantRouter.lastRouteCapabilityProfiles.any { profile ->
+            profile.supportsMobileActionPlanning
+        })
+    }
+
+    @Test
     fun deleteInactiveInstalledModelKeepsActiveRuntimeReady() = runTest(dispatcher) {
         val active = installedModelSummary(id = "active-chat", displayName = "当前对话", path = "/tmp/active.litertlm")
         val extra = installedModelSummary(id = "extra-chat", displayName = "额外对话", path = "/tmp/extra.litertlm")
@@ -8624,6 +8671,8 @@ class PocketMindViewModelTest {
             private set
         var lastRouteDeviceContext: com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot? = null
             private set
+        var lastRouteCapabilityProfiles: List<ModelCapabilityProfile> = emptyList()
+            private set
         var lastRecordedRunDataReceiptRunId: String? = null
             private set
         var lastRecordedRunDataReceipt: RunDataReceipt? = null
@@ -8657,12 +8706,14 @@ class PocketMindViewModelTest {
             deviceContext: com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot?,
             sessionId: String?,
             options: AgentRunOptions,
+            installedCapabilityProfiles: List<ModelCapabilityProfile>,
         ): AssistantRoute {
             routeCallCount += 1
             lastRouteSessionId = sessionId
             lastRouteMemoryEnabled = memoryEnabled
             lastRouteOptions = options
             lastRouteDeviceContext = deviceContext
+            lastRouteCapabilityProfiles = installedCapabilityProfiles
             routeFailure?.let { throw it }
             val route = routeResult ?:
                 AssistantRoute.Chat(

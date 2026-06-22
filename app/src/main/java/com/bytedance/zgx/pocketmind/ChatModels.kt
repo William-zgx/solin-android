@@ -458,6 +458,9 @@ data class ChatUiState(
             .map { it.capability }
             .toSet()
 
+    val installedCapabilityProfiles: List<ModelCapabilityProfile>
+        get() = installedModels.mapNotNull { it.capabilityProfile }
+
     fun isModelInstalled(modelId: String): Boolean =
         installedModels.any { it.recommendedModelId == modelId && it.isUsable }
 }

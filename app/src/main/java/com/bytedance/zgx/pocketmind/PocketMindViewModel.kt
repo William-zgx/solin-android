@@ -1615,6 +1615,7 @@ class PocketMindViewModel(
                     deviceContext = stateBeforeSend.toDeviceContextSnapshot().takeIf { includePrivateLocalContext },
                     sessionId = stateBeforeSend.activeSessionId,
                     options = agentRunOptions,
+                    installedCapabilityProfiles = stateBeforeSend.installedCapabilityProfiles,
                 )
                 val routeReceipt = route.runDataReceipt(
                     stateBeforeSend = stateBeforeSend,

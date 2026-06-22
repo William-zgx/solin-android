@@ -1,8 +1,11 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.DEFAULT_CHAT_MODEL_ID
 import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
+import com.bytedance.zgx.pocketmind.MOBILE_ACTION_MODEL_ID
 import com.bytedance.zgx.pocketmind.MessagePrivacy
+import com.bytedance.zgx.pocketmind.ModelCatalog
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionIntentConfidence
 import com.bytedance.zgx.pocketmind.action.ActionPlan
@@ -8384,8 +8387,9 @@ class AgentLoopRuntimeTest {
 
         val result = runtime.runOnce(
             input = "帮我写邮件",
-            installedCapabilities = setOf(ModelCapability.Chat, ModelCapability.MobileAction),
+            installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
         )
 
         assertEquals(AgentRunState.Failed, result.run.state)
@@ -8426,6 +8430,35 @@ class AgentLoopRuntimeTest {
             step is AgentStep.ModelPlanned &&
                 step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
         })
+        assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
+        assertNull(runtime.latestPendingConfirmation())
+    }
+
+    @Test
+    fun modelBackedActionPlanningPrefersCapabilityProfilesOverCapabilitySet() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = modelBackedWifiPlanningResult(),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+
+        val result = runtime.runOnce(
+            input = "打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat, ModelCapability.MobileAction),
+            memoryEnabled = false,
+            actionModelPath = "/verified/action-model.task",
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(DEFAULT_CHAT_MODEL_ID)),
+        )
+
+        assertEquals(AgentRunState.Failed, result.run.state)
+        require(result.plan is AgentPlan.MissingModel)
+        assertEquals(ModelCapability.MobileAction, result.plan.capability)
+        assertEquals(1, actionRuntime.planCallCount)
         assertTrue(result.steps.none { it is AgentStep.UserConfirmationRequested })
         assertNull(runtime.latestPendingConfirmation())
     }
@@ -8472,9 +8505,10 @@ class AgentLoopRuntimeTest {
 
         val result = runtime.runOnce(
             input = "打开 Wi-Fi 设置",
-            installedCapabilities = setOf(ModelCapability.Chat, ModelCapability.MobileAction),
+            installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
             actionModelPath = "/verified/action-model.task",
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
         )
 
         assertEquals(AgentRunState.AwaitingUserConfirmation, result.run.state)
@@ -8662,6 +8696,60 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun modelBackedObservationReplanPrefersCapabilityProfilesOverCapabilitySet() {
+        val actionRuntime = ObservationModelActionRuntime(
+            initialDraft = ActionDraft(
+                functionName = MobileActionFunctions.WEB_SEARCH,
+                title = "Web 搜索",
+                summary = "将使用 Web 搜索工具查询并整理结果：Kotlin",
+                parameters = mapOf("query" to "Kotlin"),
+                requiresConfirmation = true,
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = ModelObservationReplanner(
+                actionPlanningRuntime = actionRuntime,
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
+            ),
+        )
+        val planned = runtime.runOnce(
+            input = "搜 Kotlin，并基于结果决定是否打开 Wi-Fi 设置",
+            installedCapabilities = setOf(ModelCapability.Chat, ModelCapability.MobileAction),
+            memoryEnabled = false,
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(DEFAULT_CHAT_MODEL_ID)),
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已完成 Web 搜索：Kotlin search summary",
+                data = webSearchResultData(),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        require(observed.decision is AgentObservationDecision.Fail)
+        assertTrue(observed.decision.reason.contains("Missing model capability MobileAction"))
+        assertTrue(observed.steps.any { step ->
+            step is AgentStep.ModelPlanned &&
+                step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
+        })
+        assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+            step.request.toolName == MobileActionFunctions.OPEN_WIFI_SETTINGS
+        })
+        assertNull(runtime.latestPendingConfirmation())
+    }
+
+    @Test
     fun ruleBackedObservationReplanDoesNotRequireMobileAction() {
         val actionRuntime = RuleActionRuntime()
         val runtime = AgentLoopRuntime(
@@ -8721,8 +8809,9 @@ class AgentLoopRuntimeTest {
         )
         val planned = runtime.runOnce(
             input = "搜 Kotlin，并基于结果决定是否打开 Wi-Fi 设置",
-            installedCapabilities = setOf(ModelCapability.Chat, ModelCapability.MobileAction),
+            installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
         )
         require(planned.plan is AgentPlan.UseTool)
         runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)

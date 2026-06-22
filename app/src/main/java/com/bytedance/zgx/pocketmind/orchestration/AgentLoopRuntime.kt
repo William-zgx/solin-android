@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.ModelCapabilityProfile
 import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
@@ -96,7 +97,7 @@ class AgentLoopRuntime(
     private val remoteToolScopesByRunId = mutableMapOf<String, RemoteToolScope>()
     private val remoteExposedToolNamesByRunId = mutableMapOf<String, Set<String>>()
     private val lowRiskDeviceActionConfirmationBypassByRunId = mutableMapOf<String, Boolean>()
-    private val installedCapabilitiesByRunId = mutableMapOf<String, Set<ModelCapability>>()
+    private val installedCapabilityProfilesByRunId = mutableMapOf<String, List<ModelCapabilityProfile>>()
 
     fun runOnce(
         input: String,
@@ -106,11 +107,12 @@ class AgentLoopRuntime(
         deviceContext: DeviceContextSnapshot? = null,
         sessionId: String? = null,
         options: AgentRunOptions = AgentRunOptions(),
+        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
     ): AgentLoopResult {
         val createdRun = traceStore.createRun(input, sessionId)
         remoteToolScopesByRunId[createdRun.id] = options.remoteToolScope
         lowRiskDeviceActionConfirmationBypassByRunId[createdRun.id] = options.reduceDeviceActionConfirmations
-        installedCapabilitiesByRunId[createdRun.id] = installedCapabilities.toSet()
+        installedCapabilityProfilesByRunId[createdRun.id] = installedCapabilityProfiles.toList()
         traceStore.updateState(createdRun.id, AgentRunState.LoadingContext)
 
         val memoryHits = if (memoryEnabled) {
@@ -124,7 +126,7 @@ class AgentLoopRuntime(
         val initialToolPlan = when (options.initialPlanningMode) {
             InitialPlanningMode.RuleFirst -> planToolIfSupported(
                 input = input,
-                installedCapabilities = installedCapabilities,
+                installedCapabilityProfiles = installedCapabilityProfiles,
                 actionModelPath = actionModelPath,
             )
             InitialPlanningMode.ModelFirstRemoteTools -> planLocalOnlySkillBeforeRemote(input)
@@ -1222,7 +1224,12 @@ class AgentLoopRuntime(
                 completedSegmentCount = completedSegmentCount,
             ),
         ) ?: return NextObservationPlan.None
-        if (replan.plannedByModel && ModelCapability.MobileAction !in installedCapabilitiesByRunId[run.id].orEmpty()) {
+        if (
+            replan.plannedByModel &&
+            !hasMobileActionPlanningModel(
+                installedCapabilityProfiles = installedCapabilityProfilesByRunId[run.id].orEmpty(),
+            )
+        ) {
             return failMissingModelNextPlan(run.id, AgentPlan.MissingModel(ModelCapability.MobileAction))
         }
         val skillPlan = skillRuntime.plan(replan.input ?: run.input, replan.draft, replan.request)
@@ -1823,17 +1830,21 @@ class AgentLoopRuntime(
 
     private fun planToolIfSupported(
         input: String,
-        installedCapabilities: Set<ModelCapability>,
+        installedCapabilityProfiles: List<ModelCapabilityProfile>,
         actionModelPath: String?,
     ): AgentPlan? =
         planToolForInput(
             input = input,
-            installedCapabilities = installedCapabilities,
+            installedCapabilityProfiles = installedCapabilityProfiles,
             actionModelPath = actionModelPath,
             allowDirectSkillPlan = true,
             allowMultiStepSkillPlan = true,
         ) ?: input.initialSequentialActionInput()?.let { firstActionInput ->
-            planInitialSequentialSegment(firstActionInput, installedCapabilities, actionModelPath)
+            planInitialSequentialSegment(
+                input = firstActionInput,
+                installedCapabilityProfiles = installedCapabilityProfiles,
+                actionModelPath = actionModelPath,
+            )
         }
 
     private fun planLocalOnlySkillBeforeRemote(input: String): AgentPlan? {
@@ -1843,13 +1854,13 @@ class AgentLoopRuntime(
 
     private fun planInitialSequentialSegment(
         input: String,
-        installedCapabilities: Set<ModelCapability> = emptySet(),
+        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
         actionModelPath: String?,
     ): AgentPlan? =
         planCompositeSkillForInitialSequentialSegment(input)
             ?: planToolForInput(
                 input = input,
-                installedCapabilities = installedCapabilities,
+                installedCapabilityProfiles = installedCapabilityProfiles,
                 actionModelPath = actionModelPath,
                 allowDirectSkillPlan = false,
                 allowMultiStepSkillPlan = false,
@@ -1896,7 +1907,7 @@ class AgentLoopRuntime(
 
     private fun planToolForInput(
         input: String,
-        installedCapabilities: Set<ModelCapability>,
+        installedCapabilityProfiles: List<ModelCapabilityProfile>,
         actionModelPath: String?,
         allowDirectSkillPlan: Boolean,
         allowMultiStepSkillPlan: Boolean,
@@ -1910,7 +1921,12 @@ class AgentLoopRuntime(
         val intent = actionPlanningRuntime.classifyIntent(input)
         if (!intent.isAction || !intent.confidence.isActionableForAgentPlan()) return null
         val result = actionPlanningRuntime.plan(input, actionModelPath)
-        if (result.usedModel && ModelCapability.MobileAction !in installedCapabilities) {
+        if (
+            result.usedModel &&
+            !hasMobileActionPlanningModel(
+                installedCapabilityProfiles = installedCapabilityProfiles,
+            )
+        ) {
             return AgentPlan.MissingModel(ModelCapability.MobileAction)
         }
         val draft = result.plan.draft
@@ -1931,6 +1947,11 @@ class AgentLoopRuntime(
             skillPlan = skillPlan,
         )
     }
+
+    private fun hasMobileActionPlanningModel(
+        installedCapabilityProfiles: List<ModelCapabilityProfile>,
+    ): Boolean =
+        installedCapabilityProfiles.any { profile -> profile.supportsMobileActionPlanning }
 
     private fun String.initialSequentialActionInput(): String? =
         explicitSequentialActionTextAt(0)
@@ -2979,7 +3000,7 @@ class AgentLoopRuntime(
         remoteToolScopesByRunId.remove(runId)
         remoteExposedToolNamesByRunId.remove(runId)
         lowRiskDeviceActionConfirmationBypassByRunId.remove(runId)
-        installedCapabilitiesByRunId.remove(runId)
+        installedCapabilityProfilesByRunId.remove(runId)
     }
 
     private fun runUsedDeviceControlSession(runId: String): Boolean =
