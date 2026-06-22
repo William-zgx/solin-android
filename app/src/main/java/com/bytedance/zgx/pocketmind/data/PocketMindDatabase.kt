@@ -517,6 +517,38 @@ interface MemoryDeletionEventDao {
 }
 
 @Dao
+abstract class MemoryDeletionTransactionDao {
+    @Query("DELETE FROM memory_records WHERE id = :id")
+    abstract fun deleteRecord(id: String): Int
+
+    @Query("DELETE FROM memory_records")
+    abstract fun deleteAllRecords()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract fun insertDeletionEvent(event: MemoryDeletionEventEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract fun insertDeletionEvents(events: List<MemoryDeletionEventEntity>)
+
+    @Transaction
+    open fun deleteRecordAndAppendEvent(id: String, event: MemoryDeletionEventEntity): Int {
+        val deleted = deleteRecord(id)
+        if (deleted > 0) {
+            insertDeletionEvent(event)
+        }
+        return deleted
+    }
+
+    @Transaction
+    open fun clearRecordsAndAppendEvents(events: List<MemoryDeletionEventEntity>) {
+        deleteAllRecords()
+        if (events.isNotEmpty()) {
+            insertDeletionEvents(events)
+        }
+    }
+}
+
+@Dao
 interface AgentTraceDao {
     @Query("SELECT * FROM agent_runs WHERE id = :runId LIMIT 1")
     fun run(runId: String): AgentRunEntity?
@@ -650,6 +682,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
     abstract fun memoryRecordDao(): MemoryRecordDao
     abstract fun memoryEmbeddingDao(): MemoryEmbeddingDao
     abstract fun memoryDeletionEventDao(): MemoryDeletionEventDao
+    abstract fun memoryDeletionTransactionDao(): MemoryDeletionTransactionDao
     abstract fun agentTraceDao(): AgentTraceDao
 
     companion object {

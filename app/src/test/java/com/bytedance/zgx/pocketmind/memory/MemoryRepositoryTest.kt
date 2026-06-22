@@ -981,6 +981,45 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun persistedForgetUsesAtomicDeleteAndTombstoneHook() {
+        val recordStore = FakeMemoryRecordStore()
+        val deletionStore = AtomicMemoryDeletionEventStore(recordStore)
+        val repository = MemoryRepository(
+            recordStore = recordStore,
+            deletionEventStore = deletionStore,
+            clockMillis = { 5678L },
+        )
+        val preferenceId = explicitUserPreferenceRecordId("I like green tea")
+        repository.indexPreference(preferenceId, "I like green tea")
+
+        assertTrue(repository.forgetPreference("I like green tea"))
+
+        assertEquals(listOf(preferenceId), deletionStore.deletedIds)
+        assertEquals(listOf(preferenceId), deletionStore.events.map { it.recordId })
+        assertTrue(recordStore.records().isEmpty())
+    }
+
+    @Test
+    fun clearUsesAtomicClearAndTombstoneHook() {
+        val recordStore = FakeMemoryRecordStore()
+        val deletionStore = AtomicMemoryDeletionEventStore(recordStore)
+        val repository = MemoryRepository(
+            recordStore = recordStore,
+            deletionEventStore = deletionStore,
+            clockMillis = { 6789L },
+        )
+        val factId = explicitUserFactRecordId("my rcode is yz99")
+        repository.indexPreference("pref-1", "回答尽量简洁")
+        repository.indexUserFact(factId, "my rcode is yz99")
+
+        repository.clear()
+
+        assertEquals(1, deletionStore.clearCount)
+        assertEquals(listOf("pref-1", factId), deletionStore.events.map { it.recordId })
+        assertTrue(recordStore.records().isEmpty())
+    }
+
+    @Test
     fun longTermRecordsCarrySourceSensitivityPrivacyAndConflictMetadata() {
         val store = FakeMemoryRecordStore()
         val repository = MemoryRepository(recordStore = store)
@@ -1246,6 +1285,45 @@ class MemoryRepositoryTest {
 
         override fun append(event: MemoryDeletionEvent) {
             events += event
+        }
+    }
+
+    private class AtomicMemoryDeletionEventStore(
+        private val expectedRecordStore: MemoryRecordStore,
+    ) : MemoryDeletionEventStore {
+        val events = mutableListOf<MemoryDeletionEvent>()
+        val deletedIds = mutableListOf<String>()
+        var clearCount = 0
+
+        override fun events(): List<MemoryDeletionEvent> =
+            events.toList()
+
+        override fun append(event: MemoryDeletionEvent) {
+            error("Deletion events for persisted records must be appended through the atomic hook")
+        }
+
+        override fun deleteRecordAndAppendEvent(
+            recordStore: MemoryRecordStore,
+            id: String,
+            event: MemoryDeletionEvent,
+        ): Boolean {
+            check(recordStore === expectedRecordStore)
+            val deleted = recordStore.delete(id)
+            if (deleted) {
+                deletedIds += id
+                events += event
+            }
+            return deleted
+        }
+
+        override fun clearRecordsAndAppendEvents(
+            recordStore: MemoryRecordStore,
+            events: List<MemoryDeletionEvent>,
+        ) {
+            check(recordStore === expectedRecordStore)
+            clearCount += 1
+            recordStore.clear()
+            this.events += events
         }
     }
 

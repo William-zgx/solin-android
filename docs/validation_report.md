@@ -13370,6 +13370,9 @@ git diff --check
   删除审计只记录 record id、类型、来源、敏感度、删除操作、时间和 `recordTextHash`，不保存 raw memory text。
 - `MemoryRepository` 在用户/UI 删除、显式 forget、clear、冲突替换时写删除事件；
   `SuppressedTaskState` 和 conversation 记录不进入删除审计。
+- `MemoryRepository` 删除持久记忆时通过 `MemoryDeletionEventStore` atomic hook 写审计；
+  Room 实现使用 `MemoryDeletionTransactionDao` 将 `memory_records` 删除/清空与
+  `memory_deletion_events` 写入放进同一事务。
 - 后台任务状态 terminal/missing 自动清理改走 `forgetAutoManagedTaskState`，不伪装成用户删除墓碑。
 - AppContainer 已把 Room deletion event DAO 注入到本地 memory repository。
 
@@ -13383,6 +13386,9 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
 
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
   ./gradlew :app:compileDebugAndroidTestKotlin
+
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
+  scripts/verify_local.sh
 ```
 
 结果：
@@ -13392,10 +13398,13 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
 - 通过：`refreshBackgroundTasksDropsTerminalTaskStateMemory` 验证自动任务状态清理不会写用户删除事件。
 - 通过：`compileDebugAndroidTestKotlin`，包含 `migration15To16AddsMemoryDeletionEventsTableAndRoomCanOpen`
   的 instrumentation 源码编译通过。
+- 通过：新增 atomic hook 单测验证持久记忆单条删除和 clear 均走 delete/append 原子入口。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM tests、debug/release build、
+  AndroidTest assemble、lint 和 artifact scan。
 
 剩余风险：
 
 - 本轮按要求未跑真机/模拟器 instrumentation；`MIGRATION_15_16` 的实际 Room migration
   运行仍需要后续在设备或 emulator 上执行。
-- 删除事件和 memory record 删除尚未做 Room transaction 级原子化；如后续要满足强审计合规，
-  需要把 delete + event append 收进同一事务。
+- `recordTextHash` 是 hash-only tombstone，不保存 raw text；但未加盐 SHA-256 不是匿名化，
+  低熵文本理论上仍可能被字典猜测。

@@ -7,6 +7,7 @@ import com.bytedance.zgx.pocketmind.data.MemoryEmbeddingDao
 import com.bytedance.zgx.pocketmind.data.MemoryEmbeddingEntity
 import com.bytedance.zgx.pocketmind.data.MemoryDeletionEventDao
 import com.bytedance.zgx.pocketmind.data.MemoryDeletionEventEntity
+import com.bytedance.zgx.pocketmind.data.MemoryDeletionTransactionDao
 import com.bytedance.zgx.pocketmind.data.MemoryRecordDao
 import com.bytedance.zgx.pocketmind.data.MemoryRecordEntity
 import java.nio.ByteBuffer
@@ -428,18 +429,16 @@ class MemoryRepository(
     override fun clear() {
         val recordsForDeletionAudit = deletionAuditableRecords()
         val deletedAtMillis = clockMillis()
-        entries.clear()
-        recordStore.clear()
-        embeddingStore.clear()
-        refreshSemanticIndexStats()
-        recordsForDeletionAudit.forEach { record ->
-            deletionEventStore.append(
-                record.toDeletionEvent(
-                    operation = MemoryDeletionOperation.Clear,
-                    deletedAtMillis = deletedAtMillis,
-                ),
+        val events = recordsForDeletionAudit.map { record ->
+            record.toDeletionEvent(
+                operation = MemoryDeletionOperation.Clear,
+                deletedAtMillis = deletedAtMillis,
             )
         }
+        deletionEventStore.clearRecordsAndAppendEvents(recordStore, events)
+        entries.clear()
+        embeddingStore.clear()
+        refreshSemanticIndexStats()
     }
 
     private fun visibleRecords(): List<PersistedMemoryRecord> =
@@ -709,16 +708,26 @@ class MemoryRepository(
 
     private fun forget(id: String, operation: MemoryDeletionOperation): Boolean {
         val recordForDeletionAudit = recordForDeletionAudit(id)
-        val removed = forgetWithoutDeletionAudit(id)
-        if (removed && recordForDeletionAudit != null) {
-            deletionEventStore.append(
-                recordForDeletionAudit.toDeletionEvent(
-                    operation = operation,
-                    deletedAtMillis = clockMillis(),
-                ),
+        val event = recordForDeletionAudit?.toDeletionEvent(
+            operation = operation,
+            deletedAtMillis = clockMillis(),
+        )
+        val removedInMemory = entries.remove(id) != null
+        val removedPersisted = if (event == null) {
+            recordStore.delete(id)
+        } else {
+            deletionEventStore.deleteRecordAndAppendEvent(
+                recordStore = recordStore,
+                id = id,
+                event = event,
             )
         }
-        return removed
+        if (removedInMemory && !removedPersisted && event != null) {
+            deletionEventStore.append(event)
+        }
+        embeddingStore.delete(id)
+        refreshSemanticIndexStats()
+        return removedInMemory || removedPersisted
     }
 
     private fun forgetWithoutDeletionAudit(id: String): Boolean {
@@ -955,6 +964,23 @@ interface MemoryRecordStore {
 interface MemoryDeletionEventStore {
     fun events(): List<MemoryDeletionEvent>
     fun append(event: MemoryDeletionEvent)
+    fun deleteRecordAndAppendEvent(
+        recordStore: MemoryRecordStore,
+        id: String,
+        event: MemoryDeletionEvent,
+    ): Boolean {
+        val deleted = recordStore.delete(id)
+        if (deleted) append(event)
+        return deleted
+    }
+
+    fun clearRecordsAndAppendEvents(
+        recordStore: MemoryRecordStore,
+        events: List<MemoryDeletionEvent>,
+    ) {
+        recordStore.clear()
+        events.forEach(::append)
+    }
 }
 
 data class PersistedMemoryEmbedding(
@@ -1046,6 +1072,7 @@ class RoomMemoryRecordStore(
 
 class RoomMemoryDeletionEventStore(
     private val dao: MemoryDeletionEventDao,
+    private val transactionDao: MemoryDeletionTransactionDao? = null,
 ) : MemoryDeletionEventStore {
     override fun events(): List<MemoryDeletionEvent> =
         dao.events().mapNotNull { entity ->
@@ -1070,6 +1097,30 @@ class RoomMemoryDeletionEventStore(
 
     override fun append(event: MemoryDeletionEvent) {
         dao.insert(event.toEntity())
+    }
+
+    override fun deleteRecordAndAppendEvent(
+        recordStore: MemoryRecordStore,
+        id: String,
+        event: MemoryDeletionEvent,
+    ): Boolean {
+        val transactionDao = transactionDao
+        if (transactionDao != null) {
+            return transactionDao.deleteRecordAndAppendEvent(id, event.toEntity()) > 0
+        }
+        return super<MemoryDeletionEventStore>.deleteRecordAndAppendEvent(recordStore, id, event)
+    }
+
+    override fun clearRecordsAndAppendEvents(
+        recordStore: MemoryRecordStore,
+        events: List<MemoryDeletionEvent>,
+    ) {
+        val transactionDao = transactionDao
+        if (transactionDao != null) {
+            transactionDao.clearRecordsAndAppendEvents(events.map { event -> event.toEntity() })
+        } else {
+            super<MemoryDeletionEventStore>.clearRecordsAndAppendEvents(recordStore, events)
+        }
     }
 
     private fun MemoryDeletionEvent.toEntity(): MemoryDeletionEventEntity =

@@ -107,7 +107,10 @@ class PocketMindAppContainer(context: Context) {
             },
             recordStore = RoomMemoryRecordStore(database.memoryRecordDao()),
             embeddingStore = RoomMemoryEmbeddingStore(database.memoryEmbeddingDao()),
-            deletionEventStore = RoomMemoryDeletionEventStore(database.memoryDeletionEventDao()),
+            deletionEventStore = RoomMemoryDeletionEventStore(
+                dao = database.memoryDeletionEventDao(),
+                transactionDao = database.memoryDeletionTransactionDao(),
+            ),
         )
         toolAuditRepository = ToolAuditRepository(database.toolAuditDao())
         remoteSendAuditRepository = RemoteSendAuditRepository(database.remoteSendAuditDao())
