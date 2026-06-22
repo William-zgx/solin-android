@@ -251,6 +251,113 @@ def parse_model_manifest(path):
             }
     return manifest
 
+def is_bool(value):
+    return isinstance(value, bool)
+
+def string_set(value):
+    if not isinstance(value, list):
+        return None
+    result = set()
+    for item in value:
+        if not non_empty_string(item):
+            return None
+        result.add(item)
+    return result
+
+def validate_model_capability_profile(profile, section, seen_ids):
+    if not isinstance(profile, dict):
+        failures.append(f"model-capability-profiles-entry-invalid:{section}")
+        return
+    profile_id = profile.get("id")
+    if not non_empty_string(profile_id):
+        failures.append(f"model-capability-profiles-id-missing:{section}")
+        profile_id = section
+    elif profile_id in seen_ids:
+        failures.append(f"model-capability-profiles-duplicate-id:{profile_id}")
+    else:
+        seen_ids.add(profile_id)
+
+    backend_kind = profile.get("backendKind")
+    capability = profile.get("capability")
+    capabilities = profile.get("capabilities")
+    if not isinstance(capabilities, dict):
+        failures.append(f"model-capability-profiles-capabilities-missing:{profile_id}")
+        capabilities = {}
+    for flag in ("chat", "vision", "memoryEmbedding", "mobileAction"):
+        if not is_bool(capabilities.get(flag)):
+            failures.append(f"model-capability-profiles-capability-flag-invalid:{profile_id}:{flag}")
+
+    input_modalities = string_set(profile.get("inputModalities"))
+    if input_modalities is None:
+        failures.append(f"model-capability-profiles-input-modalities-invalid:{profile_id}")
+        input_modalities = set()
+    features = string_set(profile.get("features"))
+    if features is None:
+        failures.append(f"model-capability-profiles-features-invalid:{profile_id}")
+        features = set()
+    if "Text" not in input_modalities:
+        failures.append(f"model-capability-profiles-text-input-missing:{profile_id}")
+
+    supports_vision = "Vision" in input_modalities and "VisionInput" in features
+    expected_flags = {
+        "chat": capability == "Chat",
+        "vision": supports_vision,
+        "memoryEmbedding": capability == "MemoryEmbedding",
+        "mobileAction": capability == "MobileAction",
+    }
+    for flag, expected in expected_flags.items():
+        if capabilities.get(flag) is not expected:
+            failures.append(f"model-capability-profiles-{flag}-flag-mismatch:{profile_id}")
+
+    if "Vision" in input_modalities and capability != "Chat":
+        failures.append(f"model-capability-profiles-vision-non-chat:{profile_id}")
+    if "VisionInput" in features and "Vision" not in input_modalities:
+        failures.append(f"model-capability-profiles-vision-feature-without-modality:{profile_id}")
+    if "VisionInput" in features and capability != "Chat":
+        failures.append(f"model-capability-profiles-vision-feature-non-chat:{profile_id}")
+    if "TextGeneration" in features and capability != "Chat":
+        failures.append(f"model-capability-profiles-text-generation-non-chat:{profile_id}")
+    if "MemoryEmbedding" in features and capability != "MemoryEmbedding":
+        failures.append(f"model-capability-profiles-memory-feature-mismatch:{profile_id}")
+    if "MobileActionPlanning" in features and capability != "MobileAction":
+        failures.append(f"model-capability-profiles-mobile-action-feature-mismatch:{profile_id}")
+
+    preferred_local_backends = profile.get("preferredLocalBackends")
+    if not isinstance(preferred_local_backends, list):
+        failures.append(f"model-capability-profiles-preferred-local-backends-invalid:{profile_id}")
+        preferred_local_backends = []
+    remote_eligible = profile.get("remoteEligible")
+    requires_confirmation = profile.get("requiresRemoteSendConfirmation")
+    if not is_bool(remote_eligible):
+        failures.append(f"model-capability-profiles-remote-eligible-invalid:{profile_id}")
+    if not is_bool(requires_confirmation):
+        failures.append(f"model-capability-profiles-remote-confirmation-invalid:{profile_id}")
+    if remote_eligible is True and requires_confirmation is not True:
+        failures.append(f"model-capability-profiles-remote-confirmation-missing:{profile_id}")
+
+    if backend_kind == "LocalLiteRt":
+        if remote_eligible is not False:
+            failures.append(f"model-capability-profiles-local-remote-eligible:{profile_id}")
+        if requires_confirmation is not False:
+            failures.append(f"model-capability-profiles-local-remote-confirmation:{profile_id}")
+    elif backend_kind == "RemoteOpenAiCompatible":
+        if capability != "Chat":
+            failures.append(f"model-capability-profiles-remote-non-chat:{profile_id}")
+        if remote_eligible is not True:
+            failures.append(f"model-capability-profiles-remote-not-eligible:{profile_id}")
+        if requires_confirmation is not True:
+            failures.append(f"model-capability-profiles-remote-confirmation-missing:{profile_id}")
+        if preferred_local_backends:
+            failures.append(f"model-capability-profiles-remote-local-backends:{profile_id}")
+    else:
+        failures.append(f"model-capability-profiles-backend-kind-invalid:{profile_id}")
+
+    if capability in {"MemoryEmbedding", "MobileAction"}:
+        if remote_eligible is not False:
+            failures.append(f"model-capability-profiles-local-only-remote-eligible:{profile_id}")
+        if requires_confirmation is not False:
+            failures.append(f"model-capability-profiles-local-only-remote-confirmation:{profile_id}")
+
 def validate_store_review_evidence(path, expected_reviewer):
     props = properties_for(path)
     if props.get("status") != "approved":
@@ -426,6 +533,22 @@ profiles = model_capability_profiles.get("profiles")
 if not isinstance(profiles, list):
     failures.append("model-capability-profiles-list-missing")
     profiles = []
+custom_local_templates = model_capability_profiles.get("customLocalTemplates")
+if not isinstance(custom_local_templates, list):
+    failures.append("model-capability-profiles-custom-local-templates-missing")
+    custom_local_templates = []
+remote_templates = model_capability_profiles.get("remoteOpenAiCompatibleTemplates")
+if not isinstance(remote_templates, list):
+    failures.append("model-capability-profiles-remote-templates-missing")
+    remote_templates = []
+seen_model_profile_ids = set()
+for section_name, section_profiles in (
+    ("profiles", profiles),
+    ("customLocalTemplates", custom_local_templates),
+    ("remoteOpenAiCompatibleTemplates", remote_templates),
+):
+    for profile in section_profiles:
+        validate_model_capability_profile(profile, section_name, seen_model_profile_ids)
 profiles_by_id = {
     profile.get("id"): profile
     for profile in profiles
@@ -509,9 +632,6 @@ for profile in profiles:
         break
 if model_downloads.get("officialLightweightChatAlternative") is not has_official_lightweight_chat:
     failures.append("model-downloads-official-lightweight-chat-alternative-mismatch")
-remote_templates = model_capability_profiles.get("remoteOpenAiCompatibleTemplates")
-if not isinstance(remote_templates, list):
-    remote_templates = []
 has_confirmed_remote_chat_template = any(
     isinstance(template, dict) and
     template.get("backendKind") == "RemoteOpenAiCompatible" and

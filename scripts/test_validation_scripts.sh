@@ -3073,6 +3073,58 @@ expect_failure \
   scripts/verify_store_policy_record.sh --file "$STORE_POLICY_BAD_LIGHTWEIGHT" --report "$ARTIFACT_DIR/store-policy-bad-lightweight.properties"
 assert_report_contains "$ARTIFACT_DIR/store-policy-bad-lightweight.properties" "failedTarget=store-model-downloads"
 assert_report_contains_text "$ARTIFACT_DIR/store-policy-bad-lightweight.properties" "model-downloads-official-lightweight-chat-alternative-mismatch"
+STORE_POLICY_BAD_REMOTE_CONFIRMATION_PROFILES="$TMP_DIR/model-capabilities-bad-remote-confirmation.json"
+python3 - docs/model_capability_profiles.json "$STORE_POLICY_BAD_REMOTE_CONFIRMATION_PROFILES" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+profiles = json.loads(Path(sys.argv[1]).read_text())
+profiles["remoteOpenAiCompatibleTemplates"][0]["requiresRemoteSendConfirmation"] = False
+Path(sys.argv[2]).write_text(json.dumps(profiles, indent=2))
+PY
+expect_failure \
+  "store policy verifier rejects remote model template without send confirmation" \
+  env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
+    MODEL_CAPABILITY_PROFILES_FILE="$STORE_POLICY_BAD_REMOTE_CONFIRMATION_PROFILES" \
+  scripts/verify_store_policy_record.sh --file "$STORE_POLICY_APPROVED" --report "$ARTIFACT_DIR/store-policy-bad-remote-confirmation.properties"
+assert_report_contains "$ARTIFACT_DIR/store-policy-bad-remote-confirmation.properties" "failedTarget=model-capability-profiles"
+assert_report_contains_text "$ARTIFACT_DIR/store-policy-bad-remote-confirmation.properties" "model-capability-profiles-remote-confirmation-missing"
+STORE_POLICY_BAD_LOCAL_REMOTE_PROFILES="$TMP_DIR/model-capabilities-bad-local-remote.json"
+python3 - docs/model_capability_profiles.json "$STORE_POLICY_BAD_LOCAL_REMOTE_PROFILES" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+profiles = json.loads(Path(sys.argv[1]).read_text())
+profiles["profiles"][1]["remoteEligible"] = True
+profiles["profiles"][1]["requiresRemoteSendConfirmation"] = True
+Path(sys.argv[2]).write_text(json.dumps(profiles, indent=2))
+PY
+expect_failure \
+  "store policy verifier rejects local-only model profile marked remote eligible" \
+  env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
+    MODEL_CAPABILITY_PROFILES_FILE="$STORE_POLICY_BAD_LOCAL_REMOTE_PROFILES" \
+  scripts/verify_store_policy_record.sh --file "$STORE_POLICY_APPROVED" --report "$ARTIFACT_DIR/store-policy-bad-local-remote.properties"
+assert_report_contains "$ARTIFACT_DIR/store-policy-bad-local-remote.properties" "failedTarget=model-capability-profiles"
+assert_report_contains_text "$ARTIFACT_DIR/store-policy-bad-local-remote.properties" "model-capability-profiles-local-only-remote-eligible"
+STORE_POLICY_BAD_VISION_PROFILES="$TMP_DIR/model-capabilities-bad-vision.json"
+python3 - docs/model_capability_profiles.json "$STORE_POLICY_BAD_VISION_PROFILES" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+profiles = json.loads(Path(sys.argv[1]).read_text())
+profiles["remoteOpenAiCompatibleTemplates"][0]["capabilities"]["vision"] = True
+Path(sys.argv[2]).write_text(json.dumps(profiles, indent=2))
+PY
+expect_failure \
+  "store policy verifier rejects vision capability drift from modalities and features" \
+  env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
+    MODEL_CAPABILITY_PROFILES_FILE="$STORE_POLICY_BAD_VISION_PROFILES" \
+  scripts/verify_store_policy_record.sh --file "$STORE_POLICY_APPROVED" --report "$ARTIFACT_DIR/store-policy-bad-vision.properties"
+assert_report_contains "$ARTIFACT_DIR/store-policy-bad-vision.properties" "failedTarget=model-capability-profiles"
+assert_report_contains_text "$ARTIFACT_DIR/store-policy-bad-vision.properties" "model-capability-profiles-vision-flag-mismatch"
 STORE_POLICY_INCOMPLETE_NOTICE="$TMP_DIR/store-policy-incomplete-notice.md"
 printf 'PocketMind stores user-entered chat text locally.\n' > "$STORE_POLICY_INCOMPLETE_NOTICE"
 expect_failure \

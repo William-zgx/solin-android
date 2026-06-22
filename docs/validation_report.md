@@ -23,6 +23,38 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-23 Model Capability Store Policy Boundary Gate
+
+本轮覆盖项：
+
+- `scripts/verify_store_policy_record.sh` 将 `docs/model_capability_profiles.json`
+  的能力边界纳入 store policy 机器校验：本地 LiteRT profile 不得 remote eligible，
+  远程 OpenAI-compatible template 必须 `requiresRemoteSendConfirmation=true`，memory/action
+  profile 必须 LocalOnly，vision 能力必须和 `Vision` 输入模态及 `VisionInput` feature
+  同步。
+- `scripts/test_validation_scripts.sh` 新增 3 个负例：远程模板缺少发送确认、本地
+  memory/action profile 被误标为 remote eligible、vision capability flag 与模态/feature
+  漂移，均必须失败在 `failedTarget=model-capability-profiles`。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_store_policy_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：validation script tests 全量通过，覆盖新增的模型能力 Profile 边界负例。
+- 通过：`scripts/verify_local.sh`，包含本地环境预检、validation script tests、Gradle
+  JVM/lint/assemble/bundle 验证和 Android artifact scan。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮只加固本地 release/store policy
+  verifier，不改变 APK runtime 或 UI。
+
 ## 2026-06-23 Agent Behavior High-Risk Coverage Gate
 
 本轮覆盖项：

@@ -24,6 +24,10 @@ items below.
   license review verifier reports now share a machine-readable evidence schema
   with `artifactSchema`, owner, UTC timestamp, command, failed target,
   reproducible report path, and SHA-256 binding for their input records.
+- Store policy verification now also fail-closes on model capability boundary
+  drift: local LiteRT, memory, and action profiles must remain non-remote;
+  remote OpenAI-compatible templates must require explicit send confirmation;
+  and vision capability flags must match declared modalities/features.
 - Release record `verificationReports` now fail closed unless each linked report
   is SHA-bound, `status=passed`, schema-tagged, owner-tagged, UTC timestamped,
   reproducible by command/path, and fresh within the release-record max-age
