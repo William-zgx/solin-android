@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.jingdong.app.mall" content-desc="" clickable="false" enabled="true" scrollable="false" bounds="[0,0][1080,2400]">
+    <node index="0" text="搜索京东商品/店铺" resource-id="com.jingdong.app.mall:id/search_edit_text" class="android.widget.EditText" package="com.jingdong.app.mall" content-desc="" clickable="true" enabled="true" editable="true" scrollable="false" bounds="[48,86][820,172]" />
+    <node index="1" text="搜索" resource-id="com.jingdong.app.mall:id/search_submit" class="android.widget.TextView" package="com.jingdong.app.mall" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[860,86][1032,172]" />
+    <node index="2" text="" resource-id="com.jingdong.app.mall:id/scan_entry" class="android.widget.ImageView" package="com.jingdong.app.mall" content-desc="扫一扫" clickable="true" enabled="true" scrollable="false" bounds="[48,1900][160,2012]" />
+    <node index="3" text="历史搜索 机械键盘 手机壳 京东物流 秒杀 百亿补贴" resource-id="com.jingdong.app.mall:id/suggestion_list" class="androidx.recyclerview.widget.RecyclerView" package="com.jingdong.app.mall" content-desc="" clickable="true" enabled="true" scrollable="true" bounds="[0,220][1080,1760]" />
+  </node>
+</hierarchy>

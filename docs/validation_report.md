@@ -303,9 +303,15 @@ scripts/test_validation_scripts.sh
   结果页，包含搜索框、提交按钮、综合/销量/筛选和商品卡片。
 - 新增 `pdd_search_home.xml` UIAutomator fixture，表示拼多多首页搜索入口，覆盖
   `搜索商品 多多搜索` 搜索栏，并固定扫码入口和首页 feed 不会抢占搜索入口。
+- 新增 `pdd_search_input.xml` 和 `pdd_search_results.xml` UIAutomator fixtures，
+  表示拼多多搜索输入态和结果页，覆盖 `EditText` 商品搜索框、非 editable “搜索”
+  提交按钮，以及与真机 eval 对齐的 `纸巾` 结果页验证。
 - 新增 `gaode_destination_input.xml` 和 `gaode_destination_results.xml` UIAutomator
   fixtures，表示高德目的地搜索输入态和结果页，覆盖 `EditText` 目的地输入框、非
   editable “搜索”提交按钮，以及 `北京机场` 结果页验证。
+- 新增 `jd_search_input.xml` 和 `jd_search_results.xml` UIAutomator fixtures，
+  表示京东搜索输入态和结果页，覆盖 `EditText` 商品/店铺搜索框、非 editable “搜索”
+  提交按钮，以及 `机械键盘` 结果页验证。
 - 新增 `chrome_address_home.xml` UIAutomator fixture，表示 Chrome 首页 omnibox，覆盖
   `搜索或输入网址 地址栏` 地址栏，并固定语音搜索和 feed 不会抢占搜索入口。
 - 新增 `android_browser_address_home.xml` 和 `uc_address_home.xml` UIAutomator
@@ -315,9 +321,13 @@ scripts/test_validation_scripts.sh
   表示 Quark/browser 输入态和结果页，覆盖地址栏 `EditText`、非 editable “搜索”
   提交按钮，以及 `Kotlin 协程` 结果页验证。
 - `UiAutomatorDumpReplayTest` 新增输入页 `EditableField` / `SubmitSearch` resolver
-  回放测试、拼多多/高德/Chrome/Android Browser/Quark/UC search-entry replay，并新增
-  首页 dump -> 结果页 dump 的 `AppSearchResultVerifier` 回放测试，要求 query 在页面
-  变化后出现在非输入框结果内容中。
+  回放测试、拼多多/高德/京东/Chrome/Android Browser/Quark/UC search-entry replay，
+  并新增首页 dump -> 结果页 dump 的 `AppSearchResultVerifier` 回放测试，要求 query
+  在页面变化后出现在非输入框结果内容中；拼多多/京东输入页同时固定 suggestion
+  list 不能进入 editable 或 submit ranked candidates。
+- `AppSearchResultVerifier` 新增京东首页回放负例：未变化页面即使包含 `综合`、`销量`、
+  `筛选` 等结果页 hint，也必须 `ResultNotVerified/page_not_changed`，避免首页 feed
+  被误判为真实搜索结果；只靠多个 hint 的通过路径现在要求页面签名发生变化。
 - `UiTargetResolver` 修复 `SubmitSearch` 候选过滤：editable 搜索输入框即使命中
   browser profile hint，也不能进入提交按钮 ranked candidates；实际 Accessibility
   submit path 保持同样的非 editable / clickable 约束。

@@ -631,7 +631,7 @@ class UiTargetResolverTest {
     }
 
     @Test
-    fun resultVerificationPassesWhenResultPageIsAlreadyStable() {
+    fun resultVerificationFailsWhenOnlyResultHintsRemainOnUnchangedPage() {
         val resultPage = snapshot(
             packageName = "com.taobao.taobao",
             nodes = listOf(
@@ -648,8 +648,9 @@ class UiTargetResolverTest {
             expectedPackageName = "com.taobao.taobao",
         )
 
-        assertTrue(verification.summary, verification.verified)
-        assertEquals("result_hints_visible", verification.evidence)
+        assertEquals(false, verification.verified)
+        assertEquals(UiActionFailureKind.ResultNotVerified, verification.failureKind)
+        assertEquals("page_not_changed", verification.evidence)
     }
 
     @Test

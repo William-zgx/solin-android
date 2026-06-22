@@ -122,6 +122,47 @@ class UiAutomatorDumpReplayTest {
     }
 
     @Test
+    fun pddInputDumpResolvesEditableFieldAndSubmitButton() {
+        val snapshot = loadDump("ui_dumps/real_app_search/pdd_search_input.xml")
+
+        val editable = UiTargetResolver.explain(snapshot, UiTargetKind.EditableField, target = "搜索商品")
+        val submit = UiTargetResolver.explain(snapshot, UiTargetKind.SubmitSearch, target = "提交搜索")
+
+        assertNull(editable.failureKind)
+        assertEquals("com.xunmeng.pinduoduo:id/search_edit_text", editable.selectedNodeId)
+        assertEquals("搜索商品", editable.rankedCandidates.firstOrNull()?.label)
+        assertTrue(editable.rankedCandidates.none { candidate -> candidate.nodeId == "com.xunmeng.pinduoduo:id/scan_entry" })
+        assertTrue(editable.rankedCandidates.none { candidate -> candidate.nodeId == "com.xunmeng.pinduoduo:id/suggestion_list" })
+
+        assertNull(submit.failureKind)
+        assertEquals("com.xunmeng.pinduoduo:id/search_submit", submit.selectedNodeId)
+        assertEquals("搜索", submit.rankedCandidates.firstOrNull()?.label)
+        assertTrue(submit.rankedCandidates.none { candidate -> candidate.nodeId == "com.xunmeng.pinduoduo:id/search_edit_text" })
+        assertTrue(submit.rankedCandidates.none { candidate -> candidate.nodeId == "com.xunmeng.pinduoduo:id/scan_entry" })
+        assertTrue(submit.rankedCandidates.none { candidate -> candidate.nodeId == "com.xunmeng.pinduoduo:id/suggestion_list" })
+    }
+
+    @Test
+    fun pddResultDumpVerifiesSearchResultAfterPageChange() {
+        val before = loadDump("ui_dumps/real_app_search/pdd_search_home.xml")
+        val after = loadDump("ui_dumps/real_app_search/pdd_search_results.xml")
+
+        val verification = AppSearchResultVerifier.verify(
+            before = before,
+            after = after,
+            query = "纸巾",
+            expectedPackageName = "com.xunmeng.pinduoduo",
+            expectedAppName = "拼多多",
+        )
+
+        assertTrue(verification.summary, verification.verified)
+        assertEquals("query_visible_after_change", verification.evidence)
+        assertNull(verification.failureKind)
+        assertTrue(after.textSummary.contains("筛选"))
+        assertTrue(after.textSummary.contains("百亿补贴"))
+    }
+
+    @Test
     fun jdSearchHomeDumpResolvesProfileSearchEntryAndDemotesFeed() {
         val snapshot = loadDump("ui_dumps/real_app_search/jd_search_home.xml")
 
@@ -132,6 +173,62 @@ class UiAutomatorDumpReplayTest {
         assertEquals("搜索京东商品/店铺", evidence.rankedCandidates.firstOrNull()?.label)
         assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.jingdong.app.mall:id/scan_entry" })
         assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "com.jingdong.app.mall:id/home_feed" })
+    }
+
+    @Test
+    fun jdInputDumpResolvesEditableFieldAndSubmitButton() {
+        val snapshot = loadDump("ui_dumps/real_app_search/jd_search_input.xml")
+
+        val editable = UiTargetResolver.explain(snapshot, UiTargetKind.EditableField, target = "搜索京东商品")
+        val submit = UiTargetResolver.explain(snapshot, UiTargetKind.SubmitSearch, target = "提交搜索")
+
+        assertNull(editable.failureKind)
+        assertEquals("com.jingdong.app.mall:id/search_edit_text", editable.selectedNodeId)
+        assertEquals("搜索京东商品/店铺", editable.rankedCandidates.firstOrNull()?.label)
+        assertTrue(editable.rankedCandidates.none { candidate -> candidate.nodeId == "com.jingdong.app.mall:id/scan_entry" })
+        assertTrue(editable.rankedCandidates.none { candidate -> candidate.nodeId == "com.jingdong.app.mall:id/suggestion_list" })
+
+        assertNull(submit.failureKind)
+        assertEquals("com.jingdong.app.mall:id/search_submit", submit.selectedNodeId)
+        assertEquals("搜索", submit.rankedCandidates.firstOrNull()?.label)
+        assertTrue(submit.rankedCandidates.none { candidate -> candidate.nodeId == "com.jingdong.app.mall:id/search_edit_text" })
+        assertTrue(submit.rankedCandidates.none { candidate -> candidate.nodeId == "com.jingdong.app.mall:id/scan_entry" })
+        assertTrue(submit.rankedCandidates.none { candidate -> candidate.nodeId == "com.jingdong.app.mall:id/suggestion_list" })
+    }
+
+    @Test
+    fun jdResultDumpVerifiesSearchResultAfterPageChange() {
+        val before = loadDump("ui_dumps/real_app_search/jd_search_home.xml")
+        val after = loadDump("ui_dumps/real_app_search/jd_search_results.xml")
+
+        val verification = AppSearchResultVerifier.verify(
+            before = before,
+            after = after,
+            query = "机械键盘",
+            expectedPackageName = "com.jingdong.app.mall",
+            expectedAppName = "京东",
+        )
+
+        assertTrue(verification.summary, verification.verified)
+        assertEquals("query_visible_after_change", verification.evidence)
+        assertNull(verification.failureKind)
+    }
+
+    @Test
+    fun jdHomeDumpDoesNotVerifyUnchangedSearchResultFromFeedHints() {
+        val home = loadDump("ui_dumps/real_app_search/jd_search_home.xml")
+
+        val verification = AppSearchResultVerifier.verify(
+            before = home,
+            after = home,
+            query = "机械键盘",
+            expectedPackageName = "com.jingdong.app.mall",
+            expectedAppName = "京东",
+        )
+
+        assertEquals(false, verification.verified)
+        assertEquals(UiActionFailureKind.ResultNotVerified, verification.failureKind)
+        assertEquals("page_not_changed", verification.evidence)
     }
 
     @Test

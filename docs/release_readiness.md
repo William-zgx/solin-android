@@ -79,8 +79,10 @@ items below.
   replacement for production signing or the final release-candidate matrix.
 - Current local real-app search resolver replay coverage includes UIAutomator
   XML fixtures for Taobao, Pinduoduo, Amap/Gaode, JD, Chrome, Android Browser,
-  Quark, and UC browser search-entry ranking, Taobao, Amap/Gaode, and Quark browser
-  input-field / submit-button / result-page verification replay,
+  Quark, and UC browser search-entry ranking, Taobao, Pinduoduo, Amap/Gaode, JD,
+  and Quark browser input-field / submit-button / result-page verification replay,
+  plus a JD unchanged-home negative replay that prevents feed result hints from
+  being accepted as a completed search,
   plus a local evidence gate for ranked candidates JSON,
   target-resolution SHA-256 files, expected package/app fields, failure kind,
   window-dump SHA, submit failure, result verification failure, required hint

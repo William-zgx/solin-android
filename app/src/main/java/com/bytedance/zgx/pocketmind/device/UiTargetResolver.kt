@@ -333,14 +333,10 @@ object AppSearchResultVerifier {
                 evidence = "query_visible_with_result_hint",
             )
         }
-        if (resultHintCount >= 2) {
+        if (pageChanged && resultHintCount >= 2) {
             return SearchResultVerification(
                 verified = true,
-                summary = if (pageChanged) {
-                    "搜索结果验证通过：页面已变化并出现多个结果页特征。"
-                } else {
-                    "搜索结果验证通过：当前页面已稳定显示多个结果页特征。"
-                },
+                summary = "搜索结果验证通过：页面已变化并出现多个结果页特征。",
                 evidence = "result_hints_visible",
             )
         }

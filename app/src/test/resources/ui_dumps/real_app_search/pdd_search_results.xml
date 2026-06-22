@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.xunmeng.pinduoduo" content-desc="" clickable="false" enabled="true" scrollable="false" bounds="[0,0][1080,2400]">
+    <node index="0" text="纸巾" resource-id="com.xunmeng.pinduoduo:id/search_edit_text" class="android.widget.EditText" package="com.xunmeng.pinduoduo" content-desc="" clickable="true" enabled="true" editable="true" scrollable="false" bounds="[48,86][900,172]" />
+    <node index="1" text="综合" resource-id="com.xunmeng.pinduoduo:id/sort_comprehensive" class="android.widget.TextView" package="com.xunmeng.pinduoduo" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[48,210][180,288]" />
+    <node index="2" text="销量" resource-id="com.xunmeng.pinduoduo:id/sort_sales" class="android.widget.TextView" package="com.xunmeng.pinduoduo" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[210,210][340,288]" />
+    <node index="3" text="筛选" resource-id="com.xunmeng.pinduoduo:id/filter" class="android.widget.TextView" package="com.xunmeng.pinduoduo" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[860,210][1032,288]" />
+    <node index="4" text="纸巾 家用整箱 百亿补贴 已拼10万件" resource-id="com.xunmeng.pinduoduo:id/result_title_0" class="android.widget.TextView" package="com.xunmeng.pinduoduo" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[48,340][980,430]" />
+    <node index="5" text="纸巾 商品列表 综合 销量 筛选 百亿补贴" resource-id="com.xunmeng.pinduoduo:id/result_feed" class="androidx.recyclerview.widget.RecyclerView" package="com.xunmeng.pinduoduo" content-desc="" clickable="true" enabled="true" scrollable="true" bounds="[0,310][1080,1900]" />
+  </node>
+</hierarchy>
