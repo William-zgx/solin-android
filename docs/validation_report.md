@@ -13881,3 +13881,62 @@ ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
 - 通过：`ModelCatalogTest` 目标测试 `BUILD SUCCESSFUL`，覆盖推荐模型 profile、
   远程/本地 backend、vision、embedding、action 和 context-window 契约。
 - 未执行真机/模拟器：本轮是纯 JVM model capability contract。
+
+## 2026-06-22 Multi-agent real-app and AI eval gate hardening
+
+本轮覆盖项：
+
+- 多 Agent 并行审计 release evidence、AI behavior eval 和真实 App resolver；
+  本轮只落地本地可机器验证的门禁补强，不伪造真机、模拟器、perf 或人工审批证据。
+- `scripts/run_real_app_search_eval.sh` 的 case artifact 增加步骤级 evidence index：
+  pass/fail 路径都会记录 tap、type_text、submit_search、verify 的 result 文件、SHA-256、
+  target-resolution 字段、step evidence 文件和 ranked candidates 文件。
+- `scripts/verify_ai_behavior_eval.sh` strict actual trace 模式收紧：
+  `--require-actual-trace` 下 actual row 必须声明稳定且已知的 `caseId`，重复/未知 case
+  fail-closed；`expectedConfirmation=fail_closed` 的 actual trace 必须带命中 allowlist 的
+  `failureMode`。
+- `PUBLIC_RELEASE=1` 强制启用 `VERIFY_AI_BEHAVIOR_EVAL=1`，即使环境变量显式传 0 也不能跳过
+  AI behavior release gate。
+- `AiBehaviorEvalFixturesTest` 同步 shell verifier 的安全覆盖要求：真实 App
+  `page_not_changed`、runtime `permissiondenied` 和 public evidence batch boundary
+  均进入 JVM fixture gate。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest' \
+    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
+    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+    --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest' \
+    --tests 'com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：`scripts/test_validation_scripts.sh`，覆盖 strict actual trace 的 missing/unknown
+  caseId、missing fail-closed failureMode、public-release 强制 AI eval、real-app pass/fail
+  step evidence 和 ranked candidates hash。
+- 通过：AI behavior targeted JVM tests。
+- 通过：UI resolver / UIAutomator replay targeted JVM tests。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM tests、debug/release
+  build、AndroidTest assemble、lint 和 artifact scan。
+
+剩余风险：
+
+- 按本轮要求未跑真机/模拟器 instrumentation；真实 App 搜索闭环、arm64 API matrix、
+  physical validation、截图和性能基线仍需后续设备证据。
+- Release/privacy/store/model license/manual acceptance 仍保持 pending/fail-closed，
+  需要真实 owner 审批和可复现证据后才能进入 public release。

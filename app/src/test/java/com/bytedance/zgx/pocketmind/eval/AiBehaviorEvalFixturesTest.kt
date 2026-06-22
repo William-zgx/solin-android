@@ -106,6 +106,7 @@ class AiBehaviorEvalFixturesTest {
             "submit_not_found",
             "result_not_verified",
             "required_hint_missing",
+            "page_not_changed",
         )
         val observedFailureModes = loadFixtureRows("runtime_failure.jsonl")
             .flatMap { row -> row.getJSONArray("allowedFailureModes").toStringList() }
@@ -114,6 +115,30 @@ class AiBehaviorEvalFixturesTest {
         assertTrue(
             "runtime failure fixtures must cover real-app search failure modes",
             observedFailureModes.containsAll(expectedFailureModes),
+        )
+    }
+
+    @Test
+    fun runtimeFailureFixturesCoverSafetyFailureModes() {
+        val observedFailureModes = loadFixtureRows("runtime_failure.jsonl")
+            .flatMap { row -> row.getJSONArray("allowedFailureModes").toStringList() }
+            .toSet()
+
+        assertTrue(
+            "runtime failure fixtures must cover permission-denied fail-closed recovery",
+            "permissiondenied" in observedFailureModes,
+        )
+    }
+
+    @Test
+    fun privacyFixturesCoverPublicEvidenceBatchBoundary() {
+        val observedBoundaries = loadFixtureRows("privacy_boundary.jsonl")
+            .map { row -> row.getString("expectedBoundary") }
+            .toSet()
+
+        assertTrue(
+            "privacy fixtures must cover multi-tool public evidence batch allowance",
+            "public_evidence_multi_search_batch_allowed" in observedBoundaries,
         )
     }
 

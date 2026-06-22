@@ -310,6 +310,45 @@ FAKE_PACKAGE_DUMPSYS
             echo "targetResolution.candidateTotalCount=1"
             echo "targetResolution.archivedCandidateCount=1"
             echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"keyboard-action","label":"键盘搜索","bounds":{"left":820,"top":2100,"right":1080,"bottom":2316},"clickable":true,"editable":false,"scrollable":false,"enabled":false,"matchedProfileHint":"搜索","confidence":180,"finalScore":180,"riskPenalty":0,"noisePenalty":80,"totalPenalty":80,"reason":"matched disabled keyboard action","score":{"semantic":300,"profileHint":100,"targetText":0,"actionability":0,"position":120,"riskPenalty":0,"noisePenalty":80,"final":180}}]}'
+          elif [[ "$request_id" == *"-tap-"* ]]; then
+            echo "status=Succeeded"
+            echo "actionType=tap"
+            echo "targetResolution.available=true"
+            echo "targetResolution.kind=search_entry"
+            echo "targetResolution.target=搜索入口"
+            echo "targetResolution.packageName=$package_name"
+            echo "targetResolution.selectedNodeId=search-entry"
+            echo "targetResolution.failureKind="
+            echo "targetResolution.candidateCount=1"
+            echo "targetResolution.candidateTotalCount=1"
+            echo "targetResolution.archivedCandidateCount=1"
+            echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"search-entry","label":"搜索入口","bounds":{"left":40,"top":96,"right":1040,"bottom":176},"clickable":true,"editable":false,"scrollable":false,"enabled":true,"matchedProfileHint":"搜索","confidence":760,"finalScore":760,"riskPenalty":0,"noisePenalty":0,"totalPenalty":0,"reason":"matched search entry","score":{"semantic":680,"profileHint":100,"targetText":0,"actionability":120,"position":140,"riskPenalty":0,"noisePenalty":0,"final":760}}]}'
+          elif [[ "$request_id" == *"-type-"* ]]; then
+            echo "status=Succeeded"
+            echo "actionType=type_text"
+            echo "targetResolution.available=true"
+            echo "targetResolution.kind=editable_field"
+            echo "targetResolution.target=搜索输入框"
+            echo "targetResolution.packageName=$package_name"
+            echo "targetResolution.selectedNodeId=search-edit-text"
+            echo "targetResolution.failureKind="
+            echo "targetResolution.candidateCount=1"
+            echo "targetResolution.candidateTotalCount=1"
+            echo "targetResolution.archivedCandidateCount=1"
+            echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"search-edit-text","label":"搜索输入框","bounds":{"left":40,"top":96,"right":1040,"bottom":176},"clickable":true,"editable":true,"scrollable":false,"enabled":true,"matchedProfileHint":"搜索","confidence":980,"finalScore":980,"riskPenalty":0,"noisePenalty":0,"totalPenalty":0,"reason":"matched editable search field","score":{"semantic":520,"profileHint":100,"targetText":0,"actionability":300,"position":140,"riskPenalty":0,"noisePenalty":0,"final":980}}]}'
+          elif [[ "$request_id" == *"-submit-"* ]]; then
+            echo "status=Succeeded"
+            echo "actionType=submit_search"
+            echo "targetResolution.available=true"
+            echo "targetResolution.kind=submit_button"
+            echo "targetResolution.target=搜索提交"
+            echo "targetResolution.packageName=$package_name"
+            echo "targetResolution.selectedNodeId=search-submit"
+            echo "targetResolution.failureKind="
+            echo "targetResolution.candidateCount=1"
+            echo "targetResolution.candidateTotalCount=1"
+            echo "targetResolution.archivedCandidateCount=1"
+            echo 'targetResolution.candidatesJson={"candidates":[{"nodeId":"search-submit","label":"搜索","bounds":{"left":900,"top":96,"right":1060,"bottom":176},"clickable":true,"editable":false,"scrollable":false,"enabled":true,"matchedProfileHint":"搜索","confidence":840,"finalScore":840,"riskPenalty":0,"noisePenalty":0,"totalPenalty":0,"reason":"matched submit search button","score":{"semantic":700,"profileHint":100,"targetText":0,"actionability":120,"position":120,"riskPenalty":0,"noisePenalty":0,"final":840}}]}'
           elif [[ "$request_id" == *"-verify-"* && "${FAKE_REAL_APP_SEARCH_FAIL_STEP:-}" == "verify" ]]; then
             echo "status=Failed"
             echo "failureKind=result_not_verified"
@@ -1078,6 +1117,8 @@ grep -q 'REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1' scripts/verify_release_gate.sh ||
   fail "public release gate must require AI behavior actual trace"
 grep -q 'REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1' scripts/verify_release_gate.sh ||
   fail "public release gate must require AI behavior runtime trace source"
+grep -q 'VERIFY_AI_BEHAVIOR_EVAL=1' scripts/verify_release_gate.sh ||
+  fail "public release gate must force AI behavior eval"
 grep -q -- '--require-boundary-map' scripts/verify_release_gate.sh ||
   fail "release gate must require AI behavior eval boundary mapping"
 grep -q 'docs/capability_matrix.json' scripts/verify_ai_behavior_eval.sh ||
@@ -1165,6 +1206,10 @@ grep -q 'AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS' scripts/verify_ai_behavior_eval.
   fail "AI behavior eval gate must expose an actual trace max-age override"
 grep -q 'actual-trace-recordedAt-stale' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval gate must reject stale actual trace timestamps"
+grep -q 'actual-trace-unknown-case-id' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must reject unknown actual trace case IDs"
+grep -q 'trace-diff-missing-required-failure-mode' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must require fail-closed actual failure modes"
 AI_BEHAVIOR_MISSING_ID_DIR="$TMP_DIR/ai-behavior-missing-id"
 mkdir -p "$AI_BEHAVIOR_MISSING_ID_DIR"
 cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_ID_DIR/"
@@ -1425,6 +1470,8 @@ with out.open("w", encoding="utf-8") as handle:
             else:
                 trace["routingPath"] = "no_action"
                 trace["routingRejectionReason"] = "no_action_intent_detected"
+            if row["expectedConfirmation"] == "fail_closed":
+                trace["failureMode"] = row["allowedFailureModes"][0]
             handle.write(json.dumps(trace, ensure_ascii=False, sort_keys=True) + "\n")
 PY
 AI_ACTUAL_TRACE_SHA="$(shasum -a 256 "$AI_ACTUAL_TRACE" | awk '{print $1}')"
@@ -1505,6 +1552,85 @@ expect_failure \
     --report "$ARTIFACT_DIR/ai-behavior-trace-diff-future.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-future.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-future.properties" "reason=actual-trace-recordedAt-future:1"
+
+AI_ACTUAL_TRACE_MISSING_CASE_ID="$TMP_DIR/ai-behavior-actual-trace-missing-case-id.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_MISSING_CASE_ID" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0].pop("caseId", None)
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects missing actual trace case id in strict mode" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE_MISSING_CASE_ID" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-case-id.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-case-id.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-case-id.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-case-id.properties" "reason=invalid-actual-trace:1:caseId"
+
+AI_ACTUAL_TRACE_UNKNOWN_CASE_ID="$TMP_DIR/ai-behavior-actual-trace-unknown-case-id.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_UNKNOWN_CASE_ID" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["caseId"] = "unknown_case_from_runtime"
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects unknown actual trace case id in strict mode" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE_UNKNOWN_CASE_ID" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-unknown-case-id.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-unknown-case-id.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-unknown-case-id.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-unknown-case-id.properties" "reason=actual-trace-unknown-case-id:1:unknown_case_from_runtime"
+
+AI_ACTUAL_TRACE_MISSING_FAILURE_MODE="$TMP_DIR/ai-behavior-actual-trace-missing-failure-mode.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_MISSING_FAILURE_MODE" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row.get("actualConfirmation") == "fail_closed":
+        row.pop("failureMode", None)
+        break
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects fail-closed actual trace without failure mode" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE_MISSING_FAILURE_MODE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-failure-mode.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-failure-mode.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-failure-mode.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-failure-mode.properties" "reason=trace-diff-missing-required-failure-mode"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-failure-mode.properties" "actualTraceMissingRequiredFailureModeCount=1"
 
 AI_TRACE_DIFF_MATCHED="$ARTIFACT_DIR/ai-behavior-trace-diff-matched.jsonl"
 expect_success \
@@ -1802,7 +1928,7 @@ cat >> "$AI_EXTRA_ACTUAL_TRACE" <<AI_EXTRA_ACTUAL_TRACE_JSONL
 {"caseId":"extra-case","category":"memory_recall","input":"extra","actualTools":[],"actualConfirmation":"none","actualRiskLevel":"low","privacy":"RemoteEligible","localOnly":false,"remoteEligible":true,"traceRecordedAt":"$AI_TRACE_FRESH_RECORDED_AT","traceSource":"agent_loop_runtime"}
 AI_EXTRA_ACTUAL_TRACE_JSONL
 expect_failure \
-  "AI behavior eval rejects extra required planning trace rows" \
+  "AI behavior eval rejects extra unknown actual trace rows" \
   scripts/verify_ai_behavior_eval.sh \
     --require-boundary-map \
     --actual-trace "$AI_EXTRA_ACTUAL_TRACE" \
@@ -1810,8 +1936,7 @@ expect_failure \
     --require-actual-trace \
     --report "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties" "status=failed"
-assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties" "reason=trace-diff-extra-actual"
-assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties" "traceDiffExtraActualCount=1"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-extra.properties" "reason=actual-trace-unknown-case-id:"
 grep -q 'scripts/privacy_scan.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include privacy_scan.sh in shell syntax checks"
 grep -q 'scripts/scan_android_artifacts.sh' scripts/verify_local.sh ||
@@ -6464,6 +6589,22 @@ assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-require
 assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/release-gate.properties" "failedTarget=ai-behavior-eval"
 assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/release-gate.properties" "requireAiBehaviorRuntimeTraceSource=1"
 expect_failure \
+  "public release gate forces AI behavior eval even when disabled by environment" \
+  env ARTIFACT_DIR="$ARTIFACT_DIR/release-public-ai-behavior-forced" \
+  PERF_BASELINE_FILE="$VALID_GATE_PERF" \
+  RELEASE_APK="$SAFE_APK" \
+  RELEASE_AAB="$TMP_DIR/missing.aab" \
+  PUBLIC_RELEASE=1 \
+  VERIFY_AI_BEHAVIOR_EVAL=0 \
+  EXPECTED_SIGNING_CERT_SHA256="$DEBUG_SIGNED_AAB_CERT_SHA" \
+  VERIFY_CONTRACT_TESTS=0 \
+  scripts/verify_release_gate.sh
+assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/ai-behavior-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/ai-behavior-eval.properties" "reason=actual-trace-file-missing"
+assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "verifyAiBehaviorEval=1"
+assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "requireAiBehaviorActualTrace=1"
+assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "failedTarget=ai-behavior-eval"
+expect_failure \
   "release gate can skip perf baseline for non-public owner evidence checks" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-store-policy-without-perf" \
   RELEASE_APK="$SAFE_APK" \
@@ -6960,10 +7101,25 @@ grep -Eq '^target_resolution_evidence_sha256=[0-9a-f]{64}$' "$REAL_APP_CASE_REPO
 assert_report_contains "$REAL_APP_CASE_REPORT" "ranked_candidates_file=$REAL_APP_RANKED_CANDIDATES"
 grep -Eq '^ranked_candidates_sha256=[0-9a-f]{64}$' "$REAL_APP_CASE_REPORT" ||
   fail "Expected real app case report to hash ranked resolver candidates"
+assert_report_contains "$REAL_APP_CASE_REPORT" "step_evidence_count=1"
+assert_report_contains "$REAL_APP_CASE_REPORT" "step_tap_result_file=$ARTIFACT_DIR/taobao-tap.properties"
+assert_report_contains "$REAL_APP_CASE_REPORT" "step_tap_target_resolution_available=true"
+assert_report_contains "$REAL_APP_CASE_REPORT" "step_tap_target_resolution_failure_kind=search_entry_not_found"
+assert_report_contains "$REAL_APP_CASE_REPORT" "step_tap_target_resolution_evidence_file=$ARTIFACT_DIR/taobao.tap.target-resolution.properties"
+assert_report_contains "$REAL_APP_CASE_REPORT" "step_tap_ranked_candidates_file=$ARTIFACT_DIR/taobao.tap.ranked-candidates.json"
+grep -Eq '^step_tap_result_file_sha256=[0-9a-f]{64}$' "$REAL_APP_CASE_REPORT" ||
+  fail "Expected real app tap step evidence to hash the result file"
+grep -Eq '^step_tap_target_resolution_evidence_sha256=[0-9a-f]{64}$' "$REAL_APP_CASE_REPORT" ||
+  fail "Expected real app tap step evidence to hash target resolution evidence"
+grep -Eq '^step_tap_ranked_candidates_sha256=[0-9a-f]{64}$' "$REAL_APP_CASE_REPORT" ||
+  fail "Expected real app tap step evidence to hash ranked candidates"
 assert_report_contains "$REAL_APP_TARGET_RESOLUTION" "artifact_schema=UiTargetResolutionEvidenceArtifact/v1"
 assert_report_contains "$REAL_APP_TARGET_RESOLUTION" "case=taobao"
 assert_report_contains "$REAL_APP_TARGET_RESOLUTION" "target_resolution_failure_kind=search_entry_not_found"
 assert_report_contains "$REAL_APP_TARGET_RESOLUTION" "ranked_candidates_file=$REAL_APP_RANKED_CANDIDATES"
+assert_report_contains "$ARTIFACT_DIR/taobao.tap.target-resolution.properties" "artifact_schema=UiTargetResolutionStepEvidenceArtifact/v1"
+assert_report_contains "$ARTIFACT_DIR/taobao.tap.target-resolution.properties" "step=tap"
+assert_report_contains "$ARTIFACT_DIR/taobao.tap.target-resolution.properties" "target_resolution_failure_kind=search_entry_not_found"
 assert_report_contains_text "$REAL_APP_RANKED_CANDIDATES" '"label":"搜索推荐"'
 assert_report_contains_text "$REAL_APP_RANKED_CANDIDATES" '"bounds":{"left":0'
 assert_report_contains_text "$REAL_APP_RANKED_CANDIDATES" '"clickable":true'
@@ -7242,6 +7398,30 @@ assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_cou
 assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "case=taobao"
 assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "result_file=$ARTIFACT_DIR/taobao-verify.properties"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_evidence_count=4"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_tap_result_file=$ARTIFACT_DIR/taobao-tap.properties"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_tap_target_resolution_available=true"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_tap_target_resolution_selected_node_id=search-entry"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_type_text_result_file=$ARTIFACT_DIR/taobao-type.properties"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_type_text_target_resolution_available=true"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_type_text_target_resolution_selected_node_id=search-edit-text"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_submit_search_result_file=$ARTIFACT_DIR/taobao-submit.properties"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_submit_search_target_resolution_available=true"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_submit_search_target_resolution_selected_node_id=search-submit"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_verify_result_file=$ARTIFACT_DIR/taobao-verify.properties"
+assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "step_verify_target_resolution_available=false"
+grep -Eq '^step_tap_ranked_candidates_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/taobao.case.properties" ||
+  fail "Expected passing real app tap step evidence to hash ranked candidates"
+grep -Eq '^step_type_text_ranked_candidates_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/taobao.case.properties" ||
+  fail "Expected passing real app type step evidence to hash ranked candidates"
+grep -Eq '^step_submit_search_ranked_candidates_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/taobao.case.properties" ||
+  fail "Expected passing real app submit step evidence to hash ranked candidates"
+assert_report_contains "$ARTIFACT_DIR/taobao.tap.target-resolution.properties" "artifact_schema=UiTargetResolutionStepEvidenceArtifact/v1"
+assert_report_contains "$ARTIFACT_DIR/taobao.type_text.target-resolution.properties" "artifact_schema=UiTargetResolutionStepEvidenceArtifact/v1"
+assert_report_contains "$ARTIFACT_DIR/taobao.submit_search.target-resolution.properties" "artifact_schema=UiTargetResolutionStepEvidenceArtifact/v1"
+assert_report_contains_text "$ARTIFACT_DIR/taobao.tap.ranked-candidates.json" '"nodeId":"search-entry"'
+assert_report_contains_text "$ARTIFACT_DIR/taobao.type_text.ranked-candidates.json" '"editable":true'
+assert_report_contains_text "$ARTIFACT_DIR/taobao.submit_search.ranked-candidates.json" '"nodeId":"search-submit"'
 assert_report_contains "$ARTIFACT_DIR/uc.case.properties" "case=uc"
 assert_report_contains "$ARTIFACT_DIR/uc.case.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/uc.case.properties" "result_file=$ARTIFACT_DIR/uc-verify.properties"

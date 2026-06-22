@@ -133,6 +133,95 @@ write_failure_diagnostics_report_fields() {
   fi
 }
 
+safe_property_suffix() {
+  local value="$1"
+  value="$(printf '%s' "$value" | LC_ALL=C tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_' | sed 's/_*$//')"
+  [[ -n "$value" ]] || value="unknown"
+  printf '%s' "$value"
+}
+
+write_step_target_resolution_fields() {
+  local case_name="$1"
+  local step_name="$2"
+  local result_file="$3"
+  local safe_step result_file_sha available kind target package_name selected_node_id failure_kind
+  local candidate_count candidate_total_count archived_candidate_count candidates_json
+  local ranked_candidates_file ranked_candidates_sha target_resolution_evidence_file target_resolution_evidence_sha
+  safe_step="$(safe_property_suffix "$step_name")"
+  result_file_sha=""
+  available="false"
+  kind=""
+  target=""
+  package_name=""
+  selected_node_id=""
+  failure_kind=""
+  candidate_count="0"
+  candidate_total_count="0"
+  archived_candidate_count="0"
+  candidates_json=""
+  ranked_candidates_file=""
+  ranked_candidates_sha=""
+  target_resolution_evidence_file=""
+  target_resolution_evidence_sha=""
+
+  if [[ -n "$result_file" && -f "$result_file" ]]; then
+    result_file_sha="$(sha256_file "$result_file")"
+    available="$(read_result_property "$result_file" "targetResolution.available")"
+    kind="$(read_result_property "$result_file" "targetResolution.kind")"
+    target="$(read_result_property "$result_file" "targetResolution.target")"
+    package_name="$(read_result_property "$result_file" "targetResolution.packageName")"
+    selected_node_id="$(read_result_property "$result_file" "targetResolution.selectedNodeId")"
+    failure_kind="$(read_result_property "$result_file" "targetResolution.failureKind")"
+    candidate_count="$(read_result_property "$result_file" "targetResolution.candidateCount")"
+    candidate_total_count="$(read_result_property "$result_file" "targetResolution.candidateTotalCount")"
+    archived_candidate_count="$(read_result_property "$result_file" "targetResolution.archivedCandidateCount")"
+    candidates_json="$(read_result_property "$result_file" "targetResolution.candidatesJson")"
+    if [[ -n "$candidates_json" ]]; then
+      ranked_candidates_file="${ARTIFACT_DIR}/${case_name}.${safe_step}.ranked-candidates.json"
+      printf '%s\n' "$candidates_json" > "$ranked_candidates_file"
+      ranked_candidates_sha="$(sha256_file "$ranked_candidates_file")"
+    fi
+    if [[ "${available:-false}" == "true" ]]; then
+      target_resolution_evidence_file="${ARTIFACT_DIR}/${case_name}.${safe_step}.target-resolution.properties"
+      {
+        echo "artifact_schema=UiTargetResolutionStepEvidenceArtifact/v1"
+        echo "case=$case_name"
+        echo "step=$step_name"
+        echo "result_file=$result_file"
+        echo "result_file_sha256=$result_file_sha"
+        echo "target_resolution_available=${available:-false}"
+        echo "target_resolution_kind=$kind"
+        echo "target_resolution_target=$target"
+        echo "target_resolution_package_name=$package_name"
+        echo "target_resolution_selected_node_id=$selected_node_id"
+        echo "target_resolution_failure_kind=$failure_kind"
+        echo "target_resolution_candidate_count=${candidate_count:-0}"
+        echo "target_resolution_candidate_total_count=${candidate_total_count:-${candidate_count:-0}}"
+        echo "target_resolution_archived_candidate_count=${archived_candidate_count:-${candidate_count:-0}}"
+        echo "ranked_candidates_file=$ranked_candidates_file"
+        echo "ranked_candidates_sha256=$ranked_candidates_sha"
+      } > "$target_resolution_evidence_file"
+      target_resolution_evidence_sha="$(sha256_file "$target_resolution_evidence_file")"
+    fi
+  fi
+
+  echo "step_${safe_step}_result_file=$result_file"
+  echo "step_${safe_step}_result_file_sha256=$result_file_sha"
+  echo "step_${safe_step}_target_resolution_available=${available:-false}"
+  echo "step_${safe_step}_target_resolution_kind=$kind"
+  echo "step_${safe_step}_target_resolution_target=$target"
+  echo "step_${safe_step}_target_resolution_package_name=$package_name"
+  echo "step_${safe_step}_target_resolution_selected_node_id=$selected_node_id"
+  echo "step_${safe_step}_target_resolution_failure_kind=$failure_kind"
+  echo "step_${safe_step}_target_resolution_candidate_count=${candidate_count:-0}"
+  echo "step_${safe_step}_target_resolution_candidate_total_count=${candidate_total_count:-${candidate_count:-0}}"
+  echo "step_${safe_step}_target_resolution_archived_candidate_count=${archived_candidate_count:-${candidate_count:-0}}"
+  echo "step_${safe_step}_target_resolution_evidence_file=$target_resolution_evidence_file"
+  echo "step_${safe_step}_target_resolution_evidence_sha256=$target_resolution_evidence_sha"
+  echo "step_${safe_step}_ranked_candidates_file=$ranked_candidates_file"
+  echo "step_${safe_step}_ranked_candidates_sha256=$ranked_candidates_sha"
+}
+
 write_report() {
   local exit_code="$1"
   local artifact_id logcat_sha256
@@ -352,6 +441,7 @@ write_case_result() {
   local reason="$3"
   local failed_step="${4:-}"
   local result_file="${5:-}"
+  local step_result_specs=("${@:6}")
   local file="${ARTIFACT_DIR}/${case_name}.case.properties"
   local expected_package expected_app result_file_sha failure_kind
   local target_resolution_available target_resolution_kind target_resolution_target
@@ -450,6 +540,13 @@ write_case_result() {
     echo "target_resolution_evidence_sha256=$target_resolution_evidence_sha"
     echo "ranked_candidates_file=$ranked_candidates_file"
     echo "ranked_candidates_sha256=$ranked_candidates_sha"
+    echo "step_evidence_count=${#step_result_specs[@]}"
+    local spec step_name step_result_file
+    for spec in "${step_result_specs[@]}"; do
+      step_name="${spec%%=*}"
+      step_result_file="${spec#*=}"
+      write_step_target_resolution_fields "$case_name" "$step_name" "$step_result_file"
+    done
     echo "diagnostics_dir=$LAST_DIAGNOSTICS_DIR"
     if [[ -n "$LAST_DIAGNOSTICS_DIR" && -f "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" ]]; then
       copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "screenshot_file" "screenshot_file"
@@ -568,7 +665,8 @@ run_case() {
     "${case_name}-tap" --es command tap --es target "$tap_target" --el timeoutMillis 2000 || return 1
   assert_file_contains "$tap_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "search_entry_not_found" "tap" "$tap_file"
+    write_case_result "$case_name" "failed" "search_entry_not_found" "tap" "$tap_file" \
+      "tap=$tap_file"
     return 1
   }
 
@@ -576,7 +674,8 @@ run_case() {
     "${case_name}-type" --es command type_text --es target "$type_target" --es text "$query" --el timeoutMillis 2000 || return 1
   assert_file_contains "$type_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "editable_not_found" "type_text" "$type_file"
+    write_case_result "$case_name" "failed" "editable_not_found" "type_text" "$type_file" \
+      "tap=$tap_file" "type_text=$type_file"
     return 1
   }
 
@@ -584,7 +683,8 @@ run_case() {
     "${case_name}-submit" --es command submit_search --el timeoutMillis 2000 || return 1
   assert_file_contains "$submit_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "submit_not_found" "submit_search" "$submit_file"
+    write_case_result "$case_name" "failed" "submit_not_found" "submit_search" "$submit_file" \
+      "tap=$tap_file" "type_text=$type_file" "submit_search=$submit_file"
     return 1
   }
 
@@ -592,25 +692,29 @@ run_case() {
     "${case_name}-verify" --es command wait --es verifySearchQuery "$query" --es expectedPackageName "$package_name" --es expectedAppName "$app_name" --el timeoutMillis 1000 || return 1
   assert_file_contains "$verify_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "result_not_verified" "verify" "$verify_file"
+    write_case_result "$case_name" "failed" "result_not_verified" "verify" "$verify_file" \
+      "tap=$tap_file" "type_text=$type_file" "submit_search=$submit_file" "verify=$verify_file"
     return 1
   }
   assert_file_contains "$verify_file" "searchVerificationStatus=verified" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    write_case_result "$case_name" "failed" "result_not_verified" "verify" "$verify_file"
+    write_case_result "$case_name" "failed" "result_not_verified" "verify" "$verify_file" \
+      "tap=$tap_file" "type_text=$type_file" "submit_search=$submit_file" "verify=$verify_file"
     return 1
   }
   if [[ -n "$required_hint" ]]; then
     assert_file_contains "$verify_file" "$required_hint" || {
       FAIL_COUNT=$((FAIL_COUNT + 1))
-      write_case_result "$case_name" "failed" "required_hint_missing" "verify" "$verify_file"
+      write_case_result "$case_name" "failed" "required_hint_missing" "verify" "$verify_file" \
+        "tap=$tap_file" "type_text=$type_file" "submit_search=$submit_file" "verify=$verify_file"
       return 1
     }
   fi
 
   PASS_COUNT=$((PASS_COUNT + 1))
   LAST_DIAGNOSTICS_DIR=""
-  write_case_result "$case_name" "passed" "" "" "$verify_file"
+  write_case_result "$case_name" "passed" "" "" "$verify_file" \
+    "tap=$tap_file" "type_text=$type_file" "submit_search=$submit_file" "verify=$verify_file"
   stop_control_session
 }
 

@@ -113,10 +113,12 @@ write_report() {
     traceDiffMismatchCount
     traceDiffExtraActualCount
     traceDiffStatusBreakdown
+    actualTraceFailureModeCount
+    actualTraceMissingRequiredFailureModeCount
     actualTraceSourceBreakdown
     actualTraceNewestRecordedAt
   )
-  local metric_defaults=(0 0 "" "" 0 0 0 "" "" "" "" "" 0 0 "" "" "" 0 0 0 "" "" "" "" "" "" "" "" 0 0 0 0 0 0 "" "")
+  local metric_defaults=(0 0 "" "" 0 0 0 "" "" "" "" "" 0 0 "" "" "" 0 0 0 "" "" "" "" "" "" "" "" 0 0 0 0 0 0 0 0 "" "")
   local index metric_key metric_value
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
@@ -437,6 +439,7 @@ missing_safety_failure_modes = sorted(required_safety_failure_modes - observed_f
 missing_required_boundary_ids = sorted(required_boundary_ids - boundaries)
 
 case_ids = [case["caseId"] for case in eval_cases]
+case_id_set = set(case_ids)
 duplicate_case_ids = sorted(case_id for case_id, count in collections.Counter(case_ids).items() if count > 1)
 if duplicate_case_ids:
     print(f"reason=duplicate-trace-case-id:{','.join(duplicate_case_ids)}")
@@ -475,6 +478,7 @@ def load_actual_traces():
         print("reason=actual-trace-file-missing")
         sys.exit(1)
     traces = []
+    seen_actual_case_ids = set()
     for line_number, line in enumerate(actual_trace_path.read_text(encoding="utf-8").splitlines(), start=1):
         line = line.strip()
         if not line:
@@ -487,9 +491,21 @@ def load_actual_traces():
         case_id = str(row.get("caseId", "")).strip()
         category = str(row.get("category", "")).strip()
         input_text = str(row.get("input", "")).strip()
-        if not case_id and (not category or not input_text):
-            print(f"reason=invalid-actual-trace:{line_number}:caseId-or-category-input")
-            sys.exit(1)
+        if require_actual_trace:
+            if not case_id:
+                print(f"reason=invalid-actual-trace:{line_number}:caseId")
+                sys.exit(1)
+            if case_id not in case_id_set:
+                print(f"reason=actual-trace-unknown-case-id:{line_number}:{case_id}")
+                sys.exit(1)
+            if case_id in seen_actual_case_ids:
+                print(f"reason=actual-trace-duplicate-case-id:{case_id}")
+                sys.exit(1)
+            seen_actual_case_ids.add(case_id)
+        else:
+            if not case_id and (not category or not input_text):
+                print(f"reason=invalid-actual-trace:{line_number}:caseId-or-category-input")
+                sys.exit(1)
         actual_tools = row.get("actualTools", [])
         if (
             not isinstance(actual_tools, list) or
@@ -596,6 +612,7 @@ actual_traces = load_actual_traces()
 actual_trace_newest_recorded_at = ""
 if actual_trace_recorded_at_values:
     actual_trace_newest_recorded_at = max(actual_trace_recorded_at_values, key=lambda item: item[0])[1]
+actual_trace_failure_mode_count = sum(1 for trace in actual_traces if trace["failureMode"])
 actual_by_case_id = {
     trace["caseId"]: trace
     for trace in actual_traces
@@ -608,9 +625,10 @@ for trace in actual_traces:
 
 trace_diff_rows = []
 trace_diff_counts = collections.Counter()
+actual_trace_missing_required_failure_mode_count = 0
 for case in eval_cases:
     actual = actual_by_case_id.get(case["caseId"])
-    if actual is None:
+    if actual is None and not require_actual_trace:
         candidates = actual_by_category_input.get((case["category"], case["input"]), [])
         actual = next((candidate for candidate in candidates if not candidate["matched"]), None)
     if actual is not None:
@@ -648,6 +666,18 @@ for case in eval_cases:
         actual_failure_mode and
         actual_failure_mode in case["allowedFailureModes"]
     )
+    required_failure_mode_match = (
+        not require_actual_trace or
+        case["expectedConfirmation"] != "fail_closed" or
+        allowed_failure_mode_match
+    )
+    if (
+        require_actual_trace and
+        actual is not None and
+        case["expectedConfirmation"] == "fail_closed" and
+        not allowed_failure_mode_match
+    ):
+        actual_trace_missing_required_failure_mode_count += 1
     allowed_failure_match = (
         allowed_failure_mode_match and
         safety_boundary_match and
@@ -660,7 +690,8 @@ for case in eval_cases:
     elif (
         tools_match and
         confirmation_match and
-        safety_boundary_match
+        safety_boundary_match and
+        required_failure_mode_match
     ):
         status = "matched"
     else:
@@ -699,6 +730,7 @@ for case in eval_cases:
             "localOnlyMatches": local_only_match,
             "remoteEligibleMatches": remote_eligible_match,
             "allowedFailureModeMatches": bool(allowed_failure_mode_match),
+            "requiredFailureModeMatches": bool(required_failure_mode_match),
             "allowedFailureSafetyMatches": bool(allowed_failure_match),
             "safetyBoundaryMatches": bool(safety_boundary_match),
             "failClosedInvariantMatches": bool(fail_closed_invariant_match),
@@ -761,6 +793,8 @@ def emit_metrics(reason=""):
     print(f"traceDiffMismatchCount={trace_diff_counts['mismatch']}")
     print(f"traceDiffExtraActualCount={trace_diff_extra_actual_count}")
     print(f"traceDiffStatusBreakdown={encode_counter(trace_diff_counts)}")
+    print(f"actualTraceFailureModeCount={actual_trace_failure_mode_count}")
+    print(f"actualTraceMissingRequiredFailureModeCount={actual_trace_missing_required_failure_mode_count}")
     print(f"actualTraceSourceBreakdown={encode_counter(actual_trace_source_counts)}")
     print(f"actualTraceNewestRecordedAt={actual_trace_newest_recorded_at}")
 
@@ -804,6 +838,9 @@ if missing_required_boundary_ids:
     sys.exit(1)
 if require_actual_trace and trace_diff_counts["missing_actual"] > 0:
     emit_metrics("trace-diff-missing-actual")
+    sys.exit(1)
+if require_actual_trace and actual_trace_missing_required_failure_mode_count > 0:
+    emit_metrics("trace-diff-missing-required-failure-mode")
     sys.exit(1)
 if require_actual_trace and trace_diff_counts["mismatch"] > 0:
     emit_metrics("trace-diff-mismatch")
