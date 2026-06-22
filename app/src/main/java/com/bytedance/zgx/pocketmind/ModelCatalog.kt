@@ -111,6 +111,9 @@ data class ModelProfile(
         require(tokenBudget == null || tokenBudget > 0) {
             "Model context window must be positive when declared"
         }
+        require(tokenBudget == null || capability == ModelCapability.Chat) {
+            "Model context window is only valid for chat-capable profiles"
+        }
     }
 }
 

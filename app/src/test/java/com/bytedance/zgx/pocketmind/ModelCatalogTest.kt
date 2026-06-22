@@ -234,6 +234,34 @@ class ModelCatalogTest {
         )
     }
 
+    @Test(expected = IllegalArgumentException::class)
+    fun modelProfileRejectsContextWindowForEmbeddingProfiles() {
+        ModelProfile(
+            id = "bad-embedding-context",
+            displayName = "Bad Embedding Context",
+            capability = ModelCapability.MemoryEmbedding,
+            backendKind = ModelBackendKind.LocalLiteRt,
+            inputModalities = setOf(ModelInputModality.Text),
+            features = setOf(ModelFeature.MemoryEmbedding),
+            tokenBudget = 4096,
+            preferredLocalBackends = setOf(BackendChoice.CPU),
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun modelProfileRejectsContextWindowForActionProfiles() {
+        ModelProfile(
+            id = "bad-action-context",
+            displayName = "Bad Action Context",
+            capability = ModelCapability.MobileAction,
+            backendKind = ModelBackendKind.LocalLiteRt,
+            inputModalities = setOf(ModelInputModality.Text),
+            features = setOf(ModelFeature.MobileActionPlanning),
+            tokenBudget = 4096,
+            preferredLocalBackends = setOf(BackendChoice.CPU),
+        )
+    }
+
     @Test
     fun sha256Hex_matchesKnownFileContent() {
         val file = File.createTempFile("pocketmind-sha", ".txt")

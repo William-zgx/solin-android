@@ -139,15 +139,15 @@ trap on_exit EXIT
 
 fail_with_reason() {
   FAILED_TARGET="$1"
-  FAILURE_REASON="$1"
-  shift
+  FAILURE_REASON="$2"
+  shift 2
   echo "$*" >&2
   capture_failure_diagnostics "fatal-${FAILURE_REASON}" "$*" || true
   exit 1
 }
 
 if ! scripts/doctor.sh --device; then
-  fail_with_reason doctor-device-failed "Android device environment check failed."
+  fail_with_reason doctor doctor-device-failed "Android device environment check failed."
 fi
 
 if [[ -n "${ANDROID_SERIAL:-}" ]]; then
@@ -155,14 +155,14 @@ if [[ -n "${ANDROID_SERIAL:-}" ]]; then
   SELECTED_STATE="$("$ADB_BIN" devices | awk -v serial="$SELECTED_SERIAL" '$1 == serial {print $2; found = 1} END {if (!found) print ""}')"
   if [[ "$SELECTED_STATE" != "device" ]]; then
     "$ADB_BIN" devices
-    fail_with_reason selected-device-unavailable \
+    fail_with_reason device-selection selected-device-unavailable \
       "ANDROID_SERIAL=$SELECTED_SERIAL is not an authorized Android device; state is ${SELECTED_STATE:-missing}."
   fi
 else
   DEVICE_COUNT="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" {count += 1} END{print count + 0}')"
   if [[ "$DEVICE_COUNT" != "1" ]]; then
     "$ADB_BIN" devices
-    fail_with_reason device-selection-ambiguous \
+    fail_with_reason device-selection device-selection-ambiguous \
       "Connect exactly one authorized Android device, or set ANDROID_SERIAL to select one."
   fi
   SELECTED_SERIAL="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" {print $1; exit}')"
@@ -194,7 +194,7 @@ pocketmind_accessibility_enabled() {
 }
 
 if ! pocketmind_accessibility_enabled; then
-  fail_with_reason pocketmind-accessibility-not-enabled \
+  fail_with_reason accessibility pocketmind-accessibility-not-enabled \
     "PocketMind Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_INSTALL=1."
 fi
 

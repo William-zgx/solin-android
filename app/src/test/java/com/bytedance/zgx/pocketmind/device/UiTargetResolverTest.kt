@@ -4,6 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.w3c.dom.Element
+import org.w3c.dom.Node as DomNode
+import javax.xml.parsers.DocumentBuilderFactory
 
 class UiTargetResolverTest {
     @Test
@@ -615,6 +618,27 @@ class UiTargetResolverTest {
     }
 
     @Test
+    fun jdDisabledKeyboardSubmitDumpKeepsFailureEvidenceWithoutSelectingIt() {
+        val snapshot = loadDump("ui_dumps/real_app_search/jd_disabled_keyboard_submit.xml")
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SubmitSearch, target = "提交搜索")
+
+        assertEquals(UiActionFailureKind.SubmitNotFound, evidence.failureKind)
+        assertNull(evidence.selectedNodeId)
+        assertNull(UiTargetResolver.resolve(snapshot, UiTargetKind.SubmitSearch, target = "提交搜索"))
+        val keyboardCandidate = requireNotNull(
+            evidence.rankedCandidates.firstOrNull { candidate ->
+                candidate.nodeId == "com.jingdong.app.mall:id/keyboard_search_action"
+            },
+        )
+        assertEquals("键盘搜索", keyboardCandidate.label)
+        assertEquals(false, keyboardCandidate.enabled)
+        assertEquals("搜索", keyboardCandidate.matchedProfileHint)
+        assertTrue(keyboardCandidate.score.finalScore < 650)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.enabled && candidate.score.finalScore >= 650 })
+    }
+
+    @Test
     fun googleMapsSubmitHintsDoNotMatchGoogleByGoSubstring() {
         val profile = AppInteractionProfiles.forPackage("com.google.android.apps.maps")
         val snapshot = snapshot(
@@ -884,4 +908,82 @@ class UiTargetResolverTest {
             scrollable = scrollable,
             enabled = enabled,
         )
+
+    private fun loadDump(resourcePath: String): ScreenStateSnapshot {
+        val document = requireNotNull(javaClass.classLoader?.getResourceAsStream(resourcePath)) {
+            "Missing test UIAutomator dump fixture: $resourcePath"
+        }.use { input ->
+            DocumentBuilderFactory.newInstance()
+                .newDocumentBuilder()
+                .parse(input)
+        }
+        val nodes = mutableListOf<ScreenNode>()
+        val root = document.documentElement
+        collectNodes(root, path = "root", output = nodes)
+        val packageName = firstPackageName(root)
+            ?: nodes.firstOrNull { node -> node.id.contains(":id/") }
+                ?.id
+                ?.substringBefore(":id/")
+        return ScreenStateSnapshot(
+            id = resourcePath.substringAfterLast('/').substringBeforeLast('.'),
+            packageName = packageName,
+            capturedAtMillis = 1L,
+            nodes = nodes,
+            textSummary = nodes.joinToString(" ") { node -> node.text.ifBlank { node.contentDescription } },
+            truncated = false,
+        )
+    }
+
+    private fun collectNodes(element: Element, path: String, output: MutableList<ScreenNode>) {
+        if (element.tagName == "node") {
+            val resourceId = element.attr("resource-id")
+            output += ScreenNode(
+                id = resourceId.ifBlank { path },
+                text = element.attr("text"),
+                contentDescription = element.attr("content-desc"),
+                className = element.attr("class"),
+                bounds = parseBounds(element.attr("bounds")),
+                clickable = element.attr("clickable").toBoolean(),
+                editable = element.attr("class").contains("EditText") || element.attr("editable").toBoolean(),
+                scrollable = element.attr("scrollable").toBoolean(),
+                enabled = element.attr("enabled").ifBlank { "true" }.toBoolean(),
+            )
+        }
+        val children = element.childNodes
+        for (index in 0 until children.length) {
+            val child = children.item(index)
+            if (child.nodeType == DomNode.ELEMENT_NODE) {
+                collectNodes(child as Element, path = "$path/$index", output = output)
+            }
+        }
+    }
+
+    private fun firstPackageName(element: Element): String? {
+        element.attr("package").takeIf { it.isNotBlank() }?.let { return it }
+        val children = element.childNodes
+        for (index in 0 until children.length) {
+            val child = children.item(index)
+            if (child.nodeType == DomNode.ELEMENT_NODE) {
+                firstPackageName(child as Element)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun parseBounds(raw: String): ScreenBounds? {
+        val match = BoundsRegex.matchEntire(raw) ?: return null
+        val (left, top, right, bottom) = match.destructured
+        return ScreenBounds(
+            left = left.toInt(),
+            top = top.toInt(),
+            right = right.toInt(),
+            bottom = bottom.toInt(),
+        )
+    }
+
+    private fun Element.attr(name: String): String = getAttribute(name).orEmpty()
+
+    private companion object {
+        val BoundsRegex = Regex("""\[(\d+),(\d+)]\[(\d+),(\d+)]""")
+    }
 }

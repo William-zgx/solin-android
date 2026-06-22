@@ -100,6 +100,8 @@ write_report() {
     allowedFailureModeCount
     requiredRealAppSearchFailureModes
     missingRealAppSearchFailureModes
+    requiredSafetyFailureModes
+    missingSafetyFailureModes
     requiredBoundaryIds
     missingRequiredBoundaryIds
     actualTraceFile
@@ -114,7 +116,7 @@ write_report() {
     actualTraceSourceBreakdown
     actualTraceNewestRecordedAt
   )
-  local metric_defaults=(0 0 "" "" 0 0 0 "" "" "" "" "" 0 0 "" "" "" 0 0 0 "" "" "" "" "" "" 0 0 0 0 0 0 "" "")
+  local metric_defaults=(0 0 "" "" 0 0 0 "" "" "" "" "" 0 0 "" "" "" 0 0 0 "" "" "" "" "" "" "" "" 0 0 0 0 0 0 "" "")
   local index metric_key metric_value
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
@@ -270,6 +272,9 @@ required_real_app_search_failure_modes = {
     "result_not_verified",
     "required_hint_missing",
     "page_not_changed",
+}
+required_safety_failure_modes = {
+    "permissiondenied",
 }
 required_boundary_ids = {
     "public_evidence_multi_search_batch_allowed",
@@ -428,6 +433,7 @@ under_covered_mvp_scenarios = sorted(
     if mvp_counts[scenario] < 2
 )
 missing_real_app_search_failure_modes = sorted(required_real_app_search_failure_modes - observed_failure_modes)
+missing_safety_failure_modes = sorted(required_safety_failure_modes - observed_failure_modes)
 missing_required_boundary_ids = sorted(required_boundary_ids - boundaries)
 
 case_ids = [case["caseId"] for case in eval_cases]
@@ -739,6 +745,8 @@ def emit_metrics(reason=""):
     print(f"allowedFailureModeCount={allowed_failure_mode_count}")
     print(f"requiredRealAppSearchFailureModes={encode_list(sorted(required_real_app_search_failure_modes))}")
     print(f"missingRealAppSearchFailureModes={encode_list(missing_real_app_search_failure_modes)}")
+    print(f"requiredSafetyFailureModes={encode_list(sorted(required_safety_failure_modes))}")
+    print(f"missingSafetyFailureModes={encode_list(missing_safety_failure_modes)}")
     print(f"requiredBoundaryIds={encode_list(sorted(required_boundary_ids))}")
     print(f"missingRequiredBoundaryIds={encode_list(missing_required_boundary_ids)}")
     print(f"actualTraceFile={actual_trace_arg}")
@@ -787,6 +795,9 @@ if missing_risks:
     sys.exit(1)
 if missing_real_app_search_failure_modes:
     emit_metrics(f"missing-real-app-search-failure-mode-coverage:{','.join(missing_real_app_search_failure_modes)}")
+    sys.exit(1)
+if missing_safety_failure_modes:
+    emit_metrics(f"missing-safety-failure-mode-coverage:{','.join(missing_safety_failure_modes)}")
     sys.exit(1)
 if missing_required_boundary_ids:
     emit_metrics(f"missing-required-boundary-coverage:{','.join(missing_required_boundary_ids)}")

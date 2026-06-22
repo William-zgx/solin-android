@@ -1299,6 +1299,34 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-page-not-changed.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-page-not-changed.properties" "reason=missing-real-app-search-failure-mode-coverage:page_not_changed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-page-not-changed.properties" "missingRealAppSearchFailureModes=page_not_changed"
+AI_BEHAVIOR_MISSING_PERMISSION_DENIED_DIR="$TMP_DIR/ai-behavior-missing-permission-denied"
+mkdir -p "$AI_BEHAVIOR_MISSING_PERMISSION_DENIED_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_PERMISSION_DENIED_DIR/"
+python3 - "$AI_BEHAVIOR_MISSING_PERMISSION_DENIED_DIR/runtime_failure.jsonl" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+rows = [
+    row for row in rows
+    if "permissiondenied" not in row.get("allowedFailureModes", [])
+]
+path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval requires runtime permission denial coverage" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_MISSING_PERMISSION_DENIED_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-missing-permission-denied.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-permission-denied.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-permission-denied.properties" "reason=missing-safety-failure-mode-coverage:permissiondenied"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-permission-denied.properties" "missingSafetyFailureModes=permissiondenied"
 AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR="$TMP_DIR/ai-behavior-missing-public-batch"
 mkdir -p "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR"
 cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR/"
@@ -6865,6 +6893,25 @@ expect_failure \
 
 reset_logs
 expect_failure \
+  "device control debug eval reports selected serial failure with target and reason" \
+  env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
+  FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-b" \
+  REPORT_FILE="$ARTIFACT_DIR/device-control-debug-eval.properties" \
+  LOGCAT_FILE="$ARTIFACT_DIR/device-control-debug-logcat.txt" \
+  GRADLE_CMD="$FAKE_GRADLE" scripts/run_device_control_debug_eval.sh
+assert_no_gradle_call
+assert_report_contains "$ARTIFACT_DIR/device-control-debug-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/device-control-debug-eval.properties" "target=device-control-debug-eval"
+assert_report_contains "$ARTIFACT_DIR/device-control-debug-eval.properties" "failedTarget=device-selection"
+assert_report_contains "$ARTIFACT_DIR/device-control-debug-eval.properties" "reason=selected-device-unavailable"
+assert_report_contains "$ARTIFACT_DIR/device-control-debug-eval.properties" "serial=device-b"
+assert_report_contains "$ARTIFACT_DIR/device-control-debug-eval.properties" "api_level="
+assert_report_contains "$ARTIFACT_DIR/device-control-debug-eval.properties" "abi="
+grep -Eq '^logcat_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/device-control-debug-eval.properties" ||
+  fail "Expected device control selected-serial failure report to bind logcat SHA-256"
+
+reset_logs
+expect_failure \
   "real app search eval archives resolver failure evidence" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_ADB_DEVICES=$'device-a\tdevice' ANDROID_SERIAL="device-a" \
@@ -7054,13 +7101,20 @@ grep -Eq '^result_file_sha256=[0-9a-f]{64}$' "$JD_CASE_REPORT" ||
   fail "Expected JD case report to hash the submit result file"
 assert_report_contains "$JD_CASE_REPORT" "target_resolution_available=true"
 assert_report_contains "$JD_CASE_REPORT" "target_resolution_kind=submit_button"
+assert_report_contains "$JD_CASE_REPORT" "target_resolution_selected_node_id="
 assert_report_contains "$JD_CASE_REPORT" "target_resolution_failure_kind=submit_not_found"
 assert_report_contains "$JD_CASE_REPORT" "target_resolution_candidate_count=1"
+assert_report_contains "$JD_CASE_REPORT" "target_resolution_candidate_total_count=1"
+assert_report_contains "$JD_CASE_REPORT" "target_resolution_archived_candidate_count=1"
 assert_report_contains "$JD_CASE_REPORT" "target_resolution_evidence_file=$JD_TARGET_RESOLUTION"
 assert_report_contains "$JD_CASE_REPORT" "ranked_candidates_file=$JD_RANKED_CANDIDATES"
 assert_report_contains "$JD_TARGET_RESOLUTION" "target_resolution_failure_kind=submit_not_found"
+assert_report_contains "$JD_TARGET_RESOLUTION" "target_resolution_selected_node_id="
+assert_report_contains "$JD_TARGET_RESOLUTION" "ranked_candidates_file=$JD_RANKED_CANDIDATES"
 assert_report_contains_text "$JD_RANKED_CANDIDATES" '"label":"键盘搜索"'
 assert_report_contains_text "$JD_RANKED_CANDIDATES" '"enabled":false'
+assert_report_contains_text "$JD_RANKED_CANDIDATES" '"finalScore":180'
+assert_report_contains_text "$JD_RANKED_CANDIDATES" '"reason":"matched disabled keyboard action"'
 
 reset_logs
 expect_failure \

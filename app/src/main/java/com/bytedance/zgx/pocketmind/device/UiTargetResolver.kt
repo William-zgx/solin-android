@@ -106,6 +106,7 @@ object UiTargetResolver {
             kind = kind,
             target = target,
             profile = profile,
+            includeDiagnostics = false,
         ).map { candidate ->
             UiResolvedTarget(
                 kind = kind,
@@ -128,14 +129,17 @@ object UiTargetResolver {
             kind = kind,
             target = target,
             profile = profile,
+            includeDiagnostics = true,
         )
+        val selectableCandidates = candidates.filter { candidate -> candidate.isSelectable(kind) }
+        val evidenceCandidates = selectableCandidates.takeIf { it.isNotEmpty() } ?: candidates
         return UiTargetResolutionEvidence(
             kind = kind,
             target = target,
             packageName = snapshot.packageName,
-            selectedNodeId = candidates.firstOrNull()?.nodeId,
-            rankedCandidates = candidates,
-            failureKind = if (candidates.isEmpty()) kind.missingResolutionFailureKind() else null,
+            selectedNodeId = selectableCandidates.firstOrNull()?.nodeId,
+            rankedCandidates = evidenceCandidates,
+            failureKind = if (selectableCandidates.isEmpty()) kind.missingResolutionFailureKind() else null,
         )
     }
 
@@ -179,10 +183,11 @@ object UiTargetResolver {
         kind: UiTargetKind,
         target: String?,
         profile: AppInteractionProfile?,
+        includeDiagnostics: Boolean,
     ): List<UiTargetEvidenceCandidate> {
         val metrics = SnapshotBoundsMetrics.from(snapshot.nodes)
         return snapshot.nodes
-            .mapNotNull { node -> scoreNode(node, kind, target, profile, metrics) }
+            .mapNotNull { node -> scoreNode(node, kind, target, profile, metrics, includeDiagnostics) }
             .sortedByDescending { candidate -> candidate.score.finalScore }
     }
 
@@ -192,8 +197,8 @@ object UiTargetResolver {
         target: String?,
         profile: AppInteractionProfile?,
         metrics: SnapshotBoundsMetrics,
+        includeDiagnostics: Boolean,
     ): UiTargetEvidenceCandidate? {
-        if (!node.enabled) return null
         if (kind == UiTargetKind.SubmitSearch && node.editable) return null
         val label = node.visibleLabel()
         val normalizedLabel = label.normalizedLookupKey()
@@ -229,7 +234,8 @@ object UiTargetResolver {
         val noisePenalty = labelNoisePenalty(kind, normalizedLabel)
         val penalty = riskPenalty + noisePenalty
         val score = evidenceScore + actionability + position - penalty
-        if (score < kind.minimumConfidence()) return null
+        if (score <= 0) return null
+        if (!includeDiagnostics && !node.isSelectable(kind, score)) return null
         val resolvedLabel = label.ifBlank { node.className }
         return UiTargetEvidenceCandidate(
             nodeId = node.id,
@@ -352,6 +358,7 @@ object AppSearchResultVerifier {
 }
 
 private fun ScreenNode.actionabilityScore(): Int {
+    if (!enabled) return 0
     var score = 0
     if (clickable) score += 120
     if (editable) score += 180
@@ -385,8 +392,10 @@ private fun ScreenNode.targetRiskPenalty(
     profile: AppInteractionProfile?,
     metrics: SnapshotBoundsMetrics,
 ): Int {
-    if (kind == UiTargetKind.ResultItem || editable) return 0
+    if (kind == UiTargetKind.ResultItem) return 0
     var penalty = 0
+    if (!enabled && kind.requiresPreciseTarget()) penalty += 520
+    if (editable) return penalty
     if (kind.requiresPreciseTarget()) {
         val areaRatio = metrics.areaRatio(bounds)
         val heightRatio = metrics.heightRatio(bounds)
@@ -448,6 +457,12 @@ internal fun UiTargetKind.requiresPreciseTarget(): Boolean =
         this == UiTargetKind.EditableField ||
         this == UiTargetKind.SubmitSearch ||
         this == UiTargetKind.FilterEntry
+
+private fun UiTargetEvidenceCandidate.isSelectable(kind: UiTargetKind): Boolean =
+    enabled && score.finalScore >= kind.minimumConfidence()
+
+private fun ScreenNode.isSelectable(kind: UiTargetKind, score: Int): Boolean =
+    enabled && score >= kind.minimumConfidence()
 
 private fun UiTargetKind.missingResolutionFailureKind(): UiActionFailureKind =
     when (this) {

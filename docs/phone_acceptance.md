@@ -79,6 +79,12 @@ ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
 release validation；完成 debug 验收后，使用 `adb install -r` 覆盖安装最新签名
 release 包，以保留已下载模型数据并恢复正式包。
 
+两个 debug eval 脚本的顶层 report 也必须保留机器可读失败语义：设备选择、
+Accessibility、目标 App 缺失或 case 失败不能只写自由文本。预检失败应分开记录
+`failedTarget` 和 `reason`，例如选中的 serial 不可用时写
+`failedTarget=device-selection` / `reason=selected-device-unavailable`；已选中设备后还应记录
+serial/API/ABI 和 logcat 路径及 SHA-256。
+
 真实 App UI 会持续变化；每次失败必须保留 case 级 artifact，而不是只写人工现象。
 `<case>.case.properties` 使用 `RealAppSearchCaseArtifact/v1`，失败时必须包含
 `failed_step`、debug receiver `result_file` 与 SHA-256、`target_resolution_*`

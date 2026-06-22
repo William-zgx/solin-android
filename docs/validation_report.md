@@ -23,6 +23,115 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-22 Agent Behavior Eval Permission Denial Gate
+
+本轮覆盖项：
+
+- `runtime_failure` fixture 新增联系人查询系统权限拒绝恢复 case，锁定
+  `query_contacts`、`LocalOnly`、`sensitive` 和 `permissiondenied` 结构化失败模式。
+- `scripts/verify_ai_behavior_eval.sh` 新增必需 safety failure mode 覆盖：
+  `requiredSafetyFailureModes=permissiondenied`，缺失时以
+  `missing-safety-failure-mode-coverage:permissiondenied` fail closed。
+- `scripts/test_validation_scripts.sh` 新增负例，删除该 fixture 后断言 verifier 必须失败，
+  防止只添加静态 JSONL 文本。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
+
+scripts/verify_ai_behavior_eval.sh \
+  --report build/verification/ai-behavior-eval-agent1.properties
+
+bash scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：`build/verification/ai-behavior-eval-agent1.properties` 记录
+  `status=passed`、`caseCount=39`、`requiredSafetyFailureModes=permissiondenied`、
+  `missingSafetyFailureModes=`。
+- 通过：完整 `scripts/test_validation_scripts.sh` 输出
+  `Validation script tests passed.`；新增权限拒绝 coverage 负例已被 gate 接住。
+- 备注：首次长脚本运行期间同文件被并发改写，出现一次 EOF 解析错误；重新确认
+  `bash -n` 后复跑通过。
+
+剩余风险：
+
+- 本轮未跑真机/模拟器；权限系统弹窗和 ActivityResult 拒绝链路仍以既有设备测试或后续专项验证为准。
+- 本轮只补 fixture/gate，不改 Kotlin runtime 或 actual-trace generator。
+
+## 2026-06-22 Real-App Search Disabled Submit Evidence Gate
+
+本轮覆盖项：
+
+- `UiTargetResolver.explain()` 区分 selectable candidates 和 failure diagnostics：
+  disabled 或低于阈值的语义候选不会被 `resolve()` 选中，但在无可执行候选时保留到
+  `rankedCandidates`，并绑定对应 `failureKind`。
+- 新增 JD 输入态 fixture `jd_disabled_keyboard_submit.xml`，覆盖只有 disabled
+  “键盘搜索”提交入口的失败 replay；单测固定 `SubmitNotFound`、空 `selectedNodeId`、
+  disabled ranked candidate 和低于提交阈值的 final score。
+- `scripts/test_validation_scripts.sh` 的 real-app-search JD submit 失败段补充检查：
+  `target_resolution_selected_node_id=`、candidate count/total/archive count、
+  `ranked_candidates_file`、disabled candidate `finalScore` 和 failure reason。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.device.UiTargetResolverTest
+
+bash -n scripts/run_real_app_search_eval.sh scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 预期红灯：新增单测先失败于缺少 disabled “键盘搜索” ranked evidence。
+- 通过：实现 resolver evidence/actionable 分层后，`UiTargetResolverTest` 返回
+  `BUILD SUCCESSFUL`。
+- 通过：shell 语法检查返回 0。
+- 通过：`scripts/test_validation_scripts.sh` 返回 `Validation script tests passed`。
+- 未执行：真机 `scripts/run_real_app_search_eval.sh`；本轮只增强本地 replay 与 fake ADB
+  failure evidence 门禁，不新增 physical-device evidence。
+
+## 2026-06-22 Device Control Debug Eval Fatal Report Contract
+
+本轮覆盖项：
+
+- `scripts/run_device_control_debug_eval.sh` 的 fatal preflight 报告补强
+  `failedTarget` / `reason` 分离契约；显式 serial 不可用时写
+  `failedTarget=device-selection` 和 `reason=selected-device-unavailable`，不再把具体原因误当失败目标。
+- `scripts/test_validation_scripts.sh` 新增 fake adb 负例，验证该失败在 Gradle 前 fail closed，
+  并保留 serial、空 API/ABI 和 logcat SHA-256。
+- `docs/phone_acceptance.md` 与 `docs/release_checklist.md` 同步说明 debug eval evidence
+  与 release physical evidence 的边界。
+
+验证命令：
+
+```bash
+bash -n scripts/run_device_control_debug_eval.sh scripts/test_validation_scripts.sh
+
+bash scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：最小 fake SDK targeted probe；修复前报告为
+  `failedTarget=selected-device-unavailable`，修复后为
+  `failedTarget=device-selection` / `reason=selected-device-unavailable`，且
+  `logcat_sha256` 为 64 位 SHA-256。
+- 通过：完整 `scripts/test_validation_scripts.sh` 输出 `Validation script tests passed.`；
+  fake adb 覆盖新增的 device-control selected-serial fail-closed 负例。
+
+剩余风险：
+
+- 本轮按要求未跑真机/模拟器，也未伪造 release evidence；只验证了本地 fake adb
+  preflight 报告契约。
+
 ## 2026-06-22 Model Capability Profile Fail-Closed Gates
 
 本轮覆盖项：
@@ -13747,3 +13856,28 @@ ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
 
 - 本轮只跑本地 JVM 单测；按要求未跑真机/模拟器，也未生成或伪造 release evidence。
 - 该修复防御异常组合和上游回归；真实 Android `Intent` provider 的 MIME/stream 行为仍需设备侧验证。
+
+## 2026-06-22 Model profile context-window fail-closed
+
+本轮覆盖项：
+
+- `ModelProfile` 构造契约新增 fail-closed 校验：只有 Chat capability 可以声明
+  `tokenBudget` / `contextWindowTokens`；memory embedding 和 mobile action profile
+  不允许伪装成长上下文生成模型。
+- `ModelCatalogTest` 新增两个 JVM 契约测试，覆盖 embedding/action profile 声明
+  context window 时必须构造失败。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+    --tests com.bytedance.zgx.pocketmind.ModelCatalogTest
+```
+
+结果：
+
+- 通过：`ModelCatalogTest` 目标测试 `BUILD SUCCESSFUL`，覆盖推荐模型 profile、
+  远程/本地 backend、vision、embedding、action 和 context-window 契约。
+- 未执行真机/模拟器：本轮是纯 JVM model capability contract。

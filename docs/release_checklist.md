@@ -314,9 +314,13 @@ with each RC before treating this checklist as complete.
 - [ ] Failed device, emulator, or regression reports include machine-readable
   `failedTarget` and `reason` fields plus any generated screenshot, window dump,
   logcat, or instrumentation evidence paths.
-- [ ] Debug real-app search evidence, when sampled for App-control readiness, is
-  attached separately from release physical evidence. Each failed
-  `run_real_app_search_eval.sh` case must include a
+- [ ] Debug device-control and real-app search evidence, when sampled for
+  App-control readiness, is attached separately from release physical evidence.
+  `run_device_control_debug_eval.sh` fatal reports must keep
+  `failedTarget` as the machine target category and `reason` as the specific
+  failure, for example `failedTarget=device-selection` plus
+  `reason=selected-device-unavailable` when an explicit serial is missing or not
+  authorized. Each failed `run_real_app_search_eval.sh` case must include a
   `RealAppSearchCaseArtifact/v1` case report with `failed_step`,
   `result_file_sha256`, `target_resolution_failure_kind`,
   `target_resolution_candidates_json`, and screenshot/UIAutomator/window/logcat
