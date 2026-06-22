@@ -97,6 +97,38 @@ write_report() {
   echo "Release signing report: $REPORT_FILE"
 }
 
+fail_parse() {
+  FAILED_TARGET="argument-parser"
+  FAILURE_REASON="$1"
+  write_report 2
+  echo "$2" >&2
+  exit 2
+}
+
+REQUIRED_ARG_VALUE=""
+require_value() {
+  local option="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    fail_parse "missing-${option#--}-argument" "Missing value for $option"
+  fi
+  REQUIRED_ARG_VALUE="$value"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --report)
+      require_value "$1" "${2:-}"
+      REPORT_FILE="$REQUIRED_ARG_VALUE"
+      ARTIFACT_SCAN_REPORT_FILE="${REPORT_FILE}.artifact-scan.properties"
+      shift 2
+      ;;
+    *)
+      fail_parse unknown-argument "Unknown argument: $1"
+      ;;
+  esac
+done
+
 trap 'status=$?; write_report "$status"; exit "$status"' EXIT
 
 fail() {

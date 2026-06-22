@@ -2674,6 +2674,36 @@ assert_report_command_argv \
   scripts/verify_release_operations_record.sh \
   --file "$OPERATIONS_SPACED_PENDING" \
   --report "$OPERATIONS_SPACED_REPORT"
+OPERATIONS_MALFORMED_REPORT="$ARTIFACT_DIR/release-operations-malformed-argument.properties"
+expect_failure \
+  "release operations verifier reports malformed arguments when report path is known" \
+  scripts/verify_release_operations_record.sh --report "$OPERATIONS_MALFORMED_REPORT" --bad-arg
+assert_release_verifier_report_schema \
+  "$OPERATIONS_MALFORMED_REPORT" \
+  "ReleaseOperationsVerification/v1"
+assert_report_contains "$OPERATIONS_MALFORMED_REPORT" "status=failed"
+assert_report_contains "$OPERATIONS_MALFORMED_REPORT" "reason=unknown-argument"
+assert_report_contains "$OPERATIONS_MALFORMED_REPORT" "failedTarget=argument-parser"
+OPERATIONS_MISSING_VALUE_REPORT="$ARTIFACT_DIR/release-operations-missing-value.properties"
+expect_failure \
+  "release operations verifier reports missing argument values when report path is known" \
+  scripts/verify_release_operations_record.sh --report "$OPERATIONS_MISSING_VALUE_REPORT" --file
+assert_release_verifier_report_schema \
+  "$OPERATIONS_MISSING_VALUE_REPORT" \
+  "ReleaseOperationsVerification/v1"
+assert_report_contains "$OPERATIONS_MISSING_VALUE_REPORT" "status=failed"
+assert_report_contains "$OPERATIONS_MISSING_VALUE_REPORT" "reason=missing-file-argument"
+assert_report_contains "$OPERATIONS_MISSING_VALUE_REPORT" "failedTarget=argument-parser"
+OPERATIONS_OPTION_VALUE_REPORT="$ARTIFACT_DIR/release-operations-option-like-value.properties"
+expect_failure \
+  "release operations verifier treats option-like file value as missing" \
+  scripts/verify_release_operations_record.sh --report "$OPERATIONS_OPTION_VALUE_REPORT" --file --bad-arg
+assert_release_verifier_report_schema \
+  "$OPERATIONS_OPTION_VALUE_REPORT" \
+  "ReleaseOperationsVerification/v1"
+assert_report_contains "$OPERATIONS_OPTION_VALUE_REPORT" "status=failed"
+assert_report_contains "$OPERATIONS_OPTION_VALUE_REPORT" "reason=missing-file-argument"
+assert_report_contains "$OPERATIONS_OPTION_VALUE_REPORT" "failedTarget=argument-parser"
 cat > "$OPERATIONS_APPROVED" <<OPERATIONS_APPROVED_JSON
 {
   "version": 1,
@@ -5232,6 +5262,22 @@ assert_report_command_argv \
   scripts/privacy_scan.sh \
   --report "$SPACED_PRIVACY_REPORT" \
   "$SPACED_PRIVACY_FILE"
+PRIVACY_MISSING_VALUE_REPORT="$ARTIFACT_DIR/privacy-missing-report-value.properties"
+expect_failure \
+  "privacy scan reports malformed arguments when report path is known" \
+  scripts/privacy_scan.sh --report "$PRIVACY_MISSING_VALUE_REPORT" --report
+assert_release_verifier_report_schema "$PRIVACY_MISSING_VALUE_REPORT" "PrivacyScanReport/v1" "privacy-security"
+assert_report_contains "$PRIVACY_MISSING_VALUE_REPORT" "status=failed"
+assert_report_contains "$PRIVACY_MISSING_VALUE_REPORT" "reason=missing-report-argument"
+assert_report_contains "$PRIVACY_MISSING_VALUE_REPORT" "failedTarget=argument-parser"
+PRIVACY_UNKNOWN_OPTION_REPORT="$ARTIFACT_DIR/privacy-unknown-option.properties"
+expect_failure \
+  "privacy scan rejects option-like unknown arguments instead of scanning them" \
+  scripts/privacy_scan.sh --report "$PRIVACY_UNKNOWN_OPTION_REPORT" --bad-arg
+assert_release_verifier_report_schema "$PRIVACY_UNKNOWN_OPTION_REPORT" "PrivacyScanReport/v1" "privacy-security"
+assert_report_contains "$PRIVACY_UNKNOWN_OPTION_REPORT" "status=failed"
+assert_report_contains "$PRIVACY_UNKNOWN_OPTION_REPORT" "reason=unknown-argument"
+assert_report_contains "$PRIVACY_UNKNOWN_OPTION_REPORT" "failedTarget=argument-parser"
 
 UNSAFE_PRIVACY_DIR="$TMP_DIR/privacy-unsafe"
 mkdir -p "$UNSAFE_PRIVACY_DIR"
@@ -5753,6 +5799,38 @@ assert_report_command_argv \
   scripts/scan_android_artifacts.sh \
   --apk "$SPACED_APK" \
   --report "$SPACED_ARTIFACT_REPORT"
+ARTIFACT_MALFORMED_REPORT="$ARTIFACT_DIR/artifact-malformed-argument.properties"
+expect_failure \
+  "artifact scan reports malformed arguments when report path is known" \
+  scripts/scan_android_artifacts.sh --report "$ARTIFACT_MALFORMED_REPORT" --bad-arg
+assert_release_verifier_report_schema "$ARTIFACT_MALFORMED_REPORT" "AndroidArtifactScanReport/v1"
+assert_report_contains "$ARTIFACT_MALFORMED_REPORT" "status=failed"
+assert_report_contains "$ARTIFACT_MALFORMED_REPORT" "reason=unknown-argument"
+assert_report_contains "$ARTIFACT_MALFORMED_REPORT" "failedTarget=argument-parser"
+ARTIFACT_MISSING_VALUE_REPORT="$ARTIFACT_DIR/artifact-missing-value.properties"
+expect_failure \
+  "artifact scan reports missing argument values when report path is known" \
+  scripts/scan_android_artifacts.sh --report "$ARTIFACT_MISSING_VALUE_REPORT" --apk
+assert_release_verifier_report_schema "$ARTIFACT_MISSING_VALUE_REPORT" "AndroidArtifactScanReport/v1"
+assert_report_contains "$ARTIFACT_MISSING_VALUE_REPORT" "status=failed"
+assert_report_contains "$ARTIFACT_MISSING_VALUE_REPORT" "reason=missing-apk-argument"
+assert_report_contains "$ARTIFACT_MISSING_VALUE_REPORT" "failedTarget=argument-parser"
+ARTIFACT_OPTION_VALUE_REPORT="$ARTIFACT_DIR/artifact-option-like-value.properties"
+expect_failure \
+  "artifact scan treats option-like artifact path as missing" \
+  scripts/scan_android_artifacts.sh --report "$ARTIFACT_OPTION_VALUE_REPORT" --apk --bad-arg
+assert_release_verifier_report_schema "$ARTIFACT_OPTION_VALUE_REPORT" "AndroidArtifactScanReport/v1"
+assert_report_contains "$ARTIFACT_OPTION_VALUE_REPORT" "status=failed"
+assert_report_contains "$ARTIFACT_OPTION_VALUE_REPORT" "reason=missing-apk-argument"
+assert_report_contains "$ARTIFACT_OPTION_VALUE_REPORT" "failedTarget=argument-parser"
+ARTIFACT_EXPECTED_CERT_OPTION_VALUE_REPORT="$ARTIFACT_DIR/artifact-expected-cert-option-like-value.properties"
+expect_failure \
+  "artifact scan treats option-like expected certificate sha as missing" \
+  scripts/scan_android_artifacts.sh --report "$ARTIFACT_EXPECTED_CERT_OPTION_VALUE_REPORT" --apk "$SAFE_APK" --expected-certificate-sha256 --bad-arg
+assert_release_verifier_report_schema "$ARTIFACT_EXPECTED_CERT_OPTION_VALUE_REPORT" "AndroidArtifactScanReport/v1"
+assert_report_contains "$ARTIFACT_EXPECTED_CERT_OPTION_VALUE_REPORT" "status=failed"
+assert_report_contains "$ARTIFACT_EXPECTED_CERT_OPTION_VALUE_REPORT" "reason=missing-expected-certificate-sha256-argument"
+assert_report_contains "$ARTIFACT_EXPECTED_CERT_OPTION_VALUE_REPORT" "failedTarget=argument-parser"
 grep -q '^artifact1Sha256=' "$ARTIFACT_DIR/artifact.properties" ||
   fail "artifact scan report must include artifact sha"
 grep -q '^artifact1SizeBytes=' "$ARTIFACT_DIR/artifact.properties" ||
@@ -6192,6 +6270,36 @@ assert_release_verifier_report_schema \
   "ReleaseSigningReport/v1"
 assert_report_contains "$ARTIFACT_DIR/signing-missing-env.properties" "failedTarget=environment"
 assert_report_contains "$ARTIFACT_DIR/signing-missing-env.properties" "reason=missing-release-keystore"
+expect_failure \
+  "signing helper reports malformed arguments when report path is known" \
+  env REPORT_FILE="$ARTIFACT_DIR/signing-malformed-argument.properties" \
+  scripts/sign_release_artifacts.sh --bad-arg
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/signing-malformed-argument.properties" \
+  "ReleaseSigningReport/v1"
+assert_report_contains "$ARTIFACT_DIR/signing-malformed-argument.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/signing-malformed-argument.properties" "failedTarget=argument-parser"
+assert_report_contains "$ARTIFACT_DIR/signing-malformed-argument.properties" "reason=unknown-argument"
+SIGNING_CLI_MALFORMED_REPORT="$ARTIFACT_DIR/signing-cli-malformed-argument.properties"
+expect_failure \
+  "signing helper reports malformed CLI arguments when report path is known" \
+  scripts/sign_release_artifacts.sh --report "$SIGNING_CLI_MALFORMED_REPORT" --bad-arg
+assert_release_verifier_report_schema \
+  "$SIGNING_CLI_MALFORMED_REPORT" \
+  "ReleaseSigningReport/v1"
+assert_report_contains "$SIGNING_CLI_MALFORMED_REPORT" "status=failed"
+assert_report_contains "$SIGNING_CLI_MALFORMED_REPORT" "failedTarget=argument-parser"
+assert_report_contains "$SIGNING_CLI_MALFORMED_REPORT" "reason=unknown-argument"
+SIGNING_CLI_MISSING_VALUE_REPORT="$ARTIFACT_DIR/signing-cli-missing-value.properties"
+expect_failure \
+  "signing helper reports option-like missing CLI report value" \
+  scripts/sign_release_artifacts.sh --report "$SIGNING_CLI_MISSING_VALUE_REPORT" --report --bad-arg
+assert_release_verifier_report_schema \
+  "$SIGNING_CLI_MISSING_VALUE_REPORT" \
+  "ReleaseSigningReport/v1"
+assert_report_contains "$SIGNING_CLI_MISSING_VALUE_REPORT" "status=failed"
+assert_report_contains "$SIGNING_CLI_MISSING_VALUE_REPORT" "failedTarget=argument-parser"
+assert_report_contains "$SIGNING_CLI_MISSING_VALUE_REPORT" "reason=missing-report-argument"
 DEBUG_KEYSTORE="$TMP_DIR/debug.keystore"
 printf 'not-a-real-keystore\n' > "$DEBUG_KEYSTORE"
 expect_failure \

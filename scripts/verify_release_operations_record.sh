@@ -31,22 +31,19 @@ shell_command() {
   printf '%s' "${quoted[*]}"
 }
 
-while [[ $# -gt 0 ]]; do
+failed_target_for_reason() {
   case "$1" in
-    --file)
-      OPERATIONS_RECORD_FILE="${2:?missing operations record file}"
-      shift 2
+    unknown-argument|missing-*-argument)
+      printf 'argument-parser'
       ;;
-    --report)
-      REPORT_FILE="${2:?missing report path}"
-      shift 2
+    missing-operations-record-file|json-parse-error)
+      printf 'release-operations-record'
       ;;
     *)
-      echo "Unknown argument: $1" >&2
-      exit 2
+      printf ''
       ;;
   esac
-done
+}
 
 write_report() {
   local status="$1"
@@ -61,6 +58,7 @@ write_report() {
       printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       printf 'command=%s\n' "$(shell_command)"
       printf 'reproduciblePath=%s\n' "$REPORT_FILE"
+      printf 'failedTarget=%s\n' "$(failed_target_for_reason "$reason")"
       printf 'operationsRecordFile=%s\n' "$OPERATIONS_RECORD_FILE"
       printf 'operationsRecordSha256=%s\n' "$(sha256_or_empty "$OPERATIONS_RECORD_FILE")"
       printf 'expectedCommitSha=%s\n' "$EXPECTED_COMMIT_SHA"
@@ -72,6 +70,42 @@ write_report() {
     } > "$REPORT_FILE"
   fi
 }
+
+fail_parse() {
+  local reason="$1"
+  local message="$2"
+  write_report failed "$reason"
+  echo "$message" >&2
+  exit 2
+}
+
+REQUIRED_ARG_VALUE=""
+require_value() {
+  local option="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    fail_parse "missing-${option#--}-argument" "Missing value for $option"
+  fi
+  REQUIRED_ARG_VALUE="$value"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --file)
+      require_value "$1" "${2:-}"
+      OPERATIONS_RECORD_FILE="$REQUIRED_ARG_VALUE"
+      shift 2
+      ;;
+    --report)
+      require_value "$1" "${2:-}"
+      REPORT_FILE="$REQUIRED_ARG_VALUE"
+      shift 2
+      ;;
+    *)
+      fail_parse unknown-argument "Unknown argument: $1"
+      ;;
+  esac
+done
 
 if [[ ! -f "$OPERATIONS_RECORD_FILE" ]]; then
   write_report failed missing-operations-record-file

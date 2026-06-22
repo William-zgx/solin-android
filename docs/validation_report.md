@@ -129,6 +129,9 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   `recordedAt`、可复现 `command` 和 `reproduciblePath`；既有 per-artifact path/SHA/size
   绑定继续保留。
 - 上述脚本的 `command` 改为 shell-quoted argv，带空格路径可以被解析回原始参数。
+- 上述 release evidence 脚本在已知 `--report` 路径后遇到 malformed 参数时 fail-closed：
+  unknown option、缺值参数、option-like 参数值都会写出强 schema failure report，并标记
+  `failedTarget=argument-parser`。
 - `verify_release_operations_record.sh` 现在会强制校验 release artifact archive 和
   protected signing 子证据的 `artifactSchema`、`owner`、UTC `recordedAt`、`command`、
   `reproduciblePath`，并校验其 artifact scan 子报告路径和 SHA-256 绑定。
@@ -155,6 +158,9 @@ bash scripts/test_validation_scripts.sh
   不可复现。
 - 红灯确认：weak protected signing evidence 仍被 operations verifier 接受，暴露子证据强
   schema 未被消费。
+- 红灯确认：`--report <path> --bad-arg` 曾经不产出 report；`--file --bad-arg`、
+  `--apk --bad-arg`、`--expected-certificate-sha256 --bad-arg` 曾被误当成参数值；
+  `privacy_scan.sh --report <path> --bad-arg` 曾被误当成扫描目标并通过。
 - 通过：补齐 schema 字段后 `Validation script tests passed.`
 - 抽查：operations report 包含 `operationsRecordSha256`；signing report 包含
   `artifactSchema=ReleaseSigningReport/v1`、`reproduciblePath`、unsigned artifact SHA 和
