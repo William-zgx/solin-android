@@ -44,7 +44,7 @@ failed_target_for_reason() {
     release-evidence-*|security-evidence-*|legal-evidence-*|*-evidence-*)
       printf 'privacy-review-evidence'
       ;;
-    release-review-*|security-review-*|legal-review-*|*-decision-*|*-review-date-*|*-reviewer-*)
+    release-review-*|security-review-*|legal-review-*|*-decision-*|*-review-date-*|*-reviewer-*|*-review-role-*)
       printf 'privacy-review-approval'
       ;;
     *)
@@ -199,7 +199,13 @@ for entry in reviews:
         failures.append("review-entry-invalid")
         continue
     role = entry.get("role", "")
-    seen_roles.add(role)
+    role_label = role or "unknown"
+    if role not in required_roles:
+        failures.append(f"{role_label}-review-role-unknown")
+    elif role in seen_roles:
+        failures.append(f"{role}-review-role-duplicate")
+    else:
+        seen_roles.add(role)
     if entry.get("decision") != "approved":
         failures.append(f"{role or 'unknown'}-decision-not-approved")
     if not entry.get("reviewer"):

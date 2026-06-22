@@ -13940,3 +13940,61 @@ ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
   physical validation、截图和性能基线仍需后续设备证据。
 - Release/privacy/store/model license/manual acceptance 仍保持 pending/fail-closed，
   需要真实 owner 审批和可复现证据后才能进入 public release。
+
+## 2026-06-22 Browser replay, diagnostics, and review evidence gates
+
+本轮覆盖项：
+
+- 多 Agent 只读审计后落地本地可验证项：浏览器真实 App replay、真实 App 失败
+  diagnostics 覆盖、privacy/store review evidence 绑定规则。
+- Chrome、Android Browser、UC 新增搜索输入态和结果态 UIAutomator dump fixture；
+  `UiAutomatorDumpReplayTest` 覆盖地址栏 editable、提交按钮和 query-visible-after-change
+  结果验证。
+- `scripts/test_validation_scripts.sh` 对 JD submit、Chrome verify、PDD required hint
+  失败报告统一断言截图、UIAutomator dump、focused window、window dump、logcat 和 SHA-256。
+- `scripts/verify_privacy_review.sh` 现在拒绝未知 review role 和重复 review role；
+  `scripts/verify_store_policy_record.sh` 在 review evidence 写入 reviewer 时要求与记录 reviewer
+  一致。
+
+Roadmap 状态：
+
+- Phase 1 本地稳定性底座继续保持通过：Wi-Fi/skill routing、JVM、validation scripts、
+  build/lint/artifact scan 仍由 `scripts/verify_local.sh` 覆盖。
+- Phase 2 正在推进：真实 App 搜索已覆盖淘宝、拼多多、高德、京东、Chrome、Android
+  Browser、Quark、UC 的 replay fixture / resolver evidence；但真实手机上的 App 闭环仍未作为
+  passed evidence 绑定。
+- Phase 3/4 已有 gate 雏形：AI behavior、privacy、store、release validation、model capability
+  等都有机器可验证失败模式；但正式 release 仍等待真机、arm64 matrix、perf、截图、人工审批和生产签名。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_privacy_review.sh scripts/verify_store_policy_record.sh scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+    --tests 'com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest' \
+    --tests 'com.bytedance.zgx.pocketmind.device.UiTargetResolverTest'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 real-app failure diagnostics、privacy review
+  unknown/duplicate role、store review evidence reviewer mismatch。
+- 通过：UI resolver / UIAutomator replay targeted JVM tests。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM tests、debug/release
+  build、AndroidTest assemble、lint 和 artifact scan。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机/模拟器 instrumentation；arm64 真机、arm64 emulator API matrix、
+  真实 App 搜索闭环、截图和 perf baseline 不能标记为 passed。
+- Release/privacy/store/model license/manual acceptance/production signing 仍保持
+  pending/fail-closed，需要真实 owner 证据和生产环境材料。

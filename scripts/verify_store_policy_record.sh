@@ -189,7 +189,7 @@ def properties_for(path):
         pass
     return props
 
-def validate_store_review_evidence(path):
+def validate_store_review_evidence(path, expected_reviewer):
     props = properties_for(path)
     if props.get("status") != "approved":
         failures.append("review-evidence-status-not-approved")
@@ -205,6 +205,9 @@ def validate_store_review_evidence(path):
         failures.append("review-evidence-scope-missing")
     if props.get("requiredDecision") != "approved":
         failures.append("review-evidence-required-decision-invalid")
+    evidence_reviewer = props.get("reviewer", "")
+    if non_empty_string(evidence_reviewer) and evidence_reviewer != expected_reviewer:
+        failures.append("review-evidence-reviewer-mismatch")
 
 notice_sha = hashlib.sha256(notice_path.read_bytes()).hexdigest()
 if record.get("privacyNoticePath") != str(notice_path):
@@ -426,7 +429,7 @@ else:
         review_evidence_path,
         review.get("evidenceSha256", ""),
     )
-    validate_store_review_evidence(review_evidence_path)
+    validate_store_review_evidence(review_evidence_path, review.get("reviewer", ""))
 review_date = review.get("reviewDate", "")
 date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 if not review_date:

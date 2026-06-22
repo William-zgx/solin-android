@@ -174,6 +174,12 @@ items below.
   verifiers require allowed-failure traces to preserve risk, privacy,
   LocalOnly/remote eligibility, and FailClosed invariants; script self-tests add
   negative cases for safety-boundary drift and FailClosed weakening.
+- Roadmap status as of 2026-06-22: local Phase 1 gates remain green, Phase 2
+  real-app replay/evidence coverage now includes Chrome, Android Browser, Quark,
+  and UC alongside Taobao, PDD, Gaode, and JD, and Phase 3/4 release/privacy/store
+  gate contracts continue to harden. This is not yet release-ready: physical
+  arm64 validation, arm64 emulator matrix, real-app device loops, perf baseline,
+  screenshots, manual approvals, and production signing remain blocking evidence.
 
 ## Remaining release blockers by ownership
 

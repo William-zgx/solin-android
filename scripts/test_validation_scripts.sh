@@ -684,6 +684,29 @@ assert_report_contains_text() {
     fail "Expected $file to contain text: $expected"
 }
 
+assert_real_app_case_diagnostics() {
+  local case_report="$1"
+  local diagnostics_dir="$2"
+  assert_report_contains "$case_report" "diagnostics_dir=$diagnostics_dir"
+  assert_report_contains "$case_report" "screenshot_file=$diagnostics_dir/screenshot.png"
+  assert_report_contains "$case_report" "uiautomator_dump_file=$diagnostics_dir/uiautomator.xml"
+  assert_report_contains "$case_report" "focused_window_file=$diagnostics_dir/focused-window.txt"
+  assert_report_contains "$case_report" "window_dump_file=$diagnostics_dir/window-dump.txt"
+  assert_report_contains "$case_report" "case_logcat_file=$diagnostics_dir/logcat.txt"
+  for key in screenshot_sha256 uiautomator_dump_sha256 focused_window_sha256 window_dump_sha256 case_logcat_sha256; do
+    grep -Eq "^${key}=[0-9a-f]{64}$" "$case_report" ||
+      fail "Expected real app case report to include $key"
+  done
+  [[ -s "$diagnostics_dir/uiautomator.xml" ]] ||
+    fail "Expected real app failure diagnostics to preserve a UIAutomator dump"
+  [[ -s "$diagnostics_dir/screenshot.png" ]] ||
+    fail "Expected real app failure diagnostics to preserve a screenshot"
+  [[ -s "$diagnostics_dir/window-dump.txt" ]] ||
+    fail "Expected real app failure diagnostics to preserve a window dump"
+  [[ -s "$diagnostics_dir/logcat.txt" ]] ||
+    fail "Expected real app failure diagnostics to preserve logcat"
+}
+
 assert_release_verifier_report_schema() {
   local file="$1"
   local schema="$2"
@@ -2669,6 +2692,26 @@ expect_failure \
   env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
   scripts/verify_store_policy_record.sh --file "$STORE_POLICY_BAD_REVIEW_NOTICE_RECORD" --report "$ARTIFACT_DIR/store-policy-bad-review-notice-evidence.properties"
 assert_report_contains_text "$ARTIFACT_DIR/store-policy-bad-review-notice-evidence.properties" "review-evidence-privacy-notice-sha-mismatch"
+STORE_POLICY_BAD_REVIEWER_EVIDENCE="$TMP_DIR/store-policy-bad-reviewer.properties"
+sed 's/reviewer=Store Reviewer/reviewer=Different Reviewer/' \
+  "$STORE_POLICY_REVIEW_EVIDENCE" > "$STORE_POLICY_BAD_REVIEWER_EVIDENCE"
+STORE_POLICY_BAD_REVIEWER_EVIDENCE_SHA="$(shasum -a 256 "$STORE_POLICY_BAD_REVIEWER_EVIDENCE" | awk '{print $1}')"
+STORE_POLICY_BAD_REVIEWER_RECORD="$TMP_DIR/store-policy-bad-reviewer-evidence.json"
+python3 - "$STORE_POLICY_APPROVED" "$STORE_POLICY_BAD_REVIEWER_RECORD" "$STORE_POLICY_BAD_REVIEWER_EVIDENCE" "$STORE_POLICY_BAD_REVIEWER_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["review"]["evidencePath"] = sys.argv[3]
+record["review"]["evidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "store policy verifier rejects review evidence reviewer mismatch" \
+  env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
+  scripts/verify_store_policy_record.sh --file "$STORE_POLICY_BAD_REVIEWER_RECORD" --report "$ARTIFACT_DIR/store-policy-bad-reviewer-evidence.properties"
+assert_report_contains_text "$ARTIFACT_DIR/store-policy-bad-reviewer-evidence.properties" "review-evidence-reviewer-mismatch"
 STORE_POLICY_EXTRA_PERMISSION="$TMP_DIR/store-policy-extra-permission.json"
 sed 's/"name": "android.permission.RECORD_AUDIO"/"name": "android.permission.READ_CONTACTS"/' "$STORE_POLICY_APPROVED" > "$STORE_POLICY_EXTRA_PERMISSION"
 expect_failure \
@@ -5872,6 +5915,38 @@ assert_release_verifier_passed_report \
   "PrivacyReviewVerification/v1" \
   "privacy-security"
 assert_report_contains "$ARTIFACT_DIR/privacy-review-approved.properties" "reviewSha256=$(shasum -a 256 "$PRIVACY_REVIEW_APPROVED" | awk '{print $1}')"
+PRIVACY_REVIEW_UNKNOWN_ROLE="$TMP_DIR/privacy-review-unknown-role.json"
+python3 - "$PRIVACY_REVIEW_APPROVED" "$PRIVACY_REVIEW_UNKNOWN_ROLE" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+unknown_review = dict(record["reviews"][0])
+unknown_review["role"] = "growth"
+record["reviews"].append(unknown_review)
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "privacy review verifier rejects unknown review roles" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_UNKNOWN_ROLE" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
+  scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-unknown-role.properties"
+assert_report_contains_text "$ARTIFACT_DIR/privacy-review-unknown-role.properties" "growth-review-role-unknown"
+PRIVACY_REVIEW_DUPLICATE_ROLE="$TMP_DIR/privacy-review-duplicate-role.json"
+python3 - "$PRIVACY_REVIEW_APPROVED" "$PRIVACY_REVIEW_DUPLICATE_ROLE" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["reviews"][1]["role"] = "release"
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "privacy review verifier rejects duplicate review roles" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_DUPLICATE_ROLE" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
+  scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-duplicate-role.properties"
+assert_report_contains_text "$ARTIFACT_DIR/privacy-review-duplicate-role.properties" "release-review-role-duplicate"
 PRIVACY_REVIEW_FUTURE="$TMP_DIR/privacy-review-future.json"
 sed 's/2026-06-06/2999-01-01/g' "$PRIVACY_REVIEW_APPROVED" > "$PRIVACY_REVIEW_FUTURE"
 expect_failure \
@@ -7271,6 +7346,7 @@ assert_report_contains_text "$JD_RANKED_CANDIDATES" '"label":"键盘搜索"'
 assert_report_contains_text "$JD_RANKED_CANDIDATES" '"enabled":false'
 assert_report_contains_text "$JD_RANKED_CANDIDATES" '"finalScore":180'
 assert_report_contains_text "$JD_RANKED_CANDIDATES" '"reason":"matched disabled keyboard action"'
+assert_real_app_case_diagnostics "$JD_CASE_REPORT" "$ARTIFACT_DIR/real-app-diagnostics/assert-jd-submit"
 
 reset_logs
 expect_failure \
@@ -7301,6 +7377,7 @@ assert_report_contains "$CHROME_CASE_REPORT" "result_file=$ARTIFACT_DIR/chrome-v
 grep -Eq '^result_file_sha256=[0-9a-f]{64}$' "$CHROME_CASE_REPORT" ||
   fail "Expected Chrome case report to hash the verify result file"
 assert_report_contains "$CHROME_CASE_REPORT" "target_resolution_available=false"
+assert_real_app_case_diagnostics "$CHROME_CASE_REPORT" "$ARTIFACT_DIR/real-app-diagnostics/assert-chrome-verify"
 
 reset_logs
 expect_failure \
@@ -7331,6 +7408,7 @@ assert_report_contains "$PDD_CASE_REPORT" "result_file=$ARTIFACT_DIR/pdd-verify.
 grep -Eq '^result_file_sha256=[0-9a-f]{64}$' "$PDD_CASE_REPORT" ||
   fail "Expected PDD case report to hash the verify result file"
 assert_report_contains "$PDD_CASE_REPORT" "target_resolution_available=false"
+assert_real_app_case_diagnostics "$PDD_CASE_REPORT" "$ARTIFACT_DIR/real-app-diagnostics/assert-pdd-verify"
 
 reset_logs
 expect_failure \

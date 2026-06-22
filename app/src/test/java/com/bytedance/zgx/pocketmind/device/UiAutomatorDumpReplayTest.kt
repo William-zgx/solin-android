@@ -318,6 +318,113 @@ class UiAutomatorDumpReplayTest {
         assertNull(verification.failureKind)
     }
 
+    @Test
+    fun chromeInputDumpResolvesEditableFieldAndSubmitButton() {
+        assertBrowserInputDump(
+            resourcePath = "ui_dumps/real_app_search/chrome_search_input.xml",
+            editableNodeId = "com.android.chrome:id/url_bar",
+            editableLabel = "搜索或输入网址 地址栏",
+            submitNodeId = "com.android.chrome:id/search_submit",
+            submitLabel = "搜索",
+        )
+    }
+
+    @Test
+    fun chromeResultDumpVerifiesSearchResultAfterPageChange() {
+        assertBrowserResultDump(
+            beforePath = "ui_dumps/real_app_search/chrome_address_home.xml",
+            afterPath = "ui_dumps/real_app_search/chrome_search_results.xml",
+            query = "PocketMindAgentChrome",
+            expectedPackageName = "com.android.chrome",
+        )
+    }
+
+    @Test
+    fun androidBrowserInputDumpResolvesEditableFieldAndSubmitButton() {
+        assertBrowserInputDump(
+            resourcePath = "ui_dumps/real_app_search/android_browser_search_input.xml",
+            editableNodeId = "com.android.browser:id/url",
+            editableLabel = "搜索或输入网址 地址栏",
+            submitNodeId = "com.android.browser:id/go",
+            submitLabel = "转到",
+        )
+    }
+
+    @Test
+    fun androidBrowserResultDumpVerifiesSearchResultAfterPageChange() {
+        assertBrowserResultDump(
+            beforePath = "ui_dumps/real_app_search/android_browser_address_home.xml",
+            afterPath = "ui_dumps/real_app_search/android_browser_search_results.xml",
+            query = "PocketMindAgentBrowser",
+            expectedPackageName = "com.android.browser",
+        )
+    }
+
+    @Test
+    fun ucBrowserInputDumpResolvesEditableFieldAndSubmitButton() {
+        assertBrowserInputDump(
+            resourcePath = "ui_dumps/real_app_search/uc_search_input.xml",
+            editableNodeId = "com.UCMobile:id/search_edit_text",
+            editableLabel = "搜索或输入网址 地址栏",
+            submitNodeId = "com.UCMobile:id/search_submit",
+            submitLabel = "搜索",
+        )
+    }
+
+    @Test
+    fun ucBrowserResultDumpVerifiesSearchResultAfterPageChange() {
+        assertBrowserResultDump(
+            beforePath = "ui_dumps/real_app_search/uc_address_home.xml",
+            afterPath = "ui_dumps/real_app_search/uc_search_results.xml",
+            query = "PocketMindAgentUC",
+            expectedPackageName = "com.UCMobile",
+        )
+    }
+
+    private fun assertBrowserInputDump(
+        resourcePath: String,
+        editableNodeId: String,
+        editableLabel: String,
+        submitNodeId: String,
+        submitLabel: String,
+    ) {
+        val snapshot = loadDump(resourcePath)
+
+        val editable = UiTargetResolver.explain(snapshot, UiTargetKind.EditableField, target = "地址栏")
+        val submit = UiTargetResolver.explain(snapshot, UiTargetKind.SubmitSearch, target = "提交搜索")
+
+        assertNull(editable.failureKind)
+        assertEquals(editableNodeId, editable.selectedNodeId)
+        assertEquals(editableLabel, editable.rankedCandidates.firstOrNull()?.label)
+
+        assertNull(submit.failureKind)
+        assertEquals(submitNodeId, submit.selectedNodeId)
+        assertEquals(submitLabel, submit.rankedCandidates.firstOrNull()?.label)
+        assertTrue(submit.rankedCandidates.none { candidate -> candidate.nodeId == editableNodeId })
+    }
+
+    private fun assertBrowserResultDump(
+        beforePath: String,
+        afterPath: String,
+        query: String,
+        expectedPackageName: String,
+    ) {
+        val before = loadDump(beforePath)
+        val after = loadDump(afterPath)
+
+        val verification = AppSearchResultVerifier.verify(
+            before = before,
+            after = after,
+            query = query,
+            expectedPackageName = expectedPackageName,
+            expectedAppName = "浏览器",
+        )
+
+        assertTrue(verification.summary, verification.verified)
+        assertEquals("query_visible_after_change", verification.evidence)
+        assertNull(verification.failureKind)
+    }
+
     private fun loadDump(resourcePath: String): ScreenStateSnapshot {
         val document = requireNotNull(javaClass.classLoader?.getResourceAsStream(resourcePath)) {
             "Missing test UIAutomator dump fixture: $resourcePath"
