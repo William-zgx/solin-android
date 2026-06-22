@@ -381,6 +381,26 @@ for category in required:
         if expected_confirmation == "fail_closed" and not allowed_failure_modes:
             print(f"reason=missing-fail-closed-mode:{category}:{line_number}")
             sys.exit(1)
+        expected_routing_path = str(row.get("expectedRoutingPath", "")).strip()
+        if expected_routing_path not in allowed_routing_paths:
+            print(f"reason=invalid-field:{category}:{line_number}:expectedRoutingPath")
+            sys.exit(1)
+        expected_routing_tool_name = str(row.get("expectedRoutingToolName", "")).strip()
+        if (
+            expected_routing_tool_name and
+            expected_routing_tool_name not in supported_tool_names and
+            expected_routing_tool_name != "tool_batch"
+        ):
+            print(f"reason=invalid-field:{category}:{line_number}:expectedRoutingToolName")
+            sys.exit(1)
+        expected_routing_skill_id = str(row.get("expectedRoutingSkillId", "")).strip()
+        if expected_routing_skill_id and not re.match(r"^[A-Za-z0-9_.-]+$", expected_routing_skill_id):
+            print(f"reason=invalid-field:{category}:{line_number}:expectedRoutingSkillId")
+            sys.exit(1)
+        expected_routing_rejection_reason = str(row.get("expectedRoutingRejectionReason", "")).strip()
+        if expected_routing_rejection_reason and not re.match(r"^[a-z0-9][a-z0-9_.-]*$", expected_routing_rejection_reason):
+            print(f"reason=invalid-field:{category}:{line_number}:expectedRoutingRejectionReason")
+            sys.exit(1)
         if row["category"] != category:
             print(f"reason=category-mismatch:{category}:{line_number}:{row['category']}")
             sys.exit(1)
@@ -420,6 +440,10 @@ for category in required:
                 "localOnly": local_only,
                 "remoteEligible": remote_eligible,
                 "allowedFailureModes": allowed_failure_modes,
+                "expectedRoutingPath": expected_routing_path,
+                "expectedRoutingToolName": expected_routing_tool_name,
+                "expectedRoutingSkillId": expected_routing_skill_id,
+                "expectedRoutingRejectionReason": expected_routing_rejection_reason,
             }
         )
         rows.append(row)
@@ -685,6 +709,28 @@ for case in eval_cases:
         not actual_failure_mode or
         actual_failure_mode in case["allowedFailureModes"]
     )
+    routing_path_match = (
+        not case["expectedRoutingPath"] or
+        case["expectedRoutingPath"] == actual_routing_path
+    )
+    routing_tool_name_match = (
+        not case["expectedRoutingToolName"] or
+        case["expectedRoutingToolName"] == actual_routing_tool_name
+    )
+    routing_skill_id_match = (
+        not case["expectedRoutingSkillId"] or
+        case["expectedRoutingSkillId"] == actual_routing_skill_id
+    )
+    routing_rejection_reason_match = (
+        not case["expectedRoutingRejectionReason"] or
+        case["expectedRoutingRejectionReason"] == actual_routing_rejection_reason
+    )
+    routing_expectation_match = (
+        routing_path_match and
+        routing_tool_name_match and
+        routing_skill_id_match and
+        routing_rejection_reason_match
+    )
     required_failure_mode_match = (
         not require_actual_trace or
         case["expectedConfirmation"] != "fail_closed" or
@@ -699,6 +745,7 @@ for case in eval_cases:
         actual_trace_missing_required_failure_mode_count += 1
     allowed_failure_match = (
         allowed_failure_mode_match and
+        routing_expectation_match and
         safety_boundary_match and
         fail_closed_invariant_match
     )
@@ -711,6 +758,7 @@ for case in eval_cases:
         confirmation_match and
         safety_boundary_match and
         actual_failure_mode_accepted and
+        routing_expectation_match and
         required_failure_mode_match
     ):
         status = "matched"
@@ -737,9 +785,13 @@ for case in eval_cases:
             "actualRemoteEligible": actual_remote_eligible,
             "allowedFailureModes": case["allowedFailureModes"],
             "actualFailureMode": actual_failure_mode,
+            "expectedRoutingPath": case["expectedRoutingPath"],
             "actualRoutingPath": actual_routing_path,
+            "expectedRoutingToolName": case["expectedRoutingToolName"],
             "actualRoutingToolName": actual_routing_tool_name,
+            "expectedRoutingSkillId": case["expectedRoutingSkillId"],
             "actualRoutingSkillId": actual_routing_skill_id,
+            "expectedRoutingRejectionReason": case["expectedRoutingRejectionReason"],
             "actualRoutingRejectionReason": actual_routing_rejection_reason,
             "actualTraceSource": actual_trace_source,
             "actualTraceRecordedAt": actual_trace_recorded_at,
@@ -751,6 +803,11 @@ for case in eval_cases:
             "remoteEligibleMatches": remote_eligible_match,
             "allowedFailureModeMatches": bool(allowed_failure_mode_match),
             "actualFailureModeAccepted": bool(actual_failure_mode_accepted),
+            "routingPathMatches": bool(routing_path_match),
+            "routingToolNameMatches": bool(routing_tool_name_match),
+            "routingSkillIdMatches": bool(routing_skill_id_match),
+            "routingRejectionReasonMatches": bool(routing_rejection_reason_match),
+            "routingExpectationMatches": bool(routing_expectation_match),
             "requiredFailureModeMatches": bool(required_failure_mode_match),
             "allowedFailureSafetyMatches": bool(allowed_failure_match),
             "safetyBoundaryMatches": bool(safety_boundary_match),

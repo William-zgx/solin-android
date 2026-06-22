@@ -53,6 +53,10 @@ data class AgentBehaviorEvalCase(
     val localOnly: Boolean,
     val remoteEligible: Boolean,
     val allowedFailureModes: List<String> = emptyList(),
+    val expectedRoutingPath: IntentRoutingPath? = null,
+    val expectedRoutingToolName: String? = null,
+    val expectedRoutingSkillId: String? = null,
+    val expectedRoutingRejectionReason: String? = null,
 ) {
     init {
         require(id.isNotBlank()) { "Agent behavior eval id must not be blank" }
@@ -61,6 +65,15 @@ data class AgentBehaviorEvalCase(
         require(allowedFailureModes.all { it.isNotBlank() }) { "Agent behavior eval failure modes must not be blank" }
         require(allowedFailureModes.all { mode -> AgentEvalFailureModePattern.matches(mode) }) {
             "Agent behavior eval failure modes must use stable slug syntax"
+        }
+        require(expectedRoutingToolName == null || expectedRoutingToolName.isNotBlank()) {
+            "Expected routing tool name must not be blank"
+        }
+        require(expectedRoutingSkillId == null || expectedRoutingSkillId.isNotBlank()) {
+            "Expected routing skill id must not be blank"
+        }
+        require(expectedRoutingRejectionReason == null || expectedRoutingRejectionReason.isNotBlank()) {
+            "Expected routing rejection reason must not be blank"
         }
         if (localOnly) {
             require(privacy == MessagePrivacy.LocalOnly) { "LocalOnly eval cases must use LocalOnly privacy" }
@@ -137,6 +150,14 @@ data class AgentBehaviorPlanningTraceDiff(
     val actualRemoteEligible: Boolean?,
     val allowedFailureModes: List<String>,
     val actualFailureMode: String? = null,
+    val expectedRoutingPath: IntentRoutingPath? = null,
+    val actualRoutingPath: IntentRoutingPath? = null,
+    val expectedRoutingToolName: String? = null,
+    val actualRoutingToolName: String? = null,
+    val expectedRoutingSkillId: String? = null,
+    val actualRoutingSkillId: String? = null,
+    val expectedRoutingRejectionReason: String? = null,
+    val actualRoutingRejectionReason: String? = null,
 ) {
     val toolsMatch: Boolean = expectedTools == actualTools
     val confirmationMatches: Boolean = expectedConfirmation == actualConfirmation
@@ -157,8 +178,26 @@ data class AgentBehaviorPlanningTraceDiff(
     val actualFailureModeAccepted: Boolean =
         actualFailureMode == null ||
             actualFailureMode in allowedFailureModes
+    val routingPathMatches: Boolean =
+        expectedRoutingPath == null ||
+            expectedRoutingPath == actualRoutingPath
+    val routingToolNameMatches: Boolean =
+        expectedRoutingToolName == null ||
+            expectedRoutingToolName == actualRoutingToolName
+    val routingSkillIdMatches: Boolean =
+        expectedRoutingSkillId == null ||
+            expectedRoutingSkillId == actualRoutingSkillId
+    val routingRejectionReasonMatches: Boolean =
+        expectedRoutingRejectionReason == null ||
+            expectedRoutingRejectionReason == actualRoutingRejectionReason
+    val routingExpectationMatches: Boolean =
+        routingPathMatches &&
+            routingToolNameMatches &&
+            routingSkillIdMatches &&
+            routingRejectionReasonMatches
     val allowedFailureSafetyMatches: Boolean =
         allowedFailureModeMatches &&
+            routingExpectationMatches &&
             safetyBoundaryMatches &&
             failClosedInvariantMatches
     val status: AgentBehaviorTraceDiffStatus = when {
@@ -171,6 +210,7 @@ data class AgentBehaviorPlanningTraceDiff(
         toolsMatch &&
             confirmationMatches &&
             actualFailureModeAccepted &&
+            routingExpectationMatches &&
             safetyBoundaryMatches -> AgentBehaviorTraceDiffStatus.Matched
         else -> AgentBehaviorTraceDiffStatus.Mismatch
     }
@@ -194,6 +234,14 @@ fun AgentBehaviorEvalCase.diffAgainst(actual: AgentBehaviorActualTrace?): AgentB
         actualRemoteEligible = actual?.remoteEligible,
         allowedFailureModes = allowedFailureModes,
         actualFailureMode = actual?.failureMode,
+        expectedRoutingPath = expectedRoutingPath,
+        actualRoutingPath = actual?.routingPath,
+        expectedRoutingToolName = expectedRoutingToolName,
+        actualRoutingToolName = actual?.routingToolName,
+        expectedRoutingSkillId = expectedRoutingSkillId,
+        actualRoutingSkillId = actual?.routingSkillId,
+        expectedRoutingRejectionReason = expectedRoutingRejectionReason,
+        actualRoutingRejectionReason = actual?.routingRejectionReason,
     )
 
 class AgentBehaviorTraceProjector(

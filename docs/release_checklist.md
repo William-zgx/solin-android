@@ -29,6 +29,10 @@ with each RC before treating this checklist as complete.
 - [ ] Agent behavior eval reports have no unexpected actual `failureMode`:
   non-empty actual failure modes must be stable slugs and must either be listed
   in the case `allowedFailureModes` or make the trace diff fail as mismatch.
+- [ ] Route-sensitive Agent behavior eval cases declare expected routing
+  evidence where needed. Plain-chat false positives such as explaining Wi-Fi
+  settings APIs must expect `no_action`; actual traces that route to tools must
+  fail the planning trace diff instead of passing from an empty final tool list.
 - [ ] `docs/release_record.json` is updated for the release candidate and
   `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh` passes. The gate
   checks the recorded Gradle version, current HEAD Git commit, artifact

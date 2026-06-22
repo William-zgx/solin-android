@@ -163,6 +163,11 @@ items below.
   unexpected `failureMode`, and fixture/trace failure modes must use stable slug
   taxonomy. Allowed failures can explain expected fail-closed behavior, but they
   can no longer hide a new silent failure mode on an otherwise matched trace.
+- Route-sensitive Agent behavior fixtures can now declare expected routing
+  evidence. Plain-chat false-positive cases require `expectedRoutingPath=no_action`,
+  so a tool route such as `action_planner/open_wifi_settings` fails the trace
+  diff even when the final tool list is empty. The positive Wi-Fi sequence also
+  binds the expected `open_wifi_settings` / `device_settings_skill` route.
 - GitHub Actions `workflow_dispatch` final release gate now requires an
   `ai_behavior_actual_trace_file` input and passes it to
   `AI_BEHAVIOR_ACTUAL_TRACE_FILE`, so the CI public-release path can satisfy the

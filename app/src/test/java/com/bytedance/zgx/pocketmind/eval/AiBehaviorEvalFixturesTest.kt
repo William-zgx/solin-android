@@ -185,6 +185,27 @@ class AiBehaviorEvalFixturesTest {
                 failureMode.matches(Regex("^[a-z0-9][a-z0-9_:-]*$")),
             )
         }
+        row.optString("expectedRoutingPath", "").takeIf { it.isNotBlank() }?.let { path ->
+            assertTrue(
+                "unexpected expectedRoutingPath: $path",
+                path in setOf("skill_first", "action_planner", "remote_tool_planning", "model_tool_call", "no_action"),
+            )
+        }
+        row.optString("expectedRoutingToolName", "").takeIf { it.isNotBlank() }?.let { toolName ->
+            assertTrue("Unknown expected routing tool in eval fixture: $toolName", toolRegistry.isKnownTool(toolName))
+        }
+        row.optString("expectedRoutingSkillId", "").takeIf { it.isNotBlank() }?.let { skillId ->
+            assertTrue(
+                "expectedRoutingSkillId must use stable id syntax: $skillId",
+                skillId.matches(Regex("^[A-Za-z0-9_.-]+$")),
+            )
+        }
+        row.optString("expectedRoutingRejectionReason", "").takeIf { it.isNotBlank() }?.let { reason ->
+            assertTrue(
+                "expectedRoutingRejectionReason must use stable slug syntax: $reason",
+                reason.matches(Regex("^[a-z0-9][a-z0-9_.-]*$")),
+            )
+        }
     }
 
     private fun JSONArray.toStringList(): List<String> =

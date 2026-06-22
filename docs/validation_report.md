@@ -23,6 +23,54 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-23 Agent Behavior Routing Expectation Gate
+
+本轮覆盖项：
+
+- `AgentBehaviorEvalCase` / `AgentBehaviorPlanningTraceDiff` 新增可选
+  `expectedRoutingPath`、`expectedRoutingToolName`、`expectedRoutingSkillId` 和
+  `expectedRoutingRejectionReason`。只有 fixture 明确声明时才参与判定，保持旧 case
+  兼容。
+- `scripts/verify_ai_behavior_eval.sh` 同步解析 expected routing 字段，并在 trace diff
+  中输出 expected/actual routing evidence 与 `routingExpectationMatches`。
+- `planner_false_positive.jsonl` 的解释/不要执行类 case 声明
+  `expectedRoutingPath=no_action` 和 `expectedRoutingRejectionReason=no_action_intent_detected`，
+  防止“解释 Wi-Fi 设置 API”等普通聊天被误路由成 `open_wifi_settings` 仍显示 matched。
+- `sequence_weather_then_wifi` 声明 `expectedRoutingPath=action_planner`、
+  `expectedRoutingToolName=open_wifi_settings` 和
+  `expectedRoutingSkillId=device_settings_skill`，把正向 Wi-Fi 设置路由也纳入 trace diff。
+- `scripts/test_validation_scripts.sh` 新增负例：非法 expected routing taxonomy 必须失败；
+  `planner_explain_wifi_api` actual trace 被改成 `action_planner/open_wifi_settings` 时必须
+  `trace-diff-mismatch`。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest \
+  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：目标 JVM 测试 `AiBehaviorPlanningTraceProjectorTest` 与
+  `AiBehaviorEvalFixturesTest`。
+- 通过：`scripts/test_validation_scripts.sh` 输出 `Validation script tests passed.`。
+- 通过：最终 `scripts/verify_local.sh` 输出 `Local verification passed.`，覆盖完整本地
+  validation script tests、Gradle JVM/lint/debug/androidTest/release build 和 Android
+  artifact scan。
+- 未执行：真机、模拟器和实际 runtime trace 采集；本轮只补本地 eval fixture/diff/verifier
+  的路由判定契约。
+
 ## 2026-06-23 Agent Behavior Unexpected FailureMode Gate
 
 本轮覆盖项：

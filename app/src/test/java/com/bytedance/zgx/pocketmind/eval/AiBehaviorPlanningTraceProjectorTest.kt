@@ -386,6 +386,40 @@ class AiBehaviorPlanningTraceProjectorTest {
     }
 
     @Test
+    fun expectedNoActionRoutingRejectsToolRouteFalsePositive() {
+        val evalCase = AgentBehaviorEvalCase(
+            id = "planner-explain-wifi-api",
+            input = "解释一下 Wi-Fi 设置 API 怎么实现",
+            expectedTools = emptyList(),
+            expectedConfirmation = AgentEvalConfirmationExpectation.None,
+            expectedRiskLevel = AgentEvalRiskLevel.Low,
+            privacy = MessagePrivacy.RemoteEligible,
+            localOnly = false,
+            remoteEligible = true,
+            expectedRoutingPath = IntentRoutingPath.NoAction,
+        )
+        val actualTrace = AgentBehaviorActualTrace(
+            caseId = evalCase.id,
+            input = evalCase.input,
+            actualTools = emptyList(),
+            actualConfirmation = AgentEvalConfirmationExpectation.None,
+            actualRiskLevel = AgentEvalRiskLevel.Low,
+            privacy = MessagePrivacy.RemoteEligible,
+            localOnly = false,
+            remoteEligible = true,
+            routingPath = IntentRoutingPath.ActionPlanner,
+            routingToolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+        )
+
+        val diff = evalCase.diffAgainst(actualTrace)
+
+        assertEquals(false, diff.routingPathMatches)
+        assertEquals(true, diff.routingToolNameMatches)
+        assertEquals(false, diff.routingExpectationMatches)
+        assertEquals(AgentBehaviorTraceDiffStatus.Mismatch, diff.status)
+    }
+
+    @Test
     fun projectsPublicEvidenceToolAsNoConfirmationRemoteEligibleTrace() {
         val request = ToolRequest(
             id = "weather-search",

@@ -1532,6 +1532,23 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-bad-failure-mode.properties" "status=failed"
 assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-bad-failure-mode.properties" "reason=invalid-field:runtime_failure:"
 assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-bad-failure-mode.properties" ":allowedFailureModes"
+AI_BEHAVIOR_BAD_EXPECTED_ROUTING_DIR="$TMP_DIR/ai-behavior-bad-expected-routing"
+mkdir -p "$AI_BEHAVIOR_BAD_EXPECTED_ROUTING_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_BAD_EXPECTED_ROUTING_DIR/"
+sed 's/"expectedRoutingPath":"no_action"/"expectedRoutingPath":"model guessed path"/' \
+  "$AI_BEHAVIOR_BAD_EXPECTED_ROUTING_DIR/planner_false_positive.jsonl" > \
+  "$AI_BEHAVIOR_BAD_EXPECTED_ROUTING_DIR/planner_false_positive.tmp"
+mv "$AI_BEHAVIOR_BAD_EXPECTED_ROUTING_DIR/planner_false_positive.tmp" \
+  "$AI_BEHAVIOR_BAD_EXPECTED_ROUTING_DIR/planner_false_positive.jsonl"
+expect_failure \
+  "AI behavior eval rejects invalid expected routing path taxonomy" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_BAD_EXPECTED_ROUTING_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-bad-expected-routing.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-bad-expected-routing.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-bad-expected-routing.properties" "reason=invalid-field:planner_false_positive:"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-bad-expected-routing.properties" ":expectedRoutingPath"
 AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR="$TMP_DIR/ai-behavior-missing-public-batch"
 mkdir -p "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR"
 cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR/"
@@ -1624,7 +1641,15 @@ with out.open("w", encoding="utf-8") as handle:
                 "traceRecordedAt": trace_recorded_at,
                 "traceSource": "agent_loop_runtime",
             }
-            if row["expectedTools"]:
+            if row.get("expectedRoutingPath"):
+                trace["routingPath"] = row["expectedRoutingPath"]
+                if row.get("expectedRoutingToolName"):
+                    trace["routingToolName"] = row["expectedRoutingToolName"]
+                if row.get("expectedRoutingSkillId"):
+                    trace["routingSkillId"] = row["expectedRoutingSkillId"]
+                if row.get("expectedRoutingRejectionReason"):
+                    trace["routingRejectionReason"] = row["expectedRoutingRejectionReason"]
+            elif row["expectedTools"]:
                 trace["routingPath"] = "action_planner"
                 trace["routingToolName"] = row["expectedTools"][0]
             else:
@@ -1895,6 +1920,40 @@ assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualRoutingPath": "no_a
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualRoutingPath": "action_planner"'
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualTraceSource": "agent_loop_runtime"'
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" "\"actualTraceRecordedAt\": \"$AI_TRACE_FRESH_RECORDED_AT\""
+
+AI_UNEXPECTED_ROUTING_TRACE="$TMP_DIR/ai-behavior-actual-trace-unexpected-routing.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_UNEXPECTED_ROUTING_TRACE" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row.get("caseId") == "planner_explain_wifi_api":
+        row["routingPath"] = "action_planner"
+        row["routingToolName"] = "open_wifi_settings"
+        row.pop("routingRejectionReason", None)
+        break
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects route-sensitive false positive actual trace" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_UNEXPECTED_ROUTING_TRACE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-routing.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-routing.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-routing.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-routing.properties" "reason=trace-diff-mismatch"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-routing.jsonl" '"caseId": "planner_explain_wifi_api"'
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-routing.jsonl" '"expectedRoutingPath": "no_action"'
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-routing.jsonl" '"actualRoutingPath": "action_planner"'
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-routing.jsonl" '"routingExpectationMatches": false'
 
 AI_BAD_ROUTING_TRACE="$TMP_DIR/ai-behavior-actual-trace-bad-routing.jsonl"
 python3 - "$AI_ACTUAL_TRACE" "$AI_BAD_ROUTING_TRACE" <<'PY'
