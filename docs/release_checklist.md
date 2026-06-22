@@ -277,10 +277,13 @@ with each RC before treating this checklist as complete.
   `artifactSchema=AgentBehaviorEvalVerification/v1`, owner, UTC `recordedAt`,
   reproducible command, `actualTraceSha256`, `traceDiffSha256`, and
   `capabilityMatrixSha256`, plus `requireActualTrace=1` /
-  `requireRuntimeTraceSource=1`. Required boundary coverage must come from
-  `docs/capability_matrix.json` / `CapabilityMatrix.requiredBehaviorEvalBoundaries`,
-  not an untracked shell-only list. Each actual trace row must include a machine
-  source such as `agent_loop_runtime`,
+  `requireRuntimeTraceSource=1`. Risk coverage must include public-evidence,
+  low, medium, high, and sensitive cases; the high-risk external-send case must
+  remain second-confirmation gated. Required boundary coverage must come from
+  `docs/capability_matrix.json` /
+  `CapabilityMatrix.requiredBehaviorEvalBoundaries`, not an untracked shell-only
+  list. Each actual trace row must include a machine source such as
+  `agent_loop_runtime`,
   `android_instrumentation`, or `device_debug_eval`, plus a UTC
   `traceRecordedAt`. `PUBLIC_RELEASE=1` requires
   `AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl>` and fails closed if the

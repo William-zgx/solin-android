@@ -333,6 +333,7 @@ class AgentBehaviorTraceProjector(
 
     private fun requestedToolStepTrace(result: AgentLoopResult): AgentBehaviorActualTrace? {
         val lowRiskAppControlTrace = result.isLowRiskAppControlTrace()
+        val highestSkillRisk = result.highestSkillRiskLevel()
         val toolNames = result.steps
             .filterIsInstance<AgentStep.ToolRequested>()
             .map { step -> step.request.toolName }
@@ -359,9 +360,16 @@ class AgentBehaviorTraceProjector(
             toolNames = toolNames,
             confirmation = confirmation,
             failureMode = failureMode,
+            highestRisk = highestSkillRisk,
             actualRiskLevelOverride = AgentEvalRiskLevel.Low.takeIf { lowRiskAppControlTrace },
         )
     }
+
+    private fun AgentLoopResult.highestSkillRiskLevel(): RiskLevel? =
+        steps
+            .filterIsInstance<AgentStep.SkillPlanned>()
+            .mapNotNull { step -> step.plan?.manifest?.riskLevel }
+            .maxByOrNull { risk -> risk.rank() }
 
     private fun singleStepToolTrace(
         result: AgentLoopResult,
@@ -369,11 +377,15 @@ class AgentBehaviorTraceProjector(
         confirmation: AgentEvalConfirmationExpectation,
         failureMode: String?,
         sensitivePrivateEvidence: Boolean = true,
+        highestRisk: RiskLevel? = null,
         actualRiskLevelOverride: AgentEvalRiskLevel? = null,
     ): AgentBehaviorActualTrace {
         val specs = toolNames.mapNotNull(toolRegistry::specFor)
         val actualRiskLevel = actualRiskLevelOverride
-            ?: specs.toEvalRiskLevel(sensitivePrivateEvidence = sensitivePrivateEvidence)
+            ?: specs.toEvalRiskLevel(
+                highestRisk = highestRisk ?: specs.map { spec -> spec.riskLevel }.maxByOrNull { risk -> risk.rank() },
+                sensitivePrivateEvidence = sensitivePrivateEvidence,
+            )
         val privacy = specs.toTracePrivacy()
         val routingTrace = result.routingTrace()
         return AgentBehaviorActualTrace(
@@ -559,7 +571,10 @@ class AgentBehaviorTraceProjector(
         val riskLevels = specs.map { spec -> spec.riskLevel } +
             listOfNotNull(plan.skillPlan?.manifest?.riskLevel)
         val highestRisk = riskLevels.maxByOrNull { risk -> risk.rank() }
-        val actualRiskLevel = specs.toEvalRiskLevel(highestRisk = highestRisk)
+        val actualRiskLevel = specs.toEvalRiskLevel(
+            highestRisk = highestRisk,
+            sensitivePrivateEvidence = true,
+        )
         val privacy = if (specs.isNotEmpty() && specs.all { spec ->
                 spec.resultContinuationPolicy == ToolResultContinuationPolicy.PublicEvidence
             }
@@ -672,7 +687,7 @@ class AgentBehaviorTraceProjector(
         when (this) {
             RiskLevel.LowReadOnly -> AgentEvalRiskLevel.PublicEvidence
             RiskLevel.MediumDraftOrNavigation -> AgentEvalRiskLevel.Medium
-            RiskLevel.HighExternalSend -> AgentEvalRiskLevel.Sensitive
+            RiskLevel.HighExternalSend -> AgentEvalRiskLevel.High
             RiskLevel.CriticalDeviceOrPayment -> AgentEvalRiskLevel.Sensitive
         }
 

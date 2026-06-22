@@ -683,6 +683,89 @@ class AiBehaviorPlanningTraceProjectorTest {
     }
 
     @Test
+    fun projectsHighExternalSendSkillWithoutPrivateEvidenceAsHighRiskTrace() {
+        val searchRequest = ToolRequest(
+            id = "search-public-evidence",
+            toolName = MobileActionFunctions.WEB_SEARCH,
+            arguments = mapOf("query" to "Kotlin"),
+        )
+        val shareRequest = ToolRequest(
+            id = "share-public-summary",
+            toolName = MobileActionFunctions.SHARE_TEXT,
+            arguments = mapOf("text" to "Kotlin summary"),
+        )
+        val skillPlan = SkillPlan(
+            request = SkillRequest(
+                id = "skill-public-share",
+                skillId = "public_summary_share_skill",
+                arguments = emptyMap(),
+                reason = "search public evidence and share the summary",
+            ),
+            manifest = SkillManifest(
+                id = "public_summary_share_skill",
+                version = 1,
+                title = "Public Summary Share",
+                description = "Search public evidence and share the summary externally.",
+                triggerExamples = listOf("搜索公开资料并分享摘要"),
+                requiredTools = listOf(
+                    MobileActionFunctions.WEB_SEARCH,
+                    MobileActionFunctions.SHARE_TEXT,
+                ),
+                inputSchemaJson = """{"type":"object","additionalProperties":false}""",
+                riskLevel = RiskLevel.HighExternalSend,
+            ),
+            steps = listOf(
+                SkillStep.ToolStep(
+                    request = searchRequest,
+                    draft = draft(searchRequest),
+                    id = "search",
+                ),
+                SkillStep.ToolStep(
+                    request = shareRequest,
+                    draft = draft(shareRequest),
+                    id = "share",
+                    dependsOn = listOf("search"),
+                ),
+            ),
+        )
+        val result = AgentLoopResult(
+            run = run(id = "high-external-send", input = "搜索 Kotlin 并分享公开摘要"),
+            plan = AgentPlan.UseTool(
+                request = searchRequest,
+                draft = draft(searchRequest),
+                plannedByModel = false,
+                fallbackReason = "test",
+                skillRequest = skillPlan.request,
+                skillPlan = skillPlan,
+                safetyDecision = SafetyDecision(SafetyOutcome.RequireConfirmation, "external send requires confirmation"),
+            ),
+                steps = listOf(
+                    AgentStep.SkillPlanned(skillPlan.request, skillPlan),
+                    AgentStep.ToolRequested(searchRequest, draft(searchRequest)),
+                    AgentStep.ToolObserved(
+                        ToolResult(
+                            requestId = searchRequest.id,
+                            status = ToolStatus.Succeeded,
+                            summary = "已完成 Web 搜索：Kotlin",
+                            data = mapOf("toolName" to MobileActionFunctions.WEB_SEARCH),
+                        ),
+                    ),
+                    AgentStep.ToolRequested(shareRequest, draft(shareRequest)),
+                    AgentStep.UserConfirmationRequested(shareRequest, draft(shareRequest)),
+                ),
+        )
+
+        val trace = projector.project(result)
+
+        assertEquals(listOf(MobileActionFunctions.WEB_SEARCH, MobileActionFunctions.SHARE_TEXT), trace.actualTools)
+        assertEquals(AgentEvalConfirmationExpectation.SecondConfirmation, trace.actualConfirmation)
+        assertEquals(AgentEvalRiskLevel.High, trace.actualRiskLevel)
+        assertEquals(MessagePrivacy.RemoteEligible, trace.privacy)
+        assertEquals(false, trace.localOnly)
+        assertEquals(true, trace.remoteEligible)
+    }
+
+    @Test
     fun projectsFailedAppSearchToolObservedPageNotChangedAsRuntimeFailureMode() {
         val openRequest = ToolRequest(
             id = "open-taobao",

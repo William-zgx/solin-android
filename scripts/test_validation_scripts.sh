@@ -1555,6 +1555,32 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-bad-expected-routing.properties" "status=failed"
 assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-bad-expected-routing.properties" "reason=invalid-field:planner_false_positive:"
 assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-bad-expected-routing.properties" ":expectedRoutingPath"
+AI_BEHAVIOR_MISSING_HIGH_RISK_DIR="$TMP_DIR/ai-behavior-missing-high-risk"
+mkdir -p "$AI_BEHAVIOR_MISSING_HIGH_RISK_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_HIGH_RISK_DIR/"
+python3 - "$AI_BEHAVIOR_MISSING_HIGH_RISK_DIR/tool_sequence.jsonl" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row["id"] == "sequence_public_summary_high_external_share":
+        row["expectedRiskLevel"] = "medium"
+path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval requires high-risk external-send coverage" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_MISSING_HIGH_RISK_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-missing-high-risk.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-high-risk.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-high-risk.properties" "reason=missing-risk-coverage:high"
 AI_BEHAVIOR_MISSING_BOUNDARY_MATRIX="$TMP_DIR/capability-matrix-missing-behavior-boundaries.json"
 python3 - "$AI_BEHAVIOR_MISSING_BOUNDARY_MATRIX" <<'PY'
 import json
@@ -1947,6 +1973,40 @@ assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualRoutingPath": "no_a
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualRoutingPath": "action_planner"'
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualTraceSource": "agent_loop_runtime"'
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" "\"actualTraceRecordedAt\": \"$AI_TRACE_FRESH_RECORDED_AT\""
+
+AI_HIGH_RISK_DRIFT_TRACE="$TMP_DIR/ai-behavior-actual-trace-high-risk-drift.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_HIGH_RISK_DRIFT_TRACE" <<'PY'
+import json
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1])
+target = pathlib.Path(sys.argv[2])
+rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row.get("caseId") == "sequence_public_summary_high_external_share":
+        row["actualRiskLevel"] = "medium"
+        break
+target.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects high-risk actual trace downgraded to medium" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_HIGH_RISK_DRIFT_TRACE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-high-risk-drift.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-high-risk-drift.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-high-risk-drift.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-high-risk-drift.properties" "reason=trace-diff-mismatch"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-high-risk-drift.jsonl" '"caseId": "sequence_public_summary_high_external_share"'
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-high-risk-drift.jsonl" '"expectedRiskLevel": "high"'
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-high-risk-drift.jsonl" '"actualRiskLevel": "medium"'
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-high-risk-drift.jsonl" '"riskMatches": false'
 
 AI_UNEXPECTED_ROUTING_TRACE="$TMP_DIR/ai-behavior-actual-trace-unexpected-routing.jsonl"
 python3 - "$AI_ACTUAL_TRACE" "$AI_UNEXPECTED_ROUTING_TRACE" <<'PY'

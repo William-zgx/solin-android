@@ -168,6 +168,10 @@ items below.
   so a tool route such as `action_planner/open_wifi_settings` fails the trace
   diff even when the final tool list is empty. The positive Wi-Fi sequence also
   binds the expected `open_wifi_settings` / `device_settings_skill` route.
+- Agent behavior risk coverage now includes `high` in addition to
+  public-evidence, low, medium, and sensitive. A high-risk external-share path
+  must remain second-confirmation gated, and actual trace drift from `high` to a
+  lower risk fails the planning trace diff.
 - Required Agent behavior eval boundary coverage is now owned by
   `CapabilityMatrix.requiredBehaviorEvalBoundaries` and
   `docs/capability_matrix.json`; `scripts/verify_ai_behavior_eval.sh` reads that

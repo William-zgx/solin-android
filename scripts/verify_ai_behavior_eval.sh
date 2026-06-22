@@ -913,7 +913,7 @@ if require_boundary_map and under_covered_mvp_scenarios:
 
 required_confirmations = {"tool_confirmation", "remote_send_confirmation", "second_confirmation", "fail_closed"}
 missing_confirmations = sorted(required_confirmations - set(confirmation_counts))
-required_risks = {"public_evidence", "low", "medium", "sensitive"}
+required_risks = {"public_evidence", "low", "medium", "high", "sensitive"}
 missing_risks = sorted(required_risks - set(risk_counts))
 if cases_with_expected_tools <= 0:
     emit_metrics("missing-expected-tool-coverage")

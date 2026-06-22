@@ -23,6 +23,60 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-23 Agent Behavior High-Risk Coverage Gate
+
+本轮覆盖项：
+
+- `AgentBehaviorTraceProjector` 将 Skill manifest 的 `HighExternalSend` 风险投影为
+  `AgentEvalRiskLevel.High`；私密本地证据仍优先投影为 `Sensitive`。
+- `tool_sequence.jsonl` 新增
+  `sequence_public_summary_high_external_share`，覆盖“公开 evidence 搜索后外部分享摘要”
+  的高风险二次确认路径。
+- `scripts/verify_ai_behavior_eval.sh` 的 required risk coverage 增加 `high`，不再允许
+  release eval suite 只有 public/low/medium/sensitive。
+- `scripts/test_validation_scripts.sh` 新增负例：移除唯一 high fixture 必须报告
+  `missing-risk-coverage:high`；actual trace 把 high 降级成 medium 必须
+  `trace-diff-mismatch` 且 `riskMatches=false`。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest \
+  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest \
+  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest
+
+scripts/verify_ai_behavior_eval.sh --require-boundary-map \
+  --trace-diff build/verification/ai-behavior-high-risk-current.jsonl \
+  --report build/verification/ai-behavior-high-risk-current.properties
+
+ARTIFACT_DIR=build/verification/ai-behavior-high-risk-actual-trace \
+  ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/collect_ai_behavior_actual_trace.sh
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：目标 JVM 测试 `AiBehaviorPlanningTraceProjectorTest`、
+  `AiBehaviorEvalFixturesTest` 和 `AiBehaviorActualTraceGeneratorTest`。
+- 通过：`scripts/verify_ai_behavior_eval.sh --require-boundary-map` 输出
+  `AI behavior eval fixtures passed: 40 cases across 7 categories and 6 MVP scenarios.`。
+- 通过：`scripts/collect_ai_behavior_actual_trace.sh` 输出
+  `AI behavior actual trace collected`，artifact 为
+  `build/verification/ai-behavior-high-risk-actual-trace/ai-behavior-actual-trace-collection.properties`。
+- 通过：`scripts/test_validation_scripts.sh` 输出 `Validation script tests passed.`。
+- 通过：最终 `scripts/verify_local.sh` 输出 `Android artifact scan passed.` 和
+  `Local verification passed.`，覆盖完整本地 validation scripts、Gradle JVM/lint/debug
+  AndroidTest assemble、release APK/AAB build 和 Android artifact scan。
+- 未执行：真机、模拟器和真实 App 物理验证；本轮只补本地 Agent behavior eval
+  高风险覆盖和严格 trace diff 门禁。
+
 ## 2026-06-23 Capability Matrix Required Behavior Eval Boundary Gate
 
 本轮覆盖项：

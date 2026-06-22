@@ -96,6 +96,9 @@ class AiBehaviorEvalFixturesTest {
         assertTrue("eval suite should include LocalOnly cases", rows.any { row ->
             row.getBoolean("localOnly")
         })
+        assertTrue("eval suite should include high-risk external-send cases", rows.any { row ->
+            row.getString("expectedRiskLevel") == "high"
+        })
     }
 
     @Test
