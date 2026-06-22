@@ -433,32 +433,39 @@ fun canReadImageTextPreviewFor(mimeType: String?): Boolean =
     }
 
 fun canUseTextPreviewFor(attachment: SharedAttachment): Boolean =
-    when (attachment.textPreview?.source) {
-        SharedTextPreviewSource.TextFile ->
-            attachment.kind == SharedAttachmentKind.Document &&
-                canReadTextPreviewFor(attachment.mimeType)
+    if (attachment.hasModelImagePayload()) {
+        false
+    } else {
+        when (attachment.textPreview?.source) {
+            SharedTextPreviewSource.TextFile ->
+                attachment.kind == SharedAttachmentKind.Document &&
+                    canReadTextPreviewFor(attachment.mimeType)
 
-        SharedTextPreviewSource.RichTextDocument ->
-            attachment.kind == SharedAttachmentKind.Document &&
-                canReadRichTextPreviewFor(attachment.mimeType)
+            SharedTextPreviewSource.RichTextDocument ->
+                attachment.kind == SharedAttachmentKind.Document &&
+                    canReadRichTextPreviewFor(attachment.mimeType)
 
-        SharedTextPreviewSource.PdfTextLayer ->
-            attachment.kind == SharedAttachmentKind.Document &&
-                canReadPdfTextPreviewFor(attachment.mimeType)
+            SharedTextPreviewSource.PdfTextLayer ->
+                attachment.kind == SharedAttachmentKind.Document &&
+                    canReadPdfTextPreviewFor(attachment.mimeType)
 
-        SharedTextPreviewSource.PdfImageOcr ->
-            attachment.kind == SharedAttachmentKind.Document &&
-                canReadPdfTextPreviewFor(attachment.mimeType)
+            SharedTextPreviewSource.PdfImageOcr ->
+                attachment.kind == SharedAttachmentKind.Document &&
+                    canReadPdfTextPreviewFor(attachment.mimeType)
 
-        SharedTextPreviewSource.OfficeDocument ->
-            attachment.kind == SharedAttachmentKind.Document &&
-                canReadOfficeOpenXmlTextPreviewFor(attachment.mimeType)
+            SharedTextPreviewSource.OfficeDocument ->
+                attachment.kind == SharedAttachmentKind.Document &&
+                    canReadOfficeOpenXmlTextPreviewFor(attachment.mimeType)
 
-        SharedTextPreviewSource.ImageOcr ->
-            attachment.kind == SharedAttachmentKind.Image && canReadImageTextPreviewFor(attachment.mimeType)
+            SharedTextPreviewSource.ImageOcr ->
+                attachment.kind == SharedAttachmentKind.Image && canReadImageTextPreviewFor(attachment.mimeType)
 
-        null -> false
+            null -> false
+        }
     }
+
+private fun SharedAttachment.hasModelImagePayload(): Boolean =
+    imageAttachment != null || localImageAttachment != null
 
 internal fun String?.normalizedMediaType(): String? =
     this

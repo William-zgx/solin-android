@@ -13,6 +13,8 @@ RELEASE_FLOW_KEYS="${RELEASE_FLOW_KEYS:-}"
 RELEASE_FLOW_ALL="${RELEASE_FLOW_ALL:-0}"
 RELEASE_FLOW_NOTE="${RELEASE_FLOW_NOTE:-Release flow was explicitly confirmed by the named owner.}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
+RECORDED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+ORIGINAL_ARGS=("$@")
 
 REQUIRED_RELEASE_FLOWS=(
   firstInstall
@@ -63,6 +65,17 @@ contains_key() {
   return 1
 }
 
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
 write_report() {
   local status="$1"
   local reason="$2"
@@ -70,12 +83,16 @@ write_report() {
   local pending="$4"
   mkdir -p "$(dirname "$REPORT_FILE")"
   {
+    printf 'artifactSchema=ReleaseFlowEvidenceCollection/v1\n'
     printf 'status=%s\n' "$status"
     printf 'target=release-flow-evidence\n'
+    printf 'owner=%s\n' "$OWNER"
+    printf 'recordedAt=%s\n' "$RECORDED_AT"
+    printf 'command=%s\n' "$(command_line)"
+    printf 'reproduciblePath=%s\n' "$REPORT_FILE"
     printf 'reason=%s\n' "$reason"
     printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
     printf 'artifactDir=%s\n' "$ARTIFACT_DIR"
-    printf 'owner=%s\n' "$OWNER"
     printf 'date=%s\n' "$VALIDATION_DATE"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
     printf 'requiredFlows=%s\n' "$(join_csv "${REQUIRED_RELEASE_FLOWS[@]}")"
@@ -266,6 +283,7 @@ mkdir -p "$ARTIFACT_DIR"
 for flow in "${accepted_flows[@]}"; do
   evidence_path="$ARTIFACT_DIR/flow-$flow.properties"
   {
+    printf 'artifactSchema=ReleaseFlowEvidence/v1\n'
     printf 'status=passed\n'
     printf 'target=release-flow\n'
     printf 'flowKey=%s\n' "$flow"
@@ -274,6 +292,9 @@ for flow in "${accepted_flows[@]}"; do
     printf 'evidenceKind=formal-release-flow\n'
     printf 'owner=%s\n' "$OWNER"
     printf 'date=%s\n' "$VALIDATION_DATE"
+    printf 'recordedAt=%s\n' "$RECORDED_AT"
+    printf 'command=%s\n' "$(command_line)"
+    printf 'reproduciblePath=%s\n' "$evidence_path"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
     printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
     printf 'evidenceSummary=%s\n' "$RELEASE_FLOW_NOTE"

@@ -3458,11 +3458,18 @@ for manual_key in \
   modelSetup remoteModePrivacy toolConfirmation permissions backgroundReminders sharing \
   multimodalEntryPoints voiceInput filePicker mediaProjection remoteSinglePublicEvidence \
   remoteMultiEvidenceComparison mixedPrivateActionBatchFailClosed; do
-  cat > "$TMP_DIR/validation-manual-evidence/$manual_key.properties" <<VALIDATION_MANUAL_EVIDENCE_PROPERTIES
+  manual_evidence_path="$TMP_DIR/validation-manual-evidence/$manual_key.properties"
+  cat > "$manual_evidence_path" <<VALIDATION_MANUAL_EVIDENCE_PROPERTIES
+artifactSchema=ManualAcceptanceEvidence/v1
 status=passed
 target=manual-acceptance
 manualKey=$manual_key
 manualAcceptance=true
+owner=QA
+date=$VALIDATION_DATE
+recordedAt=$PERF_RECORDED_AT
+command=scripts/record_manual_acceptance_evidence.sh
+reproduciblePath=$manual_evidence_path
 releaseArtifactSha256=$VALID_PERF_SHA
 VALIDATION_MANUAL_EVIDENCE_PROPERTIES
 done
@@ -3471,14 +3478,21 @@ for flow_key in \
   remoteHttpsConfiguration encryptedApiKeyClear sessionPersistence memoryControls \
   privacyAndDataControls remindersAfterReboot shareAndPickerInput voiceInput adaptiveUi accessibilityText \
   recentMediaOcr mediaProjectionCancellation; do
-  cat > "$TMP_DIR/validation-flow-evidence/$flow_key.properties" <<VALIDATION_FLOW_EVIDENCE_PROPERTIES
+  flow_evidence_path="$TMP_DIR/validation-flow-evidence/$flow_key.properties"
+  cat > "$flow_evidence_path" <<VALIDATION_FLOW_EVIDENCE_PROPERTIES
+artifactSchema=ReleaseFlowEvidence/v1
 status=passed
 target=release-flow
 flowKey=$flow_key
 releaseFlowPassed=true
+owner=QA
+date=$VALIDATION_DATE
+recordedAt=$PERF_RECORDED_AT
+command=scripts/record_release_flow_evidence.sh
+reproduciblePath=$flow_evidence_path
 releaseArtifactSha256=$VALID_PERF_SHA
 VALIDATION_FLOW_EVIDENCE_PROPERTIES
-  write_model_release_flow_contract_fixture "$flow_key" >> "$TMP_DIR/validation-flow-evidence/$flow_key.properties"
+  write_model_release_flow_contract_fixture "$flow_key" >> "$flow_evidence_path"
 done
 VALIDATION_PERF_BASELINE="$TMP_DIR/validation-performance-evidence/perf-baseline.properties"
 cat > "$VALIDATION_PERF_BASELINE" <<VALIDATION_PERF_BASELINE_PROPERTIES
@@ -3764,7 +3778,9 @@ assert_release_verifier_passed_report "$ARTIFACT_DIR/release-validation-current-
 assert_report_contains "$ARTIFACT_DIR/release-validation-current-artifact.properties" "expectedReleaseArtifactSha256=$VALID_PERF_SHA"
 VALIDATION_LOCAL_VISION_COUNT_TWO="$TMP_DIR/release-validation-local-vision-count-two.json"
 VALIDATION_LOCAL_VISION_COUNT_TWO_EVIDENCE="$TMP_DIR/validation-flow-evidence/local-vision-count-two.properties"
-sed 's/^localVisionRuntimeImageAttachmentSendCount=1$/localVisionRuntimeImageAttachmentSendCount=2/' \
+sed \
+  -e 's/^localVisionRuntimeImageAttachmentSendCount=1$/localVisionRuntimeImageAttachmentSendCount=2/' \
+  -e "s#^reproduciblePath=.*#reproduciblePath=$VALIDATION_LOCAL_VISION_COUNT_TWO_EVIDENCE#" \
   "$TMP_DIR/validation-flow-evidence/shareAndPickerInput.properties" > "$VALIDATION_LOCAL_VISION_COUNT_TWO_EVIDENCE"
 python3 - "$VALIDATION_APPROVED" "$VALIDATION_LOCAL_VISION_COUNT_TWO" "$VALIDATION_LOCAL_VISION_COUNT_TWO_EVIDENCE" <<'PY'
 import hashlib
@@ -3897,6 +3913,31 @@ expect_failure \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_CANDIDATE_FLOW" --report "$ARTIFACT_DIR/release-validation-candidate-flow.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-candidate-flow.properties" "flow-firstInstall-candidate-evidence-not-approved"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-candidate-flow.properties" "flow-firstInstall-release-flow-not-passed"
+VALIDATION_FLOW_MISSING_AUDIT="$TMP_DIR/release-validation-flow-missing-audit.json"
+VALIDATION_FLOW_MISSING_AUDIT_EVIDENCE="$TMP_DIR/validation-flow-evidence/first-install-missing-audit.properties"
+grep -Ev '^(artifactSchema|recordedAt|command|reproduciblePath)=' \
+  "$TMP_DIR/validation-flow-evidence/firstInstall.properties" > "$VALIDATION_FLOW_MISSING_AUDIT_EVIDENCE"
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_FLOW_MISSING_AUDIT" "$VALIDATION_FLOW_MISSING_AUDIT_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+evidence = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["flowMatrix"]["firstInstall"]["evidencePath"] = str(evidence)
+record["flowMatrix"]["firstInstall"]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects flow evidence missing audit fields" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_FLOW_MISSING_AUDIT" --report "$ARTIFACT_DIR/release-validation-flow-missing-audit.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-flow-missing-audit.properties" "flow-firstInstall-evidence-artifact-schema-invalid"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-flow-missing-audit.properties" "flow-firstInstall-evidence-recorded-at-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-flow-missing-audit.properties" "flow-firstInstall-evidence-command-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-flow-missing-audit.properties" "flow-firstInstall-evidence-reproducible-path-invalid"
 VALIDATION_WEAK_FLOW="$TMP_DIR/release-validation-weak-flow.json"
 VALIDATION_WEAK_FLOW_EVIDENCE="$TMP_DIR/validation-flow-evidence/weak-firstInstall.properties"
 cat > "$VALIDATION_WEAK_FLOW_EVIDENCE" <<'VALIDATION_WEAK_FLOW_EVIDENCE_PROPERTIES'
@@ -4307,6 +4348,31 @@ expect_failure \
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-manual.properties" "manual-modelSetup-evidence-target-invalid"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-manual.properties" "manual-modelSetup-evidence-key-mismatch"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-manual.properties" "manual-modelSetup-evidence-manual-acceptance-not-true"
+VALIDATION_MANUAL_MISSING_AUDIT="$TMP_DIR/release-validation-manual-missing-audit.json"
+VALIDATION_MANUAL_MISSING_AUDIT_EVIDENCE="$TMP_DIR/validation-manual-evidence/modelSetup-missing-audit.properties"
+grep -Ev '^(artifactSchema|recordedAt|command|reproduciblePath)=' \
+  "$TMP_DIR/validation-manual-evidence/modelSetup.properties" > "$VALIDATION_MANUAL_MISSING_AUDIT_EVIDENCE"
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_MANUAL_MISSING_AUDIT" "$VALIDATION_MANUAL_MISSING_AUDIT_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+evidence = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["manualAcceptance"]["modelSetup"]["evidencePath"] = str(evidence)
+record["manualAcceptance"]["modelSetup"]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects manual evidence missing audit fields" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_MANUAL_MISSING_AUDIT" --report "$ARTIFACT_DIR/release-validation-manual-missing-audit.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-audit.properties" "manual-modelSetup-evidence-artifact-schema-invalid"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-audit.properties" "manual-modelSetup-evidence-recorded-at-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-audit.properties" "manual-modelSetup-evidence-command-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-audit.properties" "manual-modelSetup-evidence-reproducible-path-invalid"
 VALIDATION_EMULATOR_BAD_SHA="$TMP_DIR/release-validation-emulator-bad-sha.json"
 python3 - "$VALIDATION_APPROVED" "$VALIDATION_EMULATOR_BAD_SHA" <<'PY'
 import json
@@ -5125,6 +5191,10 @@ expect_success \
   env ARTIFACT_DIR="$ARTIFACT_DIR/manual-acceptance-full" \
   OWNER="QA" MANUAL_ACCEPTANCE_ALL=1 VALIDATION_DATE="$VALIDATION_DATE" \
   scripts/record_manual_acceptance_evidence.sh
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/manual-acceptance-full/manual-acceptance-evidence.properties" \
+  "ManualAcceptanceEvidenceCollection/v1" \
+  "QA"
 assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-acceptance-evidence.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-acceptance-evidence.properties" "target=manual-acceptance-evidence"
 assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-acceptance-evidence.properties" "pendingManualKeys="
@@ -5133,11 +5203,17 @@ for manual_key in \
   multimodalEntryPoints voiceInput filePicker mediaProjection remoteSinglePublicEvidence \
   remoteMultiEvidenceComparison mixedPrivateActionBatchFailClosed; do
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "status=passed"
+  assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "artifactSchema=ManualAcceptanceEvidence/v1"
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "target=manual-acceptance"
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "manualKey=$manual_key"
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "manualAcceptance=true"
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "owner=QA"
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "date=$VALIDATION_DATE"
+  assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "command=scripts/record_manual_acceptance_evidence.sh"
+  assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "reproduciblePath=$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties"
+  grep -Eq '^recordedAt=20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
+    "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" ||
+    fail "Expected UTC recordedAt in manual acceptance evidence for $manual_key"
 done
 
 expect_failure \
@@ -5170,6 +5246,10 @@ expect_success \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-flow-full" \
   OWNER="QA" RELEASE_FLOW_ALL=1 VALIDATION_DATE="$VALIDATION_DATE" \
   scripts/record_release_flow_evidence.sh
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/release-flow-full/release-flow-evidence.properties" \
+  "ReleaseFlowEvidenceCollection/v1" \
+  "QA"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/release-flow-evidence.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/release-flow-evidence.properties" "target=release-flow-evidence"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/release-flow-evidence.properties" "pendingFlows="
@@ -5179,6 +5259,7 @@ for flow_key in \
   privacyAndDataControls remindersAfterReboot shareAndPickerInput voiceInput adaptiveUi accessibilityText \
   recentMediaOcr mediaProjectionCancellation; do
   assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "status=passed"
+  assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "artifactSchema=ReleaseFlowEvidence/v1"
   assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "target=release-flow"
   assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "flowKey=$flow_key"
   assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "releaseFlowPassed=true"
@@ -5186,6 +5267,11 @@ for flow_key in \
   assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "evidenceKind=formal-release-flow"
   assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "owner=QA"
   assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "date=$VALIDATION_DATE"
+  assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "command=scripts/record_release_flow_evidence.sh"
+  assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" "reproduciblePath=$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties"
+  grep -Eq '^recordedAt=20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
+    "$ARTIFACT_DIR/release-flow-full/flow-$flow_key.properties" ||
+    fail "Expected UTC recordedAt in release flow evidence for $flow_key"
 done
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-localModelDownloadVerification.properties" "localModelDownloadVerified=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-localModelDownloadVerification.properties" "modelSha256VerificationCovered=true"
@@ -5722,8 +5808,35 @@ MODEL_LICENSE_PENDING="$TMP_DIR/model-license-pending.json"
 MODEL_LICENSE_APPROVED="$TMP_DIR/model-license-approved.json"
 MODEL_LICENSE_CHAT_EVIDENCE="$TMP_DIR/model-license-chat-e2b-review.properties"
 MODEL_LICENSE_MEMORY_EVIDENCE="$TMP_DIR/model-license-memory-embedding-300m-review.properties"
-printf 'status=approved\ntarget=model-license-review-approved-evidence\nmodel=chat-e2b\nscope=license-redistribution-attribution\nredistributionDecision=approved\nlicenseName=Apache-2.0\nreviewer=Model Reviewer\n' > "$MODEL_LICENSE_CHAT_EVIDENCE"
-printf 'status=approved\ntarget=model-license-review-approved-evidence\nmodel=memory-embedding-300m\nscope=license-redistribution-attribution\nredistributionDecision=approved\nlicenseName=Apache-2.0\nreviewer=Model Reviewer\n' > "$MODEL_LICENSE_MEMORY_EVIDENCE"
+MODEL_LICENSE_REVIEW_RECORDED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+cat > "$MODEL_LICENSE_CHAT_EVIDENCE" <<MODEL_LICENSE_CHAT_EVIDENCE_PROPERTIES
+artifactSchema=ModelLicenseReviewApprovedEvidence/v1
+status=approved
+target=model-license-review-approved-evidence
+owner=model-license-reviewer
+recordedAt=$MODEL_LICENSE_REVIEW_RECORDED_AT
+command=manual-model-license-review chat-e2b
+reproduciblePath=$MODEL_LICENSE_CHAT_EVIDENCE
+model=chat-e2b
+scope=license-redistribution-attribution
+redistributionDecision=approved
+licenseName=Apache-2.0
+reviewer=Model Reviewer
+MODEL_LICENSE_CHAT_EVIDENCE_PROPERTIES
+cat > "$MODEL_LICENSE_MEMORY_EVIDENCE" <<MODEL_LICENSE_MEMORY_EVIDENCE_PROPERTIES
+artifactSchema=ModelLicenseReviewApprovedEvidence/v1
+status=approved
+target=model-license-review-approved-evidence
+owner=model-license-reviewer
+recordedAt=$MODEL_LICENSE_REVIEW_RECORDED_AT
+command=manual-model-license-review memory-embedding-300m
+reproduciblePath=$MODEL_LICENSE_MEMORY_EVIDENCE
+model=memory-embedding-300m
+scope=license-redistribution-attribution
+redistributionDecision=approved
+licenseName=Apache-2.0
+reviewer=Model Reviewer
+MODEL_LICENSE_MEMORY_EVIDENCE_PROPERTIES
 MODEL_LICENSE_CHAT_EVIDENCE_SHA="$(shasum -a 256 "$MODEL_LICENSE_CHAT_EVIDENCE" | awk '{print $1}')"
 MODEL_LICENSE_MEMORY_EVIDENCE_SHA="$(shasum -a 256 "$MODEL_LICENSE_MEMORY_EVIDENCE" | awk '{print $1}')"
 cat > "$MODEL_LICENSE_MANIFEST" <<'MODEL_LICENSE_MANIFEST_MD'
@@ -5943,6 +6056,44 @@ expect_failure \
   env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_BAD_REVIEW_EVIDENCE_CONTENT" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
   scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-bad-review-evidence-content.properties"
 assert_report_contains_text "$ARTIFACT_DIR/model-license-bad-review-evidence-content.properties" "chat-e2b-review-evidence-status-mismatch"
+MODEL_LICENSE_WEAK_REVIEW_EVIDENCE="$TMP_DIR/model-license-weak-review-evidence.properties"
+sed '/^artifactSchema=/d' "$MODEL_LICENSE_CHAT_EVIDENCE" > "$MODEL_LICENSE_WEAK_REVIEW_EVIDENCE"
+MODEL_LICENSE_WEAK_REVIEW_EVIDENCE_SHA="$(shasum -a 256 "$MODEL_LICENSE_WEAK_REVIEW_EVIDENCE" | awk '{print $1}')"
+MODEL_LICENSE_WEAK_REVIEW_EVIDENCE_RECORD="$TMP_DIR/model-license-weak-review-evidence.json"
+python3 - "$MODEL_LICENSE_APPROVED" "$MODEL_LICENSE_WEAK_REVIEW_EVIDENCE_RECORD" "$MODEL_LICENSE_WEAK_REVIEW_EVIDENCE" "$MODEL_LICENSE_WEAK_REVIEW_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["models"][0]["reviewEvidencePath"] = sys.argv[3]
+record["models"][0]["reviewEvidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "model license verifier rejects review evidence without schema" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_WEAK_REVIEW_EVIDENCE_RECORD" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-weak-review-evidence.properties"
+assert_report_contains_text "$ARTIFACT_DIR/model-license-weak-review-evidence.properties" "chat-e2b-review-evidence-artifactSchema-mismatch"
+MODEL_LICENSE_FUTURE_REVIEW_EVIDENCE="$TMP_DIR/model-license-future-review-evidence.properties"
+sed 's/^recordedAt=.*/recordedAt=2999-01-01T00:00:00Z/' "$MODEL_LICENSE_CHAT_EVIDENCE" > "$MODEL_LICENSE_FUTURE_REVIEW_EVIDENCE"
+MODEL_LICENSE_FUTURE_REVIEW_EVIDENCE_SHA="$(shasum -a 256 "$MODEL_LICENSE_FUTURE_REVIEW_EVIDENCE" | awk '{print $1}')"
+MODEL_LICENSE_FUTURE_REVIEW_EVIDENCE_RECORD="$TMP_DIR/model-license-future-review-evidence.json"
+python3 - "$MODEL_LICENSE_APPROVED" "$MODEL_LICENSE_FUTURE_REVIEW_EVIDENCE_RECORD" "$MODEL_LICENSE_FUTURE_REVIEW_EVIDENCE" "$MODEL_LICENSE_FUTURE_REVIEW_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["models"][0]["reviewEvidencePath"] = sys.argv[3]
+record["models"][0]["reviewEvidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "model license verifier rejects future review evidence timestamp" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_FUTURE_REVIEW_EVIDENCE_RECORD" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-future-review-evidence.properties"
+assert_report_contains_text "$ARTIFACT_DIR/model-license-future-review-evidence.properties" "chat-e2b-review-evidence-recorded-at-in-future"
 MODEL_LICENSE_STALE_METADATA="$TMP_DIR/model-license-stale-metadata.json"
 sed 's/"recordedAt": "2026-06-05T00:00:00Z"/"recordedAt": "2000-01-01T00:00:00Z"/' "$MODEL_LICENSE_METADATA" > "$MODEL_LICENSE_STALE_METADATA"
 expect_failure \

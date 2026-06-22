@@ -186,6 +186,34 @@ def validate_utc_timestamp_fresh(value, max_age_days, prefix):
     elif (now - parsed).days > max_age_days:
         failures.append(f"{prefix}-recorded-at-stale")
 
+def validate_formal_evidence_audit(section, key, record_entry, evidence_path, props):
+    prefix = f"{section}-{key}-evidence"
+    expected_schema = {
+        "manual": "ManualAcceptanceEvidence/v1",
+        "flow": "ReleaseFlowEvidence/v1",
+    }.get(section, "")
+    if expected_schema and props.get("artifactSchema") != expected_schema:
+        failures.append(f"{prefix}-artifact-schema-invalid")
+
+    evidence_owner = props.get("owner", "")
+    record_owner = record_entry.get("owner", "") if isinstance(record_entry, dict) else ""
+    if not non_empty_string(evidence_owner):
+        failures.append(f"{prefix}-owner-missing")
+    elif non_empty_string(record_owner) and evidence_owner != record_owner:
+        failures.append(f"{prefix}-owner-mismatch")
+
+    evidence_date = props.get("date", "")
+    record_date = record_entry.get("date", "") if isinstance(record_entry, dict) else ""
+    validate_date_field(evidence_date, prefix)
+    if non_empty_string(evidence_date) and non_empty_string(record_date) and evidence_date != record_date:
+        failures.append(f"{prefix}-date-mismatch")
+
+    validate_utc_timestamp_fresh(props.get("recordedAt", ""), 30, prefix)
+    if not non_empty_string(props.get("command", "")):
+        failures.append(f"{prefix}-command-missing")
+    if props.get("reproduciblePath") != str(evidence_path):
+        failures.append(f"{prefix}-reproducible-path-invalid")
+
 def validate_file_sha(prefix, path, expected_sha):
     if not non_empty_string(expected_sha):
         failures.append(f"{prefix}-sha-missing")
@@ -246,6 +274,9 @@ def validate_evidence_record(section, key, value):
         failures.append(f"{prefix}-evidence-file-missing")
     else:
         validate_file_sha(f"{prefix}-evidence", evidence_path, value.get("evidenceSha256", ""))
+        evidence_props = properties_for(evidence_path)
+        if section in {"manual", "flow"}:
+            validate_formal_evidence_audit(section, key, value, evidence_path, evidence_props)
         if section == "manual":
             validate_manual_evidence(key, evidence_path)
         if section == "flow":

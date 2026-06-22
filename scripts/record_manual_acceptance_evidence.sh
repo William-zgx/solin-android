@@ -13,6 +13,8 @@ MANUAL_ACCEPTANCE_KEYS="${MANUAL_ACCEPTANCE_KEYS:-}"
 MANUAL_ACCEPTANCE_ALL="${MANUAL_ACCEPTANCE_ALL:-0}"
 MANUAL_ACCEPTANCE_NOTE="${MANUAL_ACCEPTANCE_NOTE:-Manual acceptance was explicitly confirmed by the named owner.}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
+RECORDED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+ORIGINAL_ARGS=("$@")
 
 REQUIRED_MANUAL_KEYS=(
   modelSetup
@@ -60,6 +62,17 @@ contains_key() {
   return 1
 }
 
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
 write_report() {
   local status="$1"
   local reason="$2"
@@ -67,12 +80,16 @@ write_report() {
   local pending="$4"
   mkdir -p "$(dirname "$REPORT_FILE")"
   {
+    printf 'artifactSchema=ManualAcceptanceEvidenceCollection/v1\n'
     printf 'status=%s\n' "$status"
     printf 'target=manual-acceptance-evidence\n'
+    printf 'owner=%s\n' "$OWNER"
+    printf 'recordedAt=%s\n' "$RECORDED_AT"
+    printf 'command=%s\n' "$(command_line)"
+    printf 'reproduciblePath=%s\n' "$REPORT_FILE"
     printf 'reason=%s\n' "$reason"
     printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
     printf 'artifactDir=%s\n' "$ARTIFACT_DIR"
-    printf 'owner=%s\n' "$OWNER"
     printf 'date=%s\n' "$VALIDATION_DATE"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
     printf 'requiredManualKeys=%s\n' "$(join_csv "${REQUIRED_MANUAL_KEYS[@]}")"
@@ -123,12 +140,16 @@ mkdir -p "$ARTIFACT_DIR"
 for key in "${accepted_keys[@]}"; do
   evidence_path="$ARTIFACT_DIR/manual-$key.properties"
   {
+    printf 'artifactSchema=ManualAcceptanceEvidence/v1\n'
     printf 'status=passed\n'
     printf 'target=manual-acceptance\n'
     printf 'manualKey=%s\n' "$key"
     printf 'manualAcceptance=true\n'
     printf 'owner=%s\n' "$OWNER"
     printf 'date=%s\n' "$VALIDATION_DATE"
+    printf 'recordedAt=%s\n' "$RECORDED_AT"
+    printf 'command=%s\n' "$(command_line)"
+    printf 'reproduciblePath=%s\n' "$evidence_path"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
     printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
     printf 'evidenceSummary=%s\n' "$MANUAL_ACCEPTANCE_NOTE"

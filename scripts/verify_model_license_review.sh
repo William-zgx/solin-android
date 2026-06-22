@@ -172,6 +172,18 @@ def validate_file_sha(prefix, path, expected_sha):
     if actual_sha != expected_sha:
         failures.append(f"{prefix}-sha-mismatch")
 
+def validate_utc_timestamp_not_future(prefix, value):
+    if not non_empty_string(value):
+        failures.append(f"{prefix}-recorded-at-missing")
+        return
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        failures.append(f"{prefix}-recorded-at-invalid")
+        return
+    if parsed > datetime.now(timezone.utc):
+        failures.append(f"{prefix}-recorded-at-in-future")
+
 def parse_properties(path):
     values = {}
     for raw_line in Path(path).read_text().splitlines():
@@ -263,25 +275,34 @@ def validate_review_evidence(model_id, evidence_path, entry):
     except OSError:
         failures.append(f"{model_id or 'unknown'}-review-evidence-read-failed")
         return
+    prefix = model_id or "unknown"
     expected = {
+        "artifactSchema": "ModelLicenseReviewApprovedEvidence/v1",
         "status": "approved",
+        "target": "model-license-review-approved-evidence",
         "model": model_id,
         "scope": "license-redistribution-attribution",
         "redistributionDecision": "approved",
+        "reviewer": entry.get("reviewer", ""),
+        "licenseName": entry.get("licenseName", ""),
     }
     for key, expected_value in expected.items():
         actual = properties.get(key, "")
         if actual != expected_value:
-            failures.append(f"{model_id or 'unknown'}-review-evidence-{key}-mismatch")
-    target = properties.get("target", "")
-    if target and target != "model-license-review-approved-evidence":
-        failures.append(f"{model_id or 'unknown'}-review-evidence-target-mismatch")
-    reviewer = properties.get("reviewer", "")
-    if reviewer and reviewer != entry.get("reviewer", ""):
-        failures.append(f"{model_id or 'unknown'}-review-evidence-reviewer-mismatch")
-    license_name = properties.get("licenseName", "")
-    if license_name and license_name != entry.get("licenseName", ""):
-        failures.append(f"{model_id or 'unknown'}-review-evidence-license-name-mismatch")
+            failures.append(f"{prefix}-review-evidence-{key}-mismatch")
+    if not non_empty_string(properties.get("owner", "")):
+        failures.append(f"{prefix}-review-evidence-owner-missing")
+    validate_utc_timestamp_not_future(
+        f"{prefix}-review-evidence",
+        properties.get("recordedAt", ""),
+    )
+    if not non_empty_string(properties.get("command", "")):
+        failures.append(f"{prefix}-review-evidence-command-missing")
+    reproducible_path = properties.get("reproduciblePath", "")
+    if not non_empty_string(reproducible_path):
+        failures.append(f"{prefix}-review-evidence-reproducible-path-missing")
+    elif reproducible_path != str(evidence_path):
+        failures.append(f"{prefix}-review-evidence-reproducible-path-mismatch")
 
 if review.get("version") != 1:
     failures.append("review-version-invalid")

@@ -189,7 +189,10 @@ with each RC before treating this checklist as complete.
   include aligned license names, approved redistribution, attribution or notice,
   reviewer, and a valid concrete license source plus a non-future review date
   not older than the metadata collection date, with review evidence bound by
-  SHA-256.
+  SHA-256. Each approved model review evidence file must also declare
+  `artifactSchema=ModelLicenseReviewApprovedEvidence/v1`, owner, UTC
+  `recordedAt`, reproducible command/path, approved target/status, matching
+  model ID, reviewer, license name, scope, and redistribution decision.
 - [ ] README License wording distinguishes app code from third-party model
   artifacts.
 - [ ] No API keys, bearer tokens, private model endpoints, raw prompts, or
@@ -335,16 +338,21 @@ with each RC before treating this checklist as complete.
   bare string `passed` is not acceptable evidence.
 - [ ] Every `manualAcceptance` evidence file is a formal manual acceptance
   report with `status=passed`, `target=manual-acceptance`, a `manualKey` that
-  matches the record key, and `manualAcceptance=true`; lightweight status-only
-  manual evidence files are not accepted.
+  matches the record key, `manualAcceptance=true`,
+  `artifactSchema=ManualAcceptanceEvidence/v1`, matching owner/date, non-future
+  fresh UTC `recordedAt`, a non-empty command, and `reproduciblePath` equal to
+  the evidence file path; lightweight status-only manual evidence files are not
+  accepted.
 - [ ] Manual acceptance evidence is generated from explicit owner sign-off, for
   example `OWNER="<reviewer>" MANUAL_ACCEPTANCE_ALL=1
   scripts/record_manual_acceptance_evidence.sh`; partial runs must remain
   failed until every required manual key is accepted.
 - [ ] Every `flowMatrix` evidence file is a formal release flow report with
   `status=passed`, `target=release-flow`, a `flowKey` that matches the record
-  key, and `releaseFlowPassed=true`; candidate-only or lightweight status-only
-  flow evidence files are not accepted.
+  key, `releaseFlowPassed=true`, `artifactSchema=ReleaseFlowEvidence/v1`,
+  matching owner/date, non-future fresh UTC `recordedAt`, a non-empty command,
+  and `reproduciblePath` equal to the evidence file path; candidate-only or
+  lightweight status-only flow evidence files are not accepted.
 - [ ] `localModelDownloadVerification` release flow evidence must explicitly
   record local download verification, SHA-256 verification, storage preflight,
   failure recovery, unavailable download directory handling, SHA failure cleanup,

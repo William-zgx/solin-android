@@ -36,6 +36,9 @@ items below.
 - Release operations monitoring and rollback evidence now require passed typed
   properties reports bound to the approved operations record fields, not only
   path/SHA presence.
+- Formal manual acceptance and release-flow evidence now require typed
+  properties reports with schema, matching owner/date, fresh UTC timestamp,
+  command, and reproducible path; SHA-bound status-only files fail closed.
 - Share/picker release-flow evidence now covers local vision alongside remote
   vision: verified local image staging, local runtime image send count,
   LocalOnly persistence, prompt metadata redaction, remote runtime idle, and

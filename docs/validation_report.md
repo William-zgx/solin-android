@@ -4068,6 +4068,72 @@ ANDROID_HOME="$HOME/Library/Android/sdk" scripts/verify_local.sh
 - 未执行模拟器：本轮只加固 release validation 门禁脚本、测试 fixture 和文档，
   不改变 APK runtime 或 UI 行为。
 
+## 2026-06-22 Release validation formal evidence audit fields
+
+本轮覆盖项：
+
+- `scripts/record_manual_acceptance_evidence.sh` 产出的汇总 report 和每个正式
+  manual evidence 现在包含 schema、owner、UTC `recordedAt`、`command` 和
+  `reproduciblePath`。
+- `scripts/record_release_flow_evidence.sh` 产出的汇总 report 和每个正式
+  release-flow evidence 现在包含 schema、owner、UTC `recordedAt`、`command` 和
+  `reproduciblePath`。
+- `scripts/verify_release_validation_record.sh` 对 `manualAcceptance` 和
+  `flowMatrix` evidence 增加 fail-closed 校验：evidence 文件必须带对应 schema，
+  owner/date 必须匹配 JSON record，`recordedAt` 必须是非未来且 30 天内的 UTC
+  时间，`command` 非空，`reproduciblePath` 必须等于 evidence 文件路径。
+- `scripts/test_validation_scripts.sh` 新增负例：从 SHA 绑定的正式 manual/flow
+  evidence 中剥掉 audit 字段后，release validation verifier 必须失败。
+
+验证命令：
+
+```bash
+bash -n scripts/record_manual_acceptance_evidence.sh scripts/record_release_flow_evidence.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+git diff --check
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell 语法检查、`git diff --check` 和 validation script self-tests。
+- 未执行真机/模拟器：本轮只加固本地 release validation evidence 生成和验证。
+- 未修改 release validation pending/approved 状态。
+
+## 2026-06-22 Model license review evidence audit fields
+
+本轮覆盖项：
+
+- `scripts/verify_model_license_review.sh` 对 approved model review evidence 增加
+  fail-closed 校验：证据文件必须声明
+  `artifactSchema=ModelLicenseReviewApprovedEvidence/v1`、approved target/status、
+  matching model/reviewer/license/scope/redistribution decision、owner、UTC
+  `recordedAt`、非空 `command` 和等于 evidence path 的 `reproduciblePath`。
+- `scripts/test_validation_scripts.sh` 的 approved model license fixture 改为完整
+  audit evidence，并新增两个负例：缺少 schema 的弱证据和未来 `recordedAt`
+  都必须被拒绝。
+- `docs/release_checklist.md` 同步模型 license approval evidence 的最小审计字段。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_model_license_review.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_model_license_review.sh --report build/verification/model-license-current.properties
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查、validation script self-tests 和整合后的
+  `scripts/verify_local.sh`。
+- 预期失败：当前 `docs/model_license_review.json` 仍未 approved，报告继续指向真实
+  未完成项：模型 redistribution/attribution 决策、reviewer、review date 和
+  review evidence。
+- 未执行真机/模拟器：本轮只加固本地 model license review gate 和 fixture。
+
 ## 2026-06-06 Release validation manual evidence hardening
 
 本轮覆盖项：
@@ -13645,3 +13711,39 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
   运行仍需要后续在设备或 emulator 上执行。
 - `recordTextHash` 是 hash-only tombstone，不保存 raw text；但未加盐 SHA-256 不是匿名化，
   低熵文本理论上仍可能被字典猜测。
+
+## 2026-06-22 remote image OCR preview fail-closed
+
+本轮覆盖项：
+
+- `SharedInput` 对已携带模型图片 payload 的附件 fail-closed：无论是远程图片
+  `imageAttachment` 还是本地图片 `localImageAttachment`，都不再采信同一附件上的
+  `textPreview` / OCR 摘录。
+- 新增单测构造 `imageAttachment + ImageOcr textPreview` 的异常组合，验证 prompt 不包含
+  OCR 原文，receipt summary 只记录 `ImageAttachment`，不记录 `LocalOnly` / `OcrText`
+  证据。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+  ./gradlew testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.multimodal.SharedInputTest.remoteImageAttachmentIgnoresStaleOcrPreviewInPromptAndReceiptSummary
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+  ./gradlew testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.multimodal.SharedInputTest \
+  --rerun-tasks
+```
+
+结果：
+
+- 通过：新增契约测试先在修复前失败，失败点为 prompt 仍包含私有 OCR 文本。
+- 通过：修复后新增契约测试通过。
+- 通过：`SharedInputTest` 全类通过，覆盖分享文本、附件预览、PDF/Office/OCR、受保护远程分享和
+  RemoteVision prompt。
+
+剩余风险：
+
+- 本轮只跑本地 JVM 单测；按要求未跑真机/模拟器，也未生成或伪造 release evidence。
+- 该修复防御异常组合和上游回归；真实 Android `Intent` provider 的 MIME/stream 行为仍需设备侧验证。
