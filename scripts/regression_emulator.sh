@@ -19,6 +19,8 @@ EMULATOR_API_LEVEL=""
 EMULATOR_ABI=""
 EMULATOR_AVD=""
 DEVICE_INSTRUMENTATION_OUTPUT_FILE=""
+DEVICE_LOGCAT_FILE=""
+DEVICE_LOGCAT_SHA256=""
 FAILED_TARGET=""
 FAILURE_REASON=""
 REPORT_STATUS_OVERRIDE=""
@@ -104,6 +106,10 @@ harvest_reports() {
     [[ -n "$value" ]] && ACTUAL_ANDROID_TEST_COUNT="$value"
     value="$(report_value "$DEVICE_REPORT_FILE" "instrumentation_output_file")"
     [[ -n "$value" ]] && DEVICE_INSTRUMENTATION_OUTPUT_FILE="$value"
+    value="$(report_value "$DEVICE_REPORT_FILE" "logcat_file")"
+    [[ -n "$value" ]] && DEVICE_LOGCAT_FILE="$value"
+    value="$(report_value "$DEVICE_REPORT_FILE" "logcat_sha256")"
+    [[ -n "$value" ]] && DEVICE_LOGCAT_SHA256="$value"
   fi
 }
 
@@ -134,6 +140,8 @@ write_regression_report() {
     echo "abi=${EMULATOR_ABI:-}"
     echo "avd=${EMULATOR_AVD:-}"
     echo "instrumentation_output_file=${DEVICE_INSTRUMENTATION_OUTPUT_FILE:-}"
+    echo "logcat_file=${DEVICE_LOGCAT_FILE:-}"
+    echo "logcat_sha256=${DEVICE_LOGCAT_SHA256:-}"
     echo "emulator_report_file=$EMULATOR_REPORT_FILE"
     echo "device_report_file=$DEVICE_REPORT_FILE"
   } > "$REGRESSION_REPORT_FILE"

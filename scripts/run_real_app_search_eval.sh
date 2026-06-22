@@ -28,7 +28,10 @@ DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 POCKETMIND_ACCESSIBILITY_SERVICE="${PACKAGE_NAME}/${PACKAGE_NAME}.device.PocketMindAccessibilityService"
 
 SELECTED_SERIAL=""
+API_LEVEL=""
+ABI_LIST=""
 STATUS="failed"
+FAILED_TARGET=""
 FAILURE_REASON=""
 RUN_COUNT=0
 PASS_COUNT=0
@@ -101,14 +104,24 @@ capture_failure_diagnostics() {
 
 write_report() {
   local exit_code="$1"
+  local artifact_id logcat_sha256
   [[ "$exit_code" -eq 0 ]] && STATUS="passed"
+  artifact_id="real-app-search-${SELECTED_SERIAL:-unselected}-api${API_LEVEL:-unknown}-${STARTED_AT_UTC}"
+  artifact_id="${artifact_id//:/}"
+  logcat_sha256="$(sha256_file "$LOGCAT_FILE")"
   {
+    echo "artifact_schema=RealAppSearchEvalArtifact/v1"
+    echo "artifact_id=$artifact_id"
     echo "status=$STATUS"
     echo "exit_code=$exit_code"
+    echo "target=real-app-search-eval"
+    echo "failedTarget=${FAILED_TARGET:-}"
     echo "reason=$FAILURE_REASON"
     echo "started_at_utc=$STARTED_AT_UTC"
     echo "finished_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "serial=$SELECTED_SERIAL"
+    echo "api_level=$API_LEVEL"
+    echo "abi=$ABI_LIST"
     echo "skip_build=$SKIP_BUILD"
     echo "skip_install=$SKIP_INSTALL"
     echo "force_stop_target_app=$FORCE_STOP_TARGET_APP"
@@ -118,6 +131,7 @@ write_report() {
     echo "fail_count=$FAIL_COUNT"
     echo "debug_apk=$DEBUG_APK"
     echo "logcat_file=$LOGCAT_FILE"
+    echo "logcat_sha256=$logcat_sha256"
     echo "diagnostics_dir=$DIAGNOSTICS_DIR"
     echo "result_file_pattern=${RESULT_FILE_PREFIX}<requestId>${RESULT_FILE_SUFFIX}"
     echo "case_artifact_schema=RealAppSearchCaseArtifact/v1"
@@ -143,6 +157,7 @@ on_exit() {
 trap on_exit EXIT
 
 fail_with_reason() {
+  FAILED_TARGET="$1"
   FAILURE_REASON="$1"
   shift
   echo "$*" >&2
@@ -174,6 +189,8 @@ fi
 
 ADB=("$ADB_BIN" -s "$SELECTED_SERIAL")
 echo "Using Android device: $SELECTED_SERIAL"
+API_LEVEL="$("${ADB[@]}" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
+ABI_LIST="$("${ADB[@]}" shell getprop ro.product.cpu.abilist64 2>/dev/null | tr -d '\r' || true)"
 "${ADB[@]}" logcat -c >/dev/null 2>&1 || true
 
 if [[ "$SKIP_BUILD" != "1" ]]; then

@@ -23,6 +23,43 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-22 Device Eval Report Contract
+
+本轮覆盖项：
+
+- `scripts/run_device_control_debug_eval.sh` 的总报告新增 `artifact_schema`、`artifact_id`、
+  `target`、`failedTarget`、`api_level`、`abi` 和 `logcat_sha256`，失败路径会保留
+  机器可读失败目标。
+- `scripts/run_real_app_search_eval.sh` 的总报告新增同一组机器可读字段，同时保留
+  per-case `RealAppSearchCaseArtifact/v1` 与 resolver evidence / diagnostics SHA。
+- `scripts/test_validation_scripts.sh` 新增静态契约检查，防止两个设备 eval 报告回退到只写
+  `reason` / bare logcat path。
+
+验证命令：
+
+```bash
+bash -n scripts/run_device_control_debug_eval.sh \
+  scripts/run_real_app_search_eval.sh \
+  scripts/test_validation_scripts.sh
+
+bash scripts/test_validation_scripts.sh
+
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：`Validation script tests passed.`
+- 通过：`scripts/verify_local.sh` 覆盖 validation script tests、JVM tests、debug/release build、
+  AndroidTest assemble、lint 和 artifact scan。
+
+剩余风险：
+
+- 本轮按要求未跑真机/模拟器；设备 eval 报告字段已静态锁定，但实际 serial/API/ABI/logcat
+  值仍需要后续在物理 arm64 设备或合规 arm64 emulator 上采集。
+
 ## 2026-06-22 Local Verification Gate
 
 本轮覆盖项：

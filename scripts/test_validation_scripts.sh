@@ -1054,6 +1054,20 @@ grep -q 'baseVersionCodeRaw=' scripts/verify_upgrade_install_emulator.sh ||
   fail "upgrade install emulator report must preserve raw base versionCode"
 grep -q 'currentVersionCodeRaw=' scripts/verify_upgrade_install_emulator.sh ||
   fail "upgrade install emulator report must preserve raw current versionCode"
+for eval_script in scripts/run_device_control_debug_eval.sh scripts/run_real_app_search_eval.sh; do
+  grep -q 'artifact_schema=' "$eval_script" ||
+    fail "$eval_script report must expose an artifact schema"
+  grep -q 'artifact_id=' "$eval_script" ||
+    fail "$eval_script report must expose an artifact id"
+  grep -q 'failedTarget=' "$eval_script" ||
+    fail "$eval_script report must expose failedTarget"
+  grep -q 'api_level=' "$eval_script" ||
+    fail "$eval_script report must expose API level"
+  grep -q 'abi=' "$eval_script" ||
+    fail "$eval_script report must expose ABI"
+  grep -q 'logcat_sha256=' "$eval_script" ||
+    fail "$eval_script report must bind logcat SHA-256"
+done
 grep -q 'scripts/verify_ai_behavior_eval.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include verify_ai_behavior_eval.sh in shell syntax checks"
 grep -q 'scripts/collect_ai_behavior_actual_trace.sh' scripts/verify_local.sh ||
@@ -7634,6 +7648,9 @@ assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "source_an
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "expected_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "actual_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "logcat_file=$ARTIFACT_DIR/logcat.txt"
+grep -Eq '^logcat_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/regression-emulator.properties" ||
+  fail "Expected regression emulator report to bind nested device logcat SHA-256"
 assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "clean_device=1"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "clean_device=1"
@@ -7768,6 +7785,9 @@ assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "api_level
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "abi=arm64-v8a,armeabi-v7a"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "actual_android_test_count=3"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "instrumentation_output_file=$ARTIFACT_DIR/instrumentation.txt"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "logcat_file=$ARTIFACT_DIR/logcat.txt"
+grep -Eq '^logcat_sha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/regression-emulator.properties" ||
+  fail "Expected failed regression emulator report to bind nested device logcat SHA-256"
 assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "failedTarget=device-verification"
 assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "reason=device-verification-instrumentation-failed"
 assert_report_contains "$ARTIFACT_DIR/emulator-verification.properties" "screenshot_file=$ARTIFACT_DIR/screenshot.png"
