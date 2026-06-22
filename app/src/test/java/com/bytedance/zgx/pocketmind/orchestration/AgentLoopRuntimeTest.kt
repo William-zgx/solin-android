@@ -436,6 +436,40 @@ class AgentLoopRuntimeTest {
     }
 
     @Test
+    fun localModelActionToolCallWithoutMobileActionProfileFailsClosed() {
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = false,
+            modelOutputResult = modelToolOutputPlanningResult("""call:share_text{"text":"draft"}"""),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val result = runtime.runOnce(
+            input = "准备分享一段文字",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+
+        val observed = runtime.observeModelResult(result.run.id, """call:share_text{"text":"draft"}""")
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.Failed, observed.run.state)
+        require(observed.decision is AgentObservationDecision.Fail)
+        assertTrue(observed.decision.reason.contains("Missing model capability MobileAction"))
+        assertTrue(observed.steps.any { step ->
+            step is AgentStep.ModelPlanned &&
+                step.plan == AgentPlan.MissingModel(ModelCapability.MobileAction)
+        })
+        assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+            step.request.toolName == MobileActionFunctions.SHARE_TEXT
+        })
+        assertEquals(null, runtime.latestPendingConfirmation())
+        assertEquals(1, actionRuntime.parseModelToolOutputCallCount)
+    }
+
+    @Test
     fun remotePlainTextDoesNotUseInlineLocalToolParser() {
         val actionRuntime = RecordingActionRuntime(
             likelyAction = false,
@@ -1304,6 +1338,7 @@ class AgentLoopRuntimeTest {
             input = "普通问题",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
         )
 
         val observed = runtime.observeModelResult(result.run.id, """call:share_text{"text":"$secretPayload"}""")
@@ -1394,6 +1429,7 @@ class AgentLoopRuntimeTest {
             input = "普通问题",
             installedCapabilities = setOf(ModelCapability.Chat),
             memoryEnabled = false,
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
         )
 
         val observed = runtime.observeModelResult(result.run.id, """call:compose_email{"subject":"Hi"}""")

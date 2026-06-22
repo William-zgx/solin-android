@@ -1505,6 +1505,12 @@ class AgentLoopRuntime(
             arguments = draft.parameters,
             reason = "local model tool call",
         )
+        if (
+            request.requiresMobileActionProfileForInlineToolCall() &&
+            !hasMobileActionPlanningModel(installedCapabilityProfilesByRunId[run.id].orEmpty())
+        ) {
+            return failMissingModelNextPlan(run.id, AgentPlan.MissingModel(ModelCapability.MobileAction))
+        }
         val skillPlan = skillRuntime.plan(run.input, draft, request)
         return buildNextToolPlan(
             runId = run.id,
@@ -1952,6 +1958,9 @@ class AgentLoopRuntime(
         installedCapabilityProfiles: List<ModelCapabilityProfile>,
     ): Boolean =
         installedCapabilityProfiles.any { profile -> profile.supportsMobileActionPlanning }
+
+    private fun ToolRequest.requiresMobileActionProfileForInlineToolCall(): Boolean =
+        toolRegistry.specFor(toolName)?.isPublicEvidenceBatchEligible() == false
 
     private fun String.initialSequentialActionInput(): String? =
         explicitSequentialActionTextAt(0)

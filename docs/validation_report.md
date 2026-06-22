@@ -23,6 +23,52 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-23 Inline Local Tool Call Action Profile Gate
+
+本轮覆盖项：
+
+- `AgentLoopRuntime.observeModelResult()` 的 inline local model tool call 路径现在区分
+  public evidence 与行动类工具：`web_search` 等
+  `ToolSpec.isPublicEvidenceBatchEligible()` 工具仍可在本地模型输出后继续执行；其它工具
+  如 `share_text`、外部草稿、系统设置、设备上下文、后台任务和 UI 控制必须有
+  `ModelCapabilityProfile.supportsMobileActionPlanning`，否则 fail-closed 为
+  `MissingModel(MobileAction)`。
+- 这补齐了上一轮 action planner/replanner profile gate 的相邻绕行面：本地聊天模型不能在没有
+  mobile-action profile 时仅靠 `call:share_text{...}` 直接生成待确认动作。
+- `PocketMindViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory`
+  更新为显式安装已验证 chat + mobile-action profile，确保成功路径仍绑定动作模型能力。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelWebSearchToolCallExecutesAfterAnswerGenerationWithoutConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelActionToolCallWithoutMobileActionProfileFailsClosed' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelToolCallAuditSummariesDoNotPersistArguments' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelUnknownToolCallOutputFailsRunWithoutPendingConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.localModelInvalidToolArgumentsFailBeforeConfirmation' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest' \
+  --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.localModelCallOutputBecomesPendingConfirmationWithoutLeakingToRemoteHistory'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：目标 inline local tool call JVM 测试，覆盖 public evidence 豁免、non-public action
+  fail-closed、未知工具仍走原 unknown-tool 拒绝、动作 profile 存在时保留 pending confirmation。
+- 通过：`AgentLoopRuntimeTest` 与 `AiBehaviorActualTraceGeneratorTest` 相关目标集。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM、lint、
+  debug/release assemble、release bundle 和 Android artifact scan。
+- 未执行：真机 instrumentation、arm64/x86 模拟器；本轮是本地 JVM 安全边界推进。
+
 ## 2026-06-23 Agent Action Model Capability Profile Gate
 
 本轮覆盖项：

@@ -203,6 +203,9 @@ items below.
   evidence when deciding whether mobile-action planning is available; missing
   mobile-action profiles fail closed even when the legacy capability set claims
   `MobileAction`.
+- Inline local model tool calls now share that boundary: public evidence calls
+  such as `web_search` remain available, while non-public action/tool calls from
+  local model output fail closed without a mobile-action capability profile.
 - Custom imported local models now resolve to an explicit `custom-local-chat`
   text-only capability profile instead of inheriting the selected recommended
   chat/vision profile in health/runtime evidence. Unknown or stale recommended

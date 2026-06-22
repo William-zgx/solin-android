@@ -5690,13 +5690,30 @@ class PocketMindViewModelTest {
         val sessionStore = FakeSessionStore()
         val remoteRuntime = RecordingRemoteChatRuntime()
         val executor = RecordingToolExecutor()
+        val chat = installedModelSummary(
+            id = "chat-model",
+            displayName = "当前对话",
+            path = "/tmp/chat.litertlm",
+            recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val action = installedModelSummary(
+            id = "action-model",
+            displayName = "设备动作模型",
+            path = "/tmp/action.litertlm",
+            recommendedModelId = MOBILE_ACTION_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             runtime = FakeLiteRtRuntime(localResponse = localCall),
             remoteRuntime = remoteRuntime,
             assistantRouter = orchestrator,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(
+                activeInstalledModelId = chat.id,
+                initialInstalledModels = listOf(chat, action),
+            ),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
