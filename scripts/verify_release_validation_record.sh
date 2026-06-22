@@ -663,6 +663,12 @@ def validate_performance_evidence(key, evidence_path):
         if max_record_age_days is not None and max_record_age_days > 0:
             validate_utc_timestamp_fresh(baseline_props.get("recordedAt", ""), max_record_age_days, prefix)
 
+def property_is_true(value):
+    return str(value).lower() in {"true", "1", "yes"}
+
+def property_is_false(value):
+    return str(value).lower() in {"false", "0", "no"}
+
 def validate_manual_evidence(key, evidence_path):
     prefix = f"manual-{key}-evidence"
     props = properties_for(evidence_path)
@@ -673,8 +679,113 @@ def validate_manual_evidence(key, evidence_path):
         failures.append(f"{prefix}-target-invalid")
     if props.get("manualKey") != key:
         failures.append(f"{prefix}-key-mismatch")
-    if props.get("manualAcceptance", "").lower() not in {"true", "1", "yes"}:
+    if not property_is_true(props.get("manualAcceptance", "")):
         failures.append(f"{prefix}-manual-acceptance-not-true")
+    required_true_fields = {
+        "modelSetup": {
+            "modelManagerOpened": "model-manager-opened-missing",
+            "recommendedModelAvailabilityChecked": "recommended-model-availability-check-missing",
+        },
+        "remoteModePrivacy": {
+            "remoteModeExplicitlySelected": "remote-mode-explicit-selection-missing",
+            "localMemoryNotAutoIncluded": "local-memory-auto-include-boundary-missing",
+        },
+        "toolConfirmation": {
+            "confirmationSheetObserved": "confirmation-sheet-missing",
+            "toolCancelPreventsExecution": "tool-cancel-prevents-execution-missing",
+        },
+        "permissions": {
+            "runtimePermissionPromptObserved": "runtime-permission-prompt-missing",
+            "permissionDeniedRecoveryCovered": "permission-denied-recovery-missing",
+        },
+        "backgroundReminders": {
+            "reminderCreateUpdateCancelObserved": "reminder-create-update-cancel-missing",
+            "backgroundReminderDeliveryObserved": "background-reminder-delivery-missing",
+        },
+        "sharing": {
+            "shareSheetBoundaryObserved": "share-sheet-boundary-missing",
+            "externalOutcomeNotAutoClaimed": "external-outcome-not-auto-claimed-missing",
+        },
+        "multimodalEntryPoints": {
+            "localVisionCapabilityObserved": "local-vision-capability-missing",
+            "unsupportedVisionFailClosedObserved": "unsupported-vision-fail-closed-missing",
+        },
+        "voiceInput": {
+            "systemSpeechRecognizerObserved": "system-speech-recognizer-missing",
+            "voiceDraftNoAutoSend": "voice-draft-no-auto-send-missing",
+            "voiceCancelCovered": "voice-cancel-missing",
+        },
+        "filePicker": {
+            "systemDocumentPickerObserved": "system-document-picker-missing",
+            "documentExcerptBounded": "document-excerpt-bounded-missing",
+            "remoteNonImageAttachmentNotAutoIncluded": "remote-non-image-attachment-not-auto-included-missing",
+        },
+        "mediaProjection": {
+            "systemMediaProjectionPromptObserved": "system-media-projection-prompt-missing",
+            "mediaProjectionCancelBlocksCapture": "media-projection-cancel-blocks-capture-missing",
+            "mediaProjectionOneShotConsentCovered": "media-projection-one-shot-consent-missing",
+        },
+        "remoteSinglePublicEvidence": {
+            "singlePublicEvidenceSelected": "single-public-evidence-selection-missing",
+            "privateEvidenceExcluded": "private-evidence-exclusion-missing",
+        },
+        "remoteMultiEvidenceComparison": {
+            "multiplePublicEvidenceCompared": "multiple-public-evidence-comparison-missing",
+        },
+        "mixedPrivateActionBatchFailClosed": {
+            "mixedBatchRejected": "mixed-batch-rejection-missing",
+        },
+    }.get(key, {})
+    for field, reason in required_true_fields.items():
+        if not property_is_true(props.get(field, "")):
+            failures.append(f"{prefix}-{reason}")
+    required_false_fields = {
+        "remoteModePrivacy": {
+            "remoteRawPrivateContextSent": "remote-raw-private-context-sent-not-false",
+        },
+        "toolConfirmation": {
+            "toolExecutedWithoutConfirmation": "tool-executed-without-confirmation-not-false",
+        },
+        "permissions": {
+            "permissionGrantedSilently": "permission-granted-silently-not-false",
+        },
+        "mediaProjection": {
+            "screenshotRawPayloadPersisted": "screenshot-raw-payload-persisted-not-false",
+        },
+        "remoteMultiEvidenceComparison": {
+            "privateEvidenceSent": "private-evidence-sent-not-false",
+        },
+        "mixedPrivateActionBatchFailClosed": {
+            "partialActionExecution": "partial-action-execution-not-false",
+        },
+    }.get(key, {})
+    for field, reason in required_false_fields.items():
+        if not property_is_false(props.get(field, "")):
+            failures.append(f"{prefix}-{reason}")
+    required_exact_fields = {
+        "remoteSinglePublicEvidence": {
+            "remoteRequestCount": ("1", "remote-request-count-mismatch"),
+        },
+        "mixedPrivateActionBatchFailClosed": {
+            "remoteRequestCount": ("0", "remote-request-count-mismatch"),
+        },
+    }.get(key, {})
+    for field, (expected, reason) in required_exact_fields.items():
+        if props.get(field) != expected:
+            failures.append(f"{prefix}-{reason}")
+    required_min_fields = {
+        "remoteMultiEvidenceComparison": {
+            "publicEvidenceCount": (2, "public-evidence-count-too-low"),
+        },
+    }.get(key, {})
+    for field, (minimum, reason) in required_min_fields.items():
+        try:
+            value = int(props.get(field, ""))
+        except ValueError:
+            failures.append(f"{prefix}-{reason}")
+            continue
+        if value < minimum:
+            failures.append(f"{prefix}-{reason}")
 
 def validate_flow_evidence(key, evidence_path):
     prefix = f"flow-{key}"

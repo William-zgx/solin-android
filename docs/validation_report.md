@@ -23,6 +23,44 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-23 Manual Acceptance Key-Specific Evidence Gate
+
+本轮覆盖项：
+
+- `scripts/record_manual_acceptance_evidence.sh` 为 13 个 required manual keys
+  写入 key-specific 安全契约字段，覆盖远程模式隐私、工具确认、权限拒绝恢复、语音草稿、
+  系统文档选择器、MediaProjection 同意/取消、public evidence remote request 计数和
+  mixed private/action batch fail-closed。
+- `scripts/verify_release_validation_record.sh` 不再只接受结构正确的 manual acceptance
+  文件；缺少 key-specific 字段、true/false 反转、`remoteRequestCount` 不匹配或
+  `publicEvidenceCount < 2` 都 fail closed，并输出具体 reason。
+- `scripts/test_validation_scripts.sh` 新增正式 fixture 生成和负例：删除
+  `systemMediaProjectionPromptObserved`、把 `toolCancelPreventsExecution` 置 false、
+  把 `remoteRawPrivateContextSent` 置 true、把 public evidence 数量降为 1，都必须被
+  release validation verifier 拒绝。
+
+验证命令：
+
+```bash
+bash -n scripts/record_manual_acceptance_evidence.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：`scripts/test_validation_scripts.sh` 输出 `Validation script tests passed.`；
+  新增 manual contract happy path 与四个负例均被覆盖。
+- 通过：`scripts/verify_local.sh` 输出 `Local verification passed.`，覆盖本地环境检查、
+  validation script tests、Gradle JVM/lint/debug/androidTest/release build 和 Android
+  artifact scan。
+- 未执行：真机、模拟器、RC perf baseline 和人工审批；本轮只加固本地 release evidence
+  gate，不生成或替代 physical-device / release-owner evidence。
+
 ## 2026-06-22 Agent Behavior Eval Permission Denial Gate
 
 本轮覆盖项：

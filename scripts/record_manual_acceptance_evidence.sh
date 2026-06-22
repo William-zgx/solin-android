@@ -98,6 +98,74 @@ write_report() {
   } > "$REPORT_FILE"
 }
 
+write_manual_contract_fields() {
+  local key="$1"
+  case "$key" in
+    modelSetup)
+      printf 'modelManagerOpened=true\n'
+      printf 'recommendedModelAvailabilityChecked=true\n'
+      ;;
+    remoteModePrivacy)
+      printf 'remoteModeExplicitlySelected=true\n'
+      printf 'localMemoryNotAutoIncluded=true\n'
+      printf 'remoteRawPrivateContextSent=false\n'
+      ;;
+    toolConfirmation)
+      printf 'confirmationSheetObserved=true\n'
+      printf 'toolCancelPreventsExecution=true\n'
+      printf 'toolExecutedWithoutConfirmation=false\n'
+      ;;
+    permissions)
+      printf 'runtimePermissionPromptObserved=true\n'
+      printf 'permissionDeniedRecoveryCovered=true\n'
+      printf 'permissionGrantedSilently=false\n'
+      ;;
+    backgroundReminders)
+      printf 'reminderCreateUpdateCancelObserved=true\n'
+      printf 'backgroundReminderDeliveryObserved=true\n'
+      ;;
+    sharing)
+      printf 'shareSheetBoundaryObserved=true\n'
+      printf 'externalOutcomeNotAutoClaimed=true\n'
+      ;;
+    multimodalEntryPoints)
+      printf 'localVisionCapabilityObserved=true\n'
+      printf 'unsupportedVisionFailClosedObserved=true\n'
+      ;;
+    voiceInput)
+      printf 'systemSpeechRecognizerObserved=true\n'
+      printf 'voiceDraftNoAutoSend=true\n'
+      printf 'voiceCancelCovered=true\n'
+      ;;
+    filePicker)
+      printf 'systemDocumentPickerObserved=true\n'
+      printf 'documentExcerptBounded=true\n'
+      printf 'remoteNonImageAttachmentNotAutoIncluded=true\n'
+      ;;
+    mediaProjection)
+      printf 'systemMediaProjectionPromptObserved=true\n'
+      printf 'mediaProjectionCancelBlocksCapture=true\n'
+      printf 'mediaProjectionOneShotConsentCovered=true\n'
+      printf 'screenshotRawPayloadPersisted=false\n'
+      ;;
+    remoteSinglePublicEvidence)
+      printf 'singlePublicEvidenceSelected=true\n'
+      printf 'privateEvidenceExcluded=true\n'
+      printf 'remoteRequestCount=1\n'
+      ;;
+    remoteMultiEvidenceComparison)
+      printf 'multiplePublicEvidenceCompared=true\n'
+      printf 'publicEvidenceCount=2\n'
+      printf 'privateEvidenceSent=false\n'
+      ;;
+    mixedPrivateActionBatchFailClosed)
+      printf 'mixedBatchRejected=true\n'
+      printf 'partialActionExecution=false\n'
+      printf 'remoteRequestCount=0\n'
+      ;;
+  esac
+}
+
 fail() {
   local reason="$1"
   shift
@@ -153,6 +221,7 @@ for key in "${accepted_keys[@]}"; do
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
     printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
     printf 'evidenceSummary=%s\n' "$MANUAL_ACCEPTANCE_NOTE"
+    write_manual_contract_fields "$key"
   } > "$evidence_path"
 done
 

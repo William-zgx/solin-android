@@ -355,6 +355,14 @@ with each RC before treating this checklist as complete.
   fresh UTC `recordedAt`, a non-empty command, and `reproduciblePath` equal to
   the evidence file path; lightweight status-only manual evidence files are not
   accepted.
+- [ ] Every `manualAcceptance` evidence file also satisfies its key-specific
+  contract: remote-mode privacy records no automatic local-memory/raw private
+  context send, tool confirmation records visible confirmation plus cancel
+  blocking execution, permissions record system prompt and denied recovery,
+  voice/file/MediaProjection evidence records system-mediated consent/cancel
+  boundaries, public evidence remote calls bind request counts, and mixed
+  private/action batch evidence records rejection with no partial action
+  execution.
 - [ ] Manual acceptance evidence is generated from explicit owner sign-off, for
   example `OWNER="<reviewer>" MANUAL_ACCEPTANCE_ALL=1
   scripts/record_manual_acceptance_evidence.sh`; partial runs must remain

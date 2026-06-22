@@ -39,6 +39,12 @@ items below.
 - Formal manual acceptance and release-flow evidence now require typed
   properties reports with schema, matching owner/date, fresh UTC timestamp,
   command, and reproducible path; SHA-bound status-only files fail closed.
+- Manual acceptance evidence now also has key-specific machine checks: remote
+  mode privacy must show no automatic local-memory/raw private-context send,
+  tool confirmation must show cancel blocks execution, permission evidence must
+  cover denial recovery, voice/file/MediaProjection evidence must cover the
+  system-mediated boundaries, public evidence batches must bind request counts,
+  and mixed private/action batches must fail closed without partial execution.
 - Share/picker release-flow evidence now covers local vision alongside remote
   vision: verified local image staging, local runtime image send count,
   LocalOnly persistence, prompt metadata redaction, remote runtime idle, and

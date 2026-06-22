@@ -967,6 +967,96 @@ write_model_release_flow_contract_fixture() {
   esac
 }
 
+write_manual_acceptance_contract_fixture() {
+  local key="$1"
+  case "$key" in
+    modelSetup)
+      printf 'modelManagerOpened=true\n'
+      printf 'recommendedModelAvailabilityChecked=true\n'
+      ;;
+    remoteModePrivacy)
+      printf 'remoteModeExplicitlySelected=true\n'
+      printf 'localMemoryNotAutoIncluded=true\n'
+      printf 'remoteRawPrivateContextSent=false\n'
+      ;;
+    toolConfirmation)
+      printf 'confirmationSheetObserved=true\n'
+      printf 'toolCancelPreventsExecution=true\n'
+      printf 'toolExecutedWithoutConfirmation=false\n'
+      ;;
+    permissions)
+      printf 'runtimePermissionPromptObserved=true\n'
+      printf 'permissionDeniedRecoveryCovered=true\n'
+      printf 'permissionGrantedSilently=false\n'
+      ;;
+    backgroundReminders)
+      printf 'reminderCreateUpdateCancelObserved=true\n'
+      printf 'backgroundReminderDeliveryObserved=true\n'
+      ;;
+    sharing)
+      printf 'shareSheetBoundaryObserved=true\n'
+      printf 'externalOutcomeNotAutoClaimed=true\n'
+      ;;
+    multimodalEntryPoints)
+      printf 'localVisionCapabilityObserved=true\n'
+      printf 'unsupportedVisionFailClosedObserved=true\n'
+      ;;
+    voiceInput)
+      printf 'systemSpeechRecognizerObserved=true\n'
+      printf 'voiceDraftNoAutoSend=true\n'
+      printf 'voiceCancelCovered=true\n'
+      ;;
+    filePicker)
+      printf 'systemDocumentPickerObserved=true\n'
+      printf 'documentExcerptBounded=true\n'
+      printf 'remoteNonImageAttachmentNotAutoIncluded=true\n'
+      ;;
+    mediaProjection)
+      printf 'systemMediaProjectionPromptObserved=true\n'
+      printf 'mediaProjectionCancelBlocksCapture=true\n'
+      printf 'mediaProjectionOneShotConsentCovered=true\n'
+      printf 'screenshotRawPayloadPersisted=false\n'
+      ;;
+    remoteSinglePublicEvidence)
+      printf 'singlePublicEvidenceSelected=true\n'
+      printf 'privateEvidenceExcluded=true\n'
+      printf 'remoteRequestCount=1\n'
+      ;;
+    remoteMultiEvidenceComparison)
+      printf 'multiplePublicEvidenceCompared=true\n'
+      printf 'publicEvidenceCount=2\n'
+      printf 'privateEvidenceSent=false\n'
+      ;;
+    mixedPrivateActionBatchFailClosed)
+      printf 'mixedBatchRejected=true\n'
+      printf 'partialActionExecution=false\n'
+      printf 'remoteRequestCount=0\n'
+      ;;
+  esac
+}
+
+write_validation_record_with_manual_evidence() {
+  local source_record="$1"
+  local target_record="$2"
+  local manual_key="$3"
+  local evidence_path="$4"
+  python3 - "$source_record" "$target_record" "$manual_key" "$evidence_path" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+manual_key = sys.argv[3]
+evidence = Path(sys.argv[4])
+record = json.loads(source.read_text())
+record["manualAcceptance"][manual_key]["evidencePath"] = str(evidence)
+record["manualAcceptance"][manual_key]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+}
+
 write_crash_anr_smoke_fixture() {
   local report_file="$1"
   local device_report="$2"
@@ -4013,6 +4103,7 @@ command=scripts/record_manual_acceptance_evidence.sh
 reproduciblePath=$manual_evidence_path
 releaseArtifactSha256=$VALID_PERF_SHA
 VALIDATION_MANUAL_EVIDENCE_PROPERTIES
+  write_manual_acceptance_contract_fixture "$manual_key" >> "$manual_evidence_path"
 done
 for flow_key in \
   firstInstall upgradeInstall localModelDownloadVerification customModelImportOrUrlRejection \
@@ -4921,6 +5012,58 @@ assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-aud
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-audit.properties" "manual-modelSetup-evidence-recorded-at-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-audit.properties" "manual-modelSetup-evidence-command-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-audit.properties" "manual-modelSetup-evidence-reproducible-path-invalid"
+VALIDATION_MANUAL_MISSING_CONTRACT="$TMP_DIR/release-validation-manual-missing-contract.json"
+VALIDATION_MANUAL_MISSING_CONTRACT_EVIDENCE="$TMP_DIR/validation-manual-evidence/mediaProjection-missing-contract.properties"
+grep -Ev '^systemMediaProjectionPromptObserved=' \
+  "$TMP_DIR/validation-manual-evidence/mediaProjection.properties" > "$VALIDATION_MANUAL_MISSING_CONTRACT_EVIDENCE"
+write_validation_record_with_manual_evidence \
+  "$VALIDATION_APPROVED" \
+  "$VALIDATION_MANUAL_MISSING_CONTRACT" \
+  mediaProjection \
+  "$VALIDATION_MANUAL_MISSING_CONTRACT_EVIDENCE"
+expect_failure \
+  "release validation verifier rejects manual evidence missing key-specific contract" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_MANUAL_MISSING_CONTRACT" --report "$ARTIFACT_DIR/release-validation-manual-missing-contract.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-contract.properties" "manual-mediaProjection-evidence-system-media-projection-prompt-missing"
+VALIDATION_MANUAL_FALSE_CONTRACT="$TMP_DIR/release-validation-manual-false-contract.json"
+VALIDATION_MANUAL_FALSE_CONTRACT_EVIDENCE="$TMP_DIR/validation-manual-evidence/toolConfirmation-false-contract.properties"
+sed 's/^toolCancelPreventsExecution=true$/toolCancelPreventsExecution=false/' \
+  "$TMP_DIR/validation-manual-evidence/toolConfirmation.properties" > "$VALIDATION_MANUAL_FALSE_CONTRACT_EVIDENCE"
+write_validation_record_with_manual_evidence \
+  "$VALIDATION_APPROVED" \
+  "$VALIDATION_MANUAL_FALSE_CONTRACT" \
+  toolConfirmation \
+  "$VALIDATION_MANUAL_FALSE_CONTRACT_EVIDENCE"
+expect_failure \
+  "release validation verifier rejects false manual key-specific contract" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_MANUAL_FALSE_CONTRACT" --report "$ARTIFACT_DIR/release-validation-manual-false-contract.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-false-contract.properties" "manual-toolConfirmation-evidence-tool-cancel-prevents-execution-missing"
+VALIDATION_MANUAL_NEGATIVE_CONTRACT="$TMP_DIR/release-validation-manual-negative-contract.json"
+VALIDATION_MANUAL_NEGATIVE_CONTRACT_EVIDENCE="$TMP_DIR/validation-manual-evidence/remoteModePrivacy-negative-contract.properties"
+sed 's/^remoteRawPrivateContextSent=false$/remoteRawPrivateContextSent=true/' \
+  "$TMP_DIR/validation-manual-evidence/remoteModePrivacy.properties" > "$VALIDATION_MANUAL_NEGATIVE_CONTRACT_EVIDENCE"
+write_validation_record_with_manual_evidence \
+  "$VALIDATION_APPROVED" \
+  "$VALIDATION_MANUAL_NEGATIVE_CONTRACT" \
+  remoteModePrivacy \
+  "$VALIDATION_MANUAL_NEGATIVE_CONTRACT_EVIDENCE"
+expect_failure \
+  "release validation verifier rejects unsafe false manual key-specific contract" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_MANUAL_NEGATIVE_CONTRACT" --report "$ARTIFACT_DIR/release-validation-manual-negative-contract.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-negative-contract.properties" "manual-remoteModePrivacy-evidence-remote-raw-private-context-sent-not-false"
+VALIDATION_MANUAL_COUNT_CONTRACT="$TMP_DIR/release-validation-manual-count-contract.json"
+VALIDATION_MANUAL_COUNT_CONTRACT_EVIDENCE="$TMP_DIR/validation-manual-evidence/remoteMultiEvidenceComparison-count-contract.properties"
+sed 's/^publicEvidenceCount=2$/publicEvidenceCount=1/' \
+  "$TMP_DIR/validation-manual-evidence/remoteMultiEvidenceComparison.properties" > "$VALIDATION_MANUAL_COUNT_CONTRACT_EVIDENCE"
+write_validation_record_with_manual_evidence \
+  "$VALIDATION_APPROVED" \
+  "$VALIDATION_MANUAL_COUNT_CONTRACT" \
+  remoteMultiEvidenceComparison \
+  "$VALIDATION_MANUAL_COUNT_CONTRACT_EVIDENCE"
+expect_failure \
+  "release validation verifier rejects low public evidence comparison count" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_MANUAL_COUNT_CONTRACT" --report "$ARTIFACT_DIR/release-validation-manual-count-contract.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-count-contract.properties" "manual-remoteMultiEvidenceComparison-evidence-public-evidence-count-too-low"
 VALIDATION_EMULATOR_BAD_SHA="$TMP_DIR/release-validation-emulator-bad-sha.json"
 python3 - "$VALIDATION_APPROVED" "$VALIDATION_EMULATOR_BAD_SHA" <<'PY'
 import json
@@ -5810,6 +5953,35 @@ for manual_key in \
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "date=$VALIDATION_DATE"
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "command=scripts/record_manual_acceptance_evidence.sh"
   assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "reproduciblePath=$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties"
+  case "$manual_key" in
+    remoteModePrivacy)
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "localMemoryNotAutoIncluded=true"
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "remoteRawPrivateContextSent=false"
+      ;;
+    toolConfirmation)
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "confirmationSheetObserved=true"
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "toolCancelPreventsExecution=true"
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "toolExecutedWithoutConfirmation=false"
+      ;;
+    mediaProjection)
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "systemMediaProjectionPromptObserved=true"
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "screenshotRawPayloadPersisted=false"
+      ;;
+    remoteSinglePublicEvidence)
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "singlePublicEvidenceSelected=true"
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "remoteRequestCount=1"
+      ;;
+    remoteMultiEvidenceComparison)
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "multiplePublicEvidenceCompared=true"
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "publicEvidenceCount=2"
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "privateEvidenceSent=false"
+      ;;
+    mixedPrivateActionBatchFailClosed)
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "mixedBatchRejected=true"
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "partialActionExecution=false"
+      assert_report_contains "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" "remoteRequestCount=0"
+      ;;
+  esac
   grep -Eq '^recordedAt=20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
     "$ARTIFACT_DIR/manual-acceptance-full/manual-$manual_key.properties" ||
     fail "Expected UTC recordedAt in manual acceptance evidence for $manual_key"
