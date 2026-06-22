@@ -174,7 +174,7 @@ items below.
   verifiers require allowed-failure traces to preserve risk, privacy,
   LocalOnly/remote eligibility, and FailClosed invariants; script self-tests add
   negative cases for safety-boundary drift and FailClosed weakening.
-- Roadmap status as of 2026-06-22: local Phase 1 gates remain green, Phase 2
+- Roadmap status as of 2026-06-23: local Phase 1 gates remain green, Phase 2
   real-app replay/evidence coverage now includes Chrome, Android Browser, Quark,
   and UC alongside Taobao, PDD, Gaode, and JD, and Phase 3/4 release/privacy/store
   gate contracts continue to harden. This is not yet release-ready: physical
@@ -201,6 +201,12 @@ items below.
   memory context, zero device context, and no raw content persistence. These are
   machine-checkable local contracts, not substitutes for physical validation or
   release-owner approval.
+- The latest follow-up privacy hardening removes recent screenshot/image OCR
+  media identity fields (`name`, `mimeType`, `kind`, `sizeBytes`,
+  `lastModifiedMillis`) from runtime tool results and schemas; only bounded
+  `ocrText` remains private output for those tools. This advances Phase 3
+  LocalOnly/OCR minimization, while physical validation and release-owner
+  approval remain blocking.
 
 ## Remaining release blockers by ownership
 

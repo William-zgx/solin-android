@@ -14168,6 +14168,59 @@ ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
 - 子 Agent 发现但未在本轮改动的后续项：privacy review 仍可加强 notice 内容校验和
-  capability matrix 绑定；recent image/screenshot OCR runtime `ToolResult` 仍可进一步移除文件名、
-  MIME、大小和修改时间等媒体身份字段；manual acceptance 和 memory pressure evidence 可继续增加
+  capability matrix 绑定；manual acceptance 和 memory pressure evidence 可继续增加
   key-specific 字段。
+
+## 2026-06-23 Recent OCR runtime metadata minimization
+
+本轮覆盖项：
+
+- 在前一轮 release-flow evidence 明确 recent media OCR raw payload / trace redaction
+  后，继续把运行时 `ToolResult` 源头收紧：`READ_RECENT_SCREENSHOT_OCR` 和
+  `READ_RECENT_IMAGE_OCR` 成功结果不再返回 `name`、`mimeType`、`kind`、`sizeBytes`、
+  `lastModifiedMillis` 等媒体身份字段。
+- `recentOcrOutputSchemaJson` 同步移除这些字段；recent screenshot/image OCR 的
+  `privateOutputKeys` 现在只保留 `ocrText`，避免 schema 暗示运行时仍可携带媒体文件身份。
+- Agent loop OCR 观察测试现在断言 OCR 文本仍进入本地 continuation prompt、trace 中继续
+  redacted，同时媒体身份字段在 observed result 和 `ToolObserved` 中直接不存在。
+- `docs/agent_core_modules.md` 同步说明 recent OCR continuation 只需要 bounded text、
+  scan counts、truncation、LocalOnly flags 和 metadata policy，不需要文件身份元数据。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+    --tests 'com.bytedance.zgx.pocketmind.tool.DeviceContextToolExecutorTest' \
+    --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateToolOutputsAreDeclaredByToolPolicy' \
+    --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.privateDeviceOutputKeysRemainDeclaredInOutputSchemas' \
+    --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace' \
+    --tests 'com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：targeted JVM tests 覆盖 recent screenshot/image OCR executor、ToolRegistry
+  private-output/schema 合同、Agent loop 本地 continuation 与 trace redaction。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM tests、debug/release
+  build、AndroidTest assemble、lint 和 artifact scan。
+
+Roadmap 状态：
+
+- Phase 1 本地稳定性底座继续保持通过。
+- Phase 2 本地 replay / resolver evidence 已经扩展到淘宝、拼多多、高德、京东、Chrome、
+  Android Browser、Quark、UC；真机真实 App 搜索闭环仍未标记 passed。
+- Phase 3 安全与隐私边界继续推进；recent OCR runtime 现在从“红线字段被 trace redacted”
+  前移到“工具结果不产生媒体身份字段”。
+- Phase 4 release evidence gate 继续可本地验证，但 physical arm64 validation、arm64
+  emulator API matrix、perf baseline、截图、release owner/manual/legal/signing 仍是外部阻塞项。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
+  perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。

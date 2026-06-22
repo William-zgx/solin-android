@@ -4001,7 +4001,6 @@ class AgentLoopRuntimeTest {
                     text = rawOcrText,
                     source = "recent_screenshot",
                     maxCount = "1",
-                    name = rawImageName,
                 ),
             ),
         )
@@ -4013,12 +4012,12 @@ class AgentLoopRuntimeTest {
         assertTrue(observed.continuationPromptForModel.orEmpty().contains(rawOcrText))
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("不是当前屏幕捕获"))
         assertEquals("[redacted]", observed.result.data["ocrText"])
-        assertEquals("[redacted]", observed.result.data["name"])
-        assertEquals("[redacted]", observed.result.data["sizeBytes"])
-        assertEquals("[redacted]", observed.result.data["lastModifiedMillis"])
+        assertFalse(observed.result.data.containsKey("name"))
+        assertFalse(observed.result.data.containsKey("sizeBytes"))
+        assertFalse(observed.result.data.containsKey("lastModifiedMillis"))
         val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
         assertEquals("[redacted]", toolObserved.result.data["ocrText"])
-        assertEquals("[redacted]", toolObserved.result.data["name"])
+        assertFalse(toolObserved.result.data.containsKey("name"))
         assertTrue(!observed.steps.toString().contains(rawOcrText))
         assertTrue(!observed.steps.toString().contains(rawImageName))
         assertTrue(!auditSink.events.toString().contains(rawOcrText))
@@ -4072,7 +4071,6 @@ class AgentLoopRuntimeTest {
                     text = rawOcrText,
                     source = "recent_image",
                     maxCount = "3",
-                    name = rawImageName,
                 ),
             ),
         )
@@ -4085,13 +4083,13 @@ class AgentLoopRuntimeTest {
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("不是当前屏幕捕获"))
         assertTrue(observed.continuationPromptForModel.orEmpty().contains("最近图片 OCR 文本"))
         assertEquals("[redacted]", observed.result.data["ocrText"])
-        assertEquals("[redacted]", observed.result.data["name"])
-        assertEquals("[redacted]", observed.result.data["mimeType"])
-        assertEquals("[redacted]", observed.result.data["sizeBytes"])
-        assertEquals("[redacted]", observed.result.data["lastModifiedMillis"])
+        assertFalse(observed.result.data.containsKey("name"))
+        assertFalse(observed.result.data.containsKey("mimeType"))
+        assertFalse(observed.result.data.containsKey("sizeBytes"))
+        assertFalse(observed.result.data.containsKey("lastModifiedMillis"))
         val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
         assertEquals("[redacted]", toolObserved.result.data["ocrText"])
-        assertEquals("[redacted]", toolObserved.result.data["name"])
+        assertFalse(toolObserved.result.data.containsKey("name"))
         assertTrue(!observed.steps.toString().contains(rawOcrText))
         assertTrue(!observed.steps.toString().contains(rawImageName))
         assertTrue(!auditSink.events.toString().contains(rawOcrText))
@@ -9139,7 +9137,6 @@ class AgentLoopRuntimeTest {
         text: String,
         source: String,
         maxCount: String,
-        name: String = "private-image-name.jpg",
     ): Map<String, String> =
         mapOf(
             "toolName" to toolName,
@@ -9149,10 +9146,6 @@ class AgentLoopRuntimeTest {
             "maxCount" to maxCount,
             "scannedCount" to "1",
             "mediaAccessScope" to "full_visual_media",
-            "name" to name,
-            "mimeType" to "image/jpeg",
-            "sizeBytes" to "4096",
-            "lastModifiedMillis" to "8000",
             "ocrText" to text,
             "truncated" to "false",
             "ocrTextIncluded" to "true",

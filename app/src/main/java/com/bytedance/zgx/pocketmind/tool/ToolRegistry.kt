@@ -1418,11 +1418,6 @@ private fun recentOcrOutputSchemaJson(maxCountMaximum: Int): String = """
           "description": "Whether OCR image candidates came from legacy storage, full visual media, user-selected visual media, or currently granted media-only access.",
           "enum": ["legacy_storage", "full_visual_media", "user_selected_visual_media", "granted_media_only"]
         },
-        "name": {"type": "string"},
-        "mimeType": {"type": "string"},
-        "kind": {"type": "string"},
-        "sizeBytes": {"type": "integer", "minimum": 0},
-        "lastModifiedMillis": {"type": "integer"},
         "ocrText": {"type": "string", "minLength": 1},
         "truncated": {"type": "boolean"},
         "ocrTextIncluded": {"type": "boolean"},
@@ -1433,13 +1428,7 @@ private fun recentOcrOutputSchemaJson(maxCountMaximum: Int): String = """
     }
 """.trimIndent()
 
-private val recentImageOcrPrivateOutputKeys = setOf(
-    "name",
-    "mimeType",
-    "sizeBytes",
-    "lastModifiedMillis",
-    "ocrText",
-)
+private val recentImageOcrPrivateOutputKeys = setOf("ocrText")
 
 private val currentScreenTextOutputSchemaJson = """
     {

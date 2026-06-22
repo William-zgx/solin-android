@@ -993,7 +993,7 @@ class ToolRegistryTest {
 
     @Test
     fun privateToolOutputsAreDeclaredByToolPolicy() {
-        val recentImageOcrPrivateKeys = setOf("name", "mimeType", "sizeBytes", "lastModifiedMillis", "ocrText")
+        val recentImageOcrPrivateKeys = setOf("ocrText")
         val expectedPrivateOutputs = mapOf(
             MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
             MobileActionFunctions.QUERY_CONTACTS to setOf("query", "contactCount", "contactsJson"),
@@ -1278,7 +1278,7 @@ class ToolRegistryTest {
 
     @Test
     fun privateDeviceOutputKeysRemainDeclaredInOutputSchemas() {
-        val recentImageOcrPrivateKeys = setOf("name", "mimeType", "sizeBytes", "lastModifiedMillis", "ocrText")
+        val recentImageOcrPrivateKeys = setOf("ocrText")
         val expectedPrivateOutputs = mapOf(
             MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
             MobileActionFunctions.QUERY_CONTACTS to setOf("query", "contactCount", "contactsJson"),
