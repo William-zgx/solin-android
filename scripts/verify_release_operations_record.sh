@@ -357,6 +357,34 @@ def validate_api_matrix_report(props):
         failures.append("ci-api-matrix-readiness-report-missing")
     elif not Path(readiness_report).is_file():
         failures.append("ci-api-matrix-readiness-report-file-missing")
+    else:
+        readiness_path = Path(readiness_report)
+        readiness_sha = props.get("readinessReportSha256", "")
+        if not is_sha256(readiness_sha):
+            failures.append("ci-api-matrix-readiness-report-sha-invalid")
+        else:
+            actual_sha = hashlib.sha256(readiness_path.read_bytes()).hexdigest()
+            if readiness_sha != actual_sha:
+                failures.append("ci-api-matrix-readiness-report-sha-mismatch")
+        readiness_props = properties_for(readiness_path)
+        if readiness_props.get("status") != "passed":
+            failures.append("ci-api-matrix-readiness-status-not-passed")
+        if readiness_props.get("target") != "emulator-api-matrix-readiness":
+            failures.append("ci-api-matrix-readiness-target-invalid")
+        if csv_values(readiness_props.get("requiredApis", "")) != required_apis:
+            failures.append("ci-api-matrix-readiness-required-apis-invalid")
+        if csv_values(readiness_props.get("installedSystemImageApis", "")) != required_apis:
+            failures.append("ci-api-matrix-readiness-installed-system-images-invalid")
+        if csv_values(readiness_props.get("availableAvdApis", "")) != required_apis:
+            failures.append("ci-api-matrix-readiness-available-avds-invalid")
+        if csv_values(readiness_props.get("missingSystemImageApis", "")):
+            failures.append("ci-api-matrix-readiness-missing-system-images-not-empty")
+        if csv_values(readiness_props.get("missingAvdApis", "")):
+            failures.append("ci-api-matrix-readiness-missing-avds-not-empty")
+        if readiness_props.get("tag") != props.get("tag"):
+            failures.append("ci-api-matrix-readiness-tag-mismatch")
+        if readiness_props.get("abi") != props.get("abi"):
+            failures.append("ci-api-matrix-readiness-abi-mismatch")
     for api in required_apis:
         prefix = f"api{api}"
         if props.get(f"{prefix}Status") != "passed":
@@ -427,6 +455,7 @@ connected_ci_props = validate_ci_evidence_record(
     ci.get("connectedAndroidTests"),
     "regression-emulator",
 )
+validate_ci_identity("connected-android-tests", connected_ci_props, expected_job="emulator-regression", required=True)
 if connected_ci_props.get("clean_device") != "1":
     failures.append("ci-connected-android-tests-not-clean")
 if not positive_int_string(connected_ci_props.get("actual_android_test_count", "")):
@@ -441,6 +470,7 @@ api_matrix_ci_props = validate_ci_evidence_record(
     ci.get("apiMatrix"),
     "regression-emulator-api-matrix",
 )
+validate_ci_identity("api-matrix", api_matrix_ci_props, expected_job="emulator-api-matrix", required=True)
 if isinstance(ci.get("apiMatrix"), dict) and ci["apiMatrix"].get("artifactName") != "android-emulator-api-matrix-evidence":
     failures.append("ci-api-matrix-artifact-name-invalid")
 validate_api_matrix_report(api_matrix_ci_props)

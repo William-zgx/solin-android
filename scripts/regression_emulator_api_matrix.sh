@@ -24,6 +24,10 @@ REGRESSION_EMULATOR_SCRIPT="${REGRESSION_EMULATOR_SCRIPT:-scripts/regression_emu
 STOP_EMULATOR_AFTER_EACH="${STOP_EMULATOR_AFTER_EACH:-1}"
 ALLOW_EXISTING_EMULATORS="${ALLOW_EXISTING_EMULATORS:-0}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
+CI_WORKFLOW="${REGRESSION_EMULATOR_API_MATRIX_WORKFLOW:-${GITHUB_WORKFLOW:-}}"
+CI_JOB="${REGRESSION_EMULATOR_API_MATRIX_JOB:-${GITHUB_JOB:-}}"
+CI_RUN_ID="${REGRESSION_EMULATOR_API_MATRIX_RUN_ID:-${GITHUB_RUN_ID:-}}"
+CI_COMMIT_SHA="${REGRESSION_EMULATOR_API_MATRIX_COMMIT_SHA:-${GITHUB_SHA:-}}"
 ADB_BIN="${ANDROID_SDK}/platform-tools/adb"
 
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -33,6 +37,7 @@ PASSED_APIS=()
 FAILED_APIS=()
 SKIPPED_APIS=()
 API_STATUS_LINES=()
+READINESS_REPORT_SHA256=""
 
 usage() {
   cat >&2 <<'EOF'
@@ -154,6 +159,10 @@ write_report() {
     printf 'target=regression-emulator-api-matrix\n'
     printf 'failedTarget=%s\n' "$FAILED_TARGET"
     printf 'reason=%s\n' "$reason"
+    printf 'workflow=%s\n' "$CI_WORKFLOW"
+    printf 'job=%s\n' "$CI_JOB"
+    printf 'runId=%s\n' "$CI_RUN_ID"
+    printf 'commitSha=%s\n' "$CI_COMMIT_SHA"
     printf 'started_at_utc=%s\n' "$STARTED_AT_UTC"
     printf 'finished_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf 'artifactDir=%s\n' "$ARTIFACT_DIR"
@@ -162,6 +171,7 @@ write_report() {
     printf 'tag=%s\n' "$EMULATOR_TAG"
     printf 'abi=%s\n' "$EMULATOR_ABI"
     printf 'readinessReportFile=%s\n' "$READINESS_REPORT_FILE"
+    printf 'readinessReportSha256=%s\n' "$READINESS_REPORT_SHA256"
     printf 'passedApis=%s\n' "$(join_array_csv PASSED_APIS)"
     printf 'failedApis=%s\n' "$(join_array_csv FAILED_APIS)"
     printf 'skippedApis=%s\n' "$(join_array_csv SKIPPED_APIS)"
@@ -236,6 +246,9 @@ ANDROID_HOME="$ANDROID_HOME" \
   "$CHECK_EMULATOR_API_MATRIX_SCRIPT"
 READINESS_STATUS=$?
 set -e
+if [[ -f "$READINESS_REPORT_FILE" ]]; then
+  READINESS_REPORT_SHA256="$(sha256_for "$READINESS_REPORT_FILE")"
+fi
 if [[ "$READINESS_STATUS" -ne 0 ]]; then
   readiness_reason="$(report_value "$READINESS_REPORT_FILE" reason)"
   fail readiness "${readiness_reason:-emulator-api-matrix-readiness-failed}" \

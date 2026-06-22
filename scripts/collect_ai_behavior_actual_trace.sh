@@ -90,6 +90,7 @@ fi
 missing_actual_count="$(report_value "$EVAL_REPORT_FILE" traceDiffMissingActualCount)"
 mismatch_count="$(report_value "$EVAL_REPORT_FILE" traceDiffMismatchCount)"
 extra_actual_count="$(report_value "$EVAL_REPORT_FILE" traceDiffExtraActualCount)"
+case_count="$(report_value "$EVAL_REPORT_FILE" caseCount)"
 source_breakdown="$(report_value "$EVAL_REPORT_FILE" actualTraceSourceBreakdown)"
 
 if [[ "$missing_actual_count" != "0" ]]; then
@@ -107,9 +108,9 @@ if [[ "$extra_actual_count" != "0" ]]; then
   echo "AI behavior actual trace contains extra cases." >&2
   exit 1
 fi
-if [[ "$source_breakdown" != agent_loop_runtime:* ]]; then
-  write_report failed "actual-trace-runtime-source-missing"
-  echo "AI behavior actual trace lacks agent_loop_runtime provenance." >&2
+if [[ -z "$case_count" || "$source_breakdown" != "agent_loop_runtime:${case_count}" ]]; then
+  write_report failed "actual-trace-non-runtime-source"
+  echo "AI behavior actual trace must contain only agent_loop_runtime provenance." >&2
   exit 1
 fi
 

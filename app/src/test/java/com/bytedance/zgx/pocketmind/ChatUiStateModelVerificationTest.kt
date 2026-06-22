@@ -107,6 +107,27 @@ class ChatUiStateModelVerificationTest {
         assertFalse(state.activeLocalModelSupportsVisionInput)
     }
 
+    @Test
+    fun remoteModeConfigDoesNotCreateLocalCapabilitiesAndStillRequiresRemoteConfirmation() {
+        val state = ChatUiState(
+            inferenceMode = InferenceMode.Remote,
+            remoteModelConfig = RemoteModelConfig(
+                baseUrl = "https://api.example.test/v1",
+                modelName = "remote-vision",
+                supportsVisionInput = true,
+            ),
+        )
+        val remoteProfile = state.remoteModelConfig.modelProfile()
+
+        assertTrue(remoteProfile.remoteEligible)
+        assertTrue(remoteProfile.requiresRemoteSendConfirmation)
+        assertFalse(remoteProfile.supportsMemoryEmbedding)
+        assertFalse(remoteProfile.supportsMobileActionPlanning)
+        assertEquals(null, state.activeLocalCapabilityProfile)
+        assertFalse(state.activeLocalModelSupportsVisionInput)
+        assertTrue(state.installedCapabilities.isEmpty())
+    }
+
     private fun installedModel(
         id: String = "model",
         recommendedModelId: String?,

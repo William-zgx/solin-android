@@ -19,6 +19,7 @@ import com.bytedance.zgx.pocketmind.tool.RiskLevel
 import com.bytedance.zgx.pocketmind.tool.ToolCapabilityTag
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolPermission
+import com.bytedance.zgx.pocketmind.tool.ToolErrorCode
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolResultContinuationPolicy
 import com.bytedance.zgx.pocketmind.tool.ToolSpec
@@ -417,6 +418,7 @@ class AgentBehaviorTraceProjector(
 
     private fun ToolResult.toObservedToolFailureMode(requestedToolName: String?): String? {
         if (status != ToolStatus.Failed) return null
+        if (error?.code == ToolErrorCode.PermissionDenied) return "permissiondenied"
         val toolName = requestedToolName ?: data["toolName"]
         if (toolName !in appSearchObservedFailureToolNames) return null
         val failureKind = data["failureKind"]?.takeIf { kind -> kind.isNotBlank() } ?: return null

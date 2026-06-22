@@ -35,6 +35,36 @@ class ModelCapabilityProfilesDocumentationTest {
     }
 
     @Test
+    fun localOnlyMemoryAndActionProfilesNeverBecomeRemoteEligibleInCatalogOrDocs() {
+        val documented = JSONObject(readRepoFile("docs/model_capability_profiles.json"))
+            .getJSONArray("profiles")
+        val localOnlyCapabilities = setOf("MemoryEmbedding", "MobileAction")
+        val catalogProfiles = ModelCatalog.recommendedProfiles()
+            .filter { profile -> profile.capability.name in localOnlyCapabilities }
+
+        assertEquals(localOnlyCapabilities, catalogProfiles.map { profile -> profile.capability.name }.toSet())
+        catalogProfiles.forEach { profile ->
+            assertEquals("LocalLiteRt", profile.backendKind.name)
+            assertFalse(profile.remoteEligible)
+            assertFalse(profile.requiresRemoteSendConfirmation)
+        }
+
+        val documentedLocalOnly = (0 until documented.length())
+            .map { index -> documented.getJSONObject(index) }
+            .filter { item -> item.getString("capability") in localOnlyCapabilities }
+
+        assertEquals(
+            catalogProfiles.map { profile -> profile.id },
+            documentedLocalOnly.map { item -> item.getString("id") },
+        )
+        documentedLocalOnly.forEach { item ->
+            assertEquals("LocalLiteRt", item.getString("backendKind"))
+            assertFalse(item.getBoolean("remoteEligible"))
+            assertFalse(item.getBoolean("requiresRemoteSendConfirmation"))
+        }
+    }
+
+    @Test
     fun remoteOpenAiCompatibleTemplatesStayFailClosedForVisionAndLocalBackends() {
         val documented = JSONObject(readRepoFile("docs/model_capability_profiles.json"))
             .getJSONArray("remoteOpenAiCompatibleTemplates")
@@ -59,6 +89,13 @@ class ModelCapabilityProfilesDocumentationTest {
 
         for (index in 0 until documented.length()) {
             val item = documented.getJSONObject(index)
+            val capabilities = item.getJSONObject("capabilities")
+            assertEquals("Chat", item.getString("capability"))
+            assertTrue(capabilities.getBoolean("chat"))
+            assertFalse(capabilities.getBoolean("memoryEmbedding"))
+            assertFalse(capabilities.getBoolean("mobileAction"))
+            assertFalse(item.getStringList("features").contains("MemoryEmbedding"))
+            assertFalse(item.getStringList("features").contains("MobileActionPlanning"))
             assertTrue(item.getBoolean("requiresRemoteSendConfirmation"))
             assertTrue(item.getBoolean("remoteEligible"))
             assertTrue(item.getJSONArray("preferredLocalBackends").length() == 0)

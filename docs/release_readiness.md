@@ -186,6 +186,14 @@ items below.
   actual traces to fixture category and input, and adds a direct UI-state contract
   for verified local vision model capability. These are local gates only; they do
   not replace physical validation or release-owner evidence.
+- The latest follow-up hardening records `permissiondenied` through the real
+  Agent loop runtime path, requires the actual-trace collector to be entirely
+  `agent_loop_runtime`, emits CI identity from emulator regression producers,
+  binds API matrix readiness evidence by SHA-256, and asserts local-only
+  memory/action model capabilities cannot become remote eligible. These remain
+  local gate improvements; physical arm64 validation, emulator API matrix runs,
+  perf baseline, screenshots, approvals, and production signing are still
+  blocking evidence.
 
 ## Remaining release blockers by ownership
 

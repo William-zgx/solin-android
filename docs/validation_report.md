@@ -14051,7 +14051,63 @@ ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
 
 - 本轮仍未跑真机或模拟器 instrumentation；physical validation、arm64 emulator API matrix、
   真实 App 真机闭环、截图和 perf baseline 仍未完成。
-- 子 Agent 发现但本轮未改的后续项：`permissiondenied` 需要真实生成 actual trace；
-  AI collector 可继续收紧为全量 `agent_loop_runtime` 来源；recent image/screenshot OCR
-  metadata 策略需先明确；release memory boundary 可拆成更细的机器字段；store/privacy
-  verifier 可进一步锁定远程多模态边界文案。
+- 子 Agent 发现的 `permissiondenied` actual trace 和 AI collector 全量 runtime 来源收紧已在
+  下一节补齐；recent image/screenshot OCR metadata 策略、release memory boundary 机器字段、
+  store/privacy 远程多模态边界文案仍可继续细化。
+
+## 2026-06-22 CI readiness, runtime provenance, and capability invariant hardening
+
+本轮覆盖项：
+
+- `ToolResult.error.code == PermissionDenied` 现在投影为 Agent eval `permissiondenied`
+  failure mode。`runtime_contacts_permission_denied` fixture 通过真实
+  `AgentLoopRuntime.failPendingToolRequest(...)` 记录 `query_contacts` 权限拒绝，actual trace
+  断言为 `fail_closed`、`sensitive`、`LocalOnly`、`remoteEligible=false`。
+- `scripts/collect_ai_behavior_actual_trace.sh` 不再接受混合来源 actual trace；collector
+  要求 `actualTraceSourceBreakdown == agent_loop_runtime:<caseCount>`，并增加
+  `device_debug_eval` 混入负例。
+- `scripts/regression_emulator.sh` 和 `scripts/regression_emulator_api_matrix.sh` 输出
+  `workflow`、`job`、`runId`、`commitSha`。API matrix report 同时绑定 readiness report
+  SHA-256。
+- `scripts/verify_release_operations_record.sh` 对 connected Android tests 和 API matrix
+  evidence 执行 CI 身份校验；API matrix readiness 还校验 `status`、`target`、
+  required/installed/available API 列表、missing 列表、`tag` 和 `abi`。
+- 模型能力不变量补强：memory embedding 与 mobile action profile 必须保持
+  `LocalLiteRt`、非 remote eligible；远程 OpenAI-compatible 模板不能隐式获得 memory/action
+  capability；remote UI state 不会创建本地 capability profile，且仍要求 remote send 确认。
+
+验证命令：
+
+```bash
+bash -n scripts/collect_ai_behavior_actual_trace.sh scripts/regression_emulator.sh \
+  scripts/regression_emulator_api_matrix.sh scripts/verify_release_operations_record.sh \
+  scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+    --tests 'com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest' \
+    --tests 'com.bytedance.zgx.pocketmind.ChatUiStateModelVerificationTest' \
+    --tests 'com.bytedance.zgx.pocketmind.eval.AiBehaviorActualTraceGeneratorTest'
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 mixed-source actual trace 拒绝、CI identity
+  report 字段、API readiness SHA/status/list/tag/ABI 校验、stale connected/API matrix CI 证据
+  拒绝。
+- 通过：model capability / Chat UI state / AI behavior actual trace targeted JVM tests。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM tests、debug/release
+  build、AndroidTest assemble、lint 和 artifact scan。
+
+剩余风险：
+
+- 仍按要求跳过真机和模拟器验证；arm64 真机完整 instrumentation、arm64 emulator API matrix、
+  真实 App 真机搜索闭环、截图、perf baseline、release owner/manual/legal/signing 证据不能标记
+  为 passed。

@@ -1949,6 +1949,32 @@ assert_report_contains "$AI_COLLECTOR_REPORT" "actualTraceSourceBreakdown=agent_
 assert_report_contains "$AI_COLLECTOR_EVAL" "requireRuntimeTraceSource=1"
 assert_report_contains_text "$AI_COLLECTOR_DIFF" '"status": "matched"'
 
+AI_MIXED_SOURCE_TRACE="$TMP_DIR/ai-behavior-actual-trace-mixed-source.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_MIXED_SOURCE_TRACE" <<'PY'
+import json
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1])
+target = pathlib.Path(sys.argv[2])
+rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["traceSource"] = "device_debug_eval"
+target.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+AI_MIXED_COLLECTOR_DIR="$ARTIFACT_DIR/ai-behavior-actual-trace-collector-mixed-source"
+expect_failure \
+  "AI behavior actual trace collector rejects mixed non-runtime trace provenance" \
+  env ARTIFACT_DIR="$AI_MIXED_COLLECTOR_DIR" \
+  GRADLE_CMD="$FAKE_GRADLE" \
+  FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE="$AI_MIXED_SOURCE_TRACE" \
+  scripts/collect_ai_behavior_actual_trace.sh
+assert_report_contains "$AI_MIXED_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "status=failed"
+assert_report_contains "$AI_MIXED_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "reason=actual-trace-non-runtime-source"
+assert_report_contains_text "$AI_MIXED_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "actualTraceSourceBreakdown="
+
 AI_BAD_ACTUAL_TRACE="$TMP_DIR/ai-behavior-actual-trace-bad.jsonl"
 python3 - "$AI_ACTUAL_TRACE" "$AI_BAD_ACTUAL_TRACE" <<'PY'
 import json
@@ -2848,6 +2874,10 @@ exit_code=0
 target=regression-emulator
 failedTarget=
 reason=
+workflow=Android Verification
+job=emulator-regression
+runId=123456
+commitSha=$OPERATIONS_COMMIT_SHA
 clean_device=1
 source_android_test_count=20
 expected_android_test_count=20
@@ -2866,7 +2896,12 @@ target=emulator-api-matrix-readiness
 requiredApis=28,32,33,34,36
 installedSystemImageApis=28,32,33,34,36
 availableAvdApis=28,32,33,34,36
+missingSystemImageApis=
+missingAvdApis=
+tag=google_apis
+abi=arm64-v8a
 OPERATIONS_CI_API_MATRIX_READINESS_PROPERTIES
+OPERATIONS_CI_API_MATRIX_READINESS_SHA="$(shasum -a 256 "$OPERATIONS_CI_API_MATRIX_READINESS" | awk '{print $1}')"
 OPERATIONS_CI_API_MATRIX_LINES=()
 for api_level in 28 32 33 34 36; do
   api_report="$TMP_DIR/ci-api-${api_level}-regression.properties"
@@ -2895,11 +2930,16 @@ done
   printf 'target=regression-emulator-api-matrix\n'
   printf 'failedTarget=\n'
   printf 'reason=\n'
+  printf 'workflow=Android Verification\n'
+  printf 'job=emulator-api-matrix\n'
+  printf 'runId=123456\n'
+  printf 'commitSha=%s\n' "$OPERATIONS_COMMIT_SHA"
   printf 'artifactDir=%s\n' "$TMP_DIR/ci-api-matrix"
   printf 'requiredApis=28,32,33,34,36\n'
   printf 'tag=google_apis\n'
   printf 'abi=arm64-v8a\n'
   printf 'readinessReportFile=%s\n' "$OPERATIONS_CI_API_MATRIX_READINESS"
+  printf 'readinessReportSha256=%s\n' "$OPERATIONS_CI_API_MATRIX_READINESS_SHA"
   printf 'passedApis=28,32,33,34,36\n'
   printf 'failedApis=\n'
   printf '%s\n' "${OPERATIONS_CI_API_MATRIX_LINES[@]}"
@@ -2907,10 +2947,15 @@ done
 cat > "$OPERATIONS_CI_API_MATRIX_WEAK_EVIDENCE" <<OPERATIONS_CI_API_MATRIX_WEAK_EVIDENCE_PROPERTIES
 status=passed
 target=regression-emulator-api-matrix
+workflow=Android Verification
+job=emulator-api-matrix
+runId=123456
+commitSha=$OPERATIONS_COMMIT_SHA
 requiredApis=28,32
 passedApis=28
 failedApis=32
 readinessReportFile=$OPERATIONS_CI_API_MATRIX_READINESS
+readinessReportSha256=$OPERATIONS_CI_API_MATRIX_READINESS_SHA
 OPERATIONS_CI_API_MATRIX_WEAK_EVIDENCE_PROPERTIES
 OPERATIONS_CI_ARTIFACT_SCAN_REPORT="$TMP_DIR/release-operations-ci-artifact-scan.properties"
 cat > "$OPERATIONS_CI_ARTIFACT_SCAN_REPORT" <<OPERATIONS_CI_ARTIFACT_SCAN_PROPERTIES
@@ -3452,6 +3497,25 @@ expect_failure \
   "release operations verifier rejects stale local CI evidence commit" \
   scripts/verify_release_operations_record.sh --file "$OPERATIONS_CI_STALE_LOCAL_RECORD" --report "$ARTIFACT_DIR/release-operations-ci-stale-local.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-stale-local.properties" "ci-local-verification-evidence-commit-sha-mismatch"
+OPERATIONS_CI_STALE_CONNECTED_EVIDENCE="$TMP_DIR/release-operations-ci-connected-stale-commit.properties"
+sed "s/commitSha=$OPERATIONS_COMMIT_SHA/commitSha=0000000000000000000000000000000000000000/" \
+  "$OPERATIONS_CI_CONNECTED_EVIDENCE" > "$OPERATIONS_CI_STALE_CONNECTED_EVIDENCE"
+OPERATIONS_CI_STALE_CONNECTED_SHA="$(shasum -a 256 "$OPERATIONS_CI_STALE_CONNECTED_EVIDENCE" | awk '{print $1}')"
+OPERATIONS_CI_STALE_CONNECTED_RECORD="$TMP_DIR/release-operations-ci-stale-connected.json"
+python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_CI_STALE_CONNECTED_RECORD" "$OPERATIONS_CI_STALE_CONNECTED_EVIDENCE" "$OPERATIONS_CI_STALE_CONNECTED_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["ci"]["connectedAndroidTests"]["evidence"]["path"] = sys.argv[3]
+record["ci"]["connectedAndroidTests"]["evidence"]["sha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release operations verifier rejects stale connected Android test CI evidence commit" \
+  scripts/verify_release_operations_record.sh --file "$OPERATIONS_CI_STALE_CONNECTED_RECORD" --report "$ARTIFACT_DIR/release-operations-ci-stale-connected.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-stale-connected.properties" "ci-connected-android-tests-evidence-commit-sha-mismatch"
 OPERATIONS_CI_STALE_ARTIFACT_EVIDENCE="$TMP_DIR/release-operations-ci-artifact-stale-run.properties"
 sed 's/runId=123456/runId=654321/' "$OPERATIONS_CI_ARTIFACT_EVIDENCE" > "$OPERATIONS_CI_STALE_ARTIFACT_EVIDENCE"
 OPERATIONS_CI_STALE_ARTIFACT_SHA="$(shasum -a 256 "$OPERATIONS_CI_STALE_ARTIFACT_EVIDENCE" | awk '{print $1}')"
@@ -3470,6 +3534,24 @@ expect_failure \
   "release operations verifier rejects stale artifact CI evidence run" \
   scripts/verify_release_operations_record.sh --file "$OPERATIONS_CI_STALE_ARTIFACT_RECORD" --report "$ARTIFACT_DIR/release-operations-ci-stale-artifact-run.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-stale-artifact-run.properties" "ci-release-artifact-archive-evidence-run-id-mismatch"
+OPERATIONS_CI_STALE_API_MATRIX_EVIDENCE="$TMP_DIR/release-operations-ci-api-matrix-stale-run.properties"
+sed 's/runId=123456/runId=654321/' "$OPERATIONS_CI_API_MATRIX_EVIDENCE" > "$OPERATIONS_CI_STALE_API_MATRIX_EVIDENCE"
+OPERATIONS_CI_STALE_API_MATRIX_SHA="$(shasum -a 256 "$OPERATIONS_CI_STALE_API_MATRIX_EVIDENCE" | awk '{print $1}')"
+OPERATIONS_CI_STALE_API_MATRIX_RECORD="$TMP_DIR/release-operations-ci-stale-api-matrix-run.json"
+python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_CI_STALE_API_MATRIX_RECORD" "$OPERATIONS_CI_STALE_API_MATRIX_EVIDENCE" "$OPERATIONS_CI_STALE_API_MATRIX_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["ci"]["apiMatrix"]["evidence"]["path"] = sys.argv[3]
+record["ci"]["apiMatrix"]["evidence"]["sha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release operations verifier rejects stale API matrix CI evidence run" \
+  scripts/verify_release_operations_record.sh --file "$OPERATIONS_CI_STALE_API_MATRIX_RECORD" --report "$ARTIFACT_DIR/release-operations-ci-stale-api-matrix-run.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-stale-api-matrix-run.properties" "ci-api-matrix-evidence-run-id-mismatch"
 OPERATIONS_CI_WEAK_CONNECTED="$TMP_DIR/release-operations-ci-weak-connected.json"
 python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_CI_WEAK_CONNECTED" "$OPERATIONS_CI_CONNECTED_WEAK_EVIDENCE" "$OPERATIONS_CI_CONNECTED_WEAK_SHA" <<'PY'
 import json
@@ -3502,6 +3584,55 @@ expect_failure \
   scripts/verify_release_operations_record.sh --file "$OPERATIONS_CI_WEAK_API_MATRIX" --report "$ARTIFACT_DIR/release-operations-ci-weak-api-matrix.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-weak-api-matrix.properties" "ci-api-matrix-required-apis-invalid"
 assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-weak-api-matrix.properties" "ci-api-matrix-passed-apis-invalid"
+OPERATIONS_CI_FAILED_READINESS="$TMP_DIR/release-operations-ci-api-matrix-readiness-failed.properties"
+sed \
+  -e 's/^status=passed$/status=failed/' \
+  -e 's/^availableAvdApis=28,32,33,34,36$/availableAvdApis=32,33,34,36/' \
+  -e 's/^missingAvdApis=$/missingAvdApis=28/' \
+  "$OPERATIONS_CI_API_MATRIX_READINESS" > "$OPERATIONS_CI_FAILED_READINESS"
+OPERATIONS_CI_FAILED_READINESS_SHA="$(shasum -a 256 "$OPERATIONS_CI_FAILED_READINESS" | awk '{print $1}')"
+OPERATIONS_CI_FAILED_READINESS_EVIDENCE="$TMP_DIR/release-operations-ci-api-matrix-failed-readiness.properties"
+sed \
+  -e "s#^readinessReportFile=.*#readinessReportFile=$OPERATIONS_CI_FAILED_READINESS#" \
+  -e "s#^readinessReportSha256=.*#readinessReportSha256=$OPERATIONS_CI_FAILED_READINESS_SHA#" \
+  "$OPERATIONS_CI_API_MATRIX_EVIDENCE" > "$OPERATIONS_CI_FAILED_READINESS_EVIDENCE"
+OPERATIONS_CI_FAILED_READINESS_EVIDENCE_SHA="$(shasum -a 256 "$OPERATIONS_CI_FAILED_READINESS_EVIDENCE" | awk '{print $1}')"
+OPERATIONS_CI_FAILED_READINESS_RECORD="$TMP_DIR/release-operations-ci-api-matrix-failed-readiness.json"
+python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_CI_FAILED_READINESS_RECORD" "$OPERATIONS_CI_FAILED_READINESS_EVIDENCE" "$OPERATIONS_CI_FAILED_READINESS_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["ci"]["apiMatrix"]["evidence"]["path"] = sys.argv[3]
+record["ci"]["apiMatrix"]["evidence"]["sha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release operations verifier rejects API matrix evidence with failed readiness report" \
+  scripts/verify_release_operations_record.sh --file "$OPERATIONS_CI_FAILED_READINESS_RECORD" --report "$ARTIFACT_DIR/release-operations-ci-api-matrix-failed-readiness.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-api-matrix-failed-readiness.properties" "ci-api-matrix-readiness-status-not-passed"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-api-matrix-failed-readiness.properties" "ci-api-matrix-readiness-available-avds-invalid"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-api-matrix-failed-readiness.properties" "ci-api-matrix-readiness-missing-avds-not-empty"
+OPERATIONS_CI_BAD_READINESS_SHA_EVIDENCE="$TMP_DIR/release-operations-ci-api-matrix-bad-readiness-sha.properties"
+sed 's/^readinessReportSha256=.*/readinessReportSha256=0000000000000000000000000000000000000000000000000000000000000000/' \
+  "$OPERATIONS_CI_API_MATRIX_EVIDENCE" > "$OPERATIONS_CI_BAD_READINESS_SHA_EVIDENCE"
+OPERATIONS_CI_BAD_READINESS_SHA_EVIDENCE_SHA="$(shasum -a 256 "$OPERATIONS_CI_BAD_READINESS_SHA_EVIDENCE" | awk '{print $1}')"
+OPERATIONS_CI_BAD_READINESS_SHA_RECORD="$TMP_DIR/release-operations-ci-api-matrix-bad-readiness-sha.json"
+python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_CI_BAD_READINESS_SHA_RECORD" "$OPERATIONS_CI_BAD_READINESS_SHA_EVIDENCE" "$OPERATIONS_CI_BAD_READINESS_SHA_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["ci"]["apiMatrix"]["evidence"]["path"] = sys.argv[3]
+record["ci"]["apiMatrix"]["evidence"]["sha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release operations verifier rejects API matrix evidence with bad readiness sha" \
+  scripts/verify_release_operations_record.sh --file "$OPERATIONS_CI_BAD_READINESS_SHA_RECORD" --report "$ARTIFACT_DIR/release-operations-ci-api-matrix-bad-readiness-sha.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-api-matrix-bad-readiness-sha.properties" "ci-api-matrix-readiness-report-sha-mismatch"
 OPERATIONS_CI_WEAK_SIGNING="$TMP_DIR/release-operations-ci-weak-signing.json"
 python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_CI_WEAK_SIGNING" "$OPERATIONS_CI_SIGNING_WEAK_EVIDENCE" "$OPERATIONS_CI_SIGNING_WEAK_SHA" <<'PY'
 import json
@@ -5758,8 +5889,13 @@ expect_success \
     --report "$ARTIFACT_DIR/emulator-api-matrix-readiness.properties"
 assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-readiness.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-readiness.properties" "target=emulator-api-matrix-readiness"
+assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-readiness.properties" "requiredApis=28,36"
+assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-readiness.properties" "tag=google_apis"
+assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-readiness.properties" "abi=arm64-v8a"
 assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-readiness.properties" "installedSystemImageApis=28,36"
 assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-readiness.properties" "availableAvdApis=28,36"
+assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-readiness.properties" "missingSystemImageApis="
+assert_report_contains "$ARTIFACT_DIR/emulator-api-matrix-readiness.properties" "missingAvdApis="
 rm -rf "$FAKE_AVD_ROOT/api32.avd"
 FAKE_SDKMANAGER_INSTALLED_PREPARE=$'system-images;android-36;google_apis;arm64-v8a | 1 | Fake\nplatforms;android-36 | 1 | Fake'
 : > "$FAKE_SDKMANAGER_LOG"
@@ -5833,10 +5969,13 @@ API28_AVD_CONFIG
 FAKE_SDKMANAGER_INSTALLED=$'system-images;android-28;google_apis;arm64-v8a | 1 | Fake\nsystem-images;android-36;google_apis;arm64-v8a | 1 | Fake'
 MATRIX_ARTIFACT_DIR="$ARTIFACT_DIR/emulator-api-matrix"
 MATRIX_REPORT="$ARTIFACT_DIR/regression-emulator-api-matrix.properties"
+MATRIX_CI_SHA="1111111111111111111111111111111111111111"
 expect_success \
   "emulator api matrix regression accepts all api reports" \
   env ANDROID_HOME="$FAKE_SDK" SDKMANAGER_CMD="$FAKE_SDKMANAGER" \
   FAKE_SDKMANAGER_INSTALLED="$FAKE_SDKMANAGER_INSTALLED" \
+  GITHUB_WORKFLOW="Android Verification" GITHUB_JOB="emulator-api-matrix" \
+  GITHUB_RUN_ID=123456 GITHUB_SHA="$MATRIX_CI_SHA" \
   scripts/regression_emulator_api_matrix.sh \
     --avd-root "$FAKE_AVD_ROOT" \
     --required-apis "28 36" \
@@ -5847,7 +5986,13 @@ expect_success \
     --report "$MATRIX_REPORT"
 assert_report_contains "$MATRIX_REPORT" "status=passed"
 assert_report_contains "$MATRIX_REPORT" "target=regression-emulator-api-matrix"
+assert_report_contains "$MATRIX_REPORT" "workflow=Android Verification"
+assert_report_contains "$MATRIX_REPORT" "job=emulator-api-matrix"
+assert_report_contains "$MATRIX_REPORT" "runId=123456"
+assert_report_contains "$MATRIX_REPORT" "commitSha=$MATRIX_CI_SHA"
 assert_report_contains "$MATRIX_REPORT" "artifactDir=$MATRIX_ARTIFACT_DIR"
+assert_report_contains "$MATRIX_REPORT" "readinessReportFile=$MATRIX_ARTIFACT_DIR/emulator-api-matrix-readiness.properties"
+assert_report_contains "$MATRIX_REPORT" "readinessReportSha256=$(shasum -a 256 "$MATRIX_ARTIFACT_DIR/emulator-api-matrix-readiness.properties" | awk '{print $1}')"
 assert_report_contains "$MATRIX_REPORT" "passedApis=28,36"
 assert_report_contains "$MATRIX_REPORT" "skippedApis="
 assert_report_contains "$MATRIX_REPORT" "api28Status=passed"
@@ -8424,17 +8569,24 @@ class FixtureTest {
 COUNT_FIXTURE
 
 reset_logs
+REGRESSION_CI_SHA="2222222222222222222222222222222222222222"
 expect_success \
   "regression emulator validates reports and forces clean device" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_ADB_DEVICES=$'emulator-5554\tdevice' \
   FAKE_INSTRUMENTATION_OUTPUT="$SOURCE_INSTRUMENTATION_OUTPUT" \
+  GITHUB_WORKFLOW="Android Verification" GITHUB_JOB="emulator-regression" \
+  GITHUB_RUN_ID=123456 GITHUB_SHA="$REGRESSION_CI_SHA" \
   CLEAN_DEVICE=0 GRADLE_CMD="$FAKE_GRADLE" scripts/regression_emulator.sh
 assert_gradle_called
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "target=regression-emulator"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "failedTarget="
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "reason="
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "workflow=Android Verification"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "job=emulator-regression"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "runId=123456"
+assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "commitSha=$REGRESSION_CI_SHA"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "clean_device=1"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "source_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
 assert_report_contains "$ARTIFACT_DIR/regression-emulator.properties" "expected_android_test_count=$SOURCE_ANDROID_TEST_COUNT"
