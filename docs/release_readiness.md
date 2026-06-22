@@ -207,6 +207,14 @@ items below.
   `ocrText` remains private output for those tools. This advances Phase 3
   LocalOnly/OCR minimization, while physical validation and release-owner
   approval remain blocking.
+- Privacy review evidence now binds both the privacy notice and
+  `docs/capability_matrix.json` by path and SHA-256, so release/security/legal
+  approval cannot silently drift away from the current declared capability
+  surface. Perf baseline verification also rejects baseline records without
+  `PerfBaseline/v1` provenance, owner, collection command, and matching
+  reproducible path before release-gate evidence can pass. These are local
+  evidence gates; they do not replace the pending human approvals or physical
+  RC perf run.
 
 ## Remaining release blockers by ownership
 
@@ -216,7 +224,7 @@ items below.
 | Owner evidence required | Store / policy owner | Fill `docs/store_policy_record.json` with an approved status, real support contact, public privacy-policy URL, reviewer, review date, and approved store-policy evidence. Current machine-checkable SHA, permission, and confirmed-actions wording drift has been normalized, but the record remains intentionally pending. | `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`; verifier checks the current privacy notice SHA and Android manifest. |
 | Owner evidence required | Release operations owner | Fill `docs/release_operations_record.json` with crash/ANR monitoring owner, signal source, first-24-hour watcher, staged rollout thresholds, crash/ANR smoke result, and rollback plan. | `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`; smoke evidence should come from `scripts/collect_crash_anr_smoke_evidence.sh` plus device verification, instrumentation output, and logcat. |
 | Owner evidence required | Validation owner | Fill `docs/release_validation_record.json` with approved emulator regression, physical-device instrumentation, API matrix, manual acceptance, flow matrix, sanitized screenshots, and performance sanity evidence. | `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh`; verifier rejects emulator serials as physical-device evidence and checks AndroidTest counts, required APIs, manual/system-mediated flows, screenshots, and review date. |
-| Manual approval required | Release, security, legal | Review `docs/privacy_notice.md` before publishing it as the external policy and record role approvals in `docs/privacy_review.json`. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`. App code cannot replace this approval. |
+| Manual approval required | Release, security, legal | Review `docs/privacy_notice.md` and `docs/capability_matrix.json` before publishing the external policy and record role approvals in `docs/privacy_review.json`. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`. The verifier binds both files by SHA-256; app code cannot replace this approval. |
 | Manual/legal approval required | Model/license reviewer | For all four recommended model downloads, verify upstream license name, concrete license/notice URL or file path, redistribution rights, attribution/notice requirements, reviewer, and date. | Record in `docs/model_license_review.json`; `VERIFY_MODEL_LICENSES=1` verifies alignment with `docs/model_manifest.md` and metadata. `VERIFY_MODEL_URLS=1` checks URL/content metadata only and is not license approval. |
 | Private environment required | Signing owner | Configure production release signing outside source control and run `scripts/sign_release_artifacts.sh` with production keystore material and `EXPECTED_SIGNING_CERT_SHA256`. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> scripts/verify_release_gate.sh`; debug keystores are rejected for production. |
 | Physical hardware required | Device validation owner | Investigate the current full physical-device instrumentation crash before binding physical-device release evidence. On 2026-06-17, `fb6272c` (`Xiaomi 23127PN0CC`, API 36, `arm64-v8a`) crashed in `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`; see `build/verification/device-20260617-000355/device-verification.properties` (`failedTarget=instrumentation`, `reason=instrumentation-failed`) and `instrumentation.txt` (`shortMsg=Process crashed.`). | A passing physical `scripts/install_and_test_device.sh` report, plus failure evidence for any remaining crash or timeout. |

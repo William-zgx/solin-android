@@ -2211,7 +2211,12 @@ VALID_PERF="$TMP_DIR/perf-baseline.properties"
 VALID_PERF_SHA="1111111111111111111111111111111111111111111111111111111111111111"
 PERF_RECORDED_AT="$(date -u +%Y-%m-%dT00:00:00Z)"
 cat > "$VALID_PERF" <<VALID_PERF_BASELINE
+artifactSchema=PerfBaseline/v1
 status=passed
+target=perf-baseline-record
+owner=release-engineering
+collectionCommand=scripts/collect_perf_baseline.sh
+reproduciblePath=$VALID_PERF
 deviceSerial=device-a
 deviceModel=Pixel Test
 androidApi=36
@@ -2261,6 +2266,17 @@ assert_report_contains "$ARTIFACT_DIR/perf-first-launch.properties" "status=pass
 assert_report_contains "$ARTIFACT_DIR/perf-first-launch.properties" "performanceKey=firstLaunch"
 assert_report_contains "$ARTIFACT_DIR/perf-first-launch.properties" "expectedArtifactSha256=$VALID_PERF_SHA"
 assert_report_contains "$ARTIFACT_DIR/perf-first-launch.properties" "expectedAppVersion=0.1.0"
+PERF_MISSING_PROVENANCE="$TMP_DIR/perf-baseline-missing-provenance.properties"
+sed \
+  -e '/^collectionCommand=/d' \
+  -e "s|reproduciblePath=$VALID_PERF|reproduciblePath=$PERF_MISSING_PROVENANCE|" \
+  "$VALID_PERF" > "$PERF_MISSING_PROVENANCE"
+expect_failure \
+  "perf baseline verifier rejects missing collection command provenance" \
+  scripts/verify_perf_baseline.sh --file "$PERF_MISSING_PROVENANCE" --report "$ARTIFACT_DIR/perf-missing-provenance.properties"
+assert_report_contains "$ARTIFACT_DIR/perf-missing-provenance.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/perf-missing-provenance.properties" "failedTarget=baseline-fields"
+assert_report_contains_text "$ARTIFACT_DIR/perf-missing-provenance.properties" "collectionCommand-missing"
 
 INVALID_PERF="$TMP_DIR/perf-baseline-invalid.properties"
 printf 'status=failed\n' > "$INVALID_PERF"
@@ -2277,20 +2293,29 @@ assert_report_contains "$ARTIFACT_DIR/perf-sha-failed.properties" "status=failed
 assert_report_contains "$ARTIFACT_DIR/perf-sha-failed.properties" "failedTarget=release-artifact"
 assert_report_contains_text "$ARTIFACT_DIR/perf-sha-failed.properties" "release-artifact-sha-mismatch"
 EMULATOR_PERF="$TMP_DIR/perf-baseline-emulator.properties"
-sed 's/deviceSerial=device-a/deviceSerial=emulator-5554/' "$VALID_PERF" > "$EMULATOR_PERF"
+sed \
+  -e 's/deviceSerial=device-a/deviceSerial=emulator-5554/' \
+  -e "s|reproduciblePath=$VALID_PERF|reproduciblePath=$EMULATOR_PERF|" \
+  "$VALID_PERF" > "$EMULATOR_PERF"
 expect_failure \
   "perf baseline verifier rejects emulator serials" \
   scripts/verify_perf_baseline.sh --file "$EMULATOR_PERF" --report "$ARTIFACT_DIR/perf-emulator.properties"
 assert_report_contains "$ARTIFACT_DIR/perf-emulator.properties" "status=failed"
 assert_report_contains_text "$ARTIFACT_DIR/perf-emulator.properties" "device-serial-is-emulator"
 ZERO_PERF="$TMP_DIR/perf-baseline-zero.properties"
-sed 's/firstTokenMs=900/firstTokenMs=0/' "$VALID_PERF" > "$ZERO_PERF"
+sed \
+  -e 's/firstTokenMs=900/firstTokenMs=0/' \
+  -e "s|reproduciblePath=$VALID_PERF|reproduciblePath=$ZERO_PERF|" \
+  "$VALID_PERF" > "$ZERO_PERF"
 expect_failure \
   "perf baseline verifier rejects zero critical timings" \
   scripts/verify_perf_baseline.sh --file "$ZERO_PERF" --report "$ARTIFACT_DIR/perf-zero.properties"
 assert_report_contains "$ARTIFACT_DIR/perf-zero.properties" "status=failed"
 BACKEND_INVALID_PERF="$TMP_DIR/perf-baseline-backend-invalid.properties"
-sed 's/backend=GPU/backend=TPU/' "$VALID_PERF" > "$BACKEND_INVALID_PERF"
+sed \
+  -e 's/backend=GPU/backend=TPU/' \
+  -e "s|reproduciblePath=$VALID_PERF|reproduciblePath=$BACKEND_INVALID_PERF|" \
+  "$VALID_PERF" > "$BACKEND_INVALID_PERF"
 expect_failure \
   "perf baseline verifier rejects unsupported backend" \
   scripts/verify_perf_baseline.sh --file "$BACKEND_INVALID_PERF" --report "$ARTIFACT_DIR/perf-backend-invalid.properties"
@@ -2298,7 +2323,10 @@ assert_report_contains "$ARTIFACT_DIR/perf-backend-invalid.properties" "status=f
 assert_report_contains "$ARTIFACT_DIR/perf-backend-invalid.properties" "failedTarget=runtime-backend"
 assert_report_contains_text "$ARTIFACT_DIR/perf-backend-invalid.properties" "backend-invalid"
 GPU_FALLBACK_INVALID_PERF="$TMP_DIR/perf-baseline-gpu-fallback-invalid.properties"
-sed 's/gpuFallbackStatus=not-needed/gpuFallbackStatus=unknown/' "$VALID_PERF" > "$GPU_FALLBACK_INVALID_PERF"
+sed \
+  -e 's/gpuFallbackStatus=not-needed/gpuFallbackStatus=unknown/' \
+  -e "s|reproduciblePath=$VALID_PERF|reproduciblePath=$GPU_FALLBACK_INVALID_PERF|" \
+  "$VALID_PERF" > "$GPU_FALLBACK_INVALID_PERF"
 expect_failure \
   "perf baseline verifier rejects unsupported gpu fallback status" \
   scripts/verify_perf_baseline.sh --file "$GPU_FALLBACK_INVALID_PERF" --report "$ARTIFACT_DIR/perf-gpu-fallback-invalid.properties"
@@ -2306,7 +2334,10 @@ assert_report_contains "$ARTIFACT_DIR/perf-gpu-fallback-invalid.properties" "sta
 assert_report_contains "$ARTIFACT_DIR/perf-gpu-fallback-invalid.properties" "failedTarget=runtime-backend"
 assert_report_contains_text "$ARTIFACT_DIR/perf-gpu-fallback-invalid.properties" "gpu-fallback-status-invalid"
 MODEL_INVALID_PERF="$TMP_DIR/perf-baseline-model-invalid.properties"
-sed 's/modelId=chat-e2b/modelId=memory-embedding-gemma-300m/' "$VALID_PERF" > "$MODEL_INVALID_PERF"
+sed \
+  -e 's/modelId=chat-e2b/modelId=memory-embedding-gemma-300m/' \
+  -e "s|reproduciblePath=$VALID_PERF|reproduciblePath=$MODEL_INVALID_PERF|" \
+  "$VALID_PERF" > "$MODEL_INVALID_PERF"
 expect_failure \
   "perf baseline verifier rejects non-chat model profile" \
   scripts/verify_perf_baseline.sh --file "$MODEL_INVALID_PERF" --report "$ARTIFACT_DIR/perf-model-invalid.properties"
@@ -2314,7 +2345,10 @@ assert_report_contains "$ARTIFACT_DIR/perf-model-invalid.properties" "status=fai
 assert_report_contains "$ARTIFACT_DIR/perf-model-invalid.properties" "failedTarget=model-profile"
 assert_report_contains_text "$ARTIFACT_DIR/perf-model-invalid.properties" "model-id-invalid"
 FUTURE_PERF="$TMP_DIR/perf-baseline-future.properties"
-sed 's/recordedAt=.*/recordedAt=2999-01-01T00:00:00Z/' "$VALID_PERF" > "$FUTURE_PERF"
+sed \
+  -e 's/recordedAt=.*/recordedAt=2999-01-01T00:00:00Z/' \
+  -e "s|reproduciblePath=$VALID_PERF|reproduciblePath=$FUTURE_PERF|" \
+  "$VALID_PERF" > "$FUTURE_PERF"
 expect_failure \
   "perf baseline verifier rejects future recordedAt" \
   scripts/verify_perf_baseline.sh --file "$FUTURE_PERF" --report "$ARTIFACT_DIR/perf-future.properties"
@@ -6161,13 +6195,30 @@ if grep -q "$PRIVACY_SCAN_SECRET" "$ARTIFACT_DIR/privacy-failed.properties"; the
 fi
 
 PRIVACY_NOTICE="$TMP_DIR/privacy-notice.md"
+PRIVACY_CAPABILITY_MATRIX="$TMP_DIR/privacy-capability-matrix.json"
 PRIVACY_REVIEW_PENDING="$TMP_DIR/privacy-review-pending.json"
 PRIVACY_REVIEW_APPROVED="$TMP_DIR/privacy-review-approved.json"
 PRIVACY_REVIEW_RELEASE_EVIDENCE="$TMP_DIR/privacy-review-release.properties"
 PRIVACY_REVIEW_SECURITY_EVIDENCE="$TMP_DIR/privacy-review-security.properties"
 PRIVACY_REVIEW_LEGAL_EVIDENCE="$TMP_DIR/privacy-review-legal.properties"
 printf 'PocketMind privacy notice\n' > "$PRIVACY_NOTICE"
+cat > "$PRIVACY_CAPABILITY_MATRIX" <<'PRIVACY_CAPABILITY_MATRIX_JSON'
+{
+  "version": 1,
+  "sensitiveCapabilityDisclosures": [
+    {
+      "capabilityId": "remote_model_send",
+      "displayName": "Remote model send",
+      "dataAccessed": "Remote-eligible prompt and image input.",
+      "consentBoundary": "User confirms before sending.",
+      "remoteBoundary": "Only configured HTTPS endpoints receive data.",
+      "revokeOrClearControl": "User can clear the endpoint and API key."
+    }
+  ]
+}
+PRIVACY_CAPABILITY_MATRIX_JSON
 PRIVACY_NOTICE_SHA="$(shasum -a 256 "$PRIVACY_NOTICE" | awk '{print $1}')"
+PRIVACY_CAPABILITY_MATRIX_SHA="$(shasum -a 256 "$PRIVACY_CAPABILITY_MATRIX" | awk '{print $1}')"
 for privacy_review_role in release security legal; do
   case "$privacy_review_role" in
     release) privacy_review_evidence="$PRIVACY_REVIEW_RELEASE_EVIDENCE" ;;
@@ -6180,6 +6231,8 @@ target=privacy-review-approved-evidence
 role=$privacy_review_role
 noticePath=$PRIVACY_NOTICE
 noticeSha256=$PRIVACY_NOTICE_SHA
+capabilityMatrixPath=$PRIVACY_CAPABILITY_MATRIX
+capabilityMatrixSha256=$PRIVACY_CAPABILITY_MATRIX_SHA
 scope=privacy-notice
 requiredDecision=approved
 approvalStatus=approved
@@ -6193,13 +6246,15 @@ cat > "$PRIVACY_REVIEW_PENDING" <<'PRIVACY_REVIEW_PENDING_JSON'
   "version": 1,
   "noticePath": "PLACEHOLDER",
   "noticeSha256": "PLACEHOLDER",
+  "capabilityMatrixPath": "PLACEHOLDER",
+  "capabilityMatrixSha256": "PLACEHOLDER",
   "status": "pending_manual_review",
   "reviews": []
 }
 PRIVACY_REVIEW_PENDING_JSON
 expect_failure \
   "privacy review verifier rejects pending records" \
-  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_PENDING" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_PENDING" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-pending.properties"
 assert_release_verifier_failed_report \
   "$ARTIFACT_DIR/privacy-review-pending.properties" \
@@ -6207,6 +6262,7 @@ assert_release_verifier_failed_report \
   "privacy-security"
 assert_report_contains "$ARTIFACT_DIR/privacy-review-pending.properties" "failedTarget=privacy-review-record"
 assert_report_contains "$ARTIFACT_DIR/privacy-review-pending.properties" "noticeSha256=$PRIVACY_NOTICE_SHA"
+assert_report_contains "$ARTIFACT_DIR/privacy-review-pending.properties" "capabilityMatrixSha256=$PRIVACY_CAPABILITY_MATRIX_SHA"
 expect_failure \
   "checked-in privacy review candidate has current notice and evidence hashes" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-checked-in-pending.properties"
@@ -6221,7 +6277,11 @@ for privacy_review_sha_failure in \
   "legal-evidence-sha-mismatch" \
   "release-evidence-notice-sha-mismatch" \
   "security-evidence-notice-sha-mismatch" \
-  "legal-evidence-notice-sha-mismatch"; do
+  "legal-evidence-notice-sha-mismatch" \
+  "capability-matrix-sha-mismatch" \
+  "release-evidence-capability-matrix-sha-mismatch" \
+  "security-evidence-capability-matrix-sha-mismatch" \
+  "legal-evidence-capability-matrix-sha-mismatch"; do
   if grep -q "$privacy_review_sha_failure" "$ARTIFACT_DIR/privacy-review-checked-in-pending.properties"; then
     fail "checked-in privacy review candidate must not fail on stale SHA: $privacy_review_sha_failure"
   fi
@@ -6231,6 +6291,8 @@ cat > "$PRIVACY_REVIEW_APPROVED" <<PRIVACY_REVIEW_APPROVED_JSON
   "version": 1,
   "noticePath": "$PRIVACY_NOTICE",
   "noticeSha256": "$PRIVACY_NOTICE_SHA",
+  "capabilityMatrixPath": "$PRIVACY_CAPABILITY_MATRIX",
+  "capabilityMatrixSha256": "$PRIVACY_CAPABILITY_MATRIX_SHA",
   "status": "approved",
   "reviews": [
     {
@@ -6262,13 +6324,20 @@ cat > "$PRIVACY_REVIEW_APPROVED" <<PRIVACY_REVIEW_APPROVED_JSON
 PRIVACY_REVIEW_APPROVED_JSON
 expect_success \
   "privacy review verifier accepts approved current notice" \
-  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_APPROVED" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_APPROVED" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-approved.properties"
 assert_release_verifier_passed_report \
   "$ARTIFACT_DIR/privacy-review-approved.properties" \
   "PrivacyReviewVerification/v1" \
   "privacy-security"
 assert_report_contains "$ARTIFACT_DIR/privacy-review-approved.properties" "reviewSha256=$(shasum -a 256 "$PRIVACY_REVIEW_APPROVED" | awk '{print $1}')"
+PRIVACY_REVIEW_BAD_CAPABILITY_SHA="$TMP_DIR/privacy-review-bad-capability-sha.json"
+sed 's/"capabilityMatrixSha256": "'"$PRIVACY_CAPABILITY_MATRIX_SHA"'"/"capabilityMatrixSha256": "0000000000000000000000000000000000000000000000000000000000000000"/' "$PRIVACY_REVIEW_APPROVED" > "$PRIVACY_REVIEW_BAD_CAPABILITY_SHA"
+expect_failure \
+  "privacy review verifier rejects capability matrix sha mismatch" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_BAD_CAPABILITY_SHA" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
+  scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-bad-capability-sha.properties"
+assert_report_contains_text "$ARTIFACT_DIR/privacy-review-bad-capability-sha.properties" "capability-matrix-sha-mismatch"
 PRIVACY_REVIEW_UNKNOWN_ROLE="$TMP_DIR/privacy-review-unknown-role.json"
 python3 - "$PRIVACY_REVIEW_APPROVED" "$PRIVACY_REVIEW_UNKNOWN_ROLE" <<'PY'
 import json
@@ -6283,7 +6352,7 @@ Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
 PY
 expect_failure \
   "privacy review verifier rejects unknown review roles" \
-  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_UNKNOWN_ROLE" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_UNKNOWN_ROLE" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-unknown-role.properties"
 assert_report_contains_text "$ARTIFACT_DIR/privacy-review-unknown-role.properties" "growth-review-role-unknown"
 PRIVACY_REVIEW_DUPLICATE_ROLE="$TMP_DIR/privacy-review-duplicate-role.json"
@@ -6298,21 +6367,21 @@ Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
 PY
 expect_failure \
   "privacy review verifier rejects duplicate review roles" \
-  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_DUPLICATE_ROLE" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_DUPLICATE_ROLE" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-duplicate-role.properties"
 assert_report_contains_text "$ARTIFACT_DIR/privacy-review-duplicate-role.properties" "release-review-role-duplicate"
 PRIVACY_REVIEW_FUTURE="$TMP_DIR/privacy-review-future.json"
 sed 's/2026-06-06/2999-01-01/g' "$PRIVACY_REVIEW_APPROVED" > "$PRIVACY_REVIEW_FUTURE"
 expect_failure \
   "privacy review verifier rejects future review dates" \
-  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_FUTURE" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_FUTURE" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-future.properties"
 assert_report_contains "$ARTIFACT_DIR/privacy-review-future.properties" "status=failed"
 PRIVACY_REVIEW_BAD_EVIDENCE_SHA="$TMP_DIR/privacy-review-bad-evidence-sha.json"
 sed 's/"evidenceSha256": "'"$PRIVACY_REVIEW_RELEASE_EVIDENCE_SHA"'"/"evidenceSha256": "0000000000000000000000000000000000000000000000000000000000000000"/' "$PRIVACY_REVIEW_APPROVED" > "$PRIVACY_REVIEW_BAD_EVIDENCE_SHA"
 expect_failure \
   "privacy review verifier rejects evidence sha mismatch" \
-  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_BAD_EVIDENCE_SHA" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_BAD_EVIDENCE_SHA" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-bad-evidence-sha.properties"
 assert_report_contains_text "$ARTIFACT_DIR/privacy-review-bad-evidence-sha.properties" "release-evidence-sha-mismatch"
 PRIVACY_REVIEW_PENDING_EVIDENCE="$TMP_DIR/privacy-review-release-pending.properties"
@@ -6322,6 +6391,8 @@ target=privacy-review-candidate-evidence
 role=release
 noticePath=$PRIVACY_NOTICE
 noticeSha256=$PRIVACY_NOTICE_SHA
+capabilityMatrixPath=$PRIVACY_CAPABILITY_MATRIX
+capabilityMatrixSha256=$PRIVACY_CAPABILITY_MATRIX_SHA
 scope=privacy-notice
 requiredDecision=approved
 approvalStatus=not-approved
@@ -6340,7 +6411,7 @@ Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
 PY
 expect_failure \
   "privacy review verifier rejects pending evidence content" \
-  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_PENDING_EVIDENCE_RECORD" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_PENDING_EVIDENCE_RECORD" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-pending-evidence.properties"
 assert_report_contains_text "$ARTIFACT_DIR/privacy-review-pending-evidence.properties" "release-evidence-status-not-approved"
 assert_report_contains_text "$ARTIFACT_DIR/privacy-review-pending-evidence.properties" "release-evidence-approval-status-not-approved"
@@ -6360,7 +6431,7 @@ Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
 PY
 expect_failure \
   "privacy review verifier rejects evidence role mismatch" \
-  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_ROLE_MISMATCH_RECORD" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_ROLE_MISMATCH_RECORD" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-role-mismatch-evidence.properties"
 assert_report_contains_text "$ARTIFACT_DIR/privacy-review-role-mismatch-evidence.properties" "release-evidence-role-mismatch"
 PRIVACY_REVIEW_NOTICE_MISMATCH_EVIDENCE="$TMP_DIR/privacy-review-release-notice-mismatch.properties"
@@ -6380,7 +6451,7 @@ Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
 PY
 expect_failure \
   "privacy review verifier rejects evidence notice sha mismatch" \
-  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_NOTICE_MISMATCH_RECORD" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_NOTICE_MISMATCH_RECORD" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
   scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-notice-mismatch-evidence.properties"
 assert_report_contains_text "$ARTIFACT_DIR/privacy-review-notice-mismatch-evidence.properties" "release-evidence-notice-sha-mismatch"
 
@@ -6869,7 +6940,12 @@ VALID_GATE_PERF="$TMP_DIR/perf-baseline-safe-apk.properties"
 SAFE_APK_SHA="$(shasum -a 256 "$SAFE_APK" | awk '{print $1}')"
 SAFE_AAB_SHA="$(shasum -a 256 "$SAFE_AAB" | awk '{print $1}')"
 cat > "$VALID_GATE_PERF" <<VALID_GATE_PERF_BASELINE
+artifactSchema=PerfBaseline/v1
 status=passed
+target=perf-baseline-record
+owner=release-engineering
+collectionCommand=scripts/collect_perf_baseline.sh
+reproduciblePath=$VALID_GATE_PERF
 deviceSerial=device-a
 deviceModel=Pixel Test
 androidApi=36
@@ -6891,7 +6967,10 @@ oomOrAnrObserved=false
 recordedAt=$PERF_RECORDED_AT
 VALID_GATE_PERF_BASELINE
 VALID_GATE_AAB_PERF="$TMP_DIR/perf-baseline-safe-aab.properties"
-sed "s/releaseArtifactSha256=$SAFE_APK_SHA/releaseArtifactSha256=$SAFE_AAB_SHA/" "$VALID_GATE_PERF" > "$VALID_GATE_AAB_PERF"
+sed \
+  -e "s/releaseArtifactSha256=$SAFE_APK_SHA/releaseArtifactSha256=$SAFE_AAB_SHA/" \
+  -e "s|reproduciblePath=$VALID_GATE_PERF|reproduciblePath=$VALID_GATE_AAB_PERF|" \
+  "$VALID_GATE_PERF" > "$VALID_GATE_AAB_PERF"
 PRIVACY_GATE_TARGET="$TMP_DIR/privacy-gate-scan-target"
 mkdir -p "$PRIVACY_GATE_TARGET"
 PRIVACY_GATE_SECRET="$PRIVACY_GATE_TARGET/privacy-scan-gate-secret.tmp"
@@ -7047,7 +7126,10 @@ assert_report_contains "$ARTIFACT_DIR/release-store-policy-without-perf/perf-bas
 assert_report_contains "$ARTIFACT_DIR/release-store-policy-without-perf/release-gate.properties" "verifyPerfBaseline=0"
 assert_report_contains "$ARTIFACT_DIR/release-store-policy-without-perf/release-gate.properties" "failedTarget=store-policy-record"
 VALID_GATE_BAD_SHA_PERF="$TMP_DIR/perf-baseline-safe-apk-bad-sha.properties"
-sed 's/releaseArtifactSha256='"$SAFE_APK_SHA"'/releaseArtifactSha256=0000000000000000000000000000000000000000000000000000000000000000/' "$VALID_GATE_PERF" > "$VALID_GATE_BAD_SHA_PERF"
+sed \
+  -e 's/releaseArtifactSha256='"$SAFE_APK_SHA"'/releaseArtifactSha256=0000000000000000000000000000000000000000000000000000000000000000/' \
+  -e "s|reproduciblePath=$VALID_GATE_PERF|reproduciblePath=$VALID_GATE_BAD_SHA_PERF|" \
+  "$VALID_GATE_PERF" > "$VALID_GATE_BAD_SHA_PERF"
 expect_failure \
   "release gate reports perf baseline child reason" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-perf-bad-sha" \

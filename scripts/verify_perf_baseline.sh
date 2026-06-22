@@ -31,6 +31,9 @@ failed_target_for_reason() {
     baseline-file-missing)
       printf 'baseline-file'
       ;;
+    artifact-schema-invalid|target-invalid|reproducible-path-mismatch)
+      printf 'baseline-provenance'
+      ;;
     *-missing)
       printf 'baseline-fields'
       ;;
@@ -149,7 +152,12 @@ if [[ -z "$BASELINE_FILE" || ! -f "$BASELINE_FILE" ]]; then
 fi
 
 required_fields=(
+  artifactSchema
   status
+  target
+  owner
+  collectionCommand
+  reproduciblePath
   deviceSerial
   deviceModel
   androidApi
@@ -178,6 +186,22 @@ for field in "${required_fields[@]}"; do
     record_failure "${field}-missing"
   fi
 done
+
+if ! grep -qx 'artifactSchema=PerfBaseline/v1' "$BASELINE_FILE"; then
+  echo "Perf baseline artifactSchema must be PerfBaseline/v1." >&2
+  record_failure "artifact-schema-invalid"
+fi
+
+if ! grep -qx 'target=perf-baseline-record' "$BASELINE_FILE"; then
+  echo "Perf baseline target must be perf-baseline-record." >&2
+  record_failure "target-invalid"
+fi
+
+reproducible_path="$(awk -F= '$1 == "reproduciblePath" {print $2; exit}' "$BASELINE_FILE")"
+if [[ -n "$reproducible_path" && "$reproducible_path" != "$BASELINE_FILE" ]]; then
+  echo "Perf baseline reproduciblePath must match the verified baseline file." >&2
+  record_failure "reproducible-path-mismatch"
+fi
 
 if ! grep -qx 'status=passed' "$BASELINE_FILE"; then
   echo "Perf baseline status must be passed." >&2

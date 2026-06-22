@@ -240,12 +240,16 @@ with each RC before treating this checklist as complete.
   references a passed `perf-baseline-verification.properties` report generated
   by `scripts/verify_perf_baseline.sh`, with `target=perf-baseline`, a
   `performanceKey` that matches the record key, `missingFieldCount=0`, and a
-  readable `baselineFile` plus matching `baselineSha256`. The verifier report
-  must include non-empty `expectedArtifactSha256` and `expectedAppVersion`
-  values, and the linked baseline must match those values, come from a
-  non-emulator `arm64-v8a` device, record `oomOrAnrObserved=false`, and have a
-  fresh UTC `recordedAt`; lightweight status-only, cross-key, or baseline-file
-  swapped performance evidence files are not accepted.
+  readable `baselineFile` plus matching `baselineSha256`. The linked baseline
+  itself must declare `artifactSchema=PerfBaseline/v1`,
+  `target=perf-baseline-record`, non-empty `owner`, non-empty
+  `collectionCommand`, and a `reproduciblePath` that equals the verified
+  baseline path. The verifier report must include non-empty
+  `expectedArtifactSha256` and `expectedAppVersion` values, and the linked
+  baseline must match those values, come from a non-emulator `arm64-v8a`
+  device, record `oomOrAnrObserved=false`, and have a fresh UTC `recordedAt`;
+  lightweight status-only, provenance-free, cross-key, or baseline-file swapped
+  performance evidence files are not accepted.
 - [ ] Release assembly and bundle tasks pass with release minification/resource
   shrinking enabled.
 - [ ] ProGuard/R8 mapping files for the release candidate are archived with the

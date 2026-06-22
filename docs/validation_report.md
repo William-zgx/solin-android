@@ -14167,9 +14167,8 @@ ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
 
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
-- 子 Agent 发现但未在本轮改动的后续项：privacy review 仍可加强 notice 内容校验和
-  capability matrix 绑定；manual acceptance 和 memory pressure evidence 可继续增加
-  key-specific 字段。
+- 子 Agent 发现但未在本轮改动的后续项：store policy 仍可加强 model capability profile
+  绑定；manual acceptance 和 memory pressure evidence 可继续增加 key-specific 字段。
 
 ## 2026-06-23 Recent OCR runtime metadata minimization
 
@@ -14224,3 +14223,62 @@ Roadmap 状态：
 
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+
+## 2026-06-23 Privacy review capability binding and perf provenance gate
+
+本轮覆盖项：
+
+- 多 Agent 只读审计指出两个本地可推进缺口：privacy review 尚未绑定 Capability Matrix，
+  standalone perf baseline verifier 尚未强制 baseline provenance 字段。两项都不需要真机或模拟器。
+- `scripts/verify_privacy_review.sh` 现在要求 `docs/privacy_review.json` 绑定
+  `docs/capability_matrix.json` 的路径和 SHA-256，并验证 Capability Matrix 至少包含结构化
+  sensitive capability disclosure。三方 privacy review evidence 也必须绑定相同
+  capability matrix path/SHA。
+- Checked-in pending privacy review record 和 release/security/legal pending evidence
+  已同步当前 capability matrix SHA；当前记录仍按预期失败在人工审批字段，而不是 stale SHA。
+- `scripts/verify_perf_baseline.sh` 现在要求 baseline 文件自身包含
+  `artifactSchema=PerfBaseline/v1`、`target=perf-baseline-record`、非空 `owner`、
+  非空 `collectionCommand`，以及等于被验证 baseline 路径的 `reproduciblePath`。
+  这让 `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh` 不能接受缺 provenance 的薄
+  performance evidence。
+- `scripts/test_validation_scripts.sh` 新增 privacy capability SHA mismatch 负例和 perf
+  missing provenance 负例，并同步所有 valid perf fixture 的 provenance 字段。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_privacy_review.sh scripts/verify_perf_baseline.sh \
+  scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-current.properties || true
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 静态检查。
+- 通过：validation script self-tests，覆盖 privacy review capability matrix SHA 绑定、
+  checked-in pending review 不因 stale SHA 失败、approved fixture 正例、capability SHA
+  mismatch 负例、perf baseline provenance 缺失负例，以及 release gate perf 子报告路径。
+- 通过：当前 checked-in privacy review verifier 仍 fail-closed，失败原因保持在
+  release/security/legal pending 审批，不再因为 notice/capability/evidence SHA 漂移失败。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM tests、debug/release
+  build、AndroidTest assemble、lint 和 artifact scan。
+
+Roadmap 状态：
+
+- Phase 3 安全/隐私边界继续推进：privacy review 的审查对象现在绑定隐私声明和能力矩阵两份事实源。
+- Phase 4 release evidence 继续推进：perf baseline verifier 在 standalone release gate
+  路径上也强制 provenance，而不只依赖 release validation record 二次拦截。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
+  perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+- Store policy 与 model capability/download-size 的机器绑定仍可按子 Agent 建议继续加强。
