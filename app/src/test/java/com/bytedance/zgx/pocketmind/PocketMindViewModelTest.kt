@@ -40,6 +40,8 @@ import com.bytedance.zgx.pocketmind.download.DownloadInfo
 import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.memory.EmbeddingRuntime
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
+import com.bytedance.zgx.pocketmind.memory.MemoryDeletionEvent
+import com.bytedance.zgx.pocketmind.memory.MemoryDeletionEventStore
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
 import com.bytedance.zgx.pocketmind.memory.MemoryRecallMode
@@ -7115,7 +7117,11 @@ class PocketMindViewModelTest {
     @Test
     fun refreshBackgroundTasksDropsTerminalTaskStateMemory() = runTest(dispatcher) {
         val store = FakeMemoryRecordStore()
-        val memoryRepository = MemoryRepository(recordStore = store)
+        val deletionStore = FakeMemoryDeletionEventStore()
+        val memoryRepository = MemoryRepository(
+            recordStore = store,
+            deletionEventStore = deletionStore,
+        )
         val taskMemoryId = taskStateMemoryRecordId("done-task")
         memoryRepository.indexTaskState(taskMemoryId, "旧的后台任务状态")
         val scheduler = FakeBackgroundTaskScheduler(
@@ -7138,6 +7144,7 @@ class PocketMindViewModelTest {
         advanceUntilIdle()
 
         assertTrue(store.records().none { record -> record.id == taskMemoryId })
+        assertTrue(deletionStore.events().isEmpty())
         assertTrue(viewModel.uiState.value.longTermMemories.none { memory -> memory.id == taskMemoryId })
         assertTrue(memoryRepository.search("后台任务状态").isEmpty())
     }
@@ -9001,6 +9008,8 @@ class PocketMindViewModelTest {
 
         override fun forget(id: String): Boolean = false
 
+        override fun forgetAutoManagedTaskState(id: String): Boolean = false
+
         override fun forgetPreference(target: String): Boolean = false
 
         override fun forgetUserFact(target: String): Boolean = false
@@ -9031,6 +9040,17 @@ class PocketMindViewModelTest {
         override fun clear() {
             failure?.let { throw it }
             records.clear()
+        }
+    }
+
+    private class FakeMemoryDeletionEventStore : MemoryDeletionEventStore {
+        private val events = mutableListOf<MemoryDeletionEvent>()
+
+        override fun events(): List<MemoryDeletionEvent> =
+            events.toList()
+
+        override fun append(event: MemoryDeletionEvent) {
+            events += event
         }
     }
 

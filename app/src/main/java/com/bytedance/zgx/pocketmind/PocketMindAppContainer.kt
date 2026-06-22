@@ -35,6 +35,7 @@ import com.bytedance.zgx.pocketmind.device.AndroidRecentFileProvider
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
+import com.bytedance.zgx.pocketmind.memory.RoomMemoryDeletionEventStore
 import com.bytedance.zgx.pocketmind.memory.RoomMemoryEmbeddingStore
 import com.bytedance.zgx.pocketmind.memory.RoomMemoryRecordStore
 import com.bytedance.zgx.pocketmind.multimodal.AndroidCurrentScreenshotOcrProvider
@@ -106,6 +107,7 @@ class PocketMindAppContainer(context: Context) {
             },
             recordStore = RoomMemoryRecordStore(database.memoryRecordDao()),
             embeddingStore = RoomMemoryEmbeddingStore(database.memoryEmbeddingDao()),
+            deletionEventStore = RoomMemoryDeletionEventStore(database.memoryDeletionEventDao()),
         )
         toolAuditRepository = ToolAuditRepository(database.toolAuditDao())
         remoteSendAuditRepository = RemoteSendAuditRepository(database.remoteSendAuditDao())

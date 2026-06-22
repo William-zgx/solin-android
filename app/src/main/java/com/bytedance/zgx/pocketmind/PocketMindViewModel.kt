@@ -4969,7 +4969,7 @@ class PocketMindViewModel(
                         record.id.startsWith(TASK_STATE_MEMORY_RECORD_PREFIX) &&
                         (!memoryEnabled || record.id !in activeMemoryIds)
                 }
-                .forEach { record -> longTermMemoryControls.forget(record.id) }
+                .forEach { record -> longTermMemoryControls.forgetAutoManagedTaskState(record.id) }
             if (!memoryEnabled) return@runCatching
             activeTasks.forEach { task ->
                 val memoryId = taskStateMemoryRecordId(task.id)

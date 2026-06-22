@@ -87,6 +87,19 @@ data class RemoteSendAuditEventEntity(
     val createdAtMillis: Long,
 )
 
+@Entity(tableName = "memory_deletion_events")
+data class MemoryDeletionEventEntity(
+    @PrimaryKey val id: String,
+    val recordId: String,
+    val recordType: String,
+    val operation: String,
+    val recordTextHash: String,
+    val recordSource: String,
+    val recordSensitivity: String,
+    val conflictKey: String?,
+    val deletedAtMillis: Long,
+)
+
 @Entity(tableName = "scheduled_tasks")
 data class ScheduledTaskEntity(
     @PrimaryKey val id: String,
@@ -495,6 +508,15 @@ interface MemoryEmbeddingDao {
 }
 
 @Dao
+interface MemoryDeletionEventDao {
+    @Query("SELECT * FROM memory_deletion_events ORDER BY deletedAtMillis DESC, id DESC")
+    fun events(): List<MemoryDeletionEventEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insert(event: MemoryDeletionEventEntity)
+}
+
+@Dao
 interface AgentTraceDao {
     @Query("SELECT * FROM agent_runs WHERE id = :runId LIMIT 1")
     fun run(runId: String): AgentRunEntity?
@@ -606,6 +628,7 @@ interface AgentTraceDao {
         DownloadRecordEntity::class,
         ToolAuditEventEntity::class,
         RemoteSendAuditEventEntity::class,
+        MemoryDeletionEventEntity::class,
         ScheduledTaskEntity::class,
         MemoryRecordEntity::class,
         MemoryEmbeddingEntity::class,
@@ -614,7 +637,7 @@ interface AgentTraceDao {
         PendingAgentConfirmationEntity::class,
         AgentSkillRunCheckpointEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = false,
 )
 abstract class PocketMindDatabase : RoomDatabase() {
@@ -626,6 +649,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
     abstract fun scheduledTaskDao(): ScheduledTaskDao
     abstract fun memoryRecordDao(): MemoryRecordDao
     abstract fun memoryEmbeddingDao(): MemoryEmbeddingDao
+    abstract fun memoryDeletionEventDao(): MemoryDeletionEventDao
     abstract fun agentTraceDao(): AgentTraceDao
 
     companion object {
@@ -912,6 +936,27 @@ abstract class PocketMindDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_deletion_events` (
+                        `id` TEXT NOT NULL,
+                        `recordId` TEXT NOT NULL,
+                        `recordType` TEXT NOT NULL,
+                        `operation` TEXT NOT NULL,
+                        `recordTextHash` TEXT NOT NULL,
+                        `recordSource` TEXT NOT NULL,
+                        `recordSensitivity` TEXT NOT NULL,
+                        `conflictKey` TEXT,
+                        `deletedAtMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun get(context: Context): PocketMindDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -934,6 +979,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
                         MIGRATION_12_13,
                         MIGRATION_13_14,
                         MIGRATION_14_15,
+                        MIGRATION_15_16,
                     )
                     .allowMainThreadQueries()
                     .build()

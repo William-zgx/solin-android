@@ -13361,3 +13361,41 @@ git diff --check
 
 - 本轮强化的是门禁和证据契约，不替代真实 API matrix、真机、性能基线、截图视觉回归和人工审批。
 - 已有 pending release record 会继续 fail-closed，直到重新生成并批准绑定当前 artifact 的证据。
+
+## 2026-06-22 local memory deletion tombstones
+
+本轮覆盖项：
+
+- 长期记忆删除新增 `memory_deletion_events` side table 和 `15 -> 16` Room migration；
+  删除审计只记录 record id、类型、来源、敏感度、删除操作、时间和 `recordTextHash`，不保存 raw memory text。
+- `MemoryRepository` 在用户/UI 删除、显式 forget、clear、冲突替换时写删除事件；
+  `SuppressedTaskState` 和 conversation 记录不进入删除审计。
+- 后台任务状态 terminal/missing 自动清理改走 `forgetAutoManagedTaskState`，不伪装成用户删除墓碑。
+- AppContainer 已把 Room deletion event DAO 注入到本地 memory repository。
+
+验证命令：
+
+```bash
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+  --tests 'com.bytedance.zgx.pocketmind.memory.MemoryRepositoryTest' \
+  --tests 'com.bytedance.zgx.pocketmind.PocketMindViewModelTest.refreshBackgroundTasksDropsTerminalTaskStateMemory'
+
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
+  ./gradlew :app:compileDebugAndroidTestKotlin
+```
+
+结果：
+
+- 通过：`MemoryRepositoryTest` 删除审计新增用例验证 Preference/UserFact/TaskState/clear
+  均生成 hash-only tombstone，且事件字符串不包含原始偏好/事实文本。
+- 通过：`refreshBackgroundTasksDropsTerminalTaskStateMemory` 验证自动任务状态清理不会写用户删除事件。
+- 通过：`compileDebugAndroidTestKotlin`，包含 `migration15To16AddsMemoryDeletionEventsTableAndRoomCanOpen`
+  的 instrumentation 源码编译通过。
+
+剩余风险：
+
+- 本轮按要求未跑真机/模拟器 instrumentation；`MIGRATION_15_16` 的实际 Room migration
+  运行仍需要后续在设备或 emulator 上执行。
+- 删除事件和 memory record 删除尚未做 Room transaction 级原子化；如后续要满足强审计合规，
+  需要把 delete + event append 收进同一事务。
