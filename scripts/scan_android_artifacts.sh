@@ -6,9 +6,21 @@ REQUIRE_SIGNED=0
 ALLOW_DEBUG_CERTIFICATE=0
 EXPECTED_CERTIFICATE_SHA256=""
 ARTIFACTS=()
+ORIGINAL_ARGS=("$@")
 
 normalize_sha256() {
   tr '[:upper:]' '[:lower:]' <<<"$1" | tr -d ':'
+}
+
+shell_command() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "scripts/scan_android_artifacts.sh")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -49,6 +61,11 @@ write_report() {
     {
       printf 'status=%s\n' "$status"
       printf 'target=android-artifact-scan\n'
+      printf 'artifactSchema=AndroidArtifactScanReport/v1\n'
+      printf 'owner=release-engineering\n'
+      printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'command=%s\n' "$(shell_command)"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'reason=%s\n' "$reason"
       printf 'artifactCount=%s\n' "${#ARTIFACTS[@]}"
       printf 'findingCount=%s\n' "$finding_count"

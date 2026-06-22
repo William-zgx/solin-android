@@ -109,6 +109,59 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
   且 `missingRequiredBoundaryIds=`。
 - 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮只增强本地 behavior eval gate。
 
+## 2026-06-22 Release Evidence Report Schema Hardening
+
+本轮覆盖项：
+
+- `verify_release_operations_record.sh` 的 report 增加
+  `artifactSchema=ReleaseOperationsVerification/v1`、`owner=release-engineering`、
+  UTC `recordedAt`、可复现 `command`、`reproduciblePath` 和
+  `operationsRecordSha256`。
+- `sign_release_artifacts.sh` 的 report 增加
+  `artifactSchema=ReleaseSigningReport/v1`、`owner=release-engineering`、UTC
+  `recordedAt`、可复现 `command`、`reproduciblePath`，并记录 unsigned APK/AAB SHA-256
+  和 artifact scan 子报告 SHA-256。
+- `privacy_scan.sh` 的 report 增加 `artifactSchema=PrivacyScanReport/v1`、
+  `owner=privacy-security`、UTC `recordedAt`、可复现 `command`、`reproduciblePath`，
+  并为每个扫描目标输出 path；文件目标额外绑定 SHA-256。
+- `scan_android_artifacts.sh` 的 report 增加
+  `artifactSchema=AndroidArtifactScanReport/v1`、`owner=release-engineering`、UTC
+  `recordedAt`、可复现 `command` 和 `reproduciblePath`；既有 per-artifact path/SHA/size
+  绑定继续保留。
+- 上述脚本的 `command` 改为 shell-quoted argv，带空格路径可以被解析回原始参数。
+- `verify_release_operations_record.sh` 现在会强制校验 release artifact archive 和
+  protected signing 子证据的 `artifactSchema`、`owner`、UTC `recordedAt`、`command`、
+  `reproduciblePath`，并校验其 artifact scan 子报告路径和 SHA-256 绑定。
+- `test_validation_scripts.sh` 对 release operations pending/approved report、privacy scan
+  pass/fail/file-target report、artifact scan pass/fail report、signing missing-env/missing-AAB
+  report 增加 schema/SHA 字段断言；同时覆盖 spaced-path command argv 回放和 weak protected
+  signing evidence fail-closed，防止 release evidence 退回弱报告格式。
+- 并行审查结论：memory deletion tracking 仍建议用独立 tombstone side table/store 实现，
+  但该改动涉及 Room schema 和迁移，单独后续 TDD，不混入本轮 release report schema。
+
+验证命令：
+
+```bash
+bash scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 红灯确认：新增 operations schema 断言后，旧 report 缺失
+  `artifactSchema=ReleaseOperationsVerification/v1` 导致 validation script 失败。
+- 红灯确认：新增 privacy schema 断言后，旧 report 缺失
+  `artifactSchema=PrivacyScanReport/v1` 导致 validation script 失败。
+- 红灯确认：spaced-path command 回放解析出错误 argv 数量，暴露未引用 `${ORIGINAL_ARGS[*]}`
+  不可复现。
+- 红灯确认：weak protected signing evidence 仍被 operations verifier 接受，暴露子证据强
+  schema 未被消费。
+- 通过：补齐 schema 字段后 `Validation script tests passed.`
+- 抽查：operations report 包含 `operationsRecordSha256`；signing report 包含
+  `artifactSchema=ReleaseSigningReport/v1`、`reproduciblePath`、unsigned artifact SHA 和
+  `artifactScanReportSha256`；privacy file target report 绑定 `scanTarget1Sha256`；
+  artifact scan report 绑定 `artifact1Sha256` 和 `artifact1SizeBytes`。
+- 未执行：真机 instrumentation、arm64/x86 模拟器、真实 App 搜索；本轮只增强本地 release evidence schema。
+
 ## 2026-06-22 Release Gate Missing Child Report Status
 
 本轮覆盖项：

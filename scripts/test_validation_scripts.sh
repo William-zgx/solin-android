@@ -659,6 +659,36 @@ assert_release_verifier_report_schema() {
     fail "Expected UTC recordedAt in $file"
 }
 
+assert_report_command_argv() {
+  local file="$1"
+  shift
+  [[ -f "$file" ]] || fail "Expected report at $file"
+
+  local command
+  command="$(awk -F= '$1 == "command" {sub(/^[^=]*=/, ""); print; exit}' "$file")"
+  [[ -n "$command" ]] || fail "Expected command in $file"
+
+  local actual_file
+  actual_file="$TMP_DIR/command-argv-$(basename "$file").txt"
+  COMMAND_TO_PARSE="$command" bash -c 'eval "set -- $COMMAND_TO_PARSE"; printf "%s\n" "$@"' > "$actual_file"
+
+  local expected_count="$#"
+  local actual_count
+  actual_count="$(wc -l < "$actual_file" | tr -d ' ')"
+  [[ "$actual_count" == "$expected_count" ]] ||
+    fail "Expected $file command argv count $expected_count, got $actual_count: $command"
+
+  local expected
+  local index=0
+  while [[ $# -gt 0 ]]; do
+    expected="$1"
+    shift
+    index=$((index + 1))
+    sed -n "${index}p" "$actual_file" | grep -qxF -- "$expected" ||
+      fail "Expected $file command argv[$index] to be: $expected"
+  done
+}
+
 assert_release_verifier_passed_report() {
   local file="$1"
   local schema="$2"
@@ -2308,6 +2338,7 @@ OPERATIONS_CI_API_MATRIX_EVIDENCE="$TMP_DIR/release-operations-ci-api-matrix.pro
 OPERATIONS_CI_API_MATRIX_WEAK_EVIDENCE="$TMP_DIR/release-operations-ci-api-matrix-weak.properties"
 OPERATIONS_CI_ARTIFACT_EVIDENCE="$TMP_DIR/release-operations-ci-artifact-archive.properties"
 OPERATIONS_CI_SIGNING_EVIDENCE="$TMP_DIR/release-operations-ci-signing.properties"
+OPERATIONS_CI_SIGNING_WEAK_EVIDENCE="$TMP_DIR/release-operations-ci-signing-weak.properties"
 OPERATIONS_CI_CONNECTED_WEAK_EVIDENCE="$TMP_DIR/release-operations-ci-connected-weak.properties"
 OPERATIONS_COMMIT_SHA="$(git rev-parse HEAD)"
 OPERATIONS_FAKE_SHA_1="1111111111111111111111111111111111111111111111111111111111111111"
@@ -2404,9 +2435,34 @@ passedApis=28
 failedApis=32
 readinessReportFile=$OPERATIONS_CI_API_MATRIX_READINESS
 OPERATIONS_CI_API_MATRIX_WEAK_EVIDENCE_PROPERTIES
+OPERATIONS_CI_ARTIFACT_SCAN_REPORT="$TMP_DIR/release-operations-ci-artifact-scan.properties"
+cat > "$OPERATIONS_CI_ARTIFACT_SCAN_REPORT" <<OPERATIONS_CI_ARTIFACT_SCAN_PROPERTIES
+status=passed
+target=android-artifact-scan
+artifactSchema=AndroidArtifactScanReport/v1
+owner=release-engineering
+recordedAt=2026-06-06T00:00:00Z
+command=scripts/scan_android_artifacts.sh --aab app/build/outputs/bundle/release/app-release.aab --apk app/build/outputs/apk/release/app-release-unsigned.apk --report $OPERATIONS_CI_ARTIFACT_SCAN_REPORT
+reproduciblePath=$OPERATIONS_CI_ARTIFACT_SCAN_REPORT
+reason=approved
+artifactCount=2
+findingCount=0
+artifact1Path=app/build/outputs/bundle/release/app-release.aab
+artifact1Sha256=$OPERATIONS_FAKE_SHA_1
+artifact1SizeBytes=123
+artifact2Path=app/build/outputs/apk/release/app-release-unsigned.apk
+artifact2Sha256=$OPERATIONS_FAKE_SHA_2
+artifact2SizeBytes=456
+OPERATIONS_CI_ARTIFACT_SCAN_PROPERTIES
+OPERATIONS_CI_ARTIFACT_SCAN_SHA="$(shasum -a 256 "$OPERATIONS_CI_ARTIFACT_SCAN_REPORT" | awk '{print $1}')"
 cat > "$OPERATIONS_CI_ARTIFACT_EVIDENCE" <<OPERATIONS_CI_ARTIFACT_EVIDENCE_PROPERTIES
 status=passed
 target=ci-release-artifact-archive
+artifactSchema=ReleaseArtifactArchiveEvidence/v1
+owner=release-engineering
+recordedAt=2026-06-06T00:00:00Z
+command=scripts/archive_release_artifacts.sh
+reproduciblePath=$OPERATIONS_CI_ARTIFACT_EVIDENCE
 workflow=Android Verification
 job=release-artifact-archive
 runId=123456
@@ -2418,10 +2474,51 @@ apkPath=app/build/outputs/apk/release/app-release-unsigned.apk
 apkSha256=$OPERATIONS_FAKE_SHA_2
 mappingPath=app/build/outputs/mapping/release/mapping.txt
 mappingSha256=$OPERATIONS_FAKE_SHA_3
-artifactScanReport=build/verification/ci-release-artifact-archive/android-artifact-scan.properties
+artifactScanReport=$OPERATIONS_CI_ARTIFACT_SCAN_REPORT
+artifactScanReportSha256=$OPERATIONS_CI_ARTIFACT_SCAN_SHA
 artifactScanStatus=passed
 OPERATIONS_CI_ARTIFACT_EVIDENCE_PROPERTIES
+OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_REPORT="$TMP_DIR/release-operations-ci-signing-artifact-scan.properties"
+cat > "$OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_REPORT" <<OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_PROPERTIES
+status=passed
+target=android-artifact-scan
+artifactSchema=AndroidArtifactScanReport/v1
+owner=release-engineering
+recordedAt=2026-06-06T00:00:00Z
+command=scripts/scan_android_artifacts.sh --require-signed --aab app/build/outputs/bundle/release/app-release-signed.aab --report $OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_REPORT
+reproduciblePath=$OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_REPORT
+reason=approved
+artifactCount=1
+findingCount=0
+artifact1Path=app/build/outputs/bundle/release/app-release-signed.aab
+artifact1Sha256=$OPERATIONS_FAKE_SHA_1
+artifact1SizeBytes=123
+OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_PROPERTIES
+OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_SHA="$(shasum -a 256 "$OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_REPORT" | awk '{print $1}')"
 cat > "$OPERATIONS_CI_SIGNING_EVIDENCE" <<OPERATIONS_CI_SIGNING_EVIDENCE_PROPERTIES
+status=passed
+exit_code=0
+target=release-signing
+artifactSchema=ReleaseSigningReport/v1
+owner=release-engineering
+recordedAt=2026-06-06T00:00:00Z
+command=scripts/sign_release_artifacts.sh
+reproduciblePath=$OPERATIONS_CI_SIGNING_EVIDENCE
+workflow=Android Verification
+job=protected-signing
+runId=123456
+commitSha=$OPERATIONS_COMMIT_SHA
+signingMode=production
+allowDebugKeystore=0
+requireAab=1
+expectedSigningCertSha256=$OPERATIONS_FAKE_SHA_4
+signedAab=app/build/outputs/bundle/release/app-release-signed.aab
+signedAabSha256=$OPERATIONS_FAKE_SHA_1
+artifactScanReport=$OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_REPORT
+artifactScanReportSha256=$OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_SHA
+artifactScanStatus=passed
+OPERATIONS_CI_SIGNING_EVIDENCE_PROPERTIES
+cat > "$OPERATIONS_CI_SIGNING_WEAK_EVIDENCE" <<OPERATIONS_CI_SIGNING_WEAK_PROPERTIES
 status=passed
 exit_code=0
 target=release-signing
@@ -2435,9 +2532,9 @@ requireAab=1
 expectedSigningCertSha256=$OPERATIONS_FAKE_SHA_4
 signedAab=app/build/outputs/bundle/release/app-release-signed.aab
 signedAabSha256=$OPERATIONS_FAKE_SHA_1
-artifactScanReport=build/verification/ci-protected-signing/signing.properties.artifact-scan.properties
+artifactScanReport=$OPERATIONS_CI_SIGNING_ARTIFACT_SCAN_REPORT
 artifactScanStatus=passed
-OPERATIONS_CI_SIGNING_EVIDENCE_PROPERTIES
+OPERATIONS_CI_SIGNING_WEAK_PROPERTIES
 cat > "$OPERATIONS_CI_CONNECTED_WEAK_EVIDENCE" <<OPERATIONS_CI_CONNECTED_WEAK_EVIDENCE_PROPERTIES
 status=passed
 target=ci-local-verification
@@ -2546,6 +2643,7 @@ OPERATIONS_CI_API_MATRIX_SHA="$(shasum -a 256 "$OPERATIONS_CI_API_MATRIX_EVIDENC
 OPERATIONS_CI_API_MATRIX_WEAK_SHA="$(shasum -a 256 "$OPERATIONS_CI_API_MATRIX_WEAK_EVIDENCE" | awk '{print $1}')"
 OPERATIONS_CI_ARTIFACT_SHA="$(shasum -a 256 "$OPERATIONS_CI_ARTIFACT_EVIDENCE" | awk '{print $1}')"
 OPERATIONS_CI_SIGNING_SHA="$(shasum -a 256 "$OPERATIONS_CI_SIGNING_EVIDENCE" | awk '{print $1}')"
+OPERATIONS_CI_SIGNING_WEAK_SHA="$(shasum -a 256 "$OPERATIONS_CI_SIGNING_WEAK_EVIDENCE" | awk '{print $1}')"
 OPERATIONS_CI_CONNECTED_WEAK_SHA="$(shasum -a 256 "$OPERATIONS_CI_CONNECTED_WEAK_EVIDENCE" | awk '{print $1}')"
 cat > "$OPERATIONS_PENDING" <<'OPERATIONS_PENDING_JSON'
 {
@@ -2557,6 +2655,25 @@ expect_failure \
   "release operations verifier rejects pending records" \
   scripts/verify_release_operations_record.sh --file "$OPERATIONS_PENDING" --report "$ARTIFACT_DIR/release-operations-pending.properties"
 assert_report_contains "$ARTIFACT_DIR/release-operations-pending.properties" "status=failed"
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/release-operations-pending.properties" \
+  "ReleaseOperationsVerification/v1"
+OPERATIONS_SPACED_PENDING="$TMP_DIR/release operations pending.json"
+OPERATIONS_SPACED_REPORT="$ARTIFACT_DIR/release operations spaced command.properties"
+cat > "$OPERATIONS_SPACED_PENDING" <<'OPERATIONS_SPACED_PENDING_JSON'
+{
+  "version": 1,
+  "status": "pending_operations_review"
+}
+OPERATIONS_SPACED_PENDING_JSON
+expect_failure \
+  "release operations report command preserves spaced argv" \
+  scripts/verify_release_operations_record.sh --file "$OPERATIONS_SPACED_PENDING" --report "$OPERATIONS_SPACED_REPORT"
+assert_report_command_argv \
+  "$OPERATIONS_SPACED_REPORT" \
+  scripts/verify_release_operations_record.sh \
+  --file "$OPERATIONS_SPACED_PENDING" \
+  --report "$OPERATIONS_SPACED_REPORT"
 cat > "$OPERATIONS_APPROVED" <<OPERATIONS_APPROVED_JSON
 {
   "version": 1,
@@ -2671,10 +2788,15 @@ cat > "$OPERATIONS_APPROVED" <<OPERATIONS_APPROVED_JSON
   }
 }
 OPERATIONS_APPROVED_JSON
+OPERATIONS_APPROVED_SHA="$(shasum -a 256 "$OPERATIONS_APPROVED" | awk '{print $1}')"
 expect_success \
   "release operations verifier accepts approved initial-release record" \
   scripts/verify_release_operations_record.sh --file "$OPERATIONS_APPROVED" --report "$ARTIFACT_DIR/release-operations-approved.properties"
 assert_report_contains "$ARTIFACT_DIR/release-operations-approved.properties" "status=passed"
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/release-operations-approved.properties" \
+  "ReleaseOperationsVerification/v1"
+assert_report_contains "$ARTIFACT_DIR/release-operations-approved.properties" "operationsRecordSha256=$OPERATIONS_APPROVED_SHA"
 expect_success \
   "release operations verifier accepts current release artifact context" \
   env EXPECTED_COMMIT_SHA="$OPERATIONS_COMMIT_SHA" \
@@ -2824,6 +2946,22 @@ expect_failure \
   scripts/verify_release_operations_record.sh --file "$OPERATIONS_CI_WEAK_API_MATRIX" --report "$ARTIFACT_DIR/release-operations-ci-weak-api-matrix.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-weak-api-matrix.properties" "ci-api-matrix-required-apis-invalid"
 assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-weak-api-matrix.properties" "ci-api-matrix-passed-apis-invalid"
+OPERATIONS_CI_WEAK_SIGNING="$TMP_DIR/release-operations-ci-weak-signing.json"
+python3 - "$OPERATIONS_APPROVED" "$OPERATIONS_CI_WEAK_SIGNING" "$OPERATIONS_CI_SIGNING_WEAK_EVIDENCE" "$OPERATIONS_CI_SIGNING_WEAK_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["ci"]["protectedSigning"]["evidence"]["path"] = sys.argv[3]
+record["ci"]["protectedSigning"]["evidence"]["sha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release operations verifier rejects weak protected signing evidence" \
+  scripts/verify_release_operations_record.sh --file "$OPERATIONS_CI_WEAK_SIGNING" --report "$ARTIFACT_DIR/release-operations-ci-weak-signing.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-weak-signing.properties" "ci-protected-signing-evidence-artifact-schema-invalid"
+assert_report_contains_text "$ARTIFACT_DIR/release-operations-ci-weak-signing.properties" "ci-protected-signing-artifact-scan-report-sha-invalid"
 OPERATIONS_NO_VITALS="$TMP_DIR/release-operations-no-vitals.json"
 sed 's/"Android Vitals", //' "$OPERATIONS_APPROVED" > "$OPERATIONS_NO_VITALS"
 expect_failure \
@@ -5066,11 +5204,34 @@ assert_report_contains "$ARTIFACT_DIR/regression-emulator-api-matrix-failed.prop
 
 SAFE_PRIVACY_DIR="$TMP_DIR/privacy-safe"
 mkdir -p "$SAFE_PRIVACY_DIR"
-printf 'hello pocketmind\n' > "$SAFE_PRIVACY_DIR/readme.txt"
+SAFE_PRIVACY_FILE="$SAFE_PRIVACY_DIR/readme.txt"
+printf 'hello pocketmind\n' > "$SAFE_PRIVACY_FILE"
+SAFE_PRIVACY_FILE_SHA="$(shasum -a 256 "$SAFE_PRIVACY_FILE" | awk '{print $1}')"
 expect_success \
   "privacy scan accepts safe directory" \
   scripts/privacy_scan.sh --report "$ARTIFACT_DIR/privacy.properties" "$SAFE_PRIVACY_DIR"
 assert_report_contains "$ARTIFACT_DIR/privacy.properties" "status=passed"
+assert_release_verifier_report_schema "$ARTIFACT_DIR/privacy.properties" "PrivacyScanReport/v1" "privacy-security"
+assert_report_contains "$ARTIFACT_DIR/privacy.properties" "scanTarget1Path=$SAFE_PRIVACY_DIR"
+expect_success \
+  "privacy scan binds file target sha" \
+  scripts/privacy_scan.sh --report "$ARTIFACT_DIR/privacy-file.properties" "$SAFE_PRIVACY_FILE"
+assert_release_verifier_report_schema "$ARTIFACT_DIR/privacy-file.properties" "PrivacyScanReport/v1" "privacy-security"
+assert_report_contains "$ARTIFACT_DIR/privacy-file.properties" "scanTarget1Path=$SAFE_PRIVACY_FILE"
+assert_report_contains "$ARTIFACT_DIR/privacy-file.properties" "scanTarget1Sha256=$SAFE_PRIVACY_FILE_SHA"
+SPACED_PRIVACY_DIR="$TMP_DIR/privacy spaced command"
+SPACED_PRIVACY_FILE="$SPACED_PRIVACY_DIR/safe target.txt"
+SPACED_PRIVACY_REPORT="$ARTIFACT_DIR/privacy spaced command.properties"
+mkdir -p "$SPACED_PRIVACY_DIR"
+printf 'safe\n' > "$SPACED_PRIVACY_FILE"
+expect_success \
+  "privacy scan report command preserves spaced argv" \
+  scripts/privacy_scan.sh --report "$SPACED_PRIVACY_REPORT" "$SPACED_PRIVACY_FILE"
+assert_report_command_argv \
+  "$SPACED_PRIVACY_REPORT" \
+  scripts/privacy_scan.sh \
+  --report "$SPACED_PRIVACY_REPORT" \
+  "$SPACED_PRIVACY_FILE"
 
 UNSAFE_PRIVACY_DIR="$TMP_DIR/privacy-unsafe"
 mkdir -p "$UNSAFE_PRIVACY_DIR"
@@ -5081,6 +5242,8 @@ expect_failure \
   "privacy scan rejects high-confidence token" \
   scripts/privacy_scan.sh --report "$ARTIFACT_DIR/privacy-failed.properties" "$UNSAFE_PRIVACY_DIR"
 assert_report_contains "$ARTIFACT_DIR/privacy-failed.properties" "status=failed"
+assert_release_verifier_report_schema "$ARTIFACT_DIR/privacy-failed.properties" "PrivacyScanReport/v1" "privacy-security"
+assert_report_contains "$ARTIFACT_DIR/privacy-failed.properties" "scanTarget1Path=$UNSAFE_PRIVACY_DIR"
 assert_report_contains "$ARTIFACT_DIR/privacy-failed.properties" "reason=secret-pattern-detected"
 if grep -q "$PRIVACY_SCAN_SECRET" <<<"$LAST_OUTPUT"; then
   fail "privacy scan stderr must redact raw secret values"
@@ -5573,6 +5736,23 @@ expect_success \
   "artifact scan accepts safe zip" \
   scripts/scan_android_artifacts.sh --apk "$SAFE_APK" --report "$ARTIFACT_DIR/artifact.properties"
 assert_report_contains "$ARTIFACT_DIR/artifact.properties" "status=passed"
+assert_release_verifier_report_schema "$ARTIFACT_DIR/artifact.properties" "AndroidArtifactScanReport/v1"
+SAFE_APK_SHA="$(shasum -a 256 "$SAFE_APK" | awk '{print $1}')"
+SAFE_APK_SIZE="$(wc -c < "$SAFE_APK" | tr -d ' ')"
+assert_report_contains "$ARTIFACT_DIR/artifact.properties" "artifact1Path=$SAFE_APK"
+assert_report_contains "$ARTIFACT_DIR/artifact.properties" "artifact1Sha256=$SAFE_APK_SHA"
+assert_report_contains "$ARTIFACT_DIR/artifact.properties" "artifact1SizeBytes=$SAFE_APK_SIZE"
+SPACED_APK="$TMP_DIR/safe artifact spaced.apk"
+SPACED_ARTIFACT_REPORT="$ARTIFACT_DIR/artifact spaced command.properties"
+cp "$SAFE_APK" "$SPACED_APK"
+expect_success \
+  "artifact scan report command preserves spaced argv" \
+  scripts/scan_android_artifacts.sh --apk "$SPACED_APK" --report "$SPACED_ARTIFACT_REPORT"
+assert_report_command_argv \
+  "$SPACED_ARTIFACT_REPORT" \
+  scripts/scan_android_artifacts.sh \
+  --apk "$SPACED_APK" \
+  --report "$SPACED_ARTIFACT_REPORT"
 grep -q '^artifact1Sha256=' "$ARTIFACT_DIR/artifact.properties" ||
   fail "artifact scan report must include artifact sha"
 grep -q '^artifact1SizeBytes=' "$ARTIFACT_DIR/artifact.properties" ||
@@ -5581,6 +5761,7 @@ expect_failure \
   "artifact scan rejects bundled model" \
   scripts/scan_android_artifacts.sh --apk "$UNSAFE_APK" --report "$ARTIFACT_DIR/artifact-failed.properties"
 assert_report_contains "$ARTIFACT_DIR/artifact-failed.properties" "status=failed"
+assert_release_verifier_report_schema "$ARTIFACT_DIR/artifact-failed.properties" "AndroidArtifactScanReport/v1"
 assert_report_contains_text "$ARTIFACT_DIR/artifact-failed.properties" "forbidden-artifact-file"
 assert_report_contains_text "$ARTIFACT_DIR/artifact-failed.properties" "sensitive-string"
 if grep -q "$ARTIFACT_SCAN_SECRET" <<<"$LAST_OUTPUT"; then
@@ -6006,6 +6187,9 @@ expect_failure \
   scripts/sign_release_artifacts.sh
 assert_report_contains "$ARTIFACT_DIR/signing-missing-env.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/signing-missing-env.properties" "target=release-signing"
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/signing-missing-env.properties" \
+  "ReleaseSigningReport/v1"
 assert_report_contains "$ARTIFACT_DIR/signing-missing-env.properties" "failedTarget=environment"
 assert_report_contains "$ARTIFACT_DIR/signing-missing-env.properties" "reason=missing-release-keystore"
 DEBUG_KEYSTORE="$TMP_DIR/debug.keystore"
@@ -6050,6 +6234,12 @@ expect_failure \
   REPORT_FILE="$ARTIFACT_DIR/signing-missing-aab.properties" \
   scripts/sign_release_artifacts.sh
 assert_report_contains "$ARTIFACT_DIR/signing-missing-aab.properties" "status=failed"
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/signing-missing-aab.properties" \
+  "ReleaseSigningReport/v1"
+assert_report_contains "$ARTIFACT_DIR/signing-missing-aab.properties" "unsignedApkSha256=$SAFE_APK_SHA"
+assert_report_contains "$ARTIFACT_DIR/signing-missing-aab.properties" "unsignedAabSha256="
+assert_report_contains "$ARTIFACT_DIR/signing-missing-aab.properties" "artifactScanReportSha256="
 assert_report_contains "$ARTIFACT_DIR/signing-missing-aab.properties" "failedTarget=input-artifact"
 assert_report_contains "$ARTIFACT_DIR/signing-missing-aab.properties" "reason=unsigned-aab-missing"
 grep -q 'Release signing requires unsigned AAB' <<<"$LAST_OUTPUT" ||

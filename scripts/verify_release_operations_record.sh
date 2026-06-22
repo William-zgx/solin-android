@@ -11,6 +11,25 @@ EXPECTED_RELEASE_ARTIFACT_SHA256="${EXPECTED_RELEASE_ARTIFACT_SHA256:-}"
 EXPECTED_RELEASE_MAPPING_SHA256="${EXPECTED_RELEASE_MAPPING_SHA256:-}"
 EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 REPORT_FILE=""
+ORIGINAL_ARGS=("$@")
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+shell_command() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "scripts/verify_release_operations_record.sh")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,7 +56,13 @@ write_report() {
     {
       printf 'status=%s\n' "$status"
       printf 'target=release-operations-record\n'
+      printf 'artifactSchema=ReleaseOperationsVerification/v1\n'
+      printf 'owner=release-engineering\n'
+      printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'command=%s\n' "$(shell_command)"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'operationsRecordFile=%s\n' "$OPERATIONS_RECORD_FILE"
+      printf 'operationsRecordSha256=%s\n' "$(sha256_or_empty "$OPERATIONS_RECORD_FILE")"
       printf 'expectedCommitSha=%s\n' "$EXPECTED_COMMIT_SHA"
       printf 'expectedReleaseArtifactType=%s\n' "$EXPECTED_RELEASE_ARTIFACT_TYPE"
       printf 'expectedReleaseArtifactSha256=%s\n' "$EXPECTED_RELEASE_ARTIFACT_SHA256"
@@ -154,6 +179,9 @@ def number_property_matches(value, expected):
 def is_sha256(value):
     return isinstance(value, str) and bool(re.fullmatch(r"[0-9a-f]{64}", value))
 
+def is_utc_timestamp(value):
+    return isinstance(value, str) and bool(re.fullmatch(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", value))
+
 def positive_int_string(value):
     return isinstance(value, str) and bool(re.fullmatch(r"[1-9][0-9]*", value))
 
@@ -194,7 +222,48 @@ def validate_zero_count(section, props, key):
     elif value != "0":
         failures.append(f"{section}-{kebab(key)}-not-zero")
 
-def validate_ci_evidence_record(section, entry, expected_target):
+def validate_report_schema(section, props, path, expected_schema, expected_owner="release-engineering"):
+    if props.get("artifactSchema") != expected_schema:
+        failures.append(f"{section}-artifact-schema-invalid")
+    if props.get("owner") != expected_owner:
+        failures.append(f"{section}-owner-invalid")
+    if not is_utc_timestamp(props.get("recordedAt", "")):
+        failures.append(f"{section}-recorded-at-invalid")
+    if not non_empty_string(props.get("command", "")):
+        failures.append(f"{section}-command-missing")
+    if path is not None and props.get("reproduciblePath") != str(path):
+        failures.append(f"{section}-reproducible-path-invalid")
+
+def validate_artifact_scan_report_binding(section, props):
+    report_file = props.get("artifactScanReport", "")
+    if not non_empty_string(report_file):
+        failures.append(f"{section}-artifact-scan-report-missing")
+        return {}
+    report_path = Path(report_file)
+    if not report_path.is_file():
+        failures.append(f"{section}-artifact-scan-report-file-missing")
+        return {}
+    expected_sha = props.get("artifactScanReportSha256", "")
+    if not is_sha256(expected_sha):
+        failures.append(f"{section}-artifact-scan-report-sha-invalid")
+    else:
+        actual_sha = hashlib.sha256(report_path.read_bytes()).hexdigest()
+        if expected_sha != actual_sha:
+            failures.append(f"{section}-artifact-scan-report-sha-mismatch")
+    scan_props = properties_for(report_path)
+    if scan_props.get("status") != "passed":
+        failures.append(f"{section}-artifact-scan-report-status-not-passed")
+    if scan_props.get("target") != "android-artifact-scan":
+        failures.append(f"{section}-artifact-scan-report-target-invalid")
+    validate_report_schema(
+        f"{section}-artifact-scan-report",
+        scan_props,
+        report_path,
+        "AndroidArtifactScanReport/v1",
+    )
+    return scan_props
+
+def validate_ci_evidence_record(section, entry, expected_target, expected_schema=""):
     if not isinstance(entry, dict):
         failures.append(f"ci-{section}-missing")
         return {}
@@ -208,6 +277,13 @@ def validate_ci_evidence_record(section, entry, expected_target):
         failures.append(f"ci-{section}-evidence-status-not-passed")
     if props.get("target") != expected_target:
         failures.append(f"ci-{section}-evidence-target-invalid")
+    if expected_schema:
+        validate_report_schema(
+            f"ci-{section}-evidence",
+            props,
+            path,
+            expected_schema,
+        )
     return props
 
 def validate_ci_identity(section, props, expected_job="", required=False):
@@ -340,6 +416,7 @@ artifact_ci_props = validate_ci_evidence_record(
     "release-artifact-archive",
     artifact_entry,
     "ci-release-artifact-archive",
+    "ReleaseArtifactArchiveEvidence/v1",
 )
 validate_ci_identity("release-artifact-archive", artifact_ci_props, expected_job="release-artifact-archive", required=True)
 if isinstance(artifact_entry, dict) and not non_empty_string(artifact_entry.get("artifactName")):
@@ -356,6 +433,7 @@ elif expected_release_mapping_sha and artifact_ci_props.get("mappingSha256", "")
     failures.append("ci-release-artifact-archive-mapping-sha-mismatch")
 if artifact_ci_props.get("artifactScanStatus") != "passed":
     failures.append("ci-release-artifact-archive-scan-not-passed")
+validate_artifact_scan_report_binding("ci-release-artifact-archive", artifact_ci_props)
 if not non_empty_string(artifact_ci_props.get("artifactUploadName")):
     failures.append("ci-release-artifact-archive-upload-name-missing")
 
@@ -364,6 +442,7 @@ signing_ci_props = validate_ci_evidence_record(
     "protected-signing",
     signing_entry,
     "release-signing",
+    "ReleaseSigningReport/v1",
 )
 validate_ci_identity("protected-signing", signing_ci_props, expected_job="protected-signing")
 if isinstance(signing_entry, dict) and not non_empty_string(signing_entry.get("signingEnvironment")):
@@ -372,6 +451,7 @@ if signing_ci_props.get("signingMode") != "production":
     failures.append("ci-protected-signing-mode-invalid")
 if signing_ci_props.get("artifactScanStatus") != "passed":
     failures.append("ci-protected-signing-artifact-scan-not-passed")
+validate_artifact_scan_report_binding("ci-protected-signing", signing_ci_props)
 if not is_sha256(signing_ci_props.get("expectedSigningCertSha256", "")):
     failures.append("ci-protected-signing-cert-sha-invalid")
 elif expected_signing_cert_sha and signing_ci_props.get("expectedSigningCertSha256", "").lower() != expected_signing_cert_sha:

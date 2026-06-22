@@ -4,6 +4,25 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPORT_FILE=""
 SCAN_TARGETS=()
+ORIGINAL_ARGS=("$@")
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+shell_command() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "scripts/privacy_scan.sh")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,9 +50,21 @@ write_report() {
     {
       printf 'status=%s\n' "$status"
       printf 'target=privacy-scan\n'
+      printf 'artifactSchema=PrivacyScanReport/v1\n'
+      printf 'owner=privacy-security\n'
+      printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'command=%s\n' "$(shell_command)"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'reason=%s\n' "$reason"
       printf 'scanTargetCount=%s\n' "${#SCAN_TARGETS[@]}"
       printf 'findingCount=%s\n' "$finding_count"
+      local index=0
+      local target
+      for target in "${SCAN_TARGETS[@]}"; do
+        index=$((index + 1))
+        printf 'scanTarget%sPath=%s\n' "$index" "$target"
+        printf 'scanTarget%sSha256=%s\n' "$index" "$(sha256_or_empty "$target")"
+      done
     } > "$REPORT_FILE"
   fi
 }
