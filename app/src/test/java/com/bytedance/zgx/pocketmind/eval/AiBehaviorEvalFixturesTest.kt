@@ -179,6 +179,12 @@ class AiBehaviorEvalFixturesTest {
             assertEquals(true, remoteEligible)
         }
         assertTrue("allowedFailureModes must be an array", row.get("allowedFailureModes") is JSONArray)
+        row.getJSONArray("allowedFailureModes").toStringList().forEach { failureMode ->
+            assertTrue(
+                "allowedFailureModes must use stable slug syntax: $failureMode",
+                failureMode.matches(Regex("^[a-z0-9][a-z0-9_:-]*$")),
+            )
+        }
     }
 
     private fun JSONArray.toStringList(): List<String> =

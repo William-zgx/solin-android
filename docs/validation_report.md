@@ -23,6 +23,79 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-23 Agent Behavior Unexpected FailureMode Gate
+
+本轮覆盖项：
+
+- `AgentBehaviorPlanningTraceDiff` 不再允许 actual trace 带未声明的
+  `failureMode` 仍判定为 `Matched`；`failureMode` 必须为空或出现在该 case 的
+  `allowedFailureModes`。
+- `AgentBehaviorEvalCase`、`AgentBehaviorActualTrace` 和
+  `scripts/verify_ai_behavior_eval.sh` 都要求 failure mode 使用稳定 slug 格式
+  `^[a-z0-9][a-z0-9_:-]*$`，避免任意文本进入 eval taxonomy。
+- `scripts/test_validation_scripts.sh` 增加负例：fixture 中的
+  `allowedFailureModes=["bad mode with spaces"]` 必须失败；actual trace 中
+  `unexpected_silent_failure` 必须产生 `trace-diff-mismatch` 而不是 matched。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorPlanningTraceProjectorTest \
+  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：目标 JVM 测试 `AiBehaviorPlanningTraceProjectorTest` 与
+  `AiBehaviorEvalFixturesTest`。
+- 通过：`scripts/test_validation_scripts.sh` 输出 `Validation script tests passed.`。
+- 通过：最终 `scripts/verify_local.sh` 输出 `Local verification passed.`，覆盖完整本地
+  validation script tests、Gradle JVM/lint/debug/androidTest/release build 和 Android
+  artifact scan。
+- 未执行：真机、模拟器和 runtime 设备 trace 采集；本轮只补本地 eval diff/fixture/verifier
+  fail-closed 逻辑。
+
+## 2026-06-23 Release Gate Child Report Schema
+
+本轮覆盖项：
+
+- `scripts/verify_release_gate.sh` 新增统一 `ReleaseGateChildReport/v1` 写入路径，
+  让 release gate 自己生成的轻量 child report 也带 `artifactSchema`、owner、UTC
+  `recordedAt`、command、`reproduciblePath` 和 reason。
+- 覆盖的本地 child report 包括：contract-tests passed/skipped/failed、
+  signing-cert preflight failed、invalid extra privacy scan target、missing AAB
+  preflight、android artifact scan skipped、perf baseline skipped/missing、
+  release mapping skipped、release/store/operations/validation/model license/privacy
+  review skipped。
+- `scripts/test_validation_scripts.sh` 增加 schema 断言，固定 passed gate 中的 skipped
+  child reports、invalid privacy target、missing perf baseline、public release missing
+  cert 和 missing AAB 都必须输出 `ReleaseGateChildReport/v1`。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_gate.sh scripts/test_validation_scripts.sh
+
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：`scripts/test_validation_scripts.sh` 输出 `Validation script tests passed.`。
+- 未执行：真机、模拟器、生产签名、RC perf baseline 和人工审批；本轮只加固本地 release
+  gate 证据报告，不生成或替代外部 release evidence。
+
 ## 2026-06-23 Manual Acceptance Key-Specific Evidence Gate
 
 本轮覆盖项：

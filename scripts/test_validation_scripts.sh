@@ -778,6 +778,15 @@ assert_release_gate_report_schema() {
     fail "Expected release gate report to include current git head SHA"
 }
 
+assert_release_gate_child_report_schema() {
+  local file="$1"
+  local expected_status="$2"
+  local expected_target="$3"
+  assert_release_verifier_report_schema "$file" "ReleaseGateChildReport/v1"
+  assert_report_contains "$file" "status=$expected_status"
+  assert_report_contains "$file" "target=$expected_target"
+}
+
 assert_release_gate_child_report_bound() {
   local gate_report="$1"
   local child_key="$2"
@@ -1498,6 +1507,31 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-permission-denied.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-permission-denied.properties" "reason=missing-safety-failure-mode-coverage:permissiondenied"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-permission-denied.properties" "missingSafetyFailureModes=permissiondenied"
+AI_BEHAVIOR_BAD_FAILURE_MODE_DIR="$TMP_DIR/ai-behavior-bad-failure-mode"
+mkdir -p "$AI_BEHAVIOR_BAD_FAILURE_MODE_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_BAD_FAILURE_MODE_DIR/"
+python3 - "$AI_BEHAVIOR_BAD_FAILURE_MODE_DIR/runtime_failure.jsonl" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["allowedFailureModes"] = ["bad mode with spaces"]
+path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects invalid allowed failure mode taxonomy" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_BAD_FAILURE_MODE_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-bad-failure-mode.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-bad-failure-mode.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-bad-failure-mode.properties" "reason=invalid-field:runtime_failure:"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-bad-failure-mode.properties" ":allowedFailureModes"
 AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR="$TMP_DIR/ai-behavior-missing-public-batch"
 mkdir -p "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR"
 cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR/"
@@ -1807,6 +1841,33 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-failure-mode.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-failure-mode.properties" "reason=trace-diff-missing-required-failure-mode"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-failure-mode.properties" "actualTraceMissingRequiredFailureModeCount=1"
+
+AI_ACTUAL_TRACE_UNEXPECTED_FAILURE_MODE="$TMP_DIR/ai-behavior-actual-trace-unexpected-failure-mode.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_UNEXPECTED_FAILURE_MODE" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["failureMode"] = "unexpected_silent_failure"
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects unexpected actual failure mode on otherwise matched trace" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE_UNEXPECTED_FAILURE_MODE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-failure-mode.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-failure-mode.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-failure-mode.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-failure-mode.properties" "reason=trace-diff-mismatch"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-failure-mode.properties" "traceDiffMismatchCount=1"
+assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-unexpected-failure-mode.jsonl" '"actualFailureModeAccepted": false'
 
 AI_TRACE_DIFF_MATCHED="$ARTIFACT_DIR/ai-behavior-trace-diff-matched.jsonl"
 expect_success \
@@ -7213,16 +7274,40 @@ assert_release_gate_child_report_bound \
   "aiBehaviorEval" \
   "$ARTIFACT_DIR/release-gate-passed-schema/ai-behavior-eval.properties" \
   "skipped"
+assert_release_gate_child_report_schema \
+  "$ARTIFACT_DIR/release-gate-passed-schema/contract-tests.properties" \
+  "skipped" \
+  "contract-tests"
+assert_release_gate_child_report_schema \
+  "$ARTIFACT_DIR/release-gate-passed-schema/ai-behavior-eval.properties" \
+  "skipped" \
+  "ai-behavior-eval"
 assert_release_gate_child_report_bound \
   "$ARTIFACT_DIR/release-gate-passed-schema/release-gate.properties" \
   "androidArtifactScan" \
   "$ARTIFACT_DIR/release-gate-passed-schema/android-artifact-scan.properties" \
   "skipped"
+assert_release_gate_child_report_schema \
+  "$ARTIFACT_DIR/release-gate-passed-schema/android-artifact-scan.properties" \
+  "skipped" \
+  "android-artifact-scan"
 assert_release_gate_child_report_bound \
   "$ARTIFACT_DIR/release-gate-passed-schema/release-gate.properties" \
   "perfBaseline" \
   "$ARTIFACT_DIR/release-gate-passed-schema/perf-baseline-verification.properties" \
   "skipped"
+assert_release_gate_child_report_schema \
+  "$ARTIFACT_DIR/release-gate-passed-schema/perf-baseline-verification.properties" \
+  "skipped" \
+  "perf-baseline"
+assert_release_gate_child_report_schema \
+  "$ARTIFACT_DIR/release-gate-passed-schema/release-record.properties" \
+  "skipped" \
+  "release-record"
+assert_release_gate_child_report_schema \
+  "$ARTIFACT_DIR/release-gate-passed-schema/release-validation-record.properties" \
+  "skipped" \
+  "release-validation-record"
 expect_failure \
   "release gate reports privacy scan child reason" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-privacy-scan-failed" \
@@ -7253,6 +7338,10 @@ expect_failure \
   scripts/verify_release_gate.sh
 assert_report_contains "$ARTIFACT_DIR/release-privacy-scan-invalid-extra-target/privacy-scan.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/release-privacy-scan-invalid-extra-target/privacy-scan.properties" "reason=invalid-extra-privacy-scan-target"
+assert_release_gate_child_report_schema \
+  "$ARTIFACT_DIR/release-privacy-scan-invalid-extra-target/privacy-scan.properties" \
+  "failed" \
+  "privacy-scan"
 assert_report_contains "$ARTIFACT_DIR/release-privacy-scan-invalid-extra-target/release-gate.properties" "failedTarget=privacy-scan"
 assert_report_contains "$ARTIFACT_DIR/release-privacy-scan-invalid-extra-target/release-gate.properties" "failedReason=invalid-extra-privacy-scan-target"
 expect_failure \
@@ -7272,6 +7361,10 @@ assert_release_gate_child_report_bound \
   "perfBaseline" \
   "$ARTIFACT_DIR/release-missing-perf/perf-baseline-verification.properties" \
   "failed"
+assert_release_gate_child_report_schema \
+  "$ARTIFACT_DIR/release-missing-perf/perf-baseline-verification.properties" \
+  "failed" \
+  "perf-baseline"
 assert_release_gate_child_report_bound \
   "$ARTIFACT_DIR/release-missing-perf/release-gate.properties" \
   "aiBehaviorEval" \
@@ -7411,6 +7504,10 @@ assert_release_gate_child_report_bound \
   "signingCert" \
   "$ARTIFACT_DIR/public-release-missing-cert/signing-cert.properties" \
   "failed"
+assert_release_gate_child_report_schema \
+  "$ARTIFACT_DIR/public-release-missing-cert/signing-cert.properties" \
+  "failed" \
+  "signing-cert"
 assert_release_gate_children_not_produced \
   "$ARTIFACT_DIR/public-release-missing-cert/release-gate.properties" \
   "$ARTIFACT_DIR/public-release-missing-cert" \
@@ -7438,6 +7535,10 @@ expect_failure \
   VERIFY_CONTRACT_TESTS=0 \
   scripts/verify_release_gate.sh
 assert_report_contains "$ARTIFACT_DIR/release-require-aab/android-artifact-scan.properties" "status=failed"
+assert_release_gate_child_report_schema \
+  "$ARTIFACT_DIR/release-require-aab/android-artifact-scan.properties" \
+  "failed" \
+  "android-artifact-scan"
 assert_report_contains "$ARTIFACT_DIR/release-require-aab/release-gate.properties" "failedTarget=android-artifact-scan"
 rm -f app/build/outputs/bundle/release/app-release-signed.aab
 expect_failure \
@@ -7451,6 +7552,10 @@ expect_failure \
   VERIFY_CONTRACT_TESTS=0 \
   scripts/verify_release_gate.sh
 assert_report_contains "$ARTIFACT_DIR/release-signed-default-aab/android-artifact-scan.properties" "status=failed"
+assert_release_gate_child_report_schema \
+  "$ARTIFACT_DIR/release-signed-default-aab/android-artifact-scan.properties" \
+  "failed" \
+  "android-artifact-scan"
 assert_report_contains "$ARTIFACT_DIR/release-signed-default-aab/android-artifact-scan.properties" "releaseAab=app/build/outputs/bundle/release/app-release-signed.aab"
 assert_report_contains "$ARTIFACT_DIR/release-signed-default-aab/release-gate.properties" "releaseAab=app/build/outputs/bundle/release/app-release-signed.aab"
 assert_report_contains "$ARTIFACT_DIR/release-signed-default-aab/release-gate.properties" "failedTarget=android-artifact-scan"

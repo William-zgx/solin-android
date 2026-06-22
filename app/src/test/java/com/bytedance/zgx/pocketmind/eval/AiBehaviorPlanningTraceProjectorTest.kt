@@ -354,6 +354,38 @@ class AiBehaviorPlanningTraceProjectorTest {
     }
 
     @Test
+    fun unexpectedFailureModeMakesOtherwiseMatchedTraceMismatch() {
+        val evalCase = AgentBehaviorEvalCase(
+            id = "unexpected-failure-mode",
+            input = "请用简短风格回答",
+            expectedTools = emptyList(),
+            expectedConfirmation = AgentEvalConfirmationExpectation.None,
+            expectedRiskLevel = AgentEvalRiskLevel.Low,
+            privacy = MessagePrivacy.LocalOnly,
+            localOnly = true,
+            remoteEligible = false,
+            allowedFailureModes = listOf("quality_guard_stop"),
+        )
+        val actualTrace = AgentBehaviorActualTrace(
+            caseId = evalCase.id,
+            input = evalCase.input,
+            actualTools = emptyList(),
+            actualConfirmation = AgentEvalConfirmationExpectation.None,
+            actualRiskLevel = AgentEvalRiskLevel.Low,
+            privacy = MessagePrivacy.LocalOnly,
+            localOnly = true,
+            remoteEligible = false,
+            failureMode = "unexpected_silent_failure",
+        )
+
+        val diff = evalCase.diffAgainst(actualTrace)
+
+        assertEquals(false, diff.allowedFailureModeMatches)
+        assertEquals(false, diff.actualFailureModeAccepted)
+        assertEquals(AgentBehaviorTraceDiffStatus.Mismatch, diff.status)
+    }
+
+    @Test
     fun projectsPublicEvidenceToolAsNoConfirmationRemoteEligibleTrace() {
         val request = ToolRequest(
             id = "weather-search",

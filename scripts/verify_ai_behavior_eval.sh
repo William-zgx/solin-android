@@ -289,6 +289,7 @@ allowed_routing_paths = {
     "model_tool_call",
     "no_action",
 }
+failure_mode_pattern = re.compile(r"^[a-z0-9][a-z0-9_:-]*$")
 
 for category in required:
     path = fixture_dir / f"{category}.jsonl"
@@ -372,6 +373,9 @@ for category in required:
             not isinstance(allowed_failure_modes, list) or
             any(not isinstance(mode, str) or not mode.strip() for mode in allowed_failure_modes)
         ):
+            print(f"reason=invalid-field:{category}:{line_number}:allowedFailureModes")
+            sys.exit(1)
+        if any(not failure_mode_pattern.match(mode.strip()) for mode in allowed_failure_modes):
             print(f"reason=invalid-field:{category}:{line_number}:allowedFailureModes")
             sys.exit(1)
         if expected_confirmation == "fail_closed" and not allowed_failure_modes:
@@ -562,6 +566,9 @@ def load_actual_traces():
         if not isinstance(failure_mode, str):
             print(f"reason=invalid-actual-trace:{line_number}:failureMode")
             sys.exit(1)
+        if failure_mode.strip() and not failure_mode_pattern.match(failure_mode.strip()):
+            print(f"reason=invalid-actual-trace:{line_number}:failureMode")
+            sys.exit(1)
         routing_path = str(row.get("routingPath", "")).strip()
         if routing_path not in allowed_routing_paths:
             print(f"reason=invalid-actual-trace:{line_number}:routingPath")
@@ -674,6 +681,10 @@ for case in eval_cases:
         actual_failure_mode and
         actual_failure_mode in case["allowedFailureModes"]
     )
+    actual_failure_mode_accepted = (
+        not actual_failure_mode or
+        actual_failure_mode in case["allowedFailureModes"]
+    )
     required_failure_mode_match = (
         not require_actual_trace or
         case["expectedConfirmation"] != "fail_closed" or
@@ -699,6 +710,7 @@ for case in eval_cases:
         tools_match and
         confirmation_match and
         safety_boundary_match and
+        actual_failure_mode_accepted and
         required_failure_mode_match
     ):
         status = "matched"
@@ -738,6 +750,7 @@ for case in eval_cases:
             "localOnlyMatches": local_only_match,
             "remoteEligibleMatches": remote_eligible_match,
             "allowedFailureModeMatches": bool(allowed_failure_mode_match),
+            "actualFailureModeAccepted": bool(actual_failure_mode_accepted),
             "requiredFailureModeMatches": bool(required_failure_mode_match),
             "allowedFailureSafetyMatches": bool(allowed_failure_match),
             "safetyBoundaryMatches": bool(safety_boundary_match),

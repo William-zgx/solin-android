@@ -33,6 +33,10 @@ items below.
   reproducible path, current git head SHA, and path/status/SHA-256 bindings for
   generated child reports such as privacy scan, AI behavior eval, artifact scan,
   perf baseline, signing cert, and release owner records.
+- Release-gate-generated lightweight child reports now use
+  `ReleaseGateChildReport/v1` with owner, UTC timestamp, command, reproducible
+  path, and reason fields, so skipped or preflight-failed children remain
+  auditable instead of status-only files.
 - Release operations monitoring and rollback evidence now require passed typed
   properties reports bound to the approved operations record fields, not only
   path/SHA presence.
@@ -155,6 +159,10 @@ items below.
   `submit_not_found`, `result_not_verified`, and `required_hint_missing`.
   The evidence is now mismatch-free, while allowed failures remain release-owner
   review items before public release.
+- Agent behavior trace diffs now fail closed when an actual trace reports an
+  unexpected `failureMode`, and fixture/trace failure modes must use stable slug
+  taxonomy. Allowed failures can explain expected fail-closed behavior, but they
+  can no longer hide a new silent failure mode on an otherwise matched trace.
 - GitHub Actions `workflow_dispatch` final release gate now requires an
   `ai_behavior_actual_trace_file` input and passes it to
   `AI_BEHAVIOR_ACTUAL_TRACE_FILE`, so the CI public-release path can satisfy the

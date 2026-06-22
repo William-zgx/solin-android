@@ -26,6 +26,9 @@ with each RC before treating this checklist as complete.
 - [ ] Agent/tool behavior changes are summarized, including remote
   OpenAI-style `tool_calls`, public evidence batch execution, all-or-nothing
   mixed-batch rejection, and the privacy boundary for LocalOnly tool results.
+- [ ] Agent behavior eval reports have no unexpected actual `failureMode`:
+  non-empty actual failure modes must be stable slugs and must either be listed
+  in the case `allowedFailureModes` or make the trace diff fail as mismatch.
 - [ ] `docs/release_record.json` is updated for the release candidate and
   `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh` passes. The gate
   checks the recorded Gradle version, current HEAD Git commit, artifact
@@ -40,6 +43,10 @@ with each RC before treating this checklist as complete.
   release gate; it also requires a clean Git worktree unless
   `ALLOW_DIRTY_RELEASE=1` is explicitly set for non-production dry-run
   validation.
+- [ ] `release-gate.properties` and every generated child report bound by it are
+  auditable evidence. Release-gate-owned skipped or preflight-failed child
+  reports must include `ReleaseGateChildReport/v1`, owner, UTC `recordedAt`,
+  command, reason, and reproducible path instead of only `status` / `target`.
 
 ## Versioning And Release Track
 

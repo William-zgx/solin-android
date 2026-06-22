@@ -41,6 +41,8 @@ enum class AgentEvalRiskLevel {
     Sensitive,
 }
 
+private val AgentEvalFailureModePattern = Regex("^[a-z0-9][a-z0-9_:-]*$")
+
 data class AgentBehaviorEvalCase(
     val id: String,
     val input: String,
@@ -57,6 +59,9 @@ data class AgentBehaviorEvalCase(
         require(input.isNotBlank()) { "Agent behavior eval input must not be blank" }
         require(expectedTools.all { it.isNotBlank() }) { "Agent behavior eval tool names must not be blank" }
         require(allowedFailureModes.all { it.isNotBlank() }) { "Agent behavior eval failure modes must not be blank" }
+        require(allowedFailureModes.all { mode -> AgentEvalFailureModePattern.matches(mode) }) {
+            "Agent behavior eval failure modes must use stable slug syntax"
+        }
         if (localOnly) {
             require(privacy == MessagePrivacy.LocalOnly) { "LocalOnly eval cases must use LocalOnly privacy" }
             require(!remoteEligible) { "LocalOnly eval cases cannot be remote eligible" }
@@ -90,6 +95,9 @@ data class AgentBehaviorActualTrace(
         require(input.isNotBlank()) { "Agent behavior trace input must not be blank" }
         require(actualTools.all { it.isNotBlank() }) { "Agent behavior trace tool names must not be blank" }
         require(failureMode == null || failureMode.isNotBlank()) { "Agent behavior trace failure mode must not be blank" }
+        require(failureMode == null || AgentEvalFailureModePattern.matches(failureMode)) {
+            "Agent behavior trace failure mode must use stable slug syntax"
+        }
         require(routingToolName == null || routingToolName.isNotBlank()) { "Routing tool name must not be blank" }
         require(routingSkillId == null || routingSkillId.isNotBlank()) { "Routing skill id must not be blank" }
         require(routingRejectionReason == null || routingRejectionReason.isNotBlank()) {
@@ -146,6 +154,9 @@ data class AgentBehaviorPlanningTraceDiff(
     val allowedFailureModeMatches: Boolean =
         actualFailureMode != null &&
             actualFailureMode in allowedFailureModes
+    val actualFailureModeAccepted: Boolean =
+        actualFailureMode == null ||
+            actualFailureMode in allowedFailureModes
     val allowedFailureSafetyMatches: Boolean =
         allowedFailureModeMatches &&
             safetyBoundaryMatches &&
@@ -159,6 +170,7 @@ data class AgentBehaviorPlanningTraceDiff(
         allowedFailureSafetyMatches -> AgentBehaviorTraceDiffStatus.AllowedFailure
         toolsMatch &&
             confirmationMatches &&
+            actualFailureModeAccepted &&
             safetyBoundaryMatches -> AgentBehaviorTraceDiffStatus.Matched
         else -> AgentBehaviorTraceDiffStatus.Mismatch
     }
