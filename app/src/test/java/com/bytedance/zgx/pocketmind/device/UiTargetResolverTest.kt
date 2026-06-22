@@ -13,6 +13,10 @@ class UiTargetResolverTest {
         assertEquals(UiTargetKind.EditableField, UiTargetResolver.kindForTarget("输入框"))
         assertEquals(UiTargetKind.SearchEntry, UiTargetResolver.kindForTarget("搜索入口"))
         assertEquals(UiTargetKind.SearchEntry, UiTargetResolver.kindForTarget("地址栏"))
+        assertEquals(UiTargetKind.SearchEntry, UiTargetResolver.kindForTarget("目的地"))
+        assertEquals(UiTargetKind.SearchEntry, UiTargetResolver.kindForTarget("搜地点"))
+        assertEquals(UiTargetKind.SearchEntry, UiTargetResolver.kindForTarget("搜索地点"))
+        assertEquals(UiTargetKind.SearchEntry, UiTargetResolver.kindForTarget("终点"))
         assertEquals(UiTargetKind.FilterEntry, UiTargetResolver.kindForTarget("筛选"))
         assertNull(UiTargetResolver.kindForTarget("天气怎么样"))
     }
@@ -136,6 +140,25 @@ class UiTargetResolverTest {
                     className = "android.widget.EditText",
                     bounds = ScreenBounds(12, 80, 900, 160),
                     editable = true,
+                    clickable = true,
+                ),
+            ),
+        )
+
+        val resolved = UiTargetResolver.resolve(snapshot, UiTargetKind.SubmitSearch)
+
+        assertNull(resolved)
+    }
+
+    @Test
+    fun doesNotResolveVoiceSearchAsSubmitSearchButton() {
+        val snapshot = snapshot(
+            nodes = listOf(
+                node(
+                    id = "voice-search",
+                    contentDescription = "语音搜索",
+                    className = "android.widget.ImageButton",
+                    bounds = ScreenBounds(920, 80, 1032, 172),
                     clickable = true,
                 ),
             ),

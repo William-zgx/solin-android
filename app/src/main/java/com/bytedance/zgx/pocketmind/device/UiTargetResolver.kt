@@ -160,6 +160,11 @@ object UiTargetResolver {
                 "search",
                 "searchentry",
                 "searchbox",
+                "目的地",
+                "去哪儿",
+                "搜地点",
+                "搜索地点",
+                "终点",
             )
                 .any { normalized.contains(it.normalizedLookupKey()) } -> UiTargetKind.SearchEntry
             listOf("输入框", "输入", "editable", "textfield")
@@ -192,6 +197,7 @@ object UiTargetResolver {
         if (kind == UiTargetKind.SubmitSearch && node.editable) return null
         val label = node.visibleLabel()
         val normalizedLabel = label.normalizedLookupKey()
+        if (kind == UiTargetKind.SubmitSearch && looksNonTextSearchControl(normalizedLabel)) return null
         val normalizedTarget = target.normalizedLookupKey()
         val profileHints = when (kind) {
             UiTargetKind.SearchEntry -> profile?.searchEntryHints.orEmpty()
@@ -266,7 +272,9 @@ object UiTargetResolver {
 
     private fun submitSearchScore(node: ScreenNode, normalizedLabel: String): Int {
         var score = 0
-        if (!node.editable && node.clickable && looksSearchSubmitLike(normalizedLabel)) score += 700
+        if (!node.editable && node.clickable && !looksNonTextSearchControl(normalizedLabel) && looksSearchSubmitLike(normalizedLabel)) {
+            score += 700
+        }
         return score
     }
 }
@@ -546,6 +554,10 @@ internal fun looksSearchSubmitLike(normalized: String): Boolean =
     looksSearchLike(normalized) ||
         listOf("确定", "完成", "前往", "enter").any { normalized.contains(it.normalizedLookupKey()) } ||
         normalized == "go"
+
+internal fun looksNonTextSearchControl(normalized: String): Boolean =
+    listOf("语音", "拍照", "相机", "图片", "扫一扫", "扫码", "voice", "camera", "image")
+        .any { normalized.contains(it.normalizedLookupKey()) }
 
 internal fun looksInputLike(normalized: String): Boolean =
     listOf("输入", "地址", "网址", "url", "omnibox", "关键词", "商品", "目的地", "宝贝", "店铺", "input", "edit", "keyword")

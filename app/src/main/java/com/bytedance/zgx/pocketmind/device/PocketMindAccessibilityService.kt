@@ -874,6 +874,7 @@ private data class NodeCandidate(
         val text = node.text.normalizedNodeText().normalizedLookupKey()
         val description = node.contentDescription.normalizedNodeText().normalizedLookupKey()
         val normalizedLabel = label.normalizedLookupKey()
+        if (kind == UiTargetKind.SubmitSearch && looksNonTextSearchControl(normalizedLabel)) return null
         semanticTargetMatchScore(target, normalizedLabel, profile)?.let { score ->
             val finalScore = score +
                 actionabilityScore() +
@@ -921,6 +922,7 @@ private data class NodeCandidate(
             UiTargetKind.SubmitSearch ->
                 if (
                     !node.isEditable &&
+                    !looksNonTextSearchControl(normalizedLabel) &&
                     (looksSearchSubmitLike(normalizedLabel) || hintScore > 0)
                 ) {
                     700 + hintScore

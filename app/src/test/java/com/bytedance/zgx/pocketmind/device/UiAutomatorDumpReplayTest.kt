@@ -72,6 +72,43 @@ class UiAutomatorDumpReplayTest {
     }
 
     @Test
+    fun gaodeInputDumpResolvesEditableFieldAndSubmitButton() {
+        val snapshot = loadDump("ui_dumps/real_app_search/gaode_destination_input.xml")
+
+        val editable = UiTargetResolver.explain(snapshot, UiTargetKind.EditableField, target = "目的地")
+        val submit = UiTargetResolver.explain(snapshot, UiTargetKind.SubmitSearch, target = "提交搜索")
+
+        assertNull(editable.failureKind)
+        assertEquals("com.autonavi.minimap:id/search_edit_text", editable.selectedNodeId)
+        assertEquals("搜索地点、公交、地铁", editable.rankedCandidates.firstOrNull()?.label)
+        assertTrue(editable.rankedCandidates.none { candidate -> candidate.nodeId == "com.autonavi.minimap:id/voice_search" })
+
+        assertNull(submit.failureKind)
+        assertEquals("com.autonavi.minimap:id/search_submit", submit.selectedNodeId)
+        assertEquals("搜索", submit.rankedCandidates.firstOrNull()?.label)
+        assertTrue(submit.rankedCandidates.none { candidate -> candidate.nodeId == "com.autonavi.minimap:id/search_edit_text" })
+        assertTrue(submit.rankedCandidates.none { candidate -> candidate.nodeId == "com.autonavi.minimap:id/voice_search" })
+    }
+
+    @Test
+    fun gaodeResultDumpVerifiesSearchResultAfterPageChange() {
+        val before = loadDump("ui_dumps/real_app_search/gaode_destination_home.xml")
+        val after = loadDump("ui_dumps/real_app_search/gaode_destination_results.xml")
+
+        val verification = AppSearchResultVerifier.verify(
+            before = before,
+            after = after,
+            query = "北京机场",
+            expectedPackageName = "com.autonavi.minimap",
+            expectedAppName = "高德地图",
+        )
+
+        assertTrue(verification.summary, verification.verified)
+        assertEquals("query_visible_after_change", verification.evidence)
+        assertNull(verification.failureKind)
+    }
+
+    @Test
     fun pddSearchHomeDumpResolvesProductSearchEntryAndDemotesFeed() {
         val snapshot = loadDump("ui_dumps/real_app_search/pdd_search_home.xml")
 
