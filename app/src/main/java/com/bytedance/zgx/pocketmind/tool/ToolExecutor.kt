@@ -1157,6 +1157,7 @@ private fun ToolRequest.currentScreenshotOcrBaseData(): Map<String, String> =
         "source" to CurrentScreenshotOcrContract.SOURCE,
         "captureMode" to CurrentScreenshotOcrContract.CAPTURE_MODE,
         "metadataPolicy" to CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY,
+        "rawPayloadIncluded" to false.toString(),
     )
 
 private fun List<ContactSummaryItem>.toContactsJsonString(): String {

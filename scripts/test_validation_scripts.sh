@@ -833,6 +833,14 @@ write_model_release_flow_contract_fixture() {
       printf 'remoteNetworkFailureRecoveryCovered=true\n'
       printf 'remoteUnconfiguredModelFailureCovered=true\n'
       printf 'remoteLocalMemoryNotAutoIncluded=true\n'
+      printf 'remoteMemoryContextIncluded=false\n'
+      printf 'remoteMemoryHitCount=0\n'
+      printf 'remoteSemanticMemoryHitCount=0\n'
+      printf 'remoteLexicalMemoryHitCount=0\n'
+      printf 'remoteDeviceContextIncluded=false\n'
+      printf 'remoteRawContentPersisted=false\n'
+      printf 'remoteProtectedMemoryDeclared=true\n'
+      printf 'remoteProtectedDeviceContextDeclared=true\n'
       ;;
     encryptedApiKeyClear)
       printf 'encryptedApiKeyBlankInputClearsSecret=true\n'
@@ -944,6 +952,11 @@ write_model_release_flow_contract_fixture() {
       printf 'recentImageOcrRoutingCovered=true\n'
       printf 'recentMediaOcrConfirmationCovered=true\n'
       printf 'recentScreenshotOneItemLimitCovered=true\n'
+      printf 'recentScreenshotMaxCount=1\n'
+      printf 'recentImageMaxCount=3\n'
+      printf 'recentMediaOcrRawPayloadPersisted=false\n'
+      printf 'recentMediaOcrPrivateMetadataRedacted=true\n'
+      printf 'recentMediaOcrOcrTextTraceRedacted=true\n'
       printf 'recentMediaOcrLocalOnlyProtected=true\n'
       printf 'recentMediaOcrRemoteLeakageBlocked=true\n'
       ;;
@@ -4544,6 +4557,9 @@ expect_failure \
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-remote-flow.properties" "flow-remoteHttpsConfiguration-remote-network-failure-recovery-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-remote-flow.properties" "flow-remoteHttpsConfiguration-remote-unconfigured-model-failure-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-remote-flow.properties" "flow-remoteHttpsConfiguration-remote-local-memory-boundary-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-remote-flow.properties" "flow-remoteHttpsConfiguration-remote-memory-context-included"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-remote-flow.properties" "flow-remoteHttpsConfiguration-remote-memory-hit-count-nonzero"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-remote-flow.properties" "flow-remoteHttpsConfiguration-remote-protected-memory-declared-missing"
 VALIDATION_WEAK_SESSION_FLOW="$TMP_DIR/release-validation-weak-session-flow.json"
 VALIDATION_WEAK_SESSION_FLOW_EVIDENCE="$TMP_DIR/validation-flow-evidence/weak-session.properties"
 cat > "$VALIDATION_WEAK_SESSION_FLOW_EVIDENCE" <<'VALIDATION_WEAK_SESSION_FLOW_EVIDENCE_PROPERTIES'
@@ -4756,6 +4772,10 @@ expect_failure \
   "release validation verifier rejects weak recent media OCR evidence" \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_WEAK_RECENT_MEDIA_OCR_FLOW" --report "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties" "flow-recentMediaOcr-recent-screenshot-ocr-routing-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties" "flow-recentMediaOcr-recent-screenshot-max-count-mismatch"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties" "flow-recentMediaOcr-recent-image-max-count-mismatch"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties" "flow-recentMediaOcr-recent-media-ocr-private-metadata-redaction-missing"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties" "flow-recentMediaOcr-recent-media-ocr-trace-redaction-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties" "flow-recentMediaOcr-recent-media-ocr-local-only-protection-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-weak-recent-media-ocr-flow.properties" "flow-recentMediaOcr-recent-media-ocr-remote-leakage-block-missing"
 VALIDATION_BARE_MANUAL="$TMP_DIR/release-validation-bare-manual.json"
@@ -5438,6 +5458,9 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-memory
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-remindersAfterReboot.properties" "bootCompletedReminderRescheduleCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-accessibilityText.properties" "accessibilityTextLocalOnlyMetadataCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-recentMediaOcr.properties" "recentMediaOcrRemoteLeakageBlocked=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-recentMediaOcr.properties" "recentScreenshotMaxCount=1"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-recentMediaOcr.properties" "recentImageMaxCount=3"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-recentMediaOcr.properties" "recentMediaOcrRawPayloadPersisted=false"
 for generated_flow_key in \
   firstInstall localModelDownloadVerification customModelImportOrUrlRejection \
   remoteHttpsConfiguration encryptedApiKeyClear sessionPersistence memoryControls \
@@ -5468,6 +5491,10 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-custom
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-remoteHttpsConfiguration.properties" "remoteNetworkFailureRecoveryCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-remoteHttpsConfiguration.properties" "remoteUnconfiguredModelFailureCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-remoteHttpsConfiguration.properties" "remoteLocalMemoryNotAutoIncluded=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-remoteHttpsConfiguration.properties" "remoteMemoryContextIncluded=false"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-remoteHttpsConfiguration.properties" "remoteMemoryHitCount=0"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-remoteHttpsConfiguration.properties" "remoteDeviceContextIncluded=false"
+assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-remoteHttpsConfiguration.properties" "remoteRawContentPersisted=false"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "actionSendTextStaged=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteTextShareProtected=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-candidate-pending/flow-shareAndPickerInput.properties" "remoteVisionImageAttachmentStaged=true"
@@ -5793,6 +5820,14 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-customModelImportOr
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteNetworkFailureRecoveryCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteUnconfiguredModelFailureCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteLocalMemoryNotAutoIncluded=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteMemoryContextIncluded=false"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteMemoryHitCount=0"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteSemanticMemoryHitCount=0"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteLexicalMemoryHitCount=0"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteDeviceContextIncluded=false"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteRawContentPersisted=false"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteProtectedMemoryDeclared=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-remoteHttpsConfiguration.properties" "remoteProtectedDeviceContextDeclared=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-encryptedApiKeyClear.properties" "encryptedApiKeyBlankInputClearsSecret=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-encryptedApiKeyClear.properties" "legacyPlaintextApiKeyNotPersisted=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-sessionPersistence.properties" "sessionCreateSwitchRestoreCovered=true"
@@ -5853,6 +5888,11 @@ assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-accessibilityText.p
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-accessibilityText.properties" "accessibilityTextTraceRecorded=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-recentMediaOcr.properties" "recentScreenshotOcrRoutingCovered=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-recentMediaOcr.properties" "recentImageOcrRoutingCovered=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-recentMediaOcr.properties" "recentScreenshotMaxCount=1"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-recentMediaOcr.properties" "recentImageMaxCount=3"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-recentMediaOcr.properties" "recentMediaOcrRawPayloadPersisted=false"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-recentMediaOcr.properties" "recentMediaOcrPrivateMetadataRedacted=true"
+assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-recentMediaOcr.properties" "recentMediaOcrOcrTextTraceRedacted=true"
 assert_report_contains "$ARTIFACT_DIR/release-flow-full/flow-recentMediaOcr.properties" "recentMediaOcrRemoteLeakageBlocked=true"
 
 FAKE_SDKMANAGER="$TMP_DIR/fake-sdkmanager"

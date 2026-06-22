@@ -629,6 +629,7 @@ class ToolRegistryTest {
         assertTrue(currentScreenshotOcrSpec.inputSchemaJson.contains("\"captureMode\""))
         assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("capture_current_screenshot_ocr"))
         assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("\"truncated\""))
+        assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("\"rawPayloadIncluded\""))
         assertTrue(currentScreenshotOcrSpec.description.contains("MediaProjection"))
         assertTrue(currentScreenshotOcrSpec.description.contains("不保存图片"))
 

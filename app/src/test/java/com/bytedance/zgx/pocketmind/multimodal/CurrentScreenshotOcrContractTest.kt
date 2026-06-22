@@ -22,6 +22,7 @@ class CurrentScreenshotOcrContractTest {
         assertEquals(MessagePrivacy.LocalOnly.name, outputProperties.getJSONObject("privacy").getJSONArray("enum").getString(0))
         assertTrue(outputProperties.getJSONObject("requiresLocalModel").getBoolean("const"))
         assertEquals("boolean", outputProperties.getJSONObject("truncated").getString("type"))
+        assertFalse(outputProperties.getJSONObject("rawPayloadIncluded").getBoolean("const"))
         assertEquals(
             CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY,
             outputProperties.getJSONObject("metadataPolicy").getJSONArray("enum").getString(0),

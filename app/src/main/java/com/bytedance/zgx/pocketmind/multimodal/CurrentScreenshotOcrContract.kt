@@ -31,6 +31,7 @@ object CurrentScreenshotOcrContract {
     "captureMode",
     "truncated",
     "ocrTextIncluded",
+    "rawPayloadIncluded",
     "metadataPolicy",
     "privacy",
     "requiresLocalModel"
@@ -42,6 +43,7 @@ object CurrentScreenshotOcrContract {
     "ocrText": {"type": "string", "minLength": 1},
     "truncated": {"type": "boolean"},
     "ocrTextIncluded": {"type": "boolean"},
+    "rawPayloadIncluded": {"type": "boolean", "const": false},
     "metadataPolicy": {
       "type": "string",
       "enum": ["ocr_text_local_only_no_uri_path_or_pixels_persisted"]

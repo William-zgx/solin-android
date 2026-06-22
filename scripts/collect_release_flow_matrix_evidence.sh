@@ -171,7 +171,7 @@ flow_summary() {
       printf 'API 36 emulator regression covers custom model URL rejection and custom .litertlm DownloadManager handoff; JVM contracts reject unsafe URLs and cover local import extension, storage, empty-file, temp-cleanup, and UnverifiedCustom registration boundaries.'
       ;;
     remoteHttpsConfiguration)
-      printf 'API 36 emulator regression configures remote mode against a local OpenAI-compatible fixture; JVM contracts cover HTTPS validation, remote failure recovery, unconfigured remote handling, and local memory/device context protection.'
+      printf 'API 36 emulator regression configures remote mode against a local OpenAI-compatible fixture; JVM contracts cover HTTPS validation, remote failure recovery, unconfigured remote handling, and exact zero-count local memory/device/raw-content remote boundaries.'
       ;;
     encryptedApiKeyClear)
       printf 'Repository tests prove blank API key clears the encrypted secret; API 36 emulator regression checks the legacy plaintext preference is not populated.'
@@ -201,7 +201,7 @@ flow_summary() {
       printf 'API 36 emulator regression covers current screen Accessibility text confirmation, cancellation, audit evidence, and trace recording.'
       ;;
     recentMediaOcr)
-      printf 'JVM tool, skill, and orchestration tests cover recent screenshot/image OCR routing, confirmation, one-item screenshot limits, local-only result handling, and remote-mode leakage prevention.'
+      printf 'JVM tool, skill, and orchestration tests cover recent screenshot/image OCR routing, confirmation, one-item screenshot limits, three-item image scan limits, LocalOnly result handling, raw payload non-persistence, private metadata/trace redaction, and remote-mode leakage prevention.'
       ;;
     mediaProjectionCancellation)
       printf 'API 36 emulator regression covers current screenshot OCR confirmation and user cancellation before MediaProjection execution, with audit and trace evidence.'
@@ -342,6 +342,14 @@ write_flow_contract_fields() {
       printf 'remoteNetworkFailureRecoveryCovered=true\n'
       printf 'remoteUnconfiguredModelFailureCovered=true\n'
       printf 'remoteLocalMemoryNotAutoIncluded=true\n'
+      printf 'remoteMemoryContextIncluded=false\n'
+      printf 'remoteMemoryHitCount=0\n'
+      printf 'remoteSemanticMemoryHitCount=0\n'
+      printf 'remoteLexicalMemoryHitCount=0\n'
+      printf 'remoteDeviceContextIncluded=false\n'
+      printf 'remoteRawContentPersisted=false\n'
+      printf 'remoteProtectedMemoryDeclared=true\n'
+      printf 'remoteProtectedDeviceContextDeclared=true\n'
       ;;
     encryptedApiKeyClear)
       printf 'encryptedApiKeyBlankInputClearsSecret=true\n'
@@ -429,6 +437,11 @@ write_flow_contract_fields() {
       printf 'recentImageOcrRoutingCovered=true\n'
       printf 'recentMediaOcrConfirmationCovered=true\n'
       printf 'recentScreenshotOneItemLimitCovered=true\n'
+      printf 'recentScreenshotMaxCount=1\n'
+      printf 'recentImageMaxCount=3\n'
+      printf 'recentMediaOcrRawPayloadPersisted=false\n'
+      printf 'recentMediaOcrPrivateMetadataRedacted=true\n'
+      printf 'recentMediaOcrOcrTextTraceRedacted=true\n'
       printf 'recentMediaOcrLocalOnlyProtected=true\n'
       printf 'recentMediaOcrRemoteLeakageBlocked=true\n'
       ;;
@@ -630,6 +643,8 @@ def is_valid_evidence(flow, value):
             "remoteNetworkFailureRecoveryCovered",
             "remoteUnconfiguredModelFailureCovered",
             "remoteLocalMemoryNotAutoIncluded",
+            "remoteProtectedMemoryDeclared",
+            "remoteProtectedDeviceContextDeclared",
         ],
         "encryptedApiKeyClear": [
             "encryptedApiKeyBlankInputClearsSecret",
@@ -707,6 +722,8 @@ def is_valid_evidence(flow, value):
             "recentImageOcrRoutingCovered",
             "recentMediaOcrConfirmationCovered",
             "recentScreenshotOneItemLimitCovered",
+            "recentMediaOcrPrivateMetadataRedacted",
+            "recentMediaOcrOcrTextTraceRedacted",
             "recentMediaOcrLocalOnlyProtected",
             "recentMediaOcrRemoteLeakageBlocked",
         ],
@@ -729,6 +746,19 @@ def is_valid_evidence(flow, value):
             "localVisionRemoteRuntimeRequestCount": "0",
             "localVisionUnsupportedRuntimeImageSendCount": "0",
             "localVisionUnsupportedImageOcrInvocationCount": "0",
+        },
+        "recentMediaOcr": {
+            "recentScreenshotMaxCount": "1",
+            "recentImageMaxCount": "3",
+            "recentMediaOcrRawPayloadPersisted": "false",
+        },
+        "remoteHttpsConfiguration": {
+            "remoteMemoryContextIncluded": "false",
+            "remoteMemoryHitCount": "0",
+            "remoteSemanticMemoryHitCount": "0",
+            "remoteLexicalMemoryHitCount": "0",
+            "remoteDeviceContextIncluded": "false",
+            "remoteRawContentPersisted": "false",
         },
     }.get(flow, {})
     for field, expected in required_exact_fields.items():

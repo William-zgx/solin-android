@@ -14111,3 +14111,63 @@ ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
 - 仍按要求跳过真机和模拟器验证；arm64 真机完整 instrumentation、arm64 emulator API matrix、
   真实 App 真机搜索闭环、截图、perf baseline、release owner/manual/legal/signing 证据不能标记
   为 passed。
+
+## 2026-06-23 OCR raw payload and remote memory release-flow hardening
+
+本轮覆盖项：
+
+- 多 Agent 并行只读审计 OCR/multimodal、memory validation、store/privacy verifier。已吸收本地
+  可验证且不依赖真机/模拟器的两项改进。
+- `capture_current_screenshot_ocr` 的输出 schema 和执行结果现在显式包含
+  `rawPayloadIncluded=false`，使当前屏幕截图 OCR 的“不持久化原始截图/像素”从隐含策略变成
+  schema 合同。
+- `recentMediaOcr` release-flow evidence 增加机器字段：
+  `recentScreenshotMaxCount=1`、`recentImageMaxCount=3`、
+  `recentMediaOcrRawPayloadPersisted=false`、
+  `recentMediaOcrPrivateMetadataRedacted=true`、
+  `recentMediaOcrOcrTextTraceRedacted=true`。`verify_release_validation_record.sh` 和
+  `collect_release_flow_matrix_evidence.sh` 都会校验这些字段。
+- `remoteHttpsConfiguration` release-flow evidence 增加远程记忆/设备上下文边界 exact 字段：
+  `remoteMemoryContextIncluded=false`、`remoteMemoryHitCount=0`、
+  `remoteSemanticMemoryHitCount=0`、`remoteLexicalMemoryHitCount=0`、
+  `remoteDeviceContextIncluded=false`、`remoteRawContentPersisted=false`，并要求声明
+  `remoteProtectedMemoryDeclared=true` 和 `remoteProtectedDeviceContextDeclared=true`。
+
+验证命令：
+
+```bash
+bash -n scripts/record_release_flow_evidence.sh \
+  scripts/collect_release_flow_matrix_evidence.sh \
+  scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+    --tests 'com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContractTest' \
+    --tests 'com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest.currentScreenshotOcrUsesOneShotProviderResultAfterConsent' \
+    --tests 'com.bytedance.zgx.pocketmind.tool.ToolRegistryTest.registersCurrentScreenshotOcrToolSpec'
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 静态检查。
+- 通过：current screenshot OCR contract / routing executor / ToolRegistry targeted JVM tests。
+- 通过：validation script self-tests，覆盖弱 recentMediaOcr evidence、approved structured flow
+  records、candidate/full release-flow evidence，以及 remote memory boundary exact 字段。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM tests、debug/release
+  build、AndroidTest assemble、lint 和 artifact scan。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
+  perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+- 子 Agent 发现但未在本轮改动的后续项：privacy review 仍可加强 notice 内容校验和
+  capability matrix 绑定；recent image/screenshot OCR runtime `ToolResult` 仍可进一步移除文件名、
+  MIME、大小和修改时间等媒体身份字段；manual acceptance 和 memory pressure evidence 可继续增加
+  key-specific 字段。

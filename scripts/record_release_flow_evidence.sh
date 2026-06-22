@@ -129,6 +129,14 @@ write_flow_contract_fields() {
       printf 'remoteNetworkFailureRecoveryCovered=true\n'
       printf 'remoteUnconfiguredModelFailureCovered=true\n'
       printf 'remoteLocalMemoryNotAutoIncluded=true\n'
+      printf 'remoteMemoryContextIncluded=false\n'
+      printf 'remoteMemoryHitCount=0\n'
+      printf 'remoteSemanticMemoryHitCount=0\n'
+      printf 'remoteLexicalMemoryHitCount=0\n'
+      printf 'remoteDeviceContextIncluded=false\n'
+      printf 'remoteRawContentPersisted=false\n'
+      printf 'remoteProtectedMemoryDeclared=true\n'
+      printf 'remoteProtectedDeviceContextDeclared=true\n'
       ;;
     encryptedApiKeyClear)
       printf 'encryptedApiKeyBlankInputClearsSecret=true\n'
@@ -240,6 +248,11 @@ write_flow_contract_fields() {
       printf 'recentImageOcrRoutingCovered=true\n'
       printf 'recentMediaOcrConfirmationCovered=true\n'
       printf 'recentScreenshotOneItemLimitCovered=true\n'
+      printf 'recentScreenshotMaxCount=1\n'
+      printf 'recentImageMaxCount=3\n'
+      printf 'recentMediaOcrRawPayloadPersisted=false\n'
+      printf 'recentMediaOcrPrivateMetadataRedacted=true\n'
+      printf 'recentMediaOcrOcrTextTraceRedacted=true\n'
       printf 'recentMediaOcrLocalOnlyProtected=true\n'
       printf 'recentMediaOcrRemoteLeakageBlocked=true\n'
       ;;

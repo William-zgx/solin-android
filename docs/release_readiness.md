@@ -194,6 +194,13 @@ items below.
   local gate improvements; physical arm64 validation, emulator API matrix runs,
   perf baseline, screenshots, approvals, and production signing are still
   blocking evidence.
+- The latest local release-flow hardening makes current-screen screenshot OCR
+  declare `rawPayloadIncluded=false`, requires recent media OCR evidence to bind
+  screenshot/image scan limits plus raw-payload and redaction fields, and
+  requires remote HTTPS configuration evidence to report zero memory hits, zero
+  memory context, zero device context, and no raw content persistence. These are
+  machine-checkable local contracts, not substitutes for physical validation or
+  release-owner approval.
 
 ## Remaining release blockers by ownership
 

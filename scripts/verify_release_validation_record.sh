@@ -732,6 +732,8 @@ def validate_flow_evidence(key, evidence_path):
             "remoteNetworkFailureRecoveryCovered": "remote-network-failure-recovery-missing",
             "remoteUnconfiguredModelFailureCovered": "remote-unconfigured-model-failure-missing",
             "remoteLocalMemoryNotAutoIncluded": "remote-local-memory-boundary-missing",
+            "remoteProtectedMemoryDeclared": "remote-protected-memory-declared-missing",
+            "remoteProtectedDeviceContextDeclared": "remote-protected-device-context-declared-missing",
         },
         "encryptedApiKeyClear": {
             "encryptedApiKeyBlankInputClearsSecret": "encrypted-api-key-clear-missing",
@@ -809,6 +811,8 @@ def validate_flow_evidence(key, evidence_path):
             "recentImageOcrRoutingCovered": "recent-image-ocr-routing-missing",
             "recentMediaOcrConfirmationCovered": "recent-media-ocr-confirmation-missing",
             "recentScreenshotOneItemLimitCovered": "recent-screenshot-one-item-limit-missing",
+            "recentMediaOcrPrivateMetadataRedacted": "recent-media-ocr-private-metadata-redaction-missing",
+            "recentMediaOcrOcrTextTraceRedacted": "recent-media-ocr-trace-redaction-missing",
             "recentMediaOcrLocalOnlyProtected": "recent-media-ocr-local-only-protection-missing",
             "recentMediaOcrRemoteLeakageBlocked": "recent-media-ocr-remote-leakage-block-missing",
         },
@@ -831,6 +835,19 @@ def validate_flow_evidence(key, evidence_path):
             "localVisionRemoteRuntimeRequestCount": ("0", "local-vision-remote-runtime-request-count-mismatch"),
             "localVisionUnsupportedRuntimeImageSendCount": ("0", "local-vision-unsupported-runtime-image-send-count-mismatch"),
             "localVisionUnsupportedImageOcrInvocationCount": ("0", "local-vision-unsupported-image-ocr-count-mismatch"),
+        },
+        "recentMediaOcr": {
+            "recentScreenshotMaxCount": ("1", "recent-screenshot-max-count-mismatch"),
+            "recentImageMaxCount": ("3", "recent-image-max-count-mismatch"),
+            "recentMediaOcrRawPayloadPersisted": ("false", "recent-media-ocr-raw-payload-persisted"),
+        },
+        "remoteHttpsConfiguration": {
+            "remoteMemoryContextIncluded": ("false", "remote-memory-context-included"),
+            "remoteMemoryHitCount": ("0", "remote-memory-hit-count-nonzero"),
+            "remoteSemanticMemoryHitCount": ("0", "remote-semantic-memory-hit-count-nonzero"),
+            "remoteLexicalMemoryHitCount": ("0", "remote-lexical-memory-hit-count-nonzero"),
+            "remoteDeviceContextIncluded": ("false", "remote-device-context-included"),
+            "remoteRawContentPersisted": ("false", "remote-raw-content-persisted"),
         },
     }.get(key, {})
     for field, (expected, reason) in required_exact_fields.items():

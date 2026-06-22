@@ -271,6 +271,7 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals("当前屏幕 OCR 文本", result.data["ocrText"])
         assertEquals("true", result.data["ocrTextIncluded"])
         assertEquals("false", result.data["truncated"])
+        assertEquals("false", result.data["rawPayloadIncluded"])
         assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
         assertEquals(true.toString(), result.data["requiresLocalModel"])
         assertEquals(CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY, result.data["metadataPolicy"])
