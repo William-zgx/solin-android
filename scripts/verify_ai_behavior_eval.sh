@@ -12,6 +12,7 @@ ACTUAL_TRACE_FILE=""
 TRACE_DIFF_FILE=""
 REQUIRE_ACTUAL_TRACE=0
 REQUIRE_RUNTIME_TRACE_SOURCE=0
+ACTUAL_TRACE_MAX_AGE_DAYS="${AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS:-30}"
 ORIGINAL_ARGS=("$@")
 
 sha256_or_empty() {
@@ -111,6 +112,7 @@ write_report() {
     traceDiffExtraActualCount
     traceDiffStatusBreakdown
     actualTraceSourceBreakdown
+    actualTraceNewestRecordedAt
   )
   local metric_defaults=(0 0 "" "" 0 0 0 "" "" "" "" "" 0 0 "" "" "" 0 0 0 "" "" "" "" "" "" 0 0 0 0 0 0 "" "")
   local index metric_key metric_value
@@ -132,13 +134,14 @@ write_report() {
       printf 'requireBoundaryMap=%s\n' "$REQUIRE_BOUNDARY_MAP"
       printf 'requireActualTrace=%s\n' "$REQUIRE_ACTUAL_TRACE"
       printf 'requireRuntimeTraceSource=%s\n' "$REQUIRE_RUNTIME_TRACE_SOURCE"
+      printf 'actualTraceMaxAgeDays=%s\n' "$ACTUAL_TRACE_MAX_AGE_DAYS"
       printf 'requiredCategories=%s\n' "$(IFS=,; echo "${REQUIRED_CATEGORIES[*]}")"
       for index in "${!metric_keys[@]}"; do
         metric_key="${metric_keys[$index]}"
-        metric_value="${metric_defaults[$index]}"
+        metric_value="${metric_defaults[$index]-}"
         if [[ -n "$metrics_file" && -f "$metrics_file" ]]; then
           metric_value="$(awk -F= -v key="$metric_key" '$1 == key {sub(/^[^=]*=/, ""); print; found = 1; exit} END {if (!found) exit 1}' "$metrics_file" || true)"
-          [[ -n "$metric_value" ]] || metric_value="${metric_defaults[$index]}"
+          [[ -n "$metric_value" ]] || metric_value="${metric_defaults[$index]-}"
         fi
         printf '%s=%s\n' "$metric_key" "$metric_value"
       done
@@ -150,7 +153,7 @@ validation_output="$(mktemp)"
 trap 'rm -f "$validation_output"' EXIT
 
 if ! python3 - "$FIXTURE_DIR" "$MIN_CASES_PER_CATEGORY" "$REQUIRE_BOUNDARY_MAP" \
-  "$ACTUAL_TRACE_FILE" "$TRACE_DIFF_FILE" "$REQUIRE_ACTUAL_TRACE" "$REQUIRE_RUNTIME_TRACE_SOURCE" \
+  "$ACTUAL_TRACE_FILE" "$TRACE_DIFF_FILE" "$REQUIRE_ACTUAL_TRACE" "$REQUIRE_RUNTIME_TRACE_SOURCE" "$ACTUAL_TRACE_MAX_AGE_DAYS" \
   "${REQUIRED_CATEGORIES[@]}" > "$validation_output" <<'PY'
 import collections
 import datetime
@@ -166,7 +169,15 @@ actual_trace_arg = sys.argv[4]
 trace_diff_arg = sys.argv[5]
 require_actual_trace = sys.argv[6] == "1"
 require_runtime_trace_source = sys.argv[7] == "1"
-required = sys.argv[8:]
+try:
+    actual_trace_max_age_days = int(sys.argv[8])
+except ValueError:
+    print("reason=invalid-actual-trace-max-age-days")
+    sys.exit(1)
+if actual_trace_max_age_days <= 0:
+    print("reason=invalid-actual-trace-max-age-days")
+    sys.exit(1)
+required = sys.argv[9:]
 capability_matrix_path = pathlib.Path("docs/capability_matrix.json")
 action_models_path = pathlib.Path("app/src/main/java/com/bytedance/zgx/pocketmind/action/ActionModels.kt")
 
@@ -425,6 +436,8 @@ if duplicate_case_ids:
     print(f"reason=duplicate-trace-case-id:{','.join(duplicate_case_ids)}")
     sys.exit(1)
 
+now_utc = datetime.datetime.now(datetime.timezone.utc)
+
 def validate_trace_recorded_at(value, line_number):
     if not isinstance(value, str) or not re.match(r"^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", value):
         print(f"reason=invalid-actual-trace:{line_number}:traceRecordedAt")
@@ -434,12 +447,16 @@ def validate_trace_recorded_at(value, line_number):
     except ValueError:
         print(f"reason=invalid-actual-trace:{line_number}:traceRecordedAt")
         sys.exit(1)
-    now = datetime.datetime.now(datetime.timezone.utc)
-    if parsed > now + datetime.timedelta(minutes=5):
+    if parsed > now_utc + datetime.timedelta(minutes=5):
         print(f"reason=actual-trace-recordedAt-future:{line_number}")
         sys.exit(1)
+    if now_utc - parsed > datetime.timedelta(days=actual_trace_max_age_days):
+        print(f"reason=actual-trace-recordedAt-stale:{line_number}")
+        sys.exit(1)
+    return parsed
 
 actual_trace_source_counts = collections.Counter()
+actual_trace_recorded_at_values = []
 
 def load_actual_traces():
     if not actual_trace_arg:
@@ -540,7 +557,9 @@ def load_actual_traces():
             if trace_source not in allowed_runtime_trace_sources:
                 print(f"reason=invalid-actual-trace:{line_number}:traceSource")
                 sys.exit(1)
-            validate_trace_recorded_at(trace_recorded_at, line_number)
+        if require_actual_trace or require_runtime_trace_source:
+            parsed_recorded_at = validate_trace_recorded_at(trace_recorded_at, line_number)
+            actual_trace_recorded_at_values.append((parsed_recorded_at, trace_recorded_at))
         if trace_source:
             actual_trace_source_counts[trace_source] += 1
         traces.append(
@@ -567,6 +586,9 @@ def load_actual_traces():
     return traces
 
 actual_traces = load_actual_traces()
+actual_trace_newest_recorded_at = ""
+if actual_trace_recorded_at_values:
+    actual_trace_newest_recorded_at = max(actual_trace_recorded_at_values, key=lambda item: item[0])[1]
 actual_by_case_id = {
     trace["caseId"]: trace
     for trace in actual_traces
@@ -718,6 +740,7 @@ def emit_metrics(reason=""):
     print(f"traceDiffFile={trace_diff_arg}")
     print(f"requireActualTrace={int(require_actual_trace)}")
     print(f"requireRuntimeTraceSource={int(require_runtime_trace_source)}")
+    print(f"actualTraceMaxAgeDays={actual_trace_max_age_days}")
     print(f"traceDiffCaseCount={len(eval_cases)}")
     print(f"traceDiffMatchedCount={trace_diff_counts['matched']}")
     print(f"traceDiffAllowedFailureCount={trace_diff_counts['allowed_failure']}")
@@ -726,6 +749,7 @@ def emit_metrics(reason=""):
     print(f"traceDiffExtraActualCount={trace_diff_extra_actual_count}")
     print(f"traceDiffStatusBreakdown={encode_counter(trace_diff_counts)}")
     print(f"actualTraceSourceBreakdown={encode_counter(actual_trace_source_counts)}")
+    print(f"actualTraceNewestRecordedAt={actual_trace_newest_recorded_at}")
 
 if require_boundary_map and not mvp_counts:
     emit_metrics("missing-mvp-scenarios")

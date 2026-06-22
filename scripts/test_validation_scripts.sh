@@ -1157,6 +1157,10 @@ grep -q 'routingPath' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval trace diff must validate routing path evidence"
 grep -q 'actualRoutingPath' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval trace diff must emit routing path evidence"
+grep -q 'AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must expose an actual trace max-age override"
+grep -q 'actual-trace-recordedAt-stale' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must reject stale actual trace timestamps"
 AI_BEHAVIOR_MISSING_ID_DIR="$TMP_DIR/ai-behavior-missing-id"
 mkdir -p "$AI_BEHAVIOR_MISSING_ID_DIR"
 cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_ID_DIR/"
@@ -1342,7 +1346,10 @@ assert_report_contains_text "$AI_TRACE_DIFF_MISSING" '"actualTools": []'
 assert_report_contains_text "$AI_TRACE_DIFF_MISSING" '"status": "missing_actual"'
 
 AI_ACTUAL_TRACE="$TMP_DIR/ai-behavior-actual-trace.jsonl"
-python3 - "$AI_ACTUAL_TRACE" <<'PY'
+AI_TRACE_FRESH_RECORDED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+AI_TRACE_STALE_RECORDED_AT="2000-01-01T00:00:00Z"
+AI_TRACE_FUTURE_RECORDED_AT="2099-01-01T00:00:00Z"
+python3 - "$AI_ACTUAL_TRACE" "$AI_TRACE_FRESH_RECORDED_AT" <<'PY'
 import json
 import pathlib
 import sys
@@ -1358,6 +1365,7 @@ categories = [
     "restart_recovery",
 ]
 out = pathlib.Path(sys.argv[1])
+trace_recorded_at = sys.argv[2]
 with out.open("w", encoding="utf-8") as handle:
     for category in categories:
         path = fixture_dir / f"{category}.jsonl"
@@ -1376,7 +1384,7 @@ with out.open("w", encoding="utf-8") as handle:
                 "privacy": row["privacy"],
                 "localOnly": row["localOnly"],
                 "remoteEligible": row["remoteEligible"],
-                "traceRecordedAt": "2026-06-19T00:00:00Z",
+                "traceRecordedAt": trace_recorded_at,
                 "traceSource": "agent_loop_runtime",
             }
             if row["expectedTools"]:
@@ -1413,6 +1421,59 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-source.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-source.properties" "reason=invalid-actual-trace:1:traceSource"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-source.properties" "requireRuntimeTraceSource=1"
+
+AI_ACTUAL_TRACE_STALE="$TMP_DIR/ai-behavior-actual-trace-stale.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_STALE" "$AI_TRACE_STALE_RECORDED_AT" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    row["traceRecordedAt"] = sys.argv[3]
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects stale actual trace in strict provenance mode" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE_STALE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-stale.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-stale.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-stale.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-stale.properties" "reason=actual-trace-recordedAt-stale:1"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-stale.properties" "actualTraceMaxAgeDays=30"
+
+AI_ACTUAL_TRACE_FUTURE="$TMP_DIR/ai-behavior-actual-trace-future.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_FUTURE" "$AI_TRACE_FUTURE_RECORDED_AT" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["traceRecordedAt"] = sys.argv[3]
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval preserves future actual trace rejection" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE_FUTURE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-future.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-future.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-future.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-future.properties" "reason=actual-trace-recordedAt-future:1"
+
 AI_TRACE_DIFF_MATCHED="$ARTIFACT_DIR/ai-behavior-trace-diff-matched.jsonl"
 expect_success \
   "AI behavior eval accepts matching planning trace diff" \
@@ -1427,6 +1488,7 @@ assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceFile=$AI_ACTUAL_TRACE"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceSha256=$AI_ACTUAL_TRACE_SHA"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "requireRuntimeTraceSource=1"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceMaxAgeDays=30"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceSourceBreakdown=agent_loop_runtime:$ai_trace_missing_count"
 grep -Eq '^traceDiffSha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" ||
   fail "AI behavior eval report must hash matched trace diff evidence"
@@ -1702,8 +1764,8 @@ assert_report_contains "$AI_COLLECTOR_MISMATCH_EVAL" "requireActualTrace=1"
 assert_report_contains "$AI_COLLECTOR_MISMATCH_EVAL" "traceDiffMismatchCount=1"
 AI_EXTRA_ACTUAL_TRACE="$TMP_DIR/ai-behavior-actual-trace-extra.jsonl"
 cp "$AI_ACTUAL_TRACE" "$AI_EXTRA_ACTUAL_TRACE"
-cat >> "$AI_EXTRA_ACTUAL_TRACE" <<'AI_EXTRA_ACTUAL_TRACE_JSONL'
-{"caseId":"extra-case","category":"memory_recall","input":"extra","actualTools":[],"actualConfirmation":"none","actualRiskLevel":"low","privacy":"RemoteEligible","localOnly":false,"remoteEligible":true}
+cat >> "$AI_EXTRA_ACTUAL_TRACE" <<AI_EXTRA_ACTUAL_TRACE_JSONL
+{"caseId":"extra-case","category":"memory_recall","input":"extra","actualTools":[],"actualConfirmation":"none","actualRiskLevel":"low","privacy":"RemoteEligible","localOnly":false,"remoteEligible":true,"traceRecordedAt":"$AI_TRACE_FRESH_RECORDED_AT","traceSource":"agent_loop_runtime"}
 AI_EXTRA_ACTUAL_TRACE_JSONL
 expect_failure \
   "AI behavior eval rejects extra required planning trace rows" \

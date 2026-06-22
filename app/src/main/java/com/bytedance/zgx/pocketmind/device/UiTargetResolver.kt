@@ -62,7 +62,7 @@ object AppInteractionProfiles {
                 "请输入搜索词或网址",
                 "搜索词或网址",
             ),
-            submitHints = setOf("搜索", "검색", "前往", "search"),
+            submitHints = setOf("搜索", "검색", "前往", "转到", "search"),
             resultHints = setOf("搜索结果", "검색결과", "网页", "相关搜索"),
         ),
     )
@@ -216,7 +216,7 @@ object UiTargetResolver {
         val semanticScore = when (kind) {
             UiTargetKind.SearchEntry -> searchEntryScore(node, normalizedLabel)
             UiTargetKind.EditableField -> if (node.editable) 650 else 0
-            UiTargetKind.SubmitSearch -> submitSearchScore(node, normalizedLabel)
+            UiTargetKind.SubmitSearch -> submitSearchScore(node, normalizedLabel, hintScore > 0)
             UiTargetKind.FilterEntry -> phraseScore(normalizedLabel, "筛选") ?: phraseScore(normalizedLabel, "filter") ?: 0
             UiTargetKind.ResultItem -> targetScore + hintScore
             UiTargetKind.ScrollContainer -> if (node.scrollable) 700 else 0
@@ -270,10 +270,12 @@ object UiTargetResolver {
         return score
     }
 
-    private fun submitSearchScore(node: ScreenNode, normalizedLabel: String): Int {
+    private fun submitSearchScore(node: ScreenNode, normalizedLabel: String, hasProfileSubmitHint: Boolean): Int {
         var score = 0
         if (!node.editable && node.clickable && !looksNonTextSearchControl(normalizedLabel) && looksSearchSubmitLike(normalizedLabel)) {
             score += 700
+        } else if (!node.editable && node.clickable && !looksNonTextSearchControl(normalizedLabel) && hasProfileSubmitHint) {
+            score += 260
         }
         return score
     }

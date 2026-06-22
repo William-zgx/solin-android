@@ -96,6 +96,7 @@ class AgentLoopRuntime(
     private val remoteToolScopesByRunId = mutableMapOf<String, RemoteToolScope>()
     private val remoteExposedToolNamesByRunId = mutableMapOf<String, Set<String>>()
     private val lowRiskDeviceActionConfirmationBypassByRunId = mutableMapOf<String, Boolean>()
+    private val installedCapabilitiesByRunId = mutableMapOf<String, Set<ModelCapability>>()
 
     fun runOnce(
         input: String,
@@ -109,6 +110,7 @@ class AgentLoopRuntime(
         val createdRun = traceStore.createRun(input, sessionId)
         remoteToolScopesByRunId[createdRun.id] = options.remoteToolScope
         lowRiskDeviceActionConfirmationBypassByRunId[createdRun.id] = options.reduceDeviceActionConfirmations
+        installedCapabilitiesByRunId[createdRun.id] = installedCapabilities.toSet()
         traceStore.updateState(createdRun.id, AgentRunState.LoadingContext)
 
         val memoryHits = if (memoryEnabled) {
@@ -1220,6 +1222,9 @@ class AgentLoopRuntime(
                 completedSegmentCount = completedSegmentCount,
             ),
         ) ?: return NextObservationPlan.None
+        if (replan.plannedByModel && ModelCapability.MobileAction !in installedCapabilitiesByRunId[run.id].orEmpty()) {
+            return failMissingModelNextPlan(run.id, AgentPlan.MissingModel(ModelCapability.MobileAction))
+        }
         val skillPlan = skillRuntime.plan(replan.input ?: run.input, replan.draft, replan.request)
         return buildNextToolPlan(
             runId = run.id,
@@ -1567,6 +1572,16 @@ class AgentLoopRuntime(
         return NextObservationPlan.Planned(
             plan,
         )
+    }
+
+    private fun failMissingModelNextPlan(
+        runId: String,
+        plan: AgentPlan.MissingModel,
+    ): NextObservationPlan {
+        val reason = "Missing model capability ${plan.capability.name}."
+        traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
+        traceStore.appendStep(runId, AgentStep.Failed(reason))
+        return NextObservationPlan.Rejected(reason)
     }
 
     private fun rejectNextToolPlan(runId: String, result: ToolResult): NextObservationPlan {
@@ -2964,6 +2979,7 @@ class AgentLoopRuntime(
         remoteToolScopesByRunId.remove(runId)
         remoteExposedToolNamesByRunId.remove(runId)
         lowRiskDeviceActionConfirmationBypassByRunId.remove(runId)
+        installedCapabilitiesByRunId.remove(runId)
     }
 
     private fun runUsedDeviceControlSession(runId: String): Boolean =

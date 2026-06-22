@@ -256,9 +256,11 @@ with each RC before treating this checklist as complete.
   `traceRecordedAt`. `PUBLIC_RELEASE=1` requires
   `AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl>` and fails closed if the
   file is missing, lacks runtime provenance, is stale, mismatched, or has extra
-  rows. Use `scripts/collect_ai_behavior_actual_trace.sh` for the deterministic
-  local `agent_loop_runtime` trace collection step; do not replace it with a
-  hand-copied fixture file.
+  rows. Stale means older than 30 days by default; override only with
+  `AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS=<days>` when release policy explicitly
+  accepts a different window. Use `scripts/collect_ai_behavior_actual_trace.sh`
+  for the deterministic local `agent_loop_runtime` trace collection step; do not
+  replace it with a hand-copied fixture file.
 
 ## Test Matrix
 

@@ -23,6 +23,51 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-22 Eval Freshness / Browser Submit / Observation Capability Gate
+
+本轮覆盖项：
+
+- `scripts/verify_ai_behavior_eval.sh` 在 strict actual-trace 模式下新增
+  `traceRecordedAt` freshness gate：默认超过 30 天 fail closed，并输出
+  `actualTraceMaxAgeDays` / `actualTraceNewestRecordedAt`；可用
+  `AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS` 明确覆盖窗口。
+- Browser profile 新增提交 hint `转到`，并允许已知 browser profile 的非 editable、
+  clickable submit candidate 通过 profile hint 得分；未知 App 中同名 `转到` 仍返回
+  `SubmitNotFound`。
+- Observation replan 阶段继续沿用 `installedCapabilities`：后续 `plannedByModel=true`
+  的工具重规划没有 `ModelCapability.MobileAction` 时 fail closed，不创建新的确认卡；规则重规划仍可运行。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
+bash scripts/test_validation_scripts.sh
+
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
+  ./gradlew :app:testDebugUnitTest --rerun-tasks \
+  --tests com.bytedance.zgx.pocketmind.device.UiTargetResolverTest \
+  --tests com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWithoutMobileActionReturnsMissingModel \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.ruleBackedObservationReplanDoesNotRequireMobileAction \
+  --tests com.bytedance.zgx.pocketmind.orchestration.AgentLoopRuntimeTest.modelBackedObservationReplanWorksWhenMobileActionInstalled
+
+ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：validation script tests，覆盖 stale actual trace 失败、future trace 失败保留和 fresh trace 通过。
+- 通过：聚焦 JVM 测试强制重跑，Gradle `BUILD SUCCESSFUL`，28 个 task 全部 executed。
+- 通过：`scripts/verify_local.sh`，Gradle `BUILD SUCCESSFUL`，145 个 task 中
+  31 executed / 114 up-to-date；`Android artifact scan passed.`；`Local verification passed.`。
+- 备注：Gradle 输出仅包含既有 AndroidX / AppOps deprecation warnings，未导致构建失败。
+
+剩余风险：
+
+- 本轮未跑真机/模拟器；browser `转到` 和 observation replan capability gate 已有 JVM 证据，
+  但仍不能替代真实浏览器/Accessibility/arm64 设备验证。
+
 ## 2026-06-22 Agent Eval / MobileAction Capability Gate
 
 本轮覆盖项：

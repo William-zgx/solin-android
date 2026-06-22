@@ -564,6 +564,57 @@ class UiTargetResolverTest {
     }
 
     @Test
+    fun browserProfileResolvesLocalizedGoSubmitLabel() {
+        val snapshot = snapshot(
+            packageName = "com.android.browser",
+            nodes = listOf(
+                node(
+                    id = "address-field",
+                    text = "搜索或输入网址",
+                    className = "android.widget.EditText",
+                    bounds = ScreenBounds(48, 84, 820, 172),
+                    editable = true,
+                    clickable = true,
+                ),
+                node(
+                    id = "go-button",
+                    text = "转到",
+                    className = "android.widget.TextView",
+                    bounds = ScreenBounds(860, 84, 1032, 172),
+                    clickable = true,
+                ),
+            ),
+        )
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SubmitSearch, target = "提交搜索")
+
+        assertEquals("go-button", evidence.selectedNodeId)
+        assertEquals("go-button", evidence.rankedCandidates.firstOrNull()?.nodeId)
+        assertEquals("转到", evidence.rankedCandidates.firstOrNull()?.matchedProfileHint)
+    }
+
+    @Test
+    fun unknownAppDoesNotResolveBrowserOnlyGoSubmitLabel() {
+        val snapshot = snapshot(
+            packageName = "com.example.reader",
+            nodes = listOf(
+                node(
+                    id = "enter-section",
+                    text = "转到",
+                    className = "android.widget.TextView",
+                    bounds = ScreenBounds(860, 84, 1032, 172),
+                    clickable = true,
+                ),
+            ),
+        )
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SubmitSearch, target = "提交搜索")
+
+        assertEquals(UiActionFailureKind.SubmitNotFound, evidence.failureKind)
+        assertTrue(evidence.rankedCandidates.isEmpty())
+    }
+
+    @Test
     fun googleMapsSubmitHintsDoNotMatchGoogleByGoSubstring() {
         val profile = AppInteractionProfiles.forPackage("com.google.android.apps.maps")
         val snapshot = snapshot(
