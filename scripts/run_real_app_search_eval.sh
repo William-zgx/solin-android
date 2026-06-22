@@ -57,6 +57,21 @@ sanitize_artifact_name() {
   printf '%s' "$value"
 }
 
+read_result_property() {
+  local source_file="$1"
+  local source_key="$2"
+  grep -m 1 "^${source_key}=" "$source_file" 2>/dev/null | cut -d= -f2- | tr -d '\r\n' || true
+}
+
+copy_result_property() {
+  local source_file="$1"
+  local source_key="$2"
+  local target_key="$3"
+  local value
+  value="$(read_result_property "$source_file" "$source_key")"
+  echo "${target_key}=$value"
+}
+
 capture_failure_diagnostics() {
   local label="$1"
   local reason="$2"
@@ -102,6 +117,22 @@ capture_failure_diagnostics() {
   echo "Failure diagnostics: ${diag_dir}" >&2
 }
 
+write_failure_diagnostics_report_fields() {
+  echo "failure_diagnostics_dir=$LAST_DIAGNOSTICS_DIR"
+  if [[ -n "$LAST_DIAGNOSTICS_DIR" && -f "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" ]]; then
+    copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "screenshot_file" "failure_screenshot_file"
+    copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "screenshot_sha256" "failure_screenshot_sha256"
+    copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "uiautomator_dump_file" "failure_uiautomator_dump_file"
+    copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "uiautomator_dump_sha256" "failure_uiautomator_dump_sha256"
+    copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "focused_window_file" "failure_focused_window_file"
+    copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "focused_window_sha256" "failure_focused_window_sha256"
+    copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "window_dump_file" "failure_window_dump_file"
+    copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "window_dump_sha256" "failure_window_dump_sha256"
+    copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "logcat_file" "failure_logcat_file"
+    copy_result_property "${LAST_DIAGNOSTICS_DIR}/diagnostics.properties" "logcat_sha256" "failure_logcat_sha256"
+  fi
+}
+
 write_report() {
   local exit_code="$1"
   local artifact_id logcat_sha256
@@ -133,6 +164,7 @@ write_report() {
     echo "logcat_file=$LOGCAT_FILE"
     echo "logcat_sha256=$logcat_sha256"
     echo "diagnostics_dir=$DIAGNOSTICS_DIR"
+    write_failure_diagnostics_report_fields
     echo "result_file_pattern=${RESULT_FILE_PREFIX}<requestId>${RESULT_FILE_SUFFIX}"
     echo "case_artifact_schema=RealAppSearchCaseArtifact/v1"
     echo "cases=taobao,pdd,gaode,jd,chrome,android_browser,quark,uc"
@@ -158,15 +190,15 @@ trap on_exit EXIT
 
 fail_with_reason() {
   FAILED_TARGET="$1"
-  FAILURE_REASON="$1"
-  shift
+  FAILURE_REASON="$2"
+  shift 2
   echo "$*" >&2
   capture_failure_diagnostics "fatal-${FAILURE_REASON}" "$*" || true
   exit 1
 }
 
 if ! scripts/doctor.sh --device; then
-  fail_with_reason doctor-device-failed "Android device environment check failed."
+  fail_with_reason doctor doctor-device-failed "Android device environment check failed."
 fi
 
 if [[ -n "${ANDROID_SERIAL:-}" ]]; then
@@ -174,14 +206,14 @@ if [[ -n "${ANDROID_SERIAL:-}" ]]; then
   SELECTED_STATE="$("$ADB_BIN" devices | awk -v serial="$SELECTED_SERIAL" '$1 == serial {print $2; found = 1} END {if (!found) print ""}')"
   if [[ "$SELECTED_STATE" != "device" ]]; then
     "$ADB_BIN" devices
-    fail_with_reason selected-device-unavailable \
+    fail_with_reason device-selection selected-device-unavailable \
       "ANDROID_SERIAL=$SELECTED_SERIAL is not an authorized Android device; state is ${SELECTED_STATE:-missing}."
   fi
 else
   DEVICE_COUNT="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" {count += 1} END{print count + 0}')"
   if [[ "$DEVICE_COUNT" != "1" ]]; then
     "$ADB_BIN" devices
-    fail_with_reason device-selection-ambiguous \
+    fail_with_reason device-selection device-selection-ambiguous \
       "Connect exactly one authorized Android device, or set ANDROID_SERIAL to select one."
   fi
   SELECTED_SERIAL="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" {print $1; exit}')"
@@ -213,7 +245,7 @@ pocketmind_accessibility_enabled() {
 }
 
 if ! pocketmind_accessibility_enabled; then
-  fail_with_reason pocketmind-accessibility-not-enabled \
+  fail_with_reason accessibility pocketmind-accessibility-not-enabled \
     "PocketMind Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_INSTALL=1."
 fi
 
@@ -434,21 +466,6 @@ write_case_result() {
   } > "$file"
 }
 
-read_result_property() {
-  local source_file="$1"
-  local source_key="$2"
-  grep -m 1 "^${source_key}=" "$source_file" 2>/dev/null | cut -d= -f2- | tr -d '\r\n' || true
-}
-
-copy_result_property() {
-  local source_file="$1"
-  local source_key="$2"
-  local target_key="$3"
-  local value
-  value="$(read_result_property "$source_file" "$source_key")"
-  echo "${target_key}=$value"
-}
-
 case_expected_package() {
   case "$1" in
     taobao) echo "com.taobao.taobao" ;;
@@ -608,11 +625,11 @@ run_case quark com.quark.browser "夸克" "PocketMindAgentQuark" "地址栏" "�
 run_case uc com.UCMobile "UC浏览器" "PocketMindAgentUC" "地址栏" "地址栏" "PocketMindAgentUC" || overall_status=1
 
 if [[ "$RUN_COUNT" -eq 0 ]]; then
-  fail_with_reason no-target-apps-installed "No target app packages were installed; all cases skipped."
+  fail_with_reason target-apps no-target-apps-installed "No target app packages were installed; all cases skipped."
 fi
 
 if [[ "$overall_status" -ne 0 ]]; then
-  fail_with_reason real-app-search-case-failed "At least one installed app search case failed."
+  fail_with_reason real-app-search-case real-app-search-case-failed "At least one installed app search case failed."
 fi
 
 echo "Real app search eval passed for $PASS_COUNT installed app(s), skipped $SKIP_COUNT."

@@ -84,8 +84,14 @@ data class ModelProfile(
 
     init {
         require(ModelInputModality.Text in inputModalities) { "Model profiles must declare text input support" }
+        require(ModelInputModality.Vision !in inputModalities || capability == ModelCapability.Chat) {
+            "Vision input modality is only valid for chat-capable profiles"
+        }
         require(ModelFeature.VisionInput !in features || ModelInputModality.Vision in inputModalities) {
             "VisionInput feature requires Vision input modality"
+        }
+        require(ModelFeature.VisionInput !in features || capability == ModelCapability.Chat) {
+            "Vision input is only valid for chat-capable profiles"
         }
         require(ModelFeature.TextGeneration !in features || capability == ModelCapability.Chat) {
             "Text generation is only valid for chat-capable profiles"
@@ -95,6 +101,9 @@ data class ModelProfile(
         }
         require(ModelFeature.MobileActionPlanning !in features || capability == ModelCapability.MobileAction) {
             "Mobile action planning is only valid for action profiles"
+        }
+        require(backendKind != ModelBackendKind.RemoteOpenAiCompatible || capability == ModelCapability.Chat) {
+            "Remote OpenAI-compatible profiles are only valid for chat capability"
         }
         require(preferredLocalBackends.isEmpty() || backendKind == ModelBackendKind.LocalLiteRt) {
             "Only local LiteRT profiles may declare local performance backends"

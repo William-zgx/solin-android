@@ -173,6 +173,42 @@ class ModelCatalogTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    fun modelProfileRejectsVisionFeatureForNonChatProfiles() {
+        ModelProfile(
+            id = "bad-action-vision",
+            displayName = "Bad Action Vision",
+            capability = ModelCapability.MobileAction,
+            backendKind = ModelBackendKind.LocalLiteRt,
+            inputModalities = setOf(ModelInputModality.Text, ModelInputModality.Vision),
+            features = setOf(ModelFeature.MobileActionPlanning, ModelFeature.VisionInput),
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun modelProfileRejectsRemoteMemoryEmbeddingProfiles() {
+        ModelProfile(
+            id = "bad-remote-memory",
+            displayName = "Bad Remote Memory",
+            capability = ModelCapability.MemoryEmbedding,
+            backendKind = ModelBackendKind.RemoteOpenAiCompatible,
+            inputModalities = setOf(ModelInputModality.Text),
+            features = setOf(ModelFeature.MemoryEmbedding),
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun modelProfileRejectsRemoteMobileActionProfiles() {
+        ModelProfile(
+            id = "bad-remote-action",
+            displayName = "Bad Remote Action",
+            capability = ModelCapability.MobileAction,
+            backendKind = ModelBackendKind.RemoteOpenAiCompatible,
+            inputModalities = setOf(ModelInputModality.Text),
+            features = setOf(ModelFeature.MobileActionPlanning),
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun modelProfileRejectsLocalBackendsForRemoteProfiles() {
         ModelProfile(
             id = "bad-remote",

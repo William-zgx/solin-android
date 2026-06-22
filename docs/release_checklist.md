@@ -29,13 +29,17 @@ with each RC before treating this checklist as complete.
 - [ ] `docs/release_record.json` is updated for the release candidate and
   `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh` passes. The gate
   checks the recorded Gradle version, current HEAD Git commit, artifact
-  checksum, signing certificate fingerprint, `status=passed` verification evidence files,
-  unsupported capabilities, Agent behavior summary, and resolved or accepted
-  blockers with matching evidence SHA-256. For `PUBLIC_RELEASE=1`, the record
-  must use a public distribution channel and match the final AAB path, artifact
-  SHA-256, and production signing certificate SHA-256 passed to the release
-  gate; it also requires a clean Git worktree unless `ALLOW_DIRTY_RELEASE=1` is
-  explicitly set for non-production dry-run validation.
+  checksum, signing certificate fingerprint, and `verificationReports` whose
+  files match the recorded SHA-256, have `status=passed`, include
+  `artifactSchema`, owner, UTC `recordedAt`, reproducible command/path, and are
+  fresh within `RELEASE_RECORD_VERIFICATION_REPORT_MAX_AGE_DAYS` (default 30).
+  It also checks unsupported capabilities, Agent behavior summary, and resolved
+  or accepted blockers with matching evidence SHA-256. For `PUBLIC_RELEASE=1`,
+  the record must use a public distribution channel and match the final AAB path,
+  artifact SHA-256, and production signing certificate SHA-256 passed to the
+  release gate; it also requires a clean Git worktree unless
+  `ALLOW_DIRTY_RELEASE=1` is explicitly set for non-production dry-run
+  validation.
 
 ## Versioning And Release Track
 
@@ -313,7 +317,10 @@ with each RC before treating this checklist as complete.
   `RealAppSearchCaseArtifact/v1` case report with `failed_step`,
   `result_file_sha256`, `target_resolution_failure_kind`,
   `target_resolution_candidates_json`, and screenshot/UIAutomator/window/logcat
-  files with SHA-256.
+  files with SHA-256. Fatal real-app eval failures before a case can run, such
+  as no target apps installed, must put `failedTarget`, `reason`, serial/API/ABI,
+  and screenshot/UIAutomator/window/logcat paths plus SHA-256 values in the
+  top-level `real-app-search-eval.properties` report.
 - [ ] Manual acceptance in `docs/phone_acceptance.md` is sampled for model
   setup, remote-mode privacy, tool confirmation, permissions, background
   reminders, sharing, and multimodal entry points.

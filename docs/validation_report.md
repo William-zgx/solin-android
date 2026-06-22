@@ -23,6 +23,57 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-22 Model Capability Profile Fail-Closed Gates
+
+本轮覆盖项：
+
+- `ModelProfile` 构造契约新增 fail-closed 校验：Vision input 只允许 Chat profile 声明；
+  Remote OpenAI-compatible profile 只允许 Chat capability，防止远程 profile 被误声明为
+  MemoryEmbedding 或 MobileAction。
+- `ModelCatalogTest` 新增三个本地 JVM 契约测试，覆盖非 Chat vision、远程记忆 embedding、
+  远程手机动作 profile 都必须构造失败。
+- 未同步 `docs/model_capability_profiles.json`：已发布 catalog/profile 字段值未变化，文档同步测试覆盖未漂移。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.ModelCatalogTest
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.pocketmind.ModelCatalogTest
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+    --tests com.bytedance.zgx.pocketmind.RemoteModelConfigTest \
+    --tests com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest --rerun-tasks \
+    --tests com.bytedance.zgx.pocketmind.ModelCatalogTest \
+    --tests com.bytedance.zgx.pocketmind.RemoteModelConfigTest \
+    --tests com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest \
+    --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest
+```
+
+结果：
+
+- 预期红灯：未设置 SDK 的第一次 Gradle 尝试停在配置阶段，原因是缺少 `ANDROID_HOME` /
+  `local.properties`，未执行测试。
+- 预期红灯：设置 `ANDROID_HOME` 后，新增三个 `ModelCatalogTest` 用例均因未抛
+  `IllegalArgumentException` 失败，确认原契约缺口存在。
+- 通过：实现 fail-closed 校验后，`ModelCatalogTest` 目标测试 `BUILD SUCCESSFUL`，
+  28 个 task 中 6 executed / 22 up-to-date。
+- 通过：`RemoteModelConfigTest` 与 `ModelCapabilityProfilesDocumentationTest`
+  `BUILD SUCCESSFUL`，28 个 task 中 1 executed / 27 up-to-date。
+- 通过：收尾合并强制复跑 `ModelCatalogTest`、`RemoteModelConfigTest`、
+  `ModelCapabilityProfilesDocumentationTest` 与 `AiBehaviorEvalFixturesTest`，
+  `BUILD SUCCESSFUL`，28 个 task 全部 executed。
+
+剩余风险：
+
+- 本轮只跑 JVM 单元测试，未跑真机/模拟器；该变更是纯 model profile 构造契约，
+  不覆盖实际远程服务返回格式或设备动作 runtime 行为。
+
 ## 2026-06-22 Eval Freshness / Browser Submit / Observation Capability Gate
 
 本轮覆盖项：
@@ -80,6 +131,9 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
   `AgentBehaviorActualTrace`，而是用 runtime-style `AgentLoopResult` 交给 projector 生成。
 - `AgentLoopRuntime` 将 `installedCapabilities` 接入初始动作规划：`usedModel=true` 的动作规划
   必须安装 `ModelCapability.MobileAction`；规则规划和 skill-first 路径不需要 action model。
+- `scripts/verify_ai_behavior_eval.sh` 的 planning trace diff 每条 case 现在输出
+  `actualTraceSource` 和 `actualTraceRecordedAt`，便于 release evidence 逐行追溯实际
+  runtime trace 来源与采集时间。
 
 验证命令：
 
@@ -98,6 +152,10 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
 
 ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
   scripts/verify_local.sh
+
+scripts/verify_ai_behavior_eval.sh \
+  --require-boundary-map \
+  --report /tmp/ai-behavior-eval-current.properties
 ```
 
 结果：
@@ -112,6 +170,10 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
 - 抽查：`runtime_app_search_page_not_changed` 输出 `failureMode=page_not_changed`、
   `actualTools=[open_app_by_name, ui_tap, ui_type_text, ui_submit_search]`、
   `traceSource=agent_loop_runtime`。
+- 通过：`scripts/verify_ai_behavior_eval.sh --require-boundary-map` 返回
+  `AI behavior eval fixtures passed: 38 cases across 7 categories and 6 MVP scenarios`；
+  报告记录 `caseCount=38`、`traceDiffMissingActualCount=38`（未传 actual trace 的
+  fixture-only 模式）和完整 MVP scenario 覆盖。
 
 剩余风险：
 
@@ -127,6 +189,10 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
   机器可读失败目标。
 - `scripts/run_real_app_search_eval.sh` 的总报告新增同一组机器可读字段，同时保留
   per-case `RealAppSearchCaseArtifact/v1` 与 resolver evidence / diagnostics SHA。
+- `scripts/run_real_app_search_eval.sh` 的 fatal 失败（例如没有任何目标 App 安装）
+  现在会在顶层 report 输出 `failure_diagnostics_dir`、截图、UIAutomator dump、
+  focused/window dump 和 logcat 的路径与 SHA-256；case failure 顶层 report 也会记录
+  `failedTarget=real-app-search-case`。
 - `scripts/test_validation_scripts.sh` 新增静态契约检查，防止两个设备 eval 报告回退到只写
   `reason` / bare logcat path。
 
@@ -146,7 +212,9 @@ ANDROID_HOME=$HOME/android-sdk ANDROID_SDK_ROOT=$HOME/android-sdk \
 结果：
 
 - 通过：shell 语法检查。
-- 通过：`Validation script tests passed.`
+- 通过：`Validation script tests passed.`；fake adb 覆盖 `failedTarget=real-app-search-case`
+  和 `failedTarget=target-apps`，并断言 fatal diagnostics 的 screenshot/UIAutomator/window/logcat
+  文件与 SHA-256 已写入顶层 `real-app-search-eval.properties`。
 - 通过：`scripts/verify_local.sh` 覆盖 validation script tests、JVM tests、debug/release build、
   AndroidTest assemble、lint 和 artifact scan。
 
@@ -175,7 +243,7 @@ ANDROID_HOME="$HOME/android-sdk" ANDROID_SDK_ROOT="$HOME/android-sdk" \
 结果：
 
 - 通过：`Validation script tests passed.`
-- 通过：Gradle `BUILD SUCCESSFUL`，145 个 task 中 30 executed / 115 up-to-date。
+- 通过：Gradle `BUILD SUCCESSFUL`，145 个 task 中 28 executed / 117 up-to-date。
 - 通过：`Android artifact scan passed.`
 - 通过：`Local verification passed.`
 - 备注：`MainActivity.kt` 仍有既有 `unsafeCheckOpNoThrow` deprecation warning，但未导致
@@ -4729,6 +4797,43 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SDK_ROOT="$HOME/Library/Android
   tests、lint、debug/release assemble、release bundle 和 Android artifact scan。
 - 未执行模拟器：本轮只加固 release gate 报告和测试 fixture，不改变 APK runtime 或 UI
   行为。
+
+## 2026-06-22 Release verification report schema/freshness hardening
+
+本轮覆盖项：
+
+- `scripts/verify_release_record.sh` 对 `release.verificationReports` 增加
+  fail-closed 校验：报告文件必须匹配记录中的 SHA-256，且包含
+  `artifactSchema`、`status=passed`、`target`、`owner`、UTC `recordedAt`、
+  可复现 `command` 和匹配的 `reproduciblePath`。
+- verification report 的 `recordedAt` 默认必须在 30 天内；可用
+  `RELEASE_RECORD_VERIFICATION_REPORT_MAX_AGE_DAYS` 调整窗口。未来时间、
+  stale 时间和缺少 schema 的 passed 报告都会被拒绝。
+- `scripts/test_validation_scripts.sh` 增加无 schema passed 报告和 stale 报告
+  负例，并把 release record 正例报告升级为机器可读 schema evidence。
+- `docs/release_checklist.md` 与 `docs/release_readiness.md` 同步 release owner
+  需要提供新鲜、schema/owner 标记、可复现、SHA 绑定的 verification reports。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_release_record.sh scripts/test_validation_scripts.sh
+scripts/test_validation_scripts.sh
+scripts/verify_release_record.sh --report build/verification/release-record-current.properties
+```
+
+结果：
+
+- 通过：`bash -n scripts/verify_release_record.sh scripts/test_validation_scripts.sh`。
+- 通过：release-record 专项临时 fixture 验证，覆盖 approved 正例、无 schema
+  passed 报告负例、stale 报告负例和当前 pending record 失败。
+- 通过：集成 Device/Eval evidence 改动后，整条 `scripts/test_validation_scripts.sh`
+  返回 `Validation script tests passed.`。
+- 当前 `docs/release_record.json` 仍按预期 fail-closed，报告
+  `/tmp/release-record-current.properties` 记录 `status=failed`、
+  `failedTarget=release-record`，原因包含 `status-not-approved`、
+  `verification-reports-missing` 和人工 blocker evidence 缺失；本轮没有伪造 release
+  owner 审批、生产签名或真机证据。
 
 ## 2026-06-06 Release blocker evidence hardening
 

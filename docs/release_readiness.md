@@ -24,6 +24,10 @@ items below.
   license review verifier reports now share a machine-readable evidence schema
   with `artifactSchema`, owner, UTC timestamp, command, failed target,
   reproducible report path, and SHA-256 binding for their input records.
+- Release record `verificationReports` now fail closed unless each linked report
+  is SHA-bound, `status=passed`, schema-tagged, owner-tagged, UTC timestamped,
+  reproducible by command/path, and fresh within the release-record max-age
+  window.
 - The top-level `release-gate.properties` report is now also a first-class
   evidence artifact with `artifactSchema`, owner, UTC timestamp, command,
   reproducible path, current git head SHA, and path/status/SHA-256 bindings for
@@ -172,7 +176,7 @@ items below.
 
 | Status | Owner / environment | Item | Gate or evidence |
 | --- | --- | --- | --- |
-| Owner evidence required | Release owner | Fill `docs/release_record.json` with final owner, reviewer, target channel, changelog, release notes, artifact checksum, signing certificate fingerprint, verification reports, and resolved/accepted blockers. | `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; `PUBLIC_RELEASE=1` additionally binds the record to the final public AAB, artifact SHA-256, and production signing certificate SHA-256. |
+| Owner evidence required | Release owner | Fill `docs/release_record.json` with final owner, reviewer, target channel, changelog, release notes, artifact checksum, signing certificate fingerprint, fresh schema/owner-tagged verification reports, and resolved/accepted blockers. | `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; `PUBLIC_RELEASE=1` additionally binds the record to the final public AAB, artifact SHA-256, and production signing certificate SHA-256. |
 | Owner evidence required | Store / policy owner | Fill `docs/store_policy_record.json` with an approved status, real support contact, public privacy-policy URL, reviewer, review date, and approved store-policy evidence. Current machine-checkable SHA, permission, and confirmed-actions wording drift has been normalized, but the record remains intentionally pending. | `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`; verifier checks the current privacy notice SHA and Android manifest. |
 | Owner evidence required | Release operations owner | Fill `docs/release_operations_record.json` with crash/ANR monitoring owner, signal source, first-24-hour watcher, staged rollout thresholds, crash/ANR smoke result, and rollback plan. | `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`; smoke evidence should come from `scripts/collect_crash_anr_smoke_evidence.sh` plus device verification, instrumentation output, and logcat. |
 | Owner evidence required | Validation owner | Fill `docs/release_validation_record.json` with approved emulator regression, physical-device instrumentation, API matrix, manual acceptance, flow matrix, sanitized screenshots, and performance sanity evidence. | `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh`; verifier rejects emulator serials as physical-device evidence and checks AndroidTest counts, required APIs, manual/system-mediated flows, screenshots, and review date. |

@@ -1157,6 +1157,10 @@ grep -q 'routingPath' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval trace diff must validate routing path evidence"
 grep -q 'actualRoutingPath' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval trace diff must emit routing path evidence"
+grep -q 'actualTraceSource' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval trace diff must emit per-case trace source evidence"
+grep -q 'actualTraceRecordedAt' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval trace diff must emit per-case trace timestamp evidence"
 grep -q 'AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval gate must expose an actual trace max-age override"
 grep -q 'actual-trace-recordedAt-stale' scripts/verify_ai_behavior_eval.sh ||
@@ -1498,6 +1502,8 @@ assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"caseId": "memory_style_co
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"status": "matched"'
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualRoutingPath": "no_action"'
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualRoutingPath": "action_planner"'
+assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualTraceSource": "agent_loop_runtime"'
+assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" "\"actualTraceRecordedAt\": \"$AI_TRACE_FRESH_RECORDED_AT\""
 
 AI_BAD_ROUTING_TRACE="$TMP_DIR/ai-behavior-actual-trace-bad-routing.jsonl"
 python3 - "$AI_ACTUAL_TRACE" "$AI_BAD_ROUTING_TRACE" <<'PY'
@@ -2073,17 +2079,40 @@ assert_report_contains "$ARTIFACT_DIR/release-mapping-empty.properties" "status=
 RELEASE_RECORD_ARTIFACT="$TMP_DIR/release-record.aab"
 RELEASE_RECORD_REPORT="$TMP_DIR/release-record-report.properties"
 RELEASE_RECORD_FAILED_REPORT="$TMP_DIR/release-record-failed-report.properties"
+RELEASE_RECORD_WEAK_REPORT="$TMP_DIR/release-record-weak-report.properties"
+RELEASE_RECORD_STALE_REPORT="$TMP_DIR/release-record-stale-report.properties"
 RELEASE_RECORD_PENDING="$TMP_DIR/release-record-pending.json"
 RELEASE_RECORD_APPROVED="$TMP_DIR/release-record-approved.json"
 RELEASE_RECORD_BLOCKER_EVIDENCE="$TMP_DIR/release-record-privacy-review-blocker.properties"
 printf 'release artifact\n' > "$RELEASE_RECORD_ARTIFACT"
-printf 'status=passed\ntarget=local-verification\n' > "$RELEASE_RECORD_REPORT"
-printf 'status=failed\ntarget=local-verification\n' > "$RELEASE_RECORD_FAILED_REPORT"
+RELEASE_RECORD_RECORDED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+cat > "$RELEASE_RECORD_REPORT" <<RELEASE_RECORD_REPORT_PROPERTIES
+artifactSchema=LocalReleaseVerification/v1
+status=passed
+target=local-verification
+owner=release-engineering
+recordedAt=$RELEASE_RECORD_RECORDED_AT
+command=scripts/verify_local.sh
+reproduciblePath=$RELEASE_RECORD_REPORT
+RELEASE_RECORD_REPORT_PROPERTIES
+cat > "$RELEASE_RECORD_FAILED_REPORT" <<RELEASE_RECORD_FAILED_REPORT_PROPERTIES
+artifactSchema=LocalReleaseVerification/v1
+status=failed
+target=local-verification
+owner=release-engineering
+recordedAt=$RELEASE_RECORD_RECORDED_AT
+command=scripts/verify_local.sh
+reproduciblePath=$RELEASE_RECORD_FAILED_REPORT
+RELEASE_RECORD_FAILED_REPORT_PROPERTIES
+printf 'status=passed\ntarget=local-verification\n' > "$RELEASE_RECORD_WEAK_REPORT"
+sed 's/^recordedAt=.*/recordedAt=2000-01-01T00:00:00Z/' "$RELEASE_RECORD_REPORT" > "$RELEASE_RECORD_STALE_REPORT"
 printf 'status=accepted\nblocker=privacy-review\nscope=internal-testing-risk\n' > "$RELEASE_RECORD_BLOCKER_EVIDENCE"
 RELEASE_RECORD_ARTIFACT_SHA="$(shasum -a 256 "$RELEASE_RECORD_ARTIFACT" | awk '{print $1}')"
 RELEASE_RECORD_ARTIFACT_SIZE="$(wc -c < "$RELEASE_RECORD_ARTIFACT" | tr -d ' ')"
 RELEASE_RECORD_REPORT_SHA="$(shasum -a 256 "$RELEASE_RECORD_REPORT" | awk '{print $1}')"
 RELEASE_RECORD_FAILED_REPORT_SHA="$(shasum -a 256 "$RELEASE_RECORD_FAILED_REPORT" | awk '{print $1}')"
+RELEASE_RECORD_WEAK_REPORT_SHA="$(shasum -a 256 "$RELEASE_RECORD_WEAK_REPORT" | awk '{print $1}')"
+RELEASE_RECORD_STALE_REPORT_SHA="$(shasum -a 256 "$RELEASE_RECORD_STALE_REPORT" | awk '{print $1}')"
 RELEASE_RECORD_BLOCKER_EVIDENCE_SHA="$(shasum -a 256 "$RELEASE_RECORD_BLOCKER_EVIDENCE" | awk '{print $1}')"
 RELEASE_RECORD_HEAD="$(git rev-parse HEAD)"
 RELEASE_RECORD_NON_HEAD="$(git rev-parse HEAD^)"
@@ -2159,6 +2188,36 @@ assert_release_verifier_passed_report "$ARTIFACT_DIR/release-record-approved.pro
 assert_report_contains "$ARTIFACT_DIR/release-record-approved.properties" "recordSha256=$RELEASE_RECORD_APPROVED_SHA"
 grep -Eq '^gradleSha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/release-record-approved.properties" ||
   fail "release record verifier report must include gradleSha256"
+RELEASE_RECORD_WEAK_REPORT_JSON="$TMP_DIR/release-record-weak-report.json"
+python3 - "$RELEASE_RECORD_APPROVED" "$RELEASE_RECORD_WEAK_REPORT_JSON" "$RELEASE_RECORD_WEAK_REPORT" "$RELEASE_RECORD_WEAK_REPORT_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["release"]["verificationReports"][0]["path"] = sys.argv[3]
+record["release"]["verificationReports"][0]["sha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release record verifier rejects verification report without evidence schema" \
+  scripts/verify_release_record.sh --file "$RELEASE_RECORD_WEAK_REPORT_JSON" --report "$ARTIFACT_DIR/release-record-weak-report.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-record-weak-report.properties" "verification-report-0-artifact-schema-missing"
+RELEASE_RECORD_STALE_REPORT_JSON="$TMP_DIR/release-record-stale-report.json"
+python3 - "$RELEASE_RECORD_APPROVED" "$RELEASE_RECORD_STALE_REPORT_JSON" "$RELEASE_RECORD_STALE_REPORT" "$RELEASE_RECORD_STALE_REPORT_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["release"]["verificationReports"][0]["path"] = sys.argv[3]
+record["release"]["verificationReports"][0]["sha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release record verifier rejects stale verification report evidence" \
+  scripts/verify_release_record.sh --file "$RELEASE_RECORD_STALE_REPORT_JSON" --report "$ARTIFACT_DIR/release-record-stale-report.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-record-stale-report.properties" "verification-report-0-recorded-at-stale"
 expect_failure \
   "release record verifier rejects internal channel in public context" \
   env PUBLIC_RELEASE_CONTEXT=1 \
@@ -6667,6 +6726,7 @@ expect_failure \
   GRADLE_CMD="$FAKE_GRADLE" scripts/run_real_app_search_eval.sh
 assert_no_gradle_call
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "failedTarget=real-app-search-case"
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "reason=real-app-search-case-failed"
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_count=1"
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "fail_count=1"
@@ -6924,11 +6984,33 @@ expect_failure \
   GRADLE_CMD="$FAKE_GRADLE" scripts/run_real_app_search_eval.sh
 assert_no_gradle_call
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "failedTarget=target-apps"
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "reason=no-target-apps-installed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "serial=device-a"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "api_level=36"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "abi=arm64-v8a,armeabi-v7a"
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "run_count=0"
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "pass_count=0"
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "fail_count=0"
 assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "skip_count=8"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "failure_diagnostics_dir=$ARTIFACT_DIR/real-app-diagnostics/fatal-no-target-apps-installed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "failure_screenshot_file=$ARTIFACT_DIR/real-app-diagnostics/fatal-no-target-apps-installed/screenshot.png"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "failure_uiautomator_dump_file=$ARTIFACT_DIR/real-app-diagnostics/fatal-no-target-apps-installed/uiautomator.xml"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "failure_focused_window_file=$ARTIFACT_DIR/real-app-diagnostics/fatal-no-target-apps-installed/focused-window.txt"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "failure_window_dump_file=$ARTIFACT_DIR/real-app-diagnostics/fatal-no-target-apps-installed/window-dump.txt"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-eval.properties" "failure_logcat_file=$ARTIFACT_DIR/real-app-diagnostics/fatal-no-target-apps-installed/logcat.txt"
+for key in failure_screenshot_sha256 failure_uiautomator_dump_sha256 failure_focused_window_sha256 failure_window_dump_sha256 failure_logcat_sha256; do
+  grep -Eq "^${key}=[0-9a-f]{64}$" "$ARTIFACT_DIR/real-app-search-eval.properties" ||
+    fail "Expected real app search fatal report to include $key"
+done
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/fatal-no-target-apps-installed/screenshot.png" ]] ||
+  fail "Expected real app search fatal diagnostics to preserve a screenshot"
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/fatal-no-target-apps-installed/uiautomator.xml" ]] ||
+  fail "Expected real app search fatal diagnostics to preserve a UIAutomator dump"
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/fatal-no-target-apps-installed/window-dump.txt" ]] ||
+  fail "Expected real app search fatal diagnostics to preserve a window dump"
+[[ -s "$ARTIFACT_DIR/real-app-diagnostics/fatal-no-target-apps-installed/logcat.txt" ]] ||
+  fail "Expected real app search fatal diagnostics to preserve logcat"
 assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "case=taobao"
 assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "status=skipped"
 assert_report_contains "$ARTIFACT_DIR/taobao.case.properties" "reason=package_not_installed:com.taobao.taobao"

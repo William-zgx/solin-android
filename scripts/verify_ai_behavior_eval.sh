@@ -580,6 +580,7 @@ def load_actual_traces():
                 "routingSkillId": routing_skill_id,
                 "routingRejectionReason": routing_rejection_reason,
                 "traceSource": trace_source,
+                "traceRecordedAt": trace_recorded_at if isinstance(trace_recorded_at, str) else "",
                 "matched": False,
             }
         )
@@ -619,6 +620,8 @@ for case in eval_cases:
     actual_routing_tool_name = actual["routingToolName"] if actual is not None else ""
     actual_routing_skill_id = actual["routingSkillId"] if actual is not None else ""
     actual_routing_rejection_reason = actual["routingRejectionReason"] if actual is not None else ""
+    actual_trace_source = actual["traceSource"] if actual is not None else ""
+    actual_trace_recorded_at = actual["traceRecordedAt"] if actual is not None else ""
     tools_match = case["expectedTools"] == actual_tools
     confirmation_match = case["expectedConfirmation"] == actual_confirmation
     risk_match = case["expectedRiskLevel"] == actual_risk
@@ -681,6 +684,8 @@ for case in eval_cases:
             "actualRoutingToolName": actual_routing_tool_name,
             "actualRoutingSkillId": actual_routing_skill_id,
             "actualRoutingRejectionReason": actual_routing_rejection_reason,
+            "actualTraceSource": actual_trace_source,
+            "actualTraceRecordedAt": actual_trace_recorded_at,
             "toolsMatch": tools_match,
             "confirmationMatches": confirmation_match,
             "riskMatches": risk_match,

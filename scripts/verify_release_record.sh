@@ -13,6 +13,7 @@ EXPECTED_RELEASE_ARTIFACT_TYPE="${EXPECTED_RELEASE_ARTIFACT_TYPE:-}"
 EXPECTED_RELEASE_ARTIFACT_SHA256="${EXPECTED_RELEASE_ARTIFACT_SHA256:-}"
 EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
+VERIFICATION_REPORT_MAX_AGE_DAYS="${RELEASE_RECORD_VERIFICATION_REPORT_MAX_AGE_DAYS:-30}"
 REPORT_FILE=""
 ORIGINAL_ARGS=("$@")
 
@@ -114,6 +115,7 @@ write_report() {
       printf 'expectedReleaseArtifactType=%s\n' "$EXPECTED_RELEASE_ARTIFACT_TYPE"
       printf 'expectedReleaseArtifactSha256=%s\n' "$EXPECTED_RELEASE_ARTIFACT_SHA256"
       printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
+      printf 'verificationReportMaxAgeDays=%s\n' "$VERIFICATION_REPORT_MAX_AGE_DAYS"
     } > "$REPORT_FILE"
   fi
 }
@@ -142,13 +144,14 @@ python3 - \
   "$EXPECTED_RELEASE_ARTIFACT_PATH" \
   "$EXPECTED_RELEASE_ARTIFACT_TYPE" \
   "$EXPECTED_RELEASE_ARTIFACT_SHA256" \
-  "$EXPECTED_SIGNING_CERT_SHA256" > "$TMP_FAILURES" <<'PY'
+  "$EXPECTED_SIGNING_CERT_SHA256" \
+  "$VERIFICATION_REPORT_MAX_AGE_DAYS" > "$TMP_FAILURES" <<'PY'
 import hashlib
 import json
 import re
 import subprocess
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 record_path = Path(sys.argv[1])
@@ -159,6 +162,7 @@ expected_artifact_path = sys.argv[5]
 expected_artifact_type = sys.argv[6]
 expected_artifact_sha256 = sys.argv[7].lower()
 expected_signing_cert_sha256 = sys.argv[8].lower()
+verification_report_max_age_days_raw = sys.argv[9]
 
 try:
     record = json.loads(record_path.read_text())
@@ -222,7 +226,57 @@ def validate_file_sha(prefix, path, expected_sha):
     if actual_sha != expected_sha:
         failures.append(f"{prefix}-sha-mismatch")
 
+def validate_utc_timestamp_fresh(value, max_age_days, prefix):
+    if not non_empty_string(value):
+        failures.append(f"{prefix}-recorded-at-missing")
+        return
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        failures.append(f"{prefix}-recorded-at-invalid")
+        return
+    now = datetime.now(timezone.utc)
+    if parsed > now:
+        failures.append(f"{prefix}-recorded-at-in-future")
+    elif max_age_days is not None and (now - parsed).days > max_age_days:
+        failures.append(f"{prefix}-recorded-at-stale")
+
+def validate_verification_report_properties(prefix, props, path):
+    schema = props.get("artifactSchema", "")
+    if not non_empty_string(schema):
+        failures.append(f"{prefix}-artifact-schema-missing")
+    elif not re.fullmatch(r"[A-Za-z0-9_.-]+/v[0-9]+", schema):
+        failures.append(f"{prefix}-artifact-schema-invalid")
+    if props.get("status") != "passed":
+        failures.append(f"{prefix}-status-not-passed")
+    if not non_empty_string(props.get("target", "")):
+        failures.append(f"{prefix}-target-missing")
+    if not non_empty_string(props.get("owner", "")):
+        failures.append(f"{prefix}-owner-missing")
+    validate_utc_timestamp_fresh(
+        props.get("recordedAt", ""),
+        verification_report_max_age_days,
+        prefix,
+    )
+    if not non_empty_string(props.get("command", "")):
+        failures.append(f"{prefix}-command-missing")
+    reproducible_path = props.get("reproduciblePath", "")
+    if not non_empty_string(reproducible_path):
+        failures.append(f"{prefix}-reproducible-path-missing")
+    elif reproducible_path != str(path):
+        failures.append(f"{prefix}-reproducible-path-mismatch")
+
 failures = []
+try:
+    verification_report_max_age_days = int(verification_report_max_age_days_raw)
+except ValueError:
+    verification_report_max_age_days = None
+    failures.append("verification-report-max-age-invalid")
+else:
+    if verification_report_max_age_days <= 0:
+        verification_report_max_age_days = None
+        failures.append("verification-report-max-age-invalid")
+
 if record.get("version") != 1:
     failures.append("version-invalid")
 if record.get("status") != "approved":
@@ -363,10 +417,11 @@ for index, report in enumerate(reports):
         if report_sha != actual_report_sha:
             failures.append(f"verification-report-{index}-sha-mismatch")
         report_properties = properties_for(report_file)
-        if report_properties.get("status") != "passed":
-            failures.append(f"verification-report-{index}-status-not-passed")
-        if not report_properties.get("target"):
-            failures.append(f"verification-report-{index}-target-missing")
+        validate_verification_report_properties(
+            f"verification-report-{index}",
+            report_properties,
+            report_file,
+        )
     elif not re.fullmatch(r"[0-9a-fA-F]{64}", report_sha):
         failures.append(f"verification-report-{index}-sha-invalid")
 
