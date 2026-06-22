@@ -215,13 +215,19 @@ items below.
   reproducible path before release-gate evidence can pass. These are local
   evidence gates; they do not replace the pending human approvals or physical
   RC perf run.
+- Store policy model-download disclosure now binds the primary chat model to
+  `docs/model_capability_profiles.json` and `docs/model_manifest.md` by profile
+  id, byte size, SHA-256, and upstream revision. The verifier also derives
+  whether a lightweight official local chat alternative exists and whether a
+  confirmed remote chat alternative is disclosed, so Play/Data safety copy
+  cannot drift from the recommended model surface without failing locally.
 
 ## Remaining release blockers by ownership
 
 | Status | Owner / environment | Item | Gate or evidence |
 | --- | --- | --- | --- |
 | Owner evidence required | Release owner | Fill `docs/release_record.json` with final owner, reviewer, target channel, changelog, release notes, artifact checksum, signing certificate fingerprint, fresh schema/owner-tagged verification reports, and resolved/accepted blockers. | `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; `PUBLIC_RELEASE=1` additionally binds the record to the final public AAB, artifact SHA-256, and production signing certificate SHA-256. |
-| Owner evidence required | Store / policy owner | Fill `docs/store_policy_record.json` with an approved status, real support contact, public privacy-policy URL, reviewer, review date, and approved store-policy evidence. Current machine-checkable SHA, permission, and confirmed-actions wording drift has been normalized, but the record remains intentionally pending. | `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`; verifier checks the current privacy notice SHA and Android manifest. |
+| Owner evidence required | Store / policy owner | Fill `docs/store_policy_record.json` with an approved status, real support contact, public privacy-policy URL, reviewer, review date, and approved store-policy evidence. Current machine-checkable SHA, permission, model-download, and confirmed-actions wording drift has been normalized, but the record remains intentionally pending. | `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`; verifier checks the current privacy notice SHA, Android manifest, model capability profiles, and model manifest. |
 | Owner evidence required | Release operations owner | Fill `docs/release_operations_record.json` with crash/ANR monitoring owner, signal source, first-24-hour watcher, staged rollout thresholds, crash/ANR smoke result, and rollback plan. | `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`; smoke evidence should come from `scripts/collect_crash_anr_smoke_evidence.sh` plus device verification, instrumentation output, and logcat. |
 | Owner evidence required | Validation owner | Fill `docs/release_validation_record.json` with approved emulator regression, physical-device instrumentation, API matrix, manual acceptance, flow matrix, sanitized screenshots, and performance sanity evidence. | `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh`; verifier rejects emulator serials as physical-device evidence and checks AndroidTest counts, required APIs, manual/system-mediated flows, screenshots, and review date. |
 | Manual approval required | Release, security, legal | Review `docs/privacy_notice.md` and `docs/capability_matrix.json` before publishing the external policy and record role approvals in `docs/privacy_review.json`. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`. The verifier binds both files by SHA-256; app code cannot replace this approval. |

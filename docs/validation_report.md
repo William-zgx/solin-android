@@ -14167,8 +14167,8 @@ ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
 
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
-- 子 Agent 发现但未在本轮改动的后续项：store policy 仍可加强 model capability profile
-  绑定；manual acceptance 和 memory pressure evidence 可继续增加 key-specific 字段。
+- 子 Agent 发现但未在本轮改动的后续项：manual acceptance 和 memory pressure evidence
+  可继续增加 key-specific 字段。
 
 ## 2026-06-23 Recent OCR runtime metadata minimization
 
@@ -14281,4 +14281,64 @@ Roadmap 状态：
 
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
-- Store policy 与 model capability/download-size 的机器绑定仍可按子 Agent 建议继续加强。
+
+## 2026-06-23 Store policy model evidence binding
+
+本轮覆盖项：
+
+- 多 Agent 只读审计指出 store policy、model capability profiles、model manifest 三段证据
+  仍未形成机器可验证链路。已落地本地可验证绑定，不涉及真机或模拟器。
+- `docs/store_policy_record.json.modelDownloads` 增加
+  `primaryChatModelProfileId`、`primaryChatModelSha256Hex`、
+  `primaryChatModelSourceRevision`，与既有 `primaryChatModelBytes` 一起绑定
+  `chat-e2b` 的推荐模型事实。
+- `scripts/verify_store_policy_record.sh` 现在读取 `docs/model_capability_profiles.json`
+  和 `docs/model_manifest.md`，并校验：
+  - primary chat profile 存在且是非 experimental 的 `LocalLiteRt` Chat profile；
+  - store policy 记录的 primary chat bytes / SHA-256 / source revision 与 profile 一致；
+  - 所有带 byte/SHA/revision 的 recommended profiles 都在 model manifest 中有对应行，且
+    Bytes / SHA-256 / upstream revision 一致；
+  - `officialLightweightChatAlternative` 与非 experimental 本地 Chat profile 的大小推导一致；
+  - `remoteAlternativeDisclosed` 与需要确认的 remote OpenAI-compatible Chat template 一致。
+- verifier report 现在输出 `modelCapabilityProfilesFile/Sha256` 和
+  `modelManifestFile/Sha256`；当前 checked-in store policy 仍按预期失败在 pending
+  reviewer/contact/privacy URL，不因 model evidence drift 失败。
+- `scripts/test_validation_scripts.sh` 增加 primary chat bytes、SHA、source revision、
+  lightweight alternative 负例，并断言 approved store fixture 绑定当前 profile/manifest SHA。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_store_policy_record.sh scripts/test_validation_scripts.sh
+
+scripts/verify_store_policy_record.sh \
+  --report build/verification/store-policy-current.properties || true
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 静态检查。
+- 通过：当前 checked-in store policy verifier 仍 fail-closed，失败原因是 pending
+  store approval、占位联系邮箱/隐私政策 URL、review evidence 未批准；未出现 model
+  capability 或 manifest 漂移。
+- 通过：validation script self-tests，覆盖 store policy/profile/manifest 绑定正例和模型
+  bytes/SHA/revision/lightweight 负例。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM tests、debug/release
+  build、AndroidTest assemble、lint 和 artifact scan。
+
+Roadmap 状态：
+
+- Phase 4 release/store evidence 继续推进：store policy 的模型下载声明现在绑定
+  profile 和 manifest 事实源，减少商店披露与推荐模型配置漂移。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
+  perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+- Store policy 仍需要真实 reviewer、公开隐私政策 URL、真实联系邮箱和批准日期，不能由代码替代。

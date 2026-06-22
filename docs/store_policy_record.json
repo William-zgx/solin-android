@@ -32,7 +32,10 @@
   "modelDownloads": {
     "describedAsLargeOptionalAssets": true,
     "declaresNotBundledInApk": true,
+    "primaryChatModelProfileId": "chat-e2b",
     "primaryChatModelBytes": 2588147712,
+    "primaryChatModelSha256Hex": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+    "primaryChatModelSourceRevision": "a4a831c060880f3733135ad22f10e0e9f758f45d",
     "remoteAlternativeDisclosed": true,
     "officialLightweightChatAlternative": false
   },

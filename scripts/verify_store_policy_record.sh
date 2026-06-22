@@ -7,6 +7,8 @@ cd "$ROOT_DIR"
 STORE_POLICY_FILE="${STORE_POLICY_FILE:-docs/store_policy_record.json}"
 PRIVACY_NOTICE_FILE="${PRIVACY_NOTICE_FILE:-docs/privacy_notice.md}"
 MANIFEST_FILE="${MANIFEST_FILE:-app/src/main/AndroidManifest.xml}"
+MODEL_CAPABILITY_PROFILES_FILE="${MODEL_CAPABILITY_PROFILES_FILE:-docs/model_capability_profiles.json}"
+MODEL_MANIFEST_FILE="${MODEL_MANIFEST_FILE:-docs/model_manifest.md}"
 EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
 REPORT_FILE=""
 ORIGINAL_ARGS=("$@")
@@ -50,6 +52,15 @@ failed_target_for_reason() {
       ;;
     data-safety-*|userData*|encryptedInTransit-*|external-recipients-*)
       printf 'data-safety'
+      ;;
+    missing-model-capability-profiles-file|model-capability-profiles-*)
+      printf 'model-capability-profiles'
+      ;;
+    missing-model-manifest-file|model-manifest-*)
+      printf 'model-manifest'
+      ;;
+    model-downloads-*)
+      printf 'store-model-downloads'
       ;;
     review-*|reviewer-*|approvalStatus-*|approval-status-*)
       printf 'policy-review-evidence'
@@ -105,6 +116,10 @@ write_report() {
       printf 'privacyNoticeSha256=%s\n' "$(sha256_or_empty "$PRIVACY_NOTICE_FILE")"
       printf 'manifestFile=%s\n' "$MANIFEST_FILE"
       printf 'manifestSha256=%s\n' "$(sha256_or_empty "$MANIFEST_FILE")"
+      printf 'modelCapabilityProfilesFile=%s\n' "$MODEL_CAPABILITY_PROFILES_FILE"
+      printf 'modelCapabilityProfilesSha256=%s\n' "$(sha256_or_empty "$MODEL_CAPABILITY_PROFILES_FILE")"
+      printf 'modelManifestFile=%s\n' "$MODEL_MANIFEST_FILE"
+      printf 'modelManifestSha256=%s\n' "$(sha256_or_empty "$MODEL_MANIFEST_FILE")"
     } > "$REPORT_FILE"
   fi
 }
@@ -127,11 +142,23 @@ if [[ ! -f "$MANIFEST_FILE" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$MODEL_CAPABILITY_PROFILES_FILE" ]]; then
+  write_report failed missing-model-capability-profiles-file
+  echo "Model capability profiles file is missing: $MODEL_CAPABILITY_PROFILES_FILE" >&2
+  exit 1
+fi
+
+if [[ ! -f "$MODEL_MANIFEST_FILE" ]]; then
+  write_report failed missing-model-manifest-file
+  echo "Model manifest file is missing: $MODEL_MANIFEST_FILE" >&2
+  exit 1
+fi
+
 TMP_FAILURES="$(mktemp)"
 trap 'rm -f "$TMP_FAILURES"' EXIT
 
 set +e
-python3 - "$STORE_POLICY_FILE" "$PRIVACY_NOTICE_FILE" "$MANIFEST_FILE" > "$TMP_FAILURES" <<'PY'
+python3 - "$STORE_POLICY_FILE" "$PRIVACY_NOTICE_FILE" "$MANIFEST_FILE" "$MODEL_CAPABILITY_PROFILES_FILE" "$MODEL_MANIFEST_FILE" > "$TMP_FAILURES" <<'PY'
 import hashlib
 import json
 import re
@@ -144,11 +171,18 @@ from urllib.parse import urlparse
 record_path = Path(sys.argv[1])
 notice_path = Path(sys.argv[2])
 manifest_path = Path(sys.argv[3])
+model_capability_profiles_path = Path(sys.argv[4])
+model_manifest_path = Path(sys.argv[5])
 
 try:
     record = json.loads(record_path.read_text())
 except Exception:
     print("json-parse-error")
+    sys.exit(1)
+try:
+    model_capability_profiles = json.loads(model_capability_profiles_path.read_text())
+except Exception:
+    print("model-capability-profiles-json-parse-error")
     sys.exit(1)
 notice_text = notice_path.read_text()
 notice_text_lower = notice_text.lower()
@@ -188,6 +222,34 @@ def properties_for(path):
     except OSError:
         pass
     return props
+
+def normalize_markdown_cell(value):
+    value = value.strip()
+    if value.startswith("`") and value.endswith("`") and len(value) >= 2:
+        value = value[1:-1]
+    return value.strip()
+
+def parse_model_manifest(path):
+    manifest = {}
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return manifest
+    for line in lines:
+        stripped = line.strip()
+        if not stripped.startswith("| `"):
+            continue
+        columns = [normalize_markdown_cell(column) for column in stripped.strip("|").split("|")]
+        if len(columns) < 7:
+            continue
+        model_id = columns[0]
+        if model_id:
+            manifest[model_id] = {
+                "revision": columns[3],
+                "bytes": columns[4],
+                "sha256": columns[5],
+            }
+    return manifest
 
 def validate_store_review_evidence(path, expected_reviewer):
     props = properties_for(path)
@@ -358,6 +420,108 @@ if model_downloads.get("describedAsLargeOptionalAssets") is not True:
     failures.append("model-downloads-not-described-large-optional")
 if model_downloads.get("declaresNotBundledInApk") is not True:
     failures.append("model-downloads-not-declared-unbundled")
+if model_capability_profiles.get("version") != 1:
+    failures.append("model-capability-profiles-version-invalid")
+profiles = model_capability_profiles.get("profiles")
+if not isinstance(profiles, list):
+    failures.append("model-capability-profiles-list-missing")
+    profiles = []
+profiles_by_id = {
+    profile.get("id"): profile
+    for profile in profiles
+    if isinstance(profile, dict) and non_empty_string(profile.get("id"))
+}
+manifest_models = parse_model_manifest(model_manifest_path)
+for profile in profiles:
+    if not isinstance(profile, dict):
+        continue
+    profile_id = profile.get("id")
+    if not non_empty_string(profile_id):
+        continue
+    if not all(key in profile for key in ("byteSize", "sha256Hex", "sourceRevision")):
+        continue
+    manifest_model = manifest_models.get(profile_id)
+    if manifest_model is None:
+        failures.append(f"model-manifest-profile-missing:{profile_id}")
+        continue
+    if str(profile.get("byteSize")) != manifest_model.get("bytes"):
+        failures.append(f"model-manifest-profile-bytes-mismatch:{profile_id}")
+    if profile.get("sha256Hex") != manifest_model.get("sha256"):
+        failures.append(f"model-manifest-profile-sha-mismatch:{profile_id}")
+    if profile.get("sourceRevision") != manifest_model.get("revision"):
+        failures.append(f"model-manifest-profile-revision-mismatch:{profile_id}")
+
+primary_chat_model_id = model_downloads.get("primaryChatModelProfileId")
+if not non_empty_string(primary_chat_model_id):
+    failures.append("model-downloads-primary-chat-model-profile-id-missing")
+    primary_chat_profile = None
+else:
+    primary_chat_profile = profiles_by_id.get(primary_chat_model_id)
+    if not isinstance(primary_chat_profile, dict):
+        failures.append("model-downloads-primary-chat-model-missing")
+if isinstance(primary_chat_profile, dict):
+    primary_capabilities = primary_chat_profile.get("capabilities")
+    if not isinstance(primary_capabilities, dict):
+        primary_capabilities = {}
+    if (
+        primary_chat_profile.get("backendKind") != "LocalLiteRt" or
+        primary_chat_profile.get("capability") != "Chat" or
+        primary_capabilities.get("chat") is not True
+    ):
+        failures.append("model-downloads-primary-chat-model-not-local-chat")
+    if primary_chat_profile.get("experimental") is not False:
+        failures.append("model-downloads-primary-chat-model-experimental")
+    primary_profile_bytes = primary_chat_profile.get("byteSize")
+    primary_record_bytes = model_downloads.get("primaryChatModelBytes")
+    if not isinstance(primary_profile_bytes, int) or primary_profile_bytes <= 0:
+        failures.append("model-capability-profiles-primary-chat-byte-size-invalid")
+    if not isinstance(primary_record_bytes, int) or primary_record_bytes <= 0:
+        failures.append("model-downloads-primary-chat-model-bytes-invalid")
+    elif isinstance(primary_profile_bytes, int) and primary_record_bytes != primary_profile_bytes:
+        failures.append("model-downloads-primary-chat-model-bytes-mismatch")
+    primary_record_sha = model_downloads.get("primaryChatModelSha256Hex")
+    if not non_empty_string(primary_record_sha):
+        failures.append("model-downloads-primary-chat-model-sha-missing")
+    elif primary_record_sha != primary_chat_profile.get("sha256Hex"):
+        failures.append("model-downloads-primary-chat-model-sha-mismatch")
+    primary_record_revision = model_downloads.get("primaryChatModelSourceRevision")
+    if not non_empty_string(primary_record_revision):
+        failures.append("model-downloads-primary-chat-model-revision-missing")
+    elif primary_record_revision != primary_chat_profile.get("sourceRevision"):
+        failures.append("model-downloads-primary-chat-model-revision-mismatch")
+lightweight_threshold_bytes = 1_000_000_000
+has_official_lightweight_chat = False
+for profile in profiles:
+    if not isinstance(profile, dict):
+        continue
+    capabilities = profile.get("capabilities")
+    if not isinstance(capabilities, dict):
+        capabilities = {}
+    if (
+        profile.get("backendKind") == "LocalLiteRt" and
+        profile.get("capability") == "Chat" and
+        profile.get("experimental") is False and
+        capabilities.get("chat") is True and
+        isinstance(profile.get("byteSize"), int) and
+        profile.get("byteSize") <= lightweight_threshold_bytes
+    ):
+        has_official_lightweight_chat = True
+        break
+if model_downloads.get("officialLightweightChatAlternative") is not has_official_lightweight_chat:
+    failures.append("model-downloads-official-lightweight-chat-alternative-mismatch")
+remote_templates = model_capability_profiles.get("remoteOpenAiCompatibleTemplates")
+if not isinstance(remote_templates, list):
+    remote_templates = []
+has_confirmed_remote_chat_template = any(
+    isinstance(template, dict) and
+    template.get("backendKind") == "RemoteOpenAiCompatible" and
+    template.get("capability") == "Chat" and
+    template.get("remoteEligible") is True and
+    template.get("requiresRemoteSendConfirmation") is True
+    for template in remote_templates
+)
+if model_downloads.get("remoteAlternativeDisclosed") is not has_confirmed_remote_chat_template:
+    failures.append("model-downloads-remote-alternative-disclosed-mismatch")
 
 android_ns = "{http://schemas.android.com/apk/res/android}"
 try:

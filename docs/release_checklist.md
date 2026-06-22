@@ -112,7 +112,11 @@ with each RC before treating this checklist as complete.
   remote model endpoints and model hosts as external recipients where their own
   policies apply.
 - [ ] Model downloads are described as large optional/recommended assets and
-  not as APK-bundled files.
+  not as APK-bundled files. The store policy record's primary chat model id,
+  byte size, SHA-256, and upstream revision must match
+  `docs/model_capability_profiles.json` and `docs/model_manifest.md`, and the
+  verifier must derive the same lightweight local chat alternative and remote
+  alternative disclosure values as the record.
 - [ ] Required Android permissions and special-access flows are explained in
   user-facing language.
 - [ ] Sensitive permission disclosures are complete for `RECORD_AUDIO`,
@@ -131,9 +135,9 @@ with each RC before treating this checklist as complete.
 - [ ] `docs/store_policy_record.json` is updated and approved, then
   `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh` passes. The gate
   checks store listing fields, privacy policy URL, Data safety answers, model
-  download disclosure, manifest permission purposes, special-access
-  disclosures, the current privacy notice SHA, and a review evidence file with
-  matching SHA-256.
+  download disclosure, model capability/profile manifest bindings, manifest
+  permission purposes, special-access disclosures, the current privacy notice
+  SHA, and a review evidence file with matching SHA-256.
 
 ## Screenshots
 

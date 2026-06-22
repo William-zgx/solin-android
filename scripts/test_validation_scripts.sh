@@ -2644,6 +2644,8 @@ cat > "$STORE_POLICY_MANIFEST" <<'STORE_POLICY_MANIFEST_XML'
 </manifest>
 STORE_POLICY_MANIFEST_XML
 STORE_POLICY_MANIFEST_SHA="$(shasum -a 256 "$STORE_POLICY_MANIFEST" | awk '{print $1}')"
+STORE_POLICY_MODEL_CAPABILITIES_SHA="$(shasum -a 256 docs/model_capability_profiles.json | awk '{print $1}')"
+STORE_POLICY_MODEL_MANIFEST_SHA="$(shasum -a 256 docs/model_manifest.md | awk '{print $1}')"
 cat > "$STORE_POLICY_PENDING" <<'STORE_POLICY_PENDING_JSON'
 {
   "version": 1,
@@ -2691,7 +2693,13 @@ cat > "$STORE_POLICY_APPROVED" <<STORE_POLICY_APPROVED_JSON
   },
   "modelDownloads": {
     "describedAsLargeOptionalAssets": true,
-    "declaresNotBundledInApk": true
+    "declaresNotBundledInApk": true,
+    "primaryChatModelProfileId": "chat-e2b",
+    "primaryChatModelBytes": 2588147712,
+    "primaryChatModelSha256Hex": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+    "primaryChatModelSourceRevision": "a4a831c060880f3733135ad22f10e0e9f758f45d",
+    "remoteAlternativeDisclosed": true,
+    "officialLightweightChatAlternative": false
   },
   "permissions": [
     {
@@ -2734,6 +2742,40 @@ assert_release_verifier_passed_report "$ARTIFACT_DIR/store-policy-approved.prope
 assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "storePolicySha256=$STORE_POLICY_APPROVED_SHA"
 assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "privacyNoticeSha256=$STORE_POLICY_NOTICE_SHA"
 assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "manifestSha256=$STORE_POLICY_MANIFEST_SHA"
+assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "modelCapabilityProfilesSha256=$STORE_POLICY_MODEL_CAPABILITIES_SHA"
+assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "modelManifestSha256=$STORE_POLICY_MODEL_MANIFEST_SHA"
+STORE_POLICY_BAD_MODEL_BYTES="$TMP_DIR/store-policy-bad-model-bytes.json"
+sed 's/"primaryChatModelBytes": 2588147712/"primaryChatModelBytes": 1/' "$STORE_POLICY_APPROVED" > "$STORE_POLICY_BAD_MODEL_BYTES"
+expect_failure \
+  "store policy verifier rejects primary chat model byte drift" \
+  env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
+  scripts/verify_store_policy_record.sh --file "$STORE_POLICY_BAD_MODEL_BYTES" --report "$ARTIFACT_DIR/store-policy-bad-model-bytes.properties"
+assert_report_contains "$ARTIFACT_DIR/store-policy-bad-model-bytes.properties" "failedTarget=store-model-downloads"
+assert_report_contains_text "$ARTIFACT_DIR/store-policy-bad-model-bytes.properties" "model-downloads-primary-chat-model-bytes-mismatch"
+STORE_POLICY_BAD_MODEL_SHA="$TMP_DIR/store-policy-bad-model-sha.json"
+sed 's/"primaryChatModelSha256Hex": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c"/"primaryChatModelSha256Hex": "0000000000000000000000000000000000000000000000000000000000000000"/' "$STORE_POLICY_APPROVED" > "$STORE_POLICY_BAD_MODEL_SHA"
+expect_failure \
+  "store policy verifier rejects primary chat model sha drift" \
+  env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
+  scripts/verify_store_policy_record.sh --file "$STORE_POLICY_BAD_MODEL_SHA" --report "$ARTIFACT_DIR/store-policy-bad-model-sha.properties"
+assert_report_contains "$ARTIFACT_DIR/store-policy-bad-model-sha.properties" "failedTarget=store-model-downloads"
+assert_report_contains_text "$ARTIFACT_DIR/store-policy-bad-model-sha.properties" "model-downloads-primary-chat-model-sha-mismatch"
+STORE_POLICY_BAD_MODEL_REVISION="$TMP_DIR/store-policy-bad-model-revision.json"
+sed 's/"primaryChatModelSourceRevision": "a4a831c060880f3733135ad22f10e0e9f758f45d"/"primaryChatModelSourceRevision": "stale-revision"/' "$STORE_POLICY_APPROVED" > "$STORE_POLICY_BAD_MODEL_REVISION"
+expect_failure \
+  "store policy verifier rejects primary chat model revision drift" \
+  env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
+  scripts/verify_store_policy_record.sh --file "$STORE_POLICY_BAD_MODEL_REVISION" --report "$ARTIFACT_DIR/store-policy-bad-model-revision.properties"
+assert_report_contains "$ARTIFACT_DIR/store-policy-bad-model-revision.properties" "failedTarget=store-model-downloads"
+assert_report_contains_text "$ARTIFACT_DIR/store-policy-bad-model-revision.properties" "model-downloads-primary-chat-model-revision-mismatch"
+STORE_POLICY_BAD_LIGHTWEIGHT="$TMP_DIR/store-policy-bad-lightweight.json"
+sed 's/"officialLightweightChatAlternative": false/"officialLightweightChatAlternative": true/' "$STORE_POLICY_APPROVED" > "$STORE_POLICY_BAD_LIGHTWEIGHT"
+expect_failure \
+  "store policy verifier rejects lightweight chat alternative drift" \
+  env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
+  scripts/verify_store_policy_record.sh --file "$STORE_POLICY_BAD_LIGHTWEIGHT" --report "$ARTIFACT_DIR/store-policy-bad-lightweight.properties"
+assert_report_contains "$ARTIFACT_DIR/store-policy-bad-lightweight.properties" "failedTarget=store-model-downloads"
+assert_report_contains_text "$ARTIFACT_DIR/store-policy-bad-lightweight.properties" "model-downloads-official-lightweight-chat-alternative-mismatch"
 STORE_POLICY_INCOMPLETE_NOTICE="$TMP_DIR/store-policy-incomplete-notice.md"
 printf 'PocketMind stores user-entered chat text locally.\n' > "$STORE_POLICY_INCOMPLETE_NOTICE"
 expect_failure \
