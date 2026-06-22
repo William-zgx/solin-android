@@ -102,6 +102,29 @@ class CapabilityMatrixDocumentationTest {
     }
 
     @Test
+    fun requiredBehaviorEvalBoundariesMatchJsonAndStayStable() {
+        val json = JSONObject(readRepoFile("docs/capability_matrix.json"))
+        val documentedBoundaries = json.getStringList("requiredBehaviorEvalBoundaries")
+
+        assertEquals(CapabilityMatrix.requiredBehaviorEvalBoundaries, documentedBoundaries)
+        assertEquals(
+            listOf("public_evidence_multi_search_batch_allowed"),
+            CapabilityMatrix.requiredBehaviorEvalBoundaries,
+        )
+        assertFalse(CapabilityMatrix.requiredBehaviorEvalBoundaries.isEmpty())
+        assertEquals(
+            CapabilityMatrix.requiredBehaviorEvalBoundaries,
+            CapabilityMatrix.requiredBehaviorEvalBoundaries.distinct(),
+        )
+        CapabilityMatrix.requiredBehaviorEvalBoundaries.forEach { boundary ->
+            assertTrue(
+                "required behavior eval boundary must use stable slug taxonomy: $boundary",
+                Regex("^[a-z0-9][a-z0-9_:-]*$").matches(boundary),
+            )
+        }
+    }
+
+    @Test
     fun localVisionImageInputRequiresLocalModelAndDoesNotForceOcr() {
         val descriptor = CapabilityMatrix.productDescriptors.single {
             it.capabilityId == "local_vision_image_input"

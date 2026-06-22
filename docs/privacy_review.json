@@ -4,7 +4,7 @@
   "noticePath": "docs/privacy_notice.md",
   "noticeSha256": "6d1f1f3424fc80a92fa9ffc5c0cedcb127921d460993e9bfe5fbc0026cf62bbc",
   "capabilityMatrixPath": "docs/capability_matrix.json",
-  "capabilityMatrixSha256": "fddb309e1088c58f9831673452fab847e3516123df605bfc62c96e4f374b5f11",
+  "capabilityMatrixSha256": "4314fc3f09d5df5c06b09267a988fb46f5ca769d32a0fa6bc47219504fece184",
   "status": "pending_manual_review",
   "reviews": [
     {
@@ -13,7 +13,7 @@
       "reviewer": "",
       "reviewDate": "",
       "evidencePath": "docs/privacy_review_evidence/release-pending.properties",
-      "evidenceSha256": "9bea5efd870b4ed05a112e534ebce14c4346b7dc0604f139ba21dc71acb4f90d"
+      "evidenceSha256": "618368ca567e2dd8a79f9dff71009461e82e95606f88297750c82699330b7940"
     },
     {
       "role": "security",
@@ -21,7 +21,7 @@
       "reviewer": "",
       "reviewDate": "",
       "evidencePath": "docs/privacy_review_evidence/security-pending.properties",
-      "evidenceSha256": "bfecc9a2d549c39574695ea43ac7c742823cb5836a8302e9f018f02d546c7212"
+      "evidenceSha256": "8ee499b22555901f657abedb4aadadbec6c1568a96c4a69be65ac46b88c94270"
     },
     {
       "role": "legal",
@@ -29,7 +29,7 @@
       "reviewer": "",
       "reviewDate": "",
       "evidencePath": "docs/privacy_review_evidence/legal-pending.properties",
-      "evidenceSha256": "ab4adbd95d3bd0b3ab723b0a3e00ed2299b453abd64e9f4c90080112bf9db228"
+      "evidenceSha256": "2381888430b238559ff083aab0754b0d399345827430ad3aef922f3c485121cc"
     }
   ]
 }

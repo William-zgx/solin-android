@@ -168,6 +168,12 @@ items below.
   so a tool route such as `action_planner/open_wifi_settings` fails the trace
   diff even when the final tool list is empty. The positive Wi-Fi sequence also
   binds the expected `open_wifi_settings` / `device_settings_skill` route.
+- Required Agent behavior eval boundary coverage is now owned by
+  `CapabilityMatrix.requiredBehaviorEvalBoundaries` and
+  `docs/capability_matrix.json`; `scripts/verify_ai_behavior_eval.sh` reads that
+  matrix and fails closed if the matrix omits or corrupts the boundary list,
+  instead of keeping the release-critical boundary IDs hard-coded only in the
+  shell verifier.
 - GitHub Actions `workflow_dispatch` final release gate now requires an
   `ai_behavior_actual_trace_file` input and passes it to
   `AI_BEHAVIOR_ACTUAL_TRACE_FILE`, so the CI public-release path can satisfy the

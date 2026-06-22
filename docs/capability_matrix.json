@@ -29,6 +29,9 @@
       "title": "能力与信任中心"
     }
   ],
+  "requiredBehaviorEvalBoundaries": [
+    "public_evidence_multi_search_batch_allowed"
+  ],
   "sensitiveCapabilityDisclosures": [
     {
       "capabilityId": "remote_model_send",

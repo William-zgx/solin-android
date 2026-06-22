@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 FIXTURE_DIR="app/src/test/resources/ai_behavior_eval"
+CAPABILITY_MATRIX_FILE="docs/capability_matrix.json"
 REPORT_FILE=""
 MIN_CASES_PER_CATEGORY=2
 REQUIRE_BOUNDARY_MAP=0
@@ -30,6 +31,10 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --report)
       REPORT_FILE="${2:?}"
+      shift 2
+      ;;
+    --capability-matrix)
+      CAPABILITY_MATRIX_FILE="${2:?}"
       shift 2
       ;;
     --min-cases)
@@ -133,6 +138,8 @@ write_report() {
       printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'actualTraceSha256=%s\n' "$(sha256_or_empty "$ACTUAL_TRACE_FILE")"
       printf 'traceDiffSha256=%s\n' "$(sha256_or_empty "$TRACE_DIFF_FILE")"
+      printf 'capabilityMatrixFile=%s\n' "$CAPABILITY_MATRIX_FILE"
+      printf 'capabilityMatrixSha256=%s\n' "$(sha256_or_empty "$CAPABILITY_MATRIX_FILE")"
       printf 'fixtureDir=%s\n' "$FIXTURE_DIR"
       printf 'minCasesPerCategory=%s\n' "$MIN_CASES_PER_CATEGORY"
       printf 'requireBoundaryMap=%s\n' "$REQUIRE_BOUNDARY_MAP"
@@ -156,7 +163,7 @@ write_report() {
 validation_output="$(mktemp)"
 trap 'rm -f "$validation_output"' EXIT
 
-if ! python3 - "$FIXTURE_DIR" "$MIN_CASES_PER_CATEGORY" "$REQUIRE_BOUNDARY_MAP" \
+if ! python3 - "$FIXTURE_DIR" "$CAPABILITY_MATRIX_FILE" "$MIN_CASES_PER_CATEGORY" "$REQUIRE_BOUNDARY_MAP" \
   "$ACTUAL_TRACE_FILE" "$TRACE_DIFF_FILE" "$REQUIRE_ACTUAL_TRACE" "$REQUIRE_RUNTIME_TRACE_SOURCE" "$ACTUAL_TRACE_MAX_AGE_DAYS" \
   "${REQUIRED_CATEGORIES[@]}" > "$validation_output" <<'PY'
 import collections
@@ -167,22 +174,22 @@ import re
 import sys
 
 fixture_dir = pathlib.Path(sys.argv[1])
-min_cases = int(sys.argv[2])
-require_boundary_map = sys.argv[3] == "1"
-actual_trace_arg = sys.argv[4]
-trace_diff_arg = sys.argv[5]
-require_actual_trace = sys.argv[6] == "1"
-require_runtime_trace_source = sys.argv[7] == "1"
+capability_matrix_path = pathlib.Path(sys.argv[2])
+min_cases = int(sys.argv[3])
+require_boundary_map = sys.argv[4] == "1"
+actual_trace_arg = sys.argv[5]
+trace_diff_arg = sys.argv[6]
+require_actual_trace = sys.argv[7] == "1"
+require_runtime_trace_source = sys.argv[8] == "1"
 try:
-    actual_trace_max_age_days = int(sys.argv[8])
+    actual_trace_max_age_days = int(sys.argv[9])
 except ValueError:
     print("reason=invalid-actual-trace-max-age-days")
     sys.exit(1)
 if actual_trace_max_age_days <= 0:
     print("reason=invalid-actual-trace-max-age-days")
     sys.exit(1)
-required = sys.argv[9:]
-capability_matrix_path = pathlib.Path("docs/capability_matrix.json")
+required = sys.argv[10:]
 action_models_path = pathlib.Path("app/src/main/java/com/bytedance/zgx/pocketmind/action/ActionModels.kt")
 
 if not capability_matrix_path.is_file():
@@ -278,9 +285,6 @@ required_real_app_search_failure_modes = {
 required_safety_failure_modes = {
     "permissiondenied",
 }
-required_boundary_ids = {
-    "public_evidence_multi_search_batch_allowed",
-}
 allowed_routing_paths = {
     "",
     "skill_first",
@@ -290,6 +294,24 @@ allowed_routing_paths = {
     "no_action",
 }
 failure_mode_pattern = re.compile(r"^[a-z0-9][a-z0-9_:-]*$")
+required_boundary_entries = capability_matrix.get("requiredBehaviorEvalBoundaries", [])
+if not isinstance(required_boundary_entries, list):
+    print("reason=invalid-required-behavior-eval-boundaries")
+    sys.exit(1)
+required_boundary_ids = []
+for boundary in required_boundary_entries:
+    if not isinstance(boundary, str):
+        print("reason=invalid-required-behavior-eval-boundaries")
+        sys.exit(1)
+    value = boundary.strip()
+    if not value or not failure_mode_pattern.match(value):
+        print("reason=invalid-required-behavior-eval-boundaries")
+        sys.exit(1)
+    required_boundary_ids.append(value)
+if not required_boundary_ids or len(set(required_boundary_ids)) != len(required_boundary_ids):
+    print("reason=invalid-required-behavior-eval-boundaries")
+    sys.exit(1)
+required_boundary_ids = set(required_boundary_ids)
 
 for category in required:
     path = fixture_dir / f"{category}.jsonl"

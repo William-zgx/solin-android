@@ -23,6 +23,57 @@
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
 
+## 2026-06-23 Capability Matrix Required Behavior Eval Boundary Gate
+
+本轮覆盖项：
+
+- `CapabilityMatrix.requiredBehaviorEvalBoundaries` 和
+  `docs/capability_matrix.json` 新增 `requiredBehaviorEvalBoundaries`，由能力矩阵声明
+  Agent behavior eval 必须覆盖的安全边界。
+- `scripts/verify_ai_behavior_eval.sh` 新增 `--capability-matrix`，默认读取
+  `docs/capability_matrix.json`，不再在 verifier 内硬编码 required boundary id。
+- `scripts/test_validation_scripts.sh` 新增负例：能力矩阵缺少 required behavior eval
+  boundary 声明时必须失败并报告 `invalid-required-behavior-eval-boundaries`。
+- 因能力矩阵内容变更，同步刷新 `docs/privacy_review.json` 与三份 pending privacy
+  review evidence 中绑定的 capability matrix SHA-256，保持 privacy review gate
+  fail-closed 证据一致性。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest \
+  --tests com.bytedance.zgx.pocketmind.eval.AiBehaviorEvalFixturesTest
+
+scripts/verify_ai_behavior_eval.sh --require-boundary-map \
+  --trace-diff build/verification/ai-behavior-required-boundary-current.jsonl \
+  --report build/verification/ai-behavior-required-boundary-current.properties
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：目标 JVM 测试 `CapabilityMatrixDocumentationTest` 与
+  `AiBehaviorEvalFixturesTest`。
+- 通过：`scripts/verify_ai_behavior_eval.sh --require-boundary-map` 输出
+  `AI behavior eval fixtures passed: 39 cases across 7 categories and 6 MVP scenarios.`，
+  并写出 `build/verification/ai-behavior-required-boundary-current.properties`。
+- 通过：`scripts/test_validation_scripts.sh` 输出 `Validation script tests passed.`，
+  覆盖能力矩阵缺失 required behavior eval boundary 的 fail-closed 负例。
+- 通过：最终 `scripts/verify_local.sh` 输出 `Android artifact scan passed.` 和
+  `Local verification passed.`，覆盖完整本地 validation scripts、Gradle JVM/lint/debug
+  AndroidTest assemble、release APK/AAB build 和 Android artifact scan。
+- 未执行：真机、模拟器和真实 App 物理验证；本轮只收紧本地能力矩阵与行为 eval
+  verifier 的契约。
+
 ## 2026-06-23 Agent Behavior Routing Expectation Gate
 
 本轮覆盖项：

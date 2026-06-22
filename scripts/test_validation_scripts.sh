@@ -1293,6 +1293,12 @@ if len(set(json_ids)) != len(json_ids) or any(not title.strip() for title in jso
     print("docs/capability_matrix.json nextStageMvpScenarios must have unique IDs and non-blank titles", file=sys.stderr)
     sys.exit(1)
 PY
+grep -q 'requiredBehaviorEvalBoundaries' docs/capability_matrix.json ||
+  fail "Capability matrix must declare required behavior eval boundaries"
+grep -q 'requiredBehaviorEvalBoundaries' app/src/main/java/com/bytedance/zgx/pocketmind/capability/CapabilityMatrix.kt ||
+  fail "CapabilityMatrix must own required behavior eval boundary declarations"
+grep -q -- '--capability-matrix' scripts/verify_ai_behavior_eval.sh ||
+  fail "AI behavior eval gate must accept an explicit capability matrix input"
 grep -q 'underCoveredMvpScenarios=' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval report must expose under-covered MVP scenarios"
 grep -q 'missingRequiredMvpScenarios=' scripts/verify_ai_behavior_eval.sh ||
@@ -1549,6 +1555,27 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-bad-expected-routing.properties" "status=failed"
 assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-bad-expected-routing.properties" "reason=invalid-field:planner_false_positive:"
 assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-bad-expected-routing.properties" ":expectedRoutingPath"
+AI_BEHAVIOR_MISSING_BOUNDARY_MATRIX="$TMP_DIR/capability-matrix-missing-behavior-boundaries.json"
+python3 - "$AI_BEHAVIOR_MISSING_BOUNDARY_MATRIX" <<'PY'
+import json
+import pathlib
+import sys
+
+source = json.loads(pathlib.Path("docs/capability_matrix.json").read_text(encoding="utf-8"))
+source.pop("requiredBehaviorEvalBoundaries", None)
+pathlib.Path(sys.argv[1]).write_text(
+    json.dumps(source, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects capability matrix without required boundary declarations" \
+  scripts/verify_ai_behavior_eval.sh \
+    --capability-matrix "$AI_BEHAVIOR_MISSING_BOUNDARY_MATRIX" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-missing-boundary-matrix.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-boundary-matrix.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-boundary-matrix.properties" "reason=invalid-required-behavior-eval-boundaries"
 AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR="$TMP_DIR/ai-behavior-missing-public-batch"
 mkdir -p "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR"
 cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_PUBLIC_BATCH_DIR/"

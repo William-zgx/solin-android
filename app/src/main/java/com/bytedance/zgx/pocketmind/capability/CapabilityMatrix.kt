@@ -90,6 +90,10 @@ object CapabilityMatrix {
             "Missing next-stage MVP scenario title: $capabilityId"
         }
 
+    val requiredBehaviorEvalBoundaries: List<String> = listOf(
+        "public_evidence_multi_search_batch_allowed",
+    )
+
     val productDescriptors: List<CapabilityDescriptor> =
         listOf(
             CapabilityDescriptor(
