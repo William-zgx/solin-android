@@ -57,6 +57,9 @@ for release_gate_arg in "${ORIGINAL_ARGS[@]}"; do
   release_gate_command+=" $quoted_release_gate_arg"
 done
 head_commit_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+release_artifact_path=""
+release_artifact_type=""
+release_artifact_sha256=""
 
 if [[ "$PUBLIC_RELEASE" == "1" ]]; then
   VERIFY_RELEASE_RECORD=1
@@ -135,6 +138,12 @@ write_simple_child_report() {
     printf 'command=%s\n' "$release_gate_command"
     printf 'reproduciblePath=%s\n' "$report_file"
     printf 'reason=%s\n' "$reason"
+    printf 'releaseGateReport=%s\n' "$RELEASE_GATE_REPORT"
+    printf 'releaseGateHeadCommitSha=%s\n' "$head_commit_sha"
+    printf 'releaseRecordFile=%s\n' "$RELEASE_RECORD_FILE"
+    printf 'releaseArtifactPath=%s\n' "$release_artifact_path"
+    printf 'releaseArtifactType=%s\n' "$release_artifact_type"
+    printf 'releaseArtifactSha256=%s\n' "$release_artifact_sha256"
     local entry
     for entry in "$@"; do
       printf '%s\n' "$entry"
@@ -169,6 +178,9 @@ write_gate_report() {
     printf 'reproduciblePath=%s\n' "$RELEASE_GATE_REPORT"
     printf 'headCommitSha=%s\n' "$head_commit_sha"
     printf 'artifactDir=%s\n' "$ARTIFACT_DIR"
+    printf 'releaseArtifactPath=%s\n' "$release_artifact_path"
+    printf 'releaseArtifactType=%s\n' "$release_artifact_type"
+    printf 'releaseArtifactSha256=%s\n' "$release_artifact_sha256"
     printf 'publicRelease=%s\n' "$PUBLIC_RELEASE"
     printf 'verifyReleaseRecord=%s\n' "$VERIFY_RELEASE_RECORD"
     printf 'releaseRecordFile=%s\n' "$RELEASE_RECORD_FILE"
@@ -344,9 +356,6 @@ else
     no-release-apk-or-aab
 fi
 
-release_artifact_path=""
-release_artifact_type=""
-release_artifact_sha256=""
 if [[ -f "$RELEASE_AAB" ]]; then
   release_artifact_path="$RELEASE_AAB"
   release_artifact_type="aab"

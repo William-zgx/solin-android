@@ -776,6 +776,9 @@ assert_release_gate_report_schema() {
   assert_release_verifier_report_schema "$file" "ReleaseGateVerification/v1"
   grep -Eq '^headCommitSha=[0-9a-f]{40}$' "$file" ||
     fail "Expected release gate report to include current git head SHA"
+  assert_report_contains "$file" "releaseRecordFile="
+  grep -Eq '^releaseArtifactSha256=' "$file" ||
+    fail "Expected release gate report to include releaseArtifactSha256"
 }
 
 assert_release_gate_child_report_schema() {
@@ -785,6 +788,10 @@ assert_release_gate_child_report_schema() {
   assert_release_verifier_report_schema "$file" "ReleaseGateChildReport/v1"
   assert_report_contains "$file" "status=$expected_status"
   assert_report_contains "$file" "target=$expected_target"
+  assert_report_contains "$file" "releaseGateReport="
+  assert_report_contains "$file" "releaseRecordFile="
+  grep -Eq '^releaseArtifactSha256=' "$file" ||
+    fail "Expected release gate child report to include releaseArtifactSha256"
 }
 
 assert_release_gate_child_report_bound() {
@@ -2795,6 +2802,7 @@ RELEASE_RECORD_REPORT="$TMP_DIR/release-record-report.properties"
 RELEASE_RECORD_FAILED_REPORT="$TMP_DIR/release-record-failed-report.properties"
 RELEASE_RECORD_WEAK_REPORT="$TMP_DIR/release-record-weak-report.properties"
 RELEASE_RECORD_STALE_REPORT="$TMP_DIR/release-record-stale-report.properties"
+RELEASE_RECORD_GATE_REPORT="$TMP_DIR/release-record-gate-report.properties"
 RELEASE_RECORD_PENDING="$TMP_DIR/release-record-pending.json"
 RELEASE_RECORD_APPROVED="$TMP_DIR/release-record-approved.json"
 RELEASE_RECORD_BLOCKER_EVIDENCE="$TMP_DIR/release-record-privacy-review-blocker.properties"
@@ -2820,17 +2828,29 @@ reproduciblePath=$RELEASE_RECORD_FAILED_REPORT
 RELEASE_RECORD_FAILED_REPORT_PROPERTIES
 printf 'status=passed\ntarget=local-verification\n' > "$RELEASE_RECORD_WEAK_REPORT"
 sed 's/^recordedAt=.*/recordedAt=2000-01-01T00:00:00Z/' "$RELEASE_RECORD_REPORT" > "$RELEASE_RECORD_STALE_REPORT"
-printf 'status=accepted\nblocker=privacy-review\nscope=internal-testing-risk\n' > "$RELEASE_RECORD_BLOCKER_EVIDENCE"
 RELEASE_RECORD_ARTIFACT_SHA="$(shasum -a 256 "$RELEASE_RECORD_ARTIFACT" | awk '{print $1}')"
 RELEASE_RECORD_ARTIFACT_SIZE="$(wc -c < "$RELEASE_RECORD_ARTIFACT" | tr -d ' ')"
 RELEASE_RECORD_REPORT_SHA="$(shasum -a 256 "$RELEASE_RECORD_REPORT" | awk '{print $1}')"
 RELEASE_RECORD_FAILED_REPORT_SHA="$(shasum -a 256 "$RELEASE_RECORD_FAILED_REPORT" | awk '{print $1}')"
 RELEASE_RECORD_WEAK_REPORT_SHA="$(shasum -a 256 "$RELEASE_RECORD_WEAK_REPORT" | awk '{print $1}')"
 RELEASE_RECORD_STALE_REPORT_SHA="$(shasum -a 256 "$RELEASE_RECORD_STALE_REPORT" | awk '{print $1}')"
-RELEASE_RECORD_BLOCKER_EVIDENCE_SHA="$(shasum -a 256 "$RELEASE_RECORD_BLOCKER_EVIDENCE" | awk '{print $1}')"
 RELEASE_RECORD_HEAD="$(git rev-parse HEAD)"
 RELEASE_RECORD_NON_HEAD="$(git rev-parse HEAD^)"
 RELEASE_RECORD_DATE="$(date +%F)"
+cat > "$RELEASE_RECORD_BLOCKER_EVIDENCE" <<RELEASE_RECORD_BLOCKER_EVIDENCE_PROPERTIES
+artifactSchema=ReleaseRecordBlockerEvidence/v1
+status=accepted
+target=release-record-blocker-evidence
+blockerId=privacy-review
+owner=Release Owner
+date=$RELEASE_RECORD_DATE
+decision=accepted
+releaseGitCommit=$RELEASE_RECORD_HEAD
+releaseArtifactSha256=$RELEASE_RECORD_ARTIFACT_SHA
+reproduciblePath=$RELEASE_RECORD_BLOCKER_EVIDENCE
+scope=internal-testing-risk
+RELEASE_RECORD_BLOCKER_EVIDENCE_PROPERTIES
+RELEASE_RECORD_BLOCKER_EVIDENCE_SHA="$(shasum -a 256 "$RELEASE_RECORD_BLOCKER_EVIDENCE" | awk '{print $1}')"
 cat > "$RELEASE_RECORD_PENDING" <<'RELEASE_RECORD_PENDING_JSON'
 {
   "version": 1,
@@ -2943,7 +2963,53 @@ expect_failure \
   scripts/verify_release_record.sh --file "$RELEASE_RECORD_APPROVED" --report "$ARTIFACT_DIR/release-record-public-internal-channel.properties"
 assert_report_contains "$ARTIFACT_DIR/release-record-public-internal-channel.properties" "status=failed"
 RELEASE_RECORD_PUBLIC="$TMP_DIR/release-record-public.json"
-sed 's/"targetChannel": "internal_testing"/"targetChannel": "open_testing"/' "$RELEASE_RECORD_APPROVED" > "$RELEASE_RECORD_PUBLIC"
+RELEASE_RECORD_PUBLIC_NO_GATE="$TMP_DIR/release-record-public-no-gate.json"
+sed 's/"targetChannel": "internal_testing"/"targetChannel": "open_testing"/' "$RELEASE_RECORD_APPROVED" > "$RELEASE_RECORD_PUBLIC_NO_GATE"
+expect_failure \
+  "release record verifier rejects public record without release gate report" \
+  env PUBLIC_RELEASE_CONTEXT=1 \
+  ALLOW_DIRTY_RELEASE=1 \
+  EXPECTED_RELEASE_ARTIFACT_PATH="$RELEASE_RECORD_ARTIFACT" \
+  EXPECTED_RELEASE_ARTIFACT_TYPE=aab \
+  EXPECTED_RELEASE_ARTIFACT_SHA256="$RELEASE_RECORD_ARTIFACT_SHA" \
+  EXPECTED_SIGNING_CERT_SHA256=1111111111111111111111111111111111111111111111111111111111111111 \
+  scripts/verify_release_record.sh --file "$RELEASE_RECORD_PUBLIC_NO_GATE" --report "$ARTIFACT_DIR/release-record-public-missing-gate.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-record-public-missing-gate.properties" "verification-report-release-gate-missing"
+cat > "$RELEASE_RECORD_GATE_REPORT" <<RELEASE_RECORD_GATE_REPORT_PROPERTIES
+artifactSchema=ReleaseGateVerification/v1
+status=passed
+target=release-gate
+owner=release-engineering
+recordedAt=$RELEASE_RECORD_RECORDED_AT
+command=PUBLIC_RELEASE=1 scripts/verify_release_gate.sh
+reproduciblePath=$RELEASE_RECORD_GATE_REPORT
+reason=approved
+headCommitSha=$RELEASE_RECORD_HEAD
+releaseArtifactPath=$RELEASE_RECORD_ARTIFACT
+releaseArtifactType=aab
+releaseArtifactSha256=$RELEASE_RECORD_ARTIFACT_SHA
+publicRelease=1
+verifyReleaseRecord=1
+releaseRecordFile=$RELEASE_RECORD_PUBLIC
+releaseRecordReportPath=$ARTIFACT_DIR/release-record.properties
+releaseRecordReportStatus=passed
+releaseRecordReportSha256=1111111111111111111111111111111111111111111111111111111111111111
+RELEASE_RECORD_GATE_REPORT_PROPERTIES
+RELEASE_RECORD_GATE_REPORT_SHA="$(shasum -a 256 "$RELEASE_RECORD_GATE_REPORT" | awk '{print $1}')"
+python3 - "$RELEASE_RECORD_PUBLIC_NO_GATE" "$RELEASE_RECORD_PUBLIC" "$RELEASE_RECORD_GATE_REPORT" "$RELEASE_RECORD_GATE_REPORT_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source, target, report_path = map(Path, sys.argv[1:4])
+record = json.loads(source.read_text())
+record["release"]["verificationReports"].append({
+    "name": "release-gate",
+    "path": str(report_path),
+    "sha256": sys.argv[4],
+})
+target.write_text(json.dumps(record, indent=2))
+PY
 expect_success \
   "release record verifier accepts matching public aab record" \
   env PUBLIC_RELEASE_CONTEXT=1 \
@@ -2955,6 +3021,31 @@ expect_success \
   scripts/verify_release_record.sh --file "$RELEASE_RECORD_PUBLIC" --report "$ARTIFACT_DIR/release-record-public.properties"
 assert_report_contains "$ARTIFACT_DIR/release-record-public.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/release-record-public.properties" "allowDirtyRelease=1"
+RELEASE_RECORD_BAD_GATE_REPORT="$TMP_DIR/release-record-bad-gate-report.properties"
+sed 's/^releaseArtifactSha256=.*/releaseArtifactSha256=0000000000000000000000000000000000000000000000000000000000000000/' \
+  "$RELEASE_RECORD_GATE_REPORT" > "$RELEASE_RECORD_BAD_GATE_REPORT"
+RELEASE_RECORD_BAD_GATE_REPORT_SHA="$(shasum -a 256 "$RELEASE_RECORD_BAD_GATE_REPORT" | awk '{print $1}')"
+RELEASE_RECORD_BAD_GATE_JSON="$TMP_DIR/release-record-bad-gate-report.json"
+python3 - "$RELEASE_RECORD_PUBLIC" "$RELEASE_RECORD_BAD_GATE_JSON" "$RELEASE_RECORD_BAD_GATE_REPORT" "$RELEASE_RECORD_BAD_GATE_REPORT_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["release"]["verificationReports"][1]["path"] = sys.argv[3]
+record["release"]["verificationReports"][1]["sha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release record verifier rejects release gate report bound to another artifact" \
+  env PUBLIC_RELEASE_CONTEXT=1 \
+  ALLOW_DIRTY_RELEASE=1 \
+  EXPECTED_RELEASE_ARTIFACT_PATH="$RELEASE_RECORD_ARTIFACT" \
+  EXPECTED_RELEASE_ARTIFACT_TYPE=aab \
+  EXPECTED_RELEASE_ARTIFACT_SHA256="$RELEASE_RECORD_ARTIFACT_SHA" \
+  EXPECTED_SIGNING_CERT_SHA256=1111111111111111111111111111111111111111111111111111111111111111 \
+  scripts/verify_release_record.sh --file "$RELEASE_RECORD_BAD_GATE_JSON" --report "$ARTIFACT_DIR/release-record-bad-gate-report.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-record-bad-gate-report.properties" "verification-report-1-release-artifact-sha-mismatch"
 DIRTY_RELEASE_MARKER="$ROOT_DIR/release-record-dirty-test.tmp"
 CLEANUP_PATHS+=("$DIRTY_RELEASE_MARKER")
 printf 'dirty release record test\n' > "$DIRTY_RELEASE_MARKER"
@@ -3005,6 +3096,43 @@ expect_failure \
   "release record verifier rejects blocker evidence sha mismatch" \
   scripts/verify_release_record.sh --file "$RELEASE_RECORD_BAD_BLOCKER_EVIDENCE_SHA" --report "$ARTIFACT_DIR/release-record-bad-blocker-evidence-sha.properties"
 assert_report_contains_text "$ARTIFACT_DIR/release-record-bad-blocker-evidence-sha.properties" "privacy-review-evidence-sha-mismatch"
+RELEASE_RECORD_BAD_BLOCKER_SCHEMA_EVIDENCE="$TMP_DIR/release-record-bad-blocker-schema.properties"
+grep -Ev '^artifactSchema=' "$RELEASE_RECORD_BLOCKER_EVIDENCE" > "$RELEASE_RECORD_BAD_BLOCKER_SCHEMA_EVIDENCE"
+RELEASE_RECORD_BAD_BLOCKER_SCHEMA_EVIDENCE_SHA="$(shasum -a 256 "$RELEASE_RECORD_BAD_BLOCKER_SCHEMA_EVIDENCE" | awk '{print $1}')"
+RELEASE_RECORD_BAD_BLOCKER_SCHEMA_JSON="$TMP_DIR/release-record-bad-blocker-schema.json"
+python3 - "$RELEASE_RECORD_APPROVED" "$RELEASE_RECORD_BAD_BLOCKER_SCHEMA_JSON" "$RELEASE_RECORD_BAD_BLOCKER_SCHEMA_EVIDENCE" "$RELEASE_RECORD_BAD_BLOCKER_SCHEMA_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["release"]["blockers"][0]["evidencePath"] = sys.argv[3]
+record["release"]["blockers"][0]["evidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release record verifier rejects blocker evidence without artifact schema" \
+  scripts/verify_release_record.sh --file "$RELEASE_RECORD_BAD_BLOCKER_SCHEMA_JSON" --report "$ARTIFACT_DIR/release-record-bad-blocker-schema.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-record-bad-blocker-schema.properties" "privacy-review-evidence-artifact-schema-invalid"
+RELEASE_RECORD_BAD_BLOCKER_ARTIFACT_EVIDENCE="$TMP_DIR/release-record-bad-blocker-artifact.properties"
+sed 's/^releaseArtifactSha256=.*/releaseArtifactSha256=0000000000000000000000000000000000000000000000000000000000000000/' \
+  "$RELEASE_RECORD_BLOCKER_EVIDENCE" > "$RELEASE_RECORD_BAD_BLOCKER_ARTIFACT_EVIDENCE"
+RELEASE_RECORD_BAD_BLOCKER_ARTIFACT_EVIDENCE_SHA="$(shasum -a 256 "$RELEASE_RECORD_BAD_BLOCKER_ARTIFACT_EVIDENCE" | awk '{print $1}')"
+RELEASE_RECORD_BAD_BLOCKER_ARTIFACT_JSON="$TMP_DIR/release-record-bad-blocker-artifact.json"
+python3 - "$RELEASE_RECORD_APPROVED" "$RELEASE_RECORD_BAD_BLOCKER_ARTIFACT_JSON" "$RELEASE_RECORD_BAD_BLOCKER_ARTIFACT_EVIDENCE" "$RELEASE_RECORD_BAD_BLOCKER_ARTIFACT_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["release"]["blockers"][0]["evidencePath"] = sys.argv[3]
+record["release"]["blockers"][0]["evidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release record verifier rejects blocker evidence bound to another artifact" \
+  scripts/verify_release_record.sh --file "$RELEASE_RECORD_BAD_BLOCKER_ARTIFACT_JSON" --report "$ARTIFACT_DIR/release-record-bad-blocker-artifact.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-record-bad-blocker-artifact.properties" "privacy-review-evidence-release-artifact-sha-mismatch"
 RELEASE_RECORD_FAILED_REPORT_JSON="$TMP_DIR/release-record-failed-report.json"
 sed \
   -e 's#'"$RELEASE_RECORD_REPORT"'#'"$RELEASE_RECORD_FAILED_REPORT"'#' \

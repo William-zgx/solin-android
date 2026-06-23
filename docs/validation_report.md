@@ -14977,6 +14977,13 @@ git diff --check
 
 结果：
 
+- 通过：shell 静态检查与 `git diff --check`。
+- 符合预期失败：当前 checked-in store policy verifier 仍 fail-closed，原因保持在
+  pending approval、占位联系邮箱/隐私政策 URL、review evidence 未批准和 review date 缺失；
+  未出现 store policy record/source binding 或 SHA drift 失败。
+- 符合预期失败：当前 checked-in privacy review verifier 仍 fail-closed，原因保持在
+  release/security/legal pending、reviewer/date 缺失和 evidence 未批准；未出现
+  privacy review file、notice 或 capability matrix binding/SHA drift 失败。
 - 按最新目标，本轮暂不运行 `scripts/test_validation_scripts.sh`、`scripts/verify_local.sh`、
   Gradle、真机或模拟器验证；完整复杂验证等 Roadmap 功能补齐后统一执行。
 
@@ -14991,6 +14998,57 @@ Roadmap 状态：
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
 - Store、release/security/legal 审批仍需要真实 reviewer、公开隐私政策 URL、真实联系邮箱和
   批准日期，不能由代码替代。
+
+## 2026-06-23 Release record gate and blocker evidence binding
+
+本轮覆盖项：
+
+- 多 Agent 只读审计指出 release record 仍可能引用 passed 但属于其他 RC/artifact 的
+  verification report，且 blocker evidence 只校验 path/SHA，缺少语义绑定。
+- `scripts/verify_release_gate.sh` 的 `ReleaseGateVerification/v1` report 现在输出
+  `releaseArtifactPath`、`releaseArtifactType`、`releaseArtifactSha256`；release-gate
+  自己生成的 child report 也输出 `releaseGateReport`、`releaseGateHeadCommitSha`、
+  `releaseRecordFile` 和 release artifact identity。
+- `scripts/verify_release_record.sh` 在 public release context 下要求 release record
+  至少引用一个 `ReleaseGateVerification/v1` / `target=release-gate` report，并校验
+  `verifyReleaseRecord=1`、release record child report passed、`releaseRecordFile`
+  解析到当前 record、`headCommitSha` 匹配 release git commit、`releaseArtifactSha256`
+  匹配当前 release artifact。
+- Release blocker evidence 现在必须是 `ReleaseRecordBlockerEvidence/v1` properties，
+  并绑定 blocker id、owner、date、status/decision、release git commit、release
+  artifact SHA-256 和 reproducible path。
+- `scripts/test_validation_scripts.sh` 增加 public release 缺 release-gate report、
+  gate report artifact SHA 错绑、blocker evidence 缺 schema、blocker artifact SHA
+  错绑等负例夹具。
+
+验证计划：
+
+```bash
+bash -n scripts/verify_release_gate.sh \
+  scripts/verify_release_record.sh \
+  scripts/test_validation_scripts.sh
+
+git diff --check
+```
+
+结果：
+
+- 通过：shell 静态检查与 `git diff --check`。
+- 符合预期失败：当前 checked-in release record verifier 正常生成
+  `ReleaseRecordVerification/v1` 失败报告，失败原因保持在 pending release record 缺真实
+  release 信息、artifact、verification report 和 blocker evidence；未出现脚本异常。
+- 按最新目标，本轮暂不运行 `scripts/test_validation_scripts.sh`、`scripts/verify_local.sh`、
+  Gradle、真机或模拟器验证；完整复杂验证等 Roadmap 功能补齐后统一执行。
+
+Roadmap 状态：
+
+- Phase 4 release evidence 继续推进：release record、release gate report、blocker
+  evidence 新增 release identity 防复用约束。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
+  perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
 
 ## 2026-06-23 Public evidence capability and multimodal draft boundary
 

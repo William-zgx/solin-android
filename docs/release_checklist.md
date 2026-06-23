@@ -41,16 +41,23 @@ with each RC before treating this checklist as complete.
   `artifactSchema`, owner, UTC `recordedAt`, reproducible command/path, and are
   fresh within `RELEASE_RECORD_VERIFICATION_REPORT_MAX_AGE_DAYS` (default 30).
   It also checks unsupported capabilities, Agent behavior summary, and resolved
-  or accepted blockers with matching evidence SHA-256. For `PUBLIC_RELEASE=1`,
-  the record must use a public distribution channel and match the final AAB path,
-  artifact SHA-256, and production signing certificate SHA-256 passed to the
-  release gate; it also requires a clean Git worktree unless
+  or accepted blockers with matching evidence SHA-256. Blocker evidence must be
+  structured `ReleaseRecordBlockerEvidence/v1` properties that bind the blocker
+  id, owner, date, decision, current release Git commit, release artifact
+  SHA-256, and reproducible evidence path. For `PUBLIC_RELEASE=1`, the record
+  must reference a `ReleaseGateVerification/v1` report for the current release
+  record, current HEAD commit, and release artifact SHA-256, use a public
+  distribution channel, and match the final AAB path, artifact SHA-256, and
+  production signing certificate SHA-256 passed to the release gate; it also
+  requires a clean Git worktree unless
   `ALLOW_DIRTY_RELEASE=1` is explicitly set for non-production dry-run
   validation.
 - [ ] `release-gate.properties` and every generated child report bound by it are
   auditable evidence. Release-gate-owned skipped or preflight-failed child
   reports must include `ReleaseGateChildReport/v1`, owner, UTC `recordedAt`,
-  command, reason, and reproducible path instead of only `status` / `target`.
+  command, reason, reproducible path, release gate report path, release record
+  file, HEAD commit, and release artifact path/type/SHA-256 instead of only
+  `status` / `target`.
 
 ## Versioning And Release Track
 

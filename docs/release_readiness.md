@@ -290,12 +290,18 @@ items below.
   bind back to `docs/privacy_review.json` through `privacyReviewFile`. These are
   local evidence-chain checks; they do not replace the real store, release,
   security, or legal approvals.
+- Release gate reports now carry release artifact path/type/SHA-256, and
+  release-gate-owned child reports carry the gate report path, current HEAD,
+  release record file, and artifact identity. Public release records must include
+  a bound `ReleaseGateVerification/v1` report, and blocker evidence must use
+  structured `ReleaseRecordBlockerEvidence/v1` properties tied to the current
+  blocker id, owner, date, release commit, and artifact SHA-256.
 
 ## Remaining release blockers by ownership
 
 | Status | Owner / environment | Item | Gate or evidence |
 | --- | --- | --- | --- |
-| Owner evidence required | Release owner | Fill `docs/release_record.json` with final owner, reviewer, target channel, changelog, release notes, artifact checksum, signing certificate fingerprint, fresh schema/owner-tagged verification reports, and resolved/accepted blockers. | `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; `PUBLIC_RELEASE=1` additionally binds the record to the final public AAB, artifact SHA-256, and production signing certificate SHA-256. |
+| Owner evidence required | Release owner | Fill `docs/release_record.json` with final owner, reviewer, target channel, changelog, release notes, artifact checksum, signing certificate fingerprint, fresh schema/owner-tagged verification reports, bound release-gate evidence for public release, and structured resolved/accepted blocker evidence. | `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; `PUBLIC_RELEASE=1` additionally binds the record to the final public AAB, artifact SHA-256, production signing certificate SHA-256, and a matching `ReleaseGateVerification/v1` report. |
 | Owner evidence required | Store / policy owner | Fill `docs/store_policy_record.json` with an approved status, real support contact, public privacy-policy URL, reviewer, review date, and approved store-policy evidence. Current machine-checkable SHA, permission, model-download, record binding, and confirmed-actions wording drift has been normalized, but the record remains intentionally pending. | `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`; verifier checks the current privacy notice SHA, Android manifest, model capability profiles, model manifest, and store policy record binding. |
 | Owner evidence required | Release operations owner | Fill `docs/release_operations_record.json` with crash/ANR monitoring owner, signal source, first-24-hour watcher, staged rollout thresholds, crash/ANR smoke result, and rollback plan. | `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`; smoke evidence should come from `scripts/collect_crash_anr_smoke_evidence.sh` plus device verification, instrumentation output, and logcat. |
 | Owner evidence required | Validation owner | Fill `docs/release_validation_record.json` with approved emulator regression, physical-device instrumentation, API matrix, manual acceptance, flow matrix, sanitized screenshots, and performance sanity evidence. | `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh`; verifier rejects emulator serials as physical-device evidence and checks AndroidTest counts, required APIs, manual/system-mediated flows, screenshots, and review date. |

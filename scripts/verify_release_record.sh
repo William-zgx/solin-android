@@ -266,6 +266,48 @@ def validate_verification_report_properties(prefix, props, path):
     elif reproducible_path != str(path):
         failures.append(f"{prefix}-reproducible-path-mismatch")
 
+def validate_release_gate_report_properties(prefix, props, release_git_commit, release_artifact_sha):
+    if props.get("verifyReleaseRecord") != "1":
+        failures.append(f"{prefix}-release-gate-record-verification-not-enabled")
+    if props.get("releaseRecordReportStatus") != "passed":
+        failures.append(f"{prefix}-release-gate-record-report-not-passed")
+    release_record_file = props.get("releaseRecordFile", "")
+    if not non_empty_string(release_record_file):
+        failures.append(f"{prefix}-release-record-file-missing")
+    elif Path(release_record_file).resolve() != record_path.resolve():
+        failures.append(f"{prefix}-release-record-file-mismatch")
+    if props.get("headCommitSha") != release_git_commit:
+        failures.append(f"{prefix}-head-commit-mismatch")
+    if props.get("releaseArtifactSha256") != release_artifact_sha:
+        failures.append(f"{prefix}-release-artifact-sha-mismatch")
+
+def validate_blocker_evidence_properties(blocker_id, blocker, evidence_path, release_git_commit, release_artifact_sha):
+    props = properties_for(evidence_path)
+    prefix = f"{blocker_id}-evidence"
+    if props.get("artifactSchema") != "ReleaseRecordBlockerEvidence/v1":
+        failures.append(f"{prefix}-artifact-schema-invalid")
+    if props.get("target") != "release-record-blocker-evidence":
+        failures.append(f"{prefix}-target-invalid")
+    if props.get("blockerId") != blocker_id:
+        failures.append(f"{prefix}-blocker-id-mismatch")
+    if props.get("owner") != blocker.get("owner", ""):
+        failures.append(f"{prefix}-owner-mismatch")
+    if props.get("date") != blocker.get("date", ""):
+        failures.append(f"{prefix}-date-mismatch")
+    if props.get("status") != blocker.get("status", ""):
+        failures.append(f"{prefix}-status-mismatch")
+    if props.get("decision") != blocker.get("status", ""):
+        failures.append(f"{prefix}-decision-mismatch")
+    if props.get("releaseGitCommit") != release_git_commit:
+        failures.append(f"{prefix}-release-git-commit-mismatch")
+    if props.get("releaseArtifactSha256") != release_artifact_sha:
+        failures.append(f"{prefix}-release-artifact-sha-mismatch")
+    reproducible_path = props.get("reproduciblePath", "")
+    if not non_empty_string(reproducible_path):
+        failures.append(f"{prefix}-reproducible-path-missing")
+    elif reproducible_path != str(evidence_path):
+        failures.append(f"{prefix}-reproducible-path-mismatch")
+
 failures = []
 try:
     verification_report_max_age_days = int(verification_report_max_age_days_raw)
@@ -399,6 +441,7 @@ reports = release.get("verificationReports")
 if not isinstance(reports, list) or not reports:
     failures.append("verification-reports-missing")
     reports = []
+release_gate_report_seen = False
 for index, report in enumerate(reports):
     if not isinstance(report, dict):
         failures.append(f"verification-report-{index}-invalid")
@@ -422,8 +465,21 @@ for index, report in enumerate(reports):
             report_properties,
             report_file,
         )
+        if (
+            report_properties.get("artifactSchema") == "ReleaseGateVerification/v1" or
+            report_properties.get("target") == "release-gate"
+        ):
+            release_gate_report_seen = True
+            validate_release_gate_report_properties(
+                f"verification-report-{index}",
+                report_properties,
+                git_commit,
+                artifact.get("sha256", ""),
+            )
     elif not re.fullmatch(r"[0-9a-fA-F]{64}", report_sha):
         failures.append(f"verification-report-{index}-sha-invalid")
+if public_release_context and not release_gate_report_seen:
+    failures.append("verification-report-release-gate-missing")
 
 blockers = release.get("blockers")
 if not isinstance(blockers, list):
@@ -449,10 +505,18 @@ for index, blocker in enumerate(blockers):
     elif not Path(evidence_path).is_file():
         failures.append(f"{blocker_id}-evidence-file-missing")
     else:
+        evidence_file = Path(evidence_path)
         validate_file_sha(
             f"{blocker_id}-evidence",
             evidence_path,
             blocker.get("evidenceSha256", ""),
+        )
+        validate_blocker_evidence_properties(
+            blocker_id,
+            blocker,
+            evidence_file,
+            git_commit,
+            artifact.get("sha256", ""),
         )
     blocker_date = blocker.get("date", "")
     if not blocker_date:
