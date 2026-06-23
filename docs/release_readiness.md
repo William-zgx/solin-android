@@ -161,8 +161,12 @@ items below.
   later public release gate. Real-app search failure modes are now required in
   the eval suite: `search_entry_not_found`, `editable_not_found`,
   `submit_not_found`, `result_not_verified`, and `required_hint_missing`.
-  The evidence is now mismatch-free, while allowed failures remain release-owner
-  review items before public release.
+  The evidence is mismatch-free, but allowed failures are no longer acceptable
+  for public release: `PUBLIC_RELEASE=1` enables
+  `REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1`, and the release gate fails closed
+  when `traceDiffAllowedFailureCount` is non-zero. The current collector evidence
+  therefore remains a release blocker until allowed failures are driven to zero
+  or a separately audited exception mechanism is introduced.
 - Agent behavior trace diffs now fail closed when an actual trace reports an
   unexpected `failureMode`, and fixture/trace failure modes must use stable slug
   taxonomy. Allowed failures can explain expected fail-closed behavior, but they

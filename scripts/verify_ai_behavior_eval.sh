@@ -13,6 +13,7 @@ ACTUAL_TRACE_FILE=""
 TRACE_DIFF_FILE=""
 REQUIRE_ACTUAL_TRACE=0
 REQUIRE_RUNTIME_TRACE_SOURCE=0
+REJECT_ALLOWED_FAILURES=0
 ACTUAL_TRACE_MAX_AGE_DAYS="${AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS:-30}"
 ORIGINAL_ARGS=("$@")
 
@@ -59,6 +60,10 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --require-runtime-trace-source)
       REQUIRE_RUNTIME_TRACE_SOURCE=1
+      shift
+      ;;
+    --reject-allowed-failures)
+      REJECT_ALLOWED_FAILURES=1
       shift
       ;;
     *)
@@ -145,6 +150,7 @@ write_report() {
       printf 'requireBoundaryMap=%s\n' "$REQUIRE_BOUNDARY_MAP"
       printf 'requireActualTrace=%s\n' "$REQUIRE_ACTUAL_TRACE"
       printf 'requireRuntimeTraceSource=%s\n' "$REQUIRE_RUNTIME_TRACE_SOURCE"
+      printf 'rejectAllowedFailures=%s\n' "$REJECT_ALLOWED_FAILURES"
       printf 'actualTraceMaxAgeDays=%s\n' "$ACTUAL_TRACE_MAX_AGE_DAYS"
       printf 'requiredCategories=%s\n' "$(IFS=,; echo "${REQUIRED_CATEGORIES[*]}")"
       for index in "${!metric_keys[@]}"; do
@@ -164,7 +170,7 @@ validation_output="$(mktemp)"
 trap 'rm -f "$validation_output"' EXIT
 
 if ! python3 - "$FIXTURE_DIR" "$CAPABILITY_MATRIX_FILE" "$MIN_CASES_PER_CATEGORY" "$REQUIRE_BOUNDARY_MAP" \
-  "$ACTUAL_TRACE_FILE" "$TRACE_DIFF_FILE" "$REQUIRE_ACTUAL_TRACE" "$REQUIRE_RUNTIME_TRACE_SOURCE" "$ACTUAL_TRACE_MAX_AGE_DAYS" \
+  "$ACTUAL_TRACE_FILE" "$TRACE_DIFF_FILE" "$REQUIRE_ACTUAL_TRACE" "$REQUIRE_RUNTIME_TRACE_SOURCE" "$REJECT_ALLOWED_FAILURES" "$ACTUAL_TRACE_MAX_AGE_DAYS" \
   "${REQUIRED_CATEGORIES[@]}" > "$validation_output" <<'PY'
 import collections
 import datetime
@@ -181,15 +187,16 @@ actual_trace_arg = sys.argv[5]
 trace_diff_arg = sys.argv[6]
 require_actual_trace = sys.argv[7] == "1"
 require_runtime_trace_source = sys.argv[8] == "1"
+reject_allowed_failures = sys.argv[9] == "1"
 try:
-    actual_trace_max_age_days = int(sys.argv[9])
+    actual_trace_max_age_days = int(sys.argv[10])
 except ValueError:
     print("reason=invalid-actual-trace-max-age-days")
     sys.exit(1)
 if actual_trace_max_age_days <= 0:
     print("reason=invalid-actual-trace-max-age-days")
     sys.exit(1)
-required = sys.argv[10:]
+required = sys.argv[11:]
 action_models_path = pathlib.Path("app/src/main/java/com/bytedance/zgx/pocketmind/action/ActionModels.kt")
 
 if not capability_matrix_path.is_file():
@@ -312,6 +319,11 @@ if not required_boundary_ids or len(set(required_boundary_ids)) != len(required_
     print("reason=invalid-required-behavior-eval-boundaries")
     sys.exit(1)
 required_boundary_ids = set(required_boundary_ids)
+required_public_evidence_boundary_ids = {
+    boundary for boundary in required_boundary_ids
+    if boundary.startswith("public_evidence_")
+}
+weak_required_public_evidence_boundaries = []
 
 for category in required:
     path = fixture_dir / f"{category}.jsonl"
@@ -435,7 +447,24 @@ for category in required:
         else:
             mvp_counts[mvp_scenario] += 1
         owner_counts[str(row["ownerAgent"]).strip()] += 1
-        boundaries.add(str(row["expectedBoundary"]).strip())
+        expected_boundary = str(row["expectedBoundary"]).strip()
+        boundaries.add(expected_boundary)
+        if expected_boundary in required_public_evidence_boundary_ids:
+            is_public_evidence_shape = (
+                category == "privacy_boundary" and
+                expected_tools and
+                all(tool == "web_search" for tool in expected_tools) and
+                expected_confirmation == "none" and
+                expected_risk == "public_evidence" and
+                privacy == "RemoteEligible" and
+                not local_only and
+                remote_eligible and
+                not allowed_failure_modes
+            )
+            if not is_public_evidence_shape:
+                weak_required_public_evidence_boundaries.append(
+                    f"{expected_boundary}:{category}:{line_number}"
+                )
         if expected_tools:
             cases_with_expected_tools += 1
         expected_tool_count += len(expected_tools)
@@ -936,6 +965,12 @@ if missing_safety_failure_modes:
 if missing_required_boundary_ids:
     emit_metrics(f"missing-required-boundary-coverage:{','.join(missing_required_boundary_ids)}")
     sys.exit(1)
+if weak_required_public_evidence_boundaries:
+    emit_metrics(
+        "required-public-evidence-boundary-shape:" +
+        ",".join(weak_required_public_evidence_boundaries)
+    )
+    sys.exit(1)
 if require_actual_trace and trace_diff_counts["missing_actual"] > 0:
     emit_metrics("trace-diff-missing-actual")
     sys.exit(1)
@@ -947,6 +982,9 @@ if require_actual_trace and trace_diff_counts["mismatch"] > 0:
     sys.exit(1)
 if require_actual_trace and trace_diff_extra_actual_count > 0:
     emit_metrics("trace-diff-extra-actual")
+    sys.exit(1)
+if reject_allowed_failures and trace_diff_counts["allowed_failure"] > 0:
+    emit_metrics("trace-diff-allowed-failure")
     sys.exit(1)
 
 emit_metrics()

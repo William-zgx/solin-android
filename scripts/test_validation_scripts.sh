@@ -1252,6 +1252,8 @@ grep -q 'REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1' scripts/verify_release_gate.sh ||
   fail "public release gate must require AI behavior actual trace"
 grep -q 'REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1' scripts/verify_release_gate.sh ||
   fail "public release gate must require AI behavior runtime trace source"
+grep -q 'REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1' scripts/verify_release_gate.sh ||
+  fail "public release gate must reject AI behavior allowed failures"
 grep -q 'VERIFY_AI_BEHAVIOR_EVAL=1' scripts/verify_release_gate.sh ||
   fail "public release gate must force AI behavior eval"
 grep -q -- '--require-boundary-map' scripts/verify_release_gate.sh ||
@@ -1628,6 +1630,32 @@ expect_failure \
     --report "$ARTIFACT_DIR/ai-behavior-missing-public-batch.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-public-batch.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-missing-public-batch.properties" "reason=missing-required-boundary-coverage:public_evidence_multi_search_batch_allowed"
+AI_BEHAVIOR_WEAK_PUBLIC_BATCH_DIR="$TMP_DIR/ai-behavior-weak-public-batch"
+mkdir -p "$AI_BEHAVIOR_WEAK_PUBLIC_BATCH_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_WEAK_PUBLIC_BATCH_DIR/"
+python3 - "$AI_BEHAVIOR_WEAK_PUBLIC_BATCH_DIR/privacy_boundary.jsonl" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in rows:
+    if row["id"] == "privacy_public_weather_batch_allowed":
+        row["expectedConfirmation"] = "tool_confirmation"
+path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects weak public evidence required boundary shape" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_WEAK_PUBLIC_BATCH_DIR" \
+    --require-boundary-map \
+    --report "$ARTIFACT_DIR/ai-behavior-weak-public-batch.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-weak-public-batch.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-weak-public-batch.properties" "reason=required-public-evidence-boundary-shape:public_evidence_multi_search_batch_allowed:privacy_boundary:4"
 AI_TRACE_DIFF_MISSING="$ARTIFACT_DIR/ai-behavior-trace-diff-missing.jsonl"
 expect_success \
   "AI behavior eval writes planning trace diff without actual trace" \
@@ -1973,6 +2001,24 @@ assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualRoutingPath": "no_a
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualRoutingPath": "action_planner"'
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualTraceSource": "agent_loop_runtime"'
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" "\"actualTraceRecordedAt\": \"$AI_TRACE_FRESH_RECORDED_AT\""
+ai_trace_allowed_count="$(awk -F= '$1 == "traceDiffAllowedFailureCount" {print $2; exit}' "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties")"
+if [[ "${ai_trace_allowed_count:-0}" -le 0 ]]; then
+  fail "AI behavior fixture trace must include allowed failures for strict release gate coverage"
+fi
+expect_failure \
+  "AI behavior eval rejects allowed failures when strict release mode requires zero" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --reject-allowed-failures \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties" "reason=trace-diff-allowed-failure"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties" "traceDiffAllowedFailureCount=$ai_trace_allowed_count"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties" "rejectAllowedFailures=1"
 
 AI_HIGH_RISK_DRIFT_TRACE="$TMP_DIR/ai-behavior-actual-trace-high-risk-drift.jsonl"
 python3 - "$AI_ACTUAL_TRACE" "$AI_HIGH_RISK_DRIFT_TRACE" <<'PY'
@@ -7602,6 +7648,24 @@ assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-require
 assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/release-gate.properties" "failedTarget=ai-behavior-eval"
 assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/release-gate.properties" "requireAiBehaviorRuntimeTraceSource=1"
 expect_failure \
+  "release gate fails closed when strict AI behavior allowed failures are present" \
+  env ARTIFACT_DIR="$ARTIFACT_DIR/release-ai-behavior-allowed-failure-strict" \
+  PERF_BASELINE_FILE="$VALID_GATE_PERF" \
+  RELEASE_APK="$SAFE_APK" \
+  RELEASE_AAB="$TMP_DIR/missing.aab" \
+  VERIFY_CONTRACT_TESTS=0 \
+  AI_BEHAVIOR_ACTUAL_TRACE_FILE="$AI_ACTUAL_TRACE" \
+  REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1 \
+  REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1 \
+  REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1 \
+  scripts/verify_release_gate.sh
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-allowed-failure-strict/ai-behavior-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-allowed-failure-strict/ai-behavior-eval.properties" "reason=trace-diff-allowed-failure"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-allowed-failure-strict/ai-behavior-eval.properties" "rejectAllowedFailures=1"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-allowed-failure-strict/release-gate.properties" "failedTarget=ai-behavior-eval"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-allowed-failure-strict/release-gate.properties" "failedReason=trace-diff-allowed-failure"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-allowed-failure-strict/release-gate.properties" "requireAiBehaviorNoAllowedFailures=1"
+expect_failure \
   "public release gate forces AI behavior eval even when disabled by environment" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-public-ai-behavior-forced" \
   PERF_BASELINE_FILE="$VALID_GATE_PERF" \
@@ -7616,6 +7680,7 @@ assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/ai-behav
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/ai-behavior-eval.properties" "reason=actual-trace-file-missing"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "verifyAiBehaviorEval=1"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "requireAiBehaviorActualTrace=1"
+assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "requireAiBehaviorNoAllowedFailures=1"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "failedTarget=ai-behavior-eval"
 expect_failure \
   "release gate can skip perf baseline for non-public owner evidence checks" \

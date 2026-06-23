@@ -14560,6 +14560,51 @@ ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
 
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+
+## 2026-06-23 AI behavior public-release strict gate
+
+本轮覆盖项：
+
+- 多 Agent 只读审计指出 public-release Agent behavior gate 仍允许
+  `allowed_failure` 作为通过状态。已新增严格模式：
+  `scripts/verify_ai_behavior_eval.sh --reject-allowed-failures` 会在
+  `traceDiffAllowedFailureCount > 0` 时 fail closed，报告
+  `reason=trace-diff-allowed-failure` 和 `rejectAllowedFailures=1`。
+- `scripts/verify_release_gate.sh` 新增
+  `REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES`，并在 `PUBLIC_RELEASE=1` profile
+  中自动开启；release gate 顶层报告会记录
+  `requireAiBehaviorNoAllowedFailures=1`。
+- Required public evidence eval boundary 不再只检查“有这个 boundary id”；
+  verifier 现在要求对应 fixture 保持 `privacy_boundary`、全 `web_search`、
+  `expectedConfirmation=none`、`expectedRiskLevel=public_evidence`、
+  `privacy=RemoteEligible`、`localOnly=false`、`remoteEligible=true` 且没有
+  allowed failure modes，避免把弱化后的 fixture 伪装成 release-critical
+  public evidence coverage。
+- `docs/release_readiness.md` 和 `docs/release_checklist.md` 已同步：当前
+  collector 中的 allowed failures 仍是 public release blocker，不能只作为人工
+  review item 静默通过。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：validation script self-tests，覆盖 weak public evidence required boundary
+  shape 负例、strict allowed-failure 负例、release gate
+  `REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1` 子报告和 public profile 强制开启。
+
+Roadmap 状态：
+
+- Phase 3 Agent behavior eval gate 继续推进：public release 的实际 trace 不再接受
+  allowed-failure rows，公开证据批量工具边界也有形状级校验。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、
+  真实 App 真机闭环、perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
 - 子 Agent 发现但未在本轮改动的后续项：manual acceptance 和 memory pressure evidence
   可继续增加 key-specific 字段。
 

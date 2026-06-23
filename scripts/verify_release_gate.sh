@@ -42,6 +42,7 @@ VERIFY_PERF_BASELINE="${VERIFY_PERF_BASELINE:-1}"
 AI_BEHAVIOR_ACTUAL_TRACE_FILE="${AI_BEHAVIOR_ACTUAL_TRACE_FILE:-}"
 REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE="${REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE:-0}"
 REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE="${REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE:-0}"
+REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES="${REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES:-0}"
 EXTRA_PRIVACY_SCAN_TARGETS="${EXTRA_PRIVACY_SCAN_TARGETS:-}"
 EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
@@ -70,6 +71,7 @@ if [[ "$PUBLIC_RELEASE" == "1" ]]; then
   VERIFY_AI_BEHAVIOR_EVAL=1
   REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1
   REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1
+  REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1
 fi
 
 if [[ "$REQUIRE_AAB" == "1" && "$REQUIRE_SIGNED_ARTIFACT" == "1" && "$RELEASE_AAB_WAS_SET" == "0" ]]; then
@@ -182,6 +184,7 @@ write_gate_report() {
     printf 'aiBehaviorActualTraceFile=%s\n' "$AI_BEHAVIOR_ACTUAL_TRACE_FILE"
     printf 'requireAiBehaviorActualTrace=%s\n' "$REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE"
     printf 'requireAiBehaviorRuntimeTraceSource=%s\n' "$REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE"
+    printf 'requireAiBehaviorNoAllowedFailures=%s\n' "$REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES"
     printf 'extraPrivacyScanTargets=%s\n' "$EXTRA_PRIVACY_SCAN_TARGETS"
     printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
     printf 'releaseApk=%s\n' "$RELEASE_APK"
@@ -280,6 +283,9 @@ if [[ "$VERIFY_AI_BEHAVIOR_EVAL" == "1" ]]; then
   fi
   if [[ "$REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE" == "1" ]]; then
     ai_behavior_args+=(--require-runtime-trace-source)
+  fi
+  if [[ "$REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES" == "1" ]]; then
+    ai_behavior_args+=(--reject-allowed-failures)
   fi
   if ! scripts/verify_ai_behavior_eval.sh "${ai_behavior_args[@]}"; then
     fail_gate ai-behavior-eval "$ARTIFACT_DIR/ai-behavior-eval.properties"
