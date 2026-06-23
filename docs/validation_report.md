@@ -15227,3 +15227,57 @@ Roadmap 状态：
 
 - 本轮仍按要求跳过真实网络 metadata 采集、人工 license approval、Gradle、真机和模拟器验证；
   model license 批准仍需要真实 reviewer、具体 license source 和批准日期。
+
+## 2026-06-23 Standalone model capability profile verifier
+
+本轮覆盖项：
+
+- 新增 `scripts/verify_model_capability_profiles.sh`，输出
+  `ModelCapabilityProfilesVerification/v1` report，独立校验
+  `docs/model_capability_profiles.json` 的能力/隐私边界，不依赖 Gradle、真机或模拟器。
+- Verifier 校验 root schema、全局 profile id 唯一、enum/shape、capability flags、
+  vision Chat-only、LocalLiteRt 不 remote、MemoryEmbedding/MobileAction 永不 remote、
+  RemoteOpenAiCompatible 必须 Chat + remote send confirmation，以及 recommended
+  profiles 的 byte/SHA/sourceRevision provenance。
+- `scripts/test_validation_scripts.sh` 增加 checked-in profile 正例，以及本地 memory
+  变 remote、remote template 缺确认、非 Chat profile 声明 vision 三类负例。
+- `scripts/verify_local.sh` 的 shell syntax gate 纳入新 verifier；`docs/release_checklist.md`
+  和 `docs/release_readiness.md` 同步 standalone profile verifier 的 release evidence 角色。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_model_capability_profiles.sh \
+  scripts/test_validation_scripts.sh scripts/verify_local.sh
+
+scripts/verify_model_capability_profiles.sh \
+  --report /tmp/pocketmind-model-capability-profiles.properties
+
+# 本地 memory profile remoteEligible=true 负例：
+MODEL_CAPABILITY_PROFILES_FILE=/tmp/<generated>/bad-local-remote.json \
+  scripts/verify_model_capability_profiles.sh \
+  --report /tmp/pocketmind-model-capability-bad.properties
+```
+
+结果：
+
+- 通过：shell 静态检查。
+- 通过：checked-in profile verifier，报告包含
+  `modelCapabilityProfilesSha256=1cb597a33ef920866a34e9d96b383f4fc6df7e9211e1fc07bbfcc2769fb48c98`、
+  `profileCount=4`、`remoteTemplateCount=2`、`memoryEmbeddingProfileCount=1`、
+  `mobileActionProfileCount=1`、`stableLocalChatProfileCount=2`。
+- 符合预期失败：将 memory profile 改成 `remoteEligible=true` 后 fail-closed，
+  `reason=profile-local-remote-eligible:memory-embedding-gemma-300m,profile-local-only-remote-boundary:memory-embedding-gemma-300m`。
+- 按最新目标，本轮暂不运行 `scripts/test_validation_scripts.sh`、`scripts/verify_local.sh`、
+  Gradle、真机或模拟器验证；完整复杂验证等 Roadmap 功能补齐后统一执行。
+
+Roadmap 状态：
+
+- Phase 5 model capability profile 继续推进：本地 chat/vision/memory/action/remote
+  能力边界现在有 standalone machine-readable gate，可作为 release evidence 附件。
+
+剩余风险：
+
+- 本轮 standalone verifier 不替代 `ModelCapabilityProfilesDocumentationTest` 对
+  Kotlin `ModelCatalog` 的精确同步测试，也不替代真实模型加载、vision/OCR/runtime perf
+  的真机验证。

@@ -134,7 +134,12 @@ with each RC before treating this checklist as complete.
   byte size, SHA-256, and upstream revision must match
   `docs/model_capability_profiles.json` and `docs/model_manifest.md`, and the
   verifier must derive the same lightweight local chat alternative and remote
-  alternative disclosure values as the record.
+  alternative disclosure values as the record. Run
+  `scripts/verify_model_capability_profiles.sh --report <report>` and attach the
+  `ModelCapabilityProfilesVerification/v1` report; it must show that local
+  memory/action profiles are not remote-eligible, remote templates require send
+  confirmation, vision is Chat-only, and recommended profiles carry
+  byte/SHA/revision provenance.
 - [ ] Required Android permissions and special-access flows are explained in
   user-facing language.
 - [ ] Sensitive permission disclosures are complete for `RECORD_AUDIO`,

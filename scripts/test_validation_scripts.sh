@@ -2542,6 +2542,8 @@ grep -q 'scripts/verify_release_validation_record.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include verify_release_validation_record.sh in shell syntax checks"
 grep -q 'scripts/verify_model_license_review.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include verify_model_license_review.sh in shell syntax checks"
+grep -q 'scripts/verify_model_capability_profiles.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include verify_model_capability_profiles.sh in shell syntax checks"
 grep -q 'scripts/verify_release_mapping.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include verify_release_mapping.sh in shell syntax checks"
 grep -q 'scripts/verify_release_gate.sh' scripts/verify_local.sh ||
@@ -2552,6 +2554,91 @@ grep -q 'scripts/collect_model_license_metadata.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include collect_model_license_metadata.sh in shell syntax checks"
 grep -q 'scripts/sign_release_artifacts.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include sign_release_artifacts.sh in shell syntax checks"
+
+MODEL_CAPABILITY_PROFILES_SHA="$(shasum -a 256 docs/model_capability_profiles.json | awk '{print $1}')"
+expect_success \
+  "model capability profiles verifier accepts checked-in profile boundaries" \
+  scripts/verify_model_capability_profiles.sh \
+    --report "$ARTIFACT_DIR/model-capability-profiles.properties"
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/model-capability-profiles.properties" \
+  "ModelCapabilityProfilesVerification/v1" \
+  "model-capability"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "modelCapabilityProfilesFile=docs/model_capability_profiles.json"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "modelCapabilityProfilesSha256=$MODEL_CAPABILITY_PROFILES_SHA"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "profileFile=docs/model_capability_profiles.json"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "profileSha256=$MODEL_CAPABILITY_PROFILES_SHA"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "profileVersion=1"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "contractTest=ModelCapabilityProfilesDocumentationTest"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "privacyBoundaryContainsLocalOnly=true"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "profileCount=4"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "customLocalTemplateCount=1"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "remoteTemplateCount=2"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "memoryEmbeddingProfileCount=1"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "mobileActionProfileCount=1"
+assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "stableLocalChatProfileCount=2"
+
+MODEL_CAPABILITY_BAD_LOCAL_REMOTE="$TMP_DIR/model-capability-bad-local-remote.json"
+python3 - docs/model_capability_profiles.json "$MODEL_CAPABILITY_BAD_LOCAL_REMOTE" <<'PY'
+import json
+import pathlib
+import sys
+
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+for profile in data["profiles"]:
+    if profile["capability"] == "MemoryEmbedding":
+        profile["remoteEligible"] = True
+        break
+pathlib.Path(sys.argv[2]).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+expect_failure \
+  "model capability profiles verifier rejects LocalOnly profile becoming remote eligible" \
+  env MODEL_CAPABILITY_PROFILES_FILE="$MODEL_CAPABILITY_BAD_LOCAL_REMOTE" \
+  scripts/verify_model_capability_profiles.sh \
+    --report "$ARTIFACT_DIR/model-capability-bad-local-remote.properties"
+assert_report_contains "$ARTIFACT_DIR/model-capability-bad-local-remote.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/model-capability-bad-local-remote.properties" "profile-local-remote-eligible:memory-embedding-gemma-300m"
+
+MODEL_CAPABILITY_BAD_REMOTE_CONFIRMATION="$TMP_DIR/model-capability-bad-remote-confirmation.json"
+python3 - docs/model_capability_profiles.json "$MODEL_CAPABILITY_BAD_REMOTE_CONFIRMATION" <<'PY'
+import json
+import pathlib
+import sys
+
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+data["remoteOpenAiCompatibleTemplates"][0]["requiresRemoteSendConfirmation"] = False
+pathlib.Path(sys.argv[2]).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+expect_failure \
+  "model capability profiles verifier rejects remote template without send confirmation" \
+  env MODEL_CAPABILITY_PROFILES_FILE="$MODEL_CAPABILITY_BAD_REMOTE_CONFIRMATION" \
+  scripts/verify_model_capability_profiles.sh \
+    --report "$ARTIFACT_DIR/model-capability-bad-remote-confirmation.properties"
+assert_report_contains "$ARTIFACT_DIR/model-capability-bad-remote-confirmation.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/model-capability-bad-remote-confirmation.properties" "profile-remote-confirmation-required:remote-openai-compatible-remote-text-template"
+
+MODEL_CAPABILITY_BAD_VISION="$TMP_DIR/model-capability-bad-vision.json"
+python3 - docs/model_capability_profiles.json "$MODEL_CAPABILITY_BAD_VISION" <<'PY'
+import json
+import pathlib
+import sys
+
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+for profile in data["profiles"]:
+    if profile["capability"] == "MobileAction":
+        profile["inputModalities"].append("Vision")
+        profile["features"].append("VisionInput")
+        profile["capabilities"]["vision"] = True
+        break
+pathlib.Path(sys.argv[2]).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+expect_failure \
+  "model capability profiles verifier rejects vision support on non-chat profile" \
+  env MODEL_CAPABILITY_PROFILES_FILE="$MODEL_CAPABILITY_BAD_VISION" \
+  scripts/verify_model_capability_profiles.sh \
+    --report "$ARTIFACT_DIR/model-capability-bad-vision.properties"
+assert_report_contains "$ARTIFACT_DIR/model-capability-bad-vision.properties" "status=failed"
+assert_report_contains_text "$ARTIFACT_DIR/model-capability-bad-vision.properties" "profile-vision-non-chat:mobile-action-270m"
 python3 - <<'PY'
 from pathlib import Path
 import re

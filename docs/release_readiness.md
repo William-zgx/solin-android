@@ -243,6 +243,12 @@ items below.
   local gate improvements; physical arm64 validation, emulator API matrix runs,
   perf baseline, screenshots, approvals, and production signing are still
   blocking evidence.
+- A standalone `ModelCapabilityProfilesVerification/v1` gate now checks
+  `docs/model_capability_profiles.json` without Gradle: local memory/action
+  profiles cannot become remote-eligible, remote templates require send
+  confirmation, vision remains Chat-only, and recommended profiles keep
+  byte/SHA/revision provenance. This makes Phase 5 model capability boundaries
+  directly auditable in release evidence.
 - The latest local release-flow hardening makes current-screen screenshot OCR
   declare `rawPayloadIncluded=false`, requires recent media OCR evidence to bind
   screenshot/image scan limits plus raw-payload and redaction fields, and
