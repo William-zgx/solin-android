@@ -249,6 +249,14 @@ items below.
   confirmation, vision remains Chat-only, and recommended profiles keep
   byte/SHA/revision provenance. This makes Phase 5 model capability boundaries
   directly auditable in release evidence.
+- A standalone `RealAppSearchEvidenceVerification/v1` gate now audits generated
+  `real-app-search-eval.properties` evidence without a device: every expected
+  case artifact must be present, pass/fail/skip counts must match, ranked
+  resolver candidates and target-resolution evidence must have matching SHA-256,
+  failed cases must preserve screenshot/UIAutomator/window/logcat diagnostics,
+  and fatal no-target-app failures must carry top-level diagnostics. This
+  strengthens Phase 2 evidence review, but it does not claim that a fresh
+  physical-device real-app search loop has passed.
 - The latest local release-flow hardening makes current-screen screenshot OCR
   declare `rawPayloadIncluded=false`, requires recent media OCR evidence to bind
   screenshot/image scan limits plus raw-payload and redaction fields, and

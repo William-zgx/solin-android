@@ -2544,6 +2544,8 @@ grep -q 'scripts/verify_model_license_review.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include verify_model_license_review.sh in shell syntax checks"
 grep -q 'scripts/verify_model_capability_profiles.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include verify_model_capability_profiles.sh in shell syntax checks"
+grep -q 'scripts/verify_real_app_search_report.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include verify_real_app_search_report.sh in shell syntax checks"
 grep -q 'scripts/verify_release_mapping.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include verify_release_mapping.sh in shell syntax checks"
 grep -q 'scripts/verify_release_gate.sh' scripts/verify_local.sh ||
@@ -8962,6 +8964,54 @@ done
   fail "Expected real app failure diagnostics to preserve a window dump"
 [[ -s "$ARTIFACT_DIR/real-app-diagnostics/assert-taobao-tap/logcat.txt" ]] ||
   fail "Expected real app failure diagnostics to preserve logcat"
+
+REAL_APP_SOURCE_REPORT="$ARTIFACT_DIR/real-app-search-eval.properties"
+REAL_APP_SOURCE_SHA="$(shasum -a 256 "$REAL_APP_SOURCE_REPORT" | awk '{print $1}')"
+REAL_APP_EVIDENCE_REPORT="$ARTIFACT_DIR/real-app-search-evidence-verification.properties"
+expect_success \
+  "real app search evidence verifier accepts archived resolver failure evidence" \
+  scripts/verify_real_app_search_report.sh \
+    --file "$REAL_APP_SOURCE_REPORT" \
+    --report "$REAL_APP_EVIDENCE_REPORT"
+assert_release_verifier_report_schema \
+  "$REAL_APP_EVIDENCE_REPORT" \
+  "RealAppSearchEvidenceVerification/v1" \
+  "real-app-control"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "status=passed"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "target=real-app-search-evidence"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "failedTarget="
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "reason="
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "realAppSearchReportFile=$REAL_APP_SOURCE_REPORT"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "realAppSearchReportSha256=$REAL_APP_SOURCE_SHA"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "sourceArtifactSchema=RealAppSearchEvalArtifact/v1"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "sourceStatus=failed"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "sourceFailedTarget=real-app-search-case"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "runCount=1"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "passCount=0"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "failCount=1"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "skipCount=7"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "caseArtifactCount=8"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "failedCaseArtifactCount=1"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "skippedCaseArtifactCount=7"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "rankedCandidatesArtifactCount=2"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "targetResolutionEvidenceCount=2"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "diagnosticsArtifactCount=5"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "failureKindBreakdown=search_entry_not_found:1"
+
+sed -i 's/^ranked_candidates_sha256=.*/ranked_candidates_sha256=0000000000000000000000000000000000000000000000000000000000000000/' \
+  "$REAL_APP_CASE_REPORT"
+expect_failure \
+  "real app search evidence verifier rejects tampered ranked candidates" \
+  scripts/verify_real_app_search_report.sh \
+    --file "$REAL_APP_SOURCE_REPORT" \
+    --report "$ARTIFACT_DIR/real-app-search-evidence-tampered.properties"
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/real-app-search-evidence-tampered.properties" \
+  "RealAppSearchEvidenceVerification/v1" \
+  "real-app-control"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-tampered.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-tampered.properties" "failedTarget=real-app-search-target-resolution-evidence"
+assert_report_contains_text "$ARTIFACT_DIR/real-app-search-evidence-tampered.properties" "ranked-candidates-sha-mismatch:taobao"
 
 reset_logs
 expect_failure \

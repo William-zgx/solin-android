@@ -384,7 +384,12 @@ with each RC before treating this checklist as complete.
   files with SHA-256. Fatal real-app eval failures before a case can run, such
   as no target apps installed, must put `failedTarget`, `reason`, serial/API/ABI,
   and screenshot/UIAutomator/window/logcat paths plus SHA-256 values in the
-  top-level `real-app-search-eval.properties` report.
+  top-level `real-app-search-eval.properties` report. Sampled real-app search
+  evidence must also attach a `RealAppSearchEvidenceVerification/v1` report from
+  `scripts/verify_real_app_search_report.sh`; this verifies case artifacts,
+  ranked resolver candidates, target-resolution evidence, diagnostics files, and
+  SHA-256 bindings, but it does not replace a fresh physical-device real-app
+  search run.
 - [ ] Manual acceptance in `docs/phone_acceptance.md` is sampled for model
   setup, remote-mode privacy, tool confirmation, permissions, background
   reminders, sharing, and multimodal entry points.

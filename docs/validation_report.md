@@ -15281,3 +15281,64 @@ Roadmap 状态：
 - 本轮 standalone verifier 不替代 `ModelCapabilityProfilesDocumentationTest` 对
   Kotlin `ModelCatalog` 的精确同步测试，也不替代真实模型加载、vision/OCR/runtime perf
   的真机验证。
+
+## 2026-06-23 Real app search evidence verifier
+
+本轮覆盖项：
+
+- 多 Agent 只读审计确认 `run_real_app_search_eval.sh` 已经输出顶层
+  `RealAppSearchEvalArtifact/v1`、每个 App 的 `RealAppSearchCaseArtifact/v1`、
+  ranked resolver candidates、target-resolution evidence 和失败 diagnostics，但缺少
+  一个可在无设备环境中复核这些 artifact 是否自洽的 standalone gate。
+- 新增 `scripts/verify_real_app_search_report.sh`，输出
+  `RealAppSearchEvidenceVerification/v1` report，校验 8 个真实 App case artifact、
+  run/pass/fail/skip 计数、顶层 logcat SHA、case result SHA、ranked candidates JSON、
+  target-resolution evidence schema/path/SHA、失败 case diagnostics，以及 no-target-app
+  fatal diagnostics。
+- `scripts/test_validation_scripts.sh` 增加 verifier 正例和 ranked candidates SHA
+  篡改负例；`scripts/verify_local.sh` 的 shell syntax gate 纳入新脚本。
+- `docs/release_checklist.md` 与 `docs/release_readiness.md` 同步说明该 verifier 只审计
+  real-app-search evidence，不替代真机真实 App 搜索通过证据。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_real_app_search_report.sh \
+  scripts/run_real_app_search_eval.sh \
+  scripts/test_validation_scripts.sh \
+  scripts/verify_local.sh
+
+# 使用临时 fake real-app-search evidence 包：
+scripts/verify_real_app_search_report.sh \
+  --file /tmp/<generated>/real-app-search-eval.properties \
+  --report /tmp/<generated>/verification.properties
+
+# 篡改 taobao.case.properties 的 ranked_candidates_sha256 后：
+scripts/verify_real_app_search_report.sh \
+  --file /tmp/<generated>/real-app-search-eval.properties \
+  --report /tmp/<generated>/tampered.properties
+```
+
+结果：
+
+- 通过：shell 静态检查。
+- 通过：临时 fake evidence 正例，报告包含 `status=passed`、`caseArtifactCount=8`、
+  `rankedCandidatesArtifactCount=2`、`targetResolutionEvidenceCount=2`、
+  `diagnosticsArtifactCount=5` 和
+  `failureKindBreakdown=search_entry_not_found:1`。
+- 符合预期失败：篡改 `ranked_candidates_sha256` 后 verifier fail-closed，报告包含
+  `status=failed`、`failedTarget=real-app-search-target-resolution-evidence`、
+  `reason=ranked-candidates-sha-mismatch:taobao`。
+- 按当前目标，本轮未运行 `scripts/test_validation_scripts.sh`、`scripts/verify_local.sh`、
+  Gradle、真机或模拟器验证。
+
+Roadmap 状态：
+
+- Phase 2 real-app control evidence 继续推进：真实 App 搜索失败证据现在有 standalone
+  machine-readable verifier，可在统一验收前复核 resolver candidates、target-resolution
+  evidence 和 diagnostics 是否完整且未被篡改。
+
+剩余风险：
+
+- 该 verifier 不证明淘宝/拼多多/高德/JD/浏览器在真机上已搜索成功；真实 App pass rate、
+  arm64 真机 instrumentation、arm64 emulator matrix 和 perf baseline 仍需后续统一执行。
