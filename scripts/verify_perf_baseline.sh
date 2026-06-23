@@ -55,6 +55,9 @@ failed_target_for_reason() {
     app-version-mismatch)
       printf 'app-version'
       ;;
+    performance-key-invalid)
+      printf 'performance-key'
+      ;;
     recorded-at-*)
       printf 'baseline-timestamp'
       ;;
@@ -180,6 +183,17 @@ required_fields=(
 )
 
 missing=0
+if [[ -n "$PERFORMANCE_KEY" ]]; then
+  case "$PERFORMANCE_KEY" in
+    firstLaunch|modelLoad|firstToken|streamingStopCancel|backgroundReminderDelivery|memoryPressure)
+      ;;
+    *)
+      echo "Perf baseline performanceKey is not a release validation performance key." >&2
+      record_failure "performance-key-invalid"
+      ;;
+  esac
+fi
+
 for field in "${required_fields[@]}"; do
   if ! grep -qE "^${field}=.+" "$BASELINE_FILE"; then
     echo "Missing perf baseline field: $field" >&2

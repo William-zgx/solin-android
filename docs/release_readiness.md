@@ -256,15 +256,21 @@ items below.
   `ocrText` remains private output for those tools. This advances Phase 3
   LocalOnly/OCR minimization, while physical validation and release-owner
   approval remain blocking.
+- The latest release evidence hardening rejects unknown perf `performanceKey`
+  values before accepting `PerfBaselineVerification/v1` reports, and requires
+  formal manual/flow evidence to bind back to the current
+  `docs/release_validation_record.json` through `validationRecordFile`. This
+  prevents cross-key or cross-record evidence reuse in local release validation
+  gates; it does not replace final owner sign-off or physical RC evidence.
 - Privacy review evidence now binds both the privacy notice and
   `docs/capability_matrix.json` by path and SHA-256, so release/security/legal
   approval cannot silently drift away from the current declared capability
   surface. Perf baseline verification also rejects baseline records without
   `PerfBaseline/v1` provenance, owner, collection command, matching reproducible
-  path, and fresh non-future `recordedAt` before release-gate evidence can pass;
-  the checked-in perf template now carries those provenance fields. These are
-  local evidence gates; they do not replace the pending human approvals or
-  physical RC perf run.
+  path, fresh non-future `recordedAt`, and a known release validation
+  `performanceKey` before release-gate evidence can pass; the checked-in perf
+  template now carries those provenance fields. These are local evidence gates;
+  they do not replace the pending human approvals or physical RC perf run.
 - Store policy model-download disclosure now binds the primary chat model to
   `docs/model_capability_profiles.json` and `docs/model_manifest.md` by profile
   id, byte size, SHA-256, and upstream revision. The verifier also derives

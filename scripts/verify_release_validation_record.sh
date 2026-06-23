@@ -213,6 +213,11 @@ def validate_formal_evidence_audit(section, key, record_entry, evidence_path, pr
         failures.append(f"{prefix}-command-missing")
     if props.get("reproduciblePath") != str(evidence_path):
         failures.append(f"{prefix}-reproducible-path-invalid")
+    validation_record_file = props.get("validationRecordFile", "")
+    if not non_empty_string(validation_record_file):
+        failures.append(f"{prefix}-validation-record-file-missing")
+    elif Path(validation_record_file).resolve() != record_path.resolve():
+        failures.append(f"{prefix}-validation-record-file-mismatch")
 
 def validate_file_sha(prefix, path, expected_sha):
     if not non_empty_string(expected_sha):

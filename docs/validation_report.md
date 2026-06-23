@@ -14672,6 +14672,56 @@ Roadmap 状态：
 
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、
   真实 App 真机闭环、正式 RC perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+
+## 2026-06-23 Perf key and release validation evidence binding gates
+
+本轮覆盖项：
+
+- 多 Agent 并行审计 release validation / manual acceptance evidence，确认
+  manual、flow、performance 的 key-specific 字段大多已有机器校验，但 formal
+  manual/flow evidence 中的 `validationRecordFile` 由 recorder 写出后尚未被
+  verifier 反向校验。
+- `scripts/verify_perf_baseline.sh` 新增 `performanceKey` allowlist：
+  standalone perf verifier 现在只接受 release validation 使用的
+  `firstLaunch`、`modelLoad`、`firstToken`、`streamingStopCancel`、
+  `backgroundReminderDelivery`、`memoryPressure`。未知 key 会 fail closed，
+  `reason=performance-key-invalid`、`failedTarget=performance-key`。
+- `scripts/verify_release_validation_record.sh` 现在要求 formal
+  `ManualAcceptanceEvidence/v1` 和 `ReleaseFlowEvidence/v1` 的
+  `validationRecordFile` 解析后等于当前验证的 release validation record；
+  缺失时报 `*-validation-record-file-missing`，错绑时报
+  `*-validation-record-file-mismatch`。
+- `scripts/test_validation_scripts.sh` 增加 unknown perf key 负例、manual
+  evidence 缺失 `validationRecordFile` 负例、flow evidence 绑定到其他 record
+  负例，并更新正例 fixture，使派生 record 的 formal evidence 同步重写
+  `validationRecordFile` 和 `reproduciblePath`。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_perf_baseline.sh scripts/verify_release_validation_record.sh scripts/test_validation_scripts.sh
+
+git diff --check
+
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- 通过：shell 静态检查和 whitespace 检查。
+- 通过：validation script self-tests，覆盖 unknown perf key、manual
+  validation record binding 缺失、flow validation record binding mismatch，以及
+  派生 release validation record 正例的 evidence 重新绑定。
+
+Roadmap 状态：
+
+- Phase 4 release evidence 继续推进：performance sanity evidence 和
+  manual/flow evidence 现在更难被跨 key 或跨 validation record 复用。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、
+  真实 App 真机闭环、正式 RC perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
 - 子 Agent 发现但未在本轮改动的后续项：manual acceptance 和 memory pressure evidence
   可继续增加 key-specific 字段。
 

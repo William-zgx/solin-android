@@ -254,9 +254,10 @@ with each RC before treating this checklist as complete.
 - [ ] Every `performanceSanity` item in `docs/release_validation_record.json`
   references a passed `perf-baseline-verification.properties` report generated
   by `scripts/verify_perf_baseline.sh`, with `target=perf-baseline`, a
-  `performanceKey` that matches the record key, `missingFieldCount=0`, and a
-  readable `baselineFile` plus matching `baselineSha256`. The linked baseline
-  itself must declare `artifactSchema=PerfBaseline/v1`,
+  `performanceKey` that matches one of the release validation performance keys
+  and the record key, `missingFieldCount=0`, and a readable `baselineFile` plus
+  matching `baselineSha256`. The linked baseline itself must declare
+  `artifactSchema=PerfBaseline/v1`,
   `target=perf-baseline-record`, non-empty `owner`, non-empty
   `collectionCommand`, and a `reproduciblePath` that equals the verified
   baseline path. The verifier report must include non-empty
@@ -376,8 +377,9 @@ with each RC before treating this checklist as complete.
   matches the record key, `manualAcceptance=true`,
   `artifactSchema=ManualAcceptanceEvidence/v1`, matching owner/date, non-future
   fresh UTC `recordedAt`, a non-empty command, and `reproduciblePath` equal to
-  the evidence file path; lightweight status-only manual evidence files are not
-  accepted.
+  the evidence file path; `validationRecordFile` must resolve to the current
+  `docs/release_validation_record.json`; lightweight status-only manual evidence
+  files are not accepted.
 - [ ] Every `manualAcceptance` evidence file also satisfies its key-specific
   contract: remote-mode privacy records no automatic local-memory/raw private
   context send, tool confirmation records visible confirmation plus cancel
@@ -394,8 +396,9 @@ with each RC before treating this checklist as complete.
   `status=passed`, `target=release-flow`, a `flowKey` that matches the record
   key, `releaseFlowPassed=true`, `artifactSchema=ReleaseFlowEvidence/v1`,
   matching owner/date, non-future fresh UTC `recordedAt`, a non-empty command,
-  and `reproduciblePath` equal to the evidence file path; candidate-only or
-  lightweight status-only flow evidence files are not accepted.
+  and `reproduciblePath` equal to the evidence file path; `validationRecordFile`
+  must resolve to the current `docs/release_validation_record.json`;
+  candidate-only or lightweight status-only flow evidence files are not accepted.
 - [ ] `localModelDownloadVerification` release flow evidence must explicitly
   record local download verification, SHA-256 verification, storage preflight,
   failure recovery, unavailable download directory handling, SHA failure cleanup,

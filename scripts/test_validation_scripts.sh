@@ -2656,6 +2656,16 @@ assert_report_contains "$ARTIFACT_DIR/perf-first-launch.properties" "status=pass
 assert_report_contains "$ARTIFACT_DIR/perf-first-launch.properties" "performanceKey=firstLaunch"
 assert_report_contains "$ARTIFACT_DIR/perf-first-launch.properties" "expectedArtifactSha256=$VALID_PERF_SHA"
 assert_report_contains "$ARTIFACT_DIR/perf-first-launch.properties" "expectedAppVersion=0.1.0"
+expect_failure \
+  "perf baseline verifier rejects unknown performance key" \
+  scripts/verify_perf_baseline.sh \
+    --file "$VALID_PERF" \
+    --performance-key typoMemoryPressure \
+    --report "$ARTIFACT_DIR/perf-unknown-key.properties"
+assert_report_contains "$ARTIFACT_DIR/perf-unknown-key.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/perf-unknown-key.properties" "failedTarget=performance-key"
+assert_report_contains "$ARTIFACT_DIR/perf-unknown-key.properties" "reason=performance-key-invalid"
+assert_report_contains "$ARTIFACT_DIR/perf-unknown-key.properties" "performanceKey=typoMemoryPressure"
 PERF_MISSING_PROVENANCE="$TMP_DIR/perf-baseline-missing-provenance.properties"
 sed \
   -e '/^collectionCommand=/d' \
@@ -4466,6 +4476,7 @@ date=$VALIDATION_DATE
 recordedAt=$PERF_RECORDED_AT
 command=scripts/record_manual_acceptance_evidence.sh
 reproduciblePath=$manual_evidence_path
+validationRecordFile=$VALIDATION_APPROVED
 releaseArtifactSha256=$VALID_PERF_SHA
 VALIDATION_MANUAL_EVIDENCE_PROPERTIES
   write_manual_acceptance_contract_fixture "$manual_key" >> "$manual_evidence_path"
@@ -4487,6 +4498,7 @@ date=$VALIDATION_DATE
 recordedAt=$PERF_RECORDED_AT
 command=scripts/record_release_flow_evidence.sh
 reproduciblePath=$flow_evidence_path
+validationRecordFile=$VALIDATION_APPROVED
 releaseArtifactSha256=$VALID_PERF_SHA
 VALIDATION_FLOW_EVIDENCE_PROPERTIES
   write_model_release_flow_contract_fixture "$flow_key" >> "$flow_evidence_path"
@@ -4793,6 +4805,41 @@ record["flowMatrix"]["shareAndPickerInput"]["evidencePath"] = str(evidence)
 record["flowMatrix"]["shareAndPickerInput"]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
 target.write_text(json.dumps(record, indent=2))
 PY
+python3 - "$VALIDATION_LOCAL_VISION_COUNT_TWO" "$TMP_DIR/validation-local-vision-count-two-bound-evidence" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+record_path = Path(sys.argv[1])
+bound_dir = Path(sys.argv[2])
+record = json.loads(record_path.read_text())
+for section_name in ("manualAcceptance", "flowMatrix"):
+    section = record.get(section_name, {})
+    for key, entry in section.items():
+        if not isinstance(entry, dict) or "evidencePath" not in entry:
+            continue
+        source = Path(entry["evidencePath"])
+        target = bound_dir / section_name / f"{key}.properties"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        lines = source.read_text(encoding="utf-8").splitlines()
+        rewritten = []
+        wrote_binding = False
+        for line in lines:
+            if line.startswith("validationRecordFile="):
+                rewritten.append(f"validationRecordFile={record_path}")
+                wrote_binding = True
+            elif line.startswith("reproduciblePath="):
+                rewritten.append(f"reproduciblePath={target}")
+            else:
+                rewritten.append(line)
+        if not wrote_binding:
+            rewritten.append(f"validationRecordFile={record_path}")
+        target.write_text("\n".join(rewritten) + "\n", encoding="utf-8")
+        entry["evidencePath"] = str(target)
+        entry["evidenceSha256"] = hashlib.sha256(target.read_bytes()).hexdigest()
+record_path.write_text(json.dumps(record, indent=2))
+PY
 expect_success \
   "release validation verifier accepts local vision runtime send count above minimum" \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_LOCAL_VISION_COUNT_TWO" --report "$ARTIFACT_DIR/release-validation-local-vision-count-two.properties"
@@ -4935,6 +4982,28 @@ assert_report_contains_text "$ARTIFACT_DIR/release-validation-flow-missing-audit
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-flow-missing-audit.properties" "flow-firstInstall-evidence-recorded-at-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-flow-missing-audit.properties" "flow-firstInstall-evidence-command-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-flow-missing-audit.properties" "flow-firstInstall-evidence-reproducible-path-invalid"
+VALIDATION_FLOW_MISMATCH_RECORD_BINDING="$TMP_DIR/release-validation-flow-mismatch-record-binding.json"
+VALIDATION_FLOW_MISMATCH_RECORD_BINDING_EVIDENCE="$TMP_DIR/validation-flow-evidence/first-install-mismatch-record-binding.properties"
+sed 's#^validationRecordFile=.*#validationRecordFile=/tmp/other-release-validation-record.json#' \
+  "$TMP_DIR/validation-flow-evidence/firstInstall.properties" > "$VALIDATION_FLOW_MISMATCH_RECORD_BINDING_EVIDENCE"
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_FLOW_MISMATCH_RECORD_BINDING" "$VALIDATION_FLOW_MISMATCH_RECORD_BINDING_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+evidence = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["flowMatrix"]["firstInstall"]["evidencePath"] = str(evidence)
+record["flowMatrix"]["firstInstall"]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects flow evidence bound to another validation record" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_FLOW_MISMATCH_RECORD_BINDING" --report "$ARTIFACT_DIR/release-validation-flow-mismatch-record-binding.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-flow-mismatch-record-binding.properties" "flow-firstInstall-evidence-validation-record-file-mismatch"
 VALIDATION_WEAK_FLOW="$TMP_DIR/release-validation-weak-flow.json"
 VALIDATION_WEAK_FLOW_EVIDENCE="$TMP_DIR/validation-flow-evidence/weak-firstInstall.properties"
 cat > "$VALIDATION_WEAK_FLOW_EVIDENCE" <<'VALIDATION_WEAK_FLOW_EVIDENCE_PROPERTIES'
@@ -5377,6 +5446,28 @@ assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-aud
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-audit.properties" "manual-modelSetup-evidence-recorded-at-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-audit.properties" "manual-modelSetup-evidence-command-missing"
 assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-audit.properties" "manual-modelSetup-evidence-reproducible-path-invalid"
+VALIDATION_MANUAL_MISSING_RECORD_BINDING="$TMP_DIR/release-validation-manual-missing-record-binding.json"
+VALIDATION_MANUAL_MISSING_RECORD_BINDING_EVIDENCE="$TMP_DIR/validation-manual-evidence/modelSetup-missing-record-binding.properties"
+grep -Ev '^validationRecordFile=' \
+  "$TMP_DIR/validation-manual-evidence/modelSetup.properties" > "$VALIDATION_MANUAL_MISSING_RECORD_BINDING_EVIDENCE"
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_MANUAL_MISSING_RECORD_BINDING" "$VALIDATION_MANUAL_MISSING_RECORD_BINDING_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+evidence = Path(sys.argv[3])
+record = json.loads(source.read_text())
+record["manualAcceptance"]["modelSetup"]["evidencePath"] = str(evidence)
+record["manualAcceptance"]["modelSetup"]["evidenceSha256"] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+target.write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "release validation verifier rejects manual evidence missing validation record binding" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_MANUAL_MISSING_RECORD_BINDING" --report "$ARTIFACT_DIR/release-validation-manual-missing-record-binding.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-manual-missing-record-binding.properties" "manual-modelSetup-evidence-validation-record-file-missing"
 VALIDATION_MANUAL_MISSING_CONTRACT="$TMP_DIR/release-validation-manual-missing-contract.json"
 VALIDATION_MANUAL_MISSING_CONTRACT_EVIDENCE="$TMP_DIR/validation-manual-evidence/mediaProjection-missing-contract.properties"
 grep -Ev '^systemMediaProjectionPromptObserved=' \
