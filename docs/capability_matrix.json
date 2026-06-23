@@ -524,7 +524,7 @@
       "capabilityId": "tool_web_search",
       "entrypoint": "tool_registry",
       "toolName": "web_search",
-      "modelCapability": "MobileAction",
+      "modelCapability": "Chat",
       "privacyLevel": "PublicEvidence",
       "requiresLocalModel": false,
       "remoteEligible": true,

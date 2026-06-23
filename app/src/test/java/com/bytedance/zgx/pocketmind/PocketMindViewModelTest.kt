@@ -2223,6 +2223,66 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun remoteImageDraftIsDiscardedWhenSwitchingToReadyLocalMode() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val runtime = FakeLiteRtRuntime().apply { isLoaded = true }
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            runtime = runtime,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.stageSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Image,
+                        mimeType = "image/png",
+                        displayName = "private-screen.png",
+                        sizeBytes = 12L,
+                        imageAttachment = ChatImageAttachment(
+                            mimeType = "image/png",
+                            dataUrl = "data:image/png;base64,AA==",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(MessagePrivacy.RemoteEligible, viewModel.uiState.value.pendingSharedInputDraft?.privacy)
+        runtime.isLoaded = true
+        viewModel.selectInferenceMode(InferenceMode.Local)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingSharedInputDraft)
+        viewModel.sendPendingSharedInput("描述这张图")
+        advanceUntilIdle()
+
+        assertTrue(runtime.localRequests.isEmpty())
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertTrue(sessionStore.messages.isEmpty())
+
+        viewModel.selectInferenceMode(InferenceMode.Remote)
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val call = remoteRuntime.calls.single()
+        assertFalse(call.prompt.contains("private-screen.png"))
+        assertFalse(call.prompt.contains("data:image/png"))
+        assertFalse(call.history.toString().contains("private-screen.png"))
+        assertFalse(call.history.toString().contains("data:image/png"))
+    }
+
+    @Test
     fun remoteModeRejectsSharedImageAttachmentWhenVisionIsDisabled() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val sessionStore = FakeSessionStore()

@@ -228,6 +228,41 @@ class SharedInputTest {
     }
 
     @Test
+    fun localImageAttachmentIgnoresStaleOcrPreviewInPromptAndReceiptSummary() {
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = "image/png",
+                    displayName = "private-screen.png",
+                    sizeBytes = 120L,
+                    textPreview = SharedTextPreview(
+                        text = "private OCR text must not reach local vision prompt or receipt",
+                        truncated = false,
+                        source = SharedTextPreviewSource.ImageOcr,
+                    ),
+                    localImageAttachment = LocalImageAttachment(
+                        mimeType = "image/png",
+                        bytes = byteArrayOf(1, 2, 3),
+                        sizeBytes = 3L,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toLocalVisionPrompt()
+        val summary = input.toSharedEvidenceReceiptSummary()
+
+        assertTrue(prompt.contains("已附加 1 张图片"))
+        assertFalse(prompt.contains("private OCR text"))
+        assertFalse(prompt.contains("\n   图片文字摘录"))
+        assertEquals(1, summary.evidenceCardCount)
+        assertEquals(1, summary.localOnlyEvidenceCardCount)
+        assertEquals(listOf(EvidenceSourceType.ImageAttachment), summary.sourceTypes)
+    }
+
+    @Test
     fun remoteVisionPromptOmitsAttachmentMetadataAndOcr() {
         val input = SharedInput(
             text = "",

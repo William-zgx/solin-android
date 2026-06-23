@@ -1,6 +1,8 @@
 package com.bytedance.zgx.pocketmind.docs
 
+import com.bytedance.zgx.pocketmind.ModelCapability
 import com.bytedance.zgx.pocketmind.capability.CapabilityMatrix
+import com.bytedance.zgx.pocketmind.capability.CapabilityPrivacyLevel
 import com.bytedance.zgx.pocketmind.tool.ConfirmationPolicy
 import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import java.io.File
@@ -255,6 +257,24 @@ class CapabilityMatrixDocumentationTest {
         }
         assertTrue(deviceDescriptor.failureBehavior.contains("低风险"))
         assertTrue(deviceDescriptor.failureBehavior.contains("仍 fail-closed"))
+    }
+
+    @Test
+    fun publicEvidenceToolDescriptorsDoNotRequireMobileActionProfile() {
+        val descriptors = CapabilityMatrix.toolDescriptors(ToolRegistry()).associateBy { descriptor ->
+            descriptor.toolName
+        }
+
+        val webSearch = descriptors.getValue("web_search")
+        assertEquals(ModelCapability.Chat, webSearch.modelCapability)
+        assertEquals(CapabilityPrivacyLevel.PublicEvidence, webSearch.privacyLevel)
+        assertEquals(ConfirmationPolicy.NotRequired, webSearch.confirmationPolicy)
+        assertTrue(webSearch.remoteEligible)
+
+        val shareText = descriptors.getValue("share_text")
+        assertEquals(ModelCapability.MobileAction, shareText.modelCapability)
+        assertFalse(shareText.privacyLevel == CapabilityPrivacyLevel.PublicEvidence)
+        assertEquals(ConfirmationPolicy.Required, shareText.confirmationPolicy)
     }
 
     @Test

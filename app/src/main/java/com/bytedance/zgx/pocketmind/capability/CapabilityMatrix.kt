@@ -479,7 +479,11 @@ private fun ToolSpec.toCapabilityDescriptor(): CapabilityDescriptor {
         capabilityId = "tool_$name",
         entrypoint = "tool_registry",
         toolName = name,
-        modelCapability = ModelCapability.MobileAction,
+        modelCapability = if (resultContinuationPolicy == ToolResultContinuationPolicy.PublicEvidence) {
+            ModelCapability.Chat
+        } else {
+            ModelCapability.MobileAction
+        },
         privacyLevel = privacyLevel,
         requiresLocalModel = privacyLevel == CapabilityPrivacyLevel.LocalEvidence,
         remoteEligible = isRemoteModelPlanningEligible(),

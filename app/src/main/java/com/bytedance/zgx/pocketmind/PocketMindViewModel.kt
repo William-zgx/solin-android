@@ -902,6 +902,7 @@ class PocketMindViewModel(
         remoteModelRepository.saveMode(mode)
         if (mode == InferenceMode.Remote) {
             runtime.close()
+            _uiState.update { it.copy(pendingSharedInputDraft = null) }
             updateRemoteReadiness(
                 prefix = "已切换到远程模型",
                 showModeDisclosure = requireRemoteSendDisclosure,
@@ -912,6 +913,7 @@ class PocketMindViewModel(
         _uiState.update {
             it.copy(
                 inferenceMode = InferenceMode.Local,
+                pendingSharedInputDraft = null,
                 pendingRemoteModeDisclosure = null,
                 pendingRemoteSendDisclosure = null,
                 isReady = runtime.isLoaded,

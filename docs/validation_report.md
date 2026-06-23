@@ -14735,3 +14735,52 @@ Roadmap 状态：
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
 - Store policy 仍需要真实 reviewer、公开隐私政策 URL、真实联系邮箱和批准日期，不能由代码替代。
+
+## 2026-06-23 Public evidence capability and multimodal draft boundary
+
+本轮覆盖项：
+
+- 多 Agent 审计指出 public evidence 能力边界和 multimodal shared draft 仍有本地可验证缺口。
+- `CapabilityMatrix.toolDescriptors()` 不再把所有工具统一标记为 `MobileAction`：
+  `web_search` 这类 `PublicEvidence` 工具现在记录为 `Chat` capability，和 runtime 中“公开只读
+  evidence 不需要 mobile-action profile”的边界一致；`share_text` 等动作工具仍保持
+  `MobileAction` + required confirmation。
+- 切换本地/远程推理模式时会清空 pending shared input draft，避免远程图片 payload 或
+  `RemoteEligible` 草稿跨信任边界复用到本地发送路径。
+- 新增本地图片 stale OCR 回归：本地视觉图片 payload 即使携带旧 `ImageOcr` text preview，
+  `toLocalVisionPrompt()` 和 evidence receipt 也只记录 `ImageAttachment`，不包含 OCR 原文。
+- 同步 `docs/privacy_review.json` 与 pending review evidence 中的 capability matrix SHA；
+  当前 privacy review 仍按预期 fail-closed 在 release/security/legal 人工审批，而不是 stale SHA。
+
+验证命令：
+
+```bash
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  ./gradlew testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.PocketMindViewModelTest.remoteImageDraftIsDiscardedWhenSwitchingToReadyLocalMode \
+  --tests com.bytedance.zgx.pocketmind.multimodal.SharedInputTest.localImageAttachmentIgnoresStaleOcrPreviewInPromptAndReceiptSummary \
+  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest
+
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-current.properties || true
+```
+
+结果：
+
+- 通过：目标 JVM 测试，覆盖 public evidence capability descriptor、跨模式图片草稿清理、
+  本地图片 stale OCR 不入 prompt/receipt。
+- 通过：privacy review verifier 不再报告 capability matrix SHA mismatch；失败原因保持在
+  `status-not-approved`、release/security/legal reviewer/date/evidence approval pending。
+
+Roadmap 状态：
+
+- Phase 3 安全/隐私边界继续推进：public evidence 与 mobile-action 能力边界在 runtime、
+  capability matrix 和测试中对齐。
+- Phase 5 multimodal 继续推进：图片 shared draft 在推理模式切换时 fail-closed，
+  本地视觉 payload 的 stale OCR 红线有回归测试。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
+  perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
