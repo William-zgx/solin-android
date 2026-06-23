@@ -3040,17 +3040,6 @@ recognition, contacts, calendar, media, Usage Access, Accessibility, and
 MediaProjection.
 STORE_POLICY_NOTICE_MD
 STORE_POLICY_NOTICE_SHA="$(shasum -a 256 "$STORE_POLICY_NOTICE" | awk '{print $1}')"
-cat > "$STORE_POLICY_REVIEW_EVIDENCE" <<STORE_POLICY_REVIEW_EVIDENCE_PROPERTIES
-status=approved
-target=store-policy-review-approved-evidence
-privacyNoticePath=$STORE_POLICY_NOTICE
-privacyNoticeSha256=$STORE_POLICY_NOTICE_SHA
-scope=store-listing-data-safety-permissions-special-access
-requiredDecision=approved
-approvalStatus=approved
-reviewer=Store Reviewer
-STORE_POLICY_REVIEW_EVIDENCE_PROPERTIES
-STORE_POLICY_REVIEW_EVIDENCE_SHA="$(shasum -a 256 "$STORE_POLICY_REVIEW_EVIDENCE" | awk '{print $1}')"
 cat > "$STORE_POLICY_MANIFEST" <<'STORE_POLICY_MANIFEST_XML'
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -3061,6 +3050,24 @@ STORE_POLICY_MANIFEST_XML
 STORE_POLICY_MANIFEST_SHA="$(shasum -a 256 "$STORE_POLICY_MANIFEST" | awk '{print $1}')"
 STORE_POLICY_MODEL_CAPABILITIES_SHA="$(shasum -a 256 docs/model_capability_profiles.json | awk '{print $1}')"
 STORE_POLICY_MODEL_MANIFEST_SHA="$(shasum -a 256 docs/model_manifest.md | awk '{print $1}')"
+cat > "$STORE_POLICY_REVIEW_EVIDENCE" <<STORE_POLICY_REVIEW_EVIDENCE_PROPERTIES
+status=approved
+target=store-policy-review-approved-evidence
+storePolicyRecordFile=$STORE_POLICY_APPROVED
+privacyNoticePath=$STORE_POLICY_NOTICE
+privacyNoticeSha256=$STORE_POLICY_NOTICE_SHA
+manifestPath=$STORE_POLICY_MANIFEST
+manifestSha256=$STORE_POLICY_MANIFEST_SHA
+modelCapabilityProfilesPath=docs/model_capability_profiles.json
+modelCapabilityProfilesSha256=$STORE_POLICY_MODEL_CAPABILITIES_SHA
+modelManifestPath=docs/model_manifest.md
+modelManifestSha256=$STORE_POLICY_MODEL_MANIFEST_SHA
+scope=store-listing-data-safety-permissions-special-access
+requiredDecision=approved
+approvalStatus=approved
+reviewer=Store Reviewer
+STORE_POLICY_REVIEW_EVIDENCE_PROPERTIES
+STORE_POLICY_REVIEW_EVIDENCE_SHA="$(shasum -a 256 "$STORE_POLICY_REVIEW_EVIDENCE" | awk '{print $1}')"
 cat > "$STORE_POLICY_PENDING" <<'STORE_POLICY_PENDING_JSON'
 {
   "version": 1,
@@ -3159,6 +3166,65 @@ assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "privacy
 assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "manifestSha256=$STORE_POLICY_MANIFEST_SHA"
 assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "modelCapabilityProfilesSha256=$STORE_POLICY_MODEL_CAPABILITIES_SHA"
 assert_report_contains "$ARTIFACT_DIR/store-policy-approved.properties" "modelManifestSha256=$STORE_POLICY_MODEL_MANIFEST_SHA"
+STORE_POLICY_MISSING_RECORD_FILE_EVIDENCE="$TMP_DIR/store-policy-missing-record-file-review.properties"
+grep -Ev '^storePolicyRecordFile=' "$STORE_POLICY_REVIEW_EVIDENCE" > "$STORE_POLICY_MISSING_RECORD_FILE_EVIDENCE"
+STORE_POLICY_MISSING_RECORD_FILE_EVIDENCE_SHA="$(shasum -a 256 "$STORE_POLICY_MISSING_RECORD_FILE_EVIDENCE" | awk '{print $1}')"
+STORE_POLICY_MISSING_RECORD_FILE_RECORD="$TMP_DIR/store-policy-missing-record-file-review.json"
+python3 - "$STORE_POLICY_APPROVED" "$STORE_POLICY_MISSING_RECORD_FILE_RECORD" "$STORE_POLICY_MISSING_RECORD_FILE_EVIDENCE" "$STORE_POLICY_MISSING_RECORD_FILE_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["review"]["evidencePath"] = sys.argv[3]
+record["review"]["evidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "store policy verifier rejects review evidence missing store policy record binding" \
+  env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
+  scripts/verify_store_policy_record.sh --file "$STORE_POLICY_MISSING_RECORD_FILE_RECORD" --report "$ARTIFACT_DIR/store-policy-missing-record-file-review.properties"
+assert_report_contains_text "$ARTIFACT_DIR/store-policy-missing-record-file-review.properties" "review-evidence-store-policy-record-file-missing"
+STORE_POLICY_MISMATCH_RECORD_FILE_EVIDENCE="$TMP_DIR/store-policy-mismatch-record-file-review.properties"
+sed 's#^storePolicyRecordFile=.*#storePolicyRecordFile=/tmp/other-store-policy-record.json#' \
+  "$STORE_POLICY_REVIEW_EVIDENCE" > "$STORE_POLICY_MISMATCH_RECORD_FILE_EVIDENCE"
+STORE_POLICY_MISMATCH_RECORD_FILE_EVIDENCE_SHA="$(shasum -a 256 "$STORE_POLICY_MISMATCH_RECORD_FILE_EVIDENCE" | awk '{print $1}')"
+STORE_POLICY_MISMATCH_RECORD_FILE_RECORD="$TMP_DIR/store-policy-mismatch-record-file-review.json"
+python3 - "$STORE_POLICY_APPROVED" "$STORE_POLICY_MISMATCH_RECORD_FILE_RECORD" "$STORE_POLICY_MISMATCH_RECORD_FILE_EVIDENCE" "$STORE_POLICY_MISMATCH_RECORD_FILE_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["review"]["evidencePath"] = sys.argv[3]
+record["review"]["evidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "store policy verifier rejects review evidence bound to another store policy record" \
+  env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
+  scripts/verify_store_policy_record.sh --file "$STORE_POLICY_MISMATCH_RECORD_FILE_RECORD" --report "$ARTIFACT_DIR/store-policy-mismatch-record-file-review.properties"
+assert_report_contains_text "$ARTIFACT_DIR/store-policy-mismatch-record-file-review.properties" "review-evidence-store-policy-record-file-mismatch"
+STORE_POLICY_BAD_REVIEW_MANIFEST_EVIDENCE="$TMP_DIR/store-policy-bad-review-manifest.properties"
+sed 's#^manifestSha256=.*#manifestSha256=0000000000000000000000000000000000000000000000000000000000000000#' \
+  "$STORE_POLICY_REVIEW_EVIDENCE" > "$STORE_POLICY_BAD_REVIEW_MANIFEST_EVIDENCE"
+STORE_POLICY_BAD_REVIEW_MANIFEST_EVIDENCE_SHA="$(shasum -a 256 "$STORE_POLICY_BAD_REVIEW_MANIFEST_EVIDENCE" | awk '{print $1}')"
+STORE_POLICY_BAD_REVIEW_MANIFEST_RECORD="$TMP_DIR/store-policy-bad-review-manifest.json"
+python3 - "$STORE_POLICY_APPROVED" "$STORE_POLICY_BAD_REVIEW_MANIFEST_RECORD" "$STORE_POLICY_BAD_REVIEW_MANIFEST_EVIDENCE" "$STORE_POLICY_BAD_REVIEW_MANIFEST_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["review"]["evidencePath"] = sys.argv[3]
+record["review"]["evidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "store policy verifier rejects review evidence manifest sha drift" \
+  env PRIVACY_NOTICE_FILE="$STORE_POLICY_NOTICE" MANIFEST_FILE="$STORE_POLICY_MANIFEST" \
+  scripts/verify_store_policy_record.sh --file "$STORE_POLICY_BAD_REVIEW_MANIFEST_RECORD" --report "$ARTIFACT_DIR/store-policy-bad-review-manifest.properties"
+assert_report_contains_text "$ARTIFACT_DIR/store-policy-bad-review-manifest.properties" "review-evidence-manifest-sha-mismatch"
 STORE_POLICY_BAD_MODEL_BYTES="$TMP_DIR/store-policy-bad-model-bytes.json"
 sed 's/"primaryChatModelBytes": 2588147712/"primaryChatModelBytes": 1/' "$STORE_POLICY_APPROVED" > "$STORE_POLICY_BAD_MODEL_BYTES"
 expect_failure \
@@ -6996,6 +7062,7 @@ for privacy_review_role in release security legal; do
 status=approved
 target=privacy-review-approved-evidence
 role=$privacy_review_role
+privacyReviewFile=$PRIVACY_REVIEW_APPROVED
 noticePath=$PRIVACY_NOTICE
 noticeSha256=$PRIVACY_NOTICE_SHA
 capabilityMatrixPath=$PRIVACY_CAPABILITY_MATRIX
@@ -7098,6 +7165,45 @@ assert_release_verifier_passed_report \
   "PrivacyReviewVerification/v1" \
   "privacy-security"
 assert_report_contains "$ARTIFACT_DIR/privacy-review-approved.properties" "reviewSha256=$(shasum -a 256 "$PRIVACY_REVIEW_APPROVED" | awk '{print $1}')"
+PRIVACY_REVIEW_MISSING_REVIEW_FILE_EVIDENCE="$TMP_DIR/privacy-review-release-missing-review-file.properties"
+grep -Ev '^privacyReviewFile=' "$PRIVACY_REVIEW_RELEASE_EVIDENCE" > "$PRIVACY_REVIEW_MISSING_REVIEW_FILE_EVIDENCE"
+PRIVACY_REVIEW_MISSING_REVIEW_FILE_EVIDENCE_SHA="$(shasum -a 256 "$PRIVACY_REVIEW_MISSING_REVIEW_FILE_EVIDENCE" | awk '{print $1}')"
+PRIVACY_REVIEW_MISSING_REVIEW_FILE_RECORD="$TMP_DIR/privacy-review-missing-review-file-evidence.json"
+python3 - "$PRIVACY_REVIEW_APPROVED" "$PRIVACY_REVIEW_MISSING_REVIEW_FILE_RECORD" "$PRIVACY_REVIEW_MISSING_REVIEW_FILE_EVIDENCE" "$PRIVACY_REVIEW_MISSING_REVIEW_FILE_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["reviews"][0]["evidencePath"] = sys.argv[3]
+record["reviews"][0]["evidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "privacy review verifier rejects evidence missing review file binding" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_MISSING_REVIEW_FILE_RECORD" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
+  scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-missing-review-file-evidence.properties"
+assert_report_contains_text "$ARTIFACT_DIR/privacy-review-missing-review-file-evidence.properties" "release-evidence-privacy-review-file-missing"
+PRIVACY_REVIEW_MISMATCH_REVIEW_FILE_EVIDENCE="$TMP_DIR/privacy-review-release-mismatch-review-file.properties"
+sed 's#^privacyReviewFile=.*#privacyReviewFile=/tmp/other-privacy-review.json#' \
+  "$PRIVACY_REVIEW_RELEASE_EVIDENCE" > "$PRIVACY_REVIEW_MISMATCH_REVIEW_FILE_EVIDENCE"
+PRIVACY_REVIEW_MISMATCH_REVIEW_FILE_EVIDENCE_SHA="$(shasum -a 256 "$PRIVACY_REVIEW_MISMATCH_REVIEW_FILE_EVIDENCE" | awk '{print $1}')"
+PRIVACY_REVIEW_MISMATCH_REVIEW_FILE_RECORD="$TMP_DIR/privacy-review-mismatch-review-file-evidence.json"
+python3 - "$PRIVACY_REVIEW_APPROVED" "$PRIVACY_REVIEW_MISMATCH_REVIEW_FILE_RECORD" "$PRIVACY_REVIEW_MISMATCH_REVIEW_FILE_EVIDENCE" "$PRIVACY_REVIEW_MISMATCH_REVIEW_FILE_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["reviews"][0]["evidencePath"] = sys.argv[3]
+record["reviews"][0]["evidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "privacy review verifier rejects evidence bound to another review file" \
+  env PRIVACY_REVIEW_FILE="$PRIVACY_REVIEW_MISMATCH_REVIEW_FILE_RECORD" PRIVACY_NOTICE_FILE="$PRIVACY_NOTICE" CAPABILITY_MATRIX_FILE="$PRIVACY_CAPABILITY_MATRIX" \
+  scripts/verify_privacy_review.sh --report "$ARTIFACT_DIR/privacy-review-mismatch-review-file-evidence.properties"
+assert_report_contains_text "$ARTIFACT_DIR/privacy-review-mismatch-review-file-evidence.properties" "release-evidence-privacy-review-file-mismatch"
 PRIVACY_REVIEW_BAD_CAPABILITY_SHA="$TMP_DIR/privacy-review-bad-capability-sha.json"
 sed 's/"capabilityMatrixSha256": "'"$PRIVACY_CAPABILITY_MATRIX_SHA"'"/"capabilityMatrixSha256": "0000000000000000000000000000000000000000000000000000000000000000"/' "$PRIVACY_REVIEW_APPROVED" > "$PRIVACY_REVIEW_BAD_CAPABILITY_SHA"
 expect_failure \
@@ -7156,6 +7262,7 @@ cat > "$PRIVACY_REVIEW_PENDING_EVIDENCE" <<PRIVACY_REVIEW_PENDING_EVIDENCE_PROPE
 status=pending
 target=privacy-review-candidate-evidence
 role=release
+privacyReviewFile=$PRIVACY_REVIEW_APPROVED
 noticePath=$PRIVACY_NOTICE
 noticeSha256=$PRIVACY_NOTICE_SHA
 capabilityMatrixPath=$PRIVACY_CAPABILITY_MATRIX

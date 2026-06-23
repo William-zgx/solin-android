@@ -366,10 +366,30 @@ def validate_store_review_evidence(path, expected_reviewer):
         failures.append("review-evidence-approval-status-not-approved")
     if props.get("target") != "store-policy-review-approved-evidence":
         failures.append("review-evidence-target-invalid")
+    store_policy_record_file = props.get("storePolicyRecordFile", "")
+    if not non_empty_string(store_policy_record_file):
+        failures.append("review-evidence-store-policy-record-file-missing")
+    elif Path(store_policy_record_file).resolve() != record_path.resolve():
+        failures.append("review-evidence-store-policy-record-file-mismatch")
     if props.get("privacyNoticePath") != str(notice_path):
         failures.append("review-evidence-privacy-notice-path-mismatch")
     if props.get("privacyNoticeSha256") != notice_sha:
         failures.append("review-evidence-privacy-notice-sha-mismatch")
+    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    if props.get("manifestPath") != str(manifest_path):
+        failures.append("review-evidence-manifest-path-mismatch")
+    if props.get("manifestSha256") != manifest_sha:
+        failures.append("review-evidence-manifest-sha-mismatch")
+    model_capability_profiles_sha = hashlib.sha256(model_capability_profiles_path.read_bytes()).hexdigest()
+    if props.get("modelCapabilityProfilesPath") != str(model_capability_profiles_path):
+        failures.append("review-evidence-model-capability-profiles-path-mismatch")
+    if props.get("modelCapabilityProfilesSha256") != model_capability_profiles_sha:
+        failures.append("review-evidence-model-capability-profiles-sha-mismatch")
+    model_manifest_sha = hashlib.sha256(model_manifest_path.read_bytes()).hexdigest()
+    if props.get("modelManifestPath") != str(model_manifest_path):
+        failures.append("review-evidence-model-manifest-path-mismatch")
+    if props.get("modelManifestSha256") != model_manifest_sha:
+        failures.append("review-evidence-model-manifest-sha-mismatch")
     if not non_empty_string(props.get("scope")):
         failures.append("review-evidence-scope-missing")
     if props.get("requiredDecision") != "approved":

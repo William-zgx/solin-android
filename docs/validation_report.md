@@ -14927,6 +14927,13 @@ git diff --check
 
 结果：
 
+- 通过：shell 静态检查与 `git diff --check`。
+- 符合预期失败：当前 checked-in store policy verifier 仍 fail-closed，原因保持在
+  pending approval、占位联系邮箱/隐私政策 URL、review evidence 未批准和 review date 缺失；
+  未出现 store policy record/source binding 或 SHA drift 失败。
+- 符合预期失败：当前 checked-in privacy review verifier 仍 fail-closed，原因保持在
+  release/security/legal pending、reviewer/date 缺失和 evidence 未批准；未出现
+  privacy review file、notice 或 capability matrix binding/SHA drift 失败。
 - 按最新目标，本轮暂不运行 `scripts/test_validation_scripts.sh`、`scripts/verify_local.sh`、
   Gradle、真机或模拟器验证；完整复杂验证等 Roadmap 功能补齐后统一执行。
 
@@ -14939,6 +14946,51 @@ Roadmap 状态：
 
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+
+## 2026-06-23 Store and privacy review evidence reverse binding
+
+本轮覆盖项：
+
+- 多 Agent 只读审计继续指出 release/store/privacy 证据链存在 cross-record 复用风险。
+  本切片先完成 store policy 与 privacy review 两类无需真机/模拟器的本地 gate 加固。
+- `scripts/verify_store_policy_record.sh` 要求 approved store policy review evidence
+  通过 `storePolicyRecordFile` 反向绑定当前 store policy record，并绑定当前
+  privacy notice、Android manifest、model capability profiles、model manifest 的 path
+  与 SHA-256。
+- `scripts/verify_privacy_review.sh` 要求 release/security/legal 三类 approved
+  privacy review evidence 通过 `privacyReviewFile` 反向绑定当前 privacy review record。
+- Checked-in pending store/privacy evidence 增加对应 record/source binding，并把新的
+  evidence SHA 写回 `docs/store_policy_record.json` 和 `docs/privacy_review.json`；审批状态
+  仍保持 pending。
+- `scripts/test_validation_scripts.sh` 增加 store policy record-file 缺失/错绑、review
+  manifest SHA 漂移，以及 privacy review-file 缺失/错绑负例。
+
+验证计划：
+
+```bash
+bash -n scripts/verify_store_policy_record.sh \
+  scripts/verify_privacy_review.sh \
+  scripts/test_validation_scripts.sh
+
+git diff --check
+```
+
+结果：
+
+- 按最新目标，本轮暂不运行 `scripts/test_validation_scripts.sh`、`scripts/verify_local.sh`、
+  Gradle、真机或模拟器验证；完整复杂验证等 Roadmap 功能补齐后统一执行。
+
+Roadmap 状态：
+
+- Phase 4 release/store/privacy evidence 继续推进：store policy 与 privacy review
+  approval evidence 新增 cross-record / cross-source 防复用约束。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
+  perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+- Store、release/security/legal 审批仍需要真实 reviewer、公开隐私政策 URL、真实联系邮箱和
+  批准日期，不能由代码替代。
 
 ## 2026-06-23 Public evidence capability and multimodal draft boundary
 

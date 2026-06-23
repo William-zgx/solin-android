@@ -13,7 +13,7 @@
       "reviewer": "",
       "reviewDate": "",
       "evidencePath": "docs/privacy_review_evidence/release-pending.properties",
-      "evidenceSha256": "77c53908f6b43a1281d418fa31d5bbdd05b82d32945c775161bfc55f45b4f50b"
+      "evidenceSha256": "7697e8cd987924440ec3ab0b3717aadd04ca472ec767263b191b5930f32900df"
     },
     {
       "role": "security",
@@ -21,7 +21,7 @@
       "reviewer": "",
       "reviewDate": "",
       "evidencePath": "docs/privacy_review_evidence/security-pending.properties",
-      "evidenceSha256": "1ec8e66e1d831900349e0b4dbd27b12245fe5d26f936e9c8789ec10ccefa14c6"
+      "evidenceSha256": "d15a73e4532a9cf851088d4ce4d43ecfb2208757f8392c7f1f53cc63d1c27fb9"
     },
     {
       "role": "legal",
@@ -29,7 +29,7 @@
       "reviewer": "",
       "reviewDate": "",
       "evidencePath": "docs/privacy_review_evidence/legal-pending.properties",
-      "evidenceSha256": "0531dce0373c0f585c0410e3190416696b840b7dafa38db66c831b86f98dd6e7"
+      "evidenceSha256": "7165992e7f617f8b718d39891c51203cef30cd31f96af3d2ab34247cb133bb7f"
     }
   ]
 }

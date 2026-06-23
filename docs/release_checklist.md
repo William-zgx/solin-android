@@ -148,7 +148,10 @@ with each RC before treating this checklist as complete.
   checks store listing fields, privacy policy URL, Data safety answers, model
   download disclosure, model capability/profile manifest bindings, manifest
   permission purposes, special-access disclosures, the current privacy notice
-  SHA, and a review evidence file with matching SHA-256.
+  SHA, and a review evidence file with matching SHA-256. Approved store policy
+  review evidence must also declare `storePolicyRecordFile` resolving to the
+  current store policy record and bind the current privacy notice, Android
+  manifest, model capability profiles, and model manifest by path and SHA-256.
 
 ## Screenshots
 
@@ -177,8 +180,10 @@ with each RC before treating this checklist as complete.
 - [ ] `docs/privacy_notice.md` is reviewed by release, security, and legal
   owners before publication. Record the approved current notice SHA in
   `docs/privacy_review.json`; every role approval must include an evidence file
-  path and matching SHA-256. Then run `VERIFY_PRIVACY_REVIEW=1
-  scripts/verify_release_gate.sh`.
+  path and matching SHA-256. Approved privacy review evidence must declare
+  `privacyReviewFile` resolving to the current privacy review record and bind
+  the current privacy notice and capability matrix by path and SHA-256. Then run
+  `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`.
 - [ ] All four recommended model downloads in `docs/model_manifest.md` have
   manually verified manifest repository, pinned upstream revision, license
   name, license source URL or file path, redistribution decision, attribution

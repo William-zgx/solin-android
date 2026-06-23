@@ -221,6 +221,11 @@ def validate_review_evidence(role, path):
         failures.append(f"{prefix}-evidence-target-invalid")
     if props.get("role") != role:
         failures.append(f"{prefix}-evidence-role-mismatch")
+    privacy_review_file = props.get("privacyReviewFile", "")
+    if not non_empty_string(privacy_review_file):
+        failures.append(f"{prefix}-evidence-privacy-review-file-missing")
+    elif Path(privacy_review_file).resolve() != review_path.resolve():
+        failures.append(f"{prefix}-evidence-privacy-review-file-mismatch")
     if props.get("noticePath") != str(notice_path):
         failures.append(f"{prefix}-evidence-notice-path-mismatch")
     if props.get("noticeSha256") != notice_sha:
