@@ -200,13 +200,15 @@ with each RC before treating this checklist as complete.
   such as a `blob`, `raw`, or `resolve` URL; the repository homepage is not
   acceptable as a license source.
 - [ ] `scripts/collect_model_license_metadata.sh` is run with `REPORT_FILE`
-  before manual model review. Attach the collector report and confirm
-  `docs/model_license_metadata.json` includes `licenseSourceCandidates` for
-  Hugging Face-hosted models, a non-future UTC `recordedAt` within
-  `MODEL_LICENSE_METADATA_MAX_AGE_DAYS` (default 30 days), and concrete
-  upstream `modelSha` values. These candidates are reviewer input only; they do
-  not approve redistribution and do not replace the concrete license source
-  recorded in `docs/model_license_review.json`.
+  before manual model review. Attach the `ModelLicenseMetadataCollection/v1`
+  collector report; it must include owner, UTC `recordedAt`, reproducible
+  command/path, `outFileSha256`, `reviewSha256`, and `manifestSha256`. Confirm
+  `docs/model_license_metadata.json` includes `licenseSourceCandidates` for Hugging
+  Face-hosted models, a non-future UTC `recordedAt` within
+  `MODEL_LICENSE_METADATA_MAX_AGE_DAYS` (default 30 days), and concrete upstream
+  `modelSha` values. These candidates are reviewer input only; they do not
+  approve redistribution and do not replace the concrete license source recorded
+  in `docs/model_license_review.json`.
 - [ ] `docs/model_license_review.json` is updated from pending to approved
   records before broad distribution, and `VERIFY_MODEL_LICENSES=1
   scripts/verify_release_gate.sh` passes for the release candidate. The gate

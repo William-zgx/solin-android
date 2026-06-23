@@ -283,6 +283,10 @@ items below.
   through `operationsRecordFile`. This prevents approved-looking evidence from
   being reused across model-license or release-operations records without a
   local gate failure.
+- Model license metadata collection now emits `ModelLicenseMetadataCollection/v1`
+  evidence with owner, UTC timestamp, reproducible command/path, and exact SHA-256
+  bindings for the collected metadata, review record, and manifest; this keeps
+  reviewer input provenance auditable before manual license approval.
 - Store policy approval evidence now has to bind back to
   `docs/store_policy_record.json` through `storePolicyRecordFile` and also bind
   the current privacy notice, Android manifest, model capability profiles, and

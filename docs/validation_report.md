@@ -15166,3 +15166,64 @@ Roadmap 状态：
 
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+
+## 2026-06-23 Model license metadata collector evidence schema
+
+本轮覆盖项：
+
+- `scripts/collect_model_license_metadata.sh` 的 collector report 升级为
+  `ModelLicenseMetadataCollection/v1`，补齐 `owner`、UTC `recordedAt`、
+  reproducible `command` / `reproduciblePath`、`outFileSha256`、`reviewSha256`
+  和 `manifestSha256`。
+- 成功和失败路径都会写同一 schema；缺 review file 时仍保留 manifest SHA 和空
+  review SHA，便于 release ticket 定位输入缺失而不是丢失证据合同。
+- `scripts/test_validation_scripts.sh` 增加 model license collector 正例与缺 review
+  file 负例的 schema / exact SHA 断言。
+- `docs/release_checklist.md` 与 `docs/release_readiness.md` 同步说明 metadata
+  collection report 是 release evidence，而不只是人工审查前的临时日志。
+
+验证命令：
+
+```bash
+bash -n scripts/collect_model_license_metadata.sh scripts/test_validation_scripts.sh
+
+git diff --check
+
+# fake Hugging Face API 正例：
+REVIEW_FILE=/tmp/<generated>/model-license-review.json \
+MANIFEST_FILE=/tmp/<generated>/model-manifest.md \
+OUT_FILE=/tmp/<generated>/model-license-metadata.json \
+REPORT_FILE=/tmp/<generated>/model-license-collector.properties \
+MODEL_LICENSE_API_BASE_URL=file:///tmp/<generated>/api \
+  scripts/collect_model_license_metadata.sh
+
+# 缺 review file 负例：
+REVIEW_FILE=/tmp/<generated>/missing-review.json \
+MANIFEST_FILE=/tmp/<generated>/model-manifest.md \
+OUT_FILE=/tmp/<generated>/model-license-metadata.json \
+REPORT_FILE=/tmp/<generated>/model-license-collector-missing-review.properties \
+MODEL_LICENSE_API_BASE_URL=file:///tmp/<generated>/api \
+  scripts/collect_model_license_metadata.sh
+```
+
+结果：
+
+- 通过：shell 静态检查与 `git diff --check`。
+- 通过：fake API 正例生成 `ModelLicenseMetadataCollection/v1` report，包含
+  `status=passed`、`owner=model-license-review`、`modelCount=1`、`outFileSha256`、
+  `reviewSha256` 和 `manifestSha256`。
+- 符合预期失败：缺 review file 负例生成同 schema 失败报告，包含
+  `status=failed`、`failedTarget=input-file`、`reason=missing-review-file`、
+  `reviewSha256=` 和有效 `manifestSha256`。
+- 按最新目标，本轮暂不运行 `scripts/test_validation_scripts.sh`、`scripts/verify_local.sh`、
+  Gradle、真机或模拟器验证；完整复杂验证等 Roadmap 功能补齐后统一执行。
+
+Roadmap 状态：
+
+- Phase 4 release evidence 继续推进：model license metadata collector 现在符合
+  evidence schema 审计要求，人工 license review 的输入来源可机器追溯。
+
+剩余风险：
+
+- 本轮仍按要求跳过真实网络 metadata 采集、人工 license approval、Gradle、真机和模拟器验证；
+  model license 批准仍需要真实 reviewer、具体 license source 和批准日期。

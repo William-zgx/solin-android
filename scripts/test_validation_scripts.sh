@@ -7669,7 +7669,17 @@ expect_success \
   MODEL_LICENSE_API_BASE_URL="file://$MODEL_LICENSE_FAKE_API_ROOT" \
   scripts/collect_model_license_metadata.sh
 assert_report_contains "$ARTIFACT_DIR/model-license-collector.properties" "status=passed"
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/model-license-collector.properties" \
+  "ModelLicenseMetadataCollection/v1" \
+  "model-license-review"
 assert_report_contains "$ARTIFACT_DIR/model-license-collector.properties" "target=model-license-metadata-collector"
+assert_report_contains "$ARTIFACT_DIR/model-license-collector.properties" "outFile=$MODEL_LICENSE_COLLECTED"
+assert_report_contains "$ARTIFACT_DIR/model-license-collector.properties" "outFileSha256=$(shasum -a 256 "$MODEL_LICENSE_COLLECTED" | awk '{print $1}')"
+assert_report_contains "$ARTIFACT_DIR/model-license-collector.properties" "reviewFile=$MODEL_LICENSE_PENDING"
+assert_report_contains "$ARTIFACT_DIR/model-license-collector.properties" "reviewSha256=$(shasum -a 256 "$MODEL_LICENSE_PENDING" | awk '{print $1}')"
+assert_report_contains "$ARTIFACT_DIR/model-license-collector.properties" "manifestFile=$MODEL_LICENSE_MANIFEST"
+assert_report_contains "$ARTIFACT_DIR/model-license-collector.properties" "manifestSha256=$(shasum -a 256 "$MODEL_LICENSE_MANIFEST" | awk '{print $1}')"
 assert_report_contains "$ARTIFACT_DIR/model-license-collector.properties" "modelCount=2"
 grep -q '"licenseSourceCandidates"' "$MODEL_LICENSE_COLLECTED" ||
   fail "Expected collected model license metadata to include source candidates"
@@ -7686,8 +7696,15 @@ expect_failure \
   MODEL_LICENSE_API_BASE_URL="file://$MODEL_LICENSE_FAKE_API_ROOT" \
   scripts/collect_model_license_metadata.sh
 assert_report_contains "$ARTIFACT_DIR/model-license-collector-missing-review.properties" "status=failed"
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/model-license-collector-missing-review.properties" \
+  "ModelLicenseMetadataCollection/v1" \
+  "model-license-review"
 assert_report_contains "$ARTIFACT_DIR/model-license-collector-missing-review.properties" "failedTarget=input-file"
 assert_report_contains "$ARTIFACT_DIR/model-license-collector-missing-review.properties" "reason=missing-review-file"
+assert_report_contains "$ARTIFACT_DIR/model-license-collector-missing-review.properties" "reviewFile=$TMP_DIR/missing-model-license-review.json"
+assert_report_contains "$ARTIFACT_DIR/model-license-collector-missing-review.properties" "reviewSha256="
+assert_report_contains "$ARTIFACT_DIR/model-license-collector-missing-review.properties" "manifestSha256=$(shasum -a 256 "$MODEL_LICENSE_MANIFEST" | awk '{print $1}')"
 expect_failure \
   "model license verifier rejects incomplete review records" \
   env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_PENDING" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \

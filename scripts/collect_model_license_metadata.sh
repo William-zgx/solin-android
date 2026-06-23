@@ -9,8 +9,28 @@ REVIEW_FILE="${REVIEW_FILE:-docs/model_license_review.json}"
 MANIFEST_FILE="${MANIFEST_FILE:-docs/model_manifest.md}"
 REPORT_FILE="${REPORT_FILE:-}"
 MODEL_LICENSE_API_BASE_URL="${MODEL_LICENSE_API_BASE_URL:-https://huggingface.co/api/models}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-model-license-review}}"
 FAILED_TARGET=""
 FAILURE_REASON=""
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "scripts/collect_model_license_metadata.sh")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
 
 write_report() {
   local status="$1"
@@ -19,13 +39,21 @@ write_report() {
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
+      printf 'artifactSchema=ModelLicenseMetadataCollection/v1\n'
       printf 'status=%s\n' "$status"
       printf 'target=model-license-metadata-collector\n'
+      printf 'owner=%s\n' "$EVIDENCE_OWNER"
+      printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      printf 'command=%s\n' "$(command_line)"
       printf 'failedTarget=%s\n' "$FAILED_TARGET"
       printf 'reason=%s\n' "$reason"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'outFile=%s\n' "$OUT_FILE"
+      printf 'outFileSha256=%s\n' "$(sha256_or_empty "$OUT_FILE")"
       printf 'reviewFile=%s\n' "$REVIEW_FILE"
+      printf 'reviewSha256=%s\n' "$(sha256_or_empty "$REVIEW_FILE")"
       printf 'manifestFile=%s\n' "$MANIFEST_FILE"
+      printf 'manifestSha256=%s\n' "$(sha256_or_empty "$MANIFEST_FILE")"
       printf 'apiBaseUrl=%s\n' "$MODEL_LICENSE_API_BASE_URL"
       printf 'modelCount=%s\n' "$model_count"
     } > "$REPORT_FILE"
