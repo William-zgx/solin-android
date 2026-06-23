@@ -15050,6 +15050,74 @@ Roadmap 状态：
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
 
+## 2026-06-23 AI behavior eval fixture provenance binding
+
+本轮覆盖项：
+
+- `scripts/verify_ai_behavior_eval.sh` 的 `AgentBehaviorEvalVerification/v1` report 现在
+  绑定 eval fixture set 内容：记录 `fixtureDirSha256`，并记录实际读取的
+  `ActionModels.kt` 源文件 path/SHA；strict actual trace 模式会逐行要求
+  `fixtureDirSha256` 等于当前 fixture set，防止旧 trace 混用新 fixture。
+- `AiBehaviorActualTraceGeneratorTest` 生成的 `agent_loop_runtime` actual trace
+  每行写入 `fixtureDirSha256`、`traceSource` 和 `traceRecordedAt`，由同一套
+  fixture 文件 hash 算法生成。
+- `scripts/collect_ai_behavior_actual_trace.sh` 的 collection report 会转录 eval report
+  中的 fixture、capability matrix、ActionModels path/SHA 和 strict eval flags，
+  方便 release ticket 从 collector evidence 追溯行为评测输入与验证模式。
+- `scripts/test_validation_scripts.sh` 增加 report 字段断言，要求 eval report 与 collector
+  report 都携带 exact fixture hash、capability matrix hash 和 ActionModels hash；
+  新增 actual trace fixture hash mismatch 负例。
+- `docs/release_checklist.md` 同步 public-release AI behavior evidence 要求，要求
+  `fixtureDirSha256`、`actionModelsSha256` 和 collector 转录一致性进入 release
+  evidence。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh \
+  scripts/collect_ai_behavior_actual_trace.sh \
+  scripts/test_validation_scripts.sh
+
+git diff --check
+
+scripts/verify_ai_behavior_eval.sh \
+  --require-boundary-map \
+  --trace-diff /tmp/pocketmind-ai-behavior-trace-diff.jsonl \
+  --report /tmp/pocketmind-ai-behavior-eval.properties
+
+# 本地生成 fake agent_loop_runtime actual trace 后运行 strict verifier：
+scripts/verify_ai_behavior_eval.sh \
+  --require-boundary-map \
+  --actual-trace /tmp/<generated>/ai-behavior-actual-trace.jsonl \
+  --trace-diff /tmp/<generated>/ai-behavior-trace-diff.jsonl \
+  --require-actual-trace \
+  --require-agent-loop-runtime-trace-source \
+  --report /tmp/<generated>/ai-behavior-eval.properties
+```
+
+结果：
+
+- 通过：shell 静态检查与 `git diff --check`。
+- 通过：单独 AI behavior verifier，当前 40 个 fixture case / 7 categories / 6 MVP
+  scenarios 通过；报告包含 `fixtureDirSha256=1f7fa746eeb6dc22615c1f0e07a1c93320c540dcd369b2f8b2b0125b7a3cd214`
+  和 `actionModelsSha256=a71c17e3845a78879daa36f18c7e73f04ae7fd50a28679629a9422790f8e9c28`。
+- 通过：本地 fake `agent_loop_runtime` actual trace strict verifier，
+  `actualTraceSourceBreakdown=agent_loop_runtime:40`、`traceDiffMismatchCount=0`。
+- 符合预期失败：同一 actual trace 将首行 `fixtureDirSha256` 改为 64 个 `0` 后，
+  verifier fail-closed，`reason=actual-trace-fixture-sha-mismatch:1:memory_style_concise`。
+- 按最新目标，本轮暂不运行 `scripts/test_validation_scripts.sh`、`scripts/verify_local.sh`、
+  Gradle、真机或模拟器验证；完整复杂验证等 Roadmap 功能补齐后统一执行。
+
+Roadmap 状态：
+
+- Phase 3 Agent behavior eval 与 Phase 4 release evidence 继续推进：行为评测 release
+  evidence 现在绑定 fixture 内容和工具模型源文件。
+
+剩余风险：
+
+- 本轮仍按要求跳过 Gradle actual trace collector、真机和模拟器验证；真实 planner trace、
+  physical validation、perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+
 ## 2026-06-23 Public evidence capability and multimodal draft boundary
 
 本轮覆盖项：

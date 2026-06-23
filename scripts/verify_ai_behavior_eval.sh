@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 FIXTURE_DIR="app/src/test/resources/ai_behavior_eval"
 CAPABILITY_MATRIX_FILE="docs/capability_matrix.json"
+ACTION_MODELS_FILE="${ACTION_MODELS_FILE:-app/src/main/java/com/bytedance/zgx/pocketmind/action/ActionModels.kt}"
 REPORT_FILE=""
 MIN_CASES_PER_CATEGORY=2
 REQUIRE_BOUNDARY_MAP=0
@@ -22,6 +23,21 @@ sha256_or_empty() {
   local path="$1"
   if [[ -n "$path" && -f "$path" ]]; then
     shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+fixture_dir_sha256() {
+  local dir="$1"
+  if [[ -d "$dir" ]]; then
+    find "$dir" -maxdepth 1 -type f -name '*.jsonl' -print |
+      LC_ALL=C sort |
+      while IFS= read -r fixture_file; do
+        printf '%s %s\n' \
+          "$(shasum -a 256 "$fixture_file" | awk '{print $1}')" \
+          "$(basename "$fixture_file")"
+      done |
+      shasum -a 256 |
+      awk '{print $1}'
   fi
 }
 
@@ -88,6 +104,7 @@ REQUIRED_CATEGORIES=(
   privacy_boundary
   restart_recovery
 )
+FIXTURE_DIR_SHA256="$(fixture_dir_sha256 "$FIXTURE_DIR")"
 
 write_report() {
   local status="$1"
@@ -148,11 +165,16 @@ write_report() {
       printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       printf 'command=%s\n' "scripts/verify_ai_behavior_eval.sh ${ORIGINAL_ARGS[*]}"
       printf 'reproduciblePath=%s\n' "$REPORT_FILE"
+      printf 'actualTraceFile=%s\n' "$ACTUAL_TRACE_FILE"
       printf 'actualTraceSha256=%s\n' "$(sha256_or_empty "$ACTUAL_TRACE_FILE")"
+      printf 'traceDiffFile=%s\n' "$TRACE_DIFF_FILE"
       printf 'traceDiffSha256=%s\n' "$(sha256_or_empty "$TRACE_DIFF_FILE")"
       printf 'capabilityMatrixFile=%s\n' "$CAPABILITY_MATRIX_FILE"
       printf 'capabilityMatrixSha256=%s\n' "$(sha256_or_empty "$CAPABILITY_MATRIX_FILE")"
       printf 'fixtureDir=%s\n' "$FIXTURE_DIR"
+      printf 'fixtureDirSha256=%s\n' "$FIXTURE_DIR_SHA256"
+      printf 'actionModelsFile=%s\n' "$ACTION_MODELS_FILE"
+      printf 'actionModelsSha256=%s\n' "$(sha256_or_empty "$ACTION_MODELS_FILE")"
       printf 'minCasesPerCategory=%s\n' "$MIN_CASES_PER_CATEGORY"
       printf 'requireBoundaryMap=%s\n' "$REQUIRE_BOUNDARY_MAP"
       printf 'requireActualTrace=%s\n' "$REQUIRE_ACTUAL_TRACE"
@@ -177,7 +199,7 @@ write_report() {
 validation_output="$(mktemp)"
 trap 'rm -f "$validation_output"' EXIT
 
-if ! python3 - "$FIXTURE_DIR" "$CAPABILITY_MATRIX_FILE" "$MIN_CASES_PER_CATEGORY" "$REQUIRE_BOUNDARY_MAP" \
+if ! python3 - "$FIXTURE_DIR" "$CAPABILITY_MATRIX_FILE" "$ACTION_MODELS_FILE" "$FIXTURE_DIR_SHA256" "$MIN_CASES_PER_CATEGORY" "$REQUIRE_BOUNDARY_MAP" \
   "$ACTUAL_TRACE_FILE" "$TRACE_DIFF_FILE" "$REQUIRE_ACTUAL_TRACE" "$REQUIRE_RUNTIME_TRACE_SOURCE" "$REQUIRE_AGENT_LOOP_RUNTIME_TRACE_SOURCE" "$REJECT_ALLOWED_FAILURES" "$ACTUAL_TRACE_MAX_AGE_DAYS" \
   "${REQUIRED_CATEGORIES[@]}" > "$validation_output" <<'PY'
 import collections
@@ -189,24 +211,25 @@ import sys
 
 fixture_dir = pathlib.Path(sys.argv[1])
 capability_matrix_path = pathlib.Path(sys.argv[2])
-min_cases = int(sys.argv[3])
-require_boundary_map = sys.argv[4] == "1"
-actual_trace_arg = sys.argv[5]
-trace_diff_arg = sys.argv[6]
-require_actual_trace = sys.argv[7] == "1"
-require_runtime_trace_source = sys.argv[8] == "1"
-require_agent_loop_runtime_trace_source = sys.argv[9] == "1"
-reject_allowed_failures = sys.argv[10] == "1"
+action_models_path = pathlib.Path(sys.argv[3])
+fixture_dir_sha256 = sys.argv[4]
+min_cases = int(sys.argv[5])
+require_boundary_map = sys.argv[6] == "1"
+actual_trace_arg = sys.argv[7]
+trace_diff_arg = sys.argv[8]
+require_actual_trace = sys.argv[9] == "1"
+require_runtime_trace_source = sys.argv[10] == "1"
+require_agent_loop_runtime_trace_source = sys.argv[11] == "1"
+reject_allowed_failures = sys.argv[12] == "1"
 try:
-    actual_trace_max_age_days = int(sys.argv[11])
+    actual_trace_max_age_days = int(sys.argv[13])
 except ValueError:
     print("reason=invalid-actual-trace-max-age-days")
     sys.exit(1)
 if actual_trace_max_age_days <= 0:
     print("reason=invalid-actual-trace-max-age-days")
     sys.exit(1)
-required = sys.argv[12:]
-action_models_path = pathlib.Path("app/src/main/java/com/bytedance/zgx/pocketmind/action/ActionModels.kt")
+required = sys.argv[14:]
 
 if not capability_matrix_path.is_file():
     print("reason=capability-matrix-missing")
@@ -581,6 +604,13 @@ def load_actual_traces():
         category = str(row.get("category", "")).strip()
         input_text = str(row.get("input", "")).strip()
         if require_actual_trace:
+            actual_fixture_dir_sha256 = str(row.get("fixtureDirSha256", "")).strip()
+            if not re.fullmatch(r"[0-9a-f]{64}", actual_fixture_dir_sha256):
+                print(f"reason=invalid-actual-trace:{line_number}:fixtureDirSha256")
+                sys.exit(1)
+            if actual_fixture_dir_sha256 != fixture_dir_sha256:
+                print(f"reason=actual-trace-fixture-sha-mismatch:{line_number}:{case_id or 'unknown'}")
+                sys.exit(1)
             if not case_id:
                 print(f"reason=invalid-actual-trace:{line_number}:caseId")
                 sys.exit(1)

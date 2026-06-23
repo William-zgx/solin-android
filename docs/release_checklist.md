@@ -289,7 +289,8 @@ with each RC before treating this checklist as complete.
   `ai-behavior-planning-trace-diff.jsonl`; the report must include
   `artifactSchema=AgentBehaviorEvalVerification/v1`, owner, UTC `recordedAt`,
   reproducible command, `actualTraceSha256`, `traceDiffSha256`, and
-  `capabilityMatrixSha256`, plus `requireActualTrace=1` /
+  `capabilityMatrixSha256`, `fixtureDirSha256`, and `actionModelsSha256`, plus
+  `requireActualTrace=1` /
   `requireRuntimeTraceSource=1` /
   `requireAgentLoopRuntimeTraceSource=1` / `rejectAllowedFailures=1`. Risk
   coverage must include public-evidence, low, medium, high, and sensitive cases;
@@ -301,13 +302,18 @@ with each RC before treating this checklist as complete.
   `docs/capability_matrix.json` /
   `CapabilityMatrix.requiredBehaviorEvalBoundaries`, not an untracked shell-only
   list. For public release, every actual trace row must come from the
-  deterministic `agent_loop_runtime` collector and include a UTC
-  `traceRecordedAt`; `android_instrumentation` and `device_debug_eval` sources
-  are acceptable only for non-public/debug evidence. `PUBLIC_RELEASE=1` requires
+  deterministic `agent_loop_runtime` collector and include the current
+  `fixtureDirSha256` plus a UTC `traceRecordedAt`; `android_instrumentation` and
+  `device_debug_eval` sources are acceptable only for non-public/debug evidence.
+  The collector report must transcribe `evalFixtureDirSha256`,
+  `evalCapabilityMatrixSha256`, `evalActionModelsSha256`, and the strict eval
+  flags from the verifier report so the release ticket can audit source/eval
+  consistency from the collection evidence. `PUBLIC_RELEASE=1` requires
   `AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl>` and fails closed if the
   file is missing, lacks runtime provenance, includes non-`agent_loop_runtime`
-  rows, is stale, mismatched, has extra rows, or leaves any `allowed_failure`
-  trace-diff rows. Stale means older than 30 days by default; override only with
+  rows, is stale, uses a stale/different fixture hash, is mismatched, has extra
+  rows, or leaves any `allowed_failure` trace-diff rows. Stale means older than
+  30 days by default; override only with
   `AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS=<days>` when release policy explicitly
   accepts a different window. Use `scripts/collect_ai_behavior_actual_trace.sh`
   for the deterministic local `agent_loop_runtime` trace collection step; do not

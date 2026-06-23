@@ -67,6 +67,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -80,6 +81,7 @@ class AiBehaviorActualTraceGeneratorTest {
         "privacy_boundary",
         "restart_recovery",
     )
+    private val fixtureDirSha256: String by lazy { calculateFixtureDirSha256() }
 
     @Test
     fun writesAgentLoopRuntimeActualTraceJsonl() {
@@ -98,6 +100,7 @@ class AiBehaviorActualTraceGeneratorTest {
         assertTrue(outputFile.isFile)
         assertTrue(outputFile.length() > 0L)
         traceRows.forEach { trace ->
+            assertEquals(fixtureDirSha256, trace.getString("fixtureDirSha256"))
             assertEquals("agent_loop_runtime", trace.getString("traceSource"))
             assertTrue(trace.getString("traceRecordedAt").endsWith("Z"))
         }
@@ -213,8 +216,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
-            .put("traceSource", "agent_loop_runtime")
-            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+            .putTraceProvenance()
     }
 
     private fun runtimeInputFor(fixture: JSONObject): String =
@@ -263,8 +265,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
-            .put("traceSource", "agent_loop_runtime")
-            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+            .putTraceProvenance()
     }
 
     private fun appSearchFailureResult(fixture: JSONObject): AgentLoopResult {
@@ -526,8 +527,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
-            .put("traceSource", "agent_loop_runtime")
-            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+            .putTraceProvenance()
     }
 
     private fun assertSearchThenShareTrace(trace: JSONObject) {
@@ -657,8 +657,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
-            .put("traceSource", "agent_loop_runtime")
-            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+            .putTraceProvenance()
     }
 
     private fun draftForTrace(request: ToolRequest): ActionDraft =
@@ -739,8 +738,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
-            .put("traceSource", "agent_loop_runtime")
-            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+            .putTraceProvenance()
     }
 
     private fun assertTaobaoSearchBackTrace(trace: JSONObject) {
@@ -872,8 +870,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
-            .put("traceSource", "agent_loop_runtime")
-            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+            .putTraceProvenance()
     }
 
     private fun collectExternalOutcomeFailClosedTrace(fixture: JSONObject): JSONObject {
@@ -948,8 +945,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
-            .put("traceSource", "agent_loop_runtime")
-            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+            .putTraceProvenance()
     }
 
     private fun assertRemoteImagePreviewTrace(trace: JSONObject) {
@@ -1058,19 +1054,18 @@ class AiBehaviorActualTraceGeneratorTest {
             scheduledAlarms = scheduledAlarms.toMap(),
             taskAfterReschedule = taskAfterReschedule,
             trace = JSONObject()
-            .put("caseId", fixture.getString("id"))
-            .put("category", fixture.getString("category"))
-            .put("input", input)
-            .put("actualTools", JSONArray(trace.actualTools))
-            .put("actualConfirmation", trace.actualConfirmation.toFixtureValue())
-            .put("actualRiskLevel", trace.actualRiskLevel.toFixtureValue())
-            .put("privacy", trace.privacy.name)
-            .put("localOnly", trace.localOnly)
-            .put("remoteEligible", trace.remoteEligible)
-            .put("failureMode", trace.failureMode ?: "")
-            .putRoutingFields(trace)
-            .put("traceSource", "agent_loop_runtime")
-                .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString()),
+                .put("caseId", fixture.getString("id"))
+                .put("category", fixture.getString("category"))
+                .put("input", input)
+                .put("actualTools", JSONArray(trace.actualTools))
+                .put("actualConfirmation", trace.actualConfirmation.toFixtureValue())
+                .put("actualRiskLevel", trace.actualRiskLevel.toFixtureValue())
+                .put("privacy", trace.privacy.name)
+                .put("localOnly", trace.localOnly)
+                .put("remoteEligible", trace.remoteEligible)
+                .put("failureMode", trace.failureMode ?: "")
+                .putRoutingFields(trace)
+                .putTraceProvenance(),
         )
     }
 
@@ -1127,8 +1122,7 @@ class AiBehaviorActualTraceGeneratorTest {
             .put("remoteEligible", trace.remoteEligible)
             .put("failureMode", trace.failureMode ?: "")
             .putRoutingFields(trace)
-            .put("traceSource", "agent_loop_runtime")
-            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+            .putTraceProvenance()
     }
 
     private fun seedRuntimeMemoryEvidence(
@@ -1664,6 +1658,31 @@ class AiBehaviorActualTraceGeneratorTest {
         trace.routingRejectionReason?.let { reason -> put("routingRejectionReason", reason) }
         return this
     }
+
+    private fun JSONObject.putTraceProvenance(): JSONObject =
+        put("fixtureDirSha256", fixtureDirSha256)
+            .put("traceSource", "agent_loop_runtime")
+            .put("traceRecordedAt", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
+
+    private fun calculateFixtureDirSha256(): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        fixtureFiles().forEach { file ->
+            digest.update("${sha256(file.readBytes())} ${file.name}\n".toByteArray(Charsets.UTF_8))
+        }
+        return digest.digest().toHexString()
+    }
+
+    private fun fixtureFiles(): List<File> =
+        File(projectRoot(), "app/src/test/resources/ai_behavior_eval")
+            .listFiles { file -> file.isFile && file.extension == "jsonl" }
+            ?.sortedBy { file -> file.name }
+            .orEmpty()
+
+    private fun sha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes).toHexString()
+
+    private fun ByteArray.toHexString(): String =
+        joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
     private fun IntentRoutingPath.toFixtureValue(): String =
         when (this) {

@@ -34,6 +34,19 @@ fail() {
   exit 1
 }
 
+fixture_dir_sha256() {
+  local dir="$1"
+  find "$dir" -maxdepth 1 -type f -name '*.jsonl' -print |
+    LC_ALL=C sort |
+    while IFS= read -r fixture_file; do
+      printf '%s %s\n' \
+        "$(shasum -a 256 "$fixture_file" | awk '{print $1}')" \
+        "$(basename "$fixture_file")"
+    done |
+    shasum -a 256 |
+    awk '{print $1}'
+}
+
 LAST_OUTPUT=""
 
 expect_success() {
@@ -1376,6 +1389,11 @@ grep -q 'actual-trace-unknown-case-id' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval gate must reject unknown actual trace case IDs"
 grep -q 'trace-diff-missing-required-failure-mode' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval gate must require fail-closed actual failure modes"
+AI_BEHAVIOR_FIXTURE_DIR_SHA="$(fixture_dir_sha256 app/src/test/resources/ai_behavior_eval)"
+AI_BEHAVIOR_ACTION_MODELS_FILE="app/src/main/java/com/bytedance/zgx/pocketmind/action/ActionModels.kt"
+AI_BEHAVIOR_ACTION_MODELS_SHA="$(shasum -a 256 "$AI_BEHAVIOR_ACTION_MODELS_FILE" | awk '{print $1}')"
+AI_BEHAVIOR_CAPABILITY_MATRIX_FILE="docs/capability_matrix.json"
+AI_BEHAVIOR_CAPABILITY_MATRIX_SHA="$(shasum -a 256 "$AI_BEHAVIOR_CAPABILITY_MATRIX_FILE" | awk '{print $1}')"
 AI_BEHAVIOR_MISSING_ID_DIR="$TMP_DIR/ai-behavior-missing-id"
 mkdir -p "$AI_BEHAVIOR_MISSING_ID_DIR"
 cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_MISSING_ID_DIR/"
@@ -1695,9 +1713,14 @@ grep -q '^command=.*scripts/verify_ai_behavior_eval.sh.*--trace-diff ' "$ARTIFAC
   fail "AI behavior eval report must include reproducible command"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" \
   "reproduciblePath=$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "fixtureDir=app/src/test/resources/ai_behavior_eval"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "fixtureDirSha256=$AI_BEHAVIOR_FIXTURE_DIR_SHA"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "capabilityMatrixFile=$AI_BEHAVIOR_CAPABILITY_MATRIX_FILE"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "capabilityMatrixSha256=$AI_BEHAVIOR_CAPABILITY_MATRIX_SHA"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "actionModelsFile=$AI_BEHAVIOR_ACTION_MODELS_FILE"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "actionModelsSha256=$AI_BEHAVIOR_ACTION_MODELS_SHA"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "traceDiffFile=$AI_TRACE_DIFF_MISSING"
-grep -Eq '^traceDiffSha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" ||
-  fail "AI behavior eval report must hash trace diff evidence"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "traceDiffSha256=$(shasum -a 256 "$AI_TRACE_DIFF_MISSING" | awk '{print $1}')"
 ai_trace_missing_count="$(awk -F= '$1 == "caseCount" {print $2; exit}' "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties")"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing.properties" "traceDiffMissingActualCount=$ai_trace_missing_count"
 assert_report_contains_text "$AI_TRACE_DIFF_MISSING" '"actualTools": []'
@@ -1707,7 +1730,7 @@ AI_ACTUAL_TRACE="$TMP_DIR/ai-behavior-actual-trace.jsonl"
 AI_TRACE_FRESH_RECORDED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 AI_TRACE_STALE_RECORDED_AT="2000-01-01T00:00:00Z"
 AI_TRACE_FUTURE_RECORDED_AT="2099-01-01T00:00:00Z"
-python3 - "$AI_ACTUAL_TRACE" "$AI_TRACE_FRESH_RECORDED_AT" <<'PY'
+python3 - "$AI_ACTUAL_TRACE" "$AI_TRACE_FRESH_RECORDED_AT" "$AI_BEHAVIOR_FIXTURE_DIR_SHA" <<'PY'
 import json
 import pathlib
 import sys
@@ -1724,6 +1747,7 @@ categories = [
 ]
 out = pathlib.Path(sys.argv[1])
 trace_recorded_at = sys.argv[2]
+fixture_dir_sha256 = sys.argv[3]
 with out.open("w", encoding="utf-8") as handle:
     for category in categories:
         path = fixture_dir / f"{category}.jsonl"
@@ -1744,6 +1768,7 @@ with out.open("w", encoding="utf-8") as handle:
                 "remoteEligible": row["remoteEligible"],
                 "traceRecordedAt": trace_recorded_at,
                 "traceSource": "agent_loop_runtime",
+                "fixtureDirSha256": fixture_dir_sha256,
             }
             if row.get("expectedRoutingPath"):
                 trace["routingPath"] = row["expectedRoutingPath"]
@@ -1764,6 +1789,32 @@ with out.open("w", encoding="utf-8") as handle:
             handle.write(json.dumps(trace, ensure_ascii=False, sort_keys=True) + "\n")
 PY
 AI_ACTUAL_TRACE_SHA="$(shasum -a 256 "$AI_ACTUAL_TRACE" | awk '{print $1}')"
+AI_ACTUAL_TRACE_BAD_FIXTURE_SHA="$TMP_DIR/ai-behavior-actual-trace-bad-fixture-sha.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_BAD_FIXTURE_SHA" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["fixtureDirSha256"] = "0" * 64
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects actual trace bound to a different fixture set" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE_BAD_FIXTURE_SHA" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-fixture-sha.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-fixture-sha.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-fixture-sha.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-fixture-sha.properties" "reason=actual-trace-fixture-sha-mismatch:1:memory_style_concise"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-fixture-sha.properties" "actualTraceFile=$AI_ACTUAL_TRACE_BAD_FIXTURE_SHA"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-bad-fixture-sha.properties" "fixtureDirSha256=$AI_BEHAVIOR_FIXTURE_DIR_SHA"
 AI_ACTUAL_TRACE_MISSING_SOURCE="$TMP_DIR/ai-behavior-actual-trace-missing-source.jsonl"
 python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_MISSING_SOURCE" <<'PY'
 import json
@@ -2043,8 +2094,7 @@ assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceMaxAgeDays=30"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceSourceBreakdown=agent_loop_runtime:$ai_trace_missing_count"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceNonAgentLoopRuntimeSourceCount=0"
-grep -Eq '^traceDiffSha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" ||
-  fail "AI behavior eval report must hash matched trace diff evidence"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "traceDiffSha256=$(shasum -a 256 "$AI_TRACE_DIFF_MATCHED" | awk '{print $1}')"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "traceDiffMissingActualCount=0"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "traceDiffMismatchCount=0"
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"caseId": "memory_style_concise"'
@@ -2233,6 +2283,7 @@ AI_ALLOWED_FAILURE_SAFETY_MODE="allowed_script_safety_drift"
 mkdir -p "$AI_BEHAVIOR_ALLOWED_FAILURE_SAFETY_DIR"
 cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_ALLOWED_FAILURE_SAFETY_DIR/"
 python3 - "$AI_BEHAVIOR_ALLOWED_FAILURE_SAFETY_DIR" "$AI_ACTUAL_TRACE" "$AI_ALLOWED_FAILURE_SAFETY_TRACE" "$AI_ALLOWED_FAILURE_SAFETY_MODE" <<'PY'
+import hashlib
 import json
 import pathlib
 import sys
@@ -2249,8 +2300,14 @@ fixture_path.write_text(
     "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in fixture_rows),
     encoding="utf-8",
 )
+fixture_hash = hashlib.sha256()
+for path in sorted(fixture_dir.glob("*.jsonl"), key=lambda item: item.name):
+    fixture_hash.update(f"{hashlib.sha256(path.read_bytes()).hexdigest()} {path.name}\n".encode("utf-8"))
+fixture_dir_sha256 = fixture_hash.hexdigest()
 
 trace_rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in trace_rows:
+    row["fixtureDirSha256"] = fixture_dir_sha256
 trace_rows[0]["failureMode"] = mode
 trace_rows[0]["actualRiskLevel"] = "sensitive" if trace_rows[0]["actualRiskLevel"] != "sensitive" else "low"
 if trace_rows[0]["privacy"] == "LocalOnly":
@@ -2288,6 +2345,7 @@ AI_ALLOWED_FAILURE_FAIL_CLOSED_MODE="allowed_script_fail_closed_drift"
 mkdir -p "$AI_BEHAVIOR_ALLOWED_FAILURE_FAIL_CLOSED_DIR"
 cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_ALLOWED_FAILURE_FAIL_CLOSED_DIR/"
 python3 - "$AI_BEHAVIOR_ALLOWED_FAILURE_FAIL_CLOSED_DIR" "$AI_ACTUAL_TRACE" "$AI_ALLOWED_FAILURE_FAIL_CLOSED_TRACE" "$AI_ALLOWED_FAILURE_FAIL_CLOSED_MODE" <<'PY'
+import hashlib
 import json
 import pathlib
 import sys
@@ -2305,8 +2363,14 @@ fixture_path.write_text(
     "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in fixture_rows),
     encoding="utf-8",
 )
+fixture_hash = hashlib.sha256()
+for path in sorted(fixture_dir.glob("*.jsonl"), key=lambda item: item.name):
+    fixture_hash.update(f"{hashlib.sha256(path.read_bytes()).hexdigest()} {path.name}\n".encode("utf-8"))
+fixture_dir_sha256 = fixture_hash.hexdigest()
 
 trace_rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in trace_rows:
+    row["fixtureDirSha256"] = fixture_dir_sha256
 trace_rows[0]["actualConfirmation"] = "none"
 trace_rows[0]["failureMode"] = mode
 target.write_text(
@@ -2351,6 +2415,18 @@ assert_report_contains "$AI_COLLECTOR_REPORT" "actualTraceSha256=$(shasum -a 256
 assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffFile=$AI_COLLECTOR_DIFF"
 assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffSha256=$(shasum -a 256 "$AI_COLLECTOR_DIFF" | awk '{print $1}')"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalReportFile=$AI_COLLECTOR_EVAL"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalReportSha256=$(shasum -a 256 "$AI_COLLECTOR_EVAL" | awk '{print $1}')"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalFixtureDir=app/src/test/resources/ai_behavior_eval"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalFixtureDirSha256=$AI_BEHAVIOR_FIXTURE_DIR_SHA"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalCapabilityMatrixFile=$AI_BEHAVIOR_CAPABILITY_MATRIX_FILE"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalCapabilityMatrixSha256=$AI_BEHAVIOR_CAPABILITY_MATRIX_SHA"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalActionModelsFile=$AI_BEHAVIOR_ACTION_MODELS_FILE"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalActionModelsSha256=$AI_BEHAVIOR_ACTION_MODELS_SHA"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalRequireActualTrace=1"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalRequireRuntimeTraceSource=1"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalRequireAgentLoopRuntimeTraceSource=1"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalRejectAllowedFailures=0"
+assert_report_contains "$AI_COLLECTOR_REPORT" "evalActualTraceMaxAgeDays=30"
 assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffMissingActualCount=0"
 assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffExtraActualCount=0"
 assert_report_contains "$AI_COLLECTOR_REPORT" "actualTraceSourceBreakdown=agent_loop_runtime:$ai_trace_missing_count"
@@ -2436,7 +2512,7 @@ assert_report_contains "$AI_COLLECTOR_MISMATCH_EVAL" "traceDiffMismatchCount=1"
 AI_EXTRA_ACTUAL_TRACE="$TMP_DIR/ai-behavior-actual-trace-extra.jsonl"
 cp "$AI_ACTUAL_TRACE" "$AI_EXTRA_ACTUAL_TRACE"
 cat >> "$AI_EXTRA_ACTUAL_TRACE" <<AI_EXTRA_ACTUAL_TRACE_JSONL
-{"caseId":"extra-case","category":"memory_recall","input":"extra","actualTools":[],"actualConfirmation":"none","actualRiskLevel":"low","privacy":"RemoteEligible","localOnly":false,"remoteEligible":true,"traceRecordedAt":"$AI_TRACE_FRESH_RECORDED_AT","traceSource":"agent_loop_runtime"}
+{"caseId":"extra-case","category":"memory_recall","input":"extra","actualTools":[],"actualConfirmation":"none","actualRiskLevel":"low","privacy":"RemoteEligible","localOnly":false,"remoteEligible":true,"traceRecordedAt":"$AI_TRACE_FRESH_RECORDED_AT","traceSource":"agent_loop_runtime","fixtureDirSha256":"$AI_BEHAVIOR_FIXTURE_DIR_SHA"}
 AI_EXTRA_ACTUAL_TRACE_JSONL
 expect_failure \
   "AI behavior eval rejects extra unknown actual trace rows" \
