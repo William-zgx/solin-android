@@ -144,8 +144,12 @@ items below.
   `AI_BEHAVIOR_ACTUAL_TRACE_FILE` and bind the actual trace / planning diff
   evidence by SHA-256. Strict runs require per-row machine provenance
   (`traceSource` plus UTC `traceRecordedAt`), so final Agent behavior evidence
-  cannot be a fixture-only dry run. `scripts/collect_ai_behavior_actual_trace.sh`
-  now produces the local `agent_loop_runtime` actual trace collection report; the
+  cannot be a fixture-only dry run. Public release gate runs now additionally
+  require every actual trace row to come from `agent_loop_runtime`, matching the
+  deterministic collector contract; `android_instrumentation` and
+  `device_debug_eval` trace sources remain non-public/debug evidence only.
+  `scripts/collect_ai_behavior_actual_trace.sh` now produces the local
+  `agent_loop_runtime` actual trace collection report; the
   latest local collector report
   `build/verification/ai-behavior-actual-trace-remote-send-gate/ai-behavior-actual-trace-collection.properties`
   records 31 runtime-sourced rows, `traceDiffMatchedCount=21`,
@@ -156,9 +160,10 @@ items below.
   external-outcome fail-closed evidence, metadata-only OCR truncation evidence,
   restart-restored confirmation evidence, explicit local memory forget evidence
   through `MemoryRepository`, and remote-send confirmation coverage. The collector
-  now invokes the eval verifier with `--require-actual-trace`, so mismatched
-  actual runtime traces fail the collector evidence itself instead of relying on a
-  later public release gate. Real-app search failure modes are now required in
+  now invokes the eval verifier with `--require-actual-trace` and
+  `--require-agent-loop-runtime-trace-source`, so mismatched or non-collector
+  actual runtime traces fail the collector evidence itself instead of relying on
+  a later public release gate. Real-app search failure modes are now required in
   the eval suite: `search_entry_not_found`, `editable_not_found`,
   `submit_not_found`, `result_not_verified`, and `required_hint_missing`.
   The evidence is mismatch-free, but allowed failures are no longer acceptable
@@ -255,10 +260,11 @@ items below.
   `docs/capability_matrix.json` by path and SHA-256, so release/security/legal
   approval cannot silently drift away from the current declared capability
   surface. Perf baseline verification also rejects baseline records without
-  `PerfBaseline/v1` provenance, owner, collection command, and matching
-  reproducible path before release-gate evidence can pass. These are local
-  evidence gates; they do not replace the pending human approvals or physical
-  RC perf run.
+  `PerfBaseline/v1` provenance, owner, collection command, matching reproducible
+  path, and fresh non-future `recordedAt` before release-gate evidence can pass;
+  the checked-in perf template now carries those provenance fields. These are
+  local evidence gates; they do not replace the pending human approvals or
+  physical RC perf run.
 - Store policy model-download disclosure now binds the primary chat model to
   `docs/model_capability_profiles.json` and `docs/model_manifest.md` by profile
   id, byte size, SHA-256, and upstream revision. The verifier also derives

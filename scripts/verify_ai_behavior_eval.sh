@@ -13,6 +13,7 @@ ACTUAL_TRACE_FILE=""
 TRACE_DIFF_FILE=""
 REQUIRE_ACTUAL_TRACE=0
 REQUIRE_RUNTIME_TRACE_SOURCE=0
+REQUIRE_AGENT_LOOP_RUNTIME_TRACE_SOURCE=0
 REJECT_ALLOWED_FAILURES=0
 ACTUAL_TRACE_MAX_AGE_DAYS="${AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS:-30}"
 ORIGINAL_ARGS=("$@")
@@ -60,6 +61,11 @@ while [[ "$#" -gt 0 ]]; do
       ;;
     --require-runtime-trace-source)
       REQUIRE_RUNTIME_TRACE_SOURCE=1
+      shift
+      ;;
+    --require-agent-loop-runtime-trace-source)
+      REQUIRE_RUNTIME_TRACE_SOURCE=1
+      REQUIRE_AGENT_LOOP_RUNTIME_TRACE_SOURCE=1
       shift
       ;;
     --reject-allowed-failures)
@@ -126,9 +132,10 @@ write_report() {
     actualTraceFailureModeCount
     actualTraceMissingRequiredFailureModeCount
     actualTraceSourceBreakdown
+    actualTraceNonAgentLoopRuntimeSourceCount
     actualTraceNewestRecordedAt
   )
-  local metric_defaults=(0 0 "" "" 0 0 0 "" "" "" "" "" 0 0 "" "" "" 0 0 0 "" "" "" "" "" "" "" "" 0 0 0 0 0 0 0 0 "" "")
+  local metric_defaults=(0 0 "" "" 0 0 0 "" "" "" "" "" 0 0 "" "" "" 0 0 0 "" "" "" "" "" "" "" "" 0 0 0 0 0 0 0 0 "" 0 "")
   local index metric_key metric_value
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
@@ -150,6 +157,7 @@ write_report() {
       printf 'requireBoundaryMap=%s\n' "$REQUIRE_BOUNDARY_MAP"
       printf 'requireActualTrace=%s\n' "$REQUIRE_ACTUAL_TRACE"
       printf 'requireRuntimeTraceSource=%s\n' "$REQUIRE_RUNTIME_TRACE_SOURCE"
+      printf 'requireAgentLoopRuntimeTraceSource=%s\n' "$REQUIRE_AGENT_LOOP_RUNTIME_TRACE_SOURCE"
       printf 'rejectAllowedFailures=%s\n' "$REJECT_ALLOWED_FAILURES"
       printf 'actualTraceMaxAgeDays=%s\n' "$ACTUAL_TRACE_MAX_AGE_DAYS"
       printf 'requiredCategories=%s\n' "$(IFS=,; echo "${REQUIRED_CATEGORIES[*]}")"
@@ -170,7 +178,7 @@ validation_output="$(mktemp)"
 trap 'rm -f "$validation_output"' EXIT
 
 if ! python3 - "$FIXTURE_DIR" "$CAPABILITY_MATRIX_FILE" "$MIN_CASES_PER_CATEGORY" "$REQUIRE_BOUNDARY_MAP" \
-  "$ACTUAL_TRACE_FILE" "$TRACE_DIFF_FILE" "$REQUIRE_ACTUAL_TRACE" "$REQUIRE_RUNTIME_TRACE_SOURCE" "$REJECT_ALLOWED_FAILURES" "$ACTUAL_TRACE_MAX_AGE_DAYS" \
+  "$ACTUAL_TRACE_FILE" "$TRACE_DIFF_FILE" "$REQUIRE_ACTUAL_TRACE" "$REQUIRE_RUNTIME_TRACE_SOURCE" "$REQUIRE_AGENT_LOOP_RUNTIME_TRACE_SOURCE" "$REJECT_ALLOWED_FAILURES" "$ACTUAL_TRACE_MAX_AGE_DAYS" \
   "${REQUIRED_CATEGORIES[@]}" > "$validation_output" <<'PY'
 import collections
 import datetime
@@ -187,16 +195,17 @@ actual_trace_arg = sys.argv[5]
 trace_diff_arg = sys.argv[6]
 require_actual_trace = sys.argv[7] == "1"
 require_runtime_trace_source = sys.argv[8] == "1"
-reject_allowed_failures = sys.argv[9] == "1"
+require_agent_loop_runtime_trace_source = sys.argv[9] == "1"
+reject_allowed_failures = sys.argv[10] == "1"
 try:
-    actual_trace_max_age_days = int(sys.argv[10])
+    actual_trace_max_age_days = int(sys.argv[11])
 except ValueError:
     print("reason=invalid-actual-trace-max-age-days")
     sys.exit(1)
 if actual_trace_max_age_days <= 0:
     print("reason=invalid-actual-trace-max-age-days")
     sys.exit(1)
-required = sys.argv[11:]
+required = sys.argv[12:]
 action_models_path = pathlib.Path("app/src/main/java/com/bytedance/zgx/pocketmind/action/ActionModels.kt")
 
 if not capability_matrix_path.is_file():
@@ -703,6 +712,10 @@ actual_trace_newest_recorded_at = ""
 if actual_trace_recorded_at_values:
     actual_trace_newest_recorded_at = max(actual_trace_recorded_at_values, key=lambda item: item[0])[1]
 actual_trace_failure_mode_count = sum(1 for trace in actual_traces if trace["failureMode"])
+actual_trace_non_agent_loop_runtime_source_count = sum(
+    1 for trace in actual_traces
+    if trace["traceSource"] != "agent_loop_runtime"
+)
 actual_by_case_id = {
     trace["caseId"]: trace
     for trace in actual_traces
@@ -914,6 +927,7 @@ def emit_metrics(reason=""):
     print(f"traceDiffFile={trace_diff_arg}")
     print(f"requireActualTrace={int(require_actual_trace)}")
     print(f"requireRuntimeTraceSource={int(require_runtime_trace_source)}")
+    print(f"requireAgentLoopRuntimeTraceSource={int(require_agent_loop_runtime_trace_source)}")
     print(f"actualTraceMaxAgeDays={actual_trace_max_age_days}")
     print(f"traceDiffCaseCount={len(eval_cases)}")
     print(f"traceDiffMatchedCount={trace_diff_counts['matched']}")
@@ -925,6 +939,7 @@ def emit_metrics(reason=""):
     print(f"actualTraceFailureModeCount={actual_trace_failure_mode_count}")
     print(f"actualTraceMissingRequiredFailureModeCount={actual_trace_missing_required_failure_mode_count}")
     print(f"actualTraceSourceBreakdown={encode_counter(actual_trace_source_counts)}")
+    print(f"actualTraceNonAgentLoopRuntimeSourceCount={actual_trace_non_agent_loop_runtime_source_count}")
     print(f"actualTraceNewestRecordedAt={actual_trace_newest_recorded_at}")
 
 if require_boundary_map and not mvp_counts:
@@ -985,6 +1000,9 @@ if require_actual_trace and trace_diff_extra_actual_count > 0:
     sys.exit(1)
 if reject_allowed_failures and trace_diff_counts["allowed_failure"] > 0:
     emit_metrics("trace-diff-allowed-failure")
+    sys.exit(1)
+if require_agent_loop_runtime_trace_source and actual_trace_non_agent_loop_runtime_source_count > 0:
+    emit_metrics("actual-trace-non-agent-loop-runtime-source")
     sys.exit(1)
 
 emit_metrics()

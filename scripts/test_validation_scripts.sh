@@ -1252,12 +1252,26 @@ grep -q 'REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1' scripts/verify_release_gate.sh ||
   fail "public release gate must require AI behavior actual trace"
 grep -q 'REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1' scripts/verify_release_gate.sh ||
   fail "public release gate must require AI behavior runtime trace source"
+grep -q 'REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE=1' scripts/verify_release_gate.sh ||
+  fail "public release gate must require agent_loop_runtime actual trace provenance"
 grep -q 'REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1' scripts/verify_release_gate.sh ||
   fail "public release gate must reject AI behavior allowed failures"
 grep -q 'VERIFY_AI_BEHAVIOR_EVAL=1' scripts/verify_release_gate.sh ||
   fail "public release gate must force AI behavior eval"
 grep -q -- '--require-boundary-map' scripts/verify_release_gate.sh ||
   fail "release gate must require AI behavior eval boundary mapping"
+grep -q -- '--require-agent-loop-runtime-trace-source' scripts/collect_ai_behavior_actual_trace.sh ||
+  fail "AI behavior actual trace collector must require agent_loop_runtime source provenance"
+grep -qx 'artifactSchema=PerfBaseline/v1' docs/perf_baseline_template.properties ||
+  fail "perf baseline template must declare PerfBaseline/v1 schema"
+grep -qx 'target=perf-baseline-record' docs/perf_baseline_template.properties ||
+  fail "perf baseline template must declare perf-baseline-record target"
+grep -qE '^owner=.+$' docs/perf_baseline_template.properties ||
+  fail "perf baseline template must include non-empty owner placeholder"
+grep -qE '^collectionCommand=.*scripts/collect_perf_baseline\.sh' docs/perf_baseline_template.properties ||
+  fail "perf baseline template must include collection command provenance"
+grep -qE '^reproduciblePath=/.+' docs/perf_baseline_template.properties ||
+  fail "perf baseline template must include absolute reproduciblePath placeholder"
 grep -q 'docs/capability_matrix.json' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval gate must read MVP scenarios from capability matrix JSON"
 grep -q 'nextStageMvpScenarios' scripts/verify_ai_behavior_eval.sh ||
@@ -1766,6 +1780,33 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-source.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-source.properties" "reason=invalid-actual-trace:1:traceSource"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-missing-source.properties" "requireRuntimeTraceSource=1"
+AI_ACTUAL_TRACE_MIXED_SOURCE="$TMP_DIR/ai-behavior-actual-trace-mixed-source.jsonl"
+python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_MIXED_SOURCE" <<'PY'
+import json
+import pathlib
+import sys
+
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+rows[0]["traceSource"] = "device_debug_eval"
+pathlib.Path(sys.argv[2]).write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+    encoding="utf-8",
+)
+PY
+expect_failure \
+  "AI behavior eval rejects non-agent-loop actual trace source in public provenance mode" \
+  scripts/verify_ai_behavior_eval.sh \
+    --require-boundary-map \
+    --actual-trace "$AI_ACTUAL_TRACE_MIXED_SOURCE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-mixed-source-strict.jsonl" \
+    --require-actual-trace \
+    --require-agent-loop-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-mixed-source-strict.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-mixed-source-strict.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-mixed-source-strict.properties" "reason=actual-trace-non-agent-loop-runtime-source"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-mixed-source-strict.properties" "requireRuntimeTraceSource=1"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-mixed-source-strict.properties" "requireAgentLoopRuntimeTraceSource=1"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-mixed-source-strict.properties" "actualTraceNonAgentLoopRuntimeSourceCount=1"
 
 AI_ACTUAL_TRACE_STALE="$TMP_DIR/ai-behavior-actual-trace-stale.jsonl"
 python3 - "$AI_ACTUAL_TRACE" "$AI_ACTUAL_TRACE_STALE" "$AI_TRACE_STALE_RECORDED_AT" <<'PY'
@@ -1983,14 +2024,16 @@ expect_success \
     --actual-trace "$AI_ACTUAL_TRACE" \
     --trace-diff "$AI_TRACE_DIFF_MATCHED" \
     --require-actual-trace \
-    --require-runtime-trace-source \
+    --require-agent-loop-runtime-trace-source \
     --report "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceFile=$AI_ACTUAL_TRACE"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceSha256=$AI_ACTUAL_TRACE_SHA"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "requireRuntimeTraceSource=1"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "requireAgentLoopRuntimeTraceSource=1"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceMaxAgeDays=30"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceSourceBreakdown=agent_loop_runtime:$ai_trace_missing_count"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "actualTraceNonAgentLoopRuntimeSourceCount=0"
 grep -Eq '^traceDiffSha256=[0-9a-f]{64}$' "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" ||
   fail "AI behavior eval report must hash matched trace diff evidence"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties" "traceDiffMissingActualCount=0"
@@ -2303,6 +2346,8 @@ assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffMissingActualCount=0"
 assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffExtraActualCount=0"
 assert_report_contains "$AI_COLLECTOR_REPORT" "actualTraceSourceBreakdown=agent_loop_runtime:$ai_trace_missing_count"
 assert_report_contains "$AI_COLLECTOR_EVAL" "requireRuntimeTraceSource=1"
+assert_report_contains "$AI_COLLECTOR_EVAL" "requireAgentLoopRuntimeTraceSource=1"
+assert_report_contains "$AI_COLLECTOR_EVAL" "actualTraceNonAgentLoopRuntimeSourceCount=0"
 assert_report_contains_text "$AI_COLLECTOR_DIFF" '"status": "matched"'
 
 AI_MIXED_SOURCE_TRACE="$TMP_DIR/ai-behavior-actual-trace-mixed-source.jsonl"
@@ -2322,13 +2367,15 @@ target.write_text(
 PY
 AI_MIXED_COLLECTOR_DIR="$ARTIFACT_DIR/ai-behavior-actual-trace-collector-mixed-source"
 expect_failure \
-  "AI behavior actual trace collector rejects mixed non-runtime trace provenance" \
+  "AI behavior actual trace collector rejects mixed non-agent-loop trace provenance" \
   env ARTIFACT_DIR="$AI_MIXED_COLLECTOR_DIR" \
   GRADLE_CMD="$FAKE_GRADLE" \
   FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE="$AI_MIXED_SOURCE_TRACE" \
   scripts/collect_ai_behavior_actual_trace.sh
 assert_report_contains "$AI_MIXED_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "status=failed"
-assert_report_contains "$AI_MIXED_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "reason=actual-trace-non-runtime-source"
+assert_report_contains "$AI_MIXED_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "reason=actual-trace-non-agent-loop-runtime-source"
+assert_report_contains "$AI_MIXED_COLLECTOR_DIR/ai-behavior-eval.properties" "requireAgentLoopRuntimeTraceSource=1"
+assert_report_contains "$AI_MIXED_COLLECTOR_DIR/ai-behavior-eval.properties" "actualTraceNonAgentLoopRuntimeSourceCount=1"
 assert_report_contains_text "$AI_MIXED_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "actualTraceSourceBreakdown="
 
 AI_BAD_ACTUAL_TRACE="$TMP_DIR/ai-behavior-actual-trace-bad.jsonl"
@@ -2696,6 +2743,19 @@ expect_failure \
   "perf baseline verifier rejects future recordedAt" \
   scripts/verify_perf_baseline.sh --file "$FUTURE_PERF" --report "$ARTIFACT_DIR/perf-future.properties"
 assert_report_contains "$ARTIFACT_DIR/perf-future.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/perf-future.properties" "failedTarget=baseline-timestamp"
+assert_report_contains_text "$ARTIFACT_DIR/perf-future.properties" "recorded-at-invalid-or-stale"
+STALE_PERF="$TMP_DIR/perf-baseline-stale.properties"
+sed \
+  -e 's/recordedAt=.*/recordedAt=2000-01-01T00:00:00Z/' \
+  -e "s|reproduciblePath=$VALID_PERF|reproduciblePath=$STALE_PERF|" \
+  "$VALID_PERF" > "$STALE_PERF"
+expect_failure \
+  "perf baseline verifier rejects stale recordedAt" \
+  scripts/verify_perf_baseline.sh --file "$STALE_PERF" --report "$ARTIFACT_DIR/perf-stale.properties"
+assert_report_contains "$ARTIFACT_DIR/perf-stale.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/perf-stale.properties" "failedTarget=baseline-timestamp"
+assert_report_contains_text "$ARTIFACT_DIR/perf-stale.properties" "recorded-at-invalid-or-stale"
 
 RELEASE_MAPPING="$TMP_DIR/mapping.txt"
 printf 'com.bytedance.zgx.pocketmind.Sample -> a:\n' > "$RELEASE_MAPPING"
@@ -7648,6 +7708,24 @@ assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-require
 assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/release-gate.properties" "failedTarget=ai-behavior-eval"
 assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-runtime-source-required/release-gate.properties" "requireAiBehaviorRuntimeTraceSource=1"
 expect_failure \
+  "release gate fails closed when public AI behavior source is not agent_loop_runtime" \
+  env ARTIFACT_DIR="$ARTIFACT_DIR/release-ai-behavior-agent-loop-source-required" \
+  PERF_BASELINE_FILE="$VALID_GATE_PERF" \
+  RELEASE_APK="$SAFE_APK" \
+  RELEASE_AAB="$TMP_DIR/missing.aab" \
+  VERIFY_CONTRACT_TESTS=0 \
+  AI_BEHAVIOR_ACTUAL_TRACE_FILE="$AI_ACTUAL_TRACE_MIXED_SOURCE" \
+  REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1 \
+  REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE=1 \
+  scripts/verify_release_gate.sh
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-agent-loop-source-required/ai-behavior-eval.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-agent-loop-source-required/ai-behavior-eval.properties" "reason=actual-trace-non-agent-loop-runtime-source"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-agent-loop-source-required/ai-behavior-eval.properties" "requireAgentLoopRuntimeTraceSource=1"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-agent-loop-source-required/ai-behavior-eval.properties" "actualTraceNonAgentLoopRuntimeSourceCount=1"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-agent-loop-source-required/release-gate.properties" "failedTarget=ai-behavior-eval"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-agent-loop-source-required/release-gate.properties" "failedReason=actual-trace-non-agent-loop-runtime-source"
+assert_report_contains "$ARTIFACT_DIR/release-ai-behavior-agent-loop-source-required/release-gate.properties" "requireAiBehaviorAgentLoopRuntimeTraceSource=1"
+expect_failure \
   "release gate fails closed when strict AI behavior allowed failures are present" \
   env ARTIFACT_DIR="$ARTIFACT_DIR/release-ai-behavior-allowed-failure-strict" \
   PERF_BASELINE_FILE="$VALID_GATE_PERF" \
@@ -7680,6 +7758,7 @@ assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/ai-behav
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/ai-behavior-eval.properties" "reason=actual-trace-file-missing"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "verifyAiBehaviorEval=1"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "requireAiBehaviorActualTrace=1"
+assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "requireAiBehaviorAgentLoopRuntimeTraceSource=1"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "requireAiBehaviorNoAllowedFailures=1"
 assert_report_contains "$ARTIFACT_DIR/release-public-ai-behavior-forced/release-gate.properties" "failedTarget=ai-behavior-eval"
 expect_failure \

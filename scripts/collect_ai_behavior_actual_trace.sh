@@ -80,6 +80,7 @@ if ! scripts/verify_ai_behavior_eval.sh \
   --trace-diff "$TRACE_DIFF_FILE" \
   --require-actual-trace \
   --require-runtime-trace-source \
+  --require-agent-loop-runtime-trace-source \
   --report "$EVAL_REPORT_FILE"; then
   reason="$(report_value "$EVAL_REPORT_FILE" reason)"
   write_report failed "${reason:-ai-behavior-eval-failed}"

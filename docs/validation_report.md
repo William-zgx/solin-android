@@ -14605,6 +14605,73 @@ Roadmap 状态：
 
 - 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、
   真实 App 真机闭环、perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+
+## 2026-06-23 Agent-loop trace source and perf baseline template gates
+
+本轮覆盖项：
+
+- 多 Agent 并行审计指出 public release 的 AI behavior actual trace source gate
+  仍弱于 collector：release gate 只要求合法 runtime source，未要求全部来自
+  `agent_loop_runtime`。
+- `scripts/verify_ai_behavior_eval.sh` 新增
+  `--require-agent-loop-runtime-trace-source`，该 flag 隐含 runtime source 校验，
+  并在任何 actual trace row 不是 `agent_loop_runtime` 时 fail closed，报告
+  `reason=actual-trace-non-agent-loop-runtime-source`、
+  `requireAgentLoopRuntimeTraceSource=1` 和
+  `actualTraceNonAgentLoopRuntimeSourceCount`。
+- `scripts/verify_release_gate.sh` 新增
+  `REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE`，`PUBLIC_RELEASE=1` 会自动
+  开启；release gate 顶层报告记录
+  `requireAiBehaviorAgentLoopRuntimeTraceSource=1`。
+- `scripts/collect_ai_behavior_actual_trace.sh` 调用 eval verifier 时也传入
+  `--require-agent-loop-runtime-trace-source`，让 collector 子报告和 public
+  release gate 保持同强度。
+- `docs/perf_baseline_template.properties` 补齐 `PerfBaseline/v1` provenance
+  字段：`artifactSchema`、`target`、`owner`、`collectionCommand` 和绝对路径
+  `reproduciblePath` 占位；validation self-test 也补了 stale `recordedAt` 负例。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_ai_behavior_eval.sh scripts/verify_release_gate.sh scripts/collect_ai_behavior_actual_trace.sh scripts/test_validation_scripts.sh
+
+git diff --check
+
+scripts/verify_ai_behavior_eval.sh \
+  --require-boundary-map \
+  --trace-diff build/verification/ai-behavior-current-trace-diff.jsonl \
+  --report build/verification/ai-behavior-current.properties
+
+scripts/test_validation_scripts.sh
+
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk \
+ANDROID_SDK_ROOT=/data00/home/zouguoxue/android-sdk \
+  scripts/verify_local.sh
+```
+
+结果：
+
+- 通过：shell 静态检查和 whitespace 检查。
+- 通过：AI behavior fixture 目标校验，40 cases / 7 categories / 6 MVP scenarios。
+- 通过：validation script self-tests，覆盖 mixed-source actual trace strict 负例、
+  collector mixed-source 负例、release gate strict source 负例、public profile 自动开启
+  `requireAiBehaviorAgentLoopRuntimeTraceSource=1`、perf template provenance 静态检查、
+  perf future/stale `recordedAt` 负例。
+- 通过：`scripts/verify_local.sh`，包含 validation script tests、JVM tests、debug/release
+  build、AndroidTest assemble、lint 和 artifact scan。
+
+Roadmap 状态：
+
+- Phase 3 Agent behavior eval gate 继续推进：public release actual trace 现在必须来自
+  deterministic `agent_loop_runtime` collector，不能用 instrumentation/debug eval trace
+  替代。
+- Phase 4 release evidence 继续推进：perf baseline 模板和 self-test 与 verifier 的
+  provenance/freshness 要求对齐。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、
+  真实 App 真机闭环、正式 RC perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
 - 子 Agent 发现但未在本轮改动的后续项：manual acceptance 和 memory pressure evidence
   可继续增加 key-specific 字段。
 

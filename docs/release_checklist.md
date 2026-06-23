@@ -277,22 +277,24 @@ with each RC before treating this checklist as complete.
   `artifactSchema=AgentBehaviorEvalVerification/v1`, owner, UTC `recordedAt`,
   reproducible command, `actualTraceSha256`, `traceDiffSha256`, and
   `capabilityMatrixSha256`, plus `requireActualTrace=1` /
-  `requireRuntimeTraceSource=1` / `rejectAllowedFailures=1`. Risk coverage must
-  include public-evidence, low, medium, high, and sensitive cases; the high-risk
-  external-send case must remain second-confirmation gated. Required public
-  evidence boundaries must stay no-confirmation, `public_evidence`,
-  `RemoteEligible`, all-`web_search`, and free of allowed failure modes.
+  `requireRuntimeTraceSource=1` /
+  `requireAgentLoopRuntimeTraceSource=1` / `rejectAllowedFailures=1`. Risk
+  coverage must include public-evidence, low, medium, high, and sensitive cases;
+  the high-risk external-send case must remain second-confirmation gated.
+  Required public evidence boundaries must stay no-confirmation,
+  `public_evidence`, `RemoteEligible`, all-`web_search`, and free of allowed
+  failure modes.
   Required boundary coverage must come from
   `docs/capability_matrix.json` /
   `CapabilityMatrix.requiredBehaviorEvalBoundaries`, not an untracked shell-only
-  list. Each actual trace row must include a machine source such as
-  `agent_loop_runtime`,
-  `android_instrumentation`, or `device_debug_eval`, plus a UTC
-  `traceRecordedAt`. `PUBLIC_RELEASE=1` requires
+  list. For public release, every actual trace row must come from the
+  deterministic `agent_loop_runtime` collector and include a UTC
+  `traceRecordedAt`; `android_instrumentation` and `device_debug_eval` sources
+  are acceptable only for non-public/debug evidence. `PUBLIC_RELEASE=1` requires
   `AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl>` and fails closed if the
-  file is missing, lacks runtime provenance, is stale, mismatched, has extra
-  rows, or leaves any `allowed_failure` trace-diff rows. Stale means older than
-  30 days by default; override only with
+  file is missing, lacks runtime provenance, includes non-`agent_loop_runtime`
+  rows, is stale, mismatched, has extra rows, or leaves any `allowed_failure`
+  trace-diff rows. Stale means older than 30 days by default; override only with
   `AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS=<days>` when release policy explicitly
   accepts a different window. Use `scripts/collect_ai_behavior_actual_trace.sh`
   for the deterministic local `agent_loop_runtime` trace collection step; do not
