@@ -1074,6 +1074,7 @@ write_crash_anr_smoke_fixture() {
   local serial="$5"
   local api_level="$6"
   local abi="$7"
+  local operations_record_file="${8:-docs/release_operations_record.json}"
 
   mkdir -p "$(dirname "$report_file")"
   cat > "$report_file" <<CRASH_ANR_SMOKE_FIXTURE_PROPERTIES
@@ -1081,6 +1082,7 @@ status=passed
 target=crash-anr-smoke-evidence
 reason=
 operationsRecordField=crashAnrSmoke.evidence
+operationsRecordFile=$operations_record_file
 window=test fixture
 track=local-emulator
 packageName=com.bytedance.zgx.pocketmind
@@ -3407,6 +3409,7 @@ recordedAt=$OPERATIONS_RECORDED_AT
 command=manual-release-monitoring-review
 reproduciblePath=$OPERATIONS_MONITORING_EVIDENCE
 operationsRecordField=monitoring.evidence
+operationsRecordFile=$OPERATIONS_APPROVED
 signalSources=Android Vitals,Internal dogfood feedback
 first24HoursWatcher=Launch Watcher
 crashFreeRateThresholdPercent=99.5
@@ -3638,7 +3641,7 @@ cat > "$OPERATIONS_SMOKE_LOGCAT" <<'OPERATIONS_SMOKE_LOGCAT_TXT'
 OPERATIONS_SMOKE_LOGCAT_TXT
 expect_success \
   "crash/ANR smoke collector accepts clean instrumentation and logcat" \
-  scripts/collect_crash_anr_smoke_evidence.sh \
+  env OPERATIONS_RECORD_FILE="$OPERATIONS_APPROVED" scripts/collect_crash_anr_smoke_evidence.sh \
     --device-report "$OPERATIONS_SMOKE_DEVICE_REPORT" \
     --instrumentation-output "$OPERATIONS_SMOKE_INSTRUMENTATION" \
     --report "$OPERATIONS_SMOKE_EVIDENCE" \
@@ -3649,6 +3652,7 @@ assert_release_verifier_report_schema \
   "$OPERATIONS_SMOKE_EVIDENCE" \
   "CrashAnrSmokeEvidence/v1"
 assert_report_contains "$OPERATIONS_SMOKE_EVIDENCE" "operationsRecordField=crashAnrSmoke.evidence"
+assert_report_contains "$OPERATIONS_SMOKE_EVIDENCE" "operationsRecordFile=$OPERATIONS_APPROVED"
 assert_report_contains "$OPERATIONS_SMOKE_EVIDENCE" "logcatAnalyzed=true"
 assert_report_contains "$OPERATIONS_SMOKE_EVIDENCE" "instrumentationFailureSignalCount=0"
 assert_report_contains "$OPERATIONS_SMOKE_EVIDENCE" "noLaunchCrash=true"
@@ -3708,6 +3712,7 @@ recordedAt=$OPERATIONS_RECORDED_AT
 command=manual-release-rollback-review
 reproduciblePath=$OPERATIONS_ROLLBACK_EVIDENCE
 operationsRecordField=rollback.evidence
+operationsRecordFile=$OPERATIONS_APPROVED
 decisionChannel=#pocketmind-release
 criteria=install failure,crash loop,model download verification failure,privacy boundary failure,critical tool execution regression
 firstStagedRolloutAction=Halt rollout, keep collecting Android Vitals and user reports, then decide whether to resume, replace, or ship a fixed build.
@@ -3910,6 +3915,98 @@ assert_release_verifier_report_schema \
   "$ARTIFACT_DIR/release-operations-approved.properties" \
   "ReleaseOperationsVerification/v1"
 assert_report_contains "$ARTIFACT_DIR/release-operations-approved.properties" "operationsRecordSha256=$OPERATIONS_APPROVED_SHA"
+OPERATIONS_BINDING_CASE_DIR="$TMP_DIR/release-operations-binding"
+mkdir -p "$OPERATIONS_BINDING_CASE_DIR"
+python3 - "$OPERATIONS_APPROVED" \
+  "$OPERATIONS_BINDING_CASE_DIR" \
+  "$OPERATIONS_MONITORING_EVIDENCE" \
+  "$OPERATIONS_SMOKE_EVIDENCE" \
+  "$OPERATIONS_ROLLBACK_EVIDENCE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+record_source = Path(sys.argv[1])
+case_dir = Path(sys.argv[2])
+evidence_sources = {
+    "monitoring": Path(sys.argv[3]),
+    "crashAnrSmoke": Path(sys.argv[4]),
+    "rollback": Path(sys.argv[5]),
+}
+case_dir.mkdir(parents=True, exist_ok=True)
+
+def read_properties(path):
+    pairs = []
+    for line in path.read_text().splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            pairs.append((key, value))
+    return pairs
+
+def write_bound_evidence(source, target, record_path, mode):
+    pairs = [
+        (key, value)
+        for key, value in read_properties(source)
+        if key != "operationsRecordFile"
+    ]
+    next_pairs = []
+    inserted_binding = False
+    for key, value in pairs:
+        if key == "reproduciblePath":
+            value = str(target)
+        next_pairs.append((key, value))
+        if key == "operationsRecordField" and mode != "missing":
+            next_pairs.append((
+                "operationsRecordFile",
+                "/tmp/other-release-operations-record.json" if mode == "mismatch" else str(record_path),
+            ))
+            inserted_binding = True
+    if not inserted_binding and mode != "missing":
+        next_pairs.append((
+            "operationsRecordFile",
+            "/tmp/other-release-operations-record.json" if mode == "mismatch" else str(record_path),
+        ))
+    target.write_text("".join(f"{key}={value}\n" for key, value in next_pairs))
+
+cases = [
+    ("monitoring-missing", "monitoring", "missing"),
+    ("monitoring-mismatch", "monitoring", "mismatch"),
+    ("crash-anr-smoke-missing", "crashAnrSmoke", "missing"),
+    ("crash-anr-smoke-mismatch", "crashAnrSmoke", "mismatch"),
+    ("rollback-missing", "rollback", "missing"),
+    ("rollback-mismatch", "rollback", "mismatch"),
+]
+for case_name, target_section, mode in cases:
+    record_path = case_dir / f"{case_name}.json"
+    record = json.loads(record_source.read_text())
+    for section, source_path in evidence_sources.items():
+        evidence_path = case_dir / f"{case_name}-{section}.properties"
+        write_bound_evidence(
+            source_path,
+            evidence_path,
+            record_path,
+            mode if section == target_section else "bound",
+        )
+        record[section]["evidence"]["path"] = str(evidence_path)
+        record[section]["evidence"]["sha256"] = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+    record_path.write_text(json.dumps(record, indent=2))
+PY
+while IFS='|' read -r operations_binding_label operations_binding_reason; do
+  operations_binding_record="$OPERATIONS_BINDING_CASE_DIR/${operations_binding_label}.json"
+  operations_binding_report="$ARTIFACT_DIR/release-operations-binding-${operations_binding_label}.properties"
+  expect_failure \
+    "release operations verifier rejects ${operations_binding_label} operations record binding" \
+    scripts/verify_release_operations_record.sh --file "$operations_binding_record" --report "$operations_binding_report"
+  assert_report_contains_text "$operations_binding_report" "$operations_binding_reason"
+done <<OPERATIONS_BINDING_CASES
+monitoring-missing|monitoring-evidence-operations-record-file-missing
+monitoring-mismatch|monitoring-evidence-operations-record-file-mismatch
+crash-anr-smoke-missing|crash-anr-smoke-evidence-operations-record-file-missing
+crash-anr-smoke-mismatch|crash-anr-smoke-evidence-operations-record-file-mismatch
+rollback-missing|rollback-evidence-operations-record-file-missing
+rollback-mismatch|rollback-evidence-operations-record-file-mismatch
+OPERATIONS_BINDING_CASES
 expect_success \
   "release operations verifier accepts current release artifact context" \
   env EXPECTED_COMMIT_SHA="$OPERATIONS_COMMIT_SHA" \
@@ -7140,6 +7237,7 @@ owner=model-license-reviewer
 recordedAt=$MODEL_LICENSE_REVIEW_RECORDED_AT
 command=manual-model-license-review chat-e2b
 reproduciblePath=$MODEL_LICENSE_CHAT_EVIDENCE
+modelLicenseReviewFile=$MODEL_LICENSE_APPROVED
 model=chat-e2b
 scope=license-redistribution-attribution
 redistributionDecision=approved
@@ -7154,6 +7252,7 @@ owner=model-license-reviewer
 recordedAt=$MODEL_LICENSE_REVIEW_RECORDED_AT
 command=manual-model-license-review memory-embedding-300m
 reproduciblePath=$MODEL_LICENSE_MEMORY_EVIDENCE
+modelLicenseReviewFile=$MODEL_LICENSE_APPROVED
 model=memory-embedding-300m
 scope=license-redistribution-attribution
 redistributionDecision=approved
@@ -7332,6 +7431,45 @@ assert_release_verifier_passed_report \
   "ModelLicenseReviewVerification/v1" \
   "model-license-review"
 assert_report_contains "$ARTIFACT_DIR/model-license-approved.properties" "reviewSha256=$(shasum -a 256 "$MODEL_LICENSE_APPROVED" | awk '{print $1}')"
+MODEL_LICENSE_MISSING_REVIEW_FILE_EVIDENCE="$TMP_DIR/model-license-missing-review-file-evidence.properties"
+grep -Ev '^modelLicenseReviewFile=' "$MODEL_LICENSE_CHAT_EVIDENCE" > "$MODEL_LICENSE_MISSING_REVIEW_FILE_EVIDENCE"
+MODEL_LICENSE_MISSING_REVIEW_FILE_EVIDENCE_SHA="$(shasum -a 256 "$MODEL_LICENSE_MISSING_REVIEW_FILE_EVIDENCE" | awk '{print $1}')"
+MODEL_LICENSE_MISSING_REVIEW_FILE_RECORD="$TMP_DIR/model-license-missing-review-file-evidence.json"
+python3 - "$MODEL_LICENSE_APPROVED" "$MODEL_LICENSE_MISSING_REVIEW_FILE_RECORD" "$MODEL_LICENSE_MISSING_REVIEW_FILE_EVIDENCE" "$MODEL_LICENSE_MISSING_REVIEW_FILE_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["models"][0]["reviewEvidencePath"] = sys.argv[3]
+record["models"][0]["reviewEvidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "model license verifier rejects review evidence missing review file binding" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_MISSING_REVIEW_FILE_RECORD" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-missing-review-file-evidence.properties"
+assert_report_contains_text "$ARTIFACT_DIR/model-license-missing-review-file-evidence.properties" "chat-e2b-review-evidence-review-file-missing"
+MODEL_LICENSE_MISMATCH_REVIEW_FILE_EVIDENCE="$TMP_DIR/model-license-mismatch-review-file-evidence.properties"
+sed 's#^modelLicenseReviewFile=.*#modelLicenseReviewFile=/tmp/other-model-license-review.json#' \
+  "$MODEL_LICENSE_CHAT_EVIDENCE" > "$MODEL_LICENSE_MISMATCH_REVIEW_FILE_EVIDENCE"
+MODEL_LICENSE_MISMATCH_REVIEW_FILE_EVIDENCE_SHA="$(shasum -a 256 "$MODEL_LICENSE_MISMATCH_REVIEW_FILE_EVIDENCE" | awk '{print $1}')"
+MODEL_LICENSE_MISMATCH_REVIEW_FILE_RECORD="$TMP_DIR/model-license-mismatch-review-file-evidence.json"
+python3 - "$MODEL_LICENSE_APPROVED" "$MODEL_LICENSE_MISMATCH_REVIEW_FILE_RECORD" "$MODEL_LICENSE_MISMATCH_REVIEW_FILE_EVIDENCE" "$MODEL_LICENSE_MISMATCH_REVIEW_FILE_EVIDENCE_SHA" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+record = json.loads(Path(sys.argv[1]).read_text())
+record["models"][0]["reviewEvidencePath"] = sys.argv[3]
+record["models"][0]["reviewEvidenceSha256"] = sys.argv[4]
+Path(sys.argv[2]).write_text(json.dumps(record, indent=2))
+PY
+expect_failure \
+  "model license verifier rejects review evidence bound to another review file" \
+  env MODEL_LICENSE_METADATA_MAX_AGE_DAYS=36500 MODEL_LICENSE_REVIEW_FILE="$MODEL_LICENSE_MISMATCH_REVIEW_FILE_RECORD" MODEL_LICENSE_METADATA_FILE="$MODEL_LICENSE_METADATA" MODEL_MANIFEST_FILE="$MODEL_LICENSE_MANIFEST" \
+  scripts/verify_model_license_review.sh --report "$ARTIFACT_DIR/model-license-mismatch-review-file-evidence.properties"
+assert_report_contains_text "$ARTIFACT_DIR/model-license-mismatch-review-file-evidence.properties" "chat-e2b-review-evidence-review-file-mismatch"
 MODEL_LICENSE_SOURCE_MISMATCH="$TMP_DIR/model-license-source-mismatch.json"
 sed 's#https://huggingface.co/example/chat-e2b/blob/chat-revision-a/README.md#https://huggingface.co/example/wrong-model/blob/chat-revision-a/README.md#' "$MODEL_LICENSE_APPROVED" > "$MODEL_LICENSE_SOURCE_MISMATCH"
 expect_failure \

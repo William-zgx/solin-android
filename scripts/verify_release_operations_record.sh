@@ -268,6 +268,14 @@ def validate_report_schema(section, props, path, expected_schema, expected_owner
     if path is not None and props.get("reproduciblePath") != str(path):
         failures.append(f"{section}-reproducible-path-invalid")
 
+def validate_operations_record_binding(section, props):
+    operations_record_file = props.get("operationsRecordFile", "")
+    if not non_empty_string(operations_record_file):
+        failures.append(f"{section}-operations-record-file-missing")
+        return
+    if Path(operations_record_file).resolve() != record_path.resolve():
+        failures.append(f"{section}-operations-record-file-mismatch")
+
 def validate_artifact_scan_report_binding(section, props):
     report_file = props.get("artifactScanReport", "")
     if not non_empty_string(report_file):
@@ -561,6 +569,7 @@ if monitoring_evidence_path is not None:
         failures.append("monitoring-evidence-target-invalid")
     if monitoring_props.get("operationsRecordField") != "monitoring.evidence":
         failures.append("monitoring-evidence-operations-record-field-invalid")
+    validate_operations_record_binding("monitoring-evidence", monitoring_props)
     if non_empty_string(monitoring.get("owner")) and monitoring_props.get("owner") != monitoring.get("owner"):
         failures.append("monitoring-evidence-owner-mismatch")
     if sources and csv_tokens(monitoring_props.get("signalSources", "")) != set(sources):
@@ -611,6 +620,7 @@ if smoke_evidence_path is not None:
         failures.append("crash-anr-smoke-evidence-target-invalid")
     if smoke_props.get("operationsRecordField") != "crashAnrSmoke.evidence":
         failures.append("crash-anr-smoke-evidence-operations-record-field-invalid")
+    validate_operations_record_binding("crash-anr-smoke-evidence", smoke_props)
     for field in ("window", "track", "failureEvidencePolicy"):
         if non_empty_string(smoke.get(field)) and smoke_props.get(field) != smoke.get(field):
             failures.append(f"crash-anr-smoke-evidence-{kebab(field)}-mismatch")
@@ -765,6 +775,7 @@ if rollback_evidence_path is not None:
         failures.append("rollback-evidence-target-invalid")
     if rollback_props.get("operationsRecordField") != "rollback.evidence":
         failures.append("rollback-evidence-operations-record-field-invalid")
+    validate_operations_record_binding("rollback-evidence", rollback_props)
     for field in (
         "owner",
         "decisionChannel",

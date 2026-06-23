@@ -502,9 +502,11 @@ with each RC before treating this checklist as complete.
   `scripts/collect_crash_anr_smoke_evidence.sh` with the device verification
   report, instrumentation output, and captured `adb logcat` to generate this
   evidence. The operations gate parses the smoke report and requires
-  `status=passed`, analyzed logcat, all crash/ANR/LiteRT counters at 0, all
-  five `no*` booleans true, and matching SHA-256/size values for the nested
-  device report, instrumentation output, and logcat files.
+  `status=passed`, `operationsRecordField=crashAnrSmoke.evidence`,
+  `operationsRecordFile` resolving to the current operations record, analyzed
+  logcat, all crash/ANR/LiteRT counters at 0, all five `no*` booleans true, and
+  matching SHA-256/size values for the nested device report, instrumentation
+  output, and logcat files.
 - [ ] Manual validation captures `adb logcat`, tombstone/native crash evidence,
   and ANR traces for any failure; release notes link the issue or state that no
   crash/ANR was observed in the RC window.
@@ -513,12 +515,14 @@ with each RC before treating this checklist as complete.
   rollout step. Monitoring setup and rollback plan evidence files are recorded
   with SHA-256 values and typed properties content. Monitoring evidence must
   declare `status=passed`, `target=release-monitoring-evidence`,
-  `operationsRecordField=monitoring.evidence`, owner, signal sources, watcher,
-  thresholds, and crash SDK privacy review; rollback evidence must declare
+  `operationsRecordField=monitoring.evidence`, `operationsRecordFile` resolving
+  to the current operations record, owner, signal sources, watcher, thresholds,
+  and crash SDK privacy review; rollback evidence must declare
   `status=passed`, `target=release-rollback-evidence`,
-  `operationsRecordField=rollback.evidence`, owner, rollback criteria, decision
-  channel, Play version-code policy, model-manifest rollback path, data
-  compatibility, and previous-known-good or initial-release binding.
+  `operationsRecordField=rollback.evidence`, `operationsRecordFile` resolving to
+  the current operations record, owner, rollback criteria, decision channel, Play
+  version-code policy, model-manifest rollback path, data compatibility, and
+  previous-known-good or initial-release binding.
 - [ ] `docs/release_operations_record.json` is updated and approved, then
   `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh` passes. The gate
   checks CI local verification, connected Android tests, release artifact

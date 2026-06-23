@@ -14898,6 +14898,48 @@ Roadmap 状态：
   perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
 - Store policy 仍需要真实 reviewer、公开隐私政策 URL、真实联系邮箱和批准日期，不能由代码替代。
 
+## 2026-06-23 Model license and operations evidence reverse binding
+
+本轮覆盖项：
+
+- `scripts/verify_model_license_review.sh` 要求已批准的模型 license review evidence
+  通过 `modelLicenseReviewFile` 反向绑定当前模型 license review 记录，防止 approved evidence
+  被挪用到另一份 review JSON。
+- `scripts/verify_release_operations_record.sh` 要求 monitoring、crash/ANR smoke、rollback
+  三类 operations child evidence 通过 `operationsRecordFile` 反向绑定当前
+  release operations record。
+- `scripts/collect_crash_anr_smoke_evidence.sh` 现在产出 `operationsRecordFile`，默认指向
+  `docs/release_operations_record.json`，测试夹具可通过 `OPERATIONS_RECORD_FILE` 绑定临时
+  record。
+- `scripts/test_validation_scripts.sh` 增加模型 license review-file 缺失/错绑负例，以及
+  monitoring、crash/ANR smoke、rollback operations-record-file 缺失/错绑负例。
+
+验证计划：
+
+```bash
+bash -n scripts/verify_model_license_review.sh \
+  scripts/verify_release_operations_record.sh \
+  scripts/collect_crash_anr_smoke_evidence.sh \
+  scripts/test_validation_scripts.sh
+
+git diff --check
+```
+
+结果：
+
+- 按最新目标，本轮暂不运行 `scripts/test_validation_scripts.sh`、`scripts/verify_local.sh`、
+  Gradle、真机或模拟器验证；完整复杂验证等 Roadmap 功能补齐后统一执行。
+
+Roadmap 状态：
+
+- Phase 4 release evidence 继续推进：model license 与 release operations 证据链新增
+  cross-record 防复用约束。
+
+剩余风险：
+
+- 本轮仍按要求跳过真机和模拟器验证；arm64 真机、arm64 emulator API matrix、真实 App 真机闭环、
+  perf baseline、截图、release owner/manual/legal/signing 证据仍未完成。
+
 ## 2026-06-23 Public evidence capability and multimodal draft boundary
 
 本轮覆盖项：

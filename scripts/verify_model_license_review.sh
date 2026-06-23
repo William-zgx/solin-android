@@ -303,6 +303,11 @@ def validate_review_evidence(model_id, evidence_path, entry):
         failures.append(f"{prefix}-review-evidence-reproducible-path-missing")
     elif reproducible_path != str(evidence_path):
         failures.append(f"{prefix}-review-evidence-reproducible-path-mismatch")
+    review_file = properties.get("modelLicenseReviewFile", "")
+    if not non_empty_string(review_file):
+        failures.append(f"{prefix}-review-evidence-review-file-missing")
+    elif Path(review_file).resolve() != review_path.resolve():
+        failures.append(f"{prefix}-review-evidence-review-file-mismatch")
 
 if review.get("version") != 1:
     failures.append("review-version-invalid")

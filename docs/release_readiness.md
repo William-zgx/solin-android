@@ -277,6 +277,12 @@ items below.
   whether a lightweight official local chat alternative exists and whether a
   confirmed remote chat alternative is disclosed, so Play/Data safety copy
   cannot drift from the recommended model surface without failing locally.
+- Model license approval evidence now has to bind back to the current
+  `docs/model_license_review.json` through `modelLicenseReviewFile`, and release
+  operations child evidence has to bind back to the current operations record
+  through `operationsRecordFile`. This prevents approved-looking evidence from
+  being reused across model-license or release-operations records without a
+  local gate failure.
 
 ## Remaining release blockers by ownership
 

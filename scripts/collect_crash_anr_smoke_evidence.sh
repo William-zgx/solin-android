@@ -14,6 +14,7 @@ TRACK="${TRACK:-local-emulator}"
 PACKAGE_NAME="${PACKAGE_NAME:-com.bytedance.zgx.pocketmind}"
 FAILURE_EVIDENCE_POLICY="${FAILURE_EVIDENCE_POLICY:-Attach logcat, tombstones, and ANR traces for any failure; state no crash or ANR when none were observed.}"
 EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
+OPERATIONS_RECORD_FILE="${OPERATIONS_RECORD_FILE:-docs/release_operations_record.json}"
 ORIGINAL_ARGS=("$@")
 EXPLICIT_INSTRUMENTATION_OUTPUT_FILE=0
 EXPLICIT_LOGCAT_FILE=0
@@ -340,6 +341,7 @@ mkdir -p "$(dirname "$REPORT_FILE")"
   printf 'reproduciblePath=%s\n' "$REPORT_FILE"
   printf 'reason=%s\n' "$REASON"
   printf 'operationsRecordField=crashAnrSmoke.evidence\n'
+  printf 'operationsRecordFile=%s\n' "$OPERATIONS_RECORD_FILE"
   printf 'window=%s\n' "$WINDOW"
   printf 'track=%s\n' "$TRACK"
   printf 'packageName=%s\n' "$PACKAGE_NAME"
