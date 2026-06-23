@@ -1,6 +1,7 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.ModelCapabilityProfile
 import com.bytedance.zgx.pocketmind.action.ActionDraft
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
 import com.bytedance.zgx.pocketmind.audit.NoOpToolAuditSink
@@ -51,6 +52,7 @@ interface AssistantRouter : AutoCloseable {
         deviceContext: DeviceContextSnapshot? = null,
         sessionId: String? = null,
         options: AgentRunOptions = AgentRunOptions(),
+        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
     ): AssistantRoute
 
     fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String? = null): AssistantRoute
@@ -158,6 +160,7 @@ class AssistantOrchestrator(
         deviceContext: DeviceContextSnapshot?,
         sessionId: String?,
         options: AgentRunOptions,
+        installedCapabilityProfiles: List<ModelCapabilityProfile>,
     ): AssistantRoute =
         agentLoopRuntime.runOnce(
             input = input,
@@ -167,6 +170,7 @@ class AssistantOrchestrator(
             deviceContext = deviceContext,
             sessionId = sessionId,
             options = options,
+            installedCapabilityProfiles = installedCapabilityProfiles,
         ).toAssistantRoute()
 
     override fun requestRecoveryAction(action: AgentRecoveryAction, sessionId: String?): AssistantRoute =

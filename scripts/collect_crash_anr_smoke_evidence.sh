@@ -13,6 +13,9 @@ WINDOW="${WINDOW:-post-install instrumentation smoke}"
 TRACK="${TRACK:-local-emulator}"
 PACKAGE_NAME="${PACKAGE_NAME:-com.bytedance.zgx.pocketmind}"
 FAILURE_EVIDENCE_POLICY="${FAILURE_EVIDENCE_POLICY:-Attach logcat, tombstones, and ANR traces for any failure; state no crash or ANR when none were observed.}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
+OPERATIONS_RECORD_FILE="${OPERATIONS_RECORD_FILE:-docs/release_operations_record.json}"
+ORIGINAL_ARGS=("$@")
 EXPLICIT_INSTRUMENTATION_OUTPUT_FILE=0
 EXPLICIT_LOGCAT_FILE=0
 
@@ -93,6 +96,17 @@ size_bytes() {
   local file="$1"
   [[ -f "$file" ]] || return 0
   wc -c < "$file" | tr -d ' '
+}
+
+shell_command() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "scripts/collect_crash_anr_smoke_evidence.sh")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
 }
 
 count_instrumentation_crash_signals() {
@@ -318,10 +332,16 @@ fi
 
 mkdir -p "$(dirname "$REPORT_FILE")"
 {
+  printf 'artifactSchema=CrashAnrSmokeEvidence/v1\n'
   printf 'status=%s\n' "$STATUS"
   printf 'target=crash-anr-smoke-evidence\n'
+  printf 'owner=%s\n' "$EVIDENCE_OWNER"
+  printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf 'command=%s\n' "$(shell_command)"
+  printf 'reproduciblePath=%s\n' "$REPORT_FILE"
   printf 'reason=%s\n' "$REASON"
   printf 'operationsRecordField=crashAnrSmoke.evidence\n'
+  printf 'operationsRecordFile=%s\n' "$OPERATIONS_RECORD_FILE"
   printf 'window=%s\n' "$WINDOW"
   printf 'track=%s\n' "$TRACK"
   printf 'packageName=%s\n' "$PACKAGE_NAME"

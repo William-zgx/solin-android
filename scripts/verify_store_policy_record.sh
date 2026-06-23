@@ -4,10 +4,77 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+source "$ROOT_DIR/scripts/release_preflight_fields.sh"
+
 STORE_POLICY_FILE="${STORE_POLICY_FILE:-docs/store_policy_record.json}"
 PRIVACY_NOTICE_FILE="${PRIVACY_NOTICE_FILE:-docs/privacy_notice.md}"
 MANIFEST_FILE="${MANIFEST_FILE:-app/src/main/AndroidManifest.xml}"
+MODEL_CAPABILITY_PROFILES_FILE="${MODEL_CAPABILITY_PROFILES_FILE:-docs/model_capability_profiles.json}"
+MODEL_MANIFEST_FILE="${MODEL_MANIFEST_FILE:-docs/model_manifest.md}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
 REPORT_FILE=""
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+failed_target_for_reason() {
+  local reason="$1"
+  local first="${reason%%,*}"
+  case "$first" in
+    "")
+      printf ''
+      ;;
+    missing-store-policy-file|store-policy-sha-*)
+      printf 'store-policy-record-file'
+      ;;
+    missing-privacy-notice-file|privacy-notice-*)
+      printf 'privacy-notice'
+      ;;
+    missing-manifest-file|manifest-*|android.permission.*)
+      printf 'android-manifest'
+      ;;
+    app-listing-*|contact-email-*|privacy-policy-url-*|short-description-*|full-description-*)
+      printf 'store-listing'
+      ;;
+    data-safety-*|userData*|encryptedInTransit-*|external-recipients-*)
+      printf 'data-safety'
+      ;;
+    missing-model-capability-profiles-file|model-capability-profiles-*)
+      printf 'model-capability-profiles'
+      ;;
+    missing-model-manifest-file|model-manifest-*)
+      printf 'model-manifest'
+      ;;
+    model-downloads-*)
+      printf 'store-model-downloads'
+      ;;
+    review-*|reviewer-*|approvalStatus-*|approval-status-*)
+      printf 'policy-review-evidence'
+      ;;
+    *special-access*)
+      printf 'special-access-disclosure'
+      ;;
+    *)
+      printf 'store-policy-record'
+      ;;
+  esac
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,15 +96,47 @@ done
 write_report() {
   local status="$1"
   local reason="$2"
+  local failed_target=""
+  local missing_owner_fields=""
+  local missing_approval_roles=""
+  local missing_evidence_files=""
+  local deferred_device_evidence=""
+  local requires_human_approval=""
+  if [[ "$status" != "passed" ]]; then
+    failed_target="$(failed_target_for_reason "$reason")"
+  fi
+  missing_owner_fields="$(preflight_missing_owner_fields store-policy-record "$reason")"
+  missing_approval_roles="$(preflight_missing_approval_roles store-policy-record "$reason" "$status")"
+  missing_evidence_files="$(preflight_missing_evidence_files "$reason")"
+  deferred_device_evidence="$(preflight_deferred_device_evidence store-policy-record "$reason")"
+  requires_human_approval="$(preflight_requires_human_approval "$status" "$missing_approval_roles" "$missing_owner_fields")"
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
+      printf 'artifactSchema=StorePolicyRecordVerification/v1\n'
       printf 'status=%s\n' "$status"
       printf 'target=store-policy-record\n'
-      printf 'storePolicyFile=%s\n' "$STORE_POLICY_FILE"
-      printf 'privacyNoticeFile=%s\n' "$PRIVACY_NOTICE_FILE"
-      printf 'manifestFile=%s\n' "$MANIFEST_FILE"
+      printf 'owner=%s\n' "$EVIDENCE_OWNER"
+      printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      printf 'command=%s\n' "$(command_line)"
+      printf 'failedTarget=%s\n' "$failed_target"
       printf 'reason=%s\n' "$reason"
+      printf 'missingOwnerFields=%s\n' "$missing_owner_fields"
+      printf 'missingApprovalRoles=%s\n' "$missing_approval_roles"
+      printf 'missingEvidenceFiles=%s\n' "$missing_evidence_files"
+      printf 'deferredDeviceEvidence=%s\n' "$deferred_device_evidence"
+      printf 'requiresHumanApproval=%s\n' "$requires_human_approval"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
+      printf 'storePolicyFile=%s\n' "$STORE_POLICY_FILE"
+      printf 'storePolicySha256=%s\n' "$(sha256_or_empty "$STORE_POLICY_FILE")"
+      printf 'privacyNoticeFile=%s\n' "$PRIVACY_NOTICE_FILE"
+      printf 'privacyNoticeSha256=%s\n' "$(sha256_or_empty "$PRIVACY_NOTICE_FILE")"
+      printf 'manifestFile=%s\n' "$MANIFEST_FILE"
+      printf 'manifestSha256=%s\n' "$(sha256_or_empty "$MANIFEST_FILE")"
+      printf 'modelCapabilityProfilesFile=%s\n' "$MODEL_CAPABILITY_PROFILES_FILE"
+      printf 'modelCapabilityProfilesSha256=%s\n' "$(sha256_or_empty "$MODEL_CAPABILITY_PROFILES_FILE")"
+      printf 'modelManifestFile=%s\n' "$MODEL_MANIFEST_FILE"
+      printf 'modelManifestSha256=%s\n' "$(sha256_or_empty "$MODEL_MANIFEST_FILE")"
     } > "$REPORT_FILE"
   fi
 }
@@ -60,11 +159,23 @@ if [[ ! -f "$MANIFEST_FILE" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$MODEL_CAPABILITY_PROFILES_FILE" ]]; then
+  write_report failed missing-model-capability-profiles-file
+  echo "Model capability profiles file is missing: $MODEL_CAPABILITY_PROFILES_FILE" >&2
+  exit 1
+fi
+
+if [[ ! -f "$MODEL_MANIFEST_FILE" ]]; then
+  write_report failed missing-model-manifest-file
+  echo "Model manifest file is missing: $MODEL_MANIFEST_FILE" >&2
+  exit 1
+fi
+
 TMP_FAILURES="$(mktemp)"
 trap 'rm -f "$TMP_FAILURES"' EXIT
 
 set +e
-python3 - "$STORE_POLICY_FILE" "$PRIVACY_NOTICE_FILE" "$MANIFEST_FILE" > "$TMP_FAILURES" <<'PY'
+python3 - "$STORE_POLICY_FILE" "$PRIVACY_NOTICE_FILE" "$MANIFEST_FILE" "$MODEL_CAPABILITY_PROFILES_FILE" "$MODEL_MANIFEST_FILE" > "$TMP_FAILURES" <<'PY'
 import hashlib
 import json
 import re
@@ -77,11 +188,18 @@ from urllib.parse import urlparse
 record_path = Path(sys.argv[1])
 notice_path = Path(sys.argv[2])
 manifest_path = Path(sys.argv[3])
+model_capability_profiles_path = Path(sys.argv[4])
+model_manifest_path = Path(sys.argv[5])
 
 try:
     record = json.loads(record_path.read_text())
 except Exception:
     print("json-parse-error")
+    sys.exit(1)
+try:
+    model_capability_profiles = json.loads(model_capability_profiles_path.read_text())
+except Exception:
+    print("model-capability-profiles-json-parse-error")
     sys.exit(1)
 notice_text = notice_path.read_text()
 notice_text_lower = notice_text.lower()
@@ -122,7 +240,142 @@ def properties_for(path):
         pass
     return props
 
-def validate_store_review_evidence(path):
+def normalize_markdown_cell(value):
+    value = value.strip()
+    if value.startswith("`") and value.endswith("`") and len(value) >= 2:
+        value = value[1:-1]
+    return value.strip()
+
+def parse_model_manifest(path):
+    manifest = {}
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return manifest
+    for line in lines:
+        stripped = line.strip()
+        if not stripped.startswith("| `"):
+            continue
+        columns = [normalize_markdown_cell(column) for column in stripped.strip("|").split("|")]
+        if len(columns) < 7:
+            continue
+        model_id = columns[0]
+        if model_id:
+            manifest[model_id] = {
+                "revision": columns[3],
+                "bytes": columns[4],
+                "sha256": columns[5],
+            }
+    return manifest
+
+def is_bool(value):
+    return isinstance(value, bool)
+
+def string_set(value):
+    if not isinstance(value, list):
+        return None
+    result = set()
+    for item in value:
+        if not non_empty_string(item):
+            return None
+        result.add(item)
+    return result
+
+def validate_model_capability_profile(profile, section, seen_ids):
+    if not isinstance(profile, dict):
+        failures.append(f"model-capability-profiles-entry-invalid:{section}")
+        return
+    profile_id = profile.get("id")
+    if not non_empty_string(profile_id):
+        failures.append(f"model-capability-profiles-id-missing:{section}")
+        profile_id = section
+    elif profile_id in seen_ids:
+        failures.append(f"model-capability-profiles-duplicate-id:{profile_id}")
+    else:
+        seen_ids.add(profile_id)
+
+    backend_kind = profile.get("backendKind")
+    capability = profile.get("capability")
+    capabilities = profile.get("capabilities")
+    if not isinstance(capabilities, dict):
+        failures.append(f"model-capability-profiles-capabilities-missing:{profile_id}")
+        capabilities = {}
+    for flag in ("chat", "vision", "memoryEmbedding", "mobileAction"):
+        if not is_bool(capabilities.get(flag)):
+            failures.append(f"model-capability-profiles-capability-flag-invalid:{profile_id}:{flag}")
+
+    input_modalities = string_set(profile.get("inputModalities"))
+    if input_modalities is None:
+        failures.append(f"model-capability-profiles-input-modalities-invalid:{profile_id}")
+        input_modalities = set()
+    features = string_set(profile.get("features"))
+    if features is None:
+        failures.append(f"model-capability-profiles-features-invalid:{profile_id}")
+        features = set()
+    if "Text" not in input_modalities:
+        failures.append(f"model-capability-profiles-text-input-missing:{profile_id}")
+
+    supports_vision = "Vision" in input_modalities and "VisionInput" in features
+    expected_flags = {
+        "chat": capability == "Chat",
+        "vision": supports_vision,
+        "memoryEmbedding": capability == "MemoryEmbedding",
+        "mobileAction": capability == "MobileAction",
+    }
+    for flag, expected in expected_flags.items():
+        if capabilities.get(flag) is not expected:
+            failures.append(f"model-capability-profiles-{flag}-flag-mismatch:{profile_id}")
+
+    if "Vision" in input_modalities and capability != "Chat":
+        failures.append(f"model-capability-profiles-vision-non-chat:{profile_id}")
+    if "VisionInput" in features and "Vision" not in input_modalities:
+        failures.append(f"model-capability-profiles-vision-feature-without-modality:{profile_id}")
+    if "VisionInput" in features and capability != "Chat":
+        failures.append(f"model-capability-profiles-vision-feature-non-chat:{profile_id}")
+    if "TextGeneration" in features and capability != "Chat":
+        failures.append(f"model-capability-profiles-text-generation-non-chat:{profile_id}")
+    if "MemoryEmbedding" in features and capability != "MemoryEmbedding":
+        failures.append(f"model-capability-profiles-memory-feature-mismatch:{profile_id}")
+    if "MobileActionPlanning" in features and capability != "MobileAction":
+        failures.append(f"model-capability-profiles-mobile-action-feature-mismatch:{profile_id}")
+
+    preferred_local_backends = profile.get("preferredLocalBackends")
+    if not isinstance(preferred_local_backends, list):
+        failures.append(f"model-capability-profiles-preferred-local-backends-invalid:{profile_id}")
+        preferred_local_backends = []
+    remote_eligible = profile.get("remoteEligible")
+    requires_confirmation = profile.get("requiresRemoteSendConfirmation")
+    if not is_bool(remote_eligible):
+        failures.append(f"model-capability-profiles-remote-eligible-invalid:{profile_id}")
+    if not is_bool(requires_confirmation):
+        failures.append(f"model-capability-profiles-remote-confirmation-invalid:{profile_id}")
+    if remote_eligible is True and requires_confirmation is not True:
+        failures.append(f"model-capability-profiles-remote-confirmation-missing:{profile_id}")
+
+    if backend_kind == "LocalLiteRt":
+        if remote_eligible is not False:
+            failures.append(f"model-capability-profiles-local-remote-eligible:{profile_id}")
+        if requires_confirmation is not False:
+            failures.append(f"model-capability-profiles-local-remote-confirmation:{profile_id}")
+    elif backend_kind == "RemoteOpenAiCompatible":
+        if capability != "Chat":
+            failures.append(f"model-capability-profiles-remote-non-chat:{profile_id}")
+        if remote_eligible is not True:
+            failures.append(f"model-capability-profiles-remote-not-eligible:{profile_id}")
+        if requires_confirmation is not True:
+            failures.append(f"model-capability-profiles-remote-confirmation-missing:{profile_id}")
+        if preferred_local_backends:
+            failures.append(f"model-capability-profiles-remote-local-backends:{profile_id}")
+    else:
+        failures.append(f"model-capability-profiles-backend-kind-invalid:{profile_id}")
+
+    if capability in {"MemoryEmbedding", "MobileAction"}:
+        if remote_eligible is not False:
+            failures.append(f"model-capability-profiles-local-only-remote-eligible:{profile_id}")
+        if requires_confirmation is not False:
+            failures.append(f"model-capability-profiles-local-only-remote-confirmation:{profile_id}")
+
+def validate_store_review_evidence(path, expected_reviewer):
     props = properties_for(path)
     if props.get("status") != "approved":
         failures.append("review-evidence-status-not-approved")
@@ -130,14 +383,37 @@ def validate_store_review_evidence(path):
         failures.append("review-evidence-approval-status-not-approved")
     if props.get("target") != "store-policy-review-approved-evidence":
         failures.append("review-evidence-target-invalid")
+    store_policy_record_file = props.get("storePolicyRecordFile", "")
+    if not non_empty_string(store_policy_record_file):
+        failures.append("review-evidence-store-policy-record-file-missing")
+    elif Path(store_policy_record_file).resolve() != record_path.resolve():
+        failures.append("review-evidence-store-policy-record-file-mismatch")
     if props.get("privacyNoticePath") != str(notice_path):
         failures.append("review-evidence-privacy-notice-path-mismatch")
     if props.get("privacyNoticeSha256") != notice_sha:
         failures.append("review-evidence-privacy-notice-sha-mismatch")
+    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    if props.get("manifestPath") != str(manifest_path):
+        failures.append("review-evidence-manifest-path-mismatch")
+    if props.get("manifestSha256") != manifest_sha:
+        failures.append("review-evidence-manifest-sha-mismatch")
+    model_capability_profiles_sha = hashlib.sha256(model_capability_profiles_path.read_bytes()).hexdigest()
+    if props.get("modelCapabilityProfilesPath") != str(model_capability_profiles_path):
+        failures.append("review-evidence-model-capability-profiles-path-mismatch")
+    if props.get("modelCapabilityProfilesSha256") != model_capability_profiles_sha:
+        failures.append("review-evidence-model-capability-profiles-sha-mismatch")
+    model_manifest_sha = hashlib.sha256(model_manifest_path.read_bytes()).hexdigest()
+    if props.get("modelManifestPath") != str(model_manifest_path):
+        failures.append("review-evidence-model-manifest-path-mismatch")
+    if props.get("modelManifestSha256") != model_manifest_sha:
+        failures.append("review-evidence-model-manifest-sha-mismatch")
     if not non_empty_string(props.get("scope")):
         failures.append("review-evidence-scope-missing")
     if props.get("requiredDecision") != "approved":
         failures.append("review-evidence-required-decision-invalid")
+    evidence_reviewer = props.get("reviewer", "")
+    if non_empty_string(evidence_reviewer) and evidence_reviewer != expected_reviewer:
+        failures.append("review-evidence-reviewer-mismatch")
 
 notice_sha = hashlib.sha256(notice_path.read_bytes()).hexdigest()
 if record.get("privacyNoticePath") != str(notice_path):
@@ -288,6 +564,121 @@ if model_downloads.get("describedAsLargeOptionalAssets") is not True:
     failures.append("model-downloads-not-described-large-optional")
 if model_downloads.get("declaresNotBundledInApk") is not True:
     failures.append("model-downloads-not-declared-unbundled")
+if model_capability_profiles.get("version") != 1:
+    failures.append("model-capability-profiles-version-invalid")
+profiles = model_capability_profiles.get("profiles")
+if not isinstance(profiles, list):
+    failures.append("model-capability-profiles-list-missing")
+    profiles = []
+custom_local_templates = model_capability_profiles.get("customLocalTemplates")
+if not isinstance(custom_local_templates, list):
+    failures.append("model-capability-profiles-custom-local-templates-missing")
+    custom_local_templates = []
+remote_templates = model_capability_profiles.get("remoteOpenAiCompatibleTemplates")
+if not isinstance(remote_templates, list):
+    failures.append("model-capability-profiles-remote-templates-missing")
+    remote_templates = []
+seen_model_profile_ids = set()
+for section_name, section_profiles in (
+    ("profiles", profiles),
+    ("customLocalTemplates", custom_local_templates),
+    ("remoteOpenAiCompatibleTemplates", remote_templates),
+):
+    for profile in section_profiles:
+        validate_model_capability_profile(profile, section_name, seen_model_profile_ids)
+profiles_by_id = {
+    profile.get("id"): profile
+    for profile in profiles
+    if isinstance(profile, dict) and non_empty_string(profile.get("id"))
+}
+manifest_models = parse_model_manifest(model_manifest_path)
+for profile in profiles:
+    if not isinstance(profile, dict):
+        continue
+    profile_id = profile.get("id")
+    if not non_empty_string(profile_id):
+        continue
+    if not all(key in profile for key in ("byteSize", "sha256Hex", "sourceRevision")):
+        continue
+    manifest_model = manifest_models.get(profile_id)
+    if manifest_model is None:
+        failures.append(f"model-manifest-profile-missing:{profile_id}")
+        continue
+    if str(profile.get("byteSize")) != manifest_model.get("bytes"):
+        failures.append(f"model-manifest-profile-bytes-mismatch:{profile_id}")
+    if profile.get("sha256Hex") != manifest_model.get("sha256"):
+        failures.append(f"model-manifest-profile-sha-mismatch:{profile_id}")
+    if profile.get("sourceRevision") != manifest_model.get("revision"):
+        failures.append(f"model-manifest-profile-revision-mismatch:{profile_id}")
+
+primary_chat_model_id = model_downloads.get("primaryChatModelProfileId")
+if not non_empty_string(primary_chat_model_id):
+    failures.append("model-downloads-primary-chat-model-profile-id-missing")
+    primary_chat_profile = None
+else:
+    primary_chat_profile = profiles_by_id.get(primary_chat_model_id)
+    if not isinstance(primary_chat_profile, dict):
+        failures.append("model-downloads-primary-chat-model-missing")
+if isinstance(primary_chat_profile, dict):
+    primary_capabilities = primary_chat_profile.get("capabilities")
+    if not isinstance(primary_capabilities, dict):
+        primary_capabilities = {}
+    if (
+        primary_chat_profile.get("backendKind") != "LocalLiteRt" or
+        primary_chat_profile.get("capability") != "Chat" or
+        primary_capabilities.get("chat") is not True
+    ):
+        failures.append("model-downloads-primary-chat-model-not-local-chat")
+    if primary_chat_profile.get("experimental") is not False:
+        failures.append("model-downloads-primary-chat-model-experimental")
+    primary_profile_bytes = primary_chat_profile.get("byteSize")
+    primary_record_bytes = model_downloads.get("primaryChatModelBytes")
+    if not isinstance(primary_profile_bytes, int) or primary_profile_bytes <= 0:
+        failures.append("model-capability-profiles-primary-chat-byte-size-invalid")
+    if not isinstance(primary_record_bytes, int) or primary_record_bytes <= 0:
+        failures.append("model-downloads-primary-chat-model-bytes-invalid")
+    elif isinstance(primary_profile_bytes, int) and primary_record_bytes != primary_profile_bytes:
+        failures.append("model-downloads-primary-chat-model-bytes-mismatch")
+    primary_record_sha = model_downloads.get("primaryChatModelSha256Hex")
+    if not non_empty_string(primary_record_sha):
+        failures.append("model-downloads-primary-chat-model-sha-missing")
+    elif primary_record_sha != primary_chat_profile.get("sha256Hex"):
+        failures.append("model-downloads-primary-chat-model-sha-mismatch")
+    primary_record_revision = model_downloads.get("primaryChatModelSourceRevision")
+    if not non_empty_string(primary_record_revision):
+        failures.append("model-downloads-primary-chat-model-revision-missing")
+    elif primary_record_revision != primary_chat_profile.get("sourceRevision"):
+        failures.append("model-downloads-primary-chat-model-revision-mismatch")
+lightweight_threshold_bytes = 1_000_000_000
+has_official_lightweight_chat = False
+for profile in profiles:
+    if not isinstance(profile, dict):
+        continue
+    capabilities = profile.get("capabilities")
+    if not isinstance(capabilities, dict):
+        capabilities = {}
+    if (
+        profile.get("backendKind") == "LocalLiteRt" and
+        profile.get("capability") == "Chat" and
+        profile.get("experimental") is False and
+        capabilities.get("chat") is True and
+        isinstance(profile.get("byteSize"), int) and
+        profile.get("byteSize") <= lightweight_threshold_bytes
+    ):
+        has_official_lightweight_chat = True
+        break
+if model_downloads.get("officialLightweightChatAlternative") is not has_official_lightweight_chat:
+    failures.append("model-downloads-official-lightweight-chat-alternative-mismatch")
+has_confirmed_remote_chat_template = any(
+    isinstance(template, dict) and
+    template.get("backendKind") == "RemoteOpenAiCompatible" and
+    template.get("capability") == "Chat" and
+    template.get("remoteEligible") is True and
+    template.get("requiresRemoteSendConfirmation") is True
+    for template in remote_templates
+)
+if model_downloads.get("remoteAlternativeDisclosed") is not has_confirmed_remote_chat_template:
+    failures.append("model-downloads-remote-alternative-disclosed-mismatch")
 
 android_ns = "{http://schemas.android.com/apk/res/android}"
 try:
@@ -359,7 +750,7 @@ else:
         review_evidence_path,
         review.get("evidenceSha256", ""),
     )
-    validate_store_review_evidence(review_evidence_path)
+    validate_store_review_evidence(review_evidence_path, review.get("reviewer", ""))
 review_date = review.get("reviewDate", "")
 date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 if not review_date:

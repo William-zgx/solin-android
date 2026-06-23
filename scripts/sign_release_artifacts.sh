@@ -21,6 +21,25 @@ EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 REQUIRE_AAB="${REQUIRE_AAB:-1}"
 FAILED_TARGET=""
 FAILURE_REASON=""
+ORIGINAL_ARGS=("$@")
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+shell_command() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "scripts/sign_release_artifacts.sh")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
 
 signing_mode() {
   if [[ "$ALLOW_DEBUG_KEYSTORE" == "1" ]]; then
@@ -47,6 +66,11 @@ write_report() {
     printf 'status=%s\n' "$status"
     printf 'exit_code=%s\n' "$exit_code"
     printf 'target=release-signing\n'
+    printf 'artifactSchema=ReleaseSigningReport/v1\n'
+    printf 'owner=release-engineering\n'
+    printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'command=%s\n' "$(shell_command)"
+    printf 'reproduciblePath=%s\n' "$REPORT_FILE"
     printf 'failedTarget=%s\n' "${FAILED_TARGET:-}"
     printf 'reason=%s\n' "${FAILURE_REASON:-}"
     printf 'signingMode=%s\n' "$(signing_mode)"
@@ -54,7 +78,9 @@ write_report() {
     printf 'requireAab=%s\n' "$REQUIRE_AAB"
     printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
     printf 'unsignedApk=%s\n' "$UNSIGNED_APK"
+    printf 'unsignedApkSha256=%s\n' "$(sha256_or_empty "$UNSIGNED_APK")"
     printf 'unsignedAab=%s\n' "$UNSIGNED_AAB"
+    printf 'unsignedAabSha256=%s\n' "$(sha256_or_empty "$UNSIGNED_AAB")"
     printf 'signedApk=%s\n' "$SIGNED_APK"
     if [[ -f "$SIGNED_APK" ]]; then
       printf 'signedApkSha256=%s\n' "$(shasum -a 256 "$SIGNED_APK" | awk '{print $1}')"
@@ -64,11 +90,44 @@ write_report() {
       printf 'signedAabSha256=%s\n' "$(shasum -a 256 "$SIGNED_AAB" | awk '{print $1}')"
     fi
     printf 'artifactScanReport=%s\n' "$ARTIFACT_SCAN_REPORT_FILE"
+    printf 'artifactScanReportSha256=%s\n' "$(sha256_or_empty "$ARTIFACT_SCAN_REPORT_FILE")"
     printf 'artifactScanStatus=%s\n' "$(report_value "$ARTIFACT_SCAN_REPORT_FILE" status)"
     printf 'artifactScanReason=%s\n' "$(report_value "$ARTIFACT_SCAN_REPORT_FILE" reason)"
   } > "$REPORT_FILE"
   echo "Release signing report: $REPORT_FILE"
 }
+
+fail_parse() {
+  FAILED_TARGET="argument-parser"
+  FAILURE_REASON="$1"
+  write_report 2
+  echo "$2" >&2
+  exit 2
+}
+
+REQUIRED_ARG_VALUE=""
+require_value() {
+  local option="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    fail_parse "missing-${option#--}-argument" "Missing value for $option"
+  fi
+  REQUIRED_ARG_VALUE="$value"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --report)
+      require_value "$1" "${2:-}"
+      REPORT_FILE="$REQUIRED_ARG_VALUE"
+      ARTIFACT_SCAN_REPORT_FILE="${REPORT_FILE}.artifact-scan.properties"
+      shift 2
+      ;;
+    *)
+      fail_parse unknown-argument "Unknown argument: $1"
+      ;;
+  esac
+done
 
 trap 'status=$?; write_report "$status"; exit "$status"' EXIT
 

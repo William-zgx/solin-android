@@ -65,7 +65,7 @@ class BuiltInSkillRuntime(
             !input.looksLikeSequentialAction() && input.requestsCurrentDraftFormUiFill() ->
                 planCurrentDraftFormUiFill(input)
 
-            input.requestsOpenAppThenUiSearch() ->
+            !input.looksLikeSequentialAction() && input.requestsOpenAppThenUiSearch() ->
                 planOpenAppThenUiSearch(input)
 
             !input.looksLikeSequentialAction() && MapSearchActionParser.matches(input) ->
@@ -1132,11 +1132,11 @@ private fun String.extractCurrentPageUiCommand(): CurrentPageUiCommand? {
     ).any { it in this } ||
         Regex("""\b(?:current|this)\s+(?:page|screen|app|application)\b""", RegexOption.IGNORE_CASE)
             .containsMatchIn(normalized)
-    if (!referencesCurrentPage) return null
-
-    if (Regex("""\b(?:back|go\s+back)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ||
+    val asksBack = Regex("""\b(?:back|go\s+back)\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ||
         listOf("返回", "后退").any { it in this }
-    ) {
+    if (!referencesCurrentPage && !asksBack) return null
+
+    if (asksBack) {
         return CurrentPageUiCommand.Back
     }
     if (Regex("""\bwait\b""", RegexOption.IGNORE_CASE).containsMatchIn(normalized) ||
@@ -1377,9 +1377,10 @@ private fun String.looksLikeClipboardContextNonAction(normalized: String): Boole
 
 private fun String.looksLikeSequentialAction(): Boolean {
     val normalized = lowercase()
-    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消|提醒|设置提醒).+""")
+    return Regex(""".+(?:然后|接着|随后|之后|再)\s*(?:打开|进入|启动|发|发送|写|建|创建|添加|查询|查|搜索|读取|读|总结|分享|导航|跳转|访问|取消|提醒|设置提醒|返回|后退).*""")
         .containsMatchIn(this) ||
-        Regex("""\b(then|after\s+that)\b""").containsMatchIn(normalized)
+        Regex("""\b(?:and\s+then|then|after\s+that)\b.*\b(?:go\s+back|back|open|launch|search|share|send|create|read|summarize)\b""")
+            .containsMatchIn(normalized)
 }
 
 private data class DraftRequestPair(

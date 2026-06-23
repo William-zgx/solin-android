@@ -6,6 +6,7 @@ import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.ChatSessionSummary
 import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.InferenceMode
+import com.bytedance.zgx.pocketmind.PendingRemoteSendMarker
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import java.io.File
 
@@ -75,6 +76,18 @@ interface RemoteModelStore {
     fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig>
     fun saveConfigWithoutApiKey(config: RemoteModelConfig): Result<RemoteModelConfig> =
         saveConfig(config.copy(apiKey = ""))
+}
+
+interface RemoteSendPendingStore {
+    fun savePendingRemoteSend(marker: PendingRemoteSendMarker)
+    fun consumePendingRemoteSend(): PendingRemoteSendMarker?
+    fun clearPendingRemoteSend()
+}
+
+object NoOpRemoteSendPendingStore : RemoteSendPendingStore {
+    override fun savePendingRemoteSend(marker: PendingRemoteSendMarker) = Unit
+    override fun consumePendingRemoteSend(): PendingRemoteSendMarker? = null
+    override fun clearPendingRemoteSend() = Unit
 }
 
 interface SettingsStore {

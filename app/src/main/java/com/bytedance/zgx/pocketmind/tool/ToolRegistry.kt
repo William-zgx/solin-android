@@ -1418,11 +1418,6 @@ private fun recentOcrOutputSchemaJson(maxCountMaximum: Int): String = """
           "description": "Whether OCR image candidates came from legacy storage, full visual media, user-selected visual media, or currently granted media-only access.",
           "enum": ["legacy_storage", "full_visual_media", "user_selected_visual_media", "granted_media_only"]
         },
-        "name": {"type": "string"},
-        "mimeType": {"type": "string"},
-        "kind": {"type": "string"},
-        "sizeBytes": {"type": "integer", "minimum": 0},
-        "lastModifiedMillis": {"type": "integer"},
         "ocrText": {"type": "string", "minLength": 1},
         "truncated": {"type": "boolean"},
         "ocrTextIncluded": {"type": "boolean"},
@@ -1433,13 +1428,7 @@ private fun recentOcrOutputSchemaJson(maxCountMaximum: Int): String = """
     }
 """.trimIndent()
 
-private val recentImageOcrPrivateOutputKeys = setOf(
-    "name",
-    "mimeType",
-    "sizeBytes",
-    "lastModifiedMillis",
-    "ocrText",
-)
+private val recentImageOcrPrivateOutputKeys = setOf("ocrText")
 
 private val currentScreenTextOutputSchemaJson = """
     {
@@ -2167,6 +2156,7 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("maxCount"),
             privateOutputKeys = recentImageOcrPrivateOutputKeys,
             redactedResultSummary = "已读取最近截图 OCR 摘录",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
             tags = sequentialLocalContinuationTags,
             androidRuntimePermissions = listOf(
                 AndroidRuntimePermissionSpec(
@@ -2194,6 +2184,7 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("maxCount"),
             privateOutputKeys = recentImageOcrPrivateOutputKeys,
             redactedResultSummary = "已读取最近图片 OCR 摘录",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
             tags = sequentialLocalContinuationTags,
             androidRuntimePermissions = listOf(
                 AndroidRuntimePermissionSpec(
@@ -2220,6 +2211,7 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("maxChars"),
             privateOutputKeys = setOf("capturedAtMillis", "nodeCount", "screenText", "packageName", "structureSummary"),
             redactedResultSummary = "已读取当前屏幕可访问文本快照",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
             tags = accessibilityScreenTextSequentialTags,
         ),
     ),
@@ -2240,6 +2232,7 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
             pendingArgumentAllowlist = setOf("captureMode"),
             privateOutputKeys = setOf("ocrText"),
             redactedResultSummary = "已读取当前屏幕截图 OCR 摘录",
+            resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
             tags = sequentialLocalContinuationTags,
         ),
     ),

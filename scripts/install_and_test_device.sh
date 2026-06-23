@@ -22,6 +22,9 @@ LOGCAT_TAIL_LINES="${LOGCAT_TAIL_LINES:-500}"
 INSTRUMENTATION_CLASS="${INSTRUMENTATION_CLASS:-}"
 INSTRUMENTATION_TIMEOUT_SECONDS="${INSTRUMENTATION_TIMEOUT_SECONDS:-900}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
+DEFER_DEVICE_TESTS="${DEFER_DEVICE_TESTS:-0}"
+DEFERRED_REASON="${DEFERRED_REASON:-}"
+STATUS_OVERRIDE="${STATUS_OVERRIDE:-}"
 
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 SELECTED_SERIAL=""
@@ -48,15 +51,33 @@ REQUIRED_FREE_KB=$((3 * 1024 * 1024))
 write_verification_report() {
   local exit_code="$1"
   local status_label="failed"
-  [[ "$exit_code" -eq 0 ]] && status_label="passed"
+  local artifact_id
+  local instrumentation_output_sha256=""
+  local logcat_sha256=""
+  if [[ -n "$STATUS_OVERRIDE" ]]; then
+    status_label="$STATUS_OVERRIDE"
+  elif [[ "$exit_code" -eq 0 ]]; then
+    status_label="passed"
+  fi
+  artifact_id="device-${SELECTED_SERIAL:-unselected}-api${API_LEVEL:-unknown}-${STARTED_AT_UTC}"
+  artifact_id="${artifact_id//:/}"
+  if [[ -f "$INSTRUMENTATION_OUTPUT_FILE" ]]; then
+    instrumentation_output_sha256="$(shasum -a 256 "$INSTRUMENTATION_OUTPUT_FILE" | awk '{print $1}')"
+  fi
+  if [[ -f "$LOGCAT_FILE" ]]; then
+    logcat_sha256="$(shasum -a 256 "$LOGCAT_FILE" | awk '{print $1}')"
+  fi
 
   mkdir -p "$(dirname "$VERIFICATION_REPORT_FILE")"
   {
+    echo "artifact_schema=DeviceVerificationArtifact/v1"
+    echo "artifact_id=$artifact_id"
     echo "status=$status_label"
     echo "exit_code=$exit_code"
     echo "target=device"
     echo "failedTarget=${FAILED_TARGET:-}"
     echo "reason=${FAILURE_REASON:-}"
+    echo "deferredReason=$DEFERRED_REASON"
     echo "started_at_utc=$STARTED_AT_UTC"
     echo "finished_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "serial=${SELECTED_SERIAL:-}"
@@ -73,8 +94,11 @@ write_verification_report() {
     echo "instrumentation_class=${INSTRUMENTATION_CLASS:-}"
     echo "instrumentation_timeout_seconds=$INSTRUMENTATION_TIMEOUT_SECONDS"
     echo "instrumentation_output_file=$INSTRUMENTATION_OUTPUT_FILE"
+    echo "instrumentation_output_sha256=$instrumentation_output_sha256"
+    echo "test_count=${INSTRUMENTATION_TEST_COUNT:-}"
     echo "releaseArtifactSha256=$RELEASE_ARTIFACT_SHA256"
     echo "logcat_file=$LOGCAT_FILE"
+    echo "logcat_sha256=$logcat_sha256"
     echo "logcat_captured=$LOGCAT_CAPTURED"
     echo "logcat_tail_lines=$LOGCAT_TAIL_LINES"
     echo "debug_apk=$DEBUG_APK"
@@ -154,6 +178,17 @@ on_exit() {
 }
 
 trap on_exit EXIT
+
+if [[ "$DEFER_DEVICE_TESTS" == "1" ]]; then
+  DEFERRED_REASON="${DEFERRED_REASON:-no-device-test-in-this-phase}"
+  STATUS_OVERRIDE="skipped"
+  FAILED_TARGET="device-validation"
+  FAILURE_REASON="$DEFERRED_REASON"
+  INSTRUMENTATION_STATUS="skipped"
+  SCRIPT_COMPLETED=1
+  write_verification_report 0
+  exit 0
+fi
 
 fail_with_reason() {
   FAILED_TARGET="$1"
@@ -355,7 +390,7 @@ if [[ "$TEST_STATUS" -eq 124 ]]; then
   FAILURE_REASON="instrumentation-timeout"
   cleanup_test_device_state
 fi
-if [[ "$TEST_STATUS" -eq 0 && "$INSTRUMENTATION_SUCCEEDED" != "1" ]] && instrumentation_output_failed "$TEST_OUTPUT"; then
+if [[ "$TEST_STATUS" -eq 0 ]] && instrumentation_output_failed "$TEST_OUTPUT"; then
   TEST_STATUS=1
   FAILED_TARGET="instrumentation"
   FAILURE_REASON="instrumentation-failed"

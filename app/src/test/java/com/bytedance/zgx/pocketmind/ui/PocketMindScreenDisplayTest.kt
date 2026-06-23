@@ -24,7 +24,7 @@ class PocketMindScreenDisplayTest {
     @Test
     fun remoteAttachmentProtectionNoticeNamesVisionImagePath() {
         assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("远程模型模式"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("图片会直接发送"))
+        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("逐次预览确认"))
         assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("其他附件和分享文本"))
         assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("不会读取正文"))
         assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("OCR 摘录"))
@@ -100,7 +100,7 @@ class PocketMindScreenDisplayTest {
         assertTrue(TRUST_LOCAL_BOUNDARY_TEXT.contains("留在本机"))
         assertTrue(TRUST_LOCAL_BOUNDARY_TEXT.contains("LocalOnly"))
         assertTrue(TRUST_REMOTE_BOUNDARY_TEXT.contains("对话上下文"))
-        assertTrue(TRUST_REMOTE_BOUNDARY_TEXT.contains("图片会随请求发送"))
+        assertTrue(TRUST_REMOTE_BOUNDARY_TEXT.contains("逐次确认后随请求发送"))
         assertTrue(TRUST_REMOTE_BOUNDARY_TEXT.contains("OCR 摘录"))
         assertTrue(TRUST_PERMISSION_BOUNDARY_TEXT.contains("Accessibility 文本"))
         assertTrue(TRUST_PERMISSION_BOUNDARY_TEXT.contains("前台一次性确认"))
@@ -350,6 +350,7 @@ class PocketMindScreenDisplayTest {
         assertTrue(text.contains("RemoteEligible 对话上下文"))
         assertTrue(text.contains("当前输入"))
         assertTrue(text.contains("主动选择的图片"))
+        assertTrue(text.contains("预览确认"))
         assertTrue(text.contains("LocalOnly 历史"))
         assertTrue(text.contains("本地记忆"))
         assertTrue(text.contains("设备上下文"))

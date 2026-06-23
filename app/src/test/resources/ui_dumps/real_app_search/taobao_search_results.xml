@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.taobao.taobao" content-desc="" clickable="false" enabled="true" scrollable="false" bounds="[0,0][1080,2400]">
+    <node index="0" text="海河牛奶" resource-id="com.taobao.taobao:id/search_field" class="android.widget.EditText" package="com.taobao.taobao" content-desc="搜索输入框" clickable="true" enabled="true" scrollable="false" bounds="[48,86][820,172]" />
+    <node index="1" text="搜索" resource-id="com.taobao.taobao:id/search_submit" class="android.widget.TextView" package="com.taobao.taobao" content-desc="搜索" clickable="true" enabled="true" scrollable="false" bounds="[860,86][1032,172]" />
+    <node index="2" text="综合" resource-id="com.taobao.taobao:id/sort_comprehensive" class="android.widget.TextView" package="com.taobao.taobao" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[0,196][180,276]" />
+    <node index="3" text="销量" resource-id="com.taobao.taobao:id/sort_sales" class="android.widget.TextView" package="com.taobao.taobao" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[180,196][360,276]" />
+    <node index="4" text="筛选" resource-id="com.taobao.taobao:id/filter_entry" class="android.widget.TextView" package="com.taobao.taobao" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[900,196][1060,276]" />
+    <node index="5" text="海河牛奶旗舰店 原味牛奶 250ml*16盒 ￥59 已售1万+" resource-id="com.taobao.taobao:id/product_card_1" class="android.view.View" package="com.taobao.taobao" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[24,320][1056,560]" />
+    <node index="6" text="海河牛奶 精品整箱装 新鲜日期 ￥69 评价5000+" resource-id="com.taobao.taobao:id/product_card_2" class="android.view.View" package="com.taobao.taobao" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[24,580][1056,820]" />
+  </node>
+</hierarchy>

@@ -11,6 +11,10 @@ on:
         description: "Path to the RC perf-baseline.properties file available in the workflow workspace or evidence artifact."
         required: true
         type: string
+      ai_behavior_actual_trace_file:
+        description: "Path to the AI behavior actual-trace JSONL file available in the workflow workspace or evidence artifact."
+        required: true
+        type: string
       release_evidence_artifact_name:
         description: "Optional artifact name containing release validation evidence paths such as build/verification/**."
         required: false
@@ -438,11 +442,13 @@ jobs:
         env:
           EXPECTED_SIGNING_CERT_SHA256: ${{ secrets.EXPECTED_SIGNING_CERT_SHA256 }}
           PERF_BASELINE_FILE: ${{ inputs.perf_baseline_file }}
+          AI_BEHAVIOR_ACTUAL_TRACE_FILE: ${{ inputs.ai_behavior_actual_trace_file }}
         run: |
           ARTIFACT_DIR=build/verification/ci-final-release-gate \
           PUBLIC_RELEASE=1 \
           EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256}" \
           PERF_BASELINE_FILE="${PERF_BASELINE_FILE}" \
+          AI_BEHAVIOR_ACTUAL_TRACE_FILE="${AI_BEHAVIOR_ACTUAL_TRACE_FILE}" \
           scripts/verify_release_gate.sh
 
       - name: Upload final release gate evidence

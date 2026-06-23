@@ -874,6 +874,7 @@ private data class NodeCandidate(
         val text = node.text.normalizedNodeText().normalizedLookupKey()
         val description = node.contentDescription.normalizedNodeText().normalizedLookupKey()
         val normalizedLabel = label.normalizedLookupKey()
+        if (kind == UiTargetKind.SubmitSearch && looksNonTextSearchControl(normalizedLabel)) return null
         semanticTargetMatchScore(target, normalizedLabel, profile)?.let { score ->
             val finalScore = score +
                 actionabilityScore() +
@@ -921,6 +922,7 @@ private data class NodeCandidate(
             UiTargetKind.SubmitSearch ->
                 if (
                     !node.isEditable &&
+                    !looksNonTextSearchControl(normalizedLabel) &&
                     (looksSearchSubmitLike(normalizedLabel) || hintScore > 0)
                 ) {
                     700 + hintScore
@@ -1019,9 +1021,12 @@ private data class NodeCandidate(
         if (
             normalizedLabel.contains("拍照") ||
             normalizedLabel.contains("拍立淘") ||
+            normalizedLabel.contains("拍照搜") ||
+            normalizedLabel.contains("相机") ||
             normalizedLabel.contains("扫一扫") ||
             normalizedLabel.contains("语音") ||
-            normalizedLabel.contains("图片")
+            normalizedLabel.contains("图片") ||
+            normalizedLabel.contains("找同款")
         ) {
             penalty += 520
         }
@@ -1336,13 +1341,21 @@ private fun String.hasSearchEntryStrongEvidence(): Boolean =
     contains("搜索栏") ||
         contains("搜索框") ||
         contains("搜索商品") ||
+        contains("搜索发现") ||
+        contains("搜索宝贝") ||
+        contains("搜索京东") ||
+        contains("搜索好物") ||
         contains("搜索输入") ||
         contains("输入文字") ||
         contains("输入关键词") ||
+        contains("请输入搜索词") ||
         contains("地址栏") ||
         contains("网址") ||
         contains("目的地") ||
         contains("去哪儿") ||
+        contains("搜地点") ||
+        contains("公交地铁") ||
+        contains("搜索词或网址") ||
         contains("searchbox") ||
         contains("searchfield") ||
         contains("omnibox")

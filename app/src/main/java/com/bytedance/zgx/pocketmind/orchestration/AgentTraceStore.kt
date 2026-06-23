@@ -1265,6 +1265,7 @@ private fun AgentStep.traceType(): String =
     when (this) {
         is AgentStep.ContextLoaded -> "ContextLoaded"
         is AgentStep.ModelPlanned -> "ModelPlanned"
+        is AgentStep.IntentRouted -> "IntentRouted"
         is AgentStep.RemoteToolsExposed -> "RemoteToolsExposed"
         is AgentStep.RunDataReceiptRecorded -> "RunDataReceiptRecorded"
         is AgentStep.ModelOutputQualityGuardTriggered -> "ModelOutputQualityGuardTriggered"
@@ -1293,6 +1294,10 @@ private fun AgentStep.traceSummary(): String =
         }
 
         is AgentStep.ModelPlanned -> plan.traceSummary()
+        is AgentStep.IntentRouted ->
+            "Intent routed via ${decision.selectedPath.name} to " +
+                (decision.selectedToolName ?: decision.selectedSkillId ?: "no action") +
+                " (accepted=${decision.accepted})."
         is AgentStep.RemoteToolsExposed ->
             "Exposed ${toolNames.size} remote tool(s) in ${scope.name} scope."
         is AgentStep.RunDataReceiptRecorded ->
@@ -1352,6 +1357,20 @@ private fun AgentStep.traceJson(type: String): JSONObject {
             .put("hasDeviceContext", deviceContext != null)
 
         is AgentStep.ModelPlanned -> json.put("plan", plan.traceJson())
+        is AgentStep.IntentRouted -> json
+            .put("selectedPath", decision.selectedPath.name)
+            .put("selectedToolName", decision.selectedToolName)
+            .put("selectedSkillId", decision.selectedSkillId)
+            .put("priority", decision.priority)
+            .put("accepted", decision.accepted)
+            .put("confidence", decision.confidence.name)
+            .put(
+                "rejectionReasons",
+                decision.rejectionReasons
+                    .map { reason -> reason.shortTraceText(maxLength = 80) }
+                    .toJsonArray(),
+            )
+            .put("requiresConfirmation", decision.requiresConfirmation)
         is AgentStep.RemoteToolsExposed -> json
             .put("scope", scope.name)
             .put("toolNames", toolNames.sorted())
@@ -1404,6 +1423,15 @@ private fun AgentStep.traceJson(type: String): JSONObject {
             .put("skillRequestId", request.id)
             .put("skillId", request.skillId)
             .put("stepCount", plan?.steps?.size ?: 0)
+            .put("toolStepCount", plan?.steps?.filterIsInstance<SkillStep.ToolStep>()?.size ?: 0)
+            .put(
+                "toolRequestIds",
+                plan?.steps
+                    ?.filterIsInstance<SkillStep.ToolStep>()
+                    ?.map { step -> step.request.id }
+                    ?.toJsonArray()
+                    ?: JSONArray(),
+            )
 
         is AgentStep.SafetyChecked -> json
             .put("outcome", decision.outcome.name)

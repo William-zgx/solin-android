@@ -1392,7 +1392,7 @@ private fun RemoteModeDisclosureRows(disclosure: PendingRemoteModeDisclosure) {
 
 internal fun remoteModeDisclosureDisplayRows(disclosure: PendingRemoteModeDisclosure): List<String> {
     val imagePolicy = if (disclosure.supportsVisionInput) {
-        "主动选择的图片会随远程请求发送；请只选择你愿意交给该服务处理的图片。"
+        "主动选择的图片会在每次发送前弹出远程发送预览确认；请只选择你愿意交给该服务处理的图片。"
     } else {
         "当前远程模型未启用图片输入；选择图片时会直接提示不支持，不会读取或发送。"
     }
@@ -1404,7 +1404,7 @@ internal fun remoteModeDisclosureDisplayRows(disclosure: PendingRemoteModeDisclo
     return listOf(
         destinationSummary,
         "模型：${disclosure.remoteModelName}",
-        "发送范围：仅发送 RemoteEligible 对话上下文、当前输入和主动选择的图片。",
+        "发送范围：仅发送 RemoteEligible 对话上下文、当前输入，以及确认后的主动选择图片。",
         "不会发送：LocalOnly 历史、本地记忆、设备上下文、非图片附件正文或 OCR 摘录。",
         "图片规则：$imagePolicy",
         "远程服务方可能按其政策记录或保留请求和响应。",
@@ -1421,8 +1421,9 @@ private fun RemoteSendDisclosureSheet(
     onSendAnyway: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // Sensitive disclosures are forced and can never be silenced for the session.
-    val canSuppressForSession = !disclosure.forcedBySensitiveContent
+    // Sensitive disclosures and image sends are forced and can never be silenced for the session.
+    val canSuppressForSession = !disclosure.forcedBySensitiveContent &&
+        disclosure.imageAttachmentCount == 0
     val requiresSensitiveConsent = disclosure.requiresSensitiveConsent
     var suppressForSession by rememberSaveable(disclosure) { mutableStateOf(false) }
     Column(
@@ -2474,7 +2475,7 @@ internal fun modelPathGuidanceRows(selectedModel: RecommendedModel): List<ModelP
         ),
         ModelPathGuidanceRow(
             label = "远程",
-            body = "不下载本地对话模型也能开始；配置 HTTPS 兼容接口后，切换到远程模型时会提醒一次，图片只在你主动附加且模型支持时发送。",
+            body = "不下载本地对话模型也能开始；配置 HTTPS 兼容接口后，切换到远程模型时会提醒一次，图片只在你主动附加、模型支持且逐次确认后发送。",
         ),
         ModelPathGuidanceRow(
             label = "轻量",
@@ -2594,19 +2595,19 @@ private fun CurrentModelPanel(
                 LocalTokenLimitBlock(state.localMaxTotalTokens)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     BackendChip(
-                        modifier = Modifier.testTag("backend_gpu_chip"),
-                        label = "GPU",
-                        selected = state.backend == BackendChoice.GPU,
-                        enabled = !state.isBusy,
-                        onClick = { onBackendSelected(BackendChoice.GPU) },
-                    )
-                    BackendChip(
-                        modifier = Modifier.testTag("backend_cpu_chip"),
-                        label = "CPU",
-                        selected = state.backend == BackendChoice.CPU,
-                        enabled = !state.isBusy,
-                        onClick = { onBackendSelected(BackendChoice.CPU) },
-                    )
+                    modifier = Modifier.testTag("backend_gpu_chip"),
+                    label = "GPU",
+                    selected = state.backend == BackendChoice.GPU,
+                    enabled = !state.isBusy && state.backendChoiceEnabled(BackendChoice.GPU),
+                    onClick = { onBackendSelected(BackendChoice.GPU) },
+                )
+                BackendChip(
+                    modifier = Modifier.testTag("backend_cpu_chip"),
+                    label = "CPU",
+                    selected = state.backend == BackendChoice.CPU,
+                    enabled = !state.isBusy && state.backendChoiceEnabled(BackendChoice.CPU),
+                    onClick = { onBackendSelected(BackendChoice.CPU) },
+                )
                 }
                 Text(
                     text = "GPU 通常更快，适合设备驱动和内存条件较好的手机；CPU 更稳但更慢。GPU 初始化失败时会自动切到 CPU。",
@@ -3039,10 +3040,10 @@ private fun RemoteSendDisclosurePolicy.remoteSendPolicyLabel(): String =
 private fun RemoteSendDisclosurePolicy.remoteSendPolicyDescription(): String =
     when (this) {
         RemoteSendDisclosurePolicy.OnRemoteModeSwitch ->
-            "切换到远程模型时弹一次提醒；普通文本和主动选择的图片随后不再逐条弹窗。"
+            "切换到远程模型时弹一次提醒；普通文本随后不再逐条弹窗，图片仍每次确认。"
         RemoteSendDisclosurePolicy.EveryMessage -> "所有远程发送都会弹出确认。"
-        RemoteSendDisclosurePolicy.OncePerSession -> "普通发送确认一次后本会话内静默，疑似敏感内容仍会弹窗。"
-        RemoteSendDisclosurePolicy.OnlyWhenSensitive -> "普通文本和主动选择的图片直接发送；疑似敏感内容仍会强制确认。"
+        RemoteSendDisclosurePolicy.OncePerSession -> "普通文本确认一次后本会话内静默，疑似敏感内容和图片仍会弹窗。"
+        RemoteSendDisclosurePolicy.OnlyWhenSensitive -> "普通文本直接发送；疑似敏感内容和图片仍会强制确认。"
     }
 
 private fun RemoteSendAuditSummary.remoteSendAuditTimeLabel(): String =
@@ -3842,7 +3843,7 @@ private fun AuditEventSummary.auditTimeLabel(): String =
     SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(createdAtMillis))
 
 internal const val REMOTE_ATTACHMENT_PROTECTION_NOTICE =
-    "远程模型模式下，主动选择的图片会直接发送给远程视觉模型；其他附件和分享文本不会读取正文、文本摘录或 OCR 摘录。若模型或接口不支持图片，会直接提示不支持。"
+    "远程模型模式下，主动选择的图片只会在逐次预览确认后发送给远程视觉模型；其他附件和分享文本不会读取正文、文本摘录或 OCR 摘录。若模型或接口不支持图片，会直接提示不支持。"
 
 internal const val PRODUCT_POSITIONING_TEXT =
     "隐私优先的随身 AI 助手：本地对话和本地视觉可用，远程多模态可选，设备动作必须确认执行；能力与信任中心会集中说明数据边界、权限和人工发布事项。"
@@ -3918,7 +3919,7 @@ internal const val PRODUCT_LOCAL_VALUE_TEXT =
     "下载或导入已验证本地模型后，基础问答和支持的图片输入可在手机上运行；会话、记忆和本地工具结果默认留在本机。"
 
 internal const val PRODUCT_REMOTE_VALUE_TEXT =
-    "远程模型只在你配置并切换后使用；主动选择的图片可发送给远程视觉模型，不支持图片时直接提示不支持。"
+    "远程模型只在你配置并切换后使用；主动选择的图片只在逐次确认后发送给远程视觉模型，不支持图片时直接提示不支持。"
 
 internal const val PRODUCT_ACTION_VALUE_TEXT =
     "联系人、日历、系统页面、分享、提醒和屏幕相关能力都先展示用途、权限和风险，再由你确认或取消。"
@@ -3927,7 +3928,7 @@ internal const val PRIVACY_POLICY_ENTRY_TEXT =
     "说明哪些内容留在本机、什么时候会发送到远程，以及哪些设备能力必须你确认后才执行。"
 
 internal const val REMOTE_MODE_DISCLOSURE_TEXT =
-    "兼容 /v1/chat/completions；远程模式只发送可远程发送的对话上下文，切换到远程时提醒一次，主动选择的图片会随请求发送。"
+    "兼容 /v1/chat/completions；远程模式只发送可远程发送的对话上下文，切换到远程时提醒一次，主动选择的图片会在逐次确认后随请求发送。"
 
 internal const val MODEL_DOWNLOAD_RATIONALE_TEXT =
     "本地模型让基础问答离线可用；基础对话模型约 2.4 GB，缺少、下载失败或文件不完整时可在这里补装，也可以先配置远程模型。"
@@ -3945,7 +3946,7 @@ internal const val TRUST_LOCAL_BOUNDARY_TEXT =
     "会话、长期记忆、设备上下文和本地工具结果默认留在本机；切到远程模型时，本地隐私消息和 LocalOnly 工具结果不会进入远程历史。"
 
 internal const val TRUST_REMOTE_BOUNDARY_TEXT =
-    "远程模型会收到当前可远程发送的对话上下文；你主动附加的图片会随请求发送，非图片附件、分享文本、OCR 摘录和本地工具私密结果不会自动发送。"
+    "远程模型会收到当前可远程发送的对话上下文；你主动附加的图片会在逐次确认后随请求发送，非图片附件、分享文本、OCR 摘录和本地工具私密结果不会自动发送。"
 
 internal const val TRUST_PERMISSION_BOUNDARY_TEXT =
     "联系人、日历、媒体、通知、当前屏幕、Accessibility 文本和截图 OCR 都需要运行时权限、系统特殊授权或前台一次性确认；动作工具仍需用户确认后执行。"
@@ -4624,6 +4625,9 @@ private fun compactModelStatusShort(state: ChatUiState): String =
         state.modelPath != null -> "待加载"
         else -> "待准备"
     }
+
+private fun ChatUiState.backendChoiceEnabled(choice: BackendChoice): Boolean =
+    localPreferredBackends.isEmpty() || choice in localPreferredBackends
 
 internal fun modelHealthDisplayText(state: ChatUiState): String {
     val health = state.modelHealth
@@ -5481,7 +5485,7 @@ private fun ComposerAttachmentButton(
             .testTag("composer_attachment_button")
             .semantics {
                 contentDescription = if (remoteMode) {
-                    "选择附件；远程模式会发送图片，其他附件不读取正文或 OCR"
+                    "选择附件；远程模式逐次确认后发送图片，其他附件不读取正文或 OCR"
                 } else {
                     "选择附件"
                 }

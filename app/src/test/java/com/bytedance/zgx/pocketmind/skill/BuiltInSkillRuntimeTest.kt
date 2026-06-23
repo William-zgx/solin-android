@@ -846,6 +846,19 @@ class BuiltInSkillRuntimeTest {
         assertEquals("淘宝", openAppVerify.request.arguments["expectedAppName"])
         assertTrue(openAppSearchPlan.validateStructure().errors.joinToString(), openAppSearchPlan.validateStructure().isValid)
 
+        assertEquals(null, runtime.plan("打开淘宝搜索耳机，然后返回"))
+
+        val bareBackPlan = requireNotNull(runtime.plan("返回"))
+        assertEquals(BuiltInSkillRuntime.CURRENT_PAGE_SIMPLE_INTERACTION_SKILL, bareBackPlan.request.skillId)
+        assertEquals(
+            listOf(
+                MobileActionFunctions.UI_PRESS_BACK,
+                MobileActionFunctions.UI_WAIT,
+            ),
+            bareBackPlan.steps.toolNames(),
+        )
+        assertTrue(bareBackPlan.validateStructure().errors.joinToString(), bareBackPlan.validateStructure().isValid)
+
         val englishOpenAppSearchPlan = requireNotNull(runtime.plan("open Pinduoduo and search milk"))
         assertEquals(BuiltInSkillRuntime.OPEN_APP_UI_SEARCH_SKILL, englishOpenAppSearchPlan.request.skillId)
         val englishOpenAppStep = englishOpenAppSearchPlan.steps[0] as SkillStep.ToolStep
@@ -868,6 +881,12 @@ class BuiltInSkillRuntimeTest {
                 appName = "高德地图",
                 query = "机场",
                 expectedPackageName = "com.autonavi.minimap",
+            ),
+            OpenAppSearchExpectation(
+                input = "打开京东搜索数据线",
+                appName = "京东",
+                query = "数据线",
+                expectedPackageName = "com.jingdong.app.mall",
             ),
             OpenAppSearchExpectation(
                 input = "打开浏览器搜索 Kotlin 协程",
@@ -975,6 +994,7 @@ class BuiltInSkillRuntimeTest {
         assertEquals(null, runtime.plan("Wi-Fi 设置页面怎么设计"))
         assertEquals(null, runtime.plan("不要打开 Wi-Fi 设置，只解释一下"))
         assertEquals(null, runtime.plan("Do not open Wi-Fi settings; explain only"))
+        assertFalse(runtime.plan("打开名为 WiFi 的 App")?.request?.skillId == BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL)
         assertEquals(null, runtime.plan("手电筒 API 怎么用"))
         assertEquals(null, runtime.plan("打开手电筒"))
         assertEquals(null, runtime.plan("Usage Access API 怎么用"))

@@ -3,11 +3,11 @@
   "policy": "Public release builds require VERIFY_STORE_POLICY=1 and an approved store policy record.",
   "status": "pending_policy_review",
   "privacyNoticePath": "docs/privacy_notice.md",
-  "privacyNoticeSha256": "e25465add3bd572864a7c787c6e4efbee876dc98729c53115d3c9833c3cee49a",
+  "privacyNoticeSha256": "6d1f1f3424fc80a92fa9ffc5c0cedcb127921d460993e9bfe5fbc0026cf62bbc",
   "appListing": {
     "appName": "PocketMind",
     "shortDescription": "Privacy-first phone AI: local, optional remote, confirmed control.",
-    "fullDescription": "PocketMind is a privacy-first phone-side AI assistant for Android: it is locally usable with downloaded or imported models, can optionally use user-configured remote multimodal models, and can perform confirmed phone-control tools. Low-risk app search can continue under the user's setting; sending, deleting, paying, ordering, publishing, sensitive input, and permission changes still require confirmation. Chats, explicit memories, model files, and tool audit records stay in local app storage by default.",
+    "fullDescription": "PocketMind is a privacy-first phone-side AI assistant for Android: it is locally usable with downloaded or imported models, can optionally use user-configured remote multimodal models, and can perform confirmed device actions through phone-control tools. Low-risk app search can continue under the user's setting; sending, deleting, paying, ordering, publishing, sensitive input, and permission changes still require confirmation. Chats, explicit memories, model files, and tool audit records stay in local app storage by default.",
     "category": "Productivity",
     "contactEmail": "release-contact@example.invalid",
     "privacyPolicyUrl": "https://example.invalid/pocketmind/privacy"
@@ -32,7 +32,10 @@
   "modelDownloads": {
     "describedAsLargeOptionalAssets": true,
     "declaresNotBundledInApk": true,
+    "primaryChatModelProfileId": "chat-e2b",
     "primaryChatModelBytes": 2588147712,
+    "primaryChatModelSha256Hex": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+    "primaryChatModelSourceRevision": "a4a831c060880f3733135ad22f10e0e9f758f45d",
     "remoteAlternativeDisclosed": true,
     "officialLightweightChatAlternative": false
   },
@@ -78,6 +81,18 @@
       "purpose": "Posts reminder notifications only for user-created or confirmed background tasks."
     },
     {
+      "name": "com.android.alarm.permission.SET_ALARM",
+      "purpose": "Lets confirmed alarm and timer actions open Android's system alarm flow when requested by the user."
+    },
+    {
+      "name": "android.permission.FOREGROUND_SERVICE",
+      "purpose": "Runs a short-lived foreground device-control session while executing user-confirmed Accessibility actions."
+    },
+    {
+      "name": "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+      "purpose": "Declares the special-use foreground service type for user-confirmed device-control sessions."
+    },
+    {
       "name": "android.permission.RECEIVE_BOOT_COMPLETED",
       "purpose": "Restores scheduled reminder alarms after device reboot or app replacement."
     },
@@ -104,6 +119,6 @@
     "reviewer": "",
     "reviewDate": "",
     "evidencePath": "docs/store_policy_review_evidence/pending.properties",
-    "evidenceSha256": "15526adf0fbe3835cd9d05926667a7e3daf59b267e0cdd6f28542ab2d4e9d46d"
+    "evidenceSha256": "2a23bea1c2896a7f1ec016d8556dd79967bff9789caf191181564348aa84ffbd"
   }
 }

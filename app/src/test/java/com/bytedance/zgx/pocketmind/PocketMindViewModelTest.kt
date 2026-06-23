@@ -31,6 +31,7 @@ import com.bytedance.zgx.pocketmind.data.ModelSelectionResult
 import com.bytedance.zgx.pocketmind.data.ModelSelectionState
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
 import com.bytedance.zgx.pocketmind.data.RemoteModelStore
+import com.bytedance.zgx.pocketmind.data.RemoteSendPendingStore
 import com.bytedance.zgx.pocketmind.data.SessionStore
 import com.bytedance.zgx.pocketmind.data.TransferProgress
 import com.bytedance.zgx.pocketmind.device.DeviceContextAuthorizationSnapshot
@@ -39,6 +40,8 @@ import com.bytedance.zgx.pocketmind.download.DownloadInfo
 import com.bytedance.zgx.pocketmind.download.ModelDownloadClient
 import com.bytedance.zgx.pocketmind.memory.EmbeddingRuntime
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
+import com.bytedance.zgx.pocketmind.memory.MemoryDeletionEvent
+import com.bytedance.zgx.pocketmind.memory.MemoryDeletionEventStore
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
 import com.bytedance.zgx.pocketmind.memory.MemoryRecallMode
@@ -47,6 +50,7 @@ import com.bytedance.zgx.pocketmind.memory.MemoryRecordStore
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
 import com.bytedance.zgx.pocketmind.memory.PersistedMemoryRecord
 import com.bytedance.zgx.pocketmind.memory.SemanticMemoryRuntimeStatus
+import com.bytedance.zgx.pocketmind.memory.explicitUserFactRecordId
 import com.bytedance.zgx.pocketmind.memory.explicitUserPreferenceRecordId
 import com.bytedance.zgx.pocketmind.memory.taskStateMemoryRecordId
 import com.bytedance.zgx.pocketmind.multimodal.SharedAttachment
@@ -77,6 +81,7 @@ import com.bytedance.zgx.pocketmind.orchestration.RemoteToolScope
 import com.bytedance.zgx.pocketmind.orchestration.RunDataDestination
 import com.bytedance.zgx.pocketmind.orchestration.RunDataReceipt
 import com.bytedance.zgx.pocketmind.runtime.LocalModelRequest
+import com.bytedance.zgx.pocketmind.runtime.LocalModelRuntimeCapabilities
 import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.RemoteModelConnectivityProbe
 import com.bytedance.zgx.pocketmind.runtime.RemoteChatEvent
@@ -185,6 +190,164 @@ class PocketMindViewModelTest {
     }
 
     @Test
+    fun remoteSendDisclosurePersistsNonSensitiveMarkerUntilDecision() = runTest(dispatcher) {
+        val pendingStore = FakeRemoteSendPendingStore()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            remoteSendPendingStore = pendingStore,
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val marker = requireNotNull(pendingStore.pending)
+        assertEquals(RemoteSendDisclosureKind.CurrentInput, marker.kind)
+        assertEquals("model-a", marker.remoteModelName)
+        assertEquals(0, marker.imageAttachmentCount)
+        assertEquals(0, remoteRuntime.calls.size)
+
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals(null, pendingStore.pending)
+        assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
+    }
+
+    @Test
+    fun selectingInstalledLocalModelClearsPendingRemoteSendMarker() = runTest(dispatcher) {
+        val pendingStore = FakeRemoteSendPendingStore()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val installed = installedModelSummary(
+            id = "local-chat",
+            displayName = "本地对话模型",
+            path = "/tmp/local-chat.litertlm",
+        )
+        val viewModel = createViewModel(
+            modelRepository = FakeModelRepository(initialInstalledModels = listOf(installed)),
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            remoteSendPendingStore = pendingStore,
+            requireRemoteSendDisclosure = true,
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+        viewModel.setRemoteSendDisclosurePolicy(RemoteSendDisclosurePolicy.EveryMessage)
+
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertNotNull(pendingStore.pending)
+
+        viewModel.selectInstalledModel("local-chat")
+        advanceUntilIdle()
+
+        assertEquals(null, pendingStore.pending)
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(InferenceMode.Local, viewModel.uiState.value.inferenceMode)
+        assertEquals("local-chat", viewModel.uiState.value.activeInstalledModelId)
+        assertTrue(remoteRuntime.calls.isEmpty())
+    }
+
+    @Test
+    fun startupConsumesPendingRemoteSendMarkerFailClosedWithoutPromptLeak() = runTest(dispatcher) {
+        val pendingStore = FakeRemoteSendPendingStore(
+            pending = PendingRemoteSendMarker(
+                kind = RemoteSendDisclosureKind.CurrentInput,
+                remoteModelName = "model-a",
+                remoteHistoryCount = 1,
+                localOnlyHistoryFilteredCount = 2,
+                imageAttachmentCount = 1,
+                protectedSourceCount = 2,
+            ),
+        )
+        val sessionStore = FakeSessionStore(
+            initialSessions = mapOf(
+                "session-1" to listOf(
+                    ChatMessage(
+                        role = MessageRole.User,
+                        text = "之前的本地会话内容",
+                        privacy = MessagePrivacy.RemoteEligible,
+                    ),
+                ),
+            ),
+        )
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            remoteSendPendingStore = pendingStore,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertEquals(null, pendingStore.pending)
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        val note = sessionStore.messages.last()
+        assertEquals(MessagePrivacy.LocalOnly, note.privacy)
+        assertTrue(note.text.contains("远程发送确认"))
+        assertTrue(note.text.contains("没有发送"))
+        assertFalse(note.text.contains("model-a"))
+        assertFalse(note.text.contains("之前的本地会话内容"))
+    }
+
+    @Test
+    fun startupConsumesToolContinuationMarkerAndFailsModelRun() = runTest(dispatcher) {
+        val pendingStore = FakeRemoteSendPendingStore(
+            pending = PendingRemoteSendMarker(
+                kind = RemoteSendDisclosureKind.ToolResultContinuation,
+                remoteModelName = "model-a",
+                remoteHistoryCount = 1,
+                localOnlyHistoryFilteredCount = 0,
+                imageAttachmentCount = 0,
+                protectedSourceCount = 0,
+                runId = "run-pending-continuation",
+            ),
+        )
+        val assistantRouter = FakeAssistantRouter()
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            remoteSendPendingStore = pendingStore,
+        )
+
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        assertEquals(null, pendingStore.pending)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(1, assistantRouter.failModelGenerationCallCount)
+        assertEquals("run-pending-continuation", assistantRouter.lastFailedModelRunId)
+        assertTrue(assistantRouter.lastFailedModelReason.orEmpty().contains("应用重启"))
+        assertTrue(sessionStore.messages.last().text.contains("工具结果没有发送到远程模型"))
+        assertEquals(MessagePrivacy.LocalOnly, sessionStore.messages.last().privacy)
+    }
+
+    @Test
     fun switchingToRemoteShowsModeDisclosureOnceAndDismissAllowsSend() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
@@ -228,7 +391,7 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun remoteSendDisclosureOncePerSessionGoesSilentAfterSuppressThenKeepsImageSilent() =
+    fun remoteSendDisclosureOncePerSessionGoesSilentForTextButStillConfirmsImage() =
         runTest(dispatcher) {
             val remoteRuntime = RecordingRemoteChatRuntime()
             val viewModel = createViewModel(
@@ -264,8 +427,8 @@ class PocketMindViewModelTest {
             assertEquals(2, remoteRuntime.calls.size)
             assertEquals("第二条远程问题", remoteRuntime.calls.last().prompt)
 
-            // Image sends are covered by the remote-mode disclosure and no longer force a
-            // per-send popup after suppression.
+            // Image sends still cross the local/remote byte boundary, so session suppression
+            // for ordinary text must not silence their per-send preview confirmation.
             viewModel.stageSharedInput(
                 SharedInput(
                     text = "",
@@ -287,13 +450,21 @@ class PocketMindViewModelTest {
             viewModel.sendPendingSharedInput("描述这张图")
             advanceUntilIdle()
 
+            val imageDisclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+            assertEquals(RemoteSendDisclosureKind.CurrentInput, imageDisclosure.kind)
+            assertEquals(1, imageDisclosure.imageAttachmentCount)
+            assertEquals(2, remoteRuntime.calls.size)
+
+            viewModel.confirmRemoteSendDisclosure(suppressForSession = true)
+            advanceUntilIdle()
+
             assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
             assertEquals(3, remoteRuntime.calls.size)
             assertEquals(1, remoteRuntime.calls.last().imageAttachments.size)
         }
 
     @Test
-    fun remoteSendDisclosureOnlyWhenSensitiveSendsTextAndImageSilently() =
+    fun remoteSendDisclosureOnlyWhenSensitiveStillConfirmsImageSend() =
         runTest(dispatcher) {
             val remoteRuntime = RecordingRemoteChatRuntime()
             val viewModel = createViewModel(
@@ -317,7 +488,7 @@ class PocketMindViewModelTest {
             assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
             assertEquals("普通远程问题", remoteRuntime.calls.single().prompt)
 
-            // Image sends are also silent; the mode disclosure explains the image boundary.
+            // Image bytes require a per-send preview even when ordinary text is silent.
             viewModel.stageSharedInput(
                 SharedInput(
                     text = "",
@@ -337,6 +508,14 @@ class PocketMindViewModelTest {
             )
             advanceUntilIdle()
             viewModel.sendPendingSharedInput("描述这张图")
+            advanceUntilIdle()
+
+            val imageDisclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+            assertEquals(RemoteSendDisclosureKind.CurrentInput, imageDisclosure.kind)
+            assertEquals(1, imageDisclosure.imageAttachmentCount)
+            assertEquals(1, remoteRuntime.calls.size)
+
+            viewModel.confirmRemoteSendDisclosure()
             advanceUntilIdle()
 
             assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
@@ -559,7 +738,7 @@ class PocketMindViewModelTest {
     }
 
     @Test
-    fun remoteImageSendKeepsAttachmentWithoutPerSendDisclosure() = runTest(dispatcher) {
+    fun remoteImageSendRequiresPreviewDisclosureBeforeRuntimeCall() = runTest(dispatcher) {
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             remoteRuntime = remoteRuntime,
@@ -594,10 +773,69 @@ class PocketMindViewModelTest {
         viewModel.sendPendingSharedInput("描述这张图")
         advanceUntilIdle()
 
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(RemoteSendDisclosureKind.CurrentInput, disclosure.kind)
+        assertEquals(1, disclosure.imageAttachmentCount)
+        assertEquals("data:image/png;base64,AA==", disclosure.imageAttachments.single().dataUrl)
+        assertTrue(remoteRuntime.calls.isEmpty())
+
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
         assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
         val call = remoteRuntime.calls.single()
         assertTrue(call.prompt.contains("描述这张图"))
         assertEquals("data:image/png;base64,AA==", call.imageAttachments.single().dataUrl)
+    }
+
+    @Test
+    fun remoteSharedImageSendPreviewCancelKeepsRuntimeIdle() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.stageSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Image,
+                        mimeType = "image/png",
+                        displayName = "screen.png",
+                        sizeBytes = 12L,
+                        imageAttachment = ChatImageAttachment(
+                            mimeType = "image/png",
+                            dataUrl = "data:image/png;base64,AA==",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        viewModel.sendPendingSharedInput("描述这张图")
+        advanceUntilIdle()
+
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(1, disclosure.imageAttachmentCount)
+        assertTrue(remoteRuntime.calls.isEmpty())
+
+        viewModel.dismissRemoteSendDisclosure()
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals("已取消远程发送", viewModel.uiState.value.statusText)
+        assertTrue(sessionStore.messages.isEmpty())
     }
 
     @Test
@@ -713,6 +951,137 @@ class PocketMindViewModelTest {
         assertFalse(viewModel.uiState.value.isReady)
         assertTrue(viewModel.uiState.value.statusText.contains("已删除 当前对话"))
         assertTrue(viewModel.uiState.value.statusText.contains("已切换到 备用对话"))
+    }
+
+    @Test
+    fun loadModelConfiguresRuntimeFromActiveModelCapabilityProfile() = runTest(dispatcher) {
+        val recommendedModelId = DEFAULT_CHAT_MODEL_ID
+        val profile = ModelCatalog.profileForModelId(recommendedModelId)
+        val active = installedModelSummary(
+            id = "active-chat",
+            displayName = "当前对话",
+            path = "/tmp/active.litertlm",
+            recommendedModelId = recommendedModelId,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val modelRepository = FakeModelRepository(
+            activeInstalledModelId = active.id,
+            initialInstalledModels = listOf(active),
+        )
+        val runtime = FakeLiteRtRuntime()
+        val viewModel = createViewModel(
+            modelRepository = modelRepository,
+            runtime = runtime,
+        )
+
+        viewModel.loadModel()
+        advanceUntilIdle()
+
+        val capabilities = runtime.configuredCapabilities.single()
+        assertEquals(profile.supportsVisionInput, capabilities.supportsVisionInput)
+        assertEquals(profile.contextWindowTokens, capabilities.contextWindowTokens)
+        assertEquals(profile.preferredLocalBackends, capabilities.preferredBackends)
+    }
+
+    @Test
+    fun loadCustomImportedModelConfiguresTextOnlyRuntimeCapabilities() = runTest(dispatcher) {
+        val active = installedModelSummary(
+            id = "custom-chat",
+            displayName = "导入模型",
+            path = "/tmp/custom.litertlm",
+            recommendedModelId = null,
+            verificationStatus = ModelVerificationStatus.UnverifiedCustom,
+        )
+        val modelRepository = FakeModelRepository(
+            activeInstalledModelId = active.id,
+            initialInstalledModels = listOf(active),
+        )
+        val runtime = FakeLiteRtRuntime()
+        val viewModel = createViewModel(
+            modelRepository = modelRepository,
+            runtime = runtime,
+        )
+
+        assertEquals(CUSTOM_LOCAL_CHAT_PROFILE_ID, viewModel.uiState.value.modelHealth.profileId)
+
+        viewModel.loadModel()
+        advanceUntilIdle()
+
+        val capabilities = runtime.configuredCapabilities.single()
+        assertFalse(capabilities.supportsVisionInput)
+        assertEquals(LocalModelTokenLimits.MAX_TOTAL_TOKENS, capabilities.contextWindowTokens)
+        assertTrue(capabilities.preferredBackends.isEmpty())
+        assertEquals(CUSTOM_LOCAL_CHAT_PROFILE_ID, viewModel.uiState.value.modelHealth.profileId)
+        assertEquals(ModelHealthState.Loaded, viewModel.uiState.value.modelHealth.state)
+    }
+
+    @Test
+    fun unknownRecommendedActiveModelDoesNotReportDefaultOrVerifiedProfile() = runTest(dispatcher) {
+        val active = installedModelSummary(
+            id = "unknown-recommended",
+            displayName = "未知推荐模型",
+            path = "/tmp/unknown.litertlm",
+            recommendedModelId = "unknown-model-id",
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val modelRepository = FakeModelRepository(
+            activeInstalledModelId = active.id,
+            initialInstalledModels = listOf(active),
+        )
+
+        val viewModel = createViewModel(modelRepository = modelRepository)
+
+        assertEquals("unknown-model-id", viewModel.uiState.value.modelHealth.profileId)
+        assertEquals(ModelHealthState.InstalledUnverified, viewModel.uiState.value.modelHealth.state)
+        assertEquals(null, viewModel.uiState.value.activeLocalCapabilityProfile)
+        assertFalse(viewModel.uiState.value.activeLocalModelSupportsVisionInput)
+    }
+
+    @Test
+    fun sendMessagePassesVerifiedInstalledCapabilityProfilesToAgentRoute() = runTest(dispatcher) {
+        val chat = installedModelSummary(
+            id = "chat-model",
+            displayName = "当前对话",
+            path = "/tmp/chat.litertlm",
+            recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val action = installedModelSummary(
+            id = "action-model",
+            displayName = "设备动作模型",
+            path = "/tmp/action.litertlm",
+            recommendedModelId = MOBILE_ACTION_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val unverifiedAction = installedModelSummary(
+            id = "unverified-action",
+            displayName = "未验证动作模型",
+            path = "/tmp/unverified-action.litertlm",
+            recommendedModelId = MOBILE_ACTION_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.UnverifiedCustom,
+        )
+        val assistantRouter = FakeAssistantRouter()
+        val viewModel = createViewModel(
+            assistantRouter = assistantRouter,
+            modelRepository = FakeModelRepository(
+                activeInstalledModelId = chat.id,
+                initialInstalledModels = listOf(chat, action, unverifiedAction),
+            ),
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.sendMessage("普通问题")
+        advanceUntilIdle()
+
+        assertEquals(1, assistantRouter.routeCallCount)
+        assertEquals(
+            listOf(DEFAULT_CHAT_MODEL_ID, MOBILE_ACTION_MODEL_ID),
+            assistantRouter.lastRouteCapabilityProfiles.map { profile -> profile.id },
+        )
+        assertTrue(assistantRouter.lastRouteCapabilityProfiles.any { profile ->
+            profile.supportsMobileActionPlanning
+        })
     }
 
     @Test
@@ -1764,6 +2133,14 @@ class PocketMindViewModelTest {
         viewModel.sendPendingSharedInput("描述这张图")
         advanceUntilIdle()
 
+        val disclosure = requireNotNull(viewModel.uiState.value.pendingRemoteSendDisclosure)
+        assertEquals(RemoteSendDisclosureKind.CurrentInput, disclosure.kind)
+        assertEquals(1, disclosure.imageAttachmentCount)
+        assertTrue(remoteRuntime.calls.isEmpty())
+
+        viewModel.confirmRemoteSendDisclosure()
+        advanceUntilIdle()
+
         val call = remoteRuntime.calls.single()
         assertTrue(call.prompt.contains("描述这张图"))
         assertTrue(call.prompt.contains("已附加 1 张图片"))
@@ -1842,6 +2219,66 @@ class PocketMindViewModelTest {
 
         val call = remoteRuntime.calls.single()
         assertFalse(call.history.toString().contains("screen.png"))
+        assertFalse(call.history.toString().contains("data:image/png"))
+    }
+
+    @Test
+    fun remoteImageDraftIsDiscardedWhenSwitchingToReadyLocalMode() = runTest(dispatcher) {
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val runtime = FakeLiteRtRuntime().apply { isLoaded = true }
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            runtime = runtime,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.stageSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Image,
+                        mimeType = "image/png",
+                        displayName = "private-screen.png",
+                        sizeBytes = 12L,
+                        imageAttachment = ChatImageAttachment(
+                            mimeType = "image/png",
+                            dataUrl = "data:image/png;base64,AA==",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(MessagePrivacy.RemoteEligible, viewModel.uiState.value.pendingSharedInputDraft?.privacy)
+        runtime.isLoaded = true
+        viewModel.selectInferenceMode(InferenceMode.Local)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.pendingSharedInputDraft)
+        viewModel.sendPendingSharedInput("描述这张图")
+        advanceUntilIdle()
+
+        assertTrue(runtime.localRequests.isEmpty())
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertTrue(sessionStore.messages.isEmpty())
+
+        viewModel.selectInferenceMode(InferenceMode.Remote)
+        viewModel.sendMessage("普通远程问题")
+        advanceUntilIdle()
+
+        val call = remoteRuntime.calls.single()
+        assertFalse(call.prompt.contains("private-screen.png"))
+        assertFalse(call.prompt.contains("data:image/png"))
+        assertFalse(call.history.toString().contains("private-screen.png"))
         assertFalse(call.history.toString().contains("data:image/png"))
     }
 
@@ -2239,6 +2676,57 @@ class PocketMindViewModelTest {
             listOf(MessagePrivacy.LocalOnly, MessagePrivacy.LocalOnly),
             sessionStore.messages.map { it.privacy },
         )
+    }
+
+    @Test
+    fun localSharedPdfImageOcrTruncationIsRecordedInRunDataReceipt() = runTest(dispatcher) {
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Chat(
+                runId = "run-local-pdf-ocr-truncated",
+                promptForModel = "本地 PDF OCR 摘录",
+                memoryHits = emptyList(),
+            ),
+        )
+        val viewModel = createViewModel(
+            runtime = FakeLiteRtRuntime(localResponse = "本地回复：PDF 摘要"),
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            assistantRouter = assistantRouter,
+        )
+        viewModel.restoreStartupState()
+        advanceUntilIdle()
+
+        viewModel.stageSharedInput(
+            SharedInput(
+                text = "",
+                attachments = listOf(
+                    SharedAttachment(
+                        kind = SharedAttachmentKind.Document,
+                        mimeType = "application/pdf",
+                        displayName = "scan.pdf",
+                        sizeBytes = 512L,
+                        textPreview = SharedTextPreview(
+                            text = "private scanned pdf OCR excerpt",
+                            truncated = true,
+                            source = SharedTextPreviewSource.PdfImageOcr,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        viewModel.sendPendingSharedInput("总结这份扫描件")
+        advanceUntilIdle()
+
+        val receipt = requireNotNull(assistantRouter.lastRecordedRunDataReceipt)
+        assertEquals("run-local-pdf-ocr-truncated", assistantRouter.lastRecordedRunDataReceiptRunId)
+        assertEquals(RunDataDestination.Local, receipt.destination)
+        assertEquals(MessagePrivacy.LocalOnly.name, receipt.currentPromptPrivacy)
+        assertEquals(1, receipt.evidenceCardCount)
+        assertEquals(1, receipt.localOnlyEvidenceCardCount)
+        assertEquals(1, receipt.truncatedEvidenceCardCount)
+        assertTrue(receipt.evidenceSourceTypes.contains("OcrText"))
+        assertEquals(false, receipt.rawContentPersisted)
     }
 
     @Test
@@ -3077,6 +3565,113 @@ class PocketMindViewModelTest {
         assertEquals(null, viewModel.uiState.value.pendingConfirmation)
         assertEquals("已保护截图 OCR 内容", viewModel.uiState.value.statusText)
         assertTrue(sessionStore.messages.last().text.contains("不会自动发送截图 OCR 内容到远程模型"))
+        assertTrue(sessionStore.messages.none { message -> message.text.contains(rawOcrText) })
+    }
+
+    @Test
+    fun remoteModeProtectsCurrentScreenshotOcrBeforeRemoteContinuation() = runTest(dispatcher) {
+        val rawOcrText = "当前屏幕截图里的私密验证码 246810"
+        val remoteRuntime = RecordingRemoteChatRuntime()
+        val sessionStore = FakeSessionStore()
+        val readRequest = ToolRequest(
+            toolName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+            arguments = mapOf("captureMode" to "current_screen"),
+        )
+        val readDraft = ActionDraft(
+            functionName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+            title = "当前屏幕截图 OCR",
+            summary = "将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本。",
+            parameters = readRequest.arguments,
+        )
+        val assistantRouter = FakeAssistantRouter(
+            routeResult = AssistantRoute.Action(
+                runId = "run-current-screenshot-ocr",
+                toolRequest = readRequest,
+                draft = readDraft,
+                plannedByModel = false,
+                fallbackReason = "test fallback",
+                skillId = BuiltInSkillRuntime.CURRENT_SCREENSHOT_OCR_CONTEXT_SKILL,
+            ),
+            confirmedRun = AgentRun(
+                "run-current-screenshot-ocr",
+                "识别当前屏幕截图文字",
+                AgentRunState.ExecutingTool,
+                1L,
+                2L,
+            ),
+            toolObservation = AgentObservationResult(
+                run = AgentRun(
+                    "run-current-screenshot-ocr",
+                    "识别当前屏幕截图文字",
+                    AgentRunState.GeneratingAnswer,
+                    1L,
+                    3L,
+                ),
+                result = ToolResult(
+                    requestId = readRequest.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取当前屏幕截图 OCR 摘录",
+                    data = mapOf(
+                        "ocrText" to "[redacted]",
+                        "ocrTextIncluded" to "true",
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                        "requiresLocalModel" to "true",
+                    ),
+                ),
+                assistantMessage = "工具执行结果：已读取当前屏幕截图 OCR 摘录",
+                decision = AgentObservationDecision.ContinueWithModel(
+                    requiresLocalModel = true,
+                    reason = "当前屏幕截图 OCR 内容仅可在本地继续处理。",
+                ),
+                continuationPromptForModel = "请根据当前屏幕截图 OCR 文本回答：$rawOcrText",
+                continuationRequiresLocalModel = true,
+                steps = emptyList(),
+            ),
+        )
+        val actionExecutor = object : ToolExecutor {
+            override fun execute(request: ToolRequest): ToolResult =
+                ToolResult(
+                    requestId = request.id,
+                    status = ToolStatus.Succeeded,
+                    summary = "已读取当前屏幕截图 OCR 摘录",
+                    data = mapOf(
+                        "ocrText" to rawOcrText,
+                        "ocrTextIncluded" to "true",
+                        "privacy" to MessagePrivacy.LocalOnly.name,
+                        "requiresLocalModel" to "true",
+                    ),
+                )
+        }
+        val viewModel = createViewModel(
+            sessionStore = sessionStore,
+            remoteRuntime = remoteRuntime,
+            remoteStore = FakeRemoteModelStore(
+                mode = InferenceMode.Remote,
+                config = configuredRemoteModel(),
+            ),
+            assistantRouter = assistantRouter,
+            actionExecutor = actionExecutor,
+            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+        )
+        viewModel.restoreStartupState(skipModelRuntimeWork = true)
+        advanceUntilIdle()
+
+        viewModel.sendMessage("识别当前屏幕截图文字")
+        advanceUntilIdle()
+        val confirmation = viewModel.uiState.value.pendingConfirmation
+        requireNotNull(confirmation)
+        assertEquals(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR, confirmation.draft.functionName)
+        assertEquals(BuiltInSkillRuntime.CURRENT_SCREENSHOT_OCR_CONTEXT_SKILL, confirmation.skillId)
+
+        viewModel.confirmAgentConfirmation(confirmation)
+        advanceUntilIdle()
+
+        assertTrue(remoteRuntime.calls.isEmpty())
+        assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        assertEquals("已保护当前屏幕截图 OCR 内容", viewModel.uiState.value.statusText)
+        assertEquals(1, assistantRouter.failModelGenerationCallCount)
+        assertEquals("run-current-screenshot-ocr", assistantRouter.lastFailedModelRunId)
+        assertTrue(sessionStore.messages.last().text.contains("不会自动发送当前屏幕截图 OCR 内容到远程模型"))
         assertTrue(sessionStore.messages.none { message -> message.text.contains(rawOcrText) })
     }
 
@@ -5155,13 +5750,30 @@ class PocketMindViewModelTest {
         val sessionStore = FakeSessionStore()
         val remoteRuntime = RecordingRemoteChatRuntime()
         val executor = RecordingToolExecutor()
+        val chat = installedModelSummary(
+            id = "chat-model",
+            displayName = "当前对话",
+            path = "/tmp/chat.litertlm",
+            recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
+        val action = installedModelSummary(
+            id = "action-model",
+            displayName = "设备动作模型",
+            path = "/tmp/action.litertlm",
+            recommendedModelId = MOBILE_ACTION_MODEL_ID,
+            verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+        )
         val viewModel = createViewModel(
             sessionStore = sessionStore,
             runtime = FakeLiteRtRuntime(localResponse = localCall),
             remoteRuntime = remoteRuntime,
             assistantRouter = orchestrator,
             actionExecutor = executor,
-            modelRepository = FakeModelRepository(activeModelPath = "/tmp/model.litertlm"),
+            modelRepository = FakeModelRepository(
+                activeInstalledModelId = chat.id,
+                initialInstalledModels = listOf(chat, action),
+            ),
         )
         viewModel.restoreStartupState()
         advanceUntilIdle()
@@ -6242,6 +6854,10 @@ class PocketMindViewModelTest {
             },
         )
         memoryRepository.indexPreference("pref-1", "I prefer concise answers")
+        memoryRepository.indexUserFact(
+            explicitUserFactRecordId("my rcode is xb83"),
+            "my rcode is xb83",
+        )
         val remoteRuntime = RecordingRemoteChatRuntime()
         val viewModel = createViewModel(
             runtime = FakeLiteRtRuntime(localResponse = "本地回复：I prefer concise answers"),
@@ -6320,8 +6936,12 @@ class PocketMindViewModelTest {
         assertFalse(call.prompt.contains("本地记忆"))
         assertFalse(call.prompt.contains("I prefer concise answers"))
         assertFalse(call.prompt.contains("用户偏好"))
+        assertFalse(call.prompt.contains("xb83"))
+        assertFalse(call.prompt.contains("用户事实"))
         assertFalse(call.history.toString().contains("I prefer concise answers"))
         assertFalse(call.history.toString().contains("用户偏好"))
+        assertFalse(call.history.toString().contains("xb83"))
+        assertFalse(call.history.toString().contains("用户事实"))
     }
 
     @Test
@@ -6621,7 +7241,11 @@ class PocketMindViewModelTest {
     @Test
     fun refreshBackgroundTasksDropsTerminalTaskStateMemory() = runTest(dispatcher) {
         val store = FakeMemoryRecordStore()
-        val memoryRepository = MemoryRepository(recordStore = store)
+        val deletionStore = FakeMemoryDeletionEventStore()
+        val memoryRepository = MemoryRepository(
+            recordStore = store,
+            deletionEventStore = deletionStore,
+        )
         val taskMemoryId = taskStateMemoryRecordId("done-task")
         memoryRepository.indexTaskState(taskMemoryId, "旧的后台任务状态")
         val scheduler = FakeBackgroundTaskScheduler(
@@ -6644,6 +7268,7 @@ class PocketMindViewModelTest {
         advanceUntilIdle()
 
         assertTrue(store.records().none { record -> record.id == taskMemoryId })
+        assertTrue(deletionStore.events().isEmpty())
         assertTrue(viewModel.uiState.value.longTermMemories.none { memory -> memory.id == taskMemoryId })
         assertTrue(memoryRepository.search("后台任务状态").isEmpty())
     }
@@ -7724,6 +8349,7 @@ class PocketMindViewModelTest {
         requireRemoteSendDisclosure: Boolean = false,
         remoteConnectivityProbe: RemoteModelConnectivityProbe = FakeRemoteModelConnectivityProbe(),
         huggingFaceAuthStore: HuggingFaceAuthStore = FakeHuggingFaceAuthStore(),
+        remoteSendPendingStore: RemoteSendPendingStore = FakeRemoteSendPendingStore(),
         actionExecutor: ToolExecutor = object : ToolExecutor {
             override fun execute(request: ToolRequest): ToolResult =
                 ToolResult(
@@ -7753,6 +8379,7 @@ class PocketMindViewModelTest {
             ioDispatcher = ioDispatcher,
             requireRemoteSendDisclosure = requireRemoteSendDisclosure,
             remoteConnectivityProbe = remoteConnectivityProbe,
+            remoteSendPendingStore = remoteSendPendingStore,
         )
 
     private fun installedModelSummary(
@@ -7969,6 +8596,7 @@ class PocketMindViewModelTest {
         val preparedForSendPrompts = mutableListOf<String>()
         val preparedForSendMaxInputTokens = mutableListOf<Int?>()
         val loadCalls = mutableListOf<BackendChoice>()
+        val configuredCapabilities = mutableListOf<LocalModelRuntimeCapabilities>()
         var stopCallCount: Int = 0
             private set
         var closeCallCount: Int = 0
@@ -7976,6 +8604,10 @@ class PocketMindViewModelTest {
         var recreateCallCount: Int = 0
             private set
         override var isLoaded: Boolean = false
+
+        override fun configureModelCapabilities(capabilities: LocalModelRuntimeCapabilities) {
+            configuredCapabilities += capabilities
+        }
 
         override fun load(
             modelPath: String,
@@ -8116,6 +8748,8 @@ class PocketMindViewModelTest {
             private set
         var lastRouteDeviceContext: com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot? = null
             private set
+        var lastRouteCapabilityProfiles: List<ModelCapabilityProfile> = emptyList()
+            private set
         var lastRecordedRunDataReceiptRunId: String? = null
             private set
         var lastRecordedRunDataReceipt: RunDataReceipt? = null
@@ -8149,12 +8783,14 @@ class PocketMindViewModelTest {
             deviceContext: com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot?,
             sessionId: String?,
             options: AgentRunOptions,
+            installedCapabilityProfiles: List<ModelCapabilityProfile>,
         ): AssistantRoute {
             routeCallCount += 1
             lastRouteSessionId = sessionId
             lastRouteMemoryEnabled = memoryEnabled
             lastRouteOptions = options
             lastRouteDeviceContext = deviceContext
+            lastRouteCapabilityProfiles = installedCapabilityProfiles
             routeFailure?.let { throw it }
             val route = routeResult ?:
                 AssistantRoute.Chat(
@@ -8500,6 +9136,8 @@ class PocketMindViewModelTest {
 
         override fun forget(id: String): Boolean = false
 
+        override fun forgetAutoManagedTaskState(id: String): Boolean = false
+
         override fun forgetPreference(target: String): Boolean = false
 
         override fun forgetUserFact(target: String): Boolean = false
@@ -8530,6 +9168,17 @@ class PocketMindViewModelTest {
         override fun clear() {
             failure?.let { throw it }
             records.clear()
+        }
+    }
+
+    private class FakeMemoryDeletionEventStore : MemoryDeletionEventStore {
+        private val events = mutableListOf<MemoryDeletionEvent>()
+
+        override fun events(): List<MemoryDeletionEvent> =
+            events.toList()
+
+        override fun append(event: MemoryDeletionEvent) {
+            events += event
         }
     }
 
@@ -8747,7 +9396,14 @@ class PocketMindViewModelTest {
             return ModelSelectionResult(state, null)
         }
 
-        override fun selectInstalledModel(modelId: String): InstalledModelSummary? = null
+        override fun selectInstalledModel(modelId: String): InstalledModelSummary? {
+            val selected = state.installedModels.firstOrNull { it.id == modelId } ?: return null
+            state = state.copy(
+                activeInstalledModelId = selected.id,
+                activeModelPath = selected.path,
+            )
+            return selected
+        }
 
         override fun deleteInstalledModel(modelId: String): Boolean {
             deletedModelIds += modelId
@@ -8870,6 +9526,21 @@ class PocketMindViewModelTest {
         override fun saveConfig(config: RemoteModelConfig): Result<RemoteModelConfig> {
             this.config = config.normalized()
             return Result.success(this.config)
+        }
+    }
+
+    private class FakeRemoteSendPendingStore(
+        var pending: PendingRemoteSendMarker? = null,
+    ) : RemoteSendPendingStore {
+        override fun savePendingRemoteSend(marker: PendingRemoteSendMarker) {
+            pending = marker
+        }
+
+        override fun consumePendingRemoteSend(): PendingRemoteSendMarker? =
+            pending.also { pending = null }
+
+        override fun clearPendingRemoteSend() {
+            pending = null
         }
     }
 

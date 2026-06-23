@@ -1,5 +1,7 @@
 package com.bytedance.zgx.pocketmind.memory
 
+import com.bytedance.zgx.pocketmind.MessagePrivacy
+
 object MemoryQualityContract {
     const val EXPLICIT_RECALL_TARGET_PERCENT = 90
     const val FALSE_POSITIVE_MAX_PERCENT = 5
@@ -20,6 +22,17 @@ object MemoryQualityContract {
             !memoryContextIncluded && !remoteHistoryContainsLocalOnly
         } else {
             true
+        }
+
+    fun validateMemoryBoundary(
+        remoteMode: Boolean,
+        memoryHits: List<MemoryHit>,
+        memoryContextIncluded: Boolean,
+    ): Boolean =
+        if (remoteMode) {
+            !memoryContextIncluded && memoryHits.isEmpty()
+        } else {
+            memoryHits.all { hit -> hit.privacy == MessagePrivacy.LocalOnly }
         }
 
     fun validateForgetResult(

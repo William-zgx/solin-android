@@ -4,23 +4,39 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPORT_FILE=""
 SCAN_TARGETS=()
+ORIGINAL_ARGS=("$@")
 
-while [[ $# -gt 0 ]]; do
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+shell_command() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "scripts/privacy_scan.sh")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+failed_target_for_reason() {
   case "$1" in
-    --report)
-      REPORT_FILE="${2:?missing report path}"
-      shift 2
+    unknown-argument|missing-*-argument)
+      printf 'argument-parser'
+      ;;
+    secret-pattern-detected)
+      printf 'scan-target'
       ;;
     *)
-      SCAN_TARGETS+=("$1")
-      shift
+      printf ''
       ;;
   esac
-done
-
-if [[ "${#SCAN_TARGETS[@]}" -eq 0 ]]; then
-  SCAN_TARGETS=("$ROOT_DIR")
-fi
+}
 
 write_report() {
   local status="$1"
@@ -31,12 +47,64 @@ write_report() {
     {
       printf 'status=%s\n' "$status"
       printf 'target=privacy-scan\n'
+      printf 'artifactSchema=PrivacyScanReport/v1\n'
+      printf 'owner=privacy-security\n'
+      printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'command=%s\n' "$(shell_command)"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
+      printf 'failedTarget=%s\n' "$(failed_target_for_reason "$reason")"
       printf 'reason=%s\n' "$reason"
       printf 'scanTargetCount=%s\n' "${#SCAN_TARGETS[@]}"
       printf 'findingCount=%s\n' "$finding_count"
+      local index=0
+      local target
+      for target in "${SCAN_TARGETS[@]}"; do
+        index=$((index + 1))
+        printf 'scanTarget%sPath=%s\n' "$index" "$target"
+        printf 'scanTarget%sSha256=%s\n' "$index" "$(sha256_or_empty "$target")"
+      done
     } > "$REPORT_FILE"
   fi
 }
+
+fail_parse() {
+  local reason="$1"
+  local message="$2"
+  write_report failed 1 "$reason"
+  echo "$message" >&2
+  exit 2
+}
+
+REQUIRED_ARG_VALUE=""
+require_value() {
+  local option="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    fail_parse "missing-${option#--}-argument" "Missing value for $option"
+  fi
+  REQUIRED_ARG_VALUE="$value"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --report)
+      require_value "$1" "${2:-}"
+      REPORT_FILE="$REQUIRED_ARG_VALUE"
+      shift 2
+      ;;
+    *)
+      if [[ "$1" == --* ]]; then
+        fail_parse unknown-argument "Unknown argument: $1"
+      fi
+      SCAN_TARGETS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ "${#SCAN_TARGETS[@]}" -eq 0 ]]; then
+  SCAN_TARGETS=("$ROOT_DIR")
+fi
 
 TMP_FINDINGS="$(mktemp)"
 trap 'rm -f "$TMP_FINDINGS"' EXIT

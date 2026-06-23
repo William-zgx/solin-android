@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+source "$ROOT_DIR/scripts/release_preflight_fields.sh"
+
 RELEASE_RECORD_FILE="${RELEASE_RECORD_FILE:-docs/release_record.json}"
 GRADLE_FILE="${GRADLE_FILE:-app/build.gradle.kts}"
 PUBLIC_RELEASE_CONTEXT="${PUBLIC_RELEASE_CONTEXT:-0}"
@@ -12,7 +14,62 @@ EXPECTED_RELEASE_ARTIFACT_PATH="${EXPECTED_RELEASE_ARTIFACT_PATH:-}"
 EXPECTED_RELEASE_ARTIFACT_TYPE="${EXPECTED_RELEASE_ARTIFACT_TYPE:-}"
 EXPECTED_RELEASE_ARTIFACT_SHA256="${EXPECTED_RELEASE_ARTIFACT_SHA256:-}"
 EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
+VERIFICATION_REPORT_MAX_AGE_DAYS="${RELEASE_RECORD_VERIFICATION_REPORT_MAX_AGE_DAYS:-30}"
 REPORT_FILE=""
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+failed_target_for_reason() {
+  local reason="$1"
+  local first="${reason%%,*}"
+  case "$first" in
+    "")
+      printf ''
+      ;;
+    missing-release-record-file|record-file-sha-*)
+      printf 'release-record-file'
+      ;;
+    missing-gradle-file|gradle-file-sha-*)
+      printf 'gradle-file'
+      ;;
+    artifact-*|expected-artifact-*|signing-certificate-*)
+      printf 'release-artifact'
+      ;;
+    git-*)
+      printf 'source-control'
+      ;;
+    public-release-target-channel-invalid|target-channel-invalid)
+      printf 'target-channel'
+      ;;
+    verification-report-*)
+      printf 'verification-report'
+      ;;
+    blocker-*|*-evidence-*)
+      printf 'blocker-evidence'
+      ;;
+    *)
+      printf 'release-record'
+      ;;
+  esac
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,20 +91,48 @@ done
 write_report() {
   local status="$1"
   local reason="$2"
+  local failed_target=""
+  local missing_owner_fields=""
+  local missing_approval_roles=""
+  local missing_evidence_files=""
+  local deferred_device_evidence=""
+  local requires_human_approval=""
+  if [[ "$status" != "passed" ]]; then
+    failed_target="$(failed_target_for_reason "$reason")"
+  fi
+  missing_owner_fields="$(preflight_missing_owner_fields release-record "$reason")"
+  missing_approval_roles="$(preflight_missing_approval_roles release-record "$reason" "$status")"
+  missing_evidence_files="$(preflight_missing_evidence_files "$reason")"
+  deferred_device_evidence="$(preflight_deferred_device_evidence release-record "$reason")"
+  requires_human_approval="$(preflight_requires_human_approval "$status" "$missing_approval_roles" "$missing_owner_fields")"
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
+      printf 'artifactSchema=ReleaseRecordVerification/v1\n'
       printf 'status=%s\n' "$status"
       printf 'target=release-record\n'
+      printf 'owner=%s\n' "$EVIDENCE_OWNER"
+      printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      printf 'command=%s\n' "$(command_line)"
+      printf 'failedTarget=%s\n' "$failed_target"
+      printf 'reason=%s\n' "$reason"
+      printf 'missingOwnerFields=%s\n' "$missing_owner_fields"
+      printf 'missingApprovalRoles=%s\n' "$missing_approval_roles"
+      printf 'missingEvidenceFiles=%s\n' "$missing_evidence_files"
+      printf 'deferredDeviceEvidence=%s\n' "$deferred_device_evidence"
+      printf 'requiresHumanApproval=%s\n' "$requires_human_approval"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'recordFile=%s\n' "$RELEASE_RECORD_FILE"
+      printf 'recordSha256=%s\n' "$(sha256_or_empty "$RELEASE_RECORD_FILE")"
       printf 'gradleFile=%s\n' "$GRADLE_FILE"
+      printf 'gradleSha256=%s\n' "$(sha256_or_empty "$GRADLE_FILE")"
       printf 'publicReleaseContext=%s\n' "$PUBLIC_RELEASE_CONTEXT"
       printf 'allowDirtyRelease=%s\n' "$ALLOW_DIRTY_RELEASE"
       printf 'expectedReleaseArtifactPath=%s\n' "$EXPECTED_RELEASE_ARTIFACT_PATH"
       printf 'expectedReleaseArtifactType=%s\n' "$EXPECTED_RELEASE_ARTIFACT_TYPE"
       printf 'expectedReleaseArtifactSha256=%s\n' "$EXPECTED_RELEASE_ARTIFACT_SHA256"
       printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
-      printf 'reason=%s\n' "$reason"
+      printf 'verificationReportMaxAgeDays=%s\n' "$VERIFICATION_REPORT_MAX_AGE_DAYS"
     } > "$REPORT_FILE"
   fi
 }
@@ -76,13 +161,14 @@ python3 - \
   "$EXPECTED_RELEASE_ARTIFACT_PATH" \
   "$EXPECTED_RELEASE_ARTIFACT_TYPE" \
   "$EXPECTED_RELEASE_ARTIFACT_SHA256" \
-  "$EXPECTED_SIGNING_CERT_SHA256" > "$TMP_FAILURES" <<'PY'
+  "$EXPECTED_SIGNING_CERT_SHA256" \
+  "$VERIFICATION_REPORT_MAX_AGE_DAYS" > "$TMP_FAILURES" <<'PY'
 import hashlib
 import json
 import re
 import subprocess
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 record_path = Path(sys.argv[1])
@@ -93,6 +179,7 @@ expected_artifact_path = sys.argv[5]
 expected_artifact_type = sys.argv[6]
 expected_artifact_sha256 = sys.argv[7].lower()
 expected_signing_cert_sha256 = sys.argv[8].lower()
+verification_report_max_age_days_raw = sys.argv[9]
 
 try:
     record = json.loads(record_path.read_text())
@@ -156,7 +243,99 @@ def validate_file_sha(prefix, path, expected_sha):
     if actual_sha != expected_sha:
         failures.append(f"{prefix}-sha-mismatch")
 
+def validate_utc_timestamp_fresh(value, max_age_days, prefix):
+    if not non_empty_string(value):
+        failures.append(f"{prefix}-recorded-at-missing")
+        return
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        failures.append(f"{prefix}-recorded-at-invalid")
+        return
+    now = datetime.now(timezone.utc)
+    if parsed > now:
+        failures.append(f"{prefix}-recorded-at-in-future")
+    elif max_age_days is not None and (now - parsed).days > max_age_days:
+        failures.append(f"{prefix}-recorded-at-stale")
+
+def validate_verification_report_properties(prefix, props, path):
+    schema = props.get("artifactSchema", "")
+    if not non_empty_string(schema):
+        failures.append(f"{prefix}-artifact-schema-missing")
+    elif not re.fullmatch(r"[A-Za-z0-9_.-]+/v[0-9]+", schema):
+        failures.append(f"{prefix}-artifact-schema-invalid")
+    if props.get("status") != "passed":
+        failures.append(f"{prefix}-status-not-passed")
+    if not non_empty_string(props.get("target", "")):
+        failures.append(f"{prefix}-target-missing")
+    if not non_empty_string(props.get("owner", "")):
+        failures.append(f"{prefix}-owner-missing")
+    validate_utc_timestamp_fresh(
+        props.get("recordedAt", ""),
+        verification_report_max_age_days,
+        prefix,
+    )
+    if not non_empty_string(props.get("command", "")):
+        failures.append(f"{prefix}-command-missing")
+    reproducible_path = props.get("reproduciblePath", "")
+    if not non_empty_string(reproducible_path):
+        failures.append(f"{prefix}-reproducible-path-missing")
+    elif reproducible_path != str(path):
+        failures.append(f"{prefix}-reproducible-path-mismatch")
+
+def validate_release_gate_report_properties(prefix, props, release_git_commit, release_artifact_sha):
+    if props.get("verifyReleaseRecord") != "1":
+        failures.append(f"{prefix}-release-gate-record-verification-not-enabled")
+    if props.get("releaseRecordReportStatus") != "passed":
+        failures.append(f"{prefix}-release-gate-record-report-not-passed")
+    release_record_file = props.get("releaseRecordFile", "")
+    if not non_empty_string(release_record_file):
+        failures.append(f"{prefix}-release-record-file-missing")
+    elif Path(release_record_file).resolve() != record_path.resolve():
+        failures.append(f"{prefix}-release-record-file-mismatch")
+    if props.get("headCommitSha") != release_git_commit:
+        failures.append(f"{prefix}-head-commit-mismatch")
+    if props.get("releaseArtifactSha256") != release_artifact_sha:
+        failures.append(f"{prefix}-release-artifact-sha-mismatch")
+
+def validate_blocker_evidence_properties(blocker_id, blocker, evidence_path, release_git_commit, release_artifact_sha):
+    props = properties_for(evidence_path)
+    prefix = f"{blocker_id}-evidence"
+    if props.get("artifactSchema") != "ReleaseRecordBlockerEvidence/v1":
+        failures.append(f"{prefix}-artifact-schema-invalid")
+    if props.get("target") != "release-record-blocker-evidence":
+        failures.append(f"{prefix}-target-invalid")
+    if props.get("blockerId") != blocker_id:
+        failures.append(f"{prefix}-blocker-id-mismatch")
+    if props.get("owner") != blocker.get("owner", ""):
+        failures.append(f"{prefix}-owner-mismatch")
+    if props.get("date") != blocker.get("date", ""):
+        failures.append(f"{prefix}-date-mismatch")
+    if props.get("status") != blocker.get("status", ""):
+        failures.append(f"{prefix}-status-mismatch")
+    if props.get("decision") != blocker.get("status", ""):
+        failures.append(f"{prefix}-decision-mismatch")
+    if props.get("releaseGitCommit") != release_git_commit:
+        failures.append(f"{prefix}-release-git-commit-mismatch")
+    if props.get("releaseArtifactSha256") != release_artifact_sha:
+        failures.append(f"{prefix}-release-artifact-sha-mismatch")
+    reproducible_path = props.get("reproduciblePath", "")
+    if not non_empty_string(reproducible_path):
+        failures.append(f"{prefix}-reproducible-path-missing")
+    elif reproducible_path != str(evidence_path):
+        failures.append(f"{prefix}-reproducible-path-mismatch")
+
 failures = []
+try:
+    verification_report_max_age_days = int(verification_report_max_age_days_raw)
+except ValueError:
+    verification_report_max_age_days = None
+    failures.append("verification-report-max-age-invalid")
+else:
+    if verification_report_max_age_days <= 0:
+        verification_report_max_age_days = None
+        failures.append("verification-report-max-age-invalid")
+
 if record.get("version") != 1:
     failures.append("version-invalid")
 if record.get("status") != "approved":
@@ -261,7 +440,7 @@ else:
         failures.append("artifact-sha-mismatch")
     if artifact.get("sizeBytes") != len(artifact_bytes):
         failures.append("artifact-size-mismatch")
-    suffix_type = artifact_path.suffix.removeprefix(".")
+    suffix_type = artifact_path.suffix[1:] if artifact_path.suffix.startswith(".") else artifact_path.suffix
     if artifact_type and suffix_type and suffix_type != artifact_type:
         failures.append("artifact-type-path-mismatch")
 if expected_artifact_path and artifact_path_value != expected_artifact_path:
@@ -279,6 +458,7 @@ reports = release.get("verificationReports")
 if not isinstance(reports, list) or not reports:
     failures.append("verification-reports-missing")
     reports = []
+release_gate_report_seen = False
 for index, report in enumerate(reports):
     if not isinstance(report, dict):
         failures.append(f"verification-report-{index}-invalid")
@@ -297,12 +477,26 @@ for index, report in enumerate(reports):
         if report_sha != actual_report_sha:
             failures.append(f"verification-report-{index}-sha-mismatch")
         report_properties = properties_for(report_file)
-        if report_properties.get("status") != "passed":
-            failures.append(f"verification-report-{index}-status-not-passed")
-        if not report_properties.get("target"):
-            failures.append(f"verification-report-{index}-target-missing")
+        validate_verification_report_properties(
+            f"verification-report-{index}",
+            report_properties,
+            report_file,
+        )
+        if (
+            report_properties.get("artifactSchema") == "ReleaseGateVerification/v1" or
+            report_properties.get("target") == "release-gate"
+        ):
+            release_gate_report_seen = True
+            validate_release_gate_report_properties(
+                f"verification-report-{index}",
+                report_properties,
+                git_commit,
+                artifact.get("sha256", ""),
+            )
     elif not re.fullmatch(r"[0-9a-fA-F]{64}", report_sha):
         failures.append(f"verification-report-{index}-sha-invalid")
+if public_release_context and not release_gate_report_seen:
+    failures.append("verification-report-release-gate-missing")
 
 blockers = release.get("blockers")
 if not isinstance(blockers, list):
@@ -328,10 +522,18 @@ for index, blocker in enumerate(blockers):
     elif not Path(evidence_path).is_file():
         failures.append(f"{blocker_id}-evidence-file-missing")
     else:
+        evidence_file = Path(evidence_path)
         validate_file_sha(
             f"{blocker_id}-evidence",
             evidence_path,
             blocker.get("evidenceSha256", ""),
+        )
+        validate_blocker_evidence_properties(
+            blocker_id,
+            blocker,
+            evidence_file,
+            git_commit,
+            artifact.get("sha256", ""),
         )
     blocker_date = blocker.get("date", "")
     if not blocker_date:

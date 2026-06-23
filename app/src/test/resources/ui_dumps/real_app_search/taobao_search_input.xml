@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.taobao.taobao" content-desc="" clickable="false" enabled="true" scrollable="false" bounds="[0,0][1080,2400]">
+    <node index="0" text="海河牛奶" resource-id="com.taobao.taobao:id/search_edit_text" class="android.widget.EditText" package="com.taobao.taobao" content-desc="搜索输入框" clickable="true" enabled="true" scrollable="false" bounds="[48,86][820,172]" />
+    <node index="1" text="搜索" resource-id="com.taobao.taobao:id/search_submit" class="android.widget.TextView" package="com.taobao.taobao" content-desc="搜索" clickable="true" enabled="true" scrollable="false" bounds="[860,86][1032,172]" />
+    <node index="2" text="海河牛奶旗舰店" resource-id="com.taobao.taobao:id/suggestion_store" class="android.widget.TextView" package="com.taobao.taobao" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[48,224][1032,304]" />
+    <node index="3" text="海河牛奶整箱" resource-id="com.taobao.taobao:id/suggestion_case" class="android.widget.TextView" package="com.taobao.taobao" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[48,324][1032,404]" />
+    <node index="4" text="拍照搜索" resource-id="com.taobao.taobao:id/camera_search" class="android.widget.ImageView" package="com.taobao.taobao" content-desc="拍照搜索" clickable="true" enabled="true" scrollable="false" bounds="[900,460][1032,592]" />
+  </node>
+</hierarchy>

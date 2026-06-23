@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+source "$ROOT_DIR/scripts/release_preflight_fields.sh"
+
 OPERATIONS_RECORD_FILE="${OPERATIONS_RECORD_FILE:-docs/release_operations_record.json}"
 EXPECTED_COMMIT_SHA="${EXPECTED_COMMIT_SHA:-}"
 EXPECTED_RELEASE_ARTIFACT_TYPE="${EXPECTED_RELEASE_ARTIFACT_TYPE:-}"
@@ -11,42 +13,129 @@ EXPECTED_RELEASE_ARTIFACT_SHA256="${EXPECTED_RELEASE_ARTIFACT_SHA256:-}"
 EXPECTED_RELEASE_MAPPING_SHA256="${EXPECTED_RELEASE_MAPPING_SHA256:-}"
 EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 REPORT_FILE=""
+ORIGINAL_ARGS=("$@")
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --file)
-      OPERATIONS_RECORD_FILE="${2:?missing operations record file}"
-      shift 2
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+shell_command() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "scripts/verify_release_operations_record.sh")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+failed_target_for_reason() {
+  local first="${1%%,*}"
+  case "$first" in
+    unknown-argument|missing-*-argument)
+      printf 'argument-parser'
       ;;
-    --report)
-      REPORT_FILE="${2:?missing report path}"
-      shift 2
+    missing-operations-record-file|json-parse-error)
+      printf 'release-operations-record'
+      ;;
+    status-not-approved|reviewer-missing|review-date-missing)
+      printf 'release-operations-review'
+      ;;
+    ci-*)
+      printf 'release-operations-ci'
+      ;;
+    monitoring-*|android-vitals-*|first-24-hours-*|crash-*|noLaunchCrash-*|noInstallCrash-*|noCrashLoop-*|noFatalNativeLiteRtLmFailure-*|noReproducibleAnr-*)
+      printf 'release-operations-monitoring'
+      ;;
+    rollback-*|previous-known-good-*)
+      printf 'release-operations-rollback'
       ;;
     *)
-      echo "Unknown argument: $1" >&2
-      exit 2
+      printf 'release-operations-record'
       ;;
   esac
-done
+}
 
 write_report() {
   local status="$1"
   local reason="$2"
+  local missing_owner_fields=""
+  local missing_approval_roles=""
+  local missing_evidence_files=""
+  local deferred_device_evidence=""
+  local requires_human_approval=""
+  missing_owner_fields="$(preflight_missing_owner_fields release-operations-record "$reason")"
+  missing_approval_roles="$(preflight_missing_approval_roles release-operations-record "$reason" "$status")"
+  missing_evidence_files="$(preflight_missing_evidence_files "$reason")"
+  deferred_device_evidence="$(preflight_deferred_device_evidence release-operations-record "$reason")"
+  requires_human_approval="$(preflight_requires_human_approval "$status" "$missing_approval_roles" "$missing_owner_fields")"
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
       printf 'status=%s\n' "$status"
       printf 'target=release-operations-record\n'
+      printf 'artifactSchema=ReleaseOperationsVerification/v1\n'
+      printf 'owner=release-engineering\n'
+      printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'command=%s\n' "$(shell_command)"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
+      printf 'failedTarget=%s\n' "$(failed_target_for_reason "$reason")"
+      printf 'reason=%s\n' "$reason"
+      printf 'missingOwnerFields=%s\n' "$missing_owner_fields"
+      printf 'missingApprovalRoles=%s\n' "$missing_approval_roles"
+      printf 'missingEvidenceFiles=%s\n' "$missing_evidence_files"
+      printf 'deferredDeviceEvidence=%s\n' "$deferred_device_evidence"
+      printf 'requiresHumanApproval=%s\n' "$requires_human_approval"
       printf 'operationsRecordFile=%s\n' "$OPERATIONS_RECORD_FILE"
+      printf 'operationsRecordSha256=%s\n' "$(sha256_or_empty "$OPERATIONS_RECORD_FILE")"
       printf 'expectedCommitSha=%s\n' "$EXPECTED_COMMIT_SHA"
       printf 'expectedReleaseArtifactType=%s\n' "$EXPECTED_RELEASE_ARTIFACT_TYPE"
       printf 'expectedReleaseArtifactSha256=%s\n' "$EXPECTED_RELEASE_ARTIFACT_SHA256"
       printf 'expectedReleaseMappingSha256=%s\n' "$EXPECTED_RELEASE_MAPPING_SHA256"
       printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
-      printf 'reason=%s\n' "$reason"
     } > "$REPORT_FILE"
   fi
 }
+
+fail_parse() {
+  local reason="$1"
+  local message="$2"
+  write_report failed "$reason"
+  echo "$message" >&2
+  exit 2
+}
+
+REQUIRED_ARG_VALUE=""
+require_value() {
+  local option="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    fail_parse "missing-${option#--}-argument" "Missing value for $option"
+  fi
+  REQUIRED_ARG_VALUE="$value"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --file)
+      require_value "$1" "${2:-}"
+      OPERATIONS_RECORD_FILE="$REQUIRED_ARG_VALUE"
+      shift 2
+      ;;
+    --report)
+      require_value "$1" "${2:-}"
+      REPORT_FILE="$REQUIRED_ARG_VALUE"
+      shift 2
+      ;;
+    *)
+      fail_parse unknown-argument "Unknown argument: $1"
+      ;;
+  esac
+done
 
 if [[ ! -f "$OPERATIONS_RECORD_FILE" ]]; then
   write_report failed missing-operations-record-file
@@ -138,8 +227,24 @@ def properties_for(path):
         pass
     return props
 
+def csv_tokens(value):
+    if not isinstance(value, str):
+        return set()
+    return {item.strip() for item in value.split(",") if item.strip()}
+
+def number_property_matches(value, expected):
+    if not non_empty_string(value):
+        return False
+    try:
+        return float(value) == float(expected)
+    except (TypeError, ValueError):
+        return False
+
 def is_sha256(value):
     return isinstance(value, str) and bool(re.fullmatch(r"[0-9a-f]{64}", value))
+
+def is_utc_timestamp(value):
+    return isinstance(value, str) and bool(re.fullmatch(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", value))
 
 def positive_int_string(value):
     return isinstance(value, str) and bool(re.fullmatch(r"[1-9][0-9]*", value))
@@ -181,7 +286,56 @@ def validate_zero_count(section, props, key):
     elif value != "0":
         failures.append(f"{section}-{kebab(key)}-not-zero")
 
-def validate_ci_evidence_record(section, entry, expected_target):
+def validate_report_schema(section, props, path, expected_schema, expected_owner="release-engineering"):
+    if props.get("artifactSchema") != expected_schema:
+        failures.append(f"{section}-artifact-schema-invalid")
+    if props.get("owner") != expected_owner:
+        failures.append(f"{section}-owner-invalid")
+    if not is_utc_timestamp(props.get("recordedAt", "")):
+        failures.append(f"{section}-recorded-at-invalid")
+    if not non_empty_string(props.get("command", "")):
+        failures.append(f"{section}-command-missing")
+    if path is not None and props.get("reproduciblePath") != str(path):
+        failures.append(f"{section}-reproducible-path-invalid")
+
+def validate_operations_record_binding(section, props):
+    operations_record_file = props.get("operationsRecordFile", "")
+    if not non_empty_string(operations_record_file):
+        failures.append(f"{section}-operations-record-file-missing")
+        return
+    if Path(operations_record_file).resolve() != record_path.resolve():
+        failures.append(f"{section}-operations-record-file-mismatch")
+
+def validate_artifact_scan_report_binding(section, props):
+    report_file = props.get("artifactScanReport", "")
+    if not non_empty_string(report_file):
+        failures.append(f"{section}-artifact-scan-report-missing")
+        return {}
+    report_path = Path(report_file)
+    if not report_path.is_file():
+        failures.append(f"{section}-artifact-scan-report-file-missing")
+        return {}
+    expected_sha = props.get("artifactScanReportSha256", "")
+    if not is_sha256(expected_sha):
+        failures.append(f"{section}-artifact-scan-report-sha-invalid")
+    else:
+        actual_sha = hashlib.sha256(report_path.read_bytes()).hexdigest()
+        if expected_sha != actual_sha:
+            failures.append(f"{section}-artifact-scan-report-sha-mismatch")
+    scan_props = properties_for(report_path)
+    if scan_props.get("status") != "passed":
+        failures.append(f"{section}-artifact-scan-report-status-not-passed")
+    if scan_props.get("target") != "android-artifact-scan":
+        failures.append(f"{section}-artifact-scan-report-target-invalid")
+    validate_report_schema(
+        f"{section}-artifact-scan-report",
+        scan_props,
+        report_path,
+        "AndroidArtifactScanReport/v1",
+    )
+    return scan_props
+
+def validate_ci_evidence_record(section, entry, expected_target, expected_schema=""):
     if not isinstance(entry, dict):
         failures.append(f"ci-{section}-missing")
         return {}
@@ -195,6 +349,13 @@ def validate_ci_evidence_record(section, entry, expected_target):
         failures.append(f"ci-{section}-evidence-status-not-passed")
     if props.get("target") != expected_target:
         failures.append(f"ci-{section}-evidence-target-invalid")
+    if expected_schema:
+        validate_report_schema(
+            f"ci-{section}-evidence",
+            props,
+            path,
+            expected_schema,
+        )
     return props
 
 def validate_ci_identity(section, props, expected_job="", required=False):
@@ -234,6 +395,34 @@ def validate_api_matrix_report(props):
         failures.append("ci-api-matrix-readiness-report-missing")
     elif not Path(readiness_report).is_file():
         failures.append("ci-api-matrix-readiness-report-file-missing")
+    else:
+        readiness_path = Path(readiness_report)
+        readiness_sha = props.get("readinessReportSha256", "")
+        if not is_sha256(readiness_sha):
+            failures.append("ci-api-matrix-readiness-report-sha-invalid")
+        else:
+            actual_sha = hashlib.sha256(readiness_path.read_bytes()).hexdigest()
+            if readiness_sha != actual_sha:
+                failures.append("ci-api-matrix-readiness-report-sha-mismatch")
+        readiness_props = properties_for(readiness_path)
+        if readiness_props.get("status") != "passed":
+            failures.append("ci-api-matrix-readiness-status-not-passed")
+        if readiness_props.get("target") != "emulator-api-matrix-readiness":
+            failures.append("ci-api-matrix-readiness-target-invalid")
+        if csv_values(readiness_props.get("requiredApis", "")) != required_apis:
+            failures.append("ci-api-matrix-readiness-required-apis-invalid")
+        if csv_values(readiness_props.get("installedSystemImageApis", "")) != required_apis:
+            failures.append("ci-api-matrix-readiness-installed-system-images-invalid")
+        if csv_values(readiness_props.get("availableAvdApis", "")) != required_apis:
+            failures.append("ci-api-matrix-readiness-available-avds-invalid")
+        if csv_values(readiness_props.get("missingSystemImageApis", "")):
+            failures.append("ci-api-matrix-readiness-missing-system-images-not-empty")
+        if csv_values(readiness_props.get("missingAvdApis", "")):
+            failures.append("ci-api-matrix-readiness-missing-avds-not-empty")
+        if readiness_props.get("tag") != props.get("tag"):
+            failures.append("ci-api-matrix-readiness-tag-mismatch")
+        if readiness_props.get("abi") != props.get("abi"):
+            failures.append("ci-api-matrix-readiness-abi-mismatch")
     for api in required_apis:
         prefix = f"api{api}"
         if props.get(f"{prefix}Status") != "passed":
@@ -304,6 +493,7 @@ connected_ci_props = validate_ci_evidence_record(
     ci.get("connectedAndroidTests"),
     "regression-emulator",
 )
+validate_ci_identity("connected-android-tests", connected_ci_props, expected_job="emulator-regression", required=True)
 if connected_ci_props.get("clean_device") != "1":
     failures.append("ci-connected-android-tests-not-clean")
 if not positive_int_string(connected_ci_props.get("actual_android_test_count", "")):
@@ -318,6 +508,7 @@ api_matrix_ci_props = validate_ci_evidence_record(
     ci.get("apiMatrix"),
     "regression-emulator-api-matrix",
 )
+validate_ci_identity("api-matrix", api_matrix_ci_props, expected_job="emulator-api-matrix", required=True)
 if isinstance(ci.get("apiMatrix"), dict) and ci["apiMatrix"].get("artifactName") != "android-emulator-api-matrix-evidence":
     failures.append("ci-api-matrix-artifact-name-invalid")
 validate_api_matrix_report(api_matrix_ci_props)
@@ -327,6 +518,7 @@ artifact_ci_props = validate_ci_evidence_record(
     "release-artifact-archive",
     artifact_entry,
     "ci-release-artifact-archive",
+    "ReleaseArtifactArchiveEvidence/v1",
 )
 validate_ci_identity("release-artifact-archive", artifact_ci_props, expected_job="release-artifact-archive", required=True)
 if isinstance(artifact_entry, dict) and not non_empty_string(artifact_entry.get("artifactName")):
@@ -343,6 +535,7 @@ elif expected_release_mapping_sha and artifact_ci_props.get("mappingSha256", "")
     failures.append("ci-release-artifact-archive-mapping-sha-mismatch")
 if artifact_ci_props.get("artifactScanStatus") != "passed":
     failures.append("ci-release-artifact-archive-scan-not-passed")
+validate_artifact_scan_report_binding("ci-release-artifact-archive", artifact_ci_props)
 if not non_empty_string(artifact_ci_props.get("artifactUploadName")):
     failures.append("ci-release-artifact-archive-upload-name-missing")
 
@@ -351,6 +544,7 @@ signing_ci_props = validate_ci_evidence_record(
     "protected-signing",
     signing_entry,
     "release-signing",
+    "ReleaseSigningReport/v1",
 )
 validate_ci_identity("protected-signing", signing_ci_props, expected_job="protected-signing")
 if isinstance(signing_entry, dict) and not non_empty_string(signing_entry.get("signingEnvironment")):
@@ -359,6 +553,7 @@ if signing_ci_props.get("signingMode") != "production":
     failures.append("ci-protected-signing-mode-invalid")
 if signing_ci_props.get("artifactScanStatus") != "passed":
     failures.append("ci-protected-signing-artifact-scan-not-passed")
+validate_artifact_scan_report_binding("ci-protected-signing", signing_ci_props)
 if not is_sha256(signing_ci_props.get("expectedSigningCertSha256", "")):
     failures.append("ci-protected-signing-cert-sha-invalid")
 elif expected_signing_cert_sha and signing_ci_props.get("expectedSigningCertSha256", "").lower() != expected_signing_cert_sha:
@@ -388,7 +583,41 @@ if not number_between(monitoring.get("anrRateThresholdPercent"), 0, 10):
     failures.append("anr-threshold-invalid")
 if monitoring.get("privacyReviewedForCrashSdk") is not True:
     failures.append("crash-sdk-privacy-review-not-confirmed")
-validate_evidence_file("monitoring", monitoring.get("evidence"))
+monitoring_evidence_path = validate_evidence_file("monitoring", monitoring.get("evidence"))
+if monitoring_evidence_path is not None:
+    monitoring_props = properties_for(monitoring_evidence_path)
+    validate_report_schema(
+        "monitoring-evidence",
+        monitoring_props,
+        monitoring_evidence_path,
+        "ReleaseMonitoringEvidence/v1",
+        expected_owner=monitoring.get("owner", ""),
+    )
+    if monitoring_props.get("status") != "passed":
+        failures.append("monitoring-evidence-status-not-passed")
+    if monitoring_props.get("target") != "release-monitoring-evidence":
+        failures.append("monitoring-evidence-target-invalid")
+    if monitoring_props.get("operationsRecordField") != "monitoring.evidence":
+        failures.append("monitoring-evidence-operations-record-field-invalid")
+    validate_operations_record_binding("monitoring-evidence", monitoring_props)
+    if non_empty_string(monitoring.get("owner")) and monitoring_props.get("owner") != monitoring.get("owner"):
+        failures.append("monitoring-evidence-owner-mismatch")
+    if sources and csv_tokens(monitoring_props.get("signalSources", "")) != set(sources):
+        failures.append("monitoring-evidence-signal-sources-mismatch")
+    if non_empty_string(monitoring.get("first24HoursWatcher")) and monitoring_props.get("first24HoursWatcher") != monitoring.get("first24HoursWatcher"):
+        failures.append("monitoring-evidence-first-24-hours-watcher-mismatch")
+    if number_between(monitoring.get("crashFreeRateThresholdPercent"), 90, 100) and not number_property_matches(
+        monitoring_props.get("crashFreeRateThresholdPercent", ""),
+        monitoring.get("crashFreeRateThresholdPercent"),
+    ):
+        failures.append("monitoring-evidence-crash-free-rate-threshold-mismatch")
+    if number_between(monitoring.get("anrRateThresholdPercent"), 0, 10) and not number_property_matches(
+        monitoring_props.get("anrRateThresholdPercent", ""),
+        monitoring.get("anrRateThresholdPercent"),
+    ):
+        failures.append("monitoring-evidence-anr-rate-threshold-mismatch")
+    if monitoring.get("privacyReviewedForCrashSdk") is True and monitoring_props.get("privacyReviewedForCrashSdk") != "true":
+        failures.append("monitoring-evidence-crash-sdk-privacy-review-not-confirmed")
 
 smoke = record.get("crashAnrSmoke")
 if not isinstance(smoke, dict):
@@ -409,12 +638,19 @@ for field in (
 smoke_evidence_path = validate_evidence_file("crash-anr-smoke", smoke.get("evidence"))
 if smoke_evidence_path is not None:
     smoke_props = properties_for(smoke_evidence_path)
+    validate_report_schema(
+        "crash-anr-smoke-evidence",
+        smoke_props,
+        smoke_evidence_path,
+        "CrashAnrSmokeEvidence/v1",
+    )
     if smoke_props.get("status") != "passed":
         failures.append("crash-anr-smoke-evidence-status-not-passed")
     if smoke_props.get("target") != "crash-anr-smoke-evidence":
         failures.append("crash-anr-smoke-evidence-target-invalid")
     if smoke_props.get("operationsRecordField") != "crashAnrSmoke.evidence":
         failures.append("crash-anr-smoke-evidence-operations-record-field-invalid")
+    validate_operations_record_binding("crash-anr-smoke-evidence", smoke_props)
     for field in ("window", "track", "failureEvidencePolicy"):
         if non_empty_string(smoke.get(field)) and smoke_props.get(field) != smoke.get(field):
             failures.append(f"crash-anr-smoke-evidence-{kebab(field)}-mismatch")
@@ -519,7 +755,7 @@ if not isinstance(criteria, list):
 criteria_set = {criterion for criterion in criteria if isinstance(criterion, str)}
 for criterion in sorted(required_criteria - criteria_set):
     failures.append("rollback-criterion-missing-" + re.sub(r"[^a-z0-9]+", "-", criterion.lower()).strip("-"))
-validate_evidence_file("rollback", rollback.get("evidence"))
+rollback_evidence_path = validate_evidence_file("rollback", rollback.get("evidence"))
 
 previous = rollback.get("previousKnownGood")
 if not isinstance(previous, dict):
@@ -553,6 +789,51 @@ elif previous_status == "available":
         failures.append("previous-known-good-release-notes-missing")
 else:
     failures.append("previous-known-good-status-invalid")
+
+if rollback_evidence_path is not None:
+    rollback_props = properties_for(rollback_evidence_path)
+    validate_report_schema(
+        "rollback-evidence",
+        rollback_props,
+        rollback_evidence_path,
+        "ReleaseRollbackEvidence/v1",
+        expected_owner=rollback.get("owner", ""),
+    )
+    if rollback_props.get("status") != "passed":
+        failures.append("rollback-evidence-status-not-passed")
+    if rollback_props.get("target") != "release-rollback-evidence":
+        failures.append("rollback-evidence-target-invalid")
+    if rollback_props.get("operationsRecordField") != "rollback.evidence":
+        failures.append("rollback-evidence-operations-record-field-invalid")
+    validate_operations_record_binding("rollback-evidence", rollback_props)
+    for field in (
+        "owner",
+        "decisionChannel",
+        "firstStagedRolloutAction",
+        "playVersionCodePolicy",
+        "modelManifestRollbackPath",
+        "userDataCompatibility",
+    ):
+        if non_empty_string(rollback.get(field)) and rollback_props.get(field) != rollback.get(field):
+            failures.append(f"rollback-evidence-{kebab(field)}-mismatch")
+    if criteria_set and csv_tokens(rollback_props.get("criteria", "")) != criteria_set:
+        failures.append("rollback-evidence-criteria-mismatch")
+    if non_empty_string(previous_status) and rollback_props.get("previousKnownGoodStatus") != previous_status:
+        failures.append("rollback-evidence-previous-known-good-status-mismatch")
+    if previous_status == "not_applicable_initial_release" and non_empty_string(previous.get("releaseNotes")) and rollback_props.get("previousKnownGoodReleaseNotes") != previous.get("releaseNotes"):
+        failures.append("rollback-evidence-previous-known-good-release-notes-mismatch")
+    if previous_status == "available":
+        if isinstance(previous.get("versionCode"), int) and rollback_props.get("previousKnownGoodVersionCode") != str(previous.get("versionCode")):
+            failures.append("rollback-evidence-previous-known-good-version-code-mismatch")
+        for source_key, prop_key in (
+            ("versionName", "previousKnownGoodVersionName"),
+            ("gitCommit", "previousKnownGoodGitCommit"),
+            ("artifactPath", "previousKnownGoodArtifactPath"),
+            ("artifactSha256", "previousKnownGoodArtifactSha256"),
+            ("releaseNotes", "previousKnownGoodReleaseNotes"),
+        ):
+            if non_empty_string(previous.get(source_key)) and rollback_props.get(prop_key) != previous.get(source_key):
+                failures.append(f"rollback-evidence-{kebab(prop_key)}-mismatch")
 
 review = record.get("review")
 if not isinstance(review, dict):

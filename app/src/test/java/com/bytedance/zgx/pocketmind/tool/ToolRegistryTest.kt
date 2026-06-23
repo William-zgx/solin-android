@@ -629,6 +629,7 @@ class ToolRegistryTest {
         assertTrue(currentScreenshotOcrSpec.inputSchemaJson.contains("\"captureMode\""))
         assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("capture_current_screenshot_ocr"))
         assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("\"truncated\""))
+        assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("\"rawPayloadIncluded\""))
         assertTrue(currentScreenshotOcrSpec.description.contains("MediaProjection"))
         assertTrue(currentScreenshotOcrSpec.description.contains("不保存图片"))
 
@@ -992,7 +993,7 @@ class ToolRegistryTest {
 
     @Test
     fun privateToolOutputsAreDeclaredByToolPolicy() {
-        val recentImageOcrPrivateKeys = setOf("name", "mimeType", "sizeBytes", "lastModifiedMillis", "ocrText")
+        val recentImageOcrPrivateKeys = setOf("ocrText")
         val expectedPrivateOutputs = mapOf(
             MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
             MobileActionFunctions.QUERY_CONTACTS to setOf("query", "contactCount", "contactsJson"),
@@ -1025,6 +1026,32 @@ class ToolRegistryTest {
         requireNotNull(shareSpec)
         assertTrue(shareSpec.privateOutputKeys.isEmpty())
         assertNull(registry.redactedResultSummaryFor(MobileActionFunctions.SHARE_TEXT))
+    }
+
+    @Test
+    fun localOnlyOcrAndScreenToolsUseLocalEvidenceContinuationPolicy() {
+        val localEvidenceTools = setOf(
+            MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR,
+            MobileActionFunctions.READ_RECENT_IMAGE_OCR,
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+        )
+
+        localEvidenceTools.forEach { toolName ->
+            val spec = registry.specFor(toolName)
+            assertNotNull(spec)
+            requireNotNull(spec)
+
+            assertEquals(
+                "$toolName must keep local-only evidence inside local continuation",
+                ToolResultContinuationPolicy.LocalEvidence,
+                spec.resultContinuationPolicy,
+            )
+            assertTrue("$toolName must declare private outputs", spec.privateOutputKeys.isNotEmpty())
+            assertEquals(ConfirmationPolicy.Required, spec.confirmationPolicy)
+            assertFalse("$toolName must not be remote planning eligible", spec.isRemoteModelPlanningEligible())
+            assertFalse("$toolName must not be public evidence batch eligible", spec.isPublicEvidenceBatchEligible())
+        }
     }
 
     @Test
@@ -1251,7 +1278,7 @@ class ToolRegistryTest {
 
     @Test
     fun privateDeviceOutputKeysRemainDeclaredInOutputSchemas() {
-        val recentImageOcrPrivateKeys = setOf("name", "mimeType", "sizeBytes", "lastModifiedMillis", "ocrText")
+        val recentImageOcrPrivateKeys = setOf("ocrText")
         val expectedPrivateOutputs = mapOf(
             MobileActionFunctions.READ_CLIPBOARD to setOf("text"),
             MobileActionFunctions.QUERY_CONTACTS to setOf("query", "contactCount", "contactsJson"),

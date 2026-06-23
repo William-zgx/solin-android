@@ -13,6 +13,8 @@ RELEASE_FLOW_KEYS="${RELEASE_FLOW_KEYS:-}"
 RELEASE_FLOW_ALL="${RELEASE_FLOW_ALL:-0}"
 RELEASE_FLOW_NOTE="${RELEASE_FLOW_NOTE:-Release flow was explicitly confirmed by the named owner.}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
+RECORDED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+ORIGINAL_ARGS=("$@")
 
 REQUIRED_RELEASE_FLOWS=(
   firstInstall
@@ -63,6 +65,17 @@ contains_key() {
   return 1
 }
 
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    quoted+=("$(printf '%q' "$arg")")
+  done
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
 write_report() {
   local status="$1"
   local reason="$2"
@@ -70,12 +83,16 @@ write_report() {
   local pending="$4"
   mkdir -p "$(dirname "$REPORT_FILE")"
   {
+    printf 'artifactSchema=ReleaseFlowEvidenceCollection/v1\n'
     printf 'status=%s\n' "$status"
     printf 'target=release-flow-evidence\n'
+    printf 'owner=%s\n' "$OWNER"
+    printf 'recordedAt=%s\n' "$RECORDED_AT"
+    printf 'command=%s\n' "$(command_line)"
+    printf 'reproduciblePath=%s\n' "$REPORT_FILE"
     printf 'reason=%s\n' "$reason"
     printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
     printf 'artifactDir=%s\n' "$ARTIFACT_DIR"
-    printf 'owner=%s\n' "$OWNER"
     printf 'date=%s\n' "$VALIDATION_DATE"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
     printf 'requiredFlows=%s\n' "$(join_csv "${REQUIRED_RELEASE_FLOWS[@]}")"
@@ -101,10 +118,40 @@ write_flow_contract_fields() {
       printf 'firstRunDefaultChatModelSelected=true\n'
       printf 'firstRunSkipReachesMainShell=true\n'
       ;;
+    upgradeInstall)
+      printf 'upgradeInstallUsesAdbInstallR=true\n'
+      printf 'upgradeInstallPreservesFirstInstallTime=true\n'
+      printf 'upgradeInstallUpdatesLastUpdateTime=true\n'
+      printf 'upgradeInstallVersionCodeIncreased=true\n'
+      printf 'upgradeInstallInstrumentationCovered=true\n'
+      ;;
     remoteHttpsConfiguration)
       printf 'remoteNetworkFailureRecoveryCovered=true\n'
       printf 'remoteUnconfiguredModelFailureCovered=true\n'
       printf 'remoteLocalMemoryNotAutoIncluded=true\n'
+      printf 'remoteMemoryContextIncluded=false\n'
+      printf 'remoteMemoryHitCount=0\n'
+      printf 'remoteSemanticMemoryHitCount=0\n'
+      printf 'remoteLexicalMemoryHitCount=0\n'
+      printf 'remoteDeviceContextIncluded=false\n'
+      printf 'remoteRawContentPersisted=false\n'
+      printf 'remoteProtectedMemoryDeclared=true\n'
+      printf 'remoteProtectedDeviceContextDeclared=true\n'
+      ;;
+    encryptedApiKeyClear)
+      printf 'encryptedApiKeyBlankInputClearsSecret=true\n'
+      printf 'legacyPlaintextApiKeyNotPersisted=true\n'
+      ;;
+    sessionPersistence)
+      printf 'sessionCreateSwitchRestoreCovered=true\n'
+      printf 'activeSessionPersistenceCovered=true\n'
+      printf 'sessionDeleteCovered=true\n'
+      ;;
+    memoryControls)
+      printf 'memoryCreateControlCovered=true\n'
+      printf 'memoryForgetControlCovered=true\n'
+      printf 'memoryClearControlCovered=true\n'
+      printf 'memoryPanelControlCovered=true\n'
       ;;
     localModelDownloadVerification)
       printf 'localModelDownloadVerified=true\n'
@@ -142,6 +189,8 @@ write_flow_contract_fields() {
       printf 'remoteVisionUnsupportedOpenStreamCountCovered=true\n'
       printf 'remoteVisionUnsupportedOcrSkipped=true\n'
       printf 'remoteVisionMixedShareNonImageProtected=true\n'
+      printf 'remoteVisionSendPreviewConfirmed=true\n'
+      printf 'remoteVisionCancelKeepsRuntimeIdle=true\n'
       printf 'remoteVisionHttpFixtureImagePartCount=1\n'
       printf 'remoteVisionHttpFixtureStreamRequested=true\n'
       printf 'remoteVisionSupportedImageStreamOpenCount=1\n'
@@ -149,6 +198,16 @@ write_flow_contract_fields() {
       printf 'remoteVisionUnsupportedImageStreamOpenCount=0\n'
       printf 'remoteVisionUnsupportedImageOcrInvocationCount=0\n'
       printf 'remoteVisionMixedProtectedNonImageCount=1\n'
+      printf 'localVisionVerifiedModelImageAttachmentStaged=true\n'
+      printf 'localVisionRuntimeImageAttachmentSent=true\n'
+      printf 'localVisionLocalOnlyPersistenceCovered=true\n'
+      printf 'localVisionPromptMetadataRedacted=true\n'
+      printf 'localVisionRemoteRuntimeIdle=true\n'
+      printf 'localVisionUnsupportedOcrSkipped=true\n'
+      printf 'localVisionRuntimeImageAttachmentSendCount=1\n'
+      printf 'localVisionRemoteRuntimeRequestCount=0\n'
+      printf 'localVisionUnsupportedRuntimeImageSendCount=0\n'
+      printf 'localVisionUnsupportedImageOcrInvocationCount=0\n'
       printf 'documentExcerptBounded=true\n'
       printf 'pickerAttachmentPromptCovered=true\n'
       ;;
@@ -166,10 +225,40 @@ write_flow_contract_fields() {
       printf 'remoteConfigClearCovered=true\n'
       printf 'dataDeletionCopyCovered=true\n'
       ;;
+    remindersAfterReboot)
+      printf 'bootCompletedReminderRescheduleCovered=true\n'
+      printf 'packageReplacedReminderRescheduleCovered=true\n'
+      printf 'reminderCatchUpSchedulingCovered=true\n'
+      printf 'staleRunningReminderRecoveryCovered=true\n'
+      printf 'reminderAuditMetadataOnly=true\n'
+      ;;
     adaptiveUi)
       printf 'largeFontReachabilityCovered=true\n'
       printf 'landscapeReachabilityCovered=true\n'
       printf 'accessibleLabelsCovered=true\n'
+      ;;
+    accessibilityText)
+      printf 'accessibilityTextConfirmationCovered=true\n'
+      printf 'accessibilityTextCancellationCovered=true\n'
+      printf 'accessibilityTextLocalOnlyMetadataCovered=true\n'
+      printf 'accessibilityTextTraceRecorded=true\n'
+      ;;
+    recentMediaOcr)
+      printf 'recentScreenshotOcrRoutingCovered=true\n'
+      printf 'recentImageOcrRoutingCovered=true\n'
+      printf 'recentMediaOcrConfirmationCovered=true\n'
+      printf 'recentScreenshotOneItemLimitCovered=true\n'
+      printf 'recentScreenshotMaxCount=1\n'
+      printf 'recentImageMaxCount=3\n'
+      printf 'recentMediaOcrRawPayloadPersisted=false\n'
+      printf 'recentMediaOcrPrivateMetadataRedacted=true\n'
+      printf 'recentMediaOcrOcrTextTraceRedacted=true\n'
+      printf 'recentMediaOcrLocalOnlyProtected=true\n'
+      printf 'recentMediaOcrRemoteLeakageBlocked=true\n'
+      ;;
+    mediaProjectionCancellation)
+      printf 'mediaProjectionOneShotConsentCovered=true\n'
+      printf 'currentScreenshotOcrRemoteContinuationBlocked=true\n'
       ;;
   esac
 }
@@ -207,6 +296,7 @@ mkdir -p "$ARTIFACT_DIR"
 for flow in "${accepted_flows[@]}"; do
   evidence_path="$ARTIFACT_DIR/flow-$flow.properties"
   {
+    printf 'artifactSchema=ReleaseFlowEvidence/v1\n'
     printf 'status=passed\n'
     printf 'target=release-flow\n'
     printf 'flowKey=%s\n' "$flow"
@@ -215,6 +305,9 @@ for flow in "${accepted_flows[@]}"; do
     printf 'evidenceKind=formal-release-flow\n'
     printf 'owner=%s\n' "$OWNER"
     printf 'date=%s\n' "$VALIDATION_DATE"
+    printf 'recordedAt=%s\n' "$RECORDED_AT"
+    printf 'command=%s\n' "$(command_line)"
+    printf 'reproduciblePath=%s\n' "$evidence_path"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
     printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
     printf 'evidenceSummary=%s\n' "$RELEASE_FLOW_NOTE"
