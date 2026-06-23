@@ -2104,11 +2104,11 @@ assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualRoutingPath": "acti
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" '"actualTraceSource": "agent_loop_runtime"'
 assert_report_contains_text "$AI_TRACE_DIFF_MATCHED" "\"actualTraceRecordedAt\": \"$AI_TRACE_FRESH_RECORDED_AT\""
 ai_trace_allowed_count="$(awk -F= '$1 == "traceDiffAllowedFailureCount" {print $2; exit}' "$ARTIFACT_DIR/ai-behavior-trace-diff-matched.properties")"
-if [[ "${ai_trace_allowed_count:-0}" -le 0 ]]; then
-  fail "AI behavior fixture trace must include allowed failures for strict release gate coverage"
+if [[ "${ai_trace_allowed_count:-0}" != "0" ]]; then
+  fail "AI behavior fixture trace should classify expected fail-closed outcomes as matched, not allowed_failure"
 fi
-expect_failure \
-  "AI behavior eval rejects allowed failures when strict release mode requires zero" \
+expect_success \
+  "AI behavior eval accepts matched fail-closed outcomes when strict release mode rejects only unresolved allowed failures" \
   scripts/verify_ai_behavior_eval.sh \
     --require-boundary-map \
     --actual-trace "$AI_ACTUAL_TRACE" \
@@ -2117,8 +2117,8 @@ expect_failure \
     --require-runtime-trace-source \
     --reject-allowed-failures \
     --report "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties"
-assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties" "status=failed"
-assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties" "reason=trace-diff-allowed-failure"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties" "reason="
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties" "traceDiffAllowedFailureCount=$ai_trace_allowed_count"
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-strict.properties" "rejectAllowedFailures=1"
 
@@ -2276,6 +2276,76 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-remote-confirmation-localonly.properties" "status=failed"
 assert_report_contains_text "$ARTIFACT_DIR/ai-behavior-trace-diff-remote-confirmation-localonly.properties" "reason=actual-trace-remote-confirmation-privacy-mismatch:"
 
+AI_BEHAVIOR_ALLOWED_FAILURE_TOOL_DIR="$TMP_DIR/ai-behavior-allowed-failure-tool"
+AI_ALLOWED_FAILURE_TOOL_TRACE="$TMP_DIR/ai-behavior-actual-trace-allowed-failure-tool.jsonl"
+AI_ALLOWED_FAILURE_TOOL_DIFF="$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-tool.jsonl"
+AI_ALLOWED_FAILURE_TOOL_MODE="allowed_script_tool_drift"
+mkdir -p "$AI_BEHAVIOR_ALLOWED_FAILURE_TOOL_DIR"
+cp app/src/test/resources/ai_behavior_eval/*.jsonl "$AI_BEHAVIOR_ALLOWED_FAILURE_TOOL_DIR/"
+python3 - "$AI_BEHAVIOR_ALLOWED_FAILURE_TOOL_DIR" "$AI_ACTUAL_TRACE" "$AI_ALLOWED_FAILURE_TOOL_TRACE" "$AI_ALLOWED_FAILURE_TOOL_MODE" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+fixture_dir = pathlib.Path(sys.argv[1])
+source = pathlib.Path(sys.argv[2])
+target = pathlib.Path(sys.argv[3])
+mode = sys.argv[4]
+
+fixture_path = fixture_dir / "memory_recall.jsonl"
+fixture_rows = [json.loads(line) for line in fixture_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+fixture_rows[0]["allowedFailureModes"] = [mode]
+fixture_path.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in fixture_rows),
+    encoding="utf-8",
+)
+fixture_hash = hashlib.sha256()
+for path in sorted(fixture_dir.glob("*.jsonl"), key=lambda item: item.name):
+    fixture_hash.update(f"{hashlib.sha256(path.read_bytes()).hexdigest()} {path.name}\n".encode("utf-8"))
+fixture_dir_sha256 = fixture_hash.hexdigest()
+
+trace_rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+for row in trace_rows:
+    row["fixtureDirSha256"] = fixture_dir_sha256
+trace_rows[0]["actualTools"] = ["web_search"]
+trace_rows[0]["routingPath"] = "action_planner"
+trace_rows[0]["routingToolName"] = "web_search"
+trace_rows[0].pop("routingRejectionReason", None)
+trace_rows[0]["failureMode"] = mode
+target.write_text(
+    "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in trace_rows),
+    encoding="utf-8",
+)
+PY
+expect_success \
+  "AI behavior eval records non-fail-closed allowed failure as a local/debug downgrade" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_ALLOWED_FAILURE_TOOL_DIR" \
+    --require-boundary-map \
+    --actual-trace "$AI_ALLOWED_FAILURE_TOOL_TRACE" \
+    --trace-diff "$AI_ALLOWED_FAILURE_TOOL_DIFF" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-tool.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-tool.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-tool.properties" "traceDiffAllowedFailureCount=1"
+assert_report_contains_text "$AI_ALLOWED_FAILURE_TOOL_DIFF" '"status": "allowed_failure"'
+expect_failure \
+  "AI behavior eval rejects unresolved allowed failures in public strict mode" \
+  scripts/verify_ai_behavior_eval.sh \
+    --dir "$AI_BEHAVIOR_ALLOWED_FAILURE_TOOL_DIR" \
+    --require-boundary-map \
+    --actual-trace "$AI_ALLOWED_FAILURE_TOOL_TRACE" \
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-tool-strict.jsonl" \
+    --require-actual-trace \
+    --require-runtime-trace-source \
+    --reject-allowed-failures \
+    --report "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-tool-strict.properties"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-tool-strict.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-tool-strict.properties" "reason=trace-diff-allowed-failure"
+assert_report_contains "$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-tool-strict.properties" "traceDiffAllowedFailureCount=1"
+
 AI_BEHAVIOR_ALLOWED_FAILURE_SAFETY_DIR="$TMP_DIR/ai-behavior-allowed-failure-safety"
 AI_ALLOWED_FAILURE_SAFETY_TRACE="$TMP_DIR/ai-behavior-actual-trace-allowed-failure-safety.jsonl"
 AI_ALLOWED_FAILURE_SAFETY_DIFF="$ARTIFACT_DIR/ai-behavior-trace-diff-allowed-failure-safety.jsonl"
@@ -2426,6 +2496,8 @@ assert_report_contains "$AI_COLLECTOR_REPORT" "evalRequireActualTrace=1"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalRequireRuntimeTraceSource=1"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalRequireAgentLoopRuntimeTraceSource=1"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalRejectAllowedFailures=0"
+assert_report_contains "$AI_COLLECTOR_REPORT" "publicReleaseContext=0"
+assert_report_contains "$AI_COLLECTOR_REPORT" "rejectAllowedFailures=0"
 assert_report_contains "$AI_COLLECTOR_REPORT" "evalActualTraceMaxAgeDays=30"
 assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffMissingActualCount=0"
 assert_report_contains "$AI_COLLECTOR_REPORT" "traceDiffExtraActualCount=0"
@@ -2434,6 +2506,21 @@ assert_report_contains "$AI_COLLECTOR_EVAL" "requireRuntimeTraceSource=1"
 assert_report_contains "$AI_COLLECTOR_EVAL" "requireAgentLoopRuntimeTraceSource=1"
 assert_report_contains "$AI_COLLECTOR_EVAL" "actualTraceNonAgentLoopRuntimeSourceCount=0"
 assert_report_contains_text "$AI_COLLECTOR_DIFF" '"status": "matched"'
+
+reset_logs
+AI_STRICT_COLLECTOR_DIR="$ARTIFACT_DIR/ai-behavior-actual-trace-collector-strict"
+expect_success \
+  "AI behavior actual trace collector supports public strict allowed-failure rejection" \
+  env ARTIFACT_DIR="$AI_STRICT_COLLECTOR_DIR" \
+  GRADLE_CMD="$FAKE_GRADLE" \
+  FAKE_AI_BEHAVIOR_ACTUAL_TRACE_SOURCE="$AI_ACTUAL_TRACE" \
+  AI_BEHAVIOR_REJECT_ALLOWED_FAILURES=1 \
+  scripts/collect_ai_behavior_actual_trace.sh
+assert_report_contains "$AI_STRICT_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "status=passed"
+assert_report_contains "$AI_STRICT_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "evalRejectAllowedFailures=1"
+assert_report_contains "$AI_STRICT_COLLECTOR_DIR/ai-behavior-actual-trace-collection.properties" "rejectAllowedFailures=1"
+assert_report_contains "$AI_STRICT_COLLECTOR_DIR/ai-behavior-eval.properties" "rejectAllowedFailures=1"
+assert_report_contains "$AI_STRICT_COLLECTOR_DIR/ai-behavior-eval.properties" "traceDiffAllowedFailureCount=0"
 
 AI_MIXED_SOURCE_TRACE="$TMP_DIR/ai-behavior-actual-trace-mixed-source.jsonl"
 python3 - "$AI_ACTUAL_TRACE" "$AI_MIXED_SOURCE_TRACE" <<'PY'
@@ -2546,6 +2633,12 @@ grep -q 'scripts/verify_model_capability_profiles.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include verify_model_capability_profiles.sh in shell syntax checks"
 grep -q 'scripts/verify_real_app_search_report.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include verify_real_app_search_report.sh in shell syntax checks"
+grep -q 'scripts/verify_capability_matrix.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include verify_capability_matrix.sh in shell syntax checks"
+grep -q 'scripts/release_preflight_fields.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include release_preflight_fields.sh in shell syntax checks"
+grep -q 'scripts/verify_model_memory_multimodal_local_gates.sh' scripts/verify_local.sh ||
+  fail "verify_local.sh must include verify_model_memory_multimodal_local_gates.sh in shell syntax checks"
 grep -q 'scripts/verify_release_mapping.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include verify_release_mapping.sh in shell syntax checks"
 grep -q 'scripts/verify_release_gate.sh' scripts/verify_local.sh ||
@@ -2556,6 +2649,96 @@ grep -q 'scripts/collect_model_license_metadata.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include collect_model_license_metadata.sh in shell syntax checks"
 grep -q 'scripts/sign_release_artifacts.sh' scripts/verify_local.sh ||
   fail "verify_local.sh must include sign_release_artifacts.sh in shell syntax checks"
+
+for RELEASE_PREFLIGHT_VERIFIER in \
+  scripts/verify_release_record.sh \
+  scripts/verify_store_policy_record.sh \
+  scripts/verify_privacy_review.sh \
+  scripts/verify_model_license_review.sh \
+  scripts/verify_release_validation_record.sh \
+  scripts/verify_release_operations_record.sh; do
+  grep -q 'release_preflight_fields.sh' "$RELEASE_PREFLIGHT_VERIFIER" ||
+    fail "$RELEASE_PREFLIGHT_VERIFIER must source release_preflight_fields.sh"
+  grep -q 'missingOwnerFields=' "$RELEASE_PREFLIGHT_VERIFIER" ||
+    fail "$RELEASE_PREFLIGHT_VERIFIER must report missingOwnerFields"
+  grep -q 'missingApprovalRoles=' "$RELEASE_PREFLIGHT_VERIFIER" ||
+    fail "$RELEASE_PREFLIGHT_VERIFIER must report missingApprovalRoles"
+  grep -q 'missingEvidenceFiles=' "$RELEASE_PREFLIGHT_VERIFIER" ||
+    fail "$RELEASE_PREFLIGHT_VERIFIER must report missingEvidenceFiles"
+  grep -q 'deferredDeviceEvidence=' "$RELEASE_PREFLIGHT_VERIFIER" ||
+    fail "$RELEASE_PREFLIGHT_VERIFIER must report deferredDeviceEvidence"
+  grep -q 'requiresHumanApproval=' "$RELEASE_PREFLIGHT_VERIFIER" ||
+    fail "$RELEASE_PREFLIGHT_VERIFIER must report requiresHumanApproval"
+done
+
+CAPABILITY_MATRIX_SHA="$(shasum -a 256 docs/capability_matrix.json | awk '{print $1}')"
+expect_success \
+  "capability matrix verifier accepts checked-in capability surface" \
+  scripts/verify_capability_matrix.sh \
+    --report "$ARTIFACT_DIR/capability-matrix.properties"
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/capability-matrix.properties" \
+  "CapabilityMatrixVerification/v1" \
+  "trust-privacy"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "target=capability-matrix"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "capabilityMatrixFile=docs/capability_matrix.json"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "capabilityMatrixSha256=$CAPABILITY_MATRIX_SHA"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "matrixVersion=1"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "scenarioCount=6"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "productCapabilityCount=17"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "toolCapabilityCount=38"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "sensitiveDisclosureCount=9"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "requiredBehaviorBoundaryCount=1"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "localEvidenceRemoteEligibleCount=0"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix.properties" "missingSensitiveDisclosureIds="
+
+CAPABILITY_MATRIX_BAD_LOCAL_REMOTE="$TMP_DIR/capability-matrix-bad-local-remote.json"
+python3 - docs/capability_matrix.json "$CAPABILITY_MATRIX_BAD_LOCAL_REMOTE" <<'PY'
+import json
+import pathlib
+import sys
+
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+for capability in data["productCapabilities"]:
+    if capability["capabilityId"] == "local_offline_chat":
+        capability["remoteEligible"] = True
+        break
+pathlib.Path(sys.argv[2]).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+expect_failure \
+  "capability matrix verifier rejects LocalEvidence remote eligibility drift" \
+  scripts/verify_capability_matrix.sh \
+    --file "$CAPABILITY_MATRIX_BAD_LOCAL_REMOTE" \
+    --report "$ARTIFACT_DIR/capability-matrix-bad-local-remote.properties"
+assert_release_verifier_report_schema \
+  "$ARTIFACT_DIR/capability-matrix-bad-local-remote.properties" \
+  "CapabilityMatrixVerification/v1" \
+  "trust-privacy"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-bad-local-remote.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-bad-local-remote.properties" "failedTarget=capability-boundary"
+assert_report_contains_text "$ARTIFACT_DIR/capability-matrix-bad-local-remote.properties" "local-evidence-remote-eligible:local_offline_chat"
+
+CAPABILITY_MATRIX_BAD_DISCLOSURE="$TMP_DIR/capability-matrix-bad-disclosure.json"
+python3 - docs/capability_matrix.json "$CAPABILITY_MATRIX_BAD_DISCLOSURE" <<'PY'
+import json
+import pathlib
+import sys
+
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+data["sensitiveCapabilityDisclosures"] = [
+    disclosure for disclosure in data["sensitiveCapabilityDisclosures"]
+    if disclosure["capabilityId"] != "media_projection_screenshot_ocr"
+]
+pathlib.Path(sys.argv[2]).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+expect_failure \
+  "capability matrix verifier rejects missing required sensitive disclosure" \
+  scripts/verify_capability_matrix.sh \
+    --file "$CAPABILITY_MATRIX_BAD_DISCLOSURE" \
+    --report "$ARTIFACT_DIR/capability-matrix-bad-disclosure.properties"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-bad-disclosure.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/capability-matrix-bad-disclosure.properties" "missingSensitiveDisclosureIds=media_projection_screenshot_ocr"
+assert_report_contains_text "$ARTIFACT_DIR/capability-matrix-bad-disclosure.properties" "sensitive-disclosure-required-missing:media_projection_screenshot_ocr"
 
 MODEL_CAPABILITY_PROFILES_SHA="$(shasum -a 256 docs/model_capability_profiles.json | awk '{print $1}')"
 expect_success \
@@ -2579,6 +2762,32 @@ assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "rem
 assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "memoryEmbeddingProfileCount=1"
 assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "mobileActionProfileCount=1"
 assert_report_contains "$ARTIFACT_DIR/model-capability-profiles.properties" "stableLocalChatProfileCount=2"
+
+MODEL_MEMORY_MULTIMODAL_REPORT="$ARTIFACT_DIR/model-memory-multimodal-local-gates.properties"
+MODEL_MEMORY_MULTIMODAL_PROFILE_REPORT="$ARTIFACT_DIR/model-memory-multimodal-profile.properties"
+MODEL_MEMORY_MULTIMODAL_MATRIX_REPORT="$ARTIFACT_DIR/model-memory-multimodal-capability-matrix.properties"
+expect_success \
+  "model memory multimodal local gate binds profile, OCR, memory, and remote vision boundaries" \
+  env MODEL_PROFILE_REPORT_FILE="$MODEL_MEMORY_MULTIMODAL_PROFILE_REPORT" \
+    CAPABILITY_MATRIX_REPORT_FILE="$MODEL_MEMORY_MULTIMODAL_MATRIX_REPORT" \
+    scripts/verify_model_memory_multimodal_local_gates.sh \
+      --report "$MODEL_MEMORY_MULTIMODAL_REPORT"
+assert_release_verifier_report_schema \
+  "$MODEL_MEMORY_MULTIMODAL_REPORT" \
+  "ModelMemoryMultimodalLocalGates/v1" \
+  "model-capability"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "status=passed"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "modelCapabilityProfilesReportStatus=passed"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "capabilityMatrixReportStatus=passed"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "localVisionProfileCount=2"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "remoteVisionTemplateConfirmationCount=1"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "memoryEmbeddingLocalOnlyCount=1"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "mobileActionLocalOnlyCount=1"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "ocrLocalOnlyDisclosureCount=2"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "remoteSendDisclosureCount=1"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "runtimeUiEvidenceMode=static-contract"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "targetedJvmTestsRun=0"
+assert_report_contains "$MODEL_MEMORY_MULTIMODAL_REPORT" "targetedJvmDeferredReason=targeted-jvm-not-run-in-this-phase"
 
 MODEL_CAPABILITY_BAD_LOCAL_REMOTE="$TMP_DIR/model-capability-bad-local-remote.json"
 python3 - docs/model_capability_profiles.json "$MODEL_CAPABILITY_BAD_LOCAL_REMOTE" <<'PY'

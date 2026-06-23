@@ -8,6 +8,10 @@ STATUS="${STATUS:-passed}"
 VERIFY_REPORT_FILE="${VERIFY_REPORT_FILE:-${OUT_FILE}.verification.properties}"
 PERFORMANCE_KEY="${PERFORMANCE_KEY:-}"
 EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
+DEFER_DEVICE_TESTS="${DEFER_DEVICE_TESTS:-0}"
+DEFER_PERF_BASELINE="${DEFER_PERF_BASELINE:-0}"
+DEFERRED_REASON="${DEFERRED_REASON:-}"
+STATUS_OVERRIDE="${STATUS_OVERRIDE:-}"
 FAILED_TARGET=""
 FAILURE_REASON=""
 device_serial="$ANDROID_SERIAL"
@@ -39,7 +43,7 @@ write_failure_report() {
   mkdir -p "$(dirname "$OUT_FILE")"
   {
     printf 'artifactSchema=PerfBaselineCollection/v1\n'
-    printf 'status=failed\n'
+    printf 'status=%s\n' "${STATUS_OVERRIDE:-failed}"
     printf 'exit_code=%s\n' "$exit_code"
     printf 'target=perf-baseline-collector\n'
     printf 'owner=%s\n' "$EVIDENCE_OWNER"
@@ -48,6 +52,7 @@ write_failure_report() {
     printf 'reproduciblePath=%s\n' "$OUT_FILE"
     printf 'failedTarget=%s\n' "${FAILED_TARGET:-}"
     printf 'reason=%s\n' "${FAILURE_REASON:-unexpected-collector-failure}"
+    printf 'deferredReason=%s\n' "$DEFERRED_REASON"
     printf 'releaseArtifact=%s\n' "$RELEASE_ARTIFACT"
     if [[ -f "$RELEASE_ARTIFACT" ]]; then
       printf 'releaseArtifactSha256=%s\n' "$(shasum -a 256 "$RELEASE_ARTIFACT" | awk '{print $1}')"
@@ -67,6 +72,15 @@ write_failure_report() {
 }
 
 trap 'status=$?; if [[ "$status" -ne 0 ]]; then write_failure_report "$status"; fi; exit "$status"' EXIT
+
+if [[ "$DEFER_DEVICE_TESTS" == "1" || "$DEFER_PERF_BASELINE" == "1" ]]; then
+  DEFERRED_REASON="${DEFERRED_REASON:-no-device-test-in-this-phase}"
+  STATUS_OVERRIDE="skipped"
+  FAILED_TARGET="perf-baseline"
+  FAILURE_REASON="$DEFERRED_REASON"
+  write_failure_report 0
+  exit 0
+fi
 
 fail() {
   FAILED_TARGET="$1"

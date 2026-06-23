@@ -15342,3 +15342,107 @@ Roadmap 状态：
 
 - 该 verifier 不证明淘宝/拼多多/高德/JD/浏览器在真机上已搜索成功；真实 App pass rate、
   arm64 真机 instrumentation、arm64 emulator matrix 和 perf baseline 仍需后续统一执行。
+
+## 2026-06-23 Local capability gates and deferred evidence preflight
+
+本轮覆盖项：
+
+- 新增 `scripts/verify_capability_matrix.sh`，输出
+  `CapabilityMatrixVerification/v1`，独立校验 `docs/capability_matrix.json`
+  的 MVP scenario、required behavior boundary、敏感能力披露、capability id 唯一性、
+  LocalOnly/LocalEvidence 不可 remote eligible，以及 remote eligible 能力的确认/公开证据边界。
+- `scripts/verify_ai_behavior_eval.sh` 将匹配预期的 `fail_closed` actual trace 归类为
+  `matched`，不再误算成 `allowed_failure`；真正的非 `fail_closed` 降级仍会记录
+  `allowed_failure`，并在 `--reject-allowed-failures` 下 fail-closed。
+- `scripts/collect_ai_behavior_actual_trace.sh` 增加 public-strict collector 开关：
+  `AI_BEHAVIOR_REJECT_ALLOWED_FAILURES=1` 或 `PUBLIC_RELEASE=1` 会把
+  `--reject-allowed-failures` 传给 eval verifier。
+- 新增 `scripts/release_preflight_fields.sh`，并接入 release/store/privacy/model-license/
+  validation/operations 六个 verifier，统一输出 `missingOwnerFields`、
+  `missingApprovalRoles`、`missingEvidenceFiles`、`deferredDeviceEvidence`、
+  `requiresHumanApproval`。
+- 新增 `scripts/verify_model_memory_multimodal_local_gates.sh`，输出
+  `ModelMemoryMultimodalLocalGates/v1`，聚合 model capability profile、Capability Matrix、
+  remote vision confirmation、local OCR disclosure 和 memory LocalOnly 文档边界；默认不跑
+  targeted JVM。
+- `install_and_test_device.sh`、`run_real_app_search_eval.sh`、
+  `collect_perf_baseline.sh`、`regression_emulator_api_matrix.sh` 增加显式 deferred 模式，
+  写出 `deferredReason=no-device-test-in-this-phase` 的 skipped 报告，不作为 release pass 证据。
+- 新增 `docs/roadmap_gap_matrix.json`，用机器可读 ledger 记录 Roadmap 条目的
+  `done|partial|blocked|deferred` 状态、owner、证据和剩余缺口。
+
+验证命令：
+
+```bash
+bash -n scripts/verify_model_memory_multimodal_local_gates.sh \
+  scripts/verify_ai_behavior_eval.sh \
+  scripts/collect_ai_behavior_actual_trace.sh \
+  scripts/install_and_test_device.sh \
+  scripts/run_real_app_search_eval.sh \
+  scripts/collect_perf_baseline.sh \
+  scripts/regression_emulator_api_matrix.sh \
+  scripts/verify_local.sh \
+  scripts/test_validation_scripts.sh
+
+scripts/verify_capability_matrix.sh \
+  --report /tmp/pocketmind-capability-matrix.properties
+
+scripts/verify_model_memory_multimodal_local_gates.sh \
+  --report /tmp/pocketmind-model-memory-multimodal.properties
+
+# fake actual trace only; no device/emulator
+scripts/verify_ai_behavior_eval.sh ... --reject-allowed-failures
+
+DEFER_DEVICE_TESTS=1 scripts/install_and_test_device.sh
+DEFER_DEVICE_TESTS=1 scripts/run_real_app_search_eval.sh
+DEFER_PERF_BASELINE=1 scripts/collect_perf_baseline.sh
+DEFER_EMULATOR_MATRIX=1 scripts/regression_emulator_api_matrix.sh
+
+python3 -m json.tool docs/roadmap_gap_matrix.json >/tmp/pocketmind-roadmap-gap-matrix.json
+git diff --check
+```
+
+结果：
+
+- 通过：shell 语法检查。
+- 通过：Capability Matrix 正例，报告包含 `status=passed`、`scenarioCount=6`、
+  `productCapabilityCount=17`、`toolCapabilityCount=38`、`sensitiveDisclosureCount=9`、
+  `requiredBehaviorBoundaryCount=1`、`localEvidenceRemoteEligibleCount=0`。
+- 符合预期失败：将 `local_offline_chat.remoteEligible=true` 后 fail-closed，
+  `failedTarget=capability-boundary`，`reason` 包含
+  `local-evidence-remote-eligible:local_offline_chat`。
+- 通过：fake `agent_loop_runtime` trace strict eval，40 条 fixture 全部 matched：
+  `traceDiffMatchedCount=40`、`traceDiffAllowedFailureCount=0`、
+  `traceDiffMismatchCount=0`、`actualTraceMissingRequiredFailureModeCount=0`。
+- 通过/符合预期失败：构造一个真实 `allowed_failure` 后，debug/local verifier 通过并记录
+  `traceDiffAllowedFailureCount=1`；加 `--reject-allowed-failures` 后 fail-closed，
+  `reason=trace-diff-allowed-failure`。
+- 通过：model/memory/multimodal local gate，报告包含
+  `localVisionProfileCount=2`、`remoteVisionTemplateConfirmationCount=1`、
+  `memoryEmbeddingLocalOnlyCount=1`、`mobileActionLocalOnlyCount=1`、
+  `ocrLocalOnlyDisclosureCount=2`、`remoteSendDisclosureCount=1`、
+  `targetedJvmTestsRun=0`、`targetedJvmDeferredReason=targeted-jvm-not-run-in-this-phase`。
+- 通过：release preflight expected-failure reports 输出新的五个字段；pending approval、
+  pending evidence 和 deferred device 项仍为 failed/skipped，不被改成 passed。
+- 通过：deferred-mode reports 写出 `status=skipped` 与
+  `deferredReason=no-device-test-in-this-phase`。
+- 通过：`docs/roadmap_gap_matrix.json` JSON 解析与 `git diff --check`。
+
+按当前计划未运行：
+
+- 真机 instrumentation。
+- `scripts/install_and_test_device.sh` 真实设备路径。
+- `scripts/run_real_app_search_eval.sh` 真实设备路径。
+- arm64/x86 emulator regression。
+- `scripts/verify_local.sh` 全量。
+- `scripts/test_validation_scripts.sh` 全量。
+- RC perf baseline 真实采集。
+
+Roadmap 状态：
+
+- Phase 3 本地 gate 继续推进：expected fail-closed 不再制造 allowed failure，public strict
+  gate 仍能拒绝真正未收口的 allowed failure。
+- Phase 4 release records 继续推进：pending release/store/privacy/license/validation/operations
+  记录现在能输出可执行缺口字段，但仍需人工 owner/approval/signing/device evidence。
+- Phase 5 本地 gate 继续推进：model/memory/multimodal 本地边界有 standalone report；真实模型
+  加载、性能和 arm64 真机 evidence 仍是后续 blocker。

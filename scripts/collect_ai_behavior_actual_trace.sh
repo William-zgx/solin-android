@@ -10,6 +10,8 @@ TRACE_DIFF_FILE="${TRACE_DIFF_FILE:-${ARTIFACT_DIR}/ai-behavior-planning-trace-d
 EVAL_REPORT_FILE="${EVAL_REPORT_FILE:-${ARTIFACT_DIR}/ai-behavior-eval.properties}"
 REPORT_FILE="${REPORT_FILE:-${ARTIFACT_DIR}/ai-behavior-actual-trace-collection.properties}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
+PUBLIC_RELEASE_CONTEXT="${PUBLIC_RELEASE_CONTEXT:-${PUBLIC_RELEASE:-0}}"
+REJECT_ALLOWED_FAILURES="${AI_BEHAVIOR_REJECT_ALLOWED_FAILURES:-$PUBLIC_RELEASE_CONTEXT}"
 ORIGINAL_ARGS=("$@")
 
 mkdir -p "$ARTIFACT_DIR" "$(dirname "$ACTUAL_TRACE_FILE")" "$(dirname "$TRACE_DIFF_FILE")" "$(dirname "$EVAL_REPORT_FILE")"
@@ -58,6 +60,8 @@ write_report() {
     printf 'evalRequireRuntimeTraceSource=%s\n' "$(report_value "$EVAL_REPORT_FILE" requireRuntimeTraceSource)"
     printf 'evalRequireAgentLoopRuntimeTraceSource=%s\n' "$(report_value "$EVAL_REPORT_FILE" requireAgentLoopRuntimeTraceSource)"
     printf 'evalRejectAllowedFailures=%s\n' "$(report_value "$EVAL_REPORT_FILE" rejectAllowedFailures)"
+    printf 'publicReleaseContext=%s\n' "$PUBLIC_RELEASE_CONTEXT"
+    printf 'rejectAllowedFailures=%s\n' "$REJECT_ALLOWED_FAILURES"
     printf 'evalActualTraceMaxAgeDays=%s\n' "$(report_value "$EVAL_REPORT_FILE" actualTraceMaxAgeDays)"
     printf 'caseCount=%s\n' "$(report_value "$EVAL_REPORT_FILE" caseCount)"
     printf 'traceDiffMatchedCount=%s\n' "$(report_value "$EVAL_REPORT_FILE" traceDiffMatchedCount)"
@@ -85,14 +89,20 @@ if [[ ! -s "$ACTUAL_TRACE_FILE" ]]; then
   exit 1
 fi
 
-if ! scripts/verify_ai_behavior_eval.sh \
-  --require-boundary-map \
-  --actual-trace "$ACTUAL_TRACE_FILE" \
-  --trace-diff "$TRACE_DIFF_FILE" \
-  --require-actual-trace \
-  --require-runtime-trace-source \
-  --require-agent-loop-runtime-trace-source \
-  --report "$EVAL_REPORT_FILE"; then
+VERIFY_ARGS=(
+  --require-boundary-map
+  --actual-trace "$ACTUAL_TRACE_FILE"
+  --trace-diff "$TRACE_DIFF_FILE"
+  --require-actual-trace
+  --require-runtime-trace-source
+  --require-agent-loop-runtime-trace-source
+  --report "$EVAL_REPORT_FILE"
+)
+if [[ "$REJECT_ALLOWED_FAILURES" == "1" ]]; then
+  VERIFY_ARGS+=(--reject-allowed-failures)
+fi
+
+if ! scripts/verify_ai_behavior_eval.sh "${VERIFY_ARGS[@]}"; then
   reason="$(report_value "$EVAL_REPORT_FILE" reason)"
   write_report failed "${reason:-ai-behavior-eval-failed}"
   echo "AI behavior actual trace failed verifier: ${reason:-ai-behavior-eval-failed}" >&2

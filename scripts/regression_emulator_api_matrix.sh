@@ -24,6 +24,9 @@ REGRESSION_EMULATOR_SCRIPT="${REGRESSION_EMULATOR_SCRIPT:-scripts/regression_emu
 STOP_EMULATOR_AFTER_EACH="${STOP_EMULATOR_AFTER_EACH:-1}"
 ALLOW_EXISTING_EMULATORS="${ALLOW_EXISTING_EMULATORS:-0}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
+DEFER_DEVICE_TESTS="${DEFER_DEVICE_TESTS:-0}"
+DEFER_EMULATOR_MATRIX="${DEFER_EMULATOR_MATRIX:-0}"
+DEFERRED_REASON="${DEFERRED_REASON:-}"
 CI_WORKFLOW="${REGRESSION_EMULATOR_API_MATRIX_WORKFLOW:-${GITHUB_WORKFLOW:-}}"
 CI_JOB="${REGRESSION_EMULATOR_API_MATRIX_JOB:-${GITHUB_JOB:-}}"
 CI_RUN_ID="${REGRESSION_EMULATOR_API_MATRIX_RUN_ID:-${GITHUB_RUN_ID:-}}"
@@ -159,6 +162,7 @@ write_report() {
     printf 'target=regression-emulator-api-matrix\n'
     printf 'failedTarget=%s\n' "$FAILED_TARGET"
     printf 'reason=%s\n' "$reason"
+    printf 'deferredReason=%s\n' "$DEFERRED_REASON"
     printf 'workflow=%s\n' "$CI_WORKFLOW"
     printf 'job=%s\n' "$CI_JOB"
     printf 'runId=%s\n' "$CI_RUN_ID"
@@ -189,6 +193,25 @@ fail() {
   echo "$*" >&2
   exit 1
 }
+
+write_deferred_report_and_exit() {
+  local api
+  DEFERRED_REASON="${DEFERRED_REASON:-no-device-test-in-this-phase}"
+  FAILED_TARGET="regression-emulator-api-matrix"
+  FAILURE_REASON="$DEFERRED_REASON"
+  for api in $REQUIRED_APIS; do
+    SKIPPED_APIS+=("$api")
+    API_STATUS_LINES+=("api${api}Status=skipped")
+    API_STATUS_LINES+=("api${api}ReportFile=")
+    API_STATUS_LINES+=("api${api}Reason=$DEFERRED_REASON")
+  done
+  write_report skipped "$FAILURE_REASON"
+  exit 0
+}
+
+if [[ "$DEFER_DEVICE_TESTS" == "1" || "$DEFER_EMULATOR_MATRIX" == "1" ]]; then
+  write_deferred_report_and_exit
+fi
 
 running_emulators() {
   [[ -x "$ADB_BIN" ]] || return 0

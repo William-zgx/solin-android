@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "generatedFor": "PocketMind multi-agent capability roadmap",
+  "updatedDate": "2026-06-23",
+  "policy": "This ledger tracks roadmap completion evidence. Local verifier evidence never replaces physical device, emulator, production signing, performance, store, security, legal, or release-owner approval evidence.",
+  "items": [
+    {
+      "id": "phase1-intent-routing-skill-arbitration",
+      "roadmapPhase": "Phase 1",
+      "ownerAgent": "Agent 1",
+      "status": "done",
+      "evidence": [
+        "docs/intent_routing_skill_arbitration.md",
+        "app/src/test/java/com/bytedance/zgx/pocketmind/orchestration/AgentLoopRuntimeTest.kt",
+        "docs/validation_report.md"
+      ],
+      "remainingWork": "Rerun targeted and full JVM regressions during the final unified validation pass.",
+      "blockedBy": []
+    },
+    {
+      "id": "phase2-real-app-local-resolver-evidence",
+      "roadmapPhase": "Phase 2",
+      "ownerAgent": "Agent 2",
+      "status": "partial",
+      "evidence": [
+        "app/src/main/java/com/bytedance/zgx/pocketmind/device/UiTargetResolver.kt",
+        "app/src/test/java/com/bytedance/zgx/pocketmind/device/UiAutomatorDumpReplayTest.kt",
+        "scripts/verify_real_app_search_report.sh",
+        "docs/validation_report.md"
+      ],
+      "remainingWork": "Continue adding replay fixtures for changing Taobao, Gaode, JD, and browser search surfaces; verify a fresh physical real-app-search pass rate later.",
+      "blockedBy": [
+        "physical-real-app-search-eval-deferred"
+      ]
+    },
+    {
+      "id": "phase2-real-app-physical-pass-rate",
+      "roadmapPhase": "Phase 2",
+      "ownerAgent": "Agent 2",
+      "status": "deferred",
+      "evidence": [
+        "build/verification/real-app-search-eval-20260617-000937/real-app-search-eval.properties",
+        "docs/release_readiness.md"
+      ],
+      "remainingWork": "Run fresh real-app-search eval on arm64 physical hardware and reach the target pass rate without expanding high-risk automation.",
+      "blockedBy": [
+        "no-device-test-in-this-phase"
+      ]
+    },
+    {
+      "id": "phase3-agent-behavior-eval-gate",
+      "roadmapPhase": "Phase 3",
+      "ownerAgent": "Agent 4",
+      "status": "partial",
+      "evidence": [
+        "scripts/verify_ai_behavior_eval.sh",
+        "scripts/collect_ai_behavior_actual_trace.sh",
+        "app/src/test/resources/ai_behavior_eval",
+        "docs/capability_matrix.json",
+        "scripts/test_validation_scripts.sh"
+      ],
+      "remainingWork": "Collect a fresh agent_loop_runtime actual trace in public-strict mode and keep traceDiffAllowedFailureCount at zero with runtime provenance.",
+      "blockedBy": [
+        "fresh-agent-loop-runtime-trace-not-collected-in-this-phase"
+      ]
+    },
+    {
+      "id": "phase3-capability-matrix-standalone-gate",
+      "roadmapPhase": "Phase 3",
+      "ownerAgent": "Agent 4",
+      "status": "done",
+      "evidence": [
+        "scripts/verify_capability_matrix.sh",
+        "docs/capability_matrix.json"
+      ],
+      "remainingWork": "Attach a fresh CapabilityMatrixVerification/v1 report during release record assembly.",
+      "blockedBy": []
+    },
+    {
+      "id": "phase4-release-records-and-policy-evidence",
+      "roadmapPhase": "Phase 4",
+      "ownerAgent": "Agent 6",
+      "status": "partial",
+      "evidence": [
+        "scripts/verify_release_gate.sh",
+        "scripts/verify_release_record.sh",
+        "scripts/verify_store_policy_record.sh",
+        "scripts/verify_privacy_review.sh",
+        "scripts/verify_model_license_review.sh",
+        "scripts/verify_release_validation_record.sh",
+        "scripts/verify_release_operations_record.sh",
+        "scripts/release_preflight_fields.sh"
+      ],
+      "remainingWork": "Use the preflight fields in verifier reports to fill real owners, reviewers, public policy URLs, approvals, signing identity, artifact SHA values, and approved evidence files.",
+      "blockedBy": [
+        "release-owner-evidence-required",
+        "store-policy-owner-evidence-required",
+        "privacy-security-legal-approval-required",
+        "model-license-approval-required"
+      ]
+    },
+    {
+      "id": "phase4-device-and-emulator-validation",
+      "roadmapPhase": "Phase 4",
+      "ownerAgent": "Agent 3",
+      "status": "deferred",
+      "evidence": [
+        "scripts/install_and_test_device.sh",
+        "scripts/run_real_app_search_eval.sh",
+        "scripts/collect_perf_baseline.sh",
+        "scripts/regression_emulator_api_matrix.sh",
+        "docs/release_readiness.md"
+      ],
+      "remainingWork": "Resolve physical instrumentation crash, run arm64 physical validation, prepare API 28/32/33/34 arm64 AVDs, and collect accepted validation reports. Deferred-mode reports now carry deferredReason=no-device-test-in-this-phase and serial/API/ABI/release-artifact fields where applicable.",
+      "blockedBy": [
+        "no-device-test-in-this-phase",
+        "arm64-api-matrix-environment-required"
+      ]
+    },
+    {
+      "id": "phase4-performance-baseline",
+      "roadmapPhase": "Phase 4",
+      "ownerAgent": "Agent 5",
+      "status": "deferred",
+      "evidence": [
+        "scripts/collect_perf_baseline.sh",
+        "scripts/verify_perf_baseline.sh",
+        "docs/perf_baseline_template.properties"
+      ],
+      "remainingWork": "Collect RC model load, first token, tokens/s, memory, ANR/OOM, and GPU fallback evidence on physical arm64 hardware.",
+      "blockedBy": [
+        "no-device-test-in-this-phase",
+        "physical-arm64-performance-required"
+      ]
+    },
+    {
+      "id": "phase5-model-memory-multimodal-local-gates",
+      "roadmapPhase": "Phase 5",
+      "ownerAgent": "Agent 5",
+      "status": "partial",
+      "evidence": [
+        "docs/model_capability_profiles.json",
+        "scripts/verify_model_capability_profiles.sh",
+        "scripts/verify_model_memory_multimodal_local_gates.sh",
+        "docs/capability_matrix.json",
+        "docs/validation_report.md"
+      ],
+      "remainingWork": "Optionally run the targeted JVM slice and later collect real model loading/performance evidence on physical arm64 hardware.",
+      "blockedBy": [
+        "real-model-runtime-validation-deferred"
+      ]
+    },
+    {
+      "id": "phase6-public-release-readiness",
+      "roadmapPhase": "Phase 6",
+      "ownerAgent": "Agent 0",
+      "status": "blocked",
+      "evidence": [
+        "docs/release_record.json",
+        "docs/store_policy_record.json",
+        "docs/privacy_review.json",
+        "docs/model_license_review.json",
+        "docs/release_validation_record.json",
+        "docs/release_operations_record.json"
+      ],
+      "remainingWork": "Complete production signing, approved release records, store/privacy/legal/model-license reviews, validation record, operations record, public AAB, mapping, and final public release gate.",
+      "blockedBy": [
+        "human-approval-required",
+        "production-signing-required",
+        "physical-validation-required",
+        "perf-baseline-required"
+      ]
+    }
+  ]
+}

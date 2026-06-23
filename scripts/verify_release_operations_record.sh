@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+source "$ROOT_DIR/scripts/release_preflight_fields.sh"
+
 OPERATIONS_RECORD_FILE="${OPERATIONS_RECORD_FILE:-docs/release_operations_record.json}"
 EXPECTED_COMMIT_SHA="${EXPECTED_COMMIT_SHA:-}"
 EXPECTED_RELEASE_ARTIFACT_TYPE="${EXPECTED_RELEASE_ARTIFACT_TYPE:-}"
@@ -32,15 +34,28 @@ shell_command() {
 }
 
 failed_target_for_reason() {
-  case "$1" in
+  local first="${1%%,*}"
+  case "$first" in
     unknown-argument|missing-*-argument)
       printf 'argument-parser'
       ;;
     missing-operations-record-file|json-parse-error)
       printf 'release-operations-record'
       ;;
+    status-not-approved|reviewer-missing|review-date-missing)
+      printf 'release-operations-review'
+      ;;
+    ci-*)
+      printf 'release-operations-ci'
+      ;;
+    monitoring-*|android-vitals-*|first-24-hours-*|crash-*|noLaunchCrash-*|noInstallCrash-*|noCrashLoop-*|noFatalNativeLiteRtLmFailure-*|noReproducibleAnr-*)
+      printf 'release-operations-monitoring'
+      ;;
+    rollback-*|previous-known-good-*)
+      printf 'release-operations-rollback'
+      ;;
     *)
-      printf ''
+      printf 'release-operations-record'
       ;;
   esac
 }
@@ -48,6 +63,16 @@ failed_target_for_reason() {
 write_report() {
   local status="$1"
   local reason="$2"
+  local missing_owner_fields=""
+  local missing_approval_roles=""
+  local missing_evidence_files=""
+  local deferred_device_evidence=""
+  local requires_human_approval=""
+  missing_owner_fields="$(preflight_missing_owner_fields release-operations-record "$reason")"
+  missing_approval_roles="$(preflight_missing_approval_roles release-operations-record "$reason" "$status")"
+  missing_evidence_files="$(preflight_missing_evidence_files "$reason")"
+  deferred_device_evidence="$(preflight_deferred_device_evidence release-operations-record "$reason")"
+  requires_human_approval="$(preflight_requires_human_approval "$status" "$missing_approval_roles" "$missing_owner_fields")"
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
@@ -59,6 +84,12 @@ write_report() {
       printf 'command=%s\n' "$(shell_command)"
       printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'failedTarget=%s\n' "$(failed_target_for_reason "$reason")"
+      printf 'reason=%s\n' "$reason"
+      printf 'missingOwnerFields=%s\n' "$missing_owner_fields"
+      printf 'missingApprovalRoles=%s\n' "$missing_approval_roles"
+      printf 'missingEvidenceFiles=%s\n' "$missing_evidence_files"
+      printf 'deferredDeviceEvidence=%s\n' "$deferred_device_evidence"
+      printf 'requiresHumanApproval=%s\n' "$requires_human_approval"
       printf 'operationsRecordFile=%s\n' "$OPERATIONS_RECORD_FILE"
       printf 'operationsRecordSha256=%s\n' "$(sha256_or_empty "$OPERATIONS_RECORD_FILE")"
       printf 'expectedCommitSha=%s\n' "$EXPECTED_COMMIT_SHA"
@@ -66,7 +97,6 @@ write_report() {
       printf 'expectedReleaseArtifactSha256=%s\n' "$EXPECTED_RELEASE_ARTIFACT_SHA256"
       printf 'expectedReleaseMappingSha256=%s\n' "$EXPECTED_RELEASE_MAPPING_SHA256"
       printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
-      printf 'reason=%s\n' "$reason"
     } > "$REPORT_FILE"
   fi
 }

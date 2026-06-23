@@ -149,29 +149,19 @@ items below.
   deterministic collector contract; `android_instrumentation` and
   `device_debug_eval` trace sources remain non-public/debug evidence only.
   `scripts/collect_ai_behavior_actual_trace.sh` now produces the local
-  `agent_loop_runtime` actual trace collection report; the
-  latest local collector report
-  `build/verification/ai-behavior-actual-trace-remote-send-gate/ai-behavior-actual-trace-collection.properties`
-  records 31 runtime-sourced rows, `traceDiffMatchedCount=21`,
-  `traceDiffAllowedFailureCount=10`, `traceDiffMissingActualCount=0`,
-  `traceDiffMismatchCount=0`, and `traceDiffExtraActualCount=0`. It includes
-  app search then back checkpoint evidence, low-risk app-control checkpoint budget
-  evidence, mixed public/private remote batch fail-closed evidence, restart
-  external-outcome fail-closed evidence, metadata-only OCR truncation evidence,
-  restart-restored confirmation evidence, explicit local memory forget evidence
-  through `MemoryRepository`, and remote-send confirmation coverage. The collector
-  now invokes the eval verifier with `--require-actual-trace` and
-  `--require-agent-loop-runtime-trace-source`, so mismatched or non-collector
-  actual runtime traces fail the collector evidence itself instead of relying on
-  a later public release gate. Real-app search failure modes are now required in
-  the eval suite: `search_entry_not_found`, `editable_not_found`,
+  `agent_loop_runtime` actual trace collection report and can run public-strict
+  collection with `AI_BEHAVIOR_REJECT_ALLOWED_FAILURES=1` or
+  `PUBLIC_RELEASE=1`. Expected `fail_closed` outcomes that match their declared
+  failure mode are classified as `matched`, not `allowed_failure`; unresolved
+  non-`fail_closed` downgrades still remain `allowed_failure` and fail closed
+  under `--reject-allowed-failures`. A local fake-trace smoke of the verifier on
+  2026-06-23 covered 40 fixture rows with `traceDiffMatchedCount=40`,
+  `traceDiffAllowedFailureCount=0`, `traceDiffMissingActualCount=0`, and
+  `traceDiffMismatchCount=0`. This is a local verifier check, not final release
+  evidence. Public release still needs a fresh collector report generated from
+  the runtime `agent_loop_runtime` test path. Real-app search failure modes are
+  required in the eval suite: `search_entry_not_found`, `editable_not_found`,
   `submit_not_found`, `result_not_verified`, and `required_hint_missing`.
-  The evidence is mismatch-free, but allowed failures are no longer acceptable
-  for public release: `PUBLIC_RELEASE=1` enables
-  `REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1`, and the release gate fails closed
-  when `traceDiffAllowedFailureCount` is non-zero. The current collector evidence
-  therefore remains a release blocker until allowed failures are driven to zero
-  or a separately audited exception mechanism is introduced.
 - Agent behavior trace diffs now fail closed when an actual trace reports an
   unexpected `failureMode`, and fixture/trace failure modes must use stable slug
   taxonomy. Allowed failures can explain expected fail-closed behavior, but they
@@ -314,6 +304,24 @@ items below.
   a bound `ReleaseGateVerification/v1` report, and blocker evidence must use
   structured `ReleaseRecordBlockerEvidence/v1` properties tied to the current
   blocker id, owner, date, release commit, and artifact SHA-256.
+- Capability Matrix now has a standalone
+  `CapabilityMatrixVerification/v1` gate via
+  `scripts/verify_capability_matrix.sh`, and model/memory/multimodal local
+  boundaries are aggregated by
+  `scripts/verify_model_memory_multimodal_local_gates.sh`. These local gates
+  bind model profile, remote vision confirmation, OCR LocalOnly disclosures, and
+  memory privacy documentation without running real model loading, physical
+  hardware, or emulator validation.
+- Release record verifiers now emit preflight fields
+  `missingOwnerFields`, `missingApprovalRoles`, `missingEvidenceFiles`,
+  `deferredDeviceEvidence`, and `requiresHumanApproval`. These fields are
+  intentionally fail-closed: pending human approvals, production signing, and
+  physical validation are visible in reports but are not converted into passed
+  evidence.
+- Device, real-app-search, perf baseline, and emulator matrix scripts support
+  explicit deferred-mode reports with
+  `deferredReason=no-device-test-in-this-phase`. Deferred reports are useful
+  for planning and owner handoff only; they remain release blockers.
 
 ## Remaining release blockers by ownership
 

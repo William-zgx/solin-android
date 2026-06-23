@@ -140,6 +140,18 @@ with each RC before treating this checklist as complete.
   memory/action profiles are not remote-eligible, remote templates require send
   confirmation, vision is Chat-only, and recommended profiles carry
   byte/SHA/revision provenance.
+- [ ] Attach a fresh `CapabilityMatrixVerification/v1` report from
+  `scripts/verify_capability_matrix.sh --report <report>`. It must verify the
+  required sensitive disclosures for remote sends, voice, share/picker, device
+  actions, contacts/calendar, media/OCR, Usage Access, Accessibility, and
+  MediaProjection, and it must reject LocalOnly/LocalEvidence capabilities that
+  drift into remote eligibility.
+- [ ] Attach a fresh `ModelMemoryMultimodalLocalGates/v1` report from
+  `scripts/verify_model_memory_multimodal_local_gates.sh --report <report>`.
+  This local report must show remote vision templates require send
+  confirmation, local vision profiles remain local, OCR disclosures remain
+  LocalOnly, and memory/action profiles are not remote-eligible. It does not
+  replace physical model performance evidence.
 - [ ] Required Android permissions and special-access flows are explained in
   user-facing language.
 - [ ] Sensitive permission disclosures are complete for `RECORD_AUDIO`,
@@ -323,7 +335,8 @@ with each RC before treating this checklist as complete.
   30 days by default; override only with
   `AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS=<days>` when release policy explicitly
   accepts a different window. Use `scripts/collect_ai_behavior_actual_trace.sh`
-  for the deterministic local `agent_loop_runtime` trace collection step; do not
+  for the deterministic local `agent_loop_runtime` trace collection step; set
+  `AI_BEHAVIOR_REJECT_ALLOWED_FAILURES=1` for the strict collector profile. Do not
   replace it with a hand-copied fixture file.
 
 ## Test Matrix

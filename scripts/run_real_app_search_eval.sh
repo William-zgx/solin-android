@@ -16,6 +16,9 @@ DIAGNOSTICS_DIR="${DIAGNOSTICS_DIR:-${ARTIFACT_DIR}/diagnostics}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_INSTALL="${SKIP_INSTALL:-0}"
 FORCE_STOP_TARGET_APP="${FORCE_STOP_TARGET_APP:-1}"
+DEFER_DEVICE_TESTS="${DEFER_DEVICE_TESTS:-0}"
+DEFERRED_REASON="${DEFERRED_REASON:-}"
+STATUS_OVERRIDE="${STATUS_OVERRIDE:-}"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 PACKAGE_NAME="com.bytedance.zgx.pocketmind"
@@ -225,7 +228,11 @@ write_step_target_resolution_fields() {
 write_report() {
   local exit_code="$1"
   local artifact_id logcat_sha256
-  [[ "$exit_code" -eq 0 ]] && STATUS="passed"
+  if [[ -n "$STATUS_OVERRIDE" ]]; then
+    STATUS="$STATUS_OVERRIDE"
+  elif [[ "$exit_code" -eq 0 ]]; then
+    STATUS="passed"
+  fi
   artifact_id="real-app-search-${SELECTED_SERIAL:-unselected}-api${API_LEVEL:-unknown}-${STARTED_AT_UTC}"
   artifact_id="${artifact_id//:/}"
   logcat_sha256="$(sha256_file "$LOGCAT_FILE")"
@@ -237,6 +244,7 @@ write_report() {
     echo "target=real-app-search-eval"
     echo "failedTarget=${FAILED_TARGET:-}"
     echo "reason=$FAILURE_REASON"
+    echo "deferredReason=$DEFERRED_REASON"
     echo "started_at_utc=$STARTED_AT_UTC"
     echo "finished_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "serial=$SELECTED_SERIAL"
@@ -276,6 +284,16 @@ on_exit() {
 }
 
 trap on_exit EXIT
+
+if [[ "$DEFER_DEVICE_TESTS" == "1" ]]; then
+  trap - EXIT
+  DEFERRED_REASON="${DEFERRED_REASON:-no-device-test-in-this-phase}"
+  STATUS_OVERRIDE="skipped"
+  FAILED_TARGET="real-app-search-eval"
+  FAILURE_REASON="$DEFERRED_REASON"
+  write_report 0
+  exit 0
+fi
 
 fail_with_reason() {
   FAILED_TARGET="$1"

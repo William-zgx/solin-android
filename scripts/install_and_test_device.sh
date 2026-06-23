@@ -22,6 +22,9 @@ LOGCAT_TAIL_LINES="${LOGCAT_TAIL_LINES:-500}"
 INSTRUMENTATION_CLASS="${INSTRUMENTATION_CLASS:-}"
 INSTRUMENTATION_TIMEOUT_SECONDS="${INSTRUMENTATION_TIMEOUT_SECONDS:-900}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
+DEFER_DEVICE_TESTS="${DEFER_DEVICE_TESTS:-0}"
+DEFERRED_REASON="${DEFERRED_REASON:-}"
+STATUS_OVERRIDE="${STATUS_OVERRIDE:-}"
 
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 SELECTED_SERIAL=""
@@ -51,7 +54,11 @@ write_verification_report() {
   local artifact_id
   local instrumentation_output_sha256=""
   local logcat_sha256=""
-  [[ "$exit_code" -eq 0 ]] && status_label="passed"
+  if [[ -n "$STATUS_OVERRIDE" ]]; then
+    status_label="$STATUS_OVERRIDE"
+  elif [[ "$exit_code" -eq 0 ]]; then
+    status_label="passed"
+  fi
   artifact_id="device-${SELECTED_SERIAL:-unselected}-api${API_LEVEL:-unknown}-${STARTED_AT_UTC}"
   artifact_id="${artifact_id//:/}"
   if [[ -f "$INSTRUMENTATION_OUTPUT_FILE" ]]; then
@@ -70,6 +77,7 @@ write_verification_report() {
     echo "target=device"
     echo "failedTarget=${FAILED_TARGET:-}"
     echo "reason=${FAILURE_REASON:-}"
+    echo "deferredReason=$DEFERRED_REASON"
     echo "started_at_utc=$STARTED_AT_UTC"
     echo "finished_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "serial=${SELECTED_SERIAL:-}"
@@ -170,6 +178,17 @@ on_exit() {
 }
 
 trap on_exit EXIT
+
+if [[ "$DEFER_DEVICE_TESTS" == "1" ]]; then
+  DEFERRED_REASON="${DEFERRED_REASON:-no-device-test-in-this-phase}"
+  STATUS_OVERRIDE="skipped"
+  FAILED_TARGET="device-validation"
+  FAILURE_REASON="$DEFERRED_REASON"
+  INSTRUMENTATION_STATUS="skipped"
+  SCRIPT_COMPLETED=1
+  write_verification_report 0
+  exit 0
+fi
 
 fail_with_reason() {
   FAILED_TARGET="$1"

@@ -837,7 +837,17 @@ for case in eval_cases:
         not allowed_failure_mode_match
     ):
         actual_trace_missing_required_failure_mode_count += 1
+    exact_trace_match = (
+        tools_match and
+        confirmation_match and
+        safety_boundary_match and
+        actual_failure_mode_accepted and
+        routing_expectation_match and
+        required_failure_mode_match
+    )
     allowed_failure_match = (
+        not exact_trace_match and
+        case["expectedConfirmation"] != "fail_closed" and
         allowed_failure_mode_match and
         routing_expectation_match and
         safety_boundary_match and
@@ -845,17 +855,10 @@ for case in eval_cases:
     )
     if actual is None:
         status = "missing_actual"
+    elif exact_trace_match:
+        status = "matched"
     elif allowed_failure_match:
         status = "allowed_failure"
-    elif (
-        tools_match and
-        confirmation_match and
-        safety_boundary_match and
-        actual_failure_mode_accepted and
-        routing_expectation_match and
-        required_failure_mode_match
-    ):
-        status = "matched"
     else:
         status = "mismatch"
     trace_diff_counts[status] += 1

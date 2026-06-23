@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+source "$ROOT_DIR/scripts/release_preflight_fields.sh"
+
 VALIDATION_RECORD_FILE="${VALIDATION_RECORD_FILE:-docs/release_validation_record.json}"
 ANDROID_TEST_SOURCE_DIR="${ANDROID_TEST_SOURCE_DIR:-app/src/androidTest}"
 EXPECTED_RELEASE_ARTIFACT_SHA256="${EXPECTED_RELEASE_ARTIFACT_SHA256:-}"
@@ -90,9 +92,19 @@ write_report() {
   local status="$1"
   local reason="$2"
   local failed_target=""
+  local missing_owner_fields=""
+  local missing_approval_roles=""
+  local missing_evidence_files=""
+  local deferred_device_evidence=""
+  local requires_human_approval=""
   if [[ "$status" != "passed" ]]; then
     failed_target="$(failed_target_for_reason "$reason")"
   fi
+  missing_owner_fields="$(preflight_missing_owner_fields release-validation-record "$reason")"
+  missing_approval_roles="$(preflight_missing_approval_roles release-validation-record "$reason" "$status")"
+  missing_evidence_files="$(preflight_missing_evidence_files "$reason")"
+  deferred_device_evidence="$(preflight_deferred_device_evidence release-validation-record "$reason")"
+  requires_human_approval="$(preflight_requires_human_approval "$status" "$missing_approval_roles" "$missing_owner_fields")"
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
@@ -104,6 +116,11 @@ write_report() {
       printf 'command=%s\n' "$(command_line)"
       printf 'failedTarget=%s\n' "$failed_target"
       printf 'reason=%s\n' "$reason"
+      printf 'missingOwnerFields=%s\n' "$missing_owner_fields"
+      printf 'missingApprovalRoles=%s\n' "$missing_approval_roles"
+      printf 'missingEvidenceFiles=%s\n' "$missing_evidence_files"
+      printf 'deferredDeviceEvidence=%s\n' "$deferred_device_evidence"
+      printf 'requiresHumanApproval=%s\n' "$requires_human_approval"
       printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
       printf 'validationRecordSha256=%s\n' "$(sha256_or_empty "$VALIDATION_RECORD_FILE")"
