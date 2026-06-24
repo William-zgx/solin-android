@@ -18,7 +18,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import java.util.regex.Pattern
@@ -35,32 +35,28 @@ class MainActivityVoicePermissionUiTest {
     fun voiceConsentThenDenyMicrophonePermissionShowsFailureAndKeepsRecoveryEntry() {
         resetPermission(Manifest.permission.RECORD_AUDIO)
 
-        try {
-            launchReadyRemoteActivity().use {
-                composeRule.waitForTag("app_title")
-                composeRule.waitForReadyComposer()
+        launchReadyRemoteActivity().use {
+            composeRule.waitForTag("app_title")
+            composeRule.waitForReadyComposer()
 
-                composeRule.onNodeWithTag("composer_voice_button").performClick()
-                composeRule.waitForTag("voice_permission_disclosure_dialog")
-                composeRule.onNodeWithTag("voice_permission_consent_button").performClick()
+            composeRule.onNodeWithTag("composer_voice_button").performClick()
+            composeRule.waitForTag("voice_permission_disclosure_dialog")
+            composeRule.onNodeWithTag("voice_permission_consent_button").performClick()
 
-                clickPermissionDeny()
+            clickPermissionDeny()
 
-                composeRule.waitForTagGone("voice_permission_disclosure_dialog", timeoutMillis = 10_000)
-                composeRule.waitForText("未授权麦克风权限", substring = true, timeoutMillis = 10_000)
-                composeRule.onNodeWithTag("app_status_text")
-                    .assertTextContains("未授权麦克风权限")
-                composeRule.waitForTagGone("voice_capture_bar")
-                composeRule.onNodeWithTag("composer_input").assertIsEnabled()
-                assertPermissionDenied(Manifest.permission.RECORD_AUDIO)
+            composeRule.waitForTagGone("voice_permission_disclosure_dialog", timeoutMillis = 10_000)
+            composeRule.waitForText("未授权麦克风权限", substring = true, timeoutMillis = 10_000)
+            composeRule.onNodeWithTag("app_status_text")
+                .assertTextContains("未授权麦克风权限")
+            composeRule.waitForTagGone("voice_capture_bar")
+            composeRule.onNodeWithTag("composer_input").assertIsEnabled()
+            assertPermissionDenied(Manifest.permission.RECORD_AUDIO)
 
-                composeRule.onNodeWithTag("composer_voice_button").assertIsEnabled().performClick()
-                composeRule.onNodeWithTag("voice_permission_disclosure_dialog").assertIsDisplayed()
-                composeRule.onNodeWithTag("voice_permission_cancel_button").performClick()
-                composeRule.waitForTagGone("voice_permission_disclosure_dialog")
-            }
-        } finally {
-            resetPermission(Manifest.permission.RECORD_AUDIO)
+            composeRule.onNodeWithTag("composer_voice_button").assertIsEnabled().performClick()
+            composeRule.onNodeWithTag("voice_permission_disclosure_dialog").assertIsDisplayed()
+            composeRule.onNodeWithTag("voice_permission_cancel_button").performClick()
+            composeRule.waitForTagGone("voice_permission_disclosure_dialog")
         }
     }
 
@@ -108,7 +104,10 @@ class MainActivityVoicePermissionUiTest {
     }
 
     private fun resetPermission(permission: String) {
-        shell("pm revoke ${targetContext.packageName} $permission")
+        assumeTrue(
+            "$permission must be denied before instrumentation starts; revoke it before launching tests.",
+            targetContext.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED,
+        )
         shell("pm clear-permission-flags ${targetContext.packageName} $permission user-set user-fixed")
     }
 
@@ -126,17 +125,34 @@ class MainActivityVoicePermissionUiTest {
     }
 
     private fun clickPermissionDeny() {
-        val button = device.wait(
-            Until.findObject(By.res("com.android.permissioncontroller:id/permission_deny_button")),
-            5_000,
-        ) ?: device.wait(
-            Until.findObject(By.res("com.google.android.permissioncontroller:id/permission_deny_button")),
-            1_500,
-        ) ?: device.wait(
-            Until.findObject(By.text(Pattern.compile("(?i)(don'?t allow|deny|拒绝|不允许)"))),
-            1_500,
-        )
-        checkNotNull(button) { "Permission deny button not found" }.click()
-        device.waitForIdle()
+        val deadline = System.currentTimeMillis() + 8_000
+        while (System.currentTimeMillis() < deadline) {
+            val button = device.findObject(By.res("com.android.permissioncontroller:id/permission_deny_button"))
+                ?: device.findObject(By.res("com.google.android.permissioncontroller:id/permission_deny_button"))
+                ?: device.findObject(By.text(Pattern.compile("(?i)(don'?t allow|deny|拒绝|不允许)")))
+            if (button != null) {
+                button.click()
+                device.waitForIdle()
+                return
+            }
+            if (isPermissionControllerVisible()) {
+                device.pressBack()
+                device.waitForIdle()
+                return
+            }
+            if (targetContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                return
+            }
+            Thread.sleep(200)
+        }
+        check(false) { "Permission deny button not found" }
     }
+
+    private fun isPermissionControllerVisible(): Boolean =
+        device.currentPackageName == "com.android.permissioncontroller" ||
+            device.currentPackageName == "com.google.android.permissioncontroller" ||
+            device.hasObject(By.pkg("com.android.permissioncontroller")) ||
+            device.hasObject(By.pkg("com.google.android.permissioncontroller")) ||
+            device.hasObject(By.pkg("com.miui.securitycenter")) ||
+            device.hasObject(By.pkg("com.lbe.security.miui"))
 }

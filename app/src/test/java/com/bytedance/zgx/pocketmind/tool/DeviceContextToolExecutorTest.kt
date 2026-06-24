@@ -577,6 +577,11 @@ class DeviceContextToolExecutorTest {
         assertFalse(result.data.containsKey("uri"))
         assertFalse(result.data.containsKey("content"))
         assertFalse(result.data.containsKey("pixels"))
+        assertFalse(result.data.containsKey("name"))
+        assertFalse(result.data.containsKey("mimeType"))
+        assertFalse(result.data.containsKey("kind"))
+        assertFalse(result.data.containsKey("sizeBytes"))
+        assertFalse(result.data.containsKey("lastModifiedMillis"))
     }
 
     @Test
@@ -623,6 +628,11 @@ class DeviceContextToolExecutorTest {
         assertFalse(result.data.containsKey("uri"))
         assertFalse(result.data.containsKey("content"))
         assertFalse(result.data.containsKey("pixels"))
+        assertFalse(result.data.containsKey("name"))
+        assertFalse(result.data.containsKey("mimeType"))
+        assertFalse(result.data.containsKey("kind"))
+        assertFalse(result.data.containsKey("sizeBytes"))
+        assertFalse(result.data.containsKey("lastModifiedMillis"))
     }
 
     @Test

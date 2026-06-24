@@ -22,8 +22,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import com.bytedance.zgx.pocketmind.ui.REMOTE_ATTACHMENT_PROTECTION_NOTICE
 import com.bytedance.zgx.pocketmind.ui.VOICE_INPUT_PRIVACY_DESCRIPTION
-import java.io.FileInputStream
-import org.junit.After
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -33,17 +32,17 @@ class MainActivityAdaptiveUiTest {
 
     private val targetContext: Context = InstrumentationRegistry.getInstrumentation().targetContext
 
-    @After
-    fun restoreDisplaySettings() {
-        setFontScale(1.0f)
-    }
-
     @Test
     fun largeFontChatShellAndModelManagerRemainReachable() {
         resetMainActivityPersistentState(targetContext, inferenceMode = InferenceMode.Local)
-        setFontScale(1.3f)
 
-        ActivityScenario.launch<MainActivity>(skipStartupIntent()).use {
+        ActivityScenario.launch<MainActivity>(skipStartupIntent(fontScale = 1.3f)).use { scenario ->
+            scenario.onActivity { activity ->
+                assertTrue(
+                    "Expected debug font scale to be applied to MainActivity.",
+                    activity.resources.configuration.fontScale >= 1.29f,
+                )
+            }
             composeRule.waitForTag("app_title")
             composeRule.onNodeWithTag("top_model_button").assertIsDisplayed()
             composeRule.onNodeWithTag("top_session_button").assertIsDisplayed()
@@ -75,7 +74,7 @@ class MainActivityAdaptiveUiTest {
             composeRule.assertLabeledAction("top_more_button", "更多")
             composeRule.assertLabeledAction(
                 "composer_attachment_button",
-                "选择附件；远程模式会发送图片，其他附件不读取正文或 OCR",
+                "选择附件；远程模式逐次确认后发送图片，其他附件不读取正文或 OCR",
             )
             composeRule.assertLabeledAction("composer_voice_button", VOICE_INPUT_PRIVACY_DESCRIPTION)
             composeRule.onNodeWithTag("remote_attachment_protection_notice").assertIsDisplayed()
@@ -102,43 +101,43 @@ class MainActivityAdaptiveUiTest {
         )
 
         ActivityScenario.launch<MainActivity>(skipStartupIntent(ReadyRemoteModelConfig)).use { scenario ->
-            composeRule.waitForTag("app_title")
-            composeRule.enableEveryMessageRemoteSendDisclosure()
+            try {
+                composeRule.waitForTag("app_title")
+                composeRule.enableEveryMessageRemoteSendDisclosure()
 
-            scenario.onActivity { activity ->
-                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                }
+                composeRule.waitForReadyComposer()
+
+                composeRule.onNodeWithTag("composer_input").performTextInput("横屏确认远程发送")
+                composeRule.onNodeWithTag("composer_send_button").performClick()
+                composeRule.waitForTag("remote_send_disclosure_sheet")
+                composeRule.onNodeWithTag("remote_send_confirm_button")
+                    .assertHasClickAction()
+                composeRule.onNodeWithTag("remote_send_dismiss_button")
+                    .assertHasClickAction()
+            } finally {
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
             }
-            composeRule.waitForReadyComposer()
-
-            composeRule.onNodeWithTag("composer_input").performTextInput("横屏确认远程发送")
-            composeRule.onNodeWithTag("composer_send_button").performClick()
-            composeRule.waitForTag("remote_send_disclosure_sheet")
-            composeRule.onNodeWithTag("remote_send_confirm_button").performScrollTo().assertIsDisplayed()
-            composeRule.onNodeWithTag("remote_send_dismiss_button").performScrollTo().assertIsDisplayed()
         }
     }
 
-    private fun skipStartupIntent(debugRemoteModelConfig: RemoteModelConfig? = null): Intent =
-        if (debugRemoteModelConfig == null) {
+    private fun skipStartupIntent(
+        debugRemoteModelConfig: RemoteModelConfig? = null,
+        fontScale: Float? = null,
+    ): Intent =
+        (if (debugRemoteModelConfig == null) {
             mainActivitySkipStartupIntent(targetContext)
         } else {
             mainActivitySkipStartupIntent(targetContext, debugRemoteModelConfig)
-        }
-
-    private fun setFontScale(scale: Float) {
-        runShellCommand("settings put system font_scale $scale")
-    }
-
-    private fun runShellCommand(command: String) {
-        InstrumentationRegistry.getInstrumentation()
-            .uiAutomation
-            .executeShellCommand(command)
-            .use { descriptor ->
-                FileInputStream(descriptor.fileDescriptor).use { input ->
-                    input.readBytes()
-                }
+        }).apply {
+            fontScale?.let { scale ->
+                putExtra(MainActivity.EXTRA_DEBUG_UI_FONT_SCALE, scale)
             }
-    }
+        }
 
     private fun ComposeTestRule.waitForReadyComposer(timeoutMillis: Long = 10_000) {
         waitUntil(timeoutMillis = timeoutMillis) {

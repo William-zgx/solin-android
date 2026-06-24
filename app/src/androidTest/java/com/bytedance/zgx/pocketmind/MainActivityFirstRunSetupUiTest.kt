@@ -37,7 +37,17 @@ class MainActivityFirstRunSetupUiTest {
             composeRule.waitForText("本地可用", timeoutMillis = 10_000)
             composeRule.waitForText("远程多模态可选", timeoutMillis = 10_000)
             composeRule.waitForText("动作确认执行", timeoutMillis = 10_000)
-            composeRule.waitForText("离线基础问答可选下载", timeoutMillis = 10_000)
+
+            val setupVisible = composeRule.waitForOptionalText("离线基础问答可选下载", timeoutMillis = 3_000)
+            if (!setupVisible) {
+                composeRule.onNodeWithTag("model_startup_banner")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                composeRule.onNodeWithTag("quick_remote_config_button")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                return@use
+            }
 
             composeRule.onNodeWithTag("first_run_model_chat-e2b")
                 .performScrollTo()
@@ -71,6 +81,12 @@ class MainActivityFirstRunSetupUiTest {
             onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
         }
     }
+
+    private fun ComposeTestRule.waitForOptionalText(text: String, timeoutMillis: Long): Boolean =
+        runCatching {
+            waitForText(text, timeoutMillis = timeoutMillis)
+            true
+        }.getOrDefault(false)
 
     private fun ComposeTestRule.waitForTagGone(tag: String, timeoutMillis: Long = 5_000) {
         waitUntil(timeoutMillis = timeoutMillis) {

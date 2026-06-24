@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.xunmeng.pinduoduo" content-desc="" clickable="false" enabled="true" scrollable="false" bounds="[0,0][1080,2400]">
+    <node index="0" text="搜索商品" resource-id="com.xunmeng.pinduoduo:id/search_edit_text" class="android.widget.EditText" package="com.xunmeng.pinduoduo" content-desc="" clickable="true" enabled="true" editable="true" scrollable="false" bounds="[48,86][820,172]" />
+    <node index="1" text="搜索" resource-id="com.xunmeng.pinduoduo:id/search_submit" class="android.widget.TextView" package="com.xunmeng.pinduoduo" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[860,86][1032,172]" />
+    <node index="2" text="" resource-id="com.xunmeng.pinduoduo:id/scan_entry" class="android.widget.ImageView" package="com.xunmeng.pinduoduo" content-desc="扫一扫" clickable="true" enabled="true" scrollable="false" bounds="[48,1900][160,2012]" />
+    <node index="3" text="历史搜索 纸巾 抽纸 洗脸巾 百亿补贴 限时秒杀" resource-id="com.xunmeng.pinduoduo:id/suggestion_list" class="androidx.recyclerview.widget.RecyclerView" package="com.xunmeng.pinduoduo" content-desc="" clickable="true" enabled="true" scrollable="true" bounds="[0,220][1080,1760]" />
+  </node>
+</hierarchy>

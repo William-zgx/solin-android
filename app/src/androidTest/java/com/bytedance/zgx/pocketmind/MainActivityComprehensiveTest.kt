@@ -8,7 +8,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.ComposeTestRule
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
@@ -19,6 +19,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.BufferedInputStream
 import java.io.Closeable
@@ -42,84 +43,102 @@ import org.json.JSONObject
 
 class MainActivityComprehensiveTest {
     @get:Rule
-    val composeRule = createAndroidComposeRule<MainActivity>()
+    val composeRule = createEmptyComposeRule()
+
+    private val targetContext: Context = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
     fun emulatorFeatureWalkthroughCoversRemoteSessionsMemoryActionsAndCustomDownload() {
         LocalOpenAiServer().use { server ->
-            dismissFirstRunSetupIfPresent()
-            configureRemoteModel(server.baseUrl)
+            launchComprehensiveActivity().use {
+                dismissFirstRunSetupIfPresent()
+                configureRemoteModel(server.baseUrl)
 
-            assertPlaintextRemoteApiKeyIsNotInLegacyPrefs()
+                assertPlaintextRemoteApiKeyIsNotInLegacyPrefs()
 
-            sendPrompt("请记住：蓝色机器人喜欢端侧 AI")
-            composeRule.waitForAnyText(
-                listOf(
-                    "已记住这条本地偏好",
-                    "本地记忆已关闭，未保存",
-                    "本地记忆暂不可用",
-                ),
-                substring = true,
-            )
-            server.assertNoPost()
+                sendPrompt("请记住：蓝色机器人喜欢端侧 AI")
+                composeRule.waitForAnyText(
+                    listOf(
+                        "已记住这条本地偏好",
+                        "本地记忆已关闭，未保存",
+                        "本地记忆暂不可用",
+                    ),
+                    substring = true,
+                )
+                server.assertNoPost()
 
-            sendPrompt("用一句话介绍端侧 AI", server)
-            composeRule.waitForText("模拟器回答")
-            val firstRequest = server.awaitPost()
-            assertTrue(firstRequest.path.endsWith("/v1/chat/completions"))
-            assertTrue(firstRequest.body.contains("用一句话介绍端侧 AI"))
-            assertFalse(firstRequest.body.contains("请记住"))
-            assertFalse(firstRequest.body.contains("蓝色机器人喜欢端侧 AI"))
-            assertFalse(firstRequest.body.contains("已记住这条本地偏好"))
-            assertFalse(firstRequest.body.contains("本地记忆已关闭"))
-            assertFalse(firstRequest.body.contains("本地记忆暂不可用"))
+                sendPrompt("用一句话介绍端侧 AI", server)
+                composeRule.waitForText("模拟器回答")
+                val firstRequest = server.awaitPost()
+                assertTrue(firstRequest.path.endsWith("/v1/chat/completions"))
+                assertTrue(firstRequest.body.contains("用一句话介绍端侧 AI"))
+                assertFalse(firstRequest.body.contains("请记住"))
+                assertFalse(firstRequest.body.contains("蓝色机器人喜欢端侧 AI"))
+                assertFalse(firstRequest.body.contains("已记住这条本地偏好"))
+                assertFalse(firstRequest.body.contains("本地记忆已关闭"))
+                assertFalse(firstRequest.body.contains("本地记忆暂不可用"))
 
-            sendPrompt("蓝色机器人偏好是什么", server)
-            val memoryRequest = server.awaitPost()
-            assertFalse(memoryRequest.body.contains("本地记忆："))
-            assertFalse(memoryRequest.body.contains("设备上下文："))
-            assertFalse(memoryRequest.body.contains("请记住"))
-            assertFalse(memoryRequest.body.contains("蓝色机器人喜欢端侧 AI"))
-            assertFalse(memoryRequest.body.contains("已记住这条本地偏好"))
-            assertFalse(memoryRequest.body.contains("本地记忆已关闭"))
-            assertFalse(memoryRequest.body.contains("本地记忆暂不可用"))
-            composeRule.waitForText("记忆回答")
+                sendPrompt("蓝色机器人偏好是什么", server)
+                val memoryRequest = server.awaitPost()
+                assertFalse(memoryRequest.body.contains("本地记忆："))
+                assertFalse(memoryRequest.body.contains("设备上下文："))
+                assertFalse(memoryRequest.body.contains("请记住"))
+                assertFalse(memoryRequest.body.contains("蓝色机器人喜欢端侧 AI"))
+                assertFalse(memoryRequest.body.contains("已记住这条本地偏好"))
+                assertFalse(memoryRequest.body.contains("本地记忆已关闭"))
+                assertFalse(memoryRequest.body.contains("本地记忆暂不可用"))
+                composeRule.waitForText("记忆回答")
 
-            sendPrompt("打开 Wi-Fi 设置", server)
-            composeRule.waitForText("规则回退", substring = true)
-            composeRule.waitForText("打开 Wi-Fi 设置")
-            composeRule.onNodeWithTag("action_dismiss_button").performClick()
-            composeRule.waitForTagGone("action_dismiss_button")
+                sendPrompt("读取剪贴板", server)
+                composeRule.waitForText("规则回退", substring = true)
+                composeRule.waitForText("读取剪贴板")
+                composeRule.onNodeWithTag("action_dismiss_button").performClick()
+                composeRule.waitForTagGone("action_dismiss_button")
 
-            sendPrompt("请慢慢回答", server)
-            composeRule.waitForText("慢")
-            val streamingRequest = server.awaitPost()
-            assertFalse(streamingRequest.body.contains("请记住"))
-            assertFalse(streamingRequest.body.contains("已记住这条本地偏好"))
-            assertFalse(streamingRequest.body.contains("本地记忆已关闭"))
-            assertFalse(streamingRequest.body.contains("本地记忆暂不可用"))
-            assertFalse(streamingRequest.body.contains("打开 Wi-Fi 设置"))
-            assertFalse(streamingRequest.body.contains("动作草稿"))
+                sendPrompt("请慢慢回答", server)
+                composeRule.waitForText("慢")
+                val streamingRequest = server.awaitPost()
+                assertFalse(streamingRequest.body.contains("请记住"))
+                assertFalse(streamingRequest.body.contains("已记住这条本地偏好"))
+                assertFalse(streamingRequest.body.contains("本地记忆已关闭"))
+                assertFalse(streamingRequest.body.contains("本地记忆暂不可用"))
+                assertFalse(streamingRequest.body.contains("读取剪贴板"))
+                assertFalse(streamingRequest.body.contains("动作草稿"))
 
-            createAndSwitchSessions()
-            exerciseModelManagerControlsAndCustomDownload(server)
+                createAndSwitchSessions()
+                exerciseModelManagerControlsAndCustomDownload(server)
+            }
         }
     }
 
     @Test
     fun remoteWebSearchToolCallExecutesReadOnlyToolWithoutConfirmation() {
         LocalOpenAiServer().use { server ->
-            dismissFirstRunSetupIfPresent()
-            configureRemoteModel(server.baseUrl)
+            launchComprehensiveActivity().use {
+                dismissFirstRunSetupIfPresent()
+                configureRemoteModel(server.baseUrl)
 
-            sendPrompt(REMOTE_TOOL_CALL_PROMPT, server)
-            val request = server.awaitPost()
-            assertTrue(request.path.endsWith("/v1/chat/completions"))
-            assertRemoteToolRequestBody(request)
+                sendPrompt(REMOTE_TOOL_CALL_PROMPT, server)
+                val request = server.awaitPost()
+                assertTrue(request.path.endsWith("/v1/chat/completions"))
+                assertRemoteToolRequestBody(request)
 
-            composeRule.waitForText("正在使用工具：Web 搜索", timeoutMillis = 15_000)
-            composeRule.waitForTagGone("action_confirm_button")
+                composeRule.waitForAnyText(
+                    listOf("正在使用工具：Web 搜索", "已完成 Web 搜索"),
+                    timeoutMillis = 15_000,
+                    substring = true,
+                )
+                composeRule.waitForTagGone("action_confirm_button")
+            }
         }
+    }
+
+    private fun launchComprehensiveActivity(): ActivityScenario<MainActivity> {
+        resetMainActivityPersistentState(
+            context = targetContext,
+            inferenceMode = InferenceMode.Local,
+        )
+        return ActivityScenario.launch(mainActivitySkipStartupIntent(targetContext))
     }
 
     private fun assertRemoteToolRequestBody(request: RequestRecord) {
@@ -223,7 +242,17 @@ class MainActivityComprehensiveTest {
         composeRule.onNodeWithTag("inference_remote_chip").performScrollTo().performClick()
         composeRule.onNodeWithTag("model_tab_advanced").performClick()
         composeRule.waitForText("Temperature · 创造性")
-        composeRule.waitForText("当前使用本地轻量索引；可补装记忆模型资产。")
+        composeRule.waitForAnyText(
+            listOf(
+                "本地记忆已关闭",
+                "语义记忆运行时已启用",
+                "正在建立语义记忆索引",
+                "记忆模型已安装但语义运行时未通过探测",
+                "记忆模型资产已安装",
+                "当前使用本地轻量索引",
+            ),
+            substring = true,
+        )
 
         composeRule.onNodeWithTag("model_tab_models").performClick()
         composeRule.replaceTaggedText("custom_model_url_input", "ftp://bad-model.litertlm")

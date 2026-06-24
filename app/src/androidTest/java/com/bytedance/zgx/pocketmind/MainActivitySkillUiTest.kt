@@ -53,7 +53,10 @@ class MainActivitySkillUiTest {
 
         composeRule.sendPrompt("搜一下 Kotlin 协程")
 
-        composeRule.waitForText("正在使用工具：Web 搜索")
+        composeRule.waitForAnyText(
+            listOf("正在使用工具：Web 搜索", "已完成 Web 搜索"),
+            substring = true,
+        )
         composeRule.waitForTagGone("action_confirm_button")
     }
 
@@ -183,6 +186,18 @@ class MainActivitySkillUiTest {
     ) {
         waitUntil(timeoutMillis = timeoutMillis) {
             onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun ComposeTestRule.waitForAnyText(
+        texts: List<String>,
+        timeoutMillis: Long = 5_000,
+        substring: Boolean = false,
+    ) {
+        waitUntil(timeoutMillis = timeoutMillis) {
+            texts.any { text ->
+                onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+            }
         }
     }
 

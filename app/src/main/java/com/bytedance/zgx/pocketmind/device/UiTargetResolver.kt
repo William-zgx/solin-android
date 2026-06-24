@@ -7,7 +7,7 @@ object AppInteractionProfiles {
         AppInteractionProfile(
             appNameAliases = setOf("淘宝", "taobao", "tb"),
             packageNames = setOf("com.taobao.taobao"),
-            searchEntryHints = setOf("搜索", "搜一搜", "搜索商品"),
+            searchEntryHints = setOf("搜索", "搜一搜", "搜索商品", "搜索发现", "搜索宝贝", "搜索宝贝和店铺", "淘宝搜索"),
             submitHints = setOf("搜索", "搜一下"),
             resultHints = setOf("综合", "销量", "筛选"),
         ),
@@ -21,7 +21,7 @@ object AppInteractionProfiles {
         AppInteractionProfile(
             appNameAliases = setOf("高德", "高德地图", "amap", "gaode", "autonavi"),
             packageNames = setOf("com.autonavi.minimap"),
-            searchEntryHints = setOf("搜索", "搜地点", "目的地", "去哪儿", "查找地点"),
+            searchEntryHints = setOf("搜索", "搜地点", "目的地", "去哪儿", "你要去哪儿", "查找地点", "公交地铁"),
             submitHints = setOf("搜索", "确定", "去这里"),
             resultHints = setOf("路线", "导航", "到这去", "查看地图", "展开列表"),
         ),
@@ -35,7 +35,7 @@ object AppInteractionProfiles {
         AppInteractionProfile(
             appNameAliases = setOf("京东", "jd", "jingdong"),
             packageNames = setOf("com.jingdong.app.mall"),
-            searchEntryHints = setOf("搜索", "搜索商品", "搜一搜"),
+            searchEntryHints = setOf("搜索", "搜索商品", "搜一搜", "搜索京东", "搜索京东商品", "搜索京东商品店铺", "搜索好物"),
             submitHints = setOf("搜索"),
             resultHints = setOf("综合", "销量", "筛选", "京东物流"),
         ),
@@ -48,8 +48,21 @@ object AppInteractionProfiles {
                 "com.UCMobile",
                 "com.google.android.googlequicksearchbox",
             ),
-            searchEntryHints = setOf("搜索", "搜", "검색", "地址", "地址栏", "网址", "url", "omnibox", "输入网址", "搜索或输入网址"),
-            submitHints = setOf("搜索", "검색", "前往", "search"),
+            searchEntryHints = setOf(
+                "搜索",
+                "搜",
+                "검색",
+                "地址",
+                "地址栏",
+                "网址",
+                "url",
+                "omnibox",
+                "输入网址",
+                "搜索或输入网址",
+                "请输入搜索词或网址",
+                "搜索词或网址",
+            ),
+            submitHints = setOf("搜索", "검색", "前往", "转到", "search"),
             resultHints = setOf("搜索结果", "검색결과", "网页", "相关搜索"),
         ),
     )
@@ -88,17 +101,46 @@ object UiTargetResolver {
         target: String? = null,
         profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(snapshot.packageName),
     ): List<UiResolvedTarget> {
-        val metrics = SnapshotBoundsMetrics.from(snapshot.nodes)
-        return snapshot.nodes.mapNotNull { node ->
-            val score = scoreNode(node, kind, target, profile, metrics) ?: return@mapNotNull null
+        return rankedCandidates(
+            snapshot = snapshot,
+            kind = kind,
+            target = target,
+            profile = profile,
+            includeDiagnostics = false,
+        ).map { candidate ->
             UiResolvedTarget(
                 kind = kind,
-                nodeId = node.id,
-                bounds = node.bounds,
-                confidence = score,
-                reason = "matched ${node.visibleLabel().ifBlank { node.className }}",
+                nodeId = candidate.nodeId,
+                bounds = candidate.bounds,
+                confidence = candidate.score.finalScore,
+                reason = candidate.reason,
             )
-        }.sortedByDescending { resolved -> resolved.confidence }
+        }
+    }
+
+    fun explain(
+        snapshot: ScreenStateSnapshot,
+        kind: UiTargetKind,
+        target: String? = null,
+        profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(snapshot.packageName),
+    ): UiTargetResolutionEvidence {
+        val candidates = rankedCandidates(
+            snapshot = snapshot,
+            kind = kind,
+            target = target,
+            profile = profile,
+            includeDiagnostics = true,
+        )
+        val selectableCandidates = candidates.filter { candidate -> candidate.isSelectable(kind) }
+        val evidenceCandidates = selectableCandidates.takeIf { it.isNotEmpty() } ?: candidates
+        return UiTargetResolutionEvidence(
+            kind = kind,
+            target = target,
+            packageName = snapshot.packageName,
+            selectedNodeId = selectableCandidates.firstOrNull()?.nodeId,
+            rankedCandidates = evidenceCandidates,
+            failureKind = if (selectableCandidates.isEmpty()) kind.missingResolutionFailureKind() else null,
+        )
     }
 
     fun kindForTarget(target: String?): UiTargetKind? {
@@ -122,6 +164,11 @@ object UiTargetResolver {
                 "search",
                 "searchentry",
                 "searchbox",
+                "目的地",
+                "去哪儿",
+                "搜地点",
+                "搜索地点",
+                "终点",
             )
                 .any { normalized.contains(it.normalizedLookupKey()) } -> UiTargetKind.SearchEntry
             listOf("输入框", "输入", "editable", "textfield")
@@ -131,16 +178,31 @@ object UiTargetResolver {
         }
     }
 
+    private fun rankedCandidates(
+        snapshot: ScreenStateSnapshot,
+        kind: UiTargetKind,
+        target: String?,
+        profile: AppInteractionProfile?,
+        includeDiagnostics: Boolean,
+    ): List<UiTargetEvidenceCandidate> {
+        val metrics = SnapshotBoundsMetrics.from(snapshot.nodes)
+        return snapshot.nodes
+            .mapNotNull { node -> scoreNode(node, kind, target, profile, metrics, includeDiagnostics) }
+            .sortedByDescending { candidate -> candidate.score.finalScore }
+    }
+
     private fun scoreNode(
         node: ScreenNode,
         kind: UiTargetKind,
         target: String?,
         profile: AppInteractionProfile?,
         metrics: SnapshotBoundsMetrics,
-    ): Int? {
-        if (!node.enabled) return null
+        includeDiagnostics: Boolean,
+    ): UiTargetEvidenceCandidate? {
+        if (kind == UiTargetKind.SubmitSearch && node.editable) return null
         val label = node.visibleLabel()
         val normalizedLabel = label.normalizedLookupKey()
+        if (kind == UiTargetKind.SubmitSearch && looksNonTextSearchControl(normalizedLabel)) return null
         val normalizedTarget = target.normalizedLookupKey()
         val profileHints = when (kind) {
             UiTargetKind.SearchEntry -> profile?.searchEntryHints.orEmpty()
@@ -148,14 +210,18 @@ object UiTargetResolver {
             UiTargetKind.ResultItem -> profile?.resultHints.orEmpty()
             else -> emptySet()
         }
-        val hintScore = profileHints.maxOfOrNull { hint ->
-            phraseScore(normalizedLabel, hint.normalizedLookupKey()) ?: 0
-        } ?: 0
+        val profileHint = profileHints
+            .mapNotNull { hint ->
+                val score = phraseScore(normalizedLabel, hint.normalizedLookupKey()) ?: 0
+                if (score > 0) ProfileHintScore(hint = hint, score = score) else null
+            }
+            .maxByOrNull { score -> score.score }
+        val hintScore = profileHint?.score ?: 0
         val targetScore = phraseScore(normalizedLabel, normalizedTarget) ?: 0
         val semanticScore = when (kind) {
             UiTargetKind.SearchEntry -> searchEntryScore(node, normalizedLabel)
             UiTargetKind.EditableField -> if (node.editable) 650 else 0
-            UiTargetKind.SubmitSearch -> submitSearchScore(node, normalizedLabel)
+            UiTargetKind.SubmitSearch -> submitSearchScore(node, normalizedLabel, hintScore > 0)
             UiTargetKind.FilterEntry -> phraseScore(normalizedLabel, "筛选") ?: phraseScore(normalizedLabel, "filter") ?: 0
             UiTargetKind.ResultItem -> targetScore + hintScore
             UiTargetKind.ScrollContainer -> if (node.scrollable) 700 else 0
@@ -164,10 +230,34 @@ object UiTargetResolver {
         if (evidenceScore <= 0) return null
         val actionability = node.actionabilityScore()
         val position = node.positionScore(kind, metrics)
-        val penalty = node.targetRiskPenalty(kind, normalizedLabel, profile, metrics) +
-            labelNoisePenalty(kind, normalizedLabel)
+        val riskPenalty = node.targetRiskPenalty(kind, normalizedLabel, profile, metrics)
+        val noisePenalty = labelNoisePenalty(kind, normalizedLabel)
+        val penalty = riskPenalty + noisePenalty
         val score = evidenceScore + actionability + position - penalty
-        return score.takeIf { it >= kind.minimumConfidence() }
+        if (score <= 0) return null
+        if (!includeDiagnostics && !node.isSelectable(kind, score)) return null
+        val resolvedLabel = label.ifBlank { node.className }
+        return UiTargetEvidenceCandidate(
+            nodeId = node.id,
+            label = resolvedLabel,
+            bounds = node.bounds,
+            clickable = node.clickable,
+            editable = node.editable,
+            scrollable = node.scrollable,
+            enabled = node.enabled,
+            matchedProfileHint = profileHint?.hint,
+            score = UiTargetScoreComponents(
+                semanticScore = semanticScore,
+                profileHintScore = hintScore,
+                targetTextScore = targetScore,
+                actionabilityScore = actionability,
+                positionScore = position,
+                riskPenalty = riskPenalty,
+                noisePenalty = noisePenalty,
+                finalScore = score,
+            ),
+            reason = "matched $resolvedLabel",
+        )
     }
 
     private fun searchEntryScore(node: ScreenNode, normalizedLabel: String): Int {
@@ -186,9 +276,13 @@ object UiTargetResolver {
         return score
     }
 
-    private fun submitSearchScore(node: ScreenNode, normalizedLabel: String): Int {
+    private fun submitSearchScore(node: ScreenNode, normalizedLabel: String, hasProfileSubmitHint: Boolean): Int {
         var score = 0
-        if (!node.editable && node.clickable && looksSearchSubmitLike(normalizedLabel)) score += 700
+        if (!node.editable && node.clickable && !looksNonTextSearchControl(normalizedLabel) && looksSearchSubmitLike(normalizedLabel)) {
+            score += 700
+        } else if (!node.editable && node.clickable && !looksNonTextSearchControl(normalizedLabel) && hasProfileSubmitHint) {
+            score += 260
+        }
         return score
     }
 }
@@ -247,14 +341,10 @@ object AppSearchResultVerifier {
                 evidence = "query_visible_with_result_hint",
             )
         }
-        if (resultHintCount >= 2) {
+        if (pageChanged && resultHintCount >= 2) {
             return SearchResultVerification(
                 verified = true,
-                summary = if (pageChanged) {
-                    "搜索结果验证通过：页面已变化并出现多个结果页特征。"
-                } else {
-                    "搜索结果验证通过：当前页面已稳定显示多个结果页特征。"
-                },
+                summary = "搜索结果验证通过：页面已变化并出现多个结果页特征。",
                 evidence = "result_hints_visible",
             )
         }
@@ -268,6 +358,7 @@ object AppSearchResultVerifier {
 }
 
 private fun ScreenNode.actionabilityScore(): Int {
+    if (!enabled) return 0
     var score = 0
     if (clickable) score += 120
     if (editable) score += 180
@@ -301,8 +392,10 @@ private fun ScreenNode.targetRiskPenalty(
     profile: AppInteractionProfile?,
     metrics: SnapshotBoundsMetrics,
 ): Int {
-    if (kind == UiTargetKind.ResultItem || editable) return 0
+    if (kind == UiTargetKind.ResultItem) return 0
     var penalty = 0
+    if (!enabled && kind.requiresPreciseTarget()) penalty += 520
+    if (editable) return penalty
     if (kind.requiresPreciseTarget()) {
         val areaRatio = metrics.areaRatio(bounds)
         val heightRatio = metrics.heightRatio(bounds)
@@ -318,9 +411,12 @@ private fun ScreenNode.targetRiskPenalty(
             if (
                 normalizedLabel.contains("拍照") ||
                 normalizedLabel.contains("拍立淘") ||
+                normalizedLabel.contains("拍照搜") ||
+                normalizedLabel.contains("相机") ||
                 normalizedLabel.contains("扫一扫") ||
                 normalizedLabel.contains("语音") ||
-                normalizedLabel.contains("图片")
+                normalizedLabel.contains("图片") ||
+                normalizedLabel.contains("找同款")
             ) {
                 penalty += 520
             }
@@ -361,6 +457,25 @@ internal fun UiTargetKind.requiresPreciseTarget(): Boolean =
         this == UiTargetKind.EditableField ||
         this == UiTargetKind.SubmitSearch ||
         this == UiTargetKind.FilterEntry
+
+private fun UiTargetEvidenceCandidate.isSelectable(kind: UiTargetKind): Boolean =
+    enabled && score.finalScore >= kind.minimumConfidence()
+
+private fun ScreenNode.isSelectable(kind: UiTargetKind, score: Int): Boolean =
+    enabled && score >= kind.minimumConfidence()
+
+private fun UiTargetKind.missingResolutionFailureKind(): UiActionFailureKind =
+    when (this) {
+        UiTargetKind.SearchEntry -> UiActionFailureKind.SearchEntryNotFound
+        UiTargetKind.EditableField -> UiActionFailureKind.EditableNotFound
+        UiTargetKind.SubmitSearch -> UiActionFailureKind.SubmitNotFound
+        else -> UiActionFailureKind.NodeNotFound
+    }
+
+private data class ProfileHintScore(
+    val hint: String,
+    val score: Int,
+)
 
 private data class SnapshotBoundsMetrics(
     val width: Int,
@@ -428,13 +543,21 @@ internal fun hasStrongSearchEntryEvidence(normalized: String): Boolean =
         "搜索栏",
         "搜索框",
         "搜索商品",
+        "搜索发现",
+        "搜索宝贝",
+        "搜索京东",
+        "搜索好物",
         "搜索输入",
         "输入文字",
         "输入关键词",
+        "请输入搜索词",
         "地址栏",
         "网址",
         "目的地",
         "去哪儿",
+        "搜地点",
+        "公交地铁",
+        "搜索词或网址",
         "searchbox",
         "searchfield",
         "omnibox",
@@ -444,6 +567,10 @@ internal fun looksSearchSubmitLike(normalized: String): Boolean =
     looksSearchLike(normalized) ||
         listOf("确定", "完成", "前往", "enter").any { normalized.contains(it.normalizedLookupKey()) } ||
         normalized == "go"
+
+internal fun looksNonTextSearchControl(normalized: String): Boolean =
+    listOf("语音", "拍照", "相机", "图片", "扫一扫", "扫码", "voice", "camera", "image")
+        .any { normalized.contains(it.normalizedLookupKey()) }
 
 internal fun looksInputLike(normalized: String): Boolean =
     listOf("输入", "地址", "网址", "url", "omnibox", "关键词", "商品", "目的地", "宝贝", "店铺", "input", "edit", "keyword")

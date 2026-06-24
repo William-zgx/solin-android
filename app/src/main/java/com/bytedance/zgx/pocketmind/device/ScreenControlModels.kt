@@ -142,6 +142,39 @@ data class UiResolvedTarget(
     val reason: String,
 )
 
+data class UiTargetScoreComponents(
+    val semanticScore: Int,
+    val profileHintScore: Int,
+    val targetTextScore: Int,
+    val actionabilityScore: Int,
+    val positionScore: Int,
+    val riskPenalty: Int,
+    val noisePenalty: Int,
+    val finalScore: Int,
+)
+
+data class UiTargetEvidenceCandidate(
+    val nodeId: String?,
+    val label: String,
+    val bounds: ScreenBounds?,
+    val clickable: Boolean,
+    val editable: Boolean,
+    val scrollable: Boolean,
+    val enabled: Boolean,
+    val matchedProfileHint: String?,
+    val score: UiTargetScoreComponents,
+    val reason: String,
+)
+
+data class UiTargetResolutionEvidence(
+    val kind: UiTargetKind,
+    val target: String?,
+    val packageName: String?,
+    val selectedNodeId: String?,
+    val rankedCandidates: List<UiTargetEvidenceCandidate>,
+    val failureKind: UiActionFailureKind? = null,
+)
+
 data class AppInteractionProfile(
     val appNameAliases: Set<String>,
     val packageNames: Set<String>,

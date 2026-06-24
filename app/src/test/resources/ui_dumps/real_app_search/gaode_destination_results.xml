@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.autonavi.minimap" content-desc="" clickable="false" enabled="true" scrollable="false" bounds="[0,0][1080,2400]">
+    <node index="0" text="北京机场" resource-id="com.autonavi.minimap:id/search_edit_text" class="android.widget.EditText" package="com.autonavi.minimap" content-desc="" clickable="true" enabled="true" editable="true" scrollable="false" bounds="[48,86][900,172]" />
+    <node index="1" text="查看地图" resource-id="com.autonavi.minimap:id/view_map" class="android.widget.TextView" package="com.autonavi.minimap" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[48,210][240,288]" />
+    <node index="2" text="路线" resource-id="com.autonavi.minimap:id/route_tab" class="android.widget.TextView" package="com.autonavi.minimap" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[270,210][420,288]" />
+    <node index="3" text="北京机场候机楼 到这去 导航" resource-id="com.autonavi.minimap:id/result_title_0" class="android.widget.TextView" package="com.autonavi.minimap" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[48,340][980,430]" />
+    <node index="4" text="北京首都国际机场 路线 导航 查看地图" resource-id="com.autonavi.minimap:id/result_title_1" class="android.widget.TextView" package="com.autonavi.minimap" content-desc="" clickable="true" enabled="true" scrollable="false" bounds="[48,470][980,560]" />
+    <node index="5" text="展开列表 北京机场 周边停车 场站服务" resource-id="com.autonavi.minimap:id/result_list" class="androidx.recyclerview.widget.RecyclerView" package="com.autonavi.minimap" content-desc="" clickable="true" enabled="true" scrollable="true" bounds="[0,310][1080,1900]" />
+  </node>
+</hierarchy>

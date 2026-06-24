@@ -27,8 +27,9 @@ internal fun resetMainActivityPersistentState(
     FirstRunSetupRepository(settingsStore).apply {
         markSetupDismissed()
         setMemoryEnabled(true)
+        setReduceDeviceActionConfirmations(false)
     }
-    PocketMindDatabase.get(context).clearAllTables()
+    resetTransientDatabaseState(context)
 }
 
 internal fun resetMainActivityFreshInstallState(context: Context) {
@@ -38,8 +39,36 @@ internal fun resetMainActivityFreshInstallState(context: Context) {
     settingsStore.saveActiveSessionId("")
     settingsStore.setSetupDismissedForTesting(false)
     FirstRunSetupRepository(settingsStore).setMemoryEnabled(true)
-    PocketMindDatabase.get(context).clearAllTables()
+    resetTransientDatabaseState(context)
 }
+
+private fun resetTransientDatabaseState(context: Context) {
+    val sqliteDatabase = PocketMindDatabase.get(context).openHelper.writableDatabase
+    sqliteDatabase.beginTransaction()
+    try {
+        transientStateTables.forEach { table ->
+            sqliteDatabase.execSQL("DELETE FROM $table")
+        }
+        sqliteDatabase.setTransactionSuccessful()
+    } finally {
+        sqliteDatabase.endTransaction()
+    }
+}
+
+private val transientStateTables = listOf(
+    "agent_skill_run_checkpoints",
+    "pending_agent_confirmations",
+    "agent_steps",
+    "agent_runs",
+    "memory_embeddings",
+    "memory_records",
+    "memory_deletion_events",
+    "remote_send_audit_events",
+    "tool_audit_events",
+    "scheduled_tasks",
+    "chat_messages",
+    "chat_sessions",
+)
 
 internal fun mainActivitySkipStartupIntent(context: Context): Intent =
     Intent(context, MainActivity::class.java).apply {

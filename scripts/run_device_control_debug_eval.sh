@@ -27,11 +27,21 @@ DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 POCKETMIND_ACCESSIBILITY_SERVICE="${PACKAGE_NAME}/${PACKAGE_NAME}.device.PocketMindAccessibilityService"
 
 SELECTED_SERIAL=""
+API_LEVEL=""
+ABI_LIST=""
 STATUS="failed"
+FAILED_TARGET=""
 FAILURE_REASON=""
 COMMAND_COUNT=0
 
 mkdir -p "$ARTIFACT_DIR"
+
+sha256_file() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  fi
+}
 
 sanitize_artifact_name() {
   local value="$1"
@@ -75,8 +85,11 @@ capture_failure_diagnostics() {
 
 write_report() {
   local exit_code="$1"
-  local command_count
+  local command_count artifact_id logcat_sha256
   [[ "$exit_code" -eq 0 ]] && STATUS="passed"
+  artifact_id="device-control-${SELECTED_SERIAL:-unselected}-api${API_LEVEL:-unknown}-${STARTED_AT_UTC}"
+  artifact_id="${artifact_id//:/}"
+  logcat_sha256="$(sha256_file "$LOGCAT_FILE")"
   command_count="$COMMAND_COUNT"
   if [[ -d "$ARTIFACT_DIR" ]]; then
     command_count="$(
@@ -85,18 +98,25 @@ write_report() {
     )"
   fi
   {
+    echo "artifact_schema=DeviceDebugEvalArtifact/v1"
+    echo "artifact_id=$artifact_id"
     echo "status=$STATUS"
     echo "exit_code=$exit_code"
+    echo "target=device-control-debug-eval"
+    echo "failedTarget=${FAILED_TARGET:-}"
     echo "reason=$FAILURE_REASON"
     echo "started_at_utc=$STARTED_AT_UTC"
     echo "finished_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "serial=$SELECTED_SERIAL"
+    echo "api_level=$API_LEVEL"
+    echo "abi=$ABI_LIST"
     echo "skip_build=$SKIP_BUILD"
     echo "skip_install=$SKIP_INSTALL"
     echo "command_count=$command_count"
     echo "runner=debug_broadcast"
     echo "debug_apk=$DEBUG_APK"
     echo "logcat_file=$LOGCAT_FILE"
+    echo "logcat_sha256=$logcat_sha256"
     echo "diagnostics_dir=$DIAGNOSTICS_DIR"
     echo "result_file_pattern=${RESULT_FILE_PREFIX}<requestId>${RESULT_FILE_SUFFIX}"
     echo "device_primitives=observe,tap,type_text,scroll,wait,press_back,node_not_found_recovery"
@@ -118,15 +138,16 @@ on_exit() {
 trap on_exit EXIT
 
 fail_with_reason() {
-  FAILURE_REASON="$1"
-  shift
+  FAILED_TARGET="$1"
+  FAILURE_REASON="$2"
+  shift 2
   echo "$*" >&2
   capture_failure_diagnostics "fatal-${FAILURE_REASON}" "$*" || true
   exit 1
 }
 
 if ! scripts/doctor.sh --device; then
-  fail_with_reason doctor-device-failed "Android device environment check failed."
+  fail_with_reason doctor doctor-device-failed "Android device environment check failed."
 fi
 
 if [[ -n "${ANDROID_SERIAL:-}" ]]; then
@@ -134,14 +155,14 @@ if [[ -n "${ANDROID_SERIAL:-}" ]]; then
   SELECTED_STATE="$("$ADB_BIN" devices | awk -v serial="$SELECTED_SERIAL" '$1 == serial {print $2; found = 1} END {if (!found) print ""}')"
   if [[ "$SELECTED_STATE" != "device" ]]; then
     "$ADB_BIN" devices
-    fail_with_reason selected-device-unavailable \
+    fail_with_reason device-selection selected-device-unavailable \
       "ANDROID_SERIAL=$SELECTED_SERIAL is not an authorized Android device; state is ${SELECTED_STATE:-missing}."
   fi
 else
   DEVICE_COUNT="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" {count += 1} END{print count + 0}')"
   if [[ "$DEVICE_COUNT" != "1" ]]; then
     "$ADB_BIN" devices
-    fail_with_reason device-selection-ambiguous \
+    fail_with_reason device-selection device-selection-ambiguous \
       "Connect exactly one authorized Android device, or set ANDROID_SERIAL to select one."
   fi
   SELECTED_SERIAL="$("$ADB_BIN" devices | awk 'NR > 1 && $2 == "device" {print $1; exit}')"
@@ -149,6 +170,8 @@ fi
 
 ADB=("$ADB_BIN" -s "$SELECTED_SERIAL")
 echo "Using Android device: $SELECTED_SERIAL"
+API_LEVEL="$("${ADB[@]}" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
+ABI_LIST="$("${ADB[@]}" shell getprop ro.product.cpu.abilist64 2>/dev/null | tr -d '\r' || true)"
 "${ADB[@]}" logcat -c >/dev/null 2>&1 || true
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
@@ -171,7 +194,7 @@ pocketmind_accessibility_enabled() {
 }
 
 if ! pocketmind_accessibility_enabled; then
-  fail_with_reason pocketmind-accessibility-not-enabled \
+  fail_with_reason accessibility pocketmind-accessibility-not-enabled \
     "PocketMind Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_INSTALL=1."
 fi
 
@@ -220,6 +243,7 @@ broadcast_command() {
   done
   echo "Timed out waiting for debug eval result: $request_id" >&2
   [[ -f "$output_file" ]] && cat "$output_file" >&2 || true
+  FAILED_TARGET="debug-eval-timeout"
   FAILURE_REASON="debug-eval-timeout:${request_id}"
   capture_failure_diagnostics "${name}-timeout" "timeout_waiting_for_request:${request_id}" || true
   exit 1
@@ -231,6 +255,7 @@ assert_file_contains() {
   if ! grep -Fq "$expected" "$file"; then
     echo "Expected $file to contain: $expected" >&2
     cat "$file" >&2
+    FAILED_TARGET="assertion"
     FAILURE_REASON="assertion-failed"
     capture_failure_diagnostics "assert-$(basename "$file" .properties)" "missing_expected:${expected}" || true
     exit 1
@@ -243,6 +268,7 @@ assert_file_not_contains() {
   if grep -Fq "$unexpected" "$file"; then
     echo "Expected $file to not contain: $unexpected" >&2
     cat "$file" >&2
+    FAILED_TARGET="assertion"
     FAILURE_REASON="assertion-failed"
     capture_failure_diagnostics "assert-$(basename "$file" .properties)" "unexpected_present:${unexpected}" || true
     exit 1
@@ -260,6 +286,7 @@ assert_file_contains_any() {
   done
   echo "Expected $file to contain one of: $*" >&2
   cat "$file" >&2
+  FAILED_TARGET="assertion"
   FAILURE_REASON="assertion-failed"
   capture_failure_diagnostics "assert-$(basename "$file" .properties)" "missing_any_expected:$*" || true
   exit 1
