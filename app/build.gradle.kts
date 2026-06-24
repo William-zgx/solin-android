@@ -25,6 +25,10 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "HUGGING_FACE_OAUTH_CLIENT_ID", "\"$huggingFaceOAuthClientId\"")
+        // RC perf collection entry points are gated off by default. Only the dedicated
+        // rcPerfRelease variant flips this to true, so the production release never exposes the
+        // harness receiver/activity/service.
+        buildConfigField("Boolean", "RC_PERF_ENABLED", "false")
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -44,6 +48,18 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+        // release-like variant used only for RC performance collection. It inherits the
+        // release minify/shrink/proguard path so measured numbers reflect the shipping shape,
+        // but enables the controlled RC perf harness and is signed with the debug key so it can
+        // be installed on a real device. It deliberately keeps the production applicationId (no
+        // suffix) so the harness can exercise models the app already downloaded on the device,
+        // and it never wipes app data or model directories.
+        create("rcPerfRelease") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("Boolean", "RC_PERF_ENABLED", "true")
         }
     }
 
