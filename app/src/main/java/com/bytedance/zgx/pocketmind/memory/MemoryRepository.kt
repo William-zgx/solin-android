@@ -5,6 +5,9 @@ import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
 import com.bytedance.zgx.pocketmind.data.MemoryEmbeddingDao
 import com.bytedance.zgx.pocketmind.data.MemoryEmbeddingEntity
+import com.bytedance.zgx.pocketmind.data.MemoryDeletionEventDao
+import com.bytedance.zgx.pocketmind.data.MemoryDeletionEventEntity
+import com.bytedance.zgx.pocketmind.data.MemoryDeletionTransactionDao
 import com.bytedance.zgx.pocketmind.data.MemoryRecordDao
 import com.bytedance.zgx.pocketmind.data.MemoryRecordEntity
 import java.nio.ByteBuffer
@@ -28,7 +31,15 @@ data class MemoryHit(
     val semanticScore: Float? = if (recallMode == MemoryRecallMode.Semantic) score else null,
     val finalScore: Float = score,
     val rankingReason: String = recallMode.name.lowercase(Locale.ROOT),
+    val source: MemoryRecordSource = MemoryRecordSource.LegacyImport,
+    val sensitivity: MemoryRecordSensitivity = MemoryRecordSensitivity.Normal,
+    val privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+    val expiresAtMillis: Long? = null,
+    val conflictKey: String? = null,
 )
+
+internal fun MemoryHit.isAvailableForLocalContext(nowMillis: Long = System.currentTimeMillis()): Boolean =
+    privacy == MessagePrivacy.LocalOnly && !isExpired(nowMillis)
 
 enum class MemoryRecordType {
     Conversation,
@@ -36,6 +47,19 @@ enum class MemoryRecordType {
     UserFact,
     TaskState,
     SuppressedTaskState,
+}
+
+enum class MemoryRecordSource {
+    LegacyImport,
+    ConversationHistory,
+    ExplicitUser,
+    AutoTaskState,
+}
+
+enum class MemoryRecordSensitivity {
+    Normal,
+    Sensitive,
+    Internal,
 }
 
 enum class SemanticMemoryRuntimeStatus {
@@ -92,6 +116,7 @@ interface LongTermMemoryControls {
     fun unsuppressAutoManagedTaskState(id: String)
     fun isAutoManagedTaskStateSuppressed(id: String): Boolean
     fun forget(id: String): Boolean
+    fun forgetAutoManagedTaskState(id: String): Boolean
     fun forgetPreference(target: String): Boolean
     fun forgetUserFact(target: String): Boolean
     fun clear()
@@ -138,6 +163,7 @@ class MemoryRepository(
     private val semanticRuntimeFactory: ((String) -> EmbeddingRuntime?)? = null,
     private val recordStore: MemoryRecordStore = NoOpMemoryRecordStore,
     private val embeddingStore: MemoryEmbeddingStore = NoOpMemoryEmbeddingStore,
+    private val deletionEventStore: MemoryDeletionEventStore = NoOpMemoryDeletionEventStore,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
 ) : MemoryIndex, LongTermMemoryControls, SemanticMemoryRuntimeController {
     private val entries = linkedMapOf<String, MemoryEntry>()
@@ -236,6 +262,11 @@ class MemoryRepository(
                 text = record.text,
                 type = record.type,
                 persist = false,
+                source = record.source,
+                sensitivity = record.sensitivity,
+                privacy = record.privacy,
+                expiresAtMillis = record.expiresAtMillis,
+                conflictKey = record.conflictKey,
             )
         }
         messages.forEach { message ->
@@ -256,7 +287,14 @@ class MemoryRepository(
     }
 
     override fun index(id: String, text: String) {
-        indexRecord(id, text, MemoryRecordType.Conversation, persist = false)
+        indexRecord(
+            id = id,
+            text = text,
+            type = MemoryRecordType.Conversation,
+            persist = false,
+            source = MemoryRecordSource.ConversationHistory,
+            privacy = MessagePrivacy.LocalOnly,
+        )
     }
 
     override fun savedRecords(): List<PersistedMemoryRecord> =
@@ -265,18 +303,45 @@ class MemoryRepository(
     override fun indexPreference(id: String, text: String) {
         if (text.isBlank()) return
         forgetConflictingPreferences(id, text)
-        indexRecord(id, "用户偏好：$text", MemoryRecordType.Preference, persist = true)
+        indexRecord(
+            id = id,
+            text = "用户偏好：$text",
+            type = MemoryRecordType.Preference,
+            persist = true,
+            source = MemoryRecordSource.ExplicitUser,
+            sensitivity = MemoryRecordSensitivity.Normal,
+            privacy = MessagePrivacy.LocalOnly,
+            conflictKey = explicitPreferenceConflictKeys(text).sorted().joinToString(",").takeIf { it.isNotBlank() },
+        )
     }
 
     override fun indexUserFact(id: String, text: String) {
         if (text.isBlank()) return
         forgetConflictingUserFacts(id, text)
-        indexRecord(id, "用户事实：$text", MemoryRecordType.UserFact, persist = true)
+        indexRecord(
+            id = id,
+            text = "用户事实：$text",
+            type = MemoryRecordType.UserFact,
+            persist = true,
+            source = MemoryRecordSource.ExplicitUser,
+            sensitivity = MemoryRecordSensitivity.Sensitive,
+            privacy = MessagePrivacy.LocalOnly,
+            conflictKey = userFactKeyFrom(text),
+        )
     }
 
     override fun indexTaskState(id: String, text: String) {
         if (isAutoManagedTaskStateSuppressed(id)) return
-        indexRecord(id, "任务状态：$text", MemoryRecordType.TaskState, persist = true)
+        indexRecord(
+            id = id,
+            text = "任务状态：$text",
+            type = MemoryRecordType.TaskState,
+            persist = true,
+            source = MemoryRecordSource.AutoTaskState,
+            sensitivity = MemoryRecordSensitivity.Internal,
+            privacy = MessagePrivacy.LocalOnly,
+            conflictKey = id,
+        )
     }
 
     override fun suppressAutoManagedTaskState(id: String) {
@@ -290,6 +355,10 @@ class MemoryRepository(
                 id = suppressedTaskStateMemoryRecordId(id),
                 type = MemoryRecordType.SuppressedTaskState,
                 text = id,
+                source = MemoryRecordSource.AutoTaskState,
+                sensitivity = MemoryRecordSensitivity.Internal,
+                privacy = MessagePrivacy.LocalOnly,
+                conflictKey = id,
             ),
         )
     }
@@ -305,11 +374,12 @@ class MemoryRepository(
         }
 
     override fun forget(id: String): Boolean {
-        val removedInMemory = entries.remove(id) != null
-        val removedPersisted = recordStore.delete(id)
-        embeddingStore.delete(id)
-        refreshSemanticIndexStats()
-        return removedInMemory || removedPersisted
+        return forget(id, MemoryDeletionOperation.Forget)
+    }
+
+    override fun forgetAutoManagedTaskState(id: String): Boolean {
+        if (!id.startsWith(TASK_STATE_MEMORY_RECORD_PREFIX)) return false
+        return forgetWithoutDeletionAudit(id)
     }
 
     override fun forgetPreference(target: String): Boolean {
@@ -319,7 +389,7 @@ class MemoryRepository(
         val conflictKeys = explicitPreferenceForgetConflictKeys(normalizedTarget)
         if (conflictKeys.isEmpty()) return exactRemoved
         val conflictIds = (entries.values.map { entry ->
-            PersistedMemoryRecord(entry.id, entry.type, entry.text)
+            entry.toPersistedRecord()
         } + recordStore.records())
             .filter { record ->
                 record.type == MemoryRecordType.Preference &&
@@ -341,7 +411,7 @@ class MemoryRepository(
         val targetKey = userFactKeyFrom(normalizedTarget)
         if (targetKey == null) return exactRemoved
         val matchingIds = (entries.values.map { entry ->
-            PersistedMemoryRecord(entry.id, entry.type, entry.text)
+            entry.toPersistedRecord()
         } + recordStore.records())
             .filter { record ->
                 record.type == MemoryRecordType.UserFact &&
@@ -357,17 +427,28 @@ class MemoryRepository(
     }
 
     override fun clear() {
+        val recordsForDeletionAudit = deletionAuditableRecords()
+        val deletedAtMillis = clockMillis()
+        val events = recordsForDeletionAudit.map { record ->
+            record.toDeletionEvent(
+                operation = MemoryDeletionOperation.Clear,
+                deletedAtMillis = deletedAtMillis,
+            )
+        }
+        deletionEventStore.clearRecordsAndAppendEvents(recordStore, events)
         entries.clear()
-        recordStore.clear()
         embeddingStore.clear()
         refreshSemanticIndexStats()
     }
 
     private fun visibleRecords(): List<PersistedMemoryRecord> =
         recordStore.records().filter { record ->
-            record.type == MemoryRecordType.Preference ||
-                record.type == MemoryRecordType.UserFact ||
-                record.type == MemoryRecordType.TaskState
+            !record.isExpired(clockMillis()) &&
+                (
+                    record.type == MemoryRecordType.Preference ||
+                        record.type == MemoryRecordType.UserFact ||
+                        record.type == MemoryRecordType.TaskState
+                    )
         }
 
     private fun indexRecord(
@@ -375,9 +456,15 @@ class MemoryRepository(
         text: String,
         type: MemoryRecordType,
         persist: Boolean,
+        source: MemoryRecordSource = MemoryRecordSource.LegacyImport,
+        sensitivity: MemoryRecordSensitivity = MemoryRecordSensitivity.Normal,
+        privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+        expiresAtMillis: Long? = null,
+        conflictKey: String? = null,
     ) {
         val normalized = text.trim()
         if (normalized.isBlank()) return
+        if (expiresAtMillis != null && expiresAtMillis <= clockMillis()) return
         val searchText = searchTextFor(type, normalized)
         val originalTokens = tokenize(normalized).toSet()
         val tokens = tokenize(searchText).toSet()
@@ -395,6 +482,11 @@ class MemoryRepository(
                 text = normalized,
                 type = type,
             ),
+            source = source,
+            sensitivity = sensitivity,
+            privacy = privacy,
+            expiresAtMillis = expiresAtMillis,
+            conflictKey = conflictKey,
         )
         if (persist && type != MemoryRecordType.Conversation) {
             recordStore.upsert(
@@ -402,6 +494,11 @@ class MemoryRepository(
                     id = id,
                     type = type,
                     text = normalized,
+                    source = source,
+                    sensitivity = sensitivity,
+                    privacy = privacy,
+                    expiresAtMillis = expiresAtMillis,
+                    conflictKey = conflictKey,
                 ),
             )
         }
@@ -420,6 +517,7 @@ class MemoryRepository(
         val semanticQueryEmbedding = if (supportsSemanticRecall) embedSemanticQuery(query) else null
         return entries.values
             .mapNotNull { entry ->
+                if (entry.isExpired(clockMillis())) return@mapNotNull null
                 if (entry.shouldSuppressTaskStateHitFor(normalizedQuery)) return@mapNotNull null
                 val hasLexicalOverlap = entry.tokens.any { it in requiredOverlapTokens }
                 val lexicalScore = if (hasLexicalOverlap) {
@@ -461,6 +559,11 @@ class MemoryRepository(
                     semanticScore = semanticScore,
                     finalScore = finalScore,
                     rankingReason = rankingReason,
+                    source = entry.source,
+                    sensitivity = entry.sensitivity,
+                    privacy = entry.privacy,
+                    expiresAtMillis = entry.expiresAtMillis,
+                    conflictKey = entry.conflictKey,
                 )
             }
             .sortedWith(
@@ -471,7 +574,9 @@ class MemoryRepository(
     }
 
     override fun buildContext(hits: List<MemoryHit>): String =
-        hits.joinToString(separator = "\n") { "- ${it.text}" }
+        hits
+            .filter { hit -> hit.isAvailableForLocalContext(clockMillis()) }
+            .joinToString(separator = "\n") { "- ${it.text}" }
 
     private fun semanticEmbeddingFor(
         id: String,
@@ -574,11 +679,8 @@ class MemoryRepository(
         (inMemoryConflictIds + persistedConflictIds)
             .distinct()
             .forEach { conflictId ->
-                entries.remove(conflictId)
-                recordStore.delete(conflictId)
-                embeddingStore.delete(conflictId)
+                forget(conflictId, MemoryDeletionOperation.ConflictReplace)
             }
-        refreshSemanticIndexStats()
     }
 
     private fun forgetConflictingUserFacts(id: String, text: String) {
@@ -600,12 +702,56 @@ class MemoryRepository(
         (inMemoryConflictIds + persistedConflictIds)
             .distinct()
             .forEach { conflictId ->
-                entries.remove(conflictId)
-                recordStore.delete(conflictId)
-                embeddingStore.delete(conflictId)
+                forget(conflictId, MemoryDeletionOperation.ConflictReplace)
             }
-        refreshSemanticIndexStats()
     }
+
+    private fun forget(id: String, operation: MemoryDeletionOperation): Boolean {
+        val recordForDeletionAudit = recordForDeletionAudit(id)
+        val event = recordForDeletionAudit?.toDeletionEvent(
+            operation = operation,
+            deletedAtMillis = clockMillis(),
+        )
+        val removedInMemory = entries.remove(id) != null
+        val removedPersisted = if (event == null) {
+            recordStore.delete(id)
+        } else {
+            deletionEventStore.deleteRecordAndAppendEvent(
+                recordStore = recordStore,
+                id = id,
+                event = event,
+            )
+        }
+        if (removedInMemory && !removedPersisted && event != null) {
+            deletionEventStore.append(event)
+        }
+        embeddingStore.delete(id)
+        refreshSemanticIndexStats()
+        return removedInMemory || removedPersisted
+    }
+
+    private fun forgetWithoutDeletionAudit(id: String): Boolean {
+        val removedInMemory = entries.remove(id) != null
+        val removedPersisted = recordStore.delete(id)
+        embeddingStore.delete(id)
+        refreshSemanticIndexStats()
+        return removedInMemory || removedPersisted
+    }
+
+    private fun recordForDeletionAudit(id: String): PersistedMemoryRecord? =
+        (
+            entries[id]?.toPersistedRecord()?.let(::listOf).orEmpty() +
+                recordStore.records().filter { record -> record.id == id }
+            )
+            .firstOrNull { record -> record.isDeletionAuditable(clockMillis()) }
+
+    private fun deletionAuditableRecords(): List<PersistedMemoryRecord> =
+        (
+            entries.values.map { entry -> entry.toPersistedRecord() } +
+                recordStore.records()
+            )
+            .distinctBy { record -> record.id }
+            .filter { record -> record.isDeletionAuditable(clockMillis()) }
 
     private fun cosine(left: FloatArray, right: FloatArray): Float {
         val size = minOf(left.size, right.size)
@@ -783,6 +929,29 @@ data class PersistedMemoryRecord(
     val id: String,
     val type: MemoryRecordType,
     val text: String,
+    val source: MemoryRecordSource = MemoryRecordSource.LegacyImport,
+    val sensitivity: MemoryRecordSensitivity = MemoryRecordSensitivity.Normal,
+    val privacy: MessagePrivacy = MessagePrivacy.LocalOnly,
+    val expiresAtMillis: Long? = null,
+    val conflictKey: String? = null,
+)
+
+enum class MemoryDeletionOperation {
+    Forget,
+    Clear,
+    ConflictReplace,
+}
+
+data class MemoryDeletionEvent(
+    val id: String,
+    val recordId: String,
+    val recordType: MemoryRecordType,
+    val operation: MemoryDeletionOperation,
+    val recordTextHash: String,
+    val recordSource: MemoryRecordSource,
+    val recordSensitivity: MemoryRecordSensitivity,
+    val conflictKey: String? = null,
+    val deletedAtMillis: Long,
 )
 
 interface MemoryRecordStore {
@@ -790,6 +959,28 @@ interface MemoryRecordStore {
     fun upsert(record: PersistedMemoryRecord)
     fun delete(id: String): Boolean
     fun clear()
+}
+
+interface MemoryDeletionEventStore {
+    fun events(): List<MemoryDeletionEvent>
+    fun append(event: MemoryDeletionEvent)
+    fun deleteRecordAndAppendEvent(
+        recordStore: MemoryRecordStore,
+        id: String,
+        event: MemoryDeletionEvent,
+    ): Boolean {
+        val deleted = recordStore.delete(id)
+        if (deleted) append(event)
+        return deleted
+    }
+
+    fun clearRecordsAndAppendEvents(
+        recordStore: MemoryRecordStore,
+        events: List<MemoryDeletionEvent>,
+    ) {
+        recordStore.clear()
+        events.forEach(::append)
+    }
 }
 
 data class PersistedMemoryEmbedding(
@@ -824,6 +1015,11 @@ object NoOpMemoryEmbeddingStore : MemoryEmbeddingStore {
     override fun clear() = Unit
 }
 
+object NoOpMemoryDeletionEventStore : MemoryDeletionEventStore {
+    override fun events(): List<MemoryDeletionEvent> = emptyList()
+    override fun append(event: MemoryDeletionEvent) = Unit
+}
+
 class RoomMemoryRecordStore(
     private val dao: MemoryRecordDao,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
@@ -836,6 +1032,14 @@ class RoomMemoryRecordStore(
                 id = entity.id,
                 type = type,
                 text = entity.text,
+                source = runCatching { MemoryRecordSource.valueOf(entity.source) }
+                    .getOrDefault(MemoryRecordSource.LegacyImport),
+                sensitivity = runCatching { MemoryRecordSensitivity.valueOf(entity.sensitivity) }
+                    .getOrDefault(MemoryRecordSensitivity.Normal),
+                privacy = runCatching { MessagePrivacy.valueOf(entity.privacy) }
+                    .getOrDefault(MessagePrivacy.LocalOnly),
+                expiresAtMillis = entity.expiresAtMillis,
+                conflictKey = entity.conflictKey?.takeIf { it.isNotBlank() },
             )
         }
 
@@ -847,6 +1051,11 @@ class RoomMemoryRecordStore(
                 id = record.id,
                 type = record.type.name,
                 text = record.text,
+                source = record.source.name,
+                sensitivity = record.sensitivity.name,
+                privacy = record.privacy.name,
+                expiresAtMillis = record.expiresAtMillis,
+                conflictKey = record.conflictKey,
                 createdAtMillis = existing?.createdAtMillis ?: now,
                 updatedAtMillis = now,
             ),
@@ -859,6 +1068,73 @@ class RoomMemoryRecordStore(
     override fun clear() {
         dao.deleteAll()
     }
+}
+
+class RoomMemoryDeletionEventStore(
+    private val dao: MemoryDeletionEventDao,
+    private val transactionDao: MemoryDeletionTransactionDao? = null,
+) : MemoryDeletionEventStore {
+    override fun events(): List<MemoryDeletionEvent> =
+        dao.events().mapNotNull { entity ->
+            val recordType = runCatching { MemoryRecordType.valueOf(entity.recordType) }.getOrNull()
+                ?: return@mapNotNull null
+            val operation = runCatching { MemoryDeletionOperation.valueOf(entity.operation) }.getOrNull()
+                ?: return@mapNotNull null
+            MemoryDeletionEvent(
+                id = entity.id,
+                recordId = entity.recordId,
+                recordType = recordType,
+                operation = operation,
+                recordTextHash = entity.recordTextHash,
+                recordSource = runCatching { MemoryRecordSource.valueOf(entity.recordSource) }
+                    .getOrDefault(MemoryRecordSource.LegacyImport),
+                recordSensitivity = runCatching { MemoryRecordSensitivity.valueOf(entity.recordSensitivity) }
+                    .getOrDefault(MemoryRecordSensitivity.Normal),
+                conflictKey = entity.conflictKey?.takeIf { it.isNotBlank() },
+                deletedAtMillis = entity.deletedAtMillis,
+            )
+        }
+
+    override fun append(event: MemoryDeletionEvent) {
+        dao.insert(event.toEntity())
+    }
+
+    override fun deleteRecordAndAppendEvent(
+        recordStore: MemoryRecordStore,
+        id: String,
+        event: MemoryDeletionEvent,
+    ): Boolean {
+        val transactionDao = transactionDao
+        if (transactionDao != null) {
+            return transactionDao.deleteRecordAndAppendEvent(id, event.toEntity()) > 0
+        }
+        return super<MemoryDeletionEventStore>.deleteRecordAndAppendEvent(recordStore, id, event)
+    }
+
+    override fun clearRecordsAndAppendEvents(
+        recordStore: MemoryRecordStore,
+        events: List<MemoryDeletionEvent>,
+    ) {
+        val transactionDao = transactionDao
+        if (transactionDao != null) {
+            transactionDao.clearRecordsAndAppendEvents(events.map { event -> event.toEntity() })
+        } else {
+            super<MemoryDeletionEventStore>.clearRecordsAndAppendEvents(recordStore, events)
+        }
+    }
+
+    private fun MemoryDeletionEvent.toEntity(): MemoryDeletionEventEntity =
+        MemoryDeletionEventEntity(
+            id = id,
+            recordId = recordId,
+            recordType = recordType.name,
+            operation = operation.name,
+            recordTextHash = recordTextHash,
+            recordSource = recordSource.name,
+            recordSensitivity = recordSensitivity.name,
+            conflictKey = conflictKey,
+            deletedAtMillis = deletedAtMillis,
+        )
 }
 
 class RoomMemoryEmbeddingStore(
@@ -927,7 +1203,68 @@ private data class MemoryEntry(
     val searchText: String,
     val lexicalEmbedding: FloatArray,
     val semanticEmbedding: FloatArray?,
+    val source: MemoryRecordSource,
+    val sensitivity: MemoryRecordSensitivity,
+    val privacy: MessagePrivacy,
+    val expiresAtMillis: Long?,
+    val conflictKey: String?,
 )
+
+private fun MemoryEntry.toPersistedRecord(): PersistedMemoryRecord =
+    PersistedMemoryRecord(
+        id = id,
+        type = type,
+        text = text,
+        source = source,
+        sensitivity = sensitivity,
+        privacy = privacy,
+        expiresAtMillis = expiresAtMillis,
+        conflictKey = conflictKey,
+    )
+
+private fun PersistedMemoryRecord.isExpired(nowMillis: Long): Boolean =
+    expiresAtMillis?.let { expiresAt -> expiresAt <= nowMillis } == true
+
+private fun PersistedMemoryRecord.isDeletionAuditable(nowMillis: Long): Boolean =
+    !isExpired(nowMillis) &&
+        (
+            type == MemoryRecordType.Preference ||
+                type == MemoryRecordType.UserFact ||
+                type == MemoryRecordType.TaskState
+            )
+
+private fun PersistedMemoryRecord.toDeletionEvent(
+    operation: MemoryDeletionOperation,
+    deletedAtMillis: Long,
+): MemoryDeletionEvent {
+    val recordTextHash = memoryRecordTextHash(text)
+    return MemoryDeletionEvent(
+        id = deterministicMemoryRecordId(
+            prefix = "memory-deletion",
+            key = listOf(
+                id,
+                type.name,
+                operation.name,
+                deletedAtMillis.toString(),
+                recordTextHash,
+            ).joinToString(separator = "|"),
+        ),
+        recordId = id,
+        recordType = type,
+        operation = operation,
+        recordTextHash = recordTextHash,
+        recordSource = source,
+        recordSensitivity = sensitivity,
+        conflictKey = conflictKey,
+        deletedAtMillis = deletedAtMillis,
+    )
+}
+
+private fun MemoryHit.isExpired(nowMillis: Long): Boolean =
+    expiresAtMillis?.let { expiresAt -> expiresAt <= nowMillis } == true
+
+private fun MemoryEntry.isExpired(nowMillis: Long): Boolean =
+    expiresAtMillis?.let { expiresAt -> expiresAt <= nowMillis } == true
 
 private fun MemoryRecordType.isSemanticRecallEligible(): Boolean =
     this == MemoryRecordType.Preference ||
@@ -963,6 +1300,9 @@ private fun semanticSourceHash(text: String): String {
         "%02x".format(byte.toInt() and 0xff)
     }
 }
+
+private fun memoryRecordTextHash(text: String): String =
+    semanticSourceHash(text)
 
 private fun searchTextFor(type: MemoryRecordType, text: String): String {
     val aliases = memorySearchAliases(type, text)

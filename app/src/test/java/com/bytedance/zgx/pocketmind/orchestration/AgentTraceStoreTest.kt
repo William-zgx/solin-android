@@ -1,7 +1,10 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.ActionIntentConfidence
 import com.bytedance.zgx.pocketmind.action.AppDeepTargets
+import com.bytedance.zgx.pocketmind.action.IntentRoutingDecision
+import com.bytedance.zgx.pocketmind.action.IntentRoutingPath
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.data.AgentSkillRunCheckpointEntity
 import com.bytedance.zgx.pocketmind.data.AgentRunEntity
@@ -92,6 +95,51 @@ class AgentTraceStoreTest {
         assertTrue(restoredStep.json.contains("argumentKeys"))
         assertFalse(restoredStep.json.contains("raw text that should stay out"))
         assertEquals(listOf(persistedStep), restartedStore.stepSummaries(run.id))
+    }
+
+    @Test
+    fun roomStorePersistsIntentRoutingDecisionWithoutRawInput() {
+        val dao = FakeAgentTraceDao()
+        val store = RoomAgentTraceStore(
+            traceDao = dao,
+            runIdFactory = { "run-routing-trace" },
+        )
+        val rawPrompt = "打开 Wi-Fi 设置，顺便记住 secret@example.com"
+        val run = store.createRun(rawPrompt)
+
+        store.appendStep(
+            run.id,
+            AgentStep.IntentRouted(
+                IntentRoutingDecision(
+                    input = rawPrompt,
+                    selectedPath = IntentRoutingPath.SkillFirst,
+                    selectedToolName = MobileActionFunctions.OPEN_WIFI_SETTINGS,
+                    selectedSkillId = BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL,
+                    priority = 100,
+                    accepted = true,
+                    confidence = ActionIntentConfidence.High,
+                    rejectionReasons = listOf("app_navigation_lower_priority"),
+                    requiresConfirmation = true,
+                ),
+            ),
+        )
+
+        val persistedStep = store.stepSummaries(run.id).single()
+        assertEquals("IntentRouted", persistedStep.type)
+        assertTrue(persistedStep.summary.contains("SkillFirst"))
+        assertTrue(persistedStep.json.contains("\"selectedPath\":\"SkillFirst\""))
+        assertTrue(persistedStep.json.contains(MobileActionFunctions.OPEN_WIFI_SETTINGS))
+        assertTrue(persistedStep.json.contains(BuiltInSkillRuntime.DEVICE_SETTINGS_SKILL))
+        assertTrue(persistedStep.json.contains("app_navigation_lower_priority"))
+        assertFalse(persistedStep.summary.contains(rawPrompt))
+        assertFalse(persistedStep.json.contains(rawPrompt))
+        assertFalse(persistedStep.json.contains("secret@example.com"))
+
+        val restoredStep = RoomAgentTraceStore(traceDao = dao).steps(run.id).single()
+        require(restoredStep is AgentStep.RestoredSummary)
+        assertEquals("IntentRouted", restoredStep.persistedType)
+        assertFalse(restoredStep.json.contains(rawPrompt))
+        assertFalse(restoredStep.json.contains("secret@example.com"))
     }
 
     @Test

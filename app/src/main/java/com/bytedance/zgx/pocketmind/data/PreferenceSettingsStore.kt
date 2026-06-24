@@ -10,14 +10,17 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.bytedance.zgx.pocketmind.BackendChoice
 import com.bytedance.zgx.pocketmind.GenerationParameters
 import com.bytedance.zgx.pocketmind.InferenceMode
+import com.bytedance.zgx.pocketmind.PendingRemoteSendMarker
 import com.bytedance.zgx.pocketmind.RemoteModelConfig
 import com.bytedance.zgx.pocketmind.RemoteModelConnectivityStatus
+import com.bytedance.zgx.pocketmind.RemoteSendDisclosureKind
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 
 private val Context.pocketMindDataStore by preferencesDataStore(name = "pocketmind_settings")
 
-class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionStore {
+class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionStore, RemoteSendPendingStore {
     private val dataStore = context.applicationContext.pocketMindDataStore
 
     override fun isSetupDismissed(): Boolean =
@@ -130,6 +133,45 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         return normalized
     }
 
+    override fun savePendingRemoteSend(marker: PendingRemoteSendMarker) {
+        writeString(
+            Keys.PENDING_REMOTE_SEND_MARKER,
+            JSONObject()
+                .put("kind", marker.kind.name)
+                .put("remoteModelName", marker.remoteModelName)
+                .put("remoteHistoryCount", marker.remoteHistoryCount)
+                .put("localOnlyHistoryFilteredCount", marker.localOnlyHistoryFilteredCount)
+                .put("imageAttachmentCount", marker.imageAttachmentCount)
+                .put("protectedSourceCount", marker.protectedSourceCount)
+                .put("runId", marker.runId.orEmpty())
+                .put("createdAtMillis", marker.createdAtMillis)
+                .toString(),
+        )
+    }
+
+    override fun consumePendingRemoteSend(): PendingRemoteSendMarker? {
+        val raw = readString(Keys.PENDING_REMOTE_SEND_MARKER, "")
+        if (raw.isBlank()) return null
+        clearPendingRemoteSend()
+        return runCatching {
+            val json = JSONObject(raw)
+            PendingRemoteSendMarker(
+                kind = RemoteSendDisclosureKind.valueOf(json.getString("kind")),
+                remoteModelName = json.optString("remoteModelName"),
+                remoteHistoryCount = json.optInt("remoteHistoryCount"),
+                localOnlyHistoryFilteredCount = json.optInt("localOnlyHistoryFilteredCount"),
+                imageAttachmentCount = json.optInt("imageAttachmentCount"),
+                protectedSourceCount = json.optInt("protectedSourceCount"),
+                runId = json.optString("runId").takeIf { it.isNotBlank() },
+                createdAtMillis = json.optLong("createdAtMillis"),
+            )
+        }.getOrNull()
+    }
+
+    override fun clearPendingRemoteSend() {
+        writeString(Keys.PENDING_REMOTE_SEND_MARKER, "")
+    }
+
     fun migrationVersion(): Int =
         readInt(Keys.MIGRATION_VERSION, 0)
 
@@ -175,6 +217,7 @@ class PreferenceSettingsStore(context: Context) : SettingsStore, ActiveSessionSt
         val REMOTE_MODEL_NAME = stringPreferencesKey("remote_model_name")
         val REMOTE_SUPPORTS_VISION_INPUT = booleanPreferencesKey("remote_model_supports_vision_input")
         val REMOTE_CONNECTIVITY_STATUS = stringPreferencesKey("remote_model_connectivity_status")
+        val PENDING_REMOTE_SEND_MARKER = stringPreferencesKey("pending_remote_send_marker")
         val ACTIVE_SESSION_ID = stringPreferencesKey("active_session_id")
         val SELECTED_MODEL_ID = stringPreferencesKey("selected_model_id")
         val ACTIVE_INSTALLED_MODEL_ID = stringPreferencesKey("active_installed_model_id")

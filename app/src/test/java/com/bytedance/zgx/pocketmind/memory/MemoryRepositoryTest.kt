@@ -3,6 +3,7 @@ package com.bytedance.zgx.pocketmind.memory
 import com.bytedance.zgx.pocketmind.ChatMessage
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.MessageRole
+import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -874,6 +875,244 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun forgetPreferenceRecordsDeletionTombstoneWithoutRawText() {
+        val recordStore = FakeMemoryRecordStore()
+        val deletionStore = FakeMemoryDeletionEventStore()
+        val repository = MemoryRepository(
+            recordStore = recordStore,
+            deletionEventStore = deletionStore,
+            clockMillis = { 1234L },
+        )
+        val preferenceId = explicitUserPreferenceRecordId("I like green tea")
+        repository.indexPreference(preferenceId, "I like green tea")
+
+        assertTrue(repository.forgetPreference("I like green tea"))
+
+        val event = deletionStore.events.single()
+        assertEquals(preferenceId, event.recordId)
+        assertEquals(MemoryRecordType.Preference, event.recordType)
+        assertEquals(MemoryDeletionOperation.Forget, event.operation)
+        assertEquals(1234L, event.deletedAtMillis)
+        assertEquals(sha256Hex("用户偏好：I like green tea"), event.recordTextHash)
+        assertFalse(event.toString().contains("green tea"))
+    }
+
+    @Test
+    fun forgetUserFactRecordsDeletionTombstoneWithoutRawFactValue() {
+        val recordStore = FakeMemoryRecordStore()
+        val deletionStore = FakeMemoryDeletionEventStore()
+        val repository = MemoryRepository(
+            recordStore = recordStore,
+            deletionEventStore = deletionStore,
+            clockMillis = { 2345L },
+        )
+        val factId = explicitUserFactRecordId("my rcode is yz99")
+        repository.indexUserFact(factId, "my rcode is yz99")
+
+        assertTrue(repository.forgetUserFact("my rcode is yz99"))
+
+        val event = deletionStore.events.single()
+        assertEquals(factId, event.recordId)
+        assertEquals(MemoryRecordType.UserFact, event.recordType)
+        assertEquals(MemoryDeletionOperation.Forget, event.operation)
+        assertEquals(2345L, event.deletedAtMillis)
+        assertEquals(sha256Hex("用户事实：my rcode is yz99"), event.recordTextHash)
+        assertFalse(event.toString().contains("yz99"))
+    }
+
+    @Test
+    fun clearRecordsDeletionTombstonesForVisibleLongTermRecords() {
+        val recordStore = FakeMemoryRecordStore()
+        val deletionStore = FakeMemoryDeletionEventStore()
+        val repository = MemoryRepository(
+            recordStore = recordStore,
+            deletionEventStore = deletionStore,
+            clockMillis = { 3456L },
+        )
+        val factId = explicitUserFactRecordId("my rcode is yz99")
+        repository.index("conversation-1", "用户刚刚说了临时内容")
+        repository.indexPreference("pref-1", "回答尽量简洁")
+        repository.indexUserFact(factId, "my rcode is yz99")
+        repository.indexTaskState("task-1", "等待确认分享摘要")
+        recordStore.upsert(
+            PersistedMemoryRecord(
+                id = "suppressed-task-state-background:1",
+                type = MemoryRecordType.SuppressedTaskState,
+                text = "task-state-background:1",
+            ),
+        )
+
+        repository.clear()
+
+        assertTrue(repository.savedRecords().isEmpty())
+        assertEquals(
+            listOf("pref-1", factId, "task-1"),
+            deletionStore.events.map { it.recordId },
+        )
+        assertEquals(
+            listOf(MemoryDeletionOperation.Clear, MemoryDeletionOperation.Clear, MemoryDeletionOperation.Clear),
+            deletionStore.events.map { it.operation },
+        )
+        assertTrue(deletionStore.events.all { it.deletedAtMillis == 3456L })
+        assertFalse(deletionStore.events.toString().contains("yz99"))
+        assertFalse(deletionStore.events.toString().contains("简洁"))
+    }
+
+    @Test
+    fun forgetLongTermMemoryByIdRecordsDeletionTombstone() {
+        val recordStore = FakeMemoryRecordStore()
+        val deletionStore = FakeMemoryDeletionEventStore()
+        val repository = MemoryRepository(
+            recordStore = recordStore,
+            deletionEventStore = deletionStore,
+            clockMillis = { 4567L },
+        )
+        repository.indexTaskState("task-1", "等待确认分享摘要")
+
+        assertTrue(repository.forget("task-1"))
+
+        val event = deletionStore.events.single()
+        assertEquals("task-1", event.recordId)
+        assertEquals(MemoryRecordType.TaskState, event.recordType)
+        assertEquals(MemoryDeletionOperation.Forget, event.operation)
+        assertEquals(4567L, event.deletedAtMillis)
+        assertEquals(sha256Hex("任务状态：等待确认分享摘要"), event.recordTextHash)
+        assertFalse(event.toString().contains("分享摘要"))
+    }
+
+    @Test
+    fun persistedForgetUsesAtomicDeleteAndTombstoneHook() {
+        val recordStore = FakeMemoryRecordStore()
+        val deletionStore = AtomicMemoryDeletionEventStore(recordStore)
+        val repository = MemoryRepository(
+            recordStore = recordStore,
+            deletionEventStore = deletionStore,
+            clockMillis = { 5678L },
+        )
+        val preferenceId = explicitUserPreferenceRecordId("I like green tea")
+        repository.indexPreference(preferenceId, "I like green tea")
+
+        assertTrue(repository.forgetPreference("I like green tea"))
+
+        assertEquals(listOf(preferenceId), deletionStore.deletedIds)
+        assertEquals(listOf(preferenceId), deletionStore.events.map { it.recordId })
+        assertTrue(recordStore.records().isEmpty())
+    }
+
+    @Test
+    fun clearUsesAtomicClearAndTombstoneHook() {
+        val recordStore = FakeMemoryRecordStore()
+        val deletionStore = AtomicMemoryDeletionEventStore(recordStore)
+        val repository = MemoryRepository(
+            recordStore = recordStore,
+            deletionEventStore = deletionStore,
+            clockMillis = { 6789L },
+        )
+        val factId = explicitUserFactRecordId("my rcode is yz99")
+        repository.indexPreference("pref-1", "回答尽量简洁")
+        repository.indexUserFact(factId, "my rcode is yz99")
+
+        repository.clear()
+
+        assertEquals(1, deletionStore.clearCount)
+        assertEquals(listOf("pref-1", factId), deletionStore.events.map { it.recordId })
+        assertTrue(recordStore.records().isEmpty())
+    }
+
+    @Test
+    fun longTermRecordsCarrySourceSensitivityPrivacyAndConflictMetadata() {
+        val store = FakeMemoryRecordStore()
+        val repository = MemoryRepository(recordStore = store)
+        val factId = explicitUserFactRecordId("my rcode is xb83")
+
+        repository.indexPreference("pref-1", "回答尽量简洁")
+        repository.indexUserFact(factId, "my rcode is xb83")
+        repository.indexTaskState("task-1", "等待确认分享摘要")
+
+        val recordsById = repository.savedRecords().associateBy { it.id }
+        val preference = requireNotNull(recordsById["pref-1"])
+        val fact = requireNotNull(recordsById[factId])
+        val task = requireNotNull(recordsById["task-1"])
+
+        assertEquals(MemoryRecordSource.ExplicitUser, preference.source)
+        assertEquals(MemoryRecordSensitivity.Normal, preference.sensitivity)
+        assertEquals(MessagePrivacy.LocalOnly, preference.privacy)
+        assertEquals("response-length", preference.conflictKey)
+
+        assertEquals(MemoryRecordSource.ExplicitUser, fact.source)
+        assertEquals(MemoryRecordSensitivity.Sensitive, fact.sensitivity)
+        assertEquals(MessagePrivacy.LocalOnly, fact.privacy)
+        assertEquals("en:rcode", fact.conflictKey)
+
+        assertEquals(MemoryRecordSource.AutoTaskState, task.source)
+        assertEquals(MemoryRecordSensitivity.Internal, task.sensitivity)
+        assertEquals(MessagePrivacy.LocalOnly, task.privacy)
+        assertEquals("task-1", task.conflictKey)
+
+        val hit = repository.search("rcode xb83", topK = 3).single()
+        assertEquals(MemoryRecordSensitivity.Sensitive, hit.sensitivity)
+        assertEquals(MessagePrivacy.LocalOnly, hit.privacy)
+        assertEquals("en:rcode", hit.conflictKey)
+    }
+
+    @Test
+    fun expiredPersistedRecordsAreHiddenAndNotRecalled() {
+        val store = FakeMemoryRecordStore()
+        store.upsert(
+            PersistedMemoryRecord(
+                id = "pref-expired",
+                type = MemoryRecordType.Preference,
+                text = "用户偏好：回答尽量简洁",
+                source = MemoryRecordSource.ExplicitUser,
+                expiresAtMillis = 100L,
+                conflictKey = "response-length",
+            ),
+        )
+        val repository = MemoryRepository(
+            recordStore = store,
+            clockMillis = { 200L },
+        )
+
+        repository.rebuild(emptyList())
+
+        assertTrue(repository.savedRecords().isEmpty())
+        assertTrue(repository.search("简洁回答").isEmpty())
+        assertEquals(listOf("pref-expired"), store.records().map { it.id })
+    }
+
+    @Test
+    fun memoryContextSkipsExpiredOrNonLocalOnlyHits() {
+        val repository = MemoryRepository(clockMillis = { 200L })
+        val context = repository.buildContext(
+            listOf(
+                MemoryHit(
+                    id = "active",
+                    text = "用户偏好：回答尽量简洁",
+                    score = 0.9f,
+                    privacy = MessagePrivacy.LocalOnly,
+                ),
+                MemoryHit(
+                    id = "expired",
+                    text = "用户事实：过期内容",
+                    score = 0.9f,
+                    privacy = MessagePrivacy.LocalOnly,
+                    expiresAtMillis = 100L,
+                ),
+                MemoryHit(
+                    id = "remote-eligible",
+                    text = "用户事实：不应进入本地记忆 context",
+                    score = 0.9f,
+                    privacy = MessagePrivacy.RemoteEligible,
+                ),
+            ),
+        )
+
+        assertTrue(context.contains("回答尽量简洁"))
+        assertFalse(context.contains("过期内容"))
+        assertFalse(context.contains("不应进入本地记忆 context"))
+    }
+
+    @Test
     fun suppressedTaskStateRecordsAreHiddenAndNotIndexed() {
         val store = FakeMemoryRecordStore()
         val repository = MemoryRepository(recordStore = store)
@@ -986,6 +1225,13 @@ class MemoryRepositoryTest {
                 else -> floatArrayOf(0f, 1f)
             }
         }
+
+        private fun sha256Hex(text: String): String =
+            MessageDigest.getInstance("SHA-256")
+                .digest(text.toByteArray(Charsets.UTF_8))
+                .joinToString(separator = "") { byte ->
+                    (byte.toInt() and 0xff).toString(16).padStart(2, '0')
+                }
     }
 
     private class FakeMemoryRecordStore : MemoryRecordStore {
@@ -1028,6 +1274,56 @@ class MemoryRepositoryTest {
 
         override fun clear() {
             entries.clear()
+        }
+    }
+
+    private class FakeMemoryDeletionEventStore : MemoryDeletionEventStore {
+        val events = mutableListOf<MemoryDeletionEvent>()
+
+        override fun events(): List<MemoryDeletionEvent> =
+            events.toList()
+
+        override fun append(event: MemoryDeletionEvent) {
+            events += event
+        }
+    }
+
+    private class AtomicMemoryDeletionEventStore(
+        private val expectedRecordStore: MemoryRecordStore,
+    ) : MemoryDeletionEventStore {
+        val events = mutableListOf<MemoryDeletionEvent>()
+        val deletedIds = mutableListOf<String>()
+        var clearCount = 0
+
+        override fun events(): List<MemoryDeletionEvent> =
+            events.toList()
+
+        override fun append(event: MemoryDeletionEvent) {
+            error("Deletion events for persisted records must be appended through the atomic hook")
+        }
+
+        override fun deleteRecordAndAppendEvent(
+            recordStore: MemoryRecordStore,
+            id: String,
+            event: MemoryDeletionEvent,
+        ): Boolean {
+            check(recordStore === expectedRecordStore)
+            val deleted = recordStore.delete(id)
+            if (deleted) {
+                deletedIds += id
+                events += event
+            }
+            return deleted
+        }
+
+        override fun clearRecordsAndAppendEvents(
+            recordStore: MemoryRecordStore,
+            events: List<MemoryDeletionEvent>,
+        ) {
+            check(recordStore === expectedRecordStore)
+            clearCount += 1
+            recordStore.clear()
+            this.events += events
         }
     }
 

@@ -2,6 +2,12 @@ package com.bytedance.zgx.pocketmind.evidence
 
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 
+enum class VerificationStatus {
+    Passed,
+    Failed,
+    Skipped,
+}
+
 enum class EvidenceSourceType {
     UserPrompt,
     Memory,
@@ -76,3 +82,44 @@ fun Iterable<EvidenceCard>.toEvidenceReceiptSummary(): EvidenceReceiptSummary {
         sourceTypes = cards.map { it.sourceType }.distinct(),
     )
 }
+
+data class DeviceVerificationArtifact(
+    val id: String,
+    val status: VerificationStatus,
+    val serial: String,
+    val apiLevel: Int,
+    val abi: String,
+    val testCount: Int,
+    val failedTarget: String? = null,
+    val reason: String? = null,
+    val instrumentationOutputPath: String? = null,
+    val logcatPath: String? = null,
+    val artifactSha256: String? = null,
+) {
+    init {
+        require(id.isNotBlank()) { "Device verification artifact id must not be blank" }
+        require(serial.isNotBlank()) { "Device verification serial must not be blank" }
+        require(apiLevel > 0) { "Device verification API level must be > 0" }
+        require(abi.isNotBlank()) { "Device verification ABI must not be blank" }
+        require(testCount >= 0) { "Device verification test count must be >= 0" }
+        if (status == VerificationStatus.Failed) {
+            require(!failedTarget.isNullOrBlank()) { "Failed device verification artifacts must include failedTarget" }
+            require(!reason.isNullOrBlank()) { "Failed device verification artifacts must include reason" }
+        } else {
+            require(failedTarget.isNullOrBlank() && reason.isNullOrBlank()) {
+                "Passed or skipped device verification artifacts must not include failure metadata"
+            }
+        }
+        instrumentationOutputPath?.let {
+            require(it.isNotBlank()) { "Instrumentation output path must not be blank" }
+        }
+        logcatPath?.let {
+            require(it.isNotBlank()) { "Logcat path must not be blank" }
+        }
+        artifactSha256?.let {
+            require(SHA_256_HEX.matches(it)) { "Device verification artifact SHA-256 must be 64 hex characters" }
+        }
+    }
+}
+
+private val SHA_256_HEX = Regex("^[a-fA-F0-9]{64}$")

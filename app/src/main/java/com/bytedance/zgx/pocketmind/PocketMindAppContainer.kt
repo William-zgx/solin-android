@@ -21,6 +21,7 @@ import com.bytedance.zgx.pocketmind.data.ModelRepository
 import com.bytedance.zgx.pocketmind.data.PocketMindDatabase
 import com.bytedance.zgx.pocketmind.data.PreferenceSettingsStore
 import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
+import com.bytedance.zgx.pocketmind.data.RemoteSendPendingStore
 import com.bytedance.zgx.pocketmind.data.SessionRepository
 import com.bytedance.zgx.pocketmind.device.AndroidCalendarAvailabilityProvider
 import com.bytedance.zgx.pocketmind.device.AndroidContactSummaryProvider
@@ -34,6 +35,7 @@ import com.bytedance.zgx.pocketmind.device.AndroidRecentFileProvider
 import com.bytedance.zgx.pocketmind.download.ModelDownloadService
 import com.bytedance.zgx.pocketmind.memory.LongTermMemoryControls
 import com.bytedance.zgx.pocketmind.memory.MemoryRepository
+import com.bytedance.zgx.pocketmind.memory.RoomMemoryDeletionEventStore
 import com.bytedance.zgx.pocketmind.memory.RoomMemoryEmbeddingStore
 import com.bytedance.zgx.pocketmind.memory.RoomMemoryRecordStore
 import com.bytedance.zgx.pocketmind.multimodal.AndroidCurrentScreenshotOcrProvider
@@ -105,6 +107,10 @@ class PocketMindAppContainer(context: Context) {
             },
             recordStore = RoomMemoryRecordStore(database.memoryRecordDao()),
             embeddingStore = RoomMemoryEmbeddingStore(database.memoryEmbeddingDao()),
+            deletionEventStore = RoomMemoryDeletionEventStore(
+                dao = database.memoryDeletionEventDao(),
+                transactionDao = database.memoryDeletionTransactionDao(),
+            ),
         )
         toolAuditRepository = ToolAuditRepository(database.toolAuditDao())
         remoteSendAuditRepository = RemoteSendAuditRepository(database.remoteSendAuditDao())
@@ -163,7 +169,7 @@ class PocketMindAppContainer(context: Context) {
         )
     }
 
-    val viewModelFactory: ViewModelProvider.Factory =
+    fun viewModelFactory(skipStartupModelRuntimeWork: Boolean = false): ViewModelProvider.Factory =
         PocketMindViewModelFactory(
             modelRepository = modelRepository,
             sessionRepository = sessionRepository,
@@ -179,11 +185,13 @@ class PocketMindAppContainer(context: Context) {
             backgroundTaskScheduler = backgroundTaskSchedulerInternal,
             toolAuditLog = toolAuditRepository,
             remoteSendAuditRepository = remoteSendAuditRepository,
+            remoteSendPendingStore = settingsStore,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = {
                 Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
             },
+            skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
         )
 
     val backgroundTaskScheduler: AndroidBackgroundTaskScheduler
@@ -208,9 +216,11 @@ private class PocketMindViewModelFactory(
     private val backgroundTaskScheduler: AndroidBackgroundTaskScheduler,
     private val toolAuditLog: ToolAuditLog,
     private val remoteSendAuditRepository: RemoteSendAuditRepository,
+    private val remoteSendPendingStore: RemoteSendPendingStore,
     private val actionExecutor: ToolExecutor,
     private val assistantOrchestrator: AssistantOrchestrator,
     private val isArm64DeviceProvider: () -> Boolean,
+    private val skipStartupModelRuntimeWork: Boolean,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -233,9 +243,11 @@ private class PocketMindViewModelFactory(
             toolAuditLog = toolAuditLog,
             remoteSendAuditSink = remoteSendAuditRepository,
             remoteSendAuditLog = remoteSendAuditRepository,
+            remoteSendPendingStore = remoteSendPendingStore,
             actionExecutor = actionExecutor,
             assistantOrchestrator = assistantOrchestrator,
             isArm64DeviceProvider = isArm64DeviceProvider,
+            skipStartupModelRuntimeWork = skipStartupModelRuntimeWork,
         ) as T
     }
 }

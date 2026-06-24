@@ -90,6 +90,10 @@ object CapabilityMatrix {
             "Missing next-stage MVP scenario title: $capabilityId"
         }
 
+    val requiredBehaviorEvalBoundaries: List<String> = listOf(
+        "public_evidence_multi_search_batch_allowed",
+    )
+
     val productDescriptors: List<CapabilityDescriptor> =
         listOf(
             CapabilityDescriptor(
@@ -475,7 +479,11 @@ private fun ToolSpec.toCapabilityDescriptor(): CapabilityDescriptor {
         capabilityId = "tool_$name",
         entrypoint = "tool_registry",
         toolName = name,
-        modelCapability = ModelCapability.MobileAction,
+        modelCapability = if (resultContinuationPolicy == ToolResultContinuationPolicy.PublicEvidence) {
+            ModelCapability.Chat
+        } else {
+            ModelCapability.MobileAction
+        },
         privacyLevel = privacyLevel,
         requiresLocalModel = privacyLevel == CapabilityPrivacyLevel.LocalEvidence,
         remoteEligible = isRemoteModelPlanningEligible(),

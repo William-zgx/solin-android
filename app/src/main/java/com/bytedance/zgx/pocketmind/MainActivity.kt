@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Color
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
@@ -45,7 +46,9 @@ class MainActivity : ComponentActivity() {
         PocketMindAppContainer(applicationContext)
     }
     private val viewModel: PocketMindViewModel by viewModels {
-        appContainer.viewModelFactory
+        appContainer.viewModelFactory(
+            skipStartupModelRuntimeWork = shouldSkipStartupModelRuntimeWork(),
+        )
     }
     private val shareIntentScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var pendingRuntimePermissionConfirmation: PendingAgentConfirmation? = null
@@ -127,6 +130,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun attachBaseContext(newBase: Context) {
+        val debugFontScale = runCatching {
+            intent.getFloatExtra(EXTRA_DEBUG_UI_FONT_SCALE, 0f)
+        }.getOrDefault(0f)
+        if (debugFontScale > 0f && isRunningUnderAndroidTest()) {
+            val configuration = Configuration(newBase.resources.configuration).apply {
+                fontScale = debugFontScale
+            }
+            super.attachBaseContext(newBase.createConfigurationContext(configuration))
+        } else {
+            super.attachBaseContext(newBase)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
@@ -139,9 +156,7 @@ class MainActivity : ComponentActivity() {
                 darkScrim = Color.TRANSPARENT,
             ),
         )
-        val skipStartupModelRuntimeWork =
-            intent.getBooleanExtra(EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, false) ||
-                isRunningUnderAndroidTest()
+        val skipStartupModelRuntimeWork = shouldSkipStartupModelRuntimeWork()
         viewModel.restoreStartupState(
             skipModelRuntimeWork = skipStartupModelRuntimeWork,
         )
@@ -280,6 +295,10 @@ class MainActivity : ComponentActivity() {
 
     private fun isDebuggableBuild(): Boolean =
         applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+
+    private fun shouldSkipStartupModelRuntimeWork(): Boolean =
+        intent.getBooleanExtra(EXTRA_SKIP_STARTUP_MODEL_RUNTIME_WORK, false) ||
+            isRunningUnderAndroidTest()
 
     private fun handlePickedSharedUris(uris: List<Uri>) {
         if (uris.isEmpty()) return
@@ -563,6 +582,8 @@ class MainActivity : ComponentActivity() {
             "com.bytedance.zgx.pocketmind.extra.DEBUG_SCREENSHOT_REMOTE_MODEL_NAME"
         const val EXTRA_DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT =
             "com.bytedance.zgx.pocketmind.extra.DEBUG_SCREENSHOT_REMOTE_SUPPORTS_VISION_INPUT"
+        const val EXTRA_DEBUG_UI_FONT_SCALE =
+            "com.bytedance.zgx.pocketmind.extra.DEBUG_UI_FONT_SCALE"
         private const val KEY_PENDING_SPECIAL_ACCESS_REQUIREMENT_ID =
             "com.bytedance.zgx.pocketmind.state.PENDING_SPECIAL_ACCESS_REQUIREMENT_ID"
         private val SHARED_ATTACHMENT_MIME_TYPES = arrayOf(

@@ -746,7 +746,9 @@ Tests:
 - `AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolRequestedJsonMissingToolNameOnStartupRepair`
 - `AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolObservedMetadataIsCorruptOnStartupRepair`
 - `AgentLoopRuntimeTest.failStaleInFlightRunsClosesUnrestorableExternalOutcomeBeforeRestore`
-- `AgentLoopRuntimeTest.modelObservationReplannerPlansNextToolAfterVerifiedObservation`
+- `AgentLoopRuntimeTest.modelBackedObservationReplanWorksWhenMobileActionInstalled`
+- `AgentLoopRuntimeTest.modelBackedObservationReplanWithoutMobileActionReturnsMissingModel`
+- `AgentLoopRuntimeTest.ruleBackedObservationReplanDoesNotRequireMobileAction`
 - `AgentLoopRuntimeTest.localEvidenceContinuationTakesPriorityOverObservationReplanner`
 - `AgentLoopRuntimeTest.modelObservationReplannerIgnoresRuleFallbackDraft`
 - `AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues`
@@ -1099,11 +1101,12 @@ Current status:
   storage permission, extracts a bounded local OCR text excerpt, marks the
   result `LocalOnly`, treats `ocrText` as private Skill output, and does not
   persist or expose the MediaStore id, URI, path, original image, or raw
-  pixels. OCR formatting preserves recognized block/line order when ML Kit
-  provides it, while still omitting coordinates, image labels, captions,
-  pixels, and visual semantics.
-  File metadata returned with the OCR result (`name`, `mimeType`, `sizeBytes`,
-  and `lastModifiedMillis`) is treated as private output alongside `ocrText`.
+  pixels. The tool result also omits file identity metadata such as `name`,
+  `mimeType`, `sizeBytes`, and `lastModifiedMillis`; OCR continuation only needs
+  bounded text, counts, truncation state, LocalOnly flags, and metadata policy.
+  OCR formatting preserves recognized block/line order when ML Kit provides it,
+  while still omitting coordinates, image labels, captions, pixels, and visual
+  semantics.
   Remote mode treats the OCR continuation like other protected local context and
   stops before sending it to a configured backend. Its input and output schemas
   both cap `maxCount` at 1, so the registry rejects any result that tries to
@@ -1373,11 +1376,12 @@ Current status:
   clipboard-derived continuations, and remote chat history. Tool specs now
   declare private output keys for clipboard text, contact matches, calendar
   busy/free windows, foreground-app metadata, current-app notification
-  summaries, recent file metadata, recent OCR text/file metadata, and
-  current-screen Accessibility text/snapshot metadata so Skill output fencing
-  and trace redaction share one policy source. Reminder rollback now has a
-  visible Agent/UI confirmation handoff, while broader taint propagation is
-  still pending.
+  summaries, recent file metadata, recent OCR text, and current-screen
+  Accessibility text/snapshot metadata so Skill output fencing and trace
+  redaction share one policy source. Recent OCR file identity metadata is
+  omitted at the tool boundary rather than carried as private output. Reminder
+  rollback now has a visible Agent/UI confirmation handoff, while broader taint
+  propagation is still pending.
 
 Tests:
 

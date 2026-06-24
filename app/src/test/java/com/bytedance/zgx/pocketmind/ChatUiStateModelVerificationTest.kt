@@ -23,6 +23,28 @@ class ChatUiStateModelVerificationTest {
     }
 
     @Test
+    fun activeVerifiedRecommendedVisionModelReportsLocalVisionSupport() {
+        val state = ChatUiState(
+            activeInstalledModelId = DEFAULT_CHAT_MODEL_ID,
+            installedModels = listOf(
+                installedModel(
+                    id = DEFAULT_CHAT_MODEL_ID,
+                    recommendedModelId = DEFAULT_CHAT_MODEL_ID,
+                    verificationStatus = ModelVerificationStatus.VerifiedRecommended,
+                ),
+            ),
+        )
+
+        assertEquals(DEFAULT_CHAT_MODEL_ID, state.activeLocalCapabilityProfile?.id)
+        assertEquals(
+            setOf(ModelInputModality.Text, ModelInputModality.Vision),
+            state.activeLocalCapabilityProfile?.inputModalities,
+        )
+        assertTrue(state.activeLocalCapabilityProfile?.supportsVisionInput == true)
+        assertTrue(state.activeLocalModelSupportsVisionInput)
+    }
+
+    @Test
     fun unverifiedRecommendedModelsDoNotCountAsInstalledOrCapabilities() {
         val state = ChatUiState(
             activeInstalledModelId = "legacy-chat",
@@ -60,6 +82,7 @@ class ChatUiStateModelVerificationTest {
         )
 
         assertFalse(state.isModelInstalled("unknown-model-id"))
+        assertEquals(null, state.activeLocalCapabilityProfile)
         assertFalse(state.activeLocalModelSupportsVisionInput)
         assertTrue(state.installedCapabilities.isEmpty())
     }
@@ -67,6 +90,7 @@ class ChatUiStateModelVerificationTest {
     @Test
     fun customImportedModelStillCountsAsChatCapability() {
         val state = ChatUiState(
+            activeInstalledModelId = "custom-chat",
             installedModels = listOf(
                 installedModel(
                     id = "custom-chat",
@@ -78,6 +102,30 @@ class ChatUiStateModelVerificationTest {
 
         assertFalse(state.isModelInstalled(DEFAULT_CHAT_MODEL_ID))
         assertEquals(setOf(ModelCapability.Chat), state.installedCapabilities)
+        assertEquals(CUSTOM_LOCAL_CHAT_PROFILE_ID, state.activeLocalCapabilityProfile?.id)
+        assertEquals(setOf(ModelInputModality.Text), state.activeLocalCapabilityProfile?.inputModalities)
+        assertFalse(state.activeLocalModelSupportsVisionInput)
+    }
+
+    @Test
+    fun remoteModeConfigDoesNotCreateLocalCapabilitiesAndStillRequiresRemoteConfirmation() {
+        val state = ChatUiState(
+            inferenceMode = InferenceMode.Remote,
+            remoteModelConfig = RemoteModelConfig(
+                baseUrl = "https://api.example.test/v1",
+                modelName = "remote-vision",
+                supportsVisionInput = true,
+            ),
+        )
+        val remoteProfile = state.remoteModelConfig.modelProfile()
+
+        assertTrue(remoteProfile.remoteEligible)
+        assertTrue(remoteProfile.requiresRemoteSendConfirmation)
+        assertFalse(remoteProfile.supportsMemoryEmbedding)
+        assertFalse(remoteProfile.supportsMobileActionPlanning)
+        assertEquals(null, state.activeLocalCapabilityProfile)
+        assertFalse(state.activeLocalModelSupportsVisionInput)
+        assertTrue(state.installedCapabilities.isEmpty())
     }
 
     private fun installedModel(

@@ -627,11 +627,6 @@ class RecentScreenshotOcrToolExecutor(
                             "maxCount" to maxCount.toString(),
                             "scannedCount" to result.scannedCount.toString(),
                             "mediaAccessScope" to result.mediaAccessScope,
-                            "name" to item.name,
-                            "mimeType" to item.mimeType,
-                            "kind" to item.kind,
-                            "sizeBytes" to item.sizeBytes.toString(),
-                            "lastModifiedMillis" to item.lastModifiedMillis.toString(),
                             "ocrText" to item.text,
                             "truncated" to item.truncated.toString(),
                             "ocrTextIncluded" to true.toString(),
@@ -1157,6 +1152,7 @@ private fun ToolRequest.currentScreenshotOcrBaseData(): Map<String, String> =
         "source" to CurrentScreenshotOcrContract.SOURCE,
         "captureMode" to CurrentScreenshotOcrContract.CAPTURE_MODE,
         "metadataPolicy" to CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY,
+        "rawPayloadIncluded" to false.toString(),
     )
 
 private fun List<ContactSummaryItem>.toContactsJsonString(): String {

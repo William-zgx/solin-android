@@ -93,4 +93,16 @@ class RemoteModelConfigTest {
         assertFalse(RemoteModelConfig("https://api.example.com/v1", "model-a").usesLocalInsecureTransport)
         assertFalse(RemoteModelConfig("http://api.example.com/v1", "model-a").usesLocalInsecureTransport)
     }
+
+    @Test
+    fun modelProfileCarriesRemoteSendBoundary() {
+        val profile = RemoteModelConfig(
+            baseUrl = "https://api.example.com/v1",
+            modelName = "model-a",
+        ).modelProfile()
+
+        assertTrue(profile.remoteEligible)
+        assertTrue(profile.requiresRemoteSendConfirmation)
+        assertFalse(profile.supportsVisionInput)
+    }
 }

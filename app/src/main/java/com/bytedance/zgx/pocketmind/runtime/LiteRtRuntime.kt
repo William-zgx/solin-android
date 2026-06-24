@@ -7,8 +7,10 @@ import com.bytedance.zgx.pocketmind.GenerationStats
 import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
 import com.bytedance.zgx.pocketmind.LocalImageAttachment
 import com.bytedance.zgx.pocketmind.MessageRole
+import com.bytedance.zgx.pocketmind.ModelCapabilityProfile
 import com.bytedance.zgx.pocketmind.isUsable
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.BenchmarkInfo
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
@@ -28,12 +30,63 @@ data class LocalModelRequest(
     val imageAttachments: List<LocalImageAttachment> = emptyList(),
 )
 
+/**
+ * Outcome of reading the LiteRT decode benchmark for the most recent generation.
+ *
+ * [tokensPerSecond] is only ever populated from the LiteRT benchmark API
+ * ([com.google.ai.edge.litertlm.Conversation.getBenchmarkInfo]). It is never derived from
+ * character counts, UI text length, or any other estimate. When the benchmark is missing or
+ * reports non-usable numbers, callers receive an explicit [Unavailable] reason instead so the
+ * RC perf harness can fail with a diagnosable cause rather than fabricating throughput.
+ */
+sealed interface RuntimeBenchmarkResult {
+    data class Available(
+        val tokenCount: Int,
+        val tokensPerSecond: Double,
+    ) : RuntimeBenchmarkResult {
+        init {
+            require(tokenCount > 0) { "benchmark token count must be positive" }
+            require(
+                tokensPerSecond > 0.0 && !tokensPerSecond.isNaN() && !tokensPerSecond.isInfinite(),
+            ) { "benchmark tokensPerSecond must be a positive finite value" }
+        }
+    }
+
+    data class Unavailable(val reason: String) : RuntimeBenchmarkResult
+}
+
+data class LocalModelRuntimeCapabilities(
+    val supportsVisionInput: Boolean = false,
+    val contextWindowTokens: Int = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
+    val preferredBackends: Set<BackendChoice> = emptySet(),
+) {
+    init {
+        require(contextWindowTokens > 0) { "Local model context window must be positive" }
+    }
+
+    companion object {
+        fun fromProfile(profile: ModelCapabilityProfile?): LocalModelRuntimeCapabilities =
+            LocalModelRuntimeCapabilities(
+                supportsVisionInput = profile?.supportsVisionInput == true,
+                contextWindowTokens = profile?.contextWindowTokens
+                    ?: LocalModelTokenLimits.MAX_TOTAL_TOKENS,
+                preferredBackends = profile?.preferredLocalBackends.orEmpty(),
+            )
+    }
+}
+
 interface LocalChatRuntime {
     val isLoaded: Boolean
 
     fun configureModelCapabilities(
         supportsVisionInput: Boolean,
     ) = Unit
+
+    fun configureModelCapabilities(
+        capabilities: LocalModelRuntimeCapabilities,
+    ) {
+        configureModelCapabilities(supportsVisionInput = capabilities.supportsVisionInput)
+    }
 
     fun load(
         modelPath: String,
@@ -63,7 +116,32 @@ interface LocalChatRuntime {
 
     fun lastGenerationStats(): GenerationStats?
 
+    /**
+     * Real model load time of the most recent successful [load], in milliseconds, or null when no
+     * load has completed. Exposed independently of [lastGenerationStats] so the RC perf harness can
+     * report `modelLoadMs` even when the decode benchmark is unavailable.
+     */
+    fun lastLoadMillis(): Long? = null
+
+    /**
+     * Real elapsed time from sending a request to the first non-blank chunk of the most recent
+     * generation, in milliseconds, or null when no first token has been observed. Reported
+     * independently of the decode benchmark.
+     */
+    fun lastFirstTokenMillis(): Long? = null
+
+    /**
+     * The LiteRT decode benchmark for the most recent generation, or an explicit
+     * [RuntimeBenchmarkResult.Unavailable] reason. [tokensPerSecond] is only ever the raw LiteRT
+     * benchmark value; it is never estimated.
+     */
+    fun lastBenchmarkResult(): RuntimeBenchmarkResult =
+        RuntimeBenchmarkResult.Unavailable("benchmark not supported by runtime")
+
     fun stop()
+
+    fun stopWithResult(): Result<Unit> =
+        runCatching { stop() }
 
     fun close()
 }
@@ -78,15 +156,15 @@ class RealLiteRtRuntime(
     private var currentBackend: BackendChoice? = null
     private var lastLoadMs: Long? = null
     private var lastFirstTokenMs: Long? = null
-    private var supportsVisionInput: Boolean = false
+    private var capabilities: LocalModelRuntimeCapabilities = LocalModelRuntimeCapabilities()
 
     override val isLoaded: Boolean
         get() = engine != null && conversation != null
 
     override fun configureModelCapabilities(
-        supportsVisionInput: Boolean,
+        capabilities: LocalModelRuntimeCapabilities,
     ) {
-        this.supportsVisionInput = supportsVisionInput
+        this.capabilities = capabilities
     }
 
     override fun load(
@@ -102,7 +180,7 @@ class RealLiteRtRuntime(
                 modelPath = modelPath,
                 backend = backend,
                 cacheDir = cacheDir,
-                supportsVisionInput = supportsVisionInput,
+                capabilities = capabilities,
             ),
         )
         try {
@@ -155,7 +233,7 @@ class RealLiteRtRuntime(
 
     override fun send(request: LocalModelRequest): Flow<String> {
         val activeConversation = conversation ?: error("模型尚未就绪")
-        if (request.imageAttachments.isNotEmpty() && !supportsVisionInput) {
+        if (request.imageAttachments.isNotEmpty() && !capabilities.supportsVisionInput) {
             error("当前本地模型不支持图片输入")
         }
         val startedAtNanos = System.nanoTime()
@@ -177,21 +255,39 @@ class RealLiteRtRuntime(
 
     @OptIn(ExperimentalApi::class)
     override fun lastGenerationStats(): GenerationStats? {
-        val benchmark = runCatching {
-            conversation?.getBenchmarkInfo()
-        }.getOrNull() ?: return null
+        val benchmark = lastBenchmarkResult() as? RuntimeBenchmarkResult.Available ?: return null
         return GenerationStats(
-            tokenCount = benchmark.lastDecodeTokenCount,
-            tokensPerSecond = benchmark.lastDecodeTokensPerSecond,
+            tokenCount = benchmark.tokenCount,
+            tokensPerSecond = benchmark.tokensPerSecond,
             backend = currentBackend,
             loadMs = lastLoadMs,
             firstTokenMs = lastFirstTokenMs,
         ).takeIf { it.isUsable() }
     }
 
-    override fun stop() {
-        runCatching { conversation?.cancelProcess() }
+    override fun lastLoadMillis(): Long? = lastLoadMs
+
+    override fun lastFirstTokenMillis(): Long? = lastFirstTokenMs
+
+    @OptIn(ExperimentalApi::class)
+    override fun lastBenchmarkResult(): RuntimeBenchmarkResult {
+        val conversation = conversation
+            ?: return RuntimeBenchmarkResult.Unavailable("no active conversation")
+        val benchmark = runCatching { conversation.getBenchmarkInfo() }
+            .getOrElse { throwable ->
+                return RuntimeBenchmarkResult.Unavailable(
+                    "getBenchmarkInfo failed: ${throwable.message ?: throwable::class.java.simpleName}",
+                )
+            }
+        return benchmark.toRuntimeBenchmarkResult()
     }
+
+    override fun stop() {
+        stopWithResult()
+    }
+
+    override fun stopWithResult(): Result<Unit> =
+        runCatching { conversation?.cancelProcess() }
 
     override fun close() {
         conversation?.close()
@@ -210,6 +306,23 @@ class RealLiteRtRuntime(
     }
 }
 
+internal fun BenchmarkInfo.toRuntimeBenchmarkResult(): RuntimeBenchmarkResult {
+    val tokenCount = lastDecodeTokenCount
+    val tokensPerSecond = lastDecodeTokensPerSecond
+    if (tokenCount <= 0) {
+        return RuntimeBenchmarkResult.Unavailable("benchmark reported non-positive token count")
+    }
+    if (tokensPerSecond <= 0.0 || tokensPerSecond.isNaN() || tokensPerSecond.isInfinite()) {
+        return RuntimeBenchmarkResult.Unavailable(
+            "benchmark reported non-usable tokensPerSecond",
+        )
+    }
+    return RuntimeBenchmarkResult.Available(
+        tokenCount = tokenCount,
+        tokensPerSecond = tokensPerSecond,
+    )
+}
+
 private fun elapsedMillisSince(startedAtNanos: Long): Long =
     ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
 
@@ -226,28 +339,41 @@ internal fun defaultEngineConfigSpec(
     modelPath: String,
     backend: BackendChoice,
     cacheDir: File,
-    supportsVisionInput: Boolean = false,
+    capabilities: LocalModelRuntimeCapabilities = LocalModelRuntimeCapabilities(),
 ): LiteRtEngineConfigSpec =
     LiteRtEngineConfigSpec(
         modelPath = modelPath,
         backend = backend,
-        visionBackend = if (supportsVisionInput) backend else null,
-        maxNumTokens = LocalModelTokenLimits.MAX_TOTAL_TOKENS,
-        maxNumImages = if (supportsVisionInput) MAX_LOCAL_MODEL_IMAGES else null,
+        visionBackend = if (capabilities.supportsVisionInput) backend else null,
+        maxNumTokens = capabilities.contextWindowTokens,
+        maxNumImages = if (capabilities.supportsVisionInput) MAX_LOCAL_MODEL_IMAGES else null,
         cacheDir = cacheDir.absolutePath,
+    )
+
+internal fun defaultEngineConfigSpec(
+    modelPath: String,
+    backend: BackendChoice,
+    cacheDir: File,
+    supportsVisionInput: Boolean,
+): LiteRtEngineConfigSpec =
+    defaultEngineConfigSpec(
+        modelPath = modelPath,
+        backend = backend,
+        cacheDir = cacheDir,
+        capabilities = LocalModelRuntimeCapabilities(supportsVisionInput = supportsVisionInput),
     )
 
 internal fun defaultEngineConfig(
     modelPath: String,
     backend: BackendChoice,
     cacheDir: File,
-    supportsVisionInput: Boolean = false,
+    capabilities: LocalModelRuntimeCapabilities = LocalModelRuntimeCapabilities(),
 ): EngineConfig {
     val spec = defaultEngineConfigSpec(
         modelPath = modelPath,
         backend = backend,
         cacheDir = cacheDir,
-        supportsVisionInput = supportsVisionInput,
+        capabilities = capabilities,
     )
     return EngineConfig(
         modelPath = spec.modelPath,
@@ -285,7 +411,7 @@ internal fun budgetLocalRuntimeHistory(
         estimateLocalRuntimeTokens(currentPrompt),
     )
     val inputBudget = (maxInputTokens ?: LocalModelTokenLimits.MAX_INPUT_TOKENS)
-        .coerceIn(0, LocalModelTokenLimits.MAX_INPUT_TOKENS)
+        .coerceAtLeast(0)
     val historyBudget = (
         inputBudget -
             LocalModelTokenLimits.SYSTEM_PROMPT_TOKEN_RESERVE -

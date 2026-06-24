@@ -221,6 +221,7 @@ class MobileActionPlanner(
             MobileActionFunctions.READ_RECENT_IMAGE_OCR -> "读取最近图片 OCR"
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT -> "读取当前屏幕文本"
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> "截取当前屏幕 OCR"
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN -> "观察当前屏幕"
             MobileActionFunctions.QUERY_CONTACTS -> "查询联系人"
             else -> "动作草稿"
         }
@@ -307,6 +308,8 @@ class MobileActionPlanner(
             }
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR ->
                 "将请求 Android MediaProjection 前台同意，单次截取当前屏幕并在本地提取 OCR 文本；不会保存图片、像素、URI、路径或窗口标题。"
+            MobileActionFunctions.OBSERVE_CURRENT_SCREEN ->
+                "将读取当前屏幕的可访问状态快照；不会读取截图像素或发送远程。"
             MobileActionFunctions.QUERY_CONTACTS -> {
                 val maxCount = parameters["maxCount"]
                 val query = parameters["query"].orEmpty().ifBlank { "联系人" }

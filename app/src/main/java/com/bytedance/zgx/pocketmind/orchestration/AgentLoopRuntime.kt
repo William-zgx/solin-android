@@ -1,11 +1,15 @@
 package com.bytedance.zgx.pocketmind.orchestration
 
 import com.bytedance.zgx.pocketmind.ModelCapability
+import com.bytedance.zgx.pocketmind.ModelCapabilityProfile
 import com.bytedance.zgx.pocketmind.LocalModelTokenLimits
 import com.bytedance.zgx.pocketmind.MessagePrivacy
 import com.bytedance.zgx.pocketmind.action.ActionDraft
+import com.bytedance.zgx.pocketmind.action.ActionIntentConfidence
 import com.bytedance.zgx.pocketmind.action.ActionPlanKind
 import com.bytedance.zgx.pocketmind.action.ActionPlanningRuntime
+import com.bytedance.zgx.pocketmind.action.IntentRoutingDecision
+import com.bytedance.zgx.pocketmind.action.IntentRoutingPath
 import com.bytedance.zgx.pocketmind.action.MobileActionFunctions
 import com.bytedance.zgx.pocketmind.action.ModelToolOutputParseResult
 import com.bytedance.zgx.pocketmind.audit.NoOpToolAuditSink
@@ -19,6 +23,7 @@ import com.bytedance.zgx.pocketmind.evidence.EvidenceQualityLevel
 import com.bytedance.zgx.pocketmind.evidence.EvidenceSourceType
 import com.bytedance.zgx.pocketmind.memory.MemoryHit
 import com.bytedance.zgx.pocketmind.memory.MemoryIndex
+import com.bytedance.zgx.pocketmind.memory.isAvailableForLocalContext
 import com.bytedance.zgx.pocketmind.runtime.estimateLocalRuntimeTokens
 import com.bytedance.zgx.pocketmind.safety.SafetyContext
 import com.bytedance.zgx.pocketmind.safety.SafetyDecision
@@ -42,6 +47,7 @@ import com.bytedance.zgx.pocketmind.tool.ToolRegistry
 import com.bytedance.zgx.pocketmind.tool.ToolRequest
 import com.bytedance.zgx.pocketmind.tool.ToolResult
 import com.bytedance.zgx.pocketmind.tool.ToolResultContinuationPolicy
+import com.bytedance.zgx.pocketmind.tool.ToolSpec
 import com.bytedance.zgx.pocketmind.tool.ToolStatus
 import com.bytedance.zgx.pocketmind.tool.cancelled
 import com.bytedance.zgx.pocketmind.tool.failed
@@ -82,7 +88,7 @@ class AgentLoopRuntime(
     private val traceStore: AgentTraceStore = InMemoryAgentTraceStore(),
     private val observationReplanner: AgentObservationReplanner = NoOpAgentObservationReplanner,
     private val maxToolRetryAttempts: Int = 1,
-    private val maxRunToolSteps: Int = 8,
+    private val maxRunToolSteps: Int = 10,
     private val maxObservationDecisions: Int = 16,
     private val deviceControlSessionFinisher: () -> Unit = {},
 ) {
@@ -91,8 +97,8 @@ class AgentLoopRuntime(
     private val remoteToolScopesByRunId = mutableMapOf<String, RemoteToolScope>()
     private val remoteExposedToolNamesByRunId = mutableMapOf<String, Set<String>>()
     private val lowRiskDeviceActionConfirmationBypassByRunId = mutableMapOf<String, Boolean>()
+    private val installedCapabilityProfilesByRunId = mutableMapOf<String, List<ModelCapabilityProfile>>()
 
-    @Suppress("UNUSED_PARAMETER")
     fun runOnce(
         input: String,
         installedCapabilities: Set<ModelCapability>,
@@ -101,10 +107,12 @@ class AgentLoopRuntime(
         deviceContext: DeviceContextSnapshot? = null,
         sessionId: String? = null,
         options: AgentRunOptions = AgentRunOptions(),
+        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
     ): AgentLoopResult {
         val createdRun = traceStore.createRun(input, sessionId)
         remoteToolScopesByRunId[createdRun.id] = options.remoteToolScope
         lowRiskDeviceActionConfirmationBypassByRunId[createdRun.id] = options.reduceDeviceActionConfirmations
+        installedCapabilityProfilesByRunId[createdRun.id] = installedCapabilityProfiles.toList()
         traceStore.updateState(createdRun.id, AgentRunState.LoadingContext)
 
         val memoryHits = if (memoryEnabled) {
@@ -116,7 +124,11 @@ class AgentLoopRuntime(
         traceStore.updateState(createdRun.id, AgentRunState.Planning)
 
         val initialToolPlan = when (options.initialPlanningMode) {
-            InitialPlanningMode.RuleFirst -> planToolIfSupported(input, actionModelPath)
+            InitialPlanningMode.RuleFirst -> planToolIfSupported(
+                input = input,
+                installedCapabilityProfiles = installedCapabilityProfiles,
+                actionModelPath = actionModelPath,
+            )
             InitialPlanningMode.ModelFirstRemoteTools -> planLocalOnlySkillBeforeRemote(input)
         }
         when (initialToolPlan) {
@@ -137,10 +149,30 @@ class AgentLoopRuntime(
                 )
             }
 
+            is AgentPlan.MissingModel -> {
+                return failMissingModelPlan(createdRun, initialToolPlan)
+            }
+
             null -> Unit
             else -> Unit
         }
 
+        traceStore.appendStep(
+            createdRun.id,
+            AgentStep.IntentRouted(
+                IntentRoutingDecision(
+                    input = input,
+                    selectedPath = IntentRoutingPath.NoAction,
+                    selectedToolName = null,
+                    selectedSkillId = null,
+                    priority = 0,
+                    accepted = false,
+                    confidence = ActionIntentConfidence.None,
+                    rejectionReasons = listOf("no_action_intent_detected"),
+                    requiresConfirmation = null,
+                ),
+            ),
+        )
         val answerPlan = AgentPlan.Answer(
             promptForModel = promptWithContextIfUseful(input, memoryHits, deviceContext),
             memoryHits = memoryHits,
@@ -548,7 +580,9 @@ class AgentLoopRuntime(
         val run = traceStore.run(runId) ?: return
         if (run.state != AgentRunState.GeneratingAnswer) return
         val sanitizedNames = toolNames
-            .filter { toolName -> toolRegistry.isKnownTool(toolName) }
+            .mapNotNull { toolName -> toolRegistry.specFor(toolName) }
+            .filter { spec -> spec.isExposableInRemoteToolScope(scope) }
+            .map { spec -> spec.name }
             .toSortedSet()
         remoteToolScopesByRunId[runId] = scope
         remoteExposedToolNamesByRunId[runId] = sanitizedNames
@@ -583,6 +617,12 @@ class AgentLoopRuntime(
             return failRunBudget(runId, TOOL_STEP_BUDGET_EXCEEDED_REASON)
         }
         rejectRemoteToolIfNotExposedInCurrentScope(runId, request)?.let { rejected ->
+            traceStore.appendRejectedRoutingDecision(
+                runId = runId,
+                path = IntentRoutingPath.RemoteToolPlanning,
+                toolName = request.toolName,
+                reason = "remote_tool_not_exposed",
+            )
             traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
             auditRejectedTool(runId, rejected)
@@ -598,6 +638,12 @@ class AgentLoopRuntime(
         }
         if (toolRequestFor(runId, request.id) != null) {
             val rejected = request.rejected("Model tool request id already exists: ${request.id}")
+            traceStore.appendRejectedRoutingDecision(
+                runId = runId,
+                path = IntentRoutingPath.RemoteToolPlanning,
+                toolName = request.toolName,
+                reason = "duplicate_model_tool_request_id",
+            )
             traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(rejected)))
             traceStore.appendStep(runId, AgentStep.ToolRejected(rejected))
             auditRejectedTool(runId, rejected)
@@ -641,6 +687,12 @@ class AgentLoopRuntime(
             }
 
             is AgentPlan.RejectedTool -> {
+                traceStore.appendRejectedRoutingDecision(
+                    runId = runId,
+                    path = IntentRoutingPath.RemoteToolPlanning,
+                    toolName = request.toolName,
+                    reason = plan.result.summary.toRoutingReasonSlug(),
+                )
                 traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
                 traceStore.appendStep(runId, AgentStep.ToolRejected(plan.result))
                 auditRejectedTool(runId, plan.result)
@@ -703,28 +755,28 @@ class AgentLoopRuntime(
         val plans = mutableListOf<AgentPlan.UseTool>()
         requests.forEach { request ->
             rejectRemoteToolIfNotExposedInCurrentScope(runId, request)?.let { rejection ->
-                return rejectModelToolBatch(runId = runId, result = rejection)
+                return rejectModelToolBatch(runId = runId, result = rejection.withAttemptedToolNames(requests))
             }
             toolRegistry.validate(request)?.let { rejection ->
-                return rejectModelToolBatch(runId = runId, result = rejection)
+                return rejectModelToolBatch(runId = runId, result = rejection.withAttemptedToolNames(requests))
             }
             val spec = toolRegistry.specFor(request.toolName) ?: return rejectModelToolBatch(
                 runId = runId,
-                result = request.rejected("Unknown tool: ${request.toolName}"),
+                result = request.rejected("Unknown tool: ${request.toolName}").withAttemptedToolNames(requests),
             )
             if (!spec.isPublicEvidenceBatchEligible()) {
                 return rejectModelToolBatch(
                     runId = runId,
                     result = request.rejected(
                         "Tool ${request.toolName} is not eligible for parallel public evidence execution.",
-                    ),
+                    ).withAttemptedToolNames(requests),
                 )
             }
             val safetyDecision = safetyPolicy.evaluate(spec, request, SafetyContext(userConfirmed = false))
             if (safetyDecision.outcome != SafetyOutcome.Allow) {
                 return rejectModelToolBatch(
                     runId = runId,
-                    result = request.rejected(safetyDecision.reason),
+                    result = request.rejected(safetyDecision.reason).withAttemptedToolNames(requests),
                     safetyDecision = safetyDecision,
                 )
             }
@@ -903,6 +955,14 @@ class AgentLoopRuntime(
         safetyDecision?.let { decision ->
             traceStore.appendStep(runId, AgentStep.SafetyChecked(decision))
         }
+        traceStore.appendRejectedRoutingDecision(
+            runId = runId,
+            path = IntentRoutingPath.RemoteToolPlanning,
+            toolName = result.data["toolName"]
+                ?: result.data["attemptedToolNames"]?.substringBefore(',')?.trim()?.takeIf { it.isNotBlank() }
+                ?: "tool_batch",
+            reason = result.summary.toRoutingReasonSlug(),
+        )
         traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(result)))
         traceStore.appendStep(runId, AgentStep.ToolRejected(result))
         auditRejectedTool(runId, result)
@@ -988,6 +1048,7 @@ class AgentLoopRuntime(
         ) {
             planNextOpenAppUiSearchStepAfterUnverifiedLaunch(run, request, observedResult)
                 ?: planNextLowRiskAppControlSkillStepBeforeContinuation(run, request, observedResult)
+                ?: planNextCompositeSkillSegmentBeforeContinuation(run, continuation)
                 ?: if (
                     (continuationPrompt == null || canPlanNextToolBeforeContinuation) &&
                     canPlanNextToolAfterObservation(run, request, observedResult)
@@ -1163,6 +1224,14 @@ class AgentLoopRuntime(
                 completedSegmentCount = completedSegmentCount,
             ),
         ) ?: return NextObservationPlan.None
+        if (
+            replan.plannedByModel &&
+            !hasMobileActionPlanningModel(
+                installedCapabilityProfiles = installedCapabilityProfilesByRunId[run.id].orEmpty(),
+            )
+        ) {
+            return failMissingModelNextPlan(run.id, AgentPlan.MissingModel(ModelCapability.MobileAction))
+        }
         val skillPlan = skillRuntime.plan(replan.input ?: run.input, replan.draft, replan.request)
         return buildNextToolPlan(
             runId = run.id,
@@ -1308,6 +1377,20 @@ class AgentLoopRuntime(
         }
     }
 
+    private fun planNextCompositeSkillSegmentBeforeContinuation(
+        run: AgentRun,
+        continuation: ToolObservationContinuation?,
+    ): NextObservationPlan? {
+        if (continuation == null) return null
+        if (continuation.canPlanNextToolBeforeModel) return null
+        if (continuation.blocksSequentialTail) return null
+        val completedSegmentCount = plannedSequentialSegmentCount(run.id)
+        return planNextCompositeSkillSegment(
+            runId = run.id,
+            input = nextSequentialSegmentInput(run, completedSegmentCount),
+        )
+    }
+
     private fun canPlanNextToolAfterObservation(
         run: AgentRun,
         request: ToolRequest,
@@ -1422,6 +1505,12 @@ class AgentLoopRuntime(
             arguments = draft.parameters,
             reason = "local model tool call",
         )
+        if (
+            request.requiresMobileActionProfileForInlineToolCall() &&
+            !hasMobileActionPlanningModel(installedCapabilityProfilesByRunId[run.id].orEmpty())
+        ) {
+            return failMissingModelNextPlan(run.id, AgentPlan.MissingModel(ModelCapability.MobileAction))
+        }
         val skillPlan = skillRuntime.plan(run.input, draft, request)
         return buildNextToolPlan(
             runId = run.id,
@@ -1498,6 +1587,16 @@ class AgentLoopRuntime(
         )
     }
 
+    private fun failMissingModelNextPlan(
+        runId: String,
+        plan: AgentPlan.MissingModel,
+    ): NextObservationPlan {
+        val reason = "Missing model capability ${plan.capability.name}."
+        traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
+        traceStore.appendStep(runId, AgentStep.Failed(reason))
+        return NextObservationPlan.Rejected(reason)
+    }
+
     private fun rejectNextToolPlan(runId: String, result: ToolResult): NextObservationPlan {
         traceStore.appendStep(runId, AgentStep.ModelPlanned(AgentPlan.RejectedTool(result)))
         traceStore.appendStep(runId, AgentStep.ToolRejected(result))
@@ -1509,6 +1608,9 @@ class AgentLoopRuntime(
         runId: String,
         plan: AgentPlan.UseTool,
     ) {
+        traceStore.run(runId)?.let { run ->
+            traceStore.appendStep(runId, AgentStep.IntentRouted(plan.toIntentRoutingDecision(run.input)))
+        }
         traceStore.appendStep(runId, AgentStep.ModelPlanned(plan))
         plan.skillRequest?.let { skillRequest ->
             traceStore.appendStep(runId, AgentStep.SkillPlanned(skillRequest, plan.skillPlan))
@@ -1560,6 +1662,22 @@ class AgentLoopRuntime(
         traceStore.appendStep(run.id, AgentStep.ModelPlanned(plan))
         traceStore.appendStep(run.id, AgentStep.ToolRejected(plan.result))
         auditRejectedTool(run.id, plan.result)
+        val failedRun = traceStore.updateState(run.id, AgentRunState.Failed)
+        clearEphemeralRunState(run.id)
+        return AgentLoopResult(
+            run = failedRun,
+            plan = plan,
+            steps = traceStore.steps(run.id),
+        )
+    }
+
+    private fun failMissingModelPlan(
+        run: AgentRun,
+        plan: AgentPlan.MissingModel,
+    ): AgentLoopResult {
+        val reason = "Missing model capability ${plan.capability.name}."
+        traceStore.appendStep(run.id, AgentStep.ModelPlanned(plan))
+        traceStore.appendStep(run.id, AgentStep.Failed(reason))
         val failedRun = traceStore.updateState(run.id, AgentRunState.Failed)
         clearEphemeralRunState(run.id)
         return AgentLoopResult(
@@ -1716,14 +1834,23 @@ class AgentLoopRuntime(
         ) : NextObservationPlan()
     }
 
-    private fun planToolIfSupported(input: String, actionModelPath: String?): AgentPlan? =
+    private fun planToolIfSupported(
+        input: String,
+        installedCapabilityProfiles: List<ModelCapabilityProfile>,
+        actionModelPath: String?,
+    ): AgentPlan? =
         planToolForInput(
             input = input,
+            installedCapabilityProfiles = installedCapabilityProfiles,
             actionModelPath = actionModelPath,
             allowDirectSkillPlan = true,
             allowMultiStepSkillPlan = true,
         ) ?: input.initialSequentialActionInput()?.let { firstActionInput ->
-            planInitialSequentialSegment(firstActionInput, actionModelPath)
+            planInitialSequentialSegment(
+                input = firstActionInput,
+                installedCapabilityProfiles = installedCapabilityProfiles,
+                actionModelPath = actionModelPath,
+            )
         }
 
     private fun planLocalOnlySkillBeforeRemote(input: String): AgentPlan? {
@@ -1733,11 +1860,13 @@ class AgentLoopRuntime(
 
     private fun planInitialSequentialSegment(
         input: String,
+        installedCapabilityProfiles: List<ModelCapabilityProfile> = emptyList(),
         actionModelPath: String?,
     ): AgentPlan? =
         planCompositeSkillForInitialSequentialSegment(input)
             ?: planToolForInput(
                 input = input,
+                installedCapabilityProfiles = installedCapabilityProfiles,
                 actionModelPath = actionModelPath,
                 allowDirectSkillPlan = false,
                 allowMultiStepSkillPlan = false,
@@ -1784,6 +1913,7 @@ class AgentLoopRuntime(
 
     private fun planToolForInput(
         input: String,
+        installedCapabilityProfiles: List<ModelCapabilityProfile>,
         actionModelPath: String?,
         allowDirectSkillPlan: Boolean,
         allowMultiStepSkillPlan: Boolean,
@@ -1797,6 +1927,14 @@ class AgentLoopRuntime(
         val intent = actionPlanningRuntime.classifyIntent(input)
         if (!intent.isAction || !intent.confidence.isActionableForAgentPlan()) return null
         val result = actionPlanningRuntime.plan(input, actionModelPath)
+        if (
+            result.usedModel &&
+            !hasMobileActionPlanningModel(
+                installedCapabilityProfiles = installedCapabilityProfiles,
+            )
+        ) {
+            return AgentPlan.MissingModel(ModelCapability.MobileAction)
+        }
         val draft = result.plan.draft
         if (result.plan.kind != ActionPlanKind.Draft || draft == null) return null
         if (!allowMultiStepSkillPlan && draft.functionName.requiresLocalModelBeforeSequentialTail()) return null
@@ -1815,6 +1953,14 @@ class AgentLoopRuntime(
             skillPlan = skillPlan,
         )
     }
+
+    private fun hasMobileActionPlanningModel(
+        installedCapabilityProfiles: List<ModelCapabilityProfile>,
+    ): Boolean =
+        installedCapabilityProfiles.any { profile -> profile.supportsMobileActionPlanning }
+
+    private fun ToolRequest.requiresMobileActionProfileForInlineToolCall(): Boolean =
+        toolRegistry.specFor(toolName)?.isPublicEvidenceBatchEligible() == false
 
     private fun String.initialSequentialActionInput(): String? =
         explicitSequentialActionTextAt(0)
@@ -1921,16 +2067,17 @@ class AgentLoopRuntime(
         memoryHits: List<MemoryHit>,
         deviceContext: DeviceContextSnapshot?,
     ): String {
-        if (memoryHits.isEmpty() && deviceContext == null) return input
+        val localMemoryHits = memoryHits.filter { hit -> hit.isAvailableForLocalContext() }
+        if (localMemoryHits.isEmpty() && deviceContext == null) return input
         val evidenceCards = budgetEvidenceCards(
-            cards = evidenceCardsForAnswerContext(memoryHits, deviceContext),
+            cards = evidenceCardsForAnswerContext(localMemoryHits, deviceContext),
             input = input,
         )
         val memoryBlock = evidenceCards
             .filter { card -> card.sourceType == EvidenceSourceType.Memory }
             .joinToString(separator = "\n") { card -> card.toPromptLine() }
             .ifBlank {
-                runCatching { memoryIndex.buildContext(memoryHits) }.getOrDefault("")
+                runCatching { memoryIndex.buildContext(localMemoryHits) }.getOrDefault("")
             }
         val safeMemoryBlock = if (memoryBlock.isBlank()) {
             "无"
@@ -1959,19 +2106,21 @@ class AgentLoopRuntime(
         deviceContext: DeviceContextSnapshot?,
     ): List<EvidenceCard> =
         buildList {
-            memoryHits.forEach { hit ->
-                add(
-                    EvidenceCard(
-                        id = "memory:${hit.id}",
-                        sourceType = EvidenceSourceType.Memory,
-                        privacy = MessagePrivacy.LocalOnly,
-                        requiresLocalModel = true,
-                        text = hit.text,
-                        quality = EvidenceQuality(hit.memoryEvidenceQualityLevel()),
-                        tokenEstimate = estimateLocalRuntimeTokens(hit.text),
-                    ),
-                )
-            }
+            memoryHits
+                .filter { hit -> hit.isAvailableForLocalContext() }
+                .forEach { hit ->
+                    add(
+                        EvidenceCard(
+                            id = "memory:${hit.id}",
+                            sourceType = EvidenceSourceType.Memory,
+                            privacy = MessagePrivacy.LocalOnly,
+                            requiresLocalModel = true,
+                            text = hit.text,
+                            quality = EvidenceQuality(hit.memoryEvidenceQualityLevel()),
+                            tokenEstimate = estimateLocalRuntimeTokens(hit.text),
+                        ),
+                    )
+                }
             val deviceText = deviceContext?.toPromptContext()?.takeIf { it.isNotBlank() }
             if (deviceText != null) {
                 add(
@@ -2690,6 +2839,7 @@ class AgentLoopRuntime(
                 只输出 `${nextModelStep.outputKey}` 对应的文本，不要输出 JSON 或额外说明。
             """.trimIndent(),
             requiresLocalModel = requiresLocalModel,
+            blocksSequentialTail = true,
         )
     }
 
@@ -2724,11 +2874,7 @@ class AgentLoopRuntime(
                 "Remote tool ${request.toolName} was not exposed in the current remote tool snapshot.",
             )
         }
-        val exposed = when (scope) {
-            RemoteToolScope.PublicEvidenceOnly -> spec.isPublicEvidenceBatchEligible()
-            RemoteToolScope.ModelPlanning -> spec.isRemoteModelPlanningEligible()
-        }
-        return if (exposed) {
+        return if (spec.isExposableInRemoteToolScope(scope)) {
             null
         } else {
             request.rejected(
@@ -2736,6 +2882,12 @@ class AgentLoopRuntime(
             )
         }
     }
+
+    private fun ToolSpec.isExposableInRemoteToolScope(scope: RemoteToolScope): Boolean =
+        when (scope) {
+            RemoteToolScope.PublicEvidenceOnly -> isPublicEvidenceBatchEligible()
+            RemoteToolScope.ModelPlanning -> isRemoteModelPlanningEligible()
+        }
 
     private fun AgentPlan.UseTool.withConfirmationBypassForRun(runId: String): AgentPlan.UseTool {
         if (lowRiskDeviceActionConfirmationBypassByRunId[runId] != true) return this
@@ -2857,6 +3009,7 @@ class AgentLoopRuntime(
         remoteToolScopesByRunId.remove(runId)
         remoteExposedToolNamesByRunId.remove(runId)
         lowRiskDeviceActionConfirmationBypassByRunId.remove(runId)
+        installedCapabilityProfilesByRunId.remove(runId)
     }
 
     private fun runUsedDeviceControlSession(runId: String): Boolean =
@@ -2879,6 +3032,7 @@ class AgentLoopRuntime(
         val requiresLocalModel: Boolean,
         val remoteToolScope: RemoteToolScope = RemoteToolScope.PublicEvidenceOnly,
         val canPlanNextToolBeforeModel: Boolean = false,
+        val blocksSequentialTail: Boolean = false,
     )
 
     private data class PublicEvidencePromptBlock(
@@ -2910,6 +3064,13 @@ class AgentLoopRuntime(
     private fun ToolResult.requiresLocalModelContinuation(): Boolean =
         data["requiresLocalModel"]?.toBooleanStrictOrNull() == true ||
             data["privacy"] == MessagePrivacy.LocalOnly.name
+
+    private fun ToolResult.withAttemptedToolNames(requests: List<ToolRequest>): ToolResult =
+        copy(
+            data = data + mapOf(
+                "attemptedToolNames" to requests.joinToString(",") { request -> request.toolName },
+            ),
+        )
 
     private fun ToolResult.redactedForTrace(request: ToolRequest?): ToolResult {
         val toolName = request?.toolName ?: return this
@@ -3055,33 +3216,68 @@ class AgentLoopRuntime(
 
     private fun plannedSequentialSegmentCount(runId: String): Int {
         val segmentKeys = linkedSetOf<String>()
-        var pendingSkillSegmentKey: String? = null
+        val liveSkillKeysByToolRequestId = mutableMapOf<String, String>()
+        var adjacentLiveSkillSegmentKey: String? = null
         traceStore.steps(runId).forEach { step ->
             when (step) {
                 is AgentStep.SkillPlanned -> {
-                    pendingSkillSegmentKey = "skill:${step.request.id}"
+                    val skillKey = "skill:${step.request.id}"
+                    val toolRequestIds = step.plan?.toolStepRequestIds().orEmpty()
+                    if (toolRequestIds.isEmpty()) {
+                        adjacentLiveSkillSegmentKey = skillKey
+                    } else {
+                        toolRequestIds.forEach { requestId ->
+                            liveSkillKeysByToolRequestId[requestId] = skillKey
+                        }
+                        adjacentLiveSkillSegmentKey = null
+                    }
                 }
 
                 is AgentStep.ToolRequested -> {
-                    segmentKeys += pendingSkillSegmentKey ?: "tool:${step.request.id}"
-                    pendingSkillSegmentKey = null
+                    segmentKeys += liveSkillKeysByToolRequestId.remove(step.request.id)
+                        ?: adjacentLiveSkillSegmentKey
+                        ?: "tool:${step.request.id}"
+                    adjacentLiveSkillSegmentKey = null
                 }
 
                 else -> Unit
             }
         }
-        pendingSkillSegmentKey = null
+        val summarySkillKeysByToolRequestId = mutableMapOf<String, String>()
+        var adjacentSummarySkillSegment: SummarySkillSegment? = null
         traceStore.stepSummaries(runId).forEach { step ->
             when (step.type) {
                 "SkillPlanned" -> {
-                    pendingSkillSegmentKey = step.skillRequestIdFromJson()?.let { requestId -> "skill:$requestId" }
+                    val skillKey = step.skillRequestIdFromJson()?.let { requestId -> "skill:$requestId" }
+                    if (skillKey == null) {
+                        adjacentSummarySkillSegment = null
+                    } else {
+                        val toolRequestIds = step.skillToolRequestIdsFromJson()
+                        if (toolRequestIds.isEmpty()) {
+                            val fallbackToolStepCount = step.skillToolStepCountFromJson() ?: 1
+                            adjacentSummarySkillSegment = SummarySkillSegment(
+                                key = skillKey,
+                                remainingToolSteps = fallbackToolStepCount.coerceAtLeast(1),
+                            )
+                        } else {
+                            toolRequestIds.forEach { requestId ->
+                                summarySkillKeysByToolRequestId[requestId] = skillKey
+                            }
+                            adjacentSummarySkillSegment = null
+                        }
+                    }
                 }
 
                 "ToolRequested" -> {
                     step.requestIdFromJson()?.let { requestId ->
-                        segmentKeys += pendingSkillSegmentKey ?: "tool:$requestId"
+                        val skillKey = summarySkillKeysByToolRequestId.remove(requestId)
+                        segmentKeys += skillKey
+                            ?: adjacentSummarySkillSegment?.key
+                            ?: "tool:$requestId"
+                        if (skillKey == null) {
+                            adjacentSummarySkillSegment = adjacentSummarySkillSegment?.afterTool()
+                        }
                     }
-                    pendingSkillSegmentKey = null
                 }
             }
         }
@@ -3209,8 +3405,32 @@ class AgentLoopRuntime(
     private fun AgentTraceStepSummary.skillRequestIdFromJson(): String? =
         jsonObjectOrNull()?.optString("skillRequestId")?.takeIf { it.isNotBlank() }
 
+    private fun AgentTraceStepSummary.skillToolRequestIdsFromJson(): List<String> {
+        val array = jsonObjectOrNull()?.optJSONArray("toolRequestIds") ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                array.optString(index).takeIf { value -> value.isNotBlank() }?.let(::add)
+            }
+        }
+    }
+
+    private fun AgentTraceStepSummary.skillToolStepCountFromJson(): Int? {
+        val json = jsonObjectOrNull() ?: return null
+        return json.optInt("toolStepCount", -1)
+            .takeIf { count -> count >= 0 }
+            ?: json.optInt("stepCount", -1).takeIf { count -> count >= 0 }
+    }
+
     private fun AgentTraceStepSummary.jsonObjectOrNull(): JSONObject? =
         runCatching { JSONObject(json) }.getOrNull()
+
+    private data class SummarySkillSegment(
+        val key: String,
+        val remainingToolSteps: Int,
+    ) {
+        fun afterTool(): SummarySkillSegment? =
+            if (remainingToolSteps <= 1) null else copy(remainingToolSteps = remainingToolSteps - 1)
+    }
 
     private data class RestoredToolRequestSummary(
         val requestId: String,
@@ -3273,6 +3493,71 @@ fun AgentLoopResult.toAssistantRoute(): AssistantRoute =
 
 private fun AgentPlan.UseTool.requiresUserConfirmation(): Boolean =
     safetyDecision.outcome == SafetyOutcome.RequireConfirmation
+
+private fun AgentPlan.UseTool.toIntentRoutingDecision(input: String): IntentRoutingDecision {
+    val path = routingPath()
+    return IntentRoutingDecision(
+        input = input,
+        selectedPath = path,
+        selectedToolName = request.toolName,
+        selectedSkillId = skillRequest?.skillId,
+        priority = path.routingPriority(),
+        accepted = true,
+        confidence = ActionIntentConfidence.High,
+        rejectionReasons = emptyList(),
+        requiresConfirmation = requiresUserConfirmation(),
+    )
+}
+
+private fun AgentPlan.UseTool.routingPath(): IntentRoutingPath =
+    when (fallbackReason) {
+        "skill-first",
+        "skill model step" -> IntentRoutingPath.SkillFirst
+        "remote tool call",
+        "remote tool batch" -> IntentRoutingPath.RemoteToolPlanning
+        "local model tool call" -> IntentRoutingPath.ModelToolCall
+        else -> IntentRoutingPath.ActionPlanner
+    }
+
+private fun AgentTraceStore.appendRejectedRoutingDecision(
+    runId: String,
+    path: IntentRoutingPath,
+    toolName: String?,
+    reason: String,
+) {
+    val run = run(runId) ?: return
+    appendStep(
+        runId,
+        AgentStep.IntentRouted(
+            IntentRoutingDecision(
+                input = run.input,
+                selectedPath = path,
+                selectedToolName = toolName?.takeIf { it.isNotBlank() },
+                selectedSkillId = null,
+                priority = path.routingPriority(),
+                accepted = false,
+                confidence = ActionIntentConfidence.None,
+                rejectionReasons = listOf(reason.toRoutingReasonSlug()),
+                requiresConfirmation = null,
+            ),
+        ),
+    )
+}
+
+private fun IntentRoutingPath.routingPriority(): Int =
+    when (this) {
+        IntentRoutingPath.SkillFirst -> 100
+        IntentRoutingPath.ActionPlanner -> 80
+        IntentRoutingPath.RemoteToolPlanning -> 70
+        IntentRoutingPath.ModelToolCall -> 60
+        IntentRoutingPath.NoAction -> 0
+    }
+
+private fun String.toRoutingReasonSlug(): String =
+    lowercase()
+        .replace(Regex("[^a-z0-9]+"), "_")
+        .trim('_')
+        .ifBlank { "tool_rejected" }
 
 private fun ActionDraft.withSafetyDecision(safetyDecision: SafetyDecision): ActionDraft =
     if (safetyDecision.outcome == SafetyOutcome.RequireConfirmation && !requiresConfirmation) {

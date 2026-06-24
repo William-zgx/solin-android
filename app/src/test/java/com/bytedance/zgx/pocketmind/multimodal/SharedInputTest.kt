@@ -2,6 +2,7 @@ package com.bytedance.zgx.pocketmind.multimodal
 
 import com.bytedance.zgx.pocketmind.ChatImageAttachment
 import com.bytedance.zgx.pocketmind.LocalImageAttachment
+import com.bytedance.zgx.pocketmind.evidence.EvidenceSourceType
 import java.io.ByteArrayOutputStream
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.ZipEntry
@@ -160,6 +161,40 @@ class SharedInputTest {
     }
 
     @Test
+    fun remoteImageAttachmentIgnoresStaleOcrPreviewInPromptAndReceiptSummary() {
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = "image/png",
+                    displayName = "screen.png",
+                    sizeBytes = 120L,
+                    textPreview = SharedTextPreview(
+                        text = "private OCR text must not reach remote prompt or receipt",
+                        truncated = false,
+                        source = SharedTextPreviewSource.ImageOcr,
+                    ),
+                    imageAttachment = ChatImageAttachment(
+                        mimeType = "image/png",
+                        dataUrl = "data:image/png;base64,AA==",
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toPrompt()
+        val summary = input.toSharedEvidenceReceiptSummary()
+
+        assertTrue(prompt.contains("图片会随本次模型请求提供"))
+        assertFalse(prompt.contains("private OCR text"))
+        assertFalse(prompt.contains("\n   图片文字摘录"))
+        assertEquals(1, summary.evidenceCardCount)
+        assertEquals(0, summary.localOnlyEvidenceCardCount)
+        assertEquals(listOf(EvidenceSourceType.ImageAttachment), summary.sourceTypes)
+    }
+
+    @Test
     fun localVisionPromptOmitsAttachmentMetadataAndDoesNotClaimUnsupported() {
         val input = SharedInput(
             text = "用户附带说明",
@@ -190,6 +225,41 @@ class SharedInputTest {
         assertFalse(prompt.contains("不会自动 OCR"))
         assertFalse(prompt.contains("data:image"))
         assertFalse(prompt.contains("base64"))
+    }
+
+    @Test
+    fun localImageAttachmentIgnoresStaleOcrPreviewInPromptAndReceiptSummary() {
+        val input = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Image,
+                    mimeType = "image/png",
+                    displayName = "private-screen.png",
+                    sizeBytes = 120L,
+                    textPreview = SharedTextPreview(
+                        text = "private OCR text must not reach local vision prompt or receipt",
+                        truncated = false,
+                        source = SharedTextPreviewSource.ImageOcr,
+                    ),
+                    localImageAttachment = LocalImageAttachment(
+                        mimeType = "image/png",
+                        bytes = byteArrayOf(1, 2, 3),
+                        sizeBytes = 3L,
+                    ),
+                ),
+            ),
+        )
+
+        val prompt = input.toLocalVisionPrompt()
+        val summary = input.toSharedEvidenceReceiptSummary()
+
+        assertTrue(prompt.contains("已附加 1 张图片"))
+        assertFalse(prompt.contains("private OCR text"))
+        assertFalse(prompt.contains("\n   图片文字摘录"))
+        assertEquals(1, summary.evidenceCardCount)
+        assertEquals(1, summary.localOnlyEvidenceCardCount)
+        assertEquals(listOf(EvidenceSourceType.ImageAttachment), summary.sourceTypes)
     }
 
     @Test
@@ -305,6 +375,31 @@ class SharedInputTest {
         assertTrue(prompt.contains("PDF 扫描页 OCR"))
         assertTrue(prompt.contains("PDF 扫描页 OCR 摘录（已截断）"))
         assertTrue(prompt.contains("扫描页文字"))
+    }
+
+    @Test
+    fun evidenceReceiptSummaryClassifiesTruncatedPdfImageOcrAsLocalOcrEvidence() {
+        val summary = SharedInput(
+            text = "",
+            attachments = listOf(
+                SharedAttachment(
+                    kind = SharedAttachmentKind.Document,
+                    mimeType = "application/pdf",
+                    displayName = "scan.pdf",
+                    sizeBytes = 512L,
+                    textPreview = SharedTextPreview(
+                        text = "private scanned pdf OCR excerpt",
+                        truncated = true,
+                        source = SharedTextPreviewSource.PdfImageOcr,
+                    ),
+                ),
+            ),
+        ).toSharedEvidenceReceiptSummary()
+
+        assertEquals(1, summary.evidenceCardCount)
+        assertEquals(1, summary.localOnlyEvidenceCardCount)
+        assertEquals(1, summary.truncatedEvidenceCardCount)
+        assertEquals(listOf(EvidenceSourceType.OcrText), summary.sourceTypes)
     }
 
     @Test

@@ -58,11 +58,66 @@ data class ModelProfile(
     val sha256Hex: String? = null,
     val sourceRevision: String? = null,
     val tokenBudget: Int? = null,
+    val preferredLocalBackends: Set<BackendChoice> = emptySet(),
     val experimental: Boolean = false,
 ) {
+    val supportsChatGeneration: Boolean
+        get() = ModelFeature.TextGeneration in features
+
     val supportsVisionInput: Boolean
         get() = ModelInputModality.Vision in inputModalities && ModelFeature.VisionInput in features
+
+    val supportsMemoryEmbedding: Boolean
+        get() = ModelFeature.MemoryEmbedding in features
+
+    val supportsMobileActionPlanning: Boolean
+        get() = ModelFeature.MobileActionPlanning in features
+
+    val contextWindowTokens: Int?
+        get() = tokenBudget
+
+    val remoteEligible: Boolean
+        get() = backendKind == ModelBackendKind.RemoteOpenAiCompatible
+
+    val requiresRemoteSendConfirmation: Boolean
+        get() = remoteEligible
+
+    init {
+        require(ModelInputModality.Text in inputModalities) { "Model profiles must declare text input support" }
+        require(ModelInputModality.Vision !in inputModalities || capability == ModelCapability.Chat) {
+            "Vision input modality is only valid for chat-capable profiles"
+        }
+        require(ModelFeature.VisionInput !in features || ModelInputModality.Vision in inputModalities) {
+            "VisionInput feature requires Vision input modality"
+        }
+        require(ModelFeature.VisionInput !in features || capability == ModelCapability.Chat) {
+            "Vision input is only valid for chat-capable profiles"
+        }
+        require(ModelFeature.TextGeneration !in features || capability == ModelCapability.Chat) {
+            "Text generation is only valid for chat-capable profiles"
+        }
+        require(ModelFeature.MemoryEmbedding !in features || capability == ModelCapability.MemoryEmbedding) {
+            "Memory embedding is only valid for embedding profiles"
+        }
+        require(ModelFeature.MobileActionPlanning !in features || capability == ModelCapability.MobileAction) {
+            "Mobile action planning is only valid for action profiles"
+        }
+        require(backendKind != ModelBackendKind.RemoteOpenAiCompatible || capability == ModelCapability.Chat) {
+            "Remote OpenAI-compatible profiles are only valid for chat capability"
+        }
+        require(preferredLocalBackends.isEmpty() || backendKind == ModelBackendKind.LocalLiteRt) {
+            "Only local LiteRT profiles may declare local performance backends"
+        }
+        require(tokenBudget == null || tokenBudget > 0) {
+            "Model context window must be positive when declared"
+        }
+        require(tokenBudget == null || capability == ModelCapability.Chat) {
+            "Model context window is only valid for chat-capable profiles"
+        }
+    }
 }
+
+typealias ModelCapabilityProfile = ModelProfile
 
 data class ModelHealth(
     val profileId: String,
@@ -115,6 +170,7 @@ data class RecommendedModelCompanionFile(
 const val DEFAULT_CHAT_MODEL_ID = "chat-e2b"
 const val MEMORY_EMBEDDING_MODEL_ID = "memory-embedding-gemma-300m"
 const val MOBILE_ACTION_MODEL_ID = "mobile-action-270m"
+const val CUSTOM_LOCAL_CHAT_PROFILE_ID = "custom-local-chat"
 const val HUGGING_FACE_TOKEN_SETTINGS_URL = "https://huggingface.co/settings/tokens"
 private const val HIGH_QUALITY_CHAT_MODEL_ID = "chat-e4b"
 
@@ -215,7 +271,7 @@ internal object ModelCatalog {
 
     fun recommendedChatModelById(modelId: String?): RecommendedModel =
         RECOMMENDED_MODELS.firstOrNull {
-            it.id == modelId && it.capability == ModelCapability.Chat
+            it.id == modelId && profileFor(it).supportsChatGeneration
         } ?: DEFAULT_CHAT_MODEL
 
     fun recommendedModelsFor(capability: ModelCapability): List<RecommendedModel> =
@@ -237,11 +293,22 @@ internal object ModelCatalog {
             } else {
                 null
             },
+            preferredLocalBackends = model.defaultPreferredLocalBackends(),
             experimental = model.capability != ModelCapability.Chat,
         )
 
     fun recommendedProfiles(): List<ModelProfile> =
         RECOMMENDED_MODELS.map(::profileFor)
+
+    fun customLocalChatProfile(displayName: String = "自定义本地模型"): ModelProfile =
+        ModelProfile(
+            id = CUSTOM_LOCAL_CHAT_PROFILE_ID,
+            displayName = displayName.ifBlank { "自定义本地模型" },
+            capability = ModelCapability.Chat,
+            backendKind = ModelBackendKind.LocalLiteRt,
+            inputModalities = setOf(ModelInputModality.Text),
+            features = setOf(ModelFeature.TextGeneration),
+        )
 
     fun profileForModelId(modelId: String?): ModelProfile =
         profileFor(recommendedModelById(modelId))
@@ -264,7 +331,7 @@ internal object ModelCatalog {
         recommendedModelById(modelId).capability
 
     fun isChatModel(modelId: String?): Boolean =
-        modelId == null || recommendedModelById(modelId).capability == ModelCapability.Chat
+        modelId == null || (profileForModelIdOrNull(modelId)?.supportsChatGeneration == true)
 
     fun isAcceptedModelName(displayName: String): Boolean =
         MODEL_FILE_EXTENSIONS.any { extension ->
@@ -415,4 +482,11 @@ private fun RecommendedModel.features(): Set<ModelFeature> =
         setOf(ModelFeature.TextGeneration, ModelFeature.VisionInput)
     } else {
         capability.defaultFeatures()
+    }
+
+private fun RecommendedModel.defaultPreferredLocalBackends(): Set<BackendChoice> =
+    when (capability) {
+        ModelCapability.Chat -> setOf(BackendChoice.GPU, BackendChoice.CPU)
+        ModelCapability.MemoryEmbedding,
+        ModelCapability.MobileAction -> setOf(BackendChoice.CPU)
     }

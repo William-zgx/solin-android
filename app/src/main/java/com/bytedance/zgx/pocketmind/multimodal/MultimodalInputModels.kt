@@ -2,6 +2,13 @@ package com.bytedance.zgx.pocketmind.multimodal
 
 import com.bytedance.zgx.pocketmind.ChatImageAttachment
 import com.bytedance.zgx.pocketmind.LocalImageAttachment
+import com.bytedance.zgx.pocketmind.MessagePrivacy
+import com.bytedance.zgx.pocketmind.evidence.EvidenceCard
+import com.bytedance.zgx.pocketmind.evidence.EvidenceQuality
+import com.bytedance.zgx.pocketmind.evidence.EvidenceQualityLevel
+import com.bytedance.zgx.pocketmind.evidence.EvidenceReceiptSummary
+import com.bytedance.zgx.pocketmind.evidence.EvidenceSourceType
+import com.bytedance.zgx.pocketmind.evidence.toEvidenceReceiptSummary
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -141,6 +148,66 @@ data class SharedInput(
     }
 }
 
+fun SharedInput.toSharedEvidenceReceiptSummary(): EvidenceReceiptSummary {
+    val sharedText = text.toBoundedSharedText()
+    return buildList {
+        if (sharedText.text.isNotBlank()) {
+            add(
+                EvidenceCard(
+                    id = "shared-text",
+                    sourceType = EvidenceSourceType.UserPrompt,
+                    privacy = MessagePrivacy.LocalOnly,
+                    requiresLocalModel = true,
+                    text = sharedText.text,
+                    quality = EvidenceQuality(EvidenceQualityLevel.High),
+                    truncated = sharedText.truncated,
+                ),
+            )
+        }
+        attachments.forEachIndexed { index, attachment ->
+            attachment.textPreview
+                ?.takeIf { canUseTextPreviewFor(attachment) }
+                ?.let { preview ->
+                    add(
+                        EvidenceCard(
+                            id = "shared-attachment-preview:$index",
+                            sourceType = preview.source.toEvidenceSourceType(),
+                            privacy = MessagePrivacy.LocalOnly,
+                            requiresLocalModel = true,
+                            text = preview.text,
+                            quality = preview.quality.toEvidenceQuality(),
+                            truncated = preview.truncated,
+                        ),
+                    )
+                }
+            if (attachment.imageAttachment != null) {
+                add(
+                    EvidenceCard(
+                        id = "shared-remote-image:$index",
+                        sourceType = EvidenceSourceType.ImageAttachment,
+                        privacy = MessagePrivacy.RemoteEligible,
+                        requiresLocalModel = false,
+                        text = "",
+                        quality = EvidenceQuality(EvidenceQualityLevel.Unknown),
+                    ),
+                )
+            }
+            if (attachment.localImageAttachment != null) {
+                add(
+                    EvidenceCard(
+                        id = "shared-local-image:$index",
+                        sourceType = EvidenceSourceType.ImageAttachment,
+                        privacy = MessagePrivacy.LocalOnly,
+                        requiresLocalModel = true,
+                        text = "",
+                        quality = EvidenceQuality(EvidenceQualityLevel.Unknown),
+                    ),
+                )
+            }
+        }
+    }.toEvidenceReceiptSummary()
+}
+
 private fun SharedAttachment.unavailablePreviewNotice(): String? =
     when (kind) {
         SharedAttachmentKind.Image ->
@@ -266,6 +333,29 @@ data class MultimodalQuality(
     }
 }
 
+private fun SharedTextPreviewSource.toEvidenceSourceType(): EvidenceSourceType =
+    when (this) {
+        SharedTextPreviewSource.TextFile,
+        SharedTextPreviewSource.RichTextDocument,
+        SharedTextPreviewSource.PdfTextLayer,
+        SharedTextPreviewSource.OfficeDocument,
+        -> EvidenceSourceType.FilePreview
+
+        SharedTextPreviewSource.PdfImageOcr,
+        SharedTextPreviewSource.ImageOcr,
+        -> EvidenceSourceType.OcrText
+    }
+
+private fun MultimodalQuality.toEvidenceQuality(): EvidenceQuality =
+    EvidenceQuality(
+        level = when (level) {
+            MultimodalQualityLevel.High -> EvidenceQualityLevel.High
+            MultimodalQualityLevel.Medium -> EvidenceQualityLevel.Medium
+            MultimodalQualityLevel.Low -> EvidenceQualityLevel.Low
+        },
+        reasons = reasons,
+    )
+
 enum class SharedTextPreviewSource(val label: String) {
     TextFile("文本摘录"),
     RichTextDocument("RTF 文本摘录"),
@@ -343,32 +433,39 @@ fun canReadImageTextPreviewFor(mimeType: String?): Boolean =
     }
 
 fun canUseTextPreviewFor(attachment: SharedAttachment): Boolean =
-    when (attachment.textPreview?.source) {
-        SharedTextPreviewSource.TextFile ->
-            attachment.kind == SharedAttachmentKind.Document &&
-                canReadTextPreviewFor(attachment.mimeType)
+    if (attachment.hasModelImagePayload()) {
+        false
+    } else {
+        when (attachment.textPreview?.source) {
+            SharedTextPreviewSource.TextFile ->
+                attachment.kind == SharedAttachmentKind.Document &&
+                    canReadTextPreviewFor(attachment.mimeType)
 
-        SharedTextPreviewSource.RichTextDocument ->
-            attachment.kind == SharedAttachmentKind.Document &&
-                canReadRichTextPreviewFor(attachment.mimeType)
+            SharedTextPreviewSource.RichTextDocument ->
+                attachment.kind == SharedAttachmentKind.Document &&
+                    canReadRichTextPreviewFor(attachment.mimeType)
 
-        SharedTextPreviewSource.PdfTextLayer ->
-            attachment.kind == SharedAttachmentKind.Document &&
-                canReadPdfTextPreviewFor(attachment.mimeType)
+            SharedTextPreviewSource.PdfTextLayer ->
+                attachment.kind == SharedAttachmentKind.Document &&
+                    canReadPdfTextPreviewFor(attachment.mimeType)
 
-        SharedTextPreviewSource.PdfImageOcr ->
-            attachment.kind == SharedAttachmentKind.Document &&
-                canReadPdfTextPreviewFor(attachment.mimeType)
+            SharedTextPreviewSource.PdfImageOcr ->
+                attachment.kind == SharedAttachmentKind.Document &&
+                    canReadPdfTextPreviewFor(attachment.mimeType)
 
-        SharedTextPreviewSource.OfficeDocument ->
-            attachment.kind == SharedAttachmentKind.Document &&
-                canReadOfficeOpenXmlTextPreviewFor(attachment.mimeType)
+            SharedTextPreviewSource.OfficeDocument ->
+                attachment.kind == SharedAttachmentKind.Document &&
+                    canReadOfficeOpenXmlTextPreviewFor(attachment.mimeType)
 
-        SharedTextPreviewSource.ImageOcr ->
-            attachment.kind == SharedAttachmentKind.Image && canReadImageTextPreviewFor(attachment.mimeType)
+            SharedTextPreviewSource.ImageOcr ->
+                attachment.kind == SharedAttachmentKind.Image && canReadImageTextPreviewFor(attachment.mimeType)
 
-        null -> false
+            null -> false
+        }
     }
+
+private fun SharedAttachment.hasModelImagePayload(): Boolean =
+    imageAttachment != null || localImageAttachment != null
 
 internal fun String?.normalizedMediaType(): String? =
     this
