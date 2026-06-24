@@ -1,0 +1,31 @@
+app/src/main/java/com/bytedance/zgx/pocketmind/rcperf/RcPerf.kt
+  s_138828127e17f2::t_e1662e107fe2e0 1-288
+app/build.gradle.kts
+  s_138828127e17f2::t_88b5f24f51a344 28-31,52-62
+app/src/test/java/com/bytedance/zgx/pocketmind/rcperf/RcPerfTest.kt
+  s_138828127e17f2::t_df9fce899395e0 1-188
+scripts/collect_rc_perf_from_device.sh
+  s_138828127e17f2::t_449ce8b9703cab 336-337,341-343
+  s_138828127e17f2::t_79fdf60f5f56d4 1-159,165-335,338-340,344-359
+  s_138828127e17f2::t_5428aafb2b161c 160-164
+app/src/rcPerfRelease/AndroidManifest.xml
+  s_138828127e17f2::t_4f8ba600c8fa08 1-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7aa19635925e887f93eb44be4df1bec5be7f049d",
+  "prompts": {},
+  "sessions": {
+    "s_138828127e17f2": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a3aae2c8f08ebdb62615a20",
+        "model": "openrouter-3o__dev"
+      },
+      "human_author": "Zouguoxue <zouguoxue@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
