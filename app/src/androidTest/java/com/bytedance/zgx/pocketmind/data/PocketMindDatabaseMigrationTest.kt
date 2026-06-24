@@ -55,6 +55,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -195,6 +196,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -244,6 +246,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -305,6 +308,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -420,6 +424,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -460,6 +465,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -525,6 +531,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -608,6 +615,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -657,6 +665,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -708,6 +717,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -774,6 +784,7 @@ class PocketMindDatabaseMigrationTest {
             .addMigrations(
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -808,7 +819,7 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_15_16)
+            .addMigrations(PocketMindDatabase.MIGRATION_15_16, PocketMindDatabase.MIGRATION_16_17)
             .allowMainThreadQueries()
             .build()
 
@@ -832,6 +843,50 @@ class PocketMindDatabaseMigrationTest {
             val restored = database.memoryDeletionEventDao().events().single()
             assertEquals("pref-1", restored.recordId)
             assertEquals("hash-only", restored.recordTextHash)
+        } finally {
+            database.close()
+            context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
+    @Test
+    fun migration16To17AddsLocalStorageMigrationStateAndRoomCanOpen() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB_NAME)
+        val dbFile = context.getDatabasePath(TEST_DB_NAME)
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createVersion16Schema(db)
+            db.version = 16
+        }
+
+        val database = Room.databaseBuilder(
+            context,
+            PocketMindDatabase::class.java,
+            TEST_DB_NAME,
+        )
+            .addMigrations(PocketMindDatabase.MIGRATION_16_17)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            assertTrue(database.localStorageMigrationStateTableExists())
+            assertTrue(database.localStorageMigrationStateHasExpectedColumns())
+            database.localStorageMigrationStateDao().upsert(
+                LocalStorageMigrationStateEntity(
+                    id = "zvec-v1",
+                    phase = "memory",
+                    lastDomain = "memory",
+                    lastId = "pref-1",
+                    startedAtMillis = 1L,
+                    completedAtMillis = null,
+                    errorJson = null,
+                    schemaVersion = 1,
+                ),
+            )
+
+            val restored = database.localStorageMigrationStateDao().state("zvec-v1")
+            assertEquals("pref-1", restored?.lastId)
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
@@ -925,6 +980,33 @@ class PocketMindDatabaseMigrationTest {
             "recordSensitivity",
             "conflictKey",
             "deletedAtMillis",
+        )
+    }
+
+    private fun PocketMindDatabase.localStorageMigrationStateTableExists(): Boolean {
+        openHelper.writableDatabase.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'local_storage_migration_state'",
+        ).use { cursor ->
+            return cursor.moveToNext()
+        }
+    }
+
+    private fun PocketMindDatabase.localStorageMigrationStateHasExpectedColumns(): Boolean {
+        val columns = mutableSetOf<String>()
+        openHelper.writableDatabase.query("PRAGMA table_info(`local_storage_migration_state`)").use { cursor ->
+            while (cursor.moveToNext()) {
+                columns += cursor.getString(cursor.getColumnIndexOrThrow("name"))
+            }
+        }
+        return columns == setOf(
+            "id",
+            "phase",
+            "lastDomain",
+            "lastId",
+            "startedAtMillis",
+            "completedAtMillis",
+            "errorJson",
+            "schemaVersion",
         )
     }
 
@@ -1233,6 +1315,26 @@ class PocketMindDatabaseMigrationTest {
         )
         db.execSQL("ALTER TABLE `memory_records` ADD COLUMN `expiresAtMillis` INTEGER")
         db.execSQL("ALTER TABLE `memory_records` ADD COLUMN `conflictKey` TEXT")
+    }
+
+    private fun createVersion16Schema(db: SQLiteDatabase) {
+        createVersion15Schema(db)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `memory_deletion_events` (
+                `id` TEXT NOT NULL,
+                `recordId` TEXT NOT NULL,
+                `recordType` TEXT NOT NULL,
+                `operation` TEXT NOT NULL,
+                `recordTextHash` TEXT NOT NULL,
+                `recordSource` TEXT NOT NULL,
+                `recordSensitivity` TEXT NOT NULL,
+                `conflictKey` TEXT,
+                `deletedAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent(),
+        )
     }
 
     private fun PocketMindDatabase.agentTraceTablesExist(): Boolean {

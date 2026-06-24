@@ -154,6 +154,18 @@ data class MemoryEmbeddingEntity(
     val updatedAtMillis: Long,
 )
 
+@Entity(tableName = "local_storage_migration_state")
+data class LocalStorageMigrationStateEntity(
+    @PrimaryKey val id: String,
+    val phase: String,
+    val lastDomain: String?,
+    val lastId: String?,
+    val startedAtMillis: Long,
+    val completedAtMillis: Long?,
+    val errorJson: String?,
+    val schemaVersion: Int,
+)
+
 @Entity(tableName = "agent_runs")
 data class AgentRunEntity(
     @PrimaryKey val id: String,
@@ -549,6 +561,18 @@ abstract class MemoryDeletionTransactionDao {
 }
 
 @Dao
+interface LocalStorageMigrationStateDao {
+    @Query("SELECT * FROM local_storage_migration_state WHERE id = :id LIMIT 1")
+    fun state(id: String): LocalStorageMigrationStateEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsert(state: LocalStorageMigrationStateEntity)
+
+    @Query("DELETE FROM local_storage_migration_state WHERE id = :id")
+    fun delete(id: String): Int
+}
+
+@Dao
 interface AgentTraceDao {
     @Query("SELECT * FROM agent_runs WHERE id = :runId LIMIT 1")
     fun run(runId: String): AgentRunEntity?
@@ -664,12 +688,13 @@ interface AgentTraceDao {
         ScheduledTaskEntity::class,
         MemoryRecordEntity::class,
         MemoryEmbeddingEntity::class,
+        LocalStorageMigrationStateEntity::class,
         AgentRunEntity::class,
         AgentStepEntity::class,
         PendingAgentConfirmationEntity::class,
         AgentSkillRunCheckpointEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = false,
 )
 abstract class PocketMindDatabase : RoomDatabase() {
@@ -683,6 +708,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
     abstract fun memoryEmbeddingDao(): MemoryEmbeddingDao
     abstract fun memoryDeletionEventDao(): MemoryDeletionEventDao
     abstract fun memoryDeletionTransactionDao(): MemoryDeletionTransactionDao
+    abstract fun localStorageMigrationStateDao(): LocalStorageMigrationStateDao
     abstract fun agentTraceDao(): AgentTraceDao
 
     companion object {
@@ -990,6 +1016,26 @@ abstract class PocketMindDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `local_storage_migration_state` (
+                        `id` TEXT NOT NULL,
+                        `phase` TEXT NOT NULL,
+                        `lastDomain` TEXT,
+                        `lastId` TEXT,
+                        `startedAtMillis` INTEGER NOT NULL,
+                        `completedAtMillis` INTEGER,
+                        `errorJson` TEXT,
+                        `schemaVersion` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun get(context: Context): PocketMindDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -1013,6 +1059,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
                         MIGRATION_13_14,
                         MIGRATION_14_15,
                         MIGRATION_15_16,
+                        MIGRATION_16_17,
                     )
                     .allowMainThreadQueries()
                     .build()
