@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+ORIGINAL_ARGS=("$@")
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/verification/release-gate}"
+RELEASE_GATE_OWNER="${RELEASE_GATE_OWNER:-release-engineering}"
 PERF_BASELINE_FILE="${PERF_BASELINE_FILE:-}"
 DEFAULT_RELEASE_APK="app/build/outputs/apk/release/app-release-unsigned.apk"
 DEFAULT_RELEASE_AAB="app/build/outputs/bundle/release/app-release.aab"
@@ -36,12 +38,31 @@ VERIFY_RELEASE_MAPPING="${VERIFY_RELEASE_MAPPING:-0}"
 RELEASE_MAPPING_FILE="${RELEASE_MAPPING_FILE:-app/build/outputs/mapping/release/mapping.txt}"
 VERIFY_CONTRACT_TESTS="${VERIFY_CONTRACT_TESTS:-1}"
 VERIFY_AI_BEHAVIOR_EVAL="${VERIFY_AI_BEHAVIOR_EVAL:-1}"
+VERIFY_PERF_BASELINE="${VERIFY_PERF_BASELINE:-1}"
+AI_BEHAVIOR_FIXTURE_DIR="${AI_BEHAVIOR_FIXTURE_DIR:-app/src/test/resources/ai_behavior_eval}"
+AI_BEHAVIOR_ACTUAL_TRACE_FILE="${AI_BEHAVIOR_ACTUAL_TRACE_FILE:-}"
+REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE="${REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE:-0}"
+REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE="${REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE:-0}"
+REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE="${REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE:-0}"
+REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES="${REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES:-0}"
 EXTRA_PRIVACY_SCAN_TARGETS="${EXTRA_PRIVACY_SCAN_TARGETS:-}"
 EXPECTED_SIGNING_CERT_SHA256="${EXPECTED_SIGNING_CERT_SHA256:-}"
 GRADLE_CMD="${GRADLE_CMD:-./gradlew}"
 GRADLE_FILE="${GRADLE_FILE:-app/build.gradle.kts}"
 
 mkdir -p "$ARTIFACT_DIR"
+RELEASE_GATE_REPORT="$ARTIFACT_DIR/release-gate.properties"
+printf -v release_gate_command '%q' "scripts/verify_release_gate.sh"
+if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
+  for release_gate_arg in "${ORIGINAL_ARGS[@]}"; do
+    printf -v quoted_release_gate_arg '%q' "$release_gate_arg"
+    release_gate_command+=" $quoted_release_gate_arg"
+  done
+fi
+head_commit_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+release_artifact_path=""
+release_artifact_type=""
+release_artifact_sha256=""
 
 if [[ "$PUBLIC_RELEASE" == "1" ]]; then
   VERIFY_RELEASE_RECORD=1
@@ -53,22 +74,116 @@ if [[ "$PUBLIC_RELEASE" == "1" ]]; then
   REQUIRE_AAB=1
   REQUIRE_SIGNED_ARTIFACT=1
   VERIFY_RELEASE_MAPPING=1
+  VERIFY_PERF_BASELINE=1
+  VERIFY_AI_BEHAVIOR_EVAL=1
+  REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE=1
+  REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1
+  REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE=1
+  REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES=1
+fi
+
+if [[ "$REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE" == "1" ]]; then
+  REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE=1
 fi
 
 if [[ "$REQUIRE_AAB" == "1" && "$REQUIRE_SIGNED_ARTIFACT" == "1" && "$RELEASE_AAB_WAS_SET" == "0" ]]; then
   RELEASE_AAB="$DEFAULT_SIGNED_RELEASE_AAB"
 fi
 
+report_value_for() {
+  local report_file="$1"
+  local key="$2"
+  if [[ -f "$report_file" ]]; then
+    awk -F= -v key="$key" '$1 == key {print $2; exit}' "$report_file"
+  fi
+}
+
+report_status_for() {
+  report_value_for "$1" "status"
+}
+
+report_reason_for() {
+  report_value_for "$1" "reason"
+}
+
+report_sha_for() {
+  local report_file="$1"
+  if [[ -f "$report_file" ]]; then
+    shasum -a 256 "$report_file" | awk '{print $1}'
+  fi
+}
+
+write_child_report_binding() {
+  local child_key="$1"
+  local report_file="$2"
+  printf '%sReportPath=%s\n' "$child_key" "$report_file"
+  if [[ -f "$report_file" ]]; then
+    printf '%sReportStatus=%s\n' "$child_key" "$(report_status_for "$report_file")"
+    printf '%sReportSha256=%s\n' "$child_key" "$(report_sha_for "$report_file")"
+  else
+    printf '%sReportStatus=not-produced\n' "$child_key"
+    printf '%sReportSha256=\n' "$child_key"
+  fi
+}
+
+write_simple_child_report() {
+  local report_file="$1"
+  local status="$2"
+  local target="$3"
+  local reason="${4:-}"
+  shift 4
+  {
+    printf 'artifactSchema=ReleaseGateChildReport/v1\n'
+    printf 'status=%s\n' "$status"
+    printf 'target=%s\n' "$target"
+    printf 'owner=%s\n' "$RELEASE_GATE_OWNER"
+    printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    printf 'command=%s\n' "$release_gate_command"
+    printf 'reproduciblePath=%s\n' "$report_file"
+    printf 'reason=%s\n' "$reason"
+    printf 'releaseGateReport=%s\n' "$RELEASE_GATE_REPORT"
+    printf 'releaseGateHeadCommitSha=%s\n' "$head_commit_sha"
+    printf 'releaseRecordFile=%s\n' "$RELEASE_RECORD_FILE"
+    printf 'releaseArtifactPath=%s\n' "$release_artifact_path"
+    printf 'releaseArtifactType=%s\n' "$release_artifact_type"
+    printf 'releaseArtifactSha256=%s\n' "$release_artifact_sha256"
+    local entry
+    for entry in "$@"; do
+      printf '%s\n' "$entry"
+    done
+  } > "$report_file"
+}
+
 write_gate_report() {
   local status="$1"
   local failed_target="${2:-}"
   local failed_reason="${3:-}"
+  local reason="$failed_reason"
+  if [[ -z "$reason" ]]; then
+    if [[ "$status" == "passed" ]]; then
+      reason="approved"
+    elif [[ -n "$failed_target" ]]; then
+      reason="${failed_target}-failed"
+    else
+      reason="failed"
+    fi
+  fi
   {
+    printf 'artifactSchema=ReleaseGateVerification/v1\n'
     printf 'status=%s\n' "$status"
     printf 'target=release-gate\n'
+    printf 'owner=%s\n' "$RELEASE_GATE_OWNER"
+    printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    printf 'command=%s\n' "$release_gate_command"
     printf 'failedTarget=%s\n' "$failed_target"
     printf 'failedReason=%s\n' "$failed_reason"
+    printf 'reason=%s\n' "$reason"
+    printf 'reproduciblePath=%s\n' "$RELEASE_GATE_REPORT"
+    printf 'headCommitSha=%s\n' "$head_commit_sha"
     printf 'artifactDir=%s\n' "$ARTIFACT_DIR"
+    printf 'releaseArtifactPath=%s\n' "$release_artifact_path"
+    printf 'releaseArtifactType=%s\n' "$release_artifact_type"
+    printf 'releaseArtifactSha256=%s\n' "$release_artifact_sha256"
     printf 'publicRelease=%s\n' "$PUBLIC_RELEASE"
     printf 'verifyReleaseRecord=%s\n' "$VERIFY_RELEASE_RECORD"
     printf 'releaseRecordFile=%s\n' "$RELEASE_RECORD_FILE"
@@ -86,18 +201,31 @@ write_gate_report() {
     printf 'releaseMappingFile=%s\n' "$RELEASE_MAPPING_FILE"
     printf 'verifyContractTests=%s\n' "$VERIFY_CONTRACT_TESTS"
     printf 'verifyAiBehaviorEval=%s\n' "$VERIFY_AI_BEHAVIOR_EVAL"
+    printf 'verifyPerfBaseline=%s\n' "$VERIFY_PERF_BASELINE"
+    printf 'aiBehaviorFixtureDir=%s\n' "$AI_BEHAVIOR_FIXTURE_DIR"
+    printf 'aiBehaviorActualTraceFile=%s\n' "$AI_BEHAVIOR_ACTUAL_TRACE_FILE"
+    printf 'requireAiBehaviorActualTrace=%s\n' "$REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE"
+    printf 'requireAiBehaviorRuntimeTraceSource=%s\n' "$REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE"
+    printf 'requireAiBehaviorAgentLoopRuntimeTraceSource=%s\n' "$REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE"
+    printf 'requireAiBehaviorNoAllowedFailures=%s\n' "$REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES"
     printf 'extraPrivacyScanTargets=%s\n' "$EXTRA_PRIVACY_SCAN_TARGETS"
     printf 'expectedSigningCertSha256=%s\n' "$EXPECTED_SIGNING_CERT_SHA256"
     printf 'releaseApk=%s\n' "$RELEASE_APK"
     printf 'releaseAab=%s\n' "$RELEASE_AAB"
-  } > "$ARTIFACT_DIR/release-gate.properties"
-}
-
-report_reason_for() {
-  local report_file="$1"
-  if [[ -f "$report_file" ]]; then
-    awk -F= '$1 == "reason" {print $2; exit}' "$report_file"
-  fi
+    write_child_report_binding signingCert "$ARTIFACT_DIR/signing-cert.properties"
+    write_child_report_binding privacyScan "$ARTIFACT_DIR/privacy-scan.properties"
+    write_child_report_binding contractTests "$ARTIFACT_DIR/contract-tests.properties"
+    write_child_report_binding aiBehaviorEval "$ARTIFACT_DIR/ai-behavior-eval.properties"
+    write_child_report_binding androidArtifactScan "$ARTIFACT_DIR/android-artifact-scan.properties"
+    write_child_report_binding perfBaseline "$ARTIFACT_DIR/perf-baseline-verification.properties"
+    write_child_report_binding releaseMapping "$ARTIFACT_DIR/release-mapping.properties"
+    write_child_report_binding releaseRecord "$ARTIFACT_DIR/release-record.properties"
+    write_child_report_binding storePolicyRecord "$ARTIFACT_DIR/store-policy-record.properties"
+    write_child_report_binding releaseOperationsRecord "$ARTIFACT_DIR/release-operations-record.properties"
+    write_child_report_binding releaseValidationRecord "$ARTIFACT_DIR/release-validation-record.properties"
+    write_child_report_binding modelLicenseReview "$ARTIFACT_DIR/model-license-review.properties"
+    write_child_report_binding privacyReview "$ARTIFACT_DIR/privacy-review.properties"
+  } > "$RELEASE_GATE_REPORT"
 }
 
 fail_gate() {
@@ -112,11 +240,11 @@ fail_gate() {
 }
 
 if [[ "$PUBLIC_RELEASE" == "1" && -z "$EXPECTED_SIGNING_CERT_SHA256" ]]; then
-  {
-    printf 'status=failed\n'
-    printf 'target=signing-cert\n'
-    printf 'reason=PUBLIC_RELEASE-EXPECTED_SIGNING_CERT_SHA256-not-set\n'
-  } > "$ARTIFACT_DIR/signing-cert.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/signing-cert.properties" \
+    failed \
+    signing-cert \
+    PUBLIC_RELEASE-EXPECTED_SIGNING_CERT_SHA256-not-set
   echo "PUBLIC_RELEASE=1 requires EXPECTED_SIGNING_CERT_SHA256." >&2
   fail_gate signing-cert "$ARTIFACT_DIR/signing-cert.properties" "PUBLIC_RELEASE-EXPECTED_SIGNING_CERT_SHA256-not-set"
 fi
@@ -126,12 +254,12 @@ if [[ -n "$EXTRA_PRIVACY_SCAN_TARGETS" ]]; then
   IFS=':' read -r -a extra_privacy_scan_targets <<< "$EXTRA_PRIVACY_SCAN_TARGETS"
   for extra_privacy_scan_target in "${extra_privacy_scan_targets[@]}"; do
     if [[ "$extra_privacy_scan_target" == -* ]]; then
-      {
-        printf 'status=failed\n'
-        printf 'target=privacy-scan\n'
-        printf 'reason=invalid-extra-privacy-scan-target\n'
-        printf 'extraPrivacyScanTarget=%s\n' "$extra_privacy_scan_target"
-      } > "$ARTIFACT_DIR/privacy-scan.properties"
+      write_simple_child_report \
+        "$ARTIFACT_DIR/privacy-scan.properties" \
+        failed \
+        privacy-scan \
+        invalid-extra-privacy-scan-target \
+        "extraPrivacyScanTarget=$extra_privacy_scan_target"
       echo "EXTRA_PRIVACY_SCAN_TARGETS entries must be paths, not options: $extra_privacy_scan_target" >&2
       fail_gate privacy-scan "$ARTIFACT_DIR/privacy-scan.properties" "invalid-extra-privacy-scan-target"
     fi
@@ -146,36 +274,55 @@ if [[ "$VERIFY_CONTRACT_TESTS" == "1" ]]; then
   if ! "$GRADLE_CMD" :app:testDebugUnitTest \
     --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest \
     --tests com.bytedance.zgx.pocketmind.docs.ModelManifestDocumentationTest \
+    --tests com.bytedance.zgx.pocketmind.docs.ModelCapabilityProfilesDocumentationTest \
     --tests com.bytedance.zgx.pocketmind.docs.AgentCoreDocumentationTest; then
-    {
-      printf 'status=failed\n'
-      printf 'target=contract-tests\n'
-      printf 'reason=contract-tests-failed\n'
-    } > "$ARTIFACT_DIR/contract-tests.properties"
+    write_simple_child_report \
+      "$ARTIFACT_DIR/contract-tests.properties" \
+      failed \
+      contract-tests \
+      contract-tests-failed
     fail_gate contract-tests "$ARTIFACT_DIR/contract-tests.properties" "contract-tests-failed"
   fi
-  {
-    printf 'status=passed\n'
-    printf 'target=contract-tests\n'
-  } > "$ARTIFACT_DIR/contract-tests.properties"
+  write_simple_child_report "$ARTIFACT_DIR/contract-tests.properties" passed contract-tests ""
 else
-  {
-    printf 'status=skipped\n'
-    printf 'target=contract-tests\n'
-    printf 'reason=VERIFY_CONTRACT_TESTS-not-enabled\n'
-  } > "$ARTIFACT_DIR/contract-tests.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/contract-tests.properties" \
+    skipped \
+    contract-tests \
+    VERIFY_CONTRACT_TESTS-not-enabled
 fi
 
 if [[ "$VERIFY_AI_BEHAVIOR_EVAL" == "1" ]]; then
-  if ! scripts/verify_ai_behavior_eval.sh --require-boundary-map --report "$ARTIFACT_DIR/ai-behavior-eval.properties"; then
+  ai_behavior_args=(
+    --dir "$AI_BEHAVIOR_FIXTURE_DIR"
+    --require-boundary-map
+    --trace-diff "$ARTIFACT_DIR/ai-behavior-planning-trace-diff.jsonl"
+    --report "$ARTIFACT_DIR/ai-behavior-eval.properties"
+  )
+  if [[ -n "$AI_BEHAVIOR_ACTUAL_TRACE_FILE" ]]; then
+    ai_behavior_args+=(--actual-trace "$AI_BEHAVIOR_ACTUAL_TRACE_FILE")
+  fi
+  if [[ "$REQUIRE_AI_BEHAVIOR_ACTUAL_TRACE" == "1" ]]; then
+    ai_behavior_args+=(--require-actual-trace)
+  fi
+  if [[ "$REQUIRE_AI_BEHAVIOR_RUNTIME_TRACE_SOURCE" == "1" ]]; then
+    ai_behavior_args+=(--require-runtime-trace-source)
+  fi
+  if [[ "$REQUIRE_AI_BEHAVIOR_AGENT_LOOP_RUNTIME_TRACE_SOURCE" == "1" ]]; then
+    ai_behavior_args+=(--require-agent-loop-runtime-trace-source)
+  fi
+  if [[ "$REQUIRE_AI_BEHAVIOR_NO_ALLOWED_FAILURES" == "1" ]]; then
+    ai_behavior_args+=(--reject-allowed-failures)
+  fi
+  if ! scripts/verify_ai_behavior_eval.sh "${ai_behavior_args[@]}"; then
     fail_gate ai-behavior-eval "$ARTIFACT_DIR/ai-behavior-eval.properties"
   fi
 else
-  {
-    printf 'status=skipped\n'
-    printf 'target=ai-behavior-eval\n'
-    printf 'reason=VERIFY_AI_BEHAVIOR_EVAL-not-enabled\n'
-  } > "$ARTIFACT_DIR/ai-behavior-eval.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/ai-behavior-eval.properties" \
+    skipped \
+    ai-behavior-eval \
+    VERIFY_AI_BEHAVIOR_EVAL-not-enabled
 fi
 
 artifact_args=()
@@ -186,12 +333,12 @@ if [[ -f "$RELEASE_AAB" ]]; then
   artifact_args+=(--aab "$RELEASE_AAB")
 fi
 if [[ "$REQUIRE_AAB" == "1" && ! -f "$RELEASE_AAB" ]]; then
-  {
-    printf 'status=failed\n'
-    printf 'target=android-artifact-scan\n'
-    printf 'reason=REQUIRE_AAB-but-release-aab-missing\n'
-    printf 'releaseAab=%s\n' "$RELEASE_AAB"
-  } > "$ARTIFACT_DIR/android-artifact-scan.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/android-artifact-scan.properties" \
+    failed \
+    android-artifact-scan \
+    REQUIRE_AAB-but-release-aab-missing \
+    "releaseAab=$RELEASE_AAB"
   echo "REQUIRE_AAB=1 but release AAB is missing: $RELEASE_AAB" >&2
   fail_gate android-artifact-scan "$ARTIFACT_DIR/android-artifact-scan.properties" "REQUIRE_AAB-but-release-aab-missing"
 fi
@@ -207,16 +354,13 @@ if [[ "${#artifact_args[@]}" -gt 0 ]]; then
     fail_gate android-artifact-scan "$ARTIFACT_DIR/android-artifact-scan.properties"
   fi
 else
-  {
-    printf 'status=skipped\n'
-    printf 'target=android-artifact-scan\n'
-    printf 'reason=no-release-apk-or-aab\n'
-  } > "$ARTIFACT_DIR/android-artifact-scan.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/android-artifact-scan.properties" \
+    skipped \
+    android-artifact-scan \
+    no-release-apk-or-aab
 fi
 
-release_artifact_path=""
-release_artifact_type=""
-release_artifact_sha256=""
 if [[ -f "$RELEASE_AAB" ]]; then
   release_artifact_path="$RELEASE_AAB"
   release_artifact_type="aab"
@@ -230,9 +374,15 @@ release_mapping_sha256=""
 if [[ -f "$RELEASE_MAPPING_FILE" ]]; then
   release_mapping_sha256="$(shasum -a 256 "$RELEASE_MAPPING_FILE" | awk '{print $1}')"
 fi
-head_commit_sha="$(git rev-parse HEAD 2>/dev/null || true)"
 
-if [[ -n "$PERF_BASELINE_FILE" ]]; then
+if [[ "$VERIFY_PERF_BASELINE" != "1" ]]; then
+  write_simple_child_report \
+    "$ARTIFACT_DIR/perf-baseline-verification.properties" \
+    skipped \
+    perf-baseline \
+    VERIFY_PERF_BASELINE-not-enabled \
+    "publicRelease=$PUBLIC_RELEASE"
+elif [[ -n "$PERF_BASELINE_FILE" ]]; then
   expected_app_version="$(awk -F\" '/versionName[[:space:]]*=/ {print $2; exit}' "$GRADLE_FILE")"
   perf_args=(
     --file "$PERF_BASELINE_FILE" \
@@ -250,11 +400,11 @@ if [[ -n "$PERF_BASELINE_FILE" ]]; then
     fail_gate perf-baseline "$ARTIFACT_DIR/perf-baseline-verification.properties"
   fi
 else
-  {
-    printf 'status=failed\n'
-    printf 'target=perf-baseline\n'
-    printf 'reason=PERF_BASELINE_FILE-not-set\n'
-  } > "$ARTIFACT_DIR/perf-baseline-verification.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/perf-baseline-verification.properties" \
+    failed \
+    perf-baseline \
+    PERF_BASELINE_FILE-not-set
   echo "PERF_BASELINE_FILE must point at the RC perf-baseline.properties file." >&2
   fail_gate perf-baseline "$ARTIFACT_DIR/perf-baseline-verification.properties" "PERF_BASELINE_FILE-not-set"
 fi
@@ -264,12 +414,12 @@ if [[ "$VERIFY_RELEASE_MAPPING" == "1" ]]; then
     fail_gate release-mapping "$ARTIFACT_DIR/release-mapping.properties"
   fi
 else
-  {
-    printf 'status=skipped\n'
-    printf 'target=release-mapping\n'
-    printf 'reason=VERIFY_RELEASE_MAPPING-not-enabled\n'
-    printf 'mappingFile=%s\n' "$RELEASE_MAPPING_FILE"
-  } > "$ARTIFACT_DIR/release-mapping.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/release-mapping.properties" \
+    skipped \
+    release-mapping \
+    VERIFY_RELEASE_MAPPING-not-enabled \
+    "mappingFile=$RELEASE_MAPPING_FILE"
 fi
 
 if [[ "$VERIFY_RELEASE_RECORD" == "1" ]]; then
@@ -288,12 +438,12 @@ if [[ "$VERIFY_RELEASE_RECORD" == "1" ]]; then
     fail_gate release-record "$ARTIFACT_DIR/release-record.properties"
   fi
 else
-  {
-    printf 'status=skipped\n'
-    printf 'target=release-record\n'
-    printf 'reason=VERIFY_RELEASE_RECORD-not-enabled\n'
-    printf 'recordFile=%s\n' "$RELEASE_RECORD_FILE"
-  } > "$ARTIFACT_DIR/release-record.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/release-record.properties" \
+    skipped \
+    release-record \
+    VERIFY_RELEASE_RECORD-not-enabled \
+    "recordFile=$RELEASE_RECORD_FILE"
 fi
 
 if [[ "$VERIFY_STORE_POLICY" == "1" ]]; then
@@ -301,12 +451,12 @@ if [[ "$VERIFY_STORE_POLICY" == "1" ]]; then
     fail_gate store-policy-record "$ARTIFACT_DIR/store-policy-record.properties"
   fi
 else
-  {
-    printf 'status=skipped\n'
-    printf 'target=store-policy-record\n'
-    printf 'reason=VERIFY_STORE_POLICY-not-enabled\n'
-    printf 'storePolicyFile=%s\n' "$STORE_POLICY_FILE"
-  } > "$ARTIFACT_DIR/store-policy-record.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/store-policy-record.properties" \
+    skipped \
+    store-policy-record \
+    VERIFY_STORE_POLICY-not-enabled \
+    "storePolicyFile=$STORE_POLICY_FILE"
 fi
 
 if [[ "$VERIFY_RELEASE_OPERATIONS" == "1" ]]; then
@@ -321,12 +471,12 @@ if [[ "$VERIFY_RELEASE_OPERATIONS" == "1" ]]; then
     fail_gate release-operations-record "$ARTIFACT_DIR/release-operations-record.properties"
   fi
 else
-  {
-    printf 'status=skipped\n'
-    printf 'target=release-operations-record\n'
-    printf 'reason=VERIFY_RELEASE_OPERATIONS-not-enabled\n'
-    printf 'operationsRecordFile=%s\n' "$OPERATIONS_RECORD_FILE"
-  } > "$ARTIFACT_DIR/release-operations-record.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/release-operations-record.properties" \
+    skipped \
+    release-operations-record \
+    VERIFY_RELEASE_OPERATIONS-not-enabled \
+    "operationsRecordFile=$OPERATIONS_RECORD_FILE"
 fi
 
 if [[ "$VERIFY_RELEASE_VALIDATION" == "1" ]]; then
@@ -334,12 +484,12 @@ if [[ "$VERIFY_RELEASE_VALIDATION" == "1" ]]; then
     fail_gate release-validation-record "$ARTIFACT_DIR/release-validation-record.properties"
   fi
 else
-  {
-    printf 'status=skipped\n'
-    printf 'target=release-validation-record\n'
-    printf 'reason=VERIFY_RELEASE_VALIDATION-not-enabled\n'
-    printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
-  } > "$ARTIFACT_DIR/release-validation-record.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/release-validation-record.properties" \
+    skipped \
+    release-validation-record \
+    VERIFY_RELEASE_VALIDATION-not-enabled \
+    "validationRecordFile=$VALIDATION_RECORD_FILE"
 fi
 
 if [[ "$VERIFY_MODEL_LICENSES" == "1" ]]; then
@@ -347,11 +497,11 @@ if [[ "$VERIFY_MODEL_LICENSES" == "1" ]]; then
     fail_gate model-license-review "$ARTIFACT_DIR/model-license-review.properties"
   fi
 else
-  {
-    printf 'status=skipped\n'
-    printf 'target=model-license-review\n'
-    printf 'reason=VERIFY_MODEL_LICENSES-not-enabled\n'
-  } > "$ARTIFACT_DIR/model-license-review.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/model-license-review.properties" \
+    skipped \
+    model-license-review \
+    VERIFY_MODEL_LICENSES-not-enabled
 fi
 
 if [[ "$VERIFY_PRIVACY_REVIEW" == "1" ]]; then
@@ -359,11 +509,11 @@ if [[ "$VERIFY_PRIVACY_REVIEW" == "1" ]]; then
     fail_gate privacy-review "$ARTIFACT_DIR/privacy-review.properties"
   fi
 else
-  {
-    printf 'status=skipped\n'
-    printf 'target=privacy-review\n'
-    printf 'reason=VERIFY_PRIVACY_REVIEW-not-enabled\n'
-  } > "$ARTIFACT_DIR/privacy-review.properties"
+  write_simple_child_report \
+    "$ARTIFACT_DIR/privacy-review.properties" \
+    skipped \
+    privacy-review \
+    VERIFY_PRIVACY_REVIEW-not-enabled
 fi
 
 write_gate_report passed

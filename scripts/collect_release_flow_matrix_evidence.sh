@@ -171,7 +171,7 @@ flow_summary() {
       printf 'API 36 emulator regression covers custom model URL rejection and custom .litertlm DownloadManager handoff; JVM contracts reject unsafe URLs and cover local import extension, storage, empty-file, temp-cleanup, and UnverifiedCustom registration boundaries.'
       ;;
     remoteHttpsConfiguration)
-      printf 'API 36 emulator regression configures remote mode against a local OpenAI-compatible fixture; JVM contracts cover HTTPS validation, remote failure recovery, unconfigured remote handling, and local memory/device context protection.'
+      printf 'API 36 emulator regression configures remote mode against a local OpenAI-compatible fixture; JVM contracts cover HTTPS validation, remote failure recovery, unconfigured remote handling, and exact zero-count local memory/device/raw-content remote boundaries.'
       ;;
     encryptedApiKeyClear)
       printf 'Repository tests prove blank API key clears the encrypted secret; API 36 emulator regression checks the legacy plaintext preference is not populated.'
@@ -189,7 +189,7 @@ flow_summary() {
       printf 'Repository tests cover BOOT_COMPLETED and package-replaced reminder rescheduling, catch-up scheduling, stale-running recovery, and metadata-only reminder audit boundaries.'
       ;;
     shareAndPickerInput)
-      printf 'API 36 emulator regression covers ACTION_SEND text and image staging; androidTest provider counters cover remote vision image stream/OCR boundaries; JVM shared-input tests cover in-app picker attachment prompts, remote-mode protection, non-image attachment protection, document excerpts, and no implicit image OCR.'
+      printf 'API 36 emulator regression covers ACTION_SEND text and image staging; androidTest provider counters cover remote vision image stream/OCR boundaries; JVM shared-input tests cover local vision runtime image sends, LocalOnly persistence, prompt metadata redaction, remote runtime idle protection, in-app picker attachment prompts, remote-mode protection, non-image attachment protection, document excerpts, and no implicit image OCR.'
       ;;
     voiceInput)
       printf 'API 36 emulator accessibility regression covers the voice entry disclosure and button label; ViewModel tests cover one-shot transcript drafts, partial transcript state, cancellation, and no auto-send.'
@@ -201,7 +201,7 @@ flow_summary() {
       printf 'API 36 emulator regression covers current screen Accessibility text confirmation, cancellation, audit evidence, and trace recording.'
       ;;
     recentMediaOcr)
-      printf 'JVM tool, skill, and orchestration tests cover recent screenshot/image OCR routing, confirmation, one-item screenshot limits, local-only result handling, and remote-mode leakage prevention.'
+      printf 'JVM tool, skill, and orchestration tests cover recent screenshot/image OCR routing, confirmation, one-item screenshot limits, three-item image scan limits, LocalOnly result handling, raw payload non-persistence, private metadata/trace redaction, and remote-mode leakage prevention.'
       ;;
     mediaProjectionCancellation)
       printf 'API 36 emulator regression covers current screenshot OCR confirmation and user cancellation before MediaProjection execution, with audit and trace evidence.'
@@ -307,6 +307,13 @@ write_flow_contract_fields() {
       printf 'firstRunDefaultChatModelSelected=true\n'
       printf 'firstRunSkipReachesMainShell=true\n'
       ;;
+    upgradeInstall)
+      printf 'upgradeInstallUsesAdbInstallR=true\n'
+      printf 'upgradeInstallPreservesFirstInstallTime=true\n'
+      printf 'upgradeInstallUpdatesLastUpdateTime=true\n'
+      printf 'upgradeInstallVersionCodeIncreased=true\n'
+      printf 'upgradeInstallInstrumentationCovered=true\n'
+      ;;
     localModelDownloadVerification)
       printf 'localModelDownloadVerified=true\n'
       printf 'modelSha256VerificationCovered=true\n'
@@ -335,6 +342,29 @@ write_flow_contract_fields() {
       printf 'remoteNetworkFailureRecoveryCovered=true\n'
       printf 'remoteUnconfiguredModelFailureCovered=true\n'
       printf 'remoteLocalMemoryNotAutoIncluded=true\n'
+      printf 'remoteMemoryContextIncluded=false\n'
+      printf 'remoteMemoryHitCount=0\n'
+      printf 'remoteSemanticMemoryHitCount=0\n'
+      printf 'remoteLexicalMemoryHitCount=0\n'
+      printf 'remoteDeviceContextIncluded=false\n'
+      printf 'remoteRawContentPersisted=false\n'
+      printf 'remoteProtectedMemoryDeclared=true\n'
+      printf 'remoteProtectedDeviceContextDeclared=true\n'
+      ;;
+    encryptedApiKeyClear)
+      printf 'encryptedApiKeyBlankInputClearsSecret=true\n'
+      printf 'legacyPlaintextApiKeyNotPersisted=true\n'
+      ;;
+    sessionPersistence)
+      printf 'sessionCreateSwitchRestoreCovered=true\n'
+      printf 'activeSessionPersistenceCovered=true\n'
+      printf 'sessionDeleteCovered=true\n'
+      ;;
+    memoryControls)
+      printf 'memoryCreateControlCovered=true\n'
+      printf 'memoryForgetControlCovered=true\n'
+      printf 'memoryClearControlCovered=true\n'
+      printf 'memoryPanelControlCovered=true\n'
       ;;
     shareAndPickerInput)
       printf 'actionSendTextStaged=true\n'
@@ -348,6 +378,8 @@ write_flow_contract_fields() {
       printf 'remoteVisionUnsupportedOpenStreamCountCovered=true\n'
       printf 'remoteVisionUnsupportedOcrSkipped=true\n'
       printf 'remoteVisionMixedShareNonImageProtected=true\n'
+      printf 'remoteVisionSendPreviewConfirmed=true\n'
+      printf 'remoteVisionCancelKeepsRuntimeIdle=true\n'
       printf 'remoteVisionHttpFixtureImagePartCount=1\n'
       printf 'remoteVisionHttpFixtureStreamRequested=true\n'
       printf 'remoteVisionSupportedImageStreamOpenCount=1\n'
@@ -355,6 +387,16 @@ write_flow_contract_fields() {
       printf 'remoteVisionUnsupportedImageStreamOpenCount=0\n'
       printf 'remoteVisionUnsupportedImageOcrInvocationCount=0\n'
       printf 'remoteVisionMixedProtectedNonImageCount=1\n'
+      printf 'localVisionVerifiedModelImageAttachmentStaged=true\n'
+      printf 'localVisionRuntimeImageAttachmentSent=true\n'
+      printf 'localVisionLocalOnlyPersistenceCovered=true\n'
+      printf 'localVisionPromptMetadataRedacted=true\n'
+      printf 'localVisionRemoteRuntimeIdle=true\n'
+      printf 'localVisionUnsupportedOcrSkipped=true\n'
+      printf 'localVisionRuntimeImageAttachmentSendCount=1\n'
+      printf 'localVisionRemoteRuntimeRequestCount=0\n'
+      printf 'localVisionUnsupportedRuntimeImageSendCount=0\n'
+      printf 'localVisionUnsupportedImageOcrInvocationCount=0\n'
       printf 'documentExcerptBounded=true\n'
       printf 'pickerAttachmentPromptCovered=true\n'
       ;;
@@ -372,10 +414,40 @@ write_flow_contract_fields() {
       printf 'remoteConfigClearCovered=true\n'
       printf 'dataDeletionCopyCovered=true\n'
       ;;
+    remindersAfterReboot)
+      printf 'bootCompletedReminderRescheduleCovered=true\n'
+      printf 'packageReplacedReminderRescheduleCovered=true\n'
+      printf 'reminderCatchUpSchedulingCovered=true\n'
+      printf 'staleRunningReminderRecoveryCovered=true\n'
+      printf 'reminderAuditMetadataOnly=true\n'
+      ;;
     adaptiveUi)
       printf 'largeFontReachabilityCovered=true\n'
       printf 'landscapeReachabilityCovered=true\n'
       printf 'accessibleLabelsCovered=true\n'
+      ;;
+    accessibilityText)
+      printf 'accessibilityTextConfirmationCovered=true\n'
+      printf 'accessibilityTextCancellationCovered=true\n'
+      printf 'accessibilityTextLocalOnlyMetadataCovered=true\n'
+      printf 'accessibilityTextTraceRecorded=true\n'
+      ;;
+    recentMediaOcr)
+      printf 'recentScreenshotOcrRoutingCovered=true\n'
+      printf 'recentImageOcrRoutingCovered=true\n'
+      printf 'recentMediaOcrConfirmationCovered=true\n'
+      printf 'recentScreenshotOneItemLimitCovered=true\n'
+      printf 'recentScreenshotMaxCount=1\n'
+      printf 'recentImageMaxCount=3\n'
+      printf 'recentMediaOcrRawPayloadPersisted=false\n'
+      printf 'recentMediaOcrPrivateMetadataRedacted=true\n'
+      printf 'recentMediaOcrOcrTextTraceRedacted=true\n'
+      printf 'recentMediaOcrLocalOnlyProtected=true\n'
+      printf 'recentMediaOcrRemoteLeakageBlocked=true\n'
+      ;;
+    mediaProjectionCancellation)
+      printf 'mediaProjectionOneShotConsentCovered=true\n'
+      printf 'currentScreenshotOcrRemoteContinuationBlocked=true\n'
       ;;
   esac
 }
@@ -536,6 +608,13 @@ def is_valid_evidence(flow, value):
             "firstRunDefaultChatModelSelected",
             "firstRunSkipReachesMainShell",
         ],
+        "upgradeInstall": [
+            "upgradeInstallUsesAdbInstallR",
+            "upgradeInstallPreservesFirstInstallTime",
+            "upgradeInstallUpdatesLastUpdateTime",
+            "upgradeInstallVersionCodeIncreased",
+            "upgradeInstallInstrumentationCovered",
+        ],
         "localModelDownloadVerification": [
             "localModelDownloadVerified",
             "modelSha256VerificationCovered",
@@ -560,6 +639,28 @@ def is_valid_evidence(flow, value):
             "customCredentialedUrlRejected",
             "customUnverifiedModelMarked",
         ],
+        "remoteHttpsConfiguration": [
+            "remoteNetworkFailureRecoveryCovered",
+            "remoteUnconfiguredModelFailureCovered",
+            "remoteLocalMemoryNotAutoIncluded",
+            "remoteProtectedMemoryDeclared",
+            "remoteProtectedDeviceContextDeclared",
+        ],
+        "encryptedApiKeyClear": [
+            "encryptedApiKeyBlankInputClearsSecret",
+            "legacyPlaintextApiKeyNotPersisted",
+        ],
+        "sessionPersistence": [
+            "sessionCreateSwitchRestoreCovered",
+            "activeSessionPersistenceCovered",
+            "sessionDeleteCovered",
+        ],
+        "memoryControls": [
+            "memoryCreateControlCovered",
+            "memoryForgetControlCovered",
+            "memoryClearControlCovered",
+            "memoryPanelControlCovered",
+        ],
         "shareAndPickerInput": [
             "actionSendTextStaged",
             "remoteTextShareProtected",
@@ -572,7 +673,15 @@ def is_valid_evidence(flow, value):
             "remoteVisionUnsupportedOpenStreamCountCovered",
             "remoteVisionUnsupportedOcrSkipped",
             "remoteVisionMixedShareNonImageProtected",
+            "remoteVisionSendPreviewConfirmed",
+            "remoteVisionCancelKeepsRuntimeIdle",
             "remoteVisionHttpFixtureStreamRequested",
+            "localVisionVerifiedModelImageAttachmentStaged",
+            "localVisionRuntimeImageAttachmentSent",
+            "localVisionLocalOnlyPersistenceCovered",
+            "localVisionPromptMetadataRedacted",
+            "localVisionRemoteRuntimeIdle",
+            "localVisionUnsupportedOcrSkipped",
             "documentExcerptBounded",
             "pickerAttachmentPromptCovered",
         ],
@@ -590,10 +699,37 @@ def is_valid_evidence(flow, value):
             "remoteConfigClearCovered",
             "dataDeletionCopyCovered",
         ],
+        "remindersAfterReboot": [
+            "bootCompletedReminderRescheduleCovered",
+            "packageReplacedReminderRescheduleCovered",
+            "reminderCatchUpSchedulingCovered",
+            "staleRunningReminderRecoveryCovered",
+            "reminderAuditMetadataOnly",
+        ],
         "adaptiveUi": [
             "largeFontReachabilityCovered",
             "landscapeReachabilityCovered",
             "accessibleLabelsCovered",
+        ],
+        "accessibilityText": [
+            "accessibilityTextConfirmationCovered",
+            "accessibilityTextCancellationCovered",
+            "accessibilityTextLocalOnlyMetadataCovered",
+            "accessibilityTextTraceRecorded",
+        ],
+        "recentMediaOcr": [
+            "recentScreenshotOcrRoutingCovered",
+            "recentImageOcrRoutingCovered",
+            "recentMediaOcrConfirmationCovered",
+            "recentScreenshotOneItemLimitCovered",
+            "recentMediaOcrPrivateMetadataRedacted",
+            "recentMediaOcrOcrTextTraceRedacted",
+            "recentMediaOcrLocalOnlyProtected",
+            "recentMediaOcrRemoteLeakageBlocked",
+        ],
+        "mediaProjectionCancellation": [
+            "mediaProjectionOneShotConsentCovered",
+            "currentScreenshotOcrRemoteContinuationBlocked",
         ],
     }.get(flow, [])
     for field in required_true_fields:
@@ -607,10 +743,38 @@ def is_valid_evidence(flow, value):
             "remoteVisionUnsupportedImageStreamOpenCount": "0",
             "remoteVisionUnsupportedImageOcrInvocationCount": "0",
             "remoteVisionMixedProtectedNonImageCount": "1",
+            "localVisionRemoteRuntimeRequestCount": "0",
+            "localVisionUnsupportedRuntimeImageSendCount": "0",
+            "localVisionUnsupportedImageOcrInvocationCount": "0",
+        },
+        "recentMediaOcr": {
+            "recentScreenshotMaxCount": "1",
+            "recentImageMaxCount": "3",
+            "recentMediaOcrRawPayloadPersisted": "false",
+        },
+        "remoteHttpsConfiguration": {
+            "remoteMemoryContextIncluded": "false",
+            "remoteMemoryHitCount": "0",
+            "remoteSemanticMemoryHitCount": "0",
+            "remoteLexicalMemoryHitCount": "0",
+            "remoteDeviceContextIncluded": "false",
+            "remoteRawContentPersisted": "false",
         },
     }.get(flow, {})
     for field, expected in required_exact_fields.items():
         if props.get(field) != expected:
+            return False
+    required_min_fields = {
+        "shareAndPickerInput": {
+            "localVisionRuntimeImageAttachmentSendCount": 1,
+        },
+    }.get(flow, {})
+    for field, minimum in required_min_fields.items():
+        try:
+            count_value = int(props.get(field, ""))
+        except ValueError:
+            return False
+        if count_value < minimum:
             return False
     recorded_date = value.get("date", "")
     if not non_empty_string(recorded_date) or not date_pattern.match(recorded_date):

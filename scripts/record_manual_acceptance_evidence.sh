@@ -13,6 +13,8 @@ MANUAL_ACCEPTANCE_KEYS="${MANUAL_ACCEPTANCE_KEYS:-}"
 MANUAL_ACCEPTANCE_ALL="${MANUAL_ACCEPTANCE_ALL:-0}"
 MANUAL_ACCEPTANCE_NOTE="${MANUAL_ACCEPTANCE_NOTE:-Manual acceptance was explicitly confirmed by the named owner.}"
 RELEASE_ARTIFACT_SHA256="${RELEASE_ARTIFACT_SHA256:-}"
+RECORDED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+ORIGINAL_ARGS=("$@")
 
 REQUIRED_MANUAL_KEYS=(
   modelSetup
@@ -60,6 +62,19 @@ contains_key() {
   return 1
 }
 
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
+    for arg in "${ORIGINAL_ARGS[@]}"; do
+      quoted+=("$(printf '%q' "$arg")")
+    done
+  fi
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
 write_report() {
   local status="$1"
   local reason="$2"
@@ -67,18 +82,90 @@ write_report() {
   local pending="$4"
   mkdir -p "$(dirname "$REPORT_FILE")"
   {
+    printf 'artifactSchema=ManualAcceptanceEvidenceCollection/v1\n'
     printf 'status=%s\n' "$status"
     printf 'target=manual-acceptance-evidence\n'
+    printf 'owner=%s\n' "$OWNER"
+    printf 'recordedAt=%s\n' "$RECORDED_AT"
+    printf 'command=%s\n' "$(command_line)"
+    printf 'reproduciblePath=%s\n' "$REPORT_FILE"
     printf 'reason=%s\n' "$reason"
     printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
     printf 'artifactDir=%s\n' "$ARTIFACT_DIR"
-    printf 'owner=%s\n' "$OWNER"
     printf 'date=%s\n' "$VALIDATION_DATE"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
     printf 'requiredManualKeys=%s\n' "$(join_csv "${REQUIRED_MANUAL_KEYS[@]}")"
     printf 'acceptedManualKeys=%s\n' "$accepted"
     printf 'pendingManualKeys=%s\n' "$pending"
   } > "$REPORT_FILE"
+}
+
+write_manual_contract_fields() {
+  local key="$1"
+  case "$key" in
+    modelSetup)
+      printf 'modelManagerOpened=true\n'
+      printf 'recommendedModelAvailabilityChecked=true\n'
+      ;;
+    remoteModePrivacy)
+      printf 'remoteModeExplicitlySelected=true\n'
+      printf 'localMemoryNotAutoIncluded=true\n'
+      printf 'remoteRawPrivateContextSent=false\n'
+      ;;
+    toolConfirmation)
+      printf 'confirmationSheetObserved=true\n'
+      printf 'toolCancelPreventsExecution=true\n'
+      printf 'toolExecutedWithoutConfirmation=false\n'
+      ;;
+    permissions)
+      printf 'runtimePermissionPromptObserved=true\n'
+      printf 'permissionDeniedRecoveryCovered=true\n'
+      printf 'permissionGrantedSilently=false\n'
+      ;;
+    backgroundReminders)
+      printf 'reminderCreateUpdateCancelObserved=true\n'
+      printf 'backgroundReminderDeliveryObserved=true\n'
+      ;;
+    sharing)
+      printf 'shareSheetBoundaryObserved=true\n'
+      printf 'externalOutcomeNotAutoClaimed=true\n'
+      ;;
+    multimodalEntryPoints)
+      printf 'localVisionCapabilityObserved=true\n'
+      printf 'unsupportedVisionFailClosedObserved=true\n'
+      ;;
+    voiceInput)
+      printf 'systemSpeechRecognizerObserved=true\n'
+      printf 'voiceDraftNoAutoSend=true\n'
+      printf 'voiceCancelCovered=true\n'
+      ;;
+    filePicker)
+      printf 'systemDocumentPickerObserved=true\n'
+      printf 'documentExcerptBounded=true\n'
+      printf 'remoteNonImageAttachmentNotAutoIncluded=true\n'
+      ;;
+    mediaProjection)
+      printf 'systemMediaProjectionPromptObserved=true\n'
+      printf 'mediaProjectionCancelBlocksCapture=true\n'
+      printf 'mediaProjectionOneShotConsentCovered=true\n'
+      printf 'screenshotRawPayloadPersisted=false\n'
+      ;;
+    remoteSinglePublicEvidence)
+      printf 'singlePublicEvidenceSelected=true\n'
+      printf 'privateEvidenceExcluded=true\n'
+      printf 'remoteRequestCount=1\n'
+      ;;
+    remoteMultiEvidenceComparison)
+      printf 'multiplePublicEvidenceCompared=true\n'
+      printf 'publicEvidenceCount=2\n'
+      printf 'privateEvidenceSent=false\n'
+      ;;
+    mixedPrivateActionBatchFailClosed)
+      printf 'mixedBatchRejected=true\n'
+      printf 'partialActionExecution=false\n'
+      printf 'remoteRequestCount=0\n'
+      ;;
+  esac
 }
 
 fail() {
@@ -123,15 +210,20 @@ mkdir -p "$ARTIFACT_DIR"
 for key in "${accepted_keys[@]}"; do
   evidence_path="$ARTIFACT_DIR/manual-$key.properties"
   {
+    printf 'artifactSchema=ManualAcceptanceEvidence/v1\n'
     printf 'status=passed\n'
     printf 'target=manual-acceptance\n'
     printf 'manualKey=%s\n' "$key"
     printf 'manualAcceptance=true\n'
     printf 'owner=%s\n' "$OWNER"
     printf 'date=%s\n' "$VALIDATION_DATE"
+    printf 'recordedAt=%s\n' "$RECORDED_AT"
+    printf 'command=%s\n' "$(command_line)"
+    printf 'reproduciblePath=%s\n' "$evidence_path"
     printf 'releaseArtifactSha256=%s\n' "$RELEASE_ARTIFACT_SHA256"
     printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
     printf 'evidenceSummary=%s\n' "$MANUAL_ACCEPTANCE_NOTE"
+    write_manual_contract_fields "$key"
   } > "$evidence_path"
 done
 

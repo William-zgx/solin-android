@@ -4,10 +4,66 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+source "$ROOT_DIR/scripts/release_preflight_fields.sh"
+
 REVIEW_FILE="${MODEL_LICENSE_REVIEW_FILE:-docs/model_license_review.json}"
 METADATA_FILE="${MODEL_LICENSE_METADATA_FILE:-docs/model_license_metadata.json}"
 MANIFEST_FILE="${MODEL_MANIFEST_FILE:-docs/model_manifest.md}"
+METADATA_MAX_AGE_DAYS="${MODEL_LICENSE_METADATA_MAX_AGE_DAYS:-30}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-model-license-review}}"
 REPORT_FILE=""
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
+    for arg in "${ORIGINAL_ARGS[@]}"; do
+      quoted+=("$(printf '%q' "$arg")")
+    done
+  fi
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+failed_target_for_reason() {
+  local reason="$1"
+  local first="${reason%%,*}"
+  case "$first" in
+    "")
+      printf ''
+      ;;
+    missing-review-file|review-version-invalid|review-models-missing|review-entry-invalid|review-model-*)
+      printf 'model-license-review-file'
+      ;;
+    missing-metadata-file|metadata-*)
+      printf 'model-license-metadata'
+      ;;
+    missing-manifest-file|manifest-*|*-manifest-*)
+      printf 'model-manifest'
+      ;;
+    *-review-evidence-*)
+      printf 'model-license-review-evidence'
+      ;;
+    *-license-source-*|*-license-source-*)
+      printf 'model-license-source'
+      ;;
+    *-license-*|*-redistribution-*|*-status-*|*-repository-*|*-upstream-revision-*|*-attribution-*|*-reviewer-*|*-review-date-*)
+      printf 'model-license-review-record'
+      ;;
+    *)
+      printf 'model-license-review'
+      ;;
+  esac
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -25,15 +81,44 @@ done
 write_report() {
   local status="$1"
   local reason="$2"
+  local failed_target=""
+  local missing_owner_fields=""
+  local missing_approval_roles=""
+  local missing_evidence_files=""
+  local deferred_device_evidence=""
+  local requires_human_approval=""
+  if [[ "$status" != "passed" ]]; then
+    failed_target="$(failed_target_for_reason "$reason")"
+  fi
+  missing_owner_fields="$(preflight_missing_owner_fields model-license-review "$reason")"
+  missing_approval_roles="$(preflight_missing_approval_roles model-license-review "$reason" "$status")"
+  missing_evidence_files="$(preflight_missing_evidence_files "$reason")"
+  deferred_device_evidence="$(preflight_deferred_device_evidence model-license-review "$reason")"
+  requires_human_approval="$(preflight_requires_human_approval "$status" "$missing_approval_roles" "$missing_owner_fields")"
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
+      printf 'artifactSchema=ModelLicenseReviewVerification/v1\n'
       printf 'status=%s\n' "$status"
       printf 'target=model-license-review\n'
-      printf 'reviewFile=%s\n' "$REVIEW_FILE"
-      printf 'metadataFile=%s\n' "$METADATA_FILE"
-      printf 'manifestFile=%s\n' "$MANIFEST_FILE"
+      printf 'owner=%s\n' "$EVIDENCE_OWNER"
+      printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      printf 'command=%s\n' "$(command_line)"
+      printf 'failedTarget=%s\n' "$failed_target"
       printf 'reason=%s\n' "$reason"
+      printf 'missingOwnerFields=%s\n' "$missing_owner_fields"
+      printf 'missingApprovalRoles=%s\n' "$missing_approval_roles"
+      printf 'missingEvidenceFiles=%s\n' "$missing_evidence_files"
+      printf 'deferredDeviceEvidence=%s\n' "$deferred_device_evidence"
+      printf 'requiresHumanApproval=%s\n' "$requires_human_approval"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
+      printf 'reviewFile=%s\n' "$REVIEW_FILE"
+      printf 'reviewSha256=%s\n' "$(sha256_or_empty "$REVIEW_FILE")"
+      printf 'metadataFile=%s\n' "$METADATA_FILE"
+      printf 'metadataSha256=%s\n' "$(sha256_or_empty "$METADATA_FILE")"
+      printf 'manifestFile=%s\n' "$MANIFEST_FILE"
+      printf 'manifestSha256=%s\n' "$(sha256_or_empty "$MANIFEST_FILE")"
+      printf 'metadataMaxAgeDays=%s\n' "$METADATA_MAX_AGE_DAYS"
     } > "$REPORT_FILE"
   fi
 }
@@ -60,18 +145,19 @@ TMP_FAILURES="$(mktemp)"
 trap 'rm -f "$TMP_FAILURES"' EXIT
 
 set +e
-python3 - "$REVIEW_FILE" "$METADATA_FILE" "$MANIFEST_FILE" <<'PY' > "$TMP_FAILURES"
+python3 - "$REVIEW_FILE" "$METADATA_FILE" "$MANIFEST_FILE" "$METADATA_MAX_AGE_DAYS" <<'PY' > "$TMP_FAILURES"
 import hashlib
 import json
 import re
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
 review_path = Path(sys.argv[1])
 metadata_path = Path(sys.argv[2])
 manifest_path = Path(sys.argv[3])
+max_age_days_raw = sys.argv[4]
 
 try:
     review = json.loads(review_path.read_text())
@@ -81,6 +167,14 @@ except Exception:
     sys.exit(1)
 
 failures = []
+
+try:
+    metadata_max_age_days = int(max_age_days_raw)
+    if metadata_max_age_days < 0:
+        raise ValueError
+except ValueError:
+    metadata_max_age_days = None
+    failures.append("metadata-max-age-days-invalid")
 
 def non_empty_string(value):
     return isinstance(value, str) and bool(value.strip())
@@ -96,6 +190,28 @@ def validate_file_sha(prefix, path, expected_sha):
         return
     if actual_sha != expected_sha:
         failures.append(f"{prefix}-sha-mismatch")
+
+def validate_utc_timestamp_not_future(prefix, value):
+    if not non_empty_string(value):
+        failures.append(f"{prefix}-recorded-at-missing")
+        return
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        failures.append(f"{prefix}-recorded-at-invalid")
+        return
+    if parsed > datetime.now(timezone.utc):
+        failures.append(f"{prefix}-recorded-at-in-future")
+
+def parse_properties(path):
+    values = {}
+    for raw_line in Path(path).read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
 
 def normalize_license(value):
     normalized = re.sub(r"[^a-z0-9]+", "", value.lower())
@@ -134,6 +250,20 @@ def is_concrete_huggingface_license_source(url):
     license_markers = ("license", "licence", "copying", "notice", "readme", "model_card", "model-card", "terms")
     return any(marker in filename or marker in source_path for marker in license_markers)
 
+def huggingface_source_revision(url):
+    if not isinstance(url, str) or not url.startswith("https://huggingface.co/"):
+        return ""
+    parsed = urlparse(url)
+    path_parts = [part for part in parsed.path.strip("/").split("/") if part]
+    if path_parts[:2] == ["api", "models"]:
+        path_parts = path_parts[2:]
+    if len(path_parts) < 5:
+        return ""
+    file_parts = path_parts[2:]
+    if file_parts[0] not in {"blob", "resolve", "raw"} or len(file_parts) < 3:
+        return ""
+    return file_parts[1]
+
 def parse_manifest(path):
     models = []
     for raw_line in path.read_text().splitlines():
@@ -158,6 +288,46 @@ def parse_manifest(path):
         })
     return models
 
+def validate_review_evidence(model_id, evidence_path, entry):
+    try:
+        properties = parse_properties(evidence_path)
+    except OSError:
+        failures.append(f"{model_id or 'unknown'}-review-evidence-read-failed")
+        return
+    prefix = model_id or "unknown"
+    expected = {
+        "artifactSchema": "ModelLicenseReviewApprovedEvidence/v1",
+        "status": "approved",
+        "target": "model-license-review-approved-evidence",
+        "model": model_id,
+        "scope": "license-redistribution-attribution",
+        "redistributionDecision": "approved",
+        "reviewer": entry.get("reviewer", ""),
+        "licenseName": entry.get("licenseName", ""),
+    }
+    for key, expected_value in expected.items():
+        actual = properties.get(key, "")
+        if actual != expected_value:
+            failures.append(f"{prefix}-review-evidence-{key}-mismatch")
+    if not non_empty_string(properties.get("owner", "")):
+        failures.append(f"{prefix}-review-evidence-owner-missing")
+    validate_utc_timestamp_not_future(
+        f"{prefix}-review-evidence",
+        properties.get("recordedAt", ""),
+    )
+    if not non_empty_string(properties.get("command", "")):
+        failures.append(f"{prefix}-review-evidence-command-missing")
+    reproducible_path = properties.get("reproduciblePath", "")
+    if not non_empty_string(reproducible_path):
+        failures.append(f"{prefix}-review-evidence-reproducible-path-missing")
+    elif reproducible_path != str(evidence_path):
+        failures.append(f"{prefix}-review-evidence-reproducible-path-mismatch")
+    review_file = properties.get("modelLicenseReviewFile", "")
+    if not non_empty_string(review_file):
+        failures.append(f"{prefix}-review-evidence-review-file-missing")
+    elif Path(review_file).resolve() != review_path.resolve():
+        failures.append(f"{prefix}-review-evidence-review-file-mismatch")
+
 if review.get("version") != 1:
     failures.append("review-version-invalid")
 if metadata.get("version") != 1:
@@ -180,14 +350,29 @@ manifest_ids = [entry["id"] for entry in manifest_models]
 manifest_by_id = {entry["id"]: entry for entry in manifest_models}
 
 recorded_at = metadata.get("recordedAt", "")
+metadata_recorded_at = None
 metadata_record_date = None
 if not recorded_at:
     failures.append("metadata-recorded-at-missing")
+elif not re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", recorded_at):
+    failures.append("metadata-recorded-at-not-utc")
 else:
     try:
-        metadata_record_date = date.fromisoformat(recorded_at.split("T", 1)[0])
+        metadata_recorded_at = datetime.strptime(recorded_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc,
+        )
+        metadata_record_date = metadata_recorded_at.date()
     except ValueError:
         failures.append("metadata-recorded-at-invalid")
+    else:
+        now_utc = datetime.now(timezone.utc)
+        if metadata_recorded_at > now_utc:
+            failures.append("metadata-recorded-at-in-future")
+        elif (
+            metadata_max_age_days is not None and
+            now_utc - metadata_recorded_at > timedelta(days=metadata_max_age_days)
+        ):
+            failures.append("metadata-recorded-at-stale")
 
 metadata_ids = []
 metadata_by_id = {}
@@ -213,8 +398,11 @@ for entry in metadata_models:
         expected_api_url = f"https://huggingface.co/api/models/{manifest_entry['repository']}"
         if api_url != expected_api_url:
             failures.append(f"{model_id}-metadata-api-url-mismatch")
-    if not non_empty_string(entry.get("modelSha")):
+    model_sha = entry.get("modelSha")
+    if not non_empty_string(model_sha):
         failures.append(f"{model_id or 'unknown'}-metadata-model-sha-missing")
+    elif not re.match(r"^[0-9a-fA-F]{40,64}$", model_sha):
+        failures.append(f"{model_id or 'unknown'}-metadata-model-sha-invalid")
     gated = entry.get("gated")
     if not isinstance(gated, bool):
         failures.append(f"{model_id or 'unknown'}-metadata-gated-invalid")
@@ -285,6 +473,9 @@ for entry in review_models:
             failures.append(f"{model_id or 'unknown'}-license-source-repository-mismatch")
         if not is_concrete_huggingface_license_source(license_source):
             failures.append(f"{model_id or 'unknown'}-license-source-not-concrete")
+        source_revision = huggingface_source_revision(license_source)
+        if source_revision != manifest_entry["upstreamRevision"]:
+            failures.append(f"{model_id or 'unknown'}-license-source-revision-mismatch")
 
     if not entry.get("attributionNotice"):
         failures.append(f"{model_id or 'unknown'}-attribution-notice-missing")
@@ -301,6 +492,7 @@ for entry in review_models:
             review_evidence_path,
             entry.get("reviewEvidenceSha256", ""),
         )
+        validate_review_evidence(model_id, review_evidence_path, entry)
     review_date = entry.get("reviewDate", "")
     if not review_date:
         failures.append(f"{model_id or 'unknown'}-review-date-missing")

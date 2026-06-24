@@ -4,10 +4,74 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+source "$ROOT_DIR/scripts/release_preflight_fields.sh"
+
 VALIDATION_RECORD_FILE="${VALIDATION_RECORD_FILE:-docs/release_validation_record.json}"
 ANDROID_TEST_SOURCE_DIR="${ANDROID_TEST_SOURCE_DIR:-app/src/androidTest}"
 EXPECTED_RELEASE_ARTIFACT_SHA256="${EXPECTED_RELEASE_ARTIFACT_SHA256:-}"
+EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
 REPORT_FILE=""
+ORIGINAL_ARGS=("$@")
+
+command_line() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "$0")")
+  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
+    for arg in "${ORIGINAL_ARGS[@]}"; do
+      quoted+=("$(printf '%q' "$arg")")
+    done
+  fi
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+sha256_or_empty() {
+  local path="$1"
+  if [[ -n "$path" && -f "$path" ]]; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+failed_target_for_reason() {
+  local reason="$1"
+  local first="${reason%%,*}"
+  case "$first" in
+    "")
+      printf ''
+      ;;
+    missing-validation-record-file|validation-record-sha-*)
+      printf 'release-validation-record-file'
+      ;;
+    emulator-*|api-*-emulator-*|*-serial-not-emulator)
+      printf 'emulator-regression'
+      ;;
+    physical-device-*|device-*|*-serial-is-emulator)
+      printf 'physical-device'
+      ;;
+    api-*)
+      printf 'api-matrix'
+      ;;
+    manual-*)
+      printf 'manual-acceptance'
+      ;;
+    flow-*)
+      printf 'flow-matrix'
+      ;;
+    performance-*|perf-*)
+      printf 'performance-sanity'
+      ;;
+    screenshot-*|*-screenshot-*)
+      printf 'screenshot-evidence'
+      ;;
+    review-*)
+      printf 'validation-review'
+      ;;
+    *)
+      printf 'release-validation-record'
+      ;;
+  esac
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,15 +93,41 @@ done
 write_report() {
   local status="$1"
   local reason="$2"
+  local failed_target=""
+  local missing_owner_fields=""
+  local missing_approval_roles=""
+  local missing_evidence_files=""
+  local deferred_device_evidence=""
+  local requires_human_approval=""
+  if [[ "$status" != "passed" ]]; then
+    failed_target="$(failed_target_for_reason "$reason")"
+  fi
+  missing_owner_fields="$(preflight_missing_owner_fields release-validation-record "$reason")"
+  missing_approval_roles="$(preflight_missing_approval_roles release-validation-record "$reason" "$status")"
+  missing_evidence_files="$(preflight_missing_evidence_files "$reason")"
+  deferred_device_evidence="$(preflight_deferred_device_evidence release-validation-record "$reason")"
+  requires_human_approval="$(preflight_requires_human_approval "$status" "$missing_approval_roles" "$missing_owner_fields")"
   if [[ -n "$REPORT_FILE" ]]; then
     mkdir -p "$(dirname "$REPORT_FILE")"
     {
+      printf 'artifactSchema=ReleaseValidationRecordVerification/v1\n'
       printf 'status=%s\n' "$status"
       printf 'target=release-validation-record\n'
+      printf 'owner=%s\n' "$EVIDENCE_OWNER"
+      printf 'recordedAt=%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      printf 'command=%s\n' "$(command_line)"
+      printf 'failedTarget=%s\n' "$failed_target"
+      printf 'reason=%s\n' "$reason"
+      printf 'missingOwnerFields=%s\n' "$missing_owner_fields"
+      printf 'missingApprovalRoles=%s\n' "$missing_approval_roles"
+      printf 'missingEvidenceFiles=%s\n' "$missing_evidence_files"
+      printf 'deferredDeviceEvidence=%s\n' "$deferred_device_evidence"
+      printf 'requiresHumanApproval=%s\n' "$requires_human_approval"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
       printf 'validationRecordFile=%s\n' "$VALIDATION_RECORD_FILE"
+      printf 'validationRecordSha256=%s\n' "$(sha256_or_empty "$VALIDATION_RECORD_FILE")"
       printf 'androidTestSourceDir=%s\n' "$ANDROID_TEST_SOURCE_DIR"
       printf 'expectedReleaseArtifactSha256=%s\n' "$EXPECTED_RELEASE_ARTIFACT_SHA256"
-      printf 'reason=%s\n' "$reason"
     } > "$REPORT_FILE"
   fi
 }
@@ -115,6 +205,39 @@ def validate_utc_timestamp_fresh(value, max_age_days, prefix):
     elif (now - parsed).days > max_age_days:
         failures.append(f"{prefix}-recorded-at-stale")
 
+def validate_formal_evidence_audit(section, key, record_entry, evidence_path, props):
+    prefix = f"{section}-{key}-evidence"
+    expected_schema = {
+        "manual": "ManualAcceptanceEvidence/v1",
+        "flow": "ReleaseFlowEvidence/v1",
+    }.get(section, "")
+    if expected_schema and props.get("artifactSchema") != expected_schema:
+        failures.append(f"{prefix}-artifact-schema-invalid")
+
+    evidence_owner = props.get("owner", "")
+    record_owner = record_entry.get("owner", "") if isinstance(record_entry, dict) else ""
+    if not non_empty_string(evidence_owner):
+        failures.append(f"{prefix}-owner-missing")
+    elif non_empty_string(record_owner) and evidence_owner != record_owner:
+        failures.append(f"{prefix}-owner-mismatch")
+
+    evidence_date = props.get("date", "")
+    record_date = record_entry.get("date", "") if isinstance(record_entry, dict) else ""
+    validate_date_field(evidence_date, prefix)
+    if non_empty_string(evidence_date) and non_empty_string(record_date) and evidence_date != record_date:
+        failures.append(f"{prefix}-date-mismatch")
+
+    validate_utc_timestamp_fresh(props.get("recordedAt", ""), 30, prefix)
+    if not non_empty_string(props.get("command", "")):
+        failures.append(f"{prefix}-command-missing")
+    if props.get("reproduciblePath") != str(evidence_path):
+        failures.append(f"{prefix}-reproducible-path-invalid")
+    validation_record_file = props.get("validationRecordFile", "")
+    if not non_empty_string(validation_record_file):
+        failures.append(f"{prefix}-validation-record-file-missing")
+    elif Path(validation_record_file).resolve() != record_path.resolve():
+        failures.append(f"{prefix}-validation-record-file-mismatch")
+
 def validate_file_sha(prefix, path, expected_sha):
     if not non_empty_string(expected_sha):
         failures.append(f"{prefix}-sha-missing")
@@ -138,6 +261,21 @@ def validate_release_artifact_binding(prefix, props):
     elif actual_sha.lower() != expected_release_artifact_sha.lower():
         failures.append(f"{prefix}-release-artifact-sha-mismatch")
 
+def abi_tokens(value):
+    if not non_empty_string(value):
+        return set()
+    return {item.strip() for item in re.split(r"[,\s]+", value) if item.strip()}
+
+def validate_release_arm64_abi(prefix, value):
+    tokens = abi_tokens(value)
+    if "arm64-v8a" not in tokens:
+        failures.append(f"{prefix}-abi-not-arm64")
+    validate_no_x86_abi(prefix, tokens)
+
+def validate_no_x86_abi(prefix, tokens):
+    if tokens.intersection({"x86", "x86_64"}):
+        failures.append(f"{prefix}-abi-x86-not-allowed")
+
 def validate_evidence_record(section, key, value):
     prefix = f"{section}-{key}"
     if isinstance(value, str):
@@ -160,6 +298,9 @@ def validate_evidence_record(section, key, value):
         failures.append(f"{prefix}-evidence-file-missing")
     else:
         validate_file_sha(f"{prefix}-evidence", evidence_path, value.get("evidenceSha256", ""))
+        evidence_props = properties_for(evidence_path)
+        if section in {"manual", "flow"}:
+            validate_formal_evidence_audit(section, key, value, evidence_path, evidence_props)
         if section == "manual":
             validate_manual_evidence(key, evidence_path)
         if section == "flow":
@@ -205,9 +346,10 @@ def validate_api_matrix_evidence(api_level, evidence_path):
     if props.get("api_level") != str(api_level):
         failures.append(f"{prefix}-api-mismatch")
     report_abi = props.get("abi", "")
-    report_abis = {item.strip() for item in report_abi.split(",") if item.strip()}
+    report_abis = abi_tokens(report_abi)
     if "arm64-v8a" not in report_abis:
         failures.append(f"{prefix}-abi-mismatch")
+    validate_release_arm64_abi(prefix, report_abi)
     report_serial = props.get("serial", "")
     if not report_serial.startswith("emulator-"):
         failures.append(f"{prefix}-serial-not-emulator")
@@ -332,9 +474,10 @@ def validate_nested_emulator_report(prefix, regression_props, expected_api_level
         failures.append(f"{prefix}-emulator-report-serial-mismatch")
     if props.get("api_level") != str(expected_api_level):
         failures.append(f"{prefix}-emulator-report-api-mismatch")
-    report_abis = {item.strip() for item in props.get("abi", "").split(",") if item.strip()}
+    report_abis = abi_tokens(props.get("abi", ""))
     if expected_abi not in report_abis:
         failures.append(f"{prefix}-emulator-report-abi-mismatch")
+    validate_release_arm64_abi(f"{prefix}-emulator-report", props.get("abi", ""))
     if props.get("avd") != expected_avd:
         failures.append(f"{prefix}-emulator-report-avd-mismatch")
     if props.get("device_report_file") != regression_props.get("device_report_file", ""):
@@ -378,9 +521,10 @@ def validate_api_nested_emulator_report(api_level, regression_props):
         failures.append(f"{prefix}-serial-mismatch")
     if props.get("api_level") != str(api_level):
         failures.append(f"{prefix}-api-mismatch")
-    report_abis = {item.strip() for item in props.get("abi", "").split(",") if item.strip()}
+    report_abis = abi_tokens(props.get("abi", ""))
     if "arm64-v8a" not in report_abis:
         failures.append(f"{prefix}-abi-mismatch")
+    validate_release_arm64_abi(prefix, props.get("abi", ""))
     if props.get("avd") != regression_props.get("avd", ""):
         failures.append(f"{prefix}-avd-mismatch")
     if props.get("device_report_file") != regression_props.get("device_report_file", ""):
@@ -422,15 +566,26 @@ def validate_api_nested_device_report(api_level, regression_props):
         failures.append(f"{prefix}-serial-mismatch")
     if props.get("api_level") != str(api_level):
         failures.append(f"{prefix}-api-mismatch")
-    report_abis = {item.strip() for item in props.get("abi", "").split(",") if item.strip()}
+    report_abis = abi_tokens(props.get("abi", ""))
     if "arm64-v8a" not in report_abis:
         failures.append(f"{prefix}-abi-mismatch")
+    validate_release_arm64_abi(prefix, props.get("abi", ""))
     if props.get("clean_device") != "1":
         failures.append(f"{prefix}-clean-device-not-true")
     if props.get("instrumentation") != "passed":
         failures.append(f"{prefix}-instrumentation-not-passed")
     if props.get("instrumentation_output_file") != regression_props.get("instrumentation_output_file", ""):
         failures.append(f"{prefix}-instrumentation-output-mismatch")
+    validate_file_sha(
+        f"{prefix}-instrumentation-output",
+        props.get("instrumentation_output_file", ""),
+        props.get("instrumentation_output_sha256", ""),
+    )
+    if props.get("logcat_file") != regression_props.get("logcat_file", ""):
+        failures.append(f"{prefix}-logcat-mismatch")
+    validate_logcat_artifact(prefix, props.get("logcat_file", ""))
+    if non_empty_string(props.get("logcat_file", "")) and Path(props.get("logcat_file", "")).is_file():
+        validate_file_sha(f"{prefix}-logcat", props.get("logcat_file", ""), props.get("logcat_sha256", ""))
     instrumentation_output_count = validate_instrumentation_output(prefix, props.get("instrumentation_output_file", ""))
     try:
         device_count = int(props.get("instrumentation_test_count", ""))
@@ -443,6 +598,8 @@ def validate_api_nested_device_report(api_level, regression_props):
             regression_count = None
         if device_count < source_android_test_count:
             failures.append(f"{prefix}-test-count-too-low")
+        if props.get("test_count", "") and props.get("test_count") != props.get("instrumentation_test_count", ""):
+            failures.append(f"{prefix}-test-count-alias-mismatch")
         if regression_count is not None and device_count != regression_count:
             failures.append(f"{prefix}-test-count-mismatch")
         if instrumentation_output_count is not None and instrumentation_output_count != device_count:
@@ -459,10 +616,20 @@ def validate_api_nested_device_report(api_level, regression_props):
 def validate_performance_evidence(key, evidence_path):
     prefix = f"performance-{key}-evidence"
     props = properties_for(evidence_path)
+    if props.get("artifactSchema") != "PerfBaselineVerification/v1":
+        failures.append(f"{prefix}-schema-invalid")
     if props.get("status") != "passed":
         failures.append(f"{prefix}-status-not-passed")
     if props.get("target") != "perf-baseline":
         failures.append(f"{prefix}-target-invalid")
+    if not non_empty_string(props.get("owner", "")):
+        failures.append(f"{prefix}-owner-missing")
+    if not non_empty_string(props.get("command", "")):
+        failures.append(f"{prefix}-command-missing")
+    if not non_empty_string(props.get("reproduciblePath", "")):
+        failures.append(f"{prefix}-reproducible-path-missing")
+    if non_empty_string(props.get("failedTarget", "")):
+        failures.append(f"{prefix}-failed-target-not-empty")
     if props.get("performanceKey") != key:
         failures.append(f"{prefix}-key-mismatch")
     if props.get("missingFieldCount") != "0":
@@ -483,6 +650,8 @@ def validate_performance_evidence(key, evidence_path):
     else:
         if max_record_age_days <= 0:
             failures.append(f"{prefix}-max-record-age-invalid")
+        else:
+            validate_utc_timestamp_fresh(props.get("recordedAt", ""), max_record_age_days, prefix)
     baseline_file = props.get("baselineFile", "")
     if not non_empty_string(baseline_file):
         failures.append(f"{prefix}-baseline-file-missing")
@@ -495,6 +664,14 @@ def validate_performance_evidence(key, evidence_path):
         else:
             validate_file_sha(f"{prefix}-baseline", baseline_file, expected_baseline_sha)
         baseline_props = properties_for(baseline_file)
+        if baseline_props.get("artifactSchema") != "PerfBaseline/v1":
+            failures.append(f"{prefix}-baseline-schema-invalid")
+        if not non_empty_string(baseline_props.get("owner", "")):
+            failures.append(f"{prefix}-baseline-owner-missing")
+        if not non_empty_string(baseline_props.get("collectionCommand", "")):
+            failures.append(f"{prefix}-baseline-command-missing")
+        if not non_empty_string(baseline_props.get("reproduciblePath", "")):
+            failures.append(f"{prefix}-baseline-reproducible-path-missing")
         if baseline_props.get("status") != "passed":
             failures.append(f"{prefix}-baseline-status-not-passed")
         if baseline_props.get("releaseArtifactSha256") != expected_sha:
@@ -510,6 +687,12 @@ def validate_performance_evidence(key, evidence_path):
         if max_record_age_days is not None and max_record_age_days > 0:
             validate_utc_timestamp_fresh(baseline_props.get("recordedAt", ""), max_record_age_days, prefix)
 
+def property_is_true(value):
+    return str(value).lower() in {"true", "1", "yes"}
+
+def property_is_false(value):
+    return str(value).lower() in {"false", "0", "no"}
+
 def validate_manual_evidence(key, evidence_path):
     prefix = f"manual-{key}-evidence"
     props = properties_for(evidence_path)
@@ -520,8 +703,113 @@ def validate_manual_evidence(key, evidence_path):
         failures.append(f"{prefix}-target-invalid")
     if props.get("manualKey") != key:
         failures.append(f"{prefix}-key-mismatch")
-    if props.get("manualAcceptance", "").lower() not in {"true", "1", "yes"}:
+    if not property_is_true(props.get("manualAcceptance", "")):
         failures.append(f"{prefix}-manual-acceptance-not-true")
+    required_true_fields = {
+        "modelSetup": {
+            "modelManagerOpened": "model-manager-opened-missing",
+            "recommendedModelAvailabilityChecked": "recommended-model-availability-check-missing",
+        },
+        "remoteModePrivacy": {
+            "remoteModeExplicitlySelected": "remote-mode-explicit-selection-missing",
+            "localMemoryNotAutoIncluded": "local-memory-auto-include-boundary-missing",
+        },
+        "toolConfirmation": {
+            "confirmationSheetObserved": "confirmation-sheet-missing",
+            "toolCancelPreventsExecution": "tool-cancel-prevents-execution-missing",
+        },
+        "permissions": {
+            "runtimePermissionPromptObserved": "runtime-permission-prompt-missing",
+            "permissionDeniedRecoveryCovered": "permission-denied-recovery-missing",
+        },
+        "backgroundReminders": {
+            "reminderCreateUpdateCancelObserved": "reminder-create-update-cancel-missing",
+            "backgroundReminderDeliveryObserved": "background-reminder-delivery-missing",
+        },
+        "sharing": {
+            "shareSheetBoundaryObserved": "share-sheet-boundary-missing",
+            "externalOutcomeNotAutoClaimed": "external-outcome-not-auto-claimed-missing",
+        },
+        "multimodalEntryPoints": {
+            "localVisionCapabilityObserved": "local-vision-capability-missing",
+            "unsupportedVisionFailClosedObserved": "unsupported-vision-fail-closed-missing",
+        },
+        "voiceInput": {
+            "systemSpeechRecognizerObserved": "system-speech-recognizer-missing",
+            "voiceDraftNoAutoSend": "voice-draft-no-auto-send-missing",
+            "voiceCancelCovered": "voice-cancel-missing",
+        },
+        "filePicker": {
+            "systemDocumentPickerObserved": "system-document-picker-missing",
+            "documentExcerptBounded": "document-excerpt-bounded-missing",
+            "remoteNonImageAttachmentNotAutoIncluded": "remote-non-image-attachment-not-auto-included-missing",
+        },
+        "mediaProjection": {
+            "systemMediaProjectionPromptObserved": "system-media-projection-prompt-missing",
+            "mediaProjectionCancelBlocksCapture": "media-projection-cancel-blocks-capture-missing",
+            "mediaProjectionOneShotConsentCovered": "media-projection-one-shot-consent-missing",
+        },
+        "remoteSinglePublicEvidence": {
+            "singlePublicEvidenceSelected": "single-public-evidence-selection-missing",
+            "privateEvidenceExcluded": "private-evidence-exclusion-missing",
+        },
+        "remoteMultiEvidenceComparison": {
+            "multiplePublicEvidenceCompared": "multiple-public-evidence-comparison-missing",
+        },
+        "mixedPrivateActionBatchFailClosed": {
+            "mixedBatchRejected": "mixed-batch-rejection-missing",
+        },
+    }.get(key, {})
+    for field, reason in required_true_fields.items():
+        if not property_is_true(props.get(field, "")):
+            failures.append(f"{prefix}-{reason}")
+    required_false_fields = {
+        "remoteModePrivacy": {
+            "remoteRawPrivateContextSent": "remote-raw-private-context-sent-not-false",
+        },
+        "toolConfirmation": {
+            "toolExecutedWithoutConfirmation": "tool-executed-without-confirmation-not-false",
+        },
+        "permissions": {
+            "permissionGrantedSilently": "permission-granted-silently-not-false",
+        },
+        "mediaProjection": {
+            "screenshotRawPayloadPersisted": "screenshot-raw-payload-persisted-not-false",
+        },
+        "remoteMultiEvidenceComparison": {
+            "privateEvidenceSent": "private-evidence-sent-not-false",
+        },
+        "mixedPrivateActionBatchFailClosed": {
+            "partialActionExecution": "partial-action-execution-not-false",
+        },
+    }.get(key, {})
+    for field, reason in required_false_fields.items():
+        if not property_is_false(props.get(field, "")):
+            failures.append(f"{prefix}-{reason}")
+    required_exact_fields = {
+        "remoteSinglePublicEvidence": {
+            "remoteRequestCount": ("1", "remote-request-count-mismatch"),
+        },
+        "mixedPrivateActionBatchFailClosed": {
+            "remoteRequestCount": ("0", "remote-request-count-mismatch"),
+        },
+    }.get(key, {})
+    for field, (expected, reason) in required_exact_fields.items():
+        if props.get(field) != expected:
+            failures.append(f"{prefix}-{reason}")
+    required_min_fields = {
+        "remoteMultiEvidenceComparison": {
+            "publicEvidenceCount": (2, "public-evidence-count-too-low"),
+        },
+    }.get(key, {})
+    for field, (minimum, reason) in required_min_fields.items():
+        try:
+            value = int(props.get(field, ""))
+        except ValueError:
+            failures.append(f"{prefix}-{reason}")
+            continue
+        if value < minimum:
+            failures.append(f"{prefix}-{reason}")
 
 def validate_flow_evidence(key, evidence_path):
     prefix = f"flow-{key}"
@@ -543,6 +831,13 @@ def validate_flow_evidence(key, evidence_path):
             "firstRunSetupVisibleCovered": "first-run-setup-visibility-missing",
             "firstRunDefaultChatModelSelected": "first-run-default-chat-model-missing",
             "firstRunSkipReachesMainShell": "first-run-skip-main-shell-missing",
+        },
+        "upgradeInstall": {
+            "upgradeInstallUsesAdbInstallR": "upgrade-install-adb-install-r-missing",
+            "upgradeInstallPreservesFirstInstallTime": "upgrade-install-first-install-time-preservation-missing",
+            "upgradeInstallUpdatesLastUpdateTime": "upgrade-install-last-update-time-update-missing",
+            "upgradeInstallVersionCodeIncreased": "upgrade-install-version-code-increase-missing",
+            "upgradeInstallInstrumentationCovered": "upgrade-install-instrumentation-missing",
         },
         "localModelDownloadVerification": {
             "localModelDownloadVerified": "model-download-verification-missing",
@@ -572,6 +867,23 @@ def validate_flow_evidence(key, evidence_path):
             "remoteNetworkFailureRecoveryCovered": "remote-network-failure-recovery-missing",
             "remoteUnconfiguredModelFailureCovered": "remote-unconfigured-model-failure-missing",
             "remoteLocalMemoryNotAutoIncluded": "remote-local-memory-boundary-missing",
+            "remoteProtectedMemoryDeclared": "remote-protected-memory-declared-missing",
+            "remoteProtectedDeviceContextDeclared": "remote-protected-device-context-declared-missing",
+        },
+        "encryptedApiKeyClear": {
+            "encryptedApiKeyBlankInputClearsSecret": "encrypted-api-key-clear-missing",
+            "legacyPlaintextApiKeyNotPersisted": "legacy-plaintext-api-key-boundary-missing",
+        },
+        "sessionPersistence": {
+            "sessionCreateSwitchRestoreCovered": "session-create-switch-restore-missing",
+            "activeSessionPersistenceCovered": "active-session-persistence-missing",
+            "sessionDeleteCovered": "session-delete-missing",
+        },
+        "memoryControls": {
+            "memoryCreateControlCovered": "memory-create-control-missing",
+            "memoryForgetControlCovered": "memory-forget-control-missing",
+            "memoryClearControlCovered": "memory-clear-control-missing",
+            "memoryPanelControlCovered": "memory-panel-control-missing",
         },
         "shareAndPickerInput": {
             "actionSendTextStaged": "action-send-text-staging-missing",
@@ -585,7 +897,15 @@ def validate_flow_evidence(key, evidence_path):
             "remoteVisionUnsupportedOpenStreamCountCovered": "remote-vision-unsupported-open-stream-count-missing",
             "remoteVisionUnsupportedOcrSkipped": "remote-vision-unsupported-ocr-skip-missing",
             "remoteVisionMixedShareNonImageProtected": "remote-vision-mixed-share-non-image-protection-missing",
+            "remoteVisionSendPreviewConfirmed": "remote-vision-send-preview-confirmation-missing",
+            "remoteVisionCancelKeepsRuntimeIdle": "remote-vision-cancel-runtime-idle-missing",
             "remoteVisionHttpFixtureStreamRequested": "remote-vision-http-fixture-stream-request-missing",
+            "localVisionVerifiedModelImageAttachmentStaged": "local-vision-image-staging-missing",
+            "localVisionRuntimeImageAttachmentSent": "local-vision-runtime-image-attachment-missing",
+            "localVisionLocalOnlyPersistenceCovered": "local-vision-local-only-persistence-missing",
+            "localVisionPromptMetadataRedacted": "local-vision-prompt-metadata-redaction-missing",
+            "localVisionRemoteRuntimeIdle": "local-vision-remote-runtime-idle-missing",
+            "localVisionUnsupportedOcrSkipped": "local-vision-unsupported-ocr-skip-missing",
             "documentExcerptBounded": "document-excerpt-boundary-missing",
             "pickerAttachmentPromptCovered": "picker-attachment-prompt-missing",
         },
@@ -603,10 +923,37 @@ def validate_flow_evidence(key, evidence_path):
             "remoteConfigClearCovered": "remote-config-clear-control-missing",
             "dataDeletionCopyCovered": "data-deletion-copy-missing",
         },
+        "remindersAfterReboot": {
+            "bootCompletedReminderRescheduleCovered": "boot-completed-reminder-reschedule-missing",
+            "packageReplacedReminderRescheduleCovered": "package-replaced-reminder-reschedule-missing",
+            "reminderCatchUpSchedulingCovered": "reminder-catch-up-scheduling-missing",
+            "staleRunningReminderRecoveryCovered": "stale-running-reminder-recovery-missing",
+            "reminderAuditMetadataOnly": "reminder-audit-metadata-only-missing",
+        },
         "adaptiveUi": {
             "largeFontReachabilityCovered": "large-font-reachability-missing",
             "landscapeReachabilityCovered": "landscape-reachability-missing",
             "accessibleLabelsCovered": "accessible-labels-missing",
+        },
+        "accessibilityText": {
+            "accessibilityTextConfirmationCovered": "accessibility-text-confirmation-missing",
+            "accessibilityTextCancellationCovered": "accessibility-text-cancellation-missing",
+            "accessibilityTextLocalOnlyMetadataCovered": "accessibility-text-local-only-metadata-missing",
+            "accessibilityTextTraceRecorded": "accessibility-text-trace-recorded-missing",
+        },
+        "recentMediaOcr": {
+            "recentScreenshotOcrRoutingCovered": "recent-screenshot-ocr-routing-missing",
+            "recentImageOcrRoutingCovered": "recent-image-ocr-routing-missing",
+            "recentMediaOcrConfirmationCovered": "recent-media-ocr-confirmation-missing",
+            "recentScreenshotOneItemLimitCovered": "recent-screenshot-one-item-limit-missing",
+            "recentMediaOcrPrivateMetadataRedacted": "recent-media-ocr-private-metadata-redaction-missing",
+            "recentMediaOcrOcrTextTraceRedacted": "recent-media-ocr-trace-redaction-missing",
+            "recentMediaOcrLocalOnlyProtected": "recent-media-ocr-local-only-protection-missing",
+            "recentMediaOcrRemoteLeakageBlocked": "recent-media-ocr-remote-leakage-block-missing",
+        },
+        "mediaProjectionCancellation": {
+            "mediaProjectionOneShotConsentCovered": "media-projection-one-shot-consent-missing",
+            "currentScreenshotOcrRemoteContinuationBlocked": "current-screenshot-ocr-remote-continuation-block-missing",
         },
     }.get(key, {})
     for field, reason in required_true_fields.items():
@@ -620,10 +967,39 @@ def validate_flow_evidence(key, evidence_path):
             "remoteVisionUnsupportedImageStreamOpenCount": ("0", "remote-vision-unsupported-image-stream-count-mismatch"),
             "remoteVisionUnsupportedImageOcrInvocationCount": ("0", "remote-vision-unsupported-image-ocr-count-mismatch"),
             "remoteVisionMixedProtectedNonImageCount": ("1", "remote-vision-mixed-protected-non-image-count-mismatch"),
+            "localVisionRemoteRuntimeRequestCount": ("0", "local-vision-remote-runtime-request-count-mismatch"),
+            "localVisionUnsupportedRuntimeImageSendCount": ("0", "local-vision-unsupported-runtime-image-send-count-mismatch"),
+            "localVisionUnsupportedImageOcrInvocationCount": ("0", "local-vision-unsupported-image-ocr-count-mismatch"),
+        },
+        "recentMediaOcr": {
+            "recentScreenshotMaxCount": ("1", "recent-screenshot-max-count-mismatch"),
+            "recentImageMaxCount": ("3", "recent-image-max-count-mismatch"),
+            "recentMediaOcrRawPayloadPersisted": ("false", "recent-media-ocr-raw-payload-persisted"),
+        },
+        "remoteHttpsConfiguration": {
+            "remoteMemoryContextIncluded": ("false", "remote-memory-context-included"),
+            "remoteMemoryHitCount": ("0", "remote-memory-hit-count-nonzero"),
+            "remoteSemanticMemoryHitCount": ("0", "remote-semantic-memory-hit-count-nonzero"),
+            "remoteLexicalMemoryHitCount": ("0", "remote-lexical-memory-hit-count-nonzero"),
+            "remoteDeviceContextIncluded": ("false", "remote-device-context-included"),
+            "remoteRawContentPersisted": ("false", "remote-raw-content-persisted"),
         },
     }.get(key, {})
     for field, (expected, reason) in required_exact_fields.items():
         if props.get(field) != expected:
+            failures.append(f"{prefix}-{reason}")
+    required_min_fields = {
+        "shareAndPickerInput": {
+            "localVisionRuntimeImageAttachmentSendCount": (1, "local-vision-runtime-image-attachment-send-count-mismatch"),
+        },
+    }.get(key, {})
+    for field, (minimum, reason) in required_min_fields.items():
+        try:
+            value = int(props.get(field, ""))
+        except ValueError:
+            failures.append(f"{prefix}-{reason}")
+            continue
+        if value < minimum:
             failures.append(f"{prefix}-{reason}")
 
 def validate_png_file(name, path):
@@ -731,10 +1107,17 @@ def validate_instrumentation_output(prefix, output_file):
     if not output.strip():
         failures.append(f"{prefix}-instrumentation-output-empty")
     ok_matches = re.findall(r"^OK(?: \(([0-9]+) tests?\))?$", output, re.MULTILINE)
+    failure_marker = re.search(
+        r"^(FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2|INSTRUMENTATION_RESULT: shortMsg=|INSTRUMENTATION_STATUS: stack=|Error in )",
+        output,
+        re.MULTILINE,
+    )
+    if failure_marker:
+        failures.append(f"{prefix}-instrumentation-output-failure-marker")
     if not ok_matches:
-        if re.search(r"^(FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2|INSTRUMENTATION_RESULT: shortMsg=|INSTRUMENTATION_STATUS: stack=|Error in )", output, re.MULTILINE):
-            failures.append(f"{prefix}-instrumentation-output-failure-marker")
         failures.append(f"{prefix}-instrumentation-output-success-marker-missing")
+        return None
+    if failure_marker:
         return None
     count = ok_matches[-1]
     if not count:
@@ -778,6 +1161,7 @@ if not isinstance(emulator, dict):
     emulator = {}
 if emulator.get("status") != "passed":
     failures.append("emulator-regression-not-passed")
+validate_release_arm64_abi("emulator-regression", emulator.get("abi", ""))
 emulator_report = emulator.get("reportPath", "")
 if not emulator_report:
     failures.append("emulator-report-path-missing")
@@ -799,6 +1183,7 @@ else:
         failures.append("emulator-report-api-mismatch")
     if props.get("abi") != emulator.get("abi"):
         failures.append("emulator-report-abi-mismatch")
+    validate_release_arm64_abi("emulator-report", props.get("abi", ""))
     try:
         actual_count = int(props.get("actual_android_test_count", ""))
     except ValueError:
@@ -855,9 +1240,10 @@ else:
         failures.append("physical-device-report-api-mismatch")
     report_abi = props.get("abi", "")
     expected_abi = physical.get("abi", "")
-    report_abis = {item.strip() for item in report_abi.split(",") if item.strip()}
+    report_abis = abi_tokens(report_abi)
     if "arm64-v8a" not in report_abis:
         failures.append("physical-device-report-abi-not-arm64")
+    validate_no_x86_abi("physical-device-report", report_abis)
     if non_empty_string(expected_abi) and expected_abi not in report_abis:
         failures.append("physical-device-report-abi-mismatch")
     expected_clean = "1" if physical.get("cleanDevice") is True else "0"
@@ -873,6 +1259,14 @@ else:
     if props.get("instrumentation") != "passed":
         failures.append("physical-device-report-instrumentation-not-passed")
     instrumentation_output_count = validate_instrumentation_output("physical-device-report", props.get("instrumentation_output_file", ""))
+    validate_file_sha(
+        "physical-device-report-instrumentation-output",
+        props.get("instrumentation_output_file", ""),
+        props.get("instrumentation_output_sha256", ""),
+    )
+    validate_logcat_artifact("physical-device-report", props.get("logcat_file", ""))
+    if non_empty_string(props.get("logcat_file", "")) and Path(props.get("logcat_file", "")).is_file():
+        validate_file_sha("physical-device-report-logcat", props.get("logcat_file", ""), props.get("logcat_sha256", ""))
     try:
         actual_count = int(props.get("instrumentation_test_count", ""))
     except ValueError:
@@ -880,6 +1274,8 @@ else:
     else:
         if actual_count < source_android_test_count:
             failures.append("physical-device-report-test-count-too-low")
+        if props.get("test_count", "") and props.get("test_count") != props.get("instrumentation_test_count", ""):
+            failures.append("physical-device-report-test-count-alias-mismatch")
         if instrumentation_output_count is not None and instrumentation_output_count != actual_count:
             failures.append("physical-device-report-instrumentation-output-count-mismatch")
     if props.get("debug_apk") != "app/build/outputs/apk/debug/app-debug.apk":

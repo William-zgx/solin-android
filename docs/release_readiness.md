@@ -20,6 +20,43 @@ items below.
   license review records, RC perf-baseline verification, artifact SHA matching,
   and optional public release enforcement for signed artifacts plus AAB presence
   and release mapping output.
+- Release record, store policy, release validation, privacy review, and model
+  license review verifier reports now share a machine-readable evidence schema
+  with `artifactSchema`, owner, UTC timestamp, command, failed target,
+  reproducible report path, and SHA-256 binding for their input records.
+- Store policy verification now also fail-closes on model capability boundary
+  drift: local LiteRT, memory, and action profiles must remain non-remote;
+  remote OpenAI-compatible templates must require explicit send confirmation;
+  and vision capability flags must match declared modalities/features.
+- Release record `verificationReports` now fail closed unless each linked report
+  is SHA-bound, `status=passed`, schema-tagged, owner-tagged, UTC timestamped,
+  reproducible by command/path, and fresh within the release-record max-age
+  window.
+- The top-level `release-gate.properties` report is now also a first-class
+  evidence artifact with `artifactSchema`, owner, UTC timestamp, command,
+  reproducible path, current git head SHA, and path/status/SHA-256 bindings for
+  generated child reports such as privacy scan, AI behavior eval, artifact scan,
+  perf baseline, signing cert, and release owner records.
+- Release-gate-generated lightweight child reports now use
+  `ReleaseGateChildReport/v1` with owner, UTC timestamp, command, reproducible
+  path, and reason fields, so skipped or preflight-failed children remain
+  auditable instead of status-only files.
+- Release operations monitoring and rollback evidence now require passed typed
+  properties reports bound to the approved operations record fields, not only
+  path/SHA presence.
+- Formal manual acceptance and release-flow evidence now require typed
+  properties reports with schema, matching owner/date, fresh UTC timestamp,
+  command, and reproducible path; SHA-bound status-only files fail closed.
+- Manual acceptance evidence now also has key-specific machine checks: remote
+  mode privacy must show no automatic local-memory/raw private-context send,
+  tool confirmation must show cancel blocks execution, permission evidence must
+  cover denial recovery, voice/file/MediaProjection evidence must cover the
+  system-mediated boundaries, public evidence batches must bind request counts,
+  and mixed private/action batches must fail closed without partial execution.
+- Share/picker release-flow evidence now covers local vision alongside remote
+  vision: verified local image staging, local runtime image send count,
+  LocalOnly persistence, prompt metadata redaction, remote runtime idle, and
+  unsupported OCR skip counters are machine-checked.
 - Recommended downloads are registered only after SHA-256 verification.
 - Legacy recommended files are registered as `LegacyUnverified` and verified
   asynchronously before they can become active.
@@ -61,6 +98,19 @@ items below.
 - Latest local signed release APK was installed back on `fb6272c` with
   `adb install -r` after debug eval, preserving app data. This is not a
   replacement for production signing or the final release-candidate matrix.
+- Current local real-app search resolver replay coverage includes UIAutomator
+  XML fixtures for Taobao, Pinduoduo, Amap/Gaode, JD, Chrome, Android Browser,
+  Quark, and UC browser search-entry ranking, Taobao, Pinduoduo, Amap/Gaode, JD,
+  and Quark browser input-field / submit-button / result-page verification replay,
+  plus a JD unchanged-home negative replay that prevents feed result hints from
+  being accepted as a completed search,
+  plus a local evidence gate for ranked candidates JSON,
+  target-resolution SHA-256 files, expected package/app fields, failure kind,
+  window-dump SHA, submit failure, result verification failure, required hint
+  failure, no-target-app fail-closed behavior, and an all-fake-apps success
+  path; see `docs/validation_report.md`. This improves the resolver and eval
+  regression harness, but it is not a replacement for a passing physical
+  real-app-search eval.
 - Current release-candidate emulator regression passed with
   `scripts/regression_emulator.sh` on `pocketmind_api36_arm64` /
   `emulator-5554` (API 36, `arm64-v8a`):
@@ -76,6 +126,10 @@ items below.
   `scripts/prepare_emulator_api_matrix.sh` to produce a dry-run report with the
   exact SDK packages and AVD creation commands; rerun with `APPLY=1` only after
   approving those installs.
+- Release validation now rejects `x86` / `x86_64` emulator evidence at the
+  approved-record verifier. Arm64 emulator reports can support release
+  evidence; x86 emulator reports are limited to developer smoke and cannot be
+  mixed into API matrix ABI lists.
 - API 36 has also passed through the new matrix runner:
   `build/verification/regression-emulator-api36-no-implicit-image-ocr/regression-emulator-api-matrix.properties`
   records `status=passed`, `passedApis=36`, and links the nested API 36
@@ -86,21 +140,201 @@ items below.
   raw prompts, tool parameters, screenshots, clipboard content, or API keys.
 - `scripts/verify_ai_behavior_eval.sh` now emits machine-readable behavior
   coverage metrics and the release gate requires `mvpScenario` boundary mapping
-  for the fixture suite. This makes Agent behavior coverage auditable without
-  requiring live model execution in CI.
+  for the fixture suite. Public release gate runs also require
+  `AI_BEHAVIOR_ACTUAL_TRACE_FILE` and bind the actual trace / planning diff
+  evidence by SHA-256. Strict runs require per-row machine provenance
+  (`traceSource` plus UTC `traceRecordedAt`), so final Agent behavior evidence
+  cannot be a fixture-only dry run. Public release gate runs now additionally
+  require every actual trace row to come from `agent_loop_runtime`, matching the
+  deterministic collector contract; `android_instrumentation` and
+  `device_debug_eval` trace sources remain non-public/debug evidence only.
+  `scripts/collect_ai_behavior_actual_trace.sh` now produces the local
+  `agent_loop_runtime` actual trace collection report and can run public-strict
+  collection with `AI_BEHAVIOR_REJECT_ALLOWED_FAILURES=1` or
+  `PUBLIC_RELEASE=1`. Expected `fail_closed` outcomes that match their declared
+  failure mode are classified as `matched`, not `allowed_failure`; unresolved
+  non-`fail_closed` downgrades still remain `allowed_failure` and fail closed
+  under `--reject-allowed-failures`. A local fake-trace smoke of the verifier on
+  2026-06-23 covered 40 fixture rows with `traceDiffMatchedCount=40`,
+  `traceDiffAllowedFailureCount=0`, `traceDiffMissingActualCount=0`, and
+  `traceDiffMismatchCount=0`. This is a local verifier check, not final release
+  evidence. Public release still needs a fresh collector report generated from
+  the runtime `agent_loop_runtime` test path. Real-app search failure modes are
+  required in the eval suite: `search_entry_not_found`, `editable_not_found`,
+  `submit_not_found`, `result_not_verified`, and `required_hint_missing`.
+- Agent behavior trace diffs now fail closed when an actual trace reports an
+  unexpected `failureMode`, and fixture/trace failure modes must use stable slug
+  taxonomy. Allowed failures can explain expected fail-closed behavior, but they
+  can no longer hide a new silent failure mode on an otherwise matched trace.
+- Route-sensitive Agent behavior fixtures can now declare expected routing
+  evidence. Plain-chat false-positive cases require `expectedRoutingPath=no_action`,
+  so a tool route such as `action_planner/open_wifi_settings` fails the trace
+  diff even when the final tool list is empty. The positive Wi-Fi sequence also
+  binds the expected `open_wifi_settings` / `device_settings_skill` route.
+- Agent behavior risk coverage now includes `high` in addition to
+  public-evidence, low, medium, and sensitive. A high-risk external-share path
+  must remain second-confirmation gated, and actual trace drift from `high` to a
+  lower risk fails the planning trace diff.
+- Required Agent behavior eval boundary coverage is now owned by
+  `CapabilityMatrix.requiredBehaviorEvalBoundaries` and
+  `docs/capability_matrix.json`; `scripts/verify_ai_behavior_eval.sh` reads that
+  matrix and fails closed if the matrix omits or corrupts the boundary list,
+  instead of keeping the release-critical boundary IDs hard-coded only in the
+  shell verifier.
+- GitHub Actions `workflow_dispatch` final release gate now requires an
+  `ai_behavior_actual_trace_file` input and passes it to
+  `AI_BEHAVIOR_ACTUAL_TRACE_FILE`, so the CI public-release path can satisfy the
+  strict Agent behavior actual trace gate instead of failing from a missing
+  environment value.
+- Store policy evidence has been normalized for machine-checkable drift: the
+  privacy notice SHA, pending review evidence SHA, manifest permission list,
+  and confirmed-device-actions listing wording match the current tree. The store
+  policy record intentionally remains pending until a real reviewer, contact
+  email, public privacy policy URL, review date, and approved evidence are
+  supplied.
+- Model capability profile evidence is now machine-readable in
+  `docs/model_capability_profiles.json` and bound to
+  `ModelCatalog.recommendedProfiles()` plus remote OpenAI-compatible text/vision
+  templates by `ModelCapabilityProfilesDocumentationTest`. The release gate
+  contract-test set includes this test, so chat/vision/embedding/action/context
+  window/backend drift fails before release evidence is accepted.
+- Model-backed action planning now consumes verified `ModelCapabilityProfile`
+  evidence when deciding whether mobile-action planning is available; missing
+  mobile-action profiles fail closed even when the legacy capability set claims
+  `MobileAction`.
+- Inline local model tool calls now share that boundary: public evidence calls
+  such as `web_search` remain available, while non-public action/tool calls from
+  local model output fail closed without a mobile-action capability profile.
+- Custom imported local models now resolve to an explicit `custom-local-chat`
+  text-only capability profile instead of inheriting the selected recommended
+  chat/vision profile in health/runtime evidence. Unknown or stale recommended
+  model ids remain unverified and vision fail-closed.
+- Agent behavior allowed failures are now safety-bounded. JVM and shell
+  verifiers require allowed-failure traces to preserve risk, privacy,
+  LocalOnly/remote eligibility, and FailClosed invariants; script self-tests add
+  negative cases for safety-boundary drift and FailClosed weakening.
+- Roadmap status as of 2026-06-23: local Phase 1 gates remain green, Phase 2
+  real-app replay/evidence coverage now includes Chrome, Android Browser, Quark,
+  and UC alongside Taobao, PDD, Gaode, and JD, and Phase 3/4 release/privacy/store
+  gate contracts continue to harden. This is not yet release-ready: physical
+  arm64 validation, arm64 emulator matrix, real-app device loops, perf baseline,
+  screenshots, manual approvals, and production signing remain blocking evidence.
+- The latest local hardening also rejects contradictory instrumentation outputs
+  that contain both failure markers and final OK, requires audit headers on
+  monitoring / crash-smoke / rollback operations evidence, binds strict Agent
+  actual traces to fixture category and input, and adds a direct UI-state contract
+  for verified local vision model capability. These are local gates only; they do
+  not replace physical validation or release-owner evidence.
+- The latest follow-up hardening records `permissiondenied` through the real
+  Agent loop runtime path, requires the actual-trace collector to be entirely
+  `agent_loop_runtime`, emits CI identity from emulator regression producers,
+  binds API matrix readiness evidence by SHA-256, and asserts local-only
+  memory/action model capabilities cannot become remote eligible. These remain
+  local gate improvements; physical arm64 validation, emulator API matrix runs,
+  perf baseline, screenshots, approvals, and production signing are still
+  blocking evidence.
+- A standalone `ModelCapabilityProfilesVerification/v1` gate now checks
+  `docs/model_capability_profiles.json` without Gradle: local memory/action
+  profiles cannot become remote-eligible, remote templates require send
+  confirmation, vision remains Chat-only, and recommended profiles keep
+  byte/SHA/revision provenance. This makes Phase 5 model capability boundaries
+  directly auditable in release evidence.
+- A standalone `RealAppSearchEvidenceVerification/v1` gate now audits generated
+  `real-app-search-eval.properties` evidence without a device: every expected
+  case artifact must be present, pass/fail/skip counts must match, ranked
+  resolver candidates and target-resolution evidence must have matching SHA-256,
+  failed cases must preserve screenshot/UIAutomator/window/logcat diagnostics,
+  and fatal no-target-app failures must carry top-level diagnostics. This
+  strengthens Phase 2 evidence review, but it does not claim that a fresh
+  physical-device real-app search loop has passed.
+- The latest local release-flow hardening makes current-screen screenshot OCR
+  declare `rawPayloadIncluded=false`, requires recent media OCR evidence to bind
+  screenshot/image scan limits plus raw-payload and redaction fields, and
+  requires remote HTTPS configuration evidence to report zero memory hits, zero
+  memory context, zero device context, and no raw content persistence. These are
+  machine-checkable local contracts, not substitutes for physical validation or
+  release-owner approval.
+- The latest follow-up privacy hardening removes recent screenshot/image OCR
+  media identity fields (`name`, `mimeType`, `kind`, `sizeBytes`,
+  `lastModifiedMillis`) from runtime tool results and schemas; only bounded
+  `ocrText` remains private output for those tools. This advances Phase 3
+  LocalOnly/OCR minimization, while physical validation and release-owner
+  approval remain blocking.
+- The latest release evidence hardening rejects unknown perf `performanceKey`
+  values before accepting `PerfBaselineVerification/v1` reports, and requires
+  formal manual/flow evidence to bind back to the current
+  `docs/release_validation_record.json` through `validationRecordFile`. This
+  prevents cross-key or cross-record evidence reuse in local release validation
+  gates; it does not replace final owner sign-off or physical RC evidence.
+- Privacy review evidence now binds both the privacy notice and
+  `docs/capability_matrix.json` by path and SHA-256, so release/security/legal
+  approval cannot silently drift away from the current declared capability
+  surface. Perf baseline verification also rejects baseline records without
+  `PerfBaseline/v1` provenance, owner, collection command, matching reproducible
+  path, fresh non-future `recordedAt`, and a known release validation
+  `performanceKey` before release-gate evidence can pass; the checked-in perf
+  template now carries those provenance fields. These are local evidence gates;
+  they do not replace the pending human approvals or physical RC perf run.
+- Store policy model-download disclosure now binds the primary chat model to
+  `docs/model_capability_profiles.json` and `docs/model_manifest.md` by profile
+  id, byte size, SHA-256, and upstream revision. The verifier also derives
+  whether a lightweight official local chat alternative exists and whether a
+  confirmed remote chat alternative is disclosed, so Play/Data safety copy
+  cannot drift from the recommended model surface without failing locally.
+- Model license approval evidence now has to bind back to the current
+  `docs/model_license_review.json` through `modelLicenseReviewFile`, and release
+  operations child evidence has to bind back to the current operations record
+  through `operationsRecordFile`. This prevents approved-looking evidence from
+  being reused across model-license or release-operations records without a
+  local gate failure.
+- Model license metadata collection now emits `ModelLicenseMetadataCollection/v1`
+  evidence with owner, UTC timestamp, reproducible command/path, and exact SHA-256
+  bindings for the collected metadata, review record, and manifest; this keeps
+  reviewer input provenance auditable before manual license approval.
+- Store policy approval evidence now has to bind back to
+  `docs/store_policy_record.json` through `storePolicyRecordFile` and also bind
+  the current privacy notice, Android manifest, model capability profiles, and
+  model manifest by path and SHA-256. Privacy review role evidence now has to
+  bind back to `docs/privacy_review.json` through `privacyReviewFile`. These are
+  local evidence-chain checks; they do not replace the real store, release,
+  security, or legal approvals.
+- Release gate reports now carry release artifact path/type/SHA-256, and
+  release-gate-owned child reports carry the gate report path, current HEAD,
+  release record file, and artifact identity. Public release records must include
+  a bound `ReleaseGateVerification/v1` report, and blocker evidence must use
+  structured `ReleaseRecordBlockerEvidence/v1` properties tied to the current
+  blocker id, owner, date, release commit, and artifact SHA-256.
+- Capability Matrix now has a standalone
+  `CapabilityMatrixVerification/v1` gate via
+  `scripts/verify_capability_matrix.sh`, and model/memory/multimodal local
+  boundaries are aggregated by
+  `scripts/verify_model_memory_multimodal_local_gates.sh`. These local gates
+  bind model profile, remote vision confirmation, OCR LocalOnly disclosures, and
+  memory privacy documentation without running real model loading, physical
+  hardware, or emulator validation.
+- Release record verifiers now emit preflight fields
+  `missingOwnerFields`, `missingApprovalRoles`, `missingEvidenceFiles`,
+  `deferredDeviceEvidence`, and `requiresHumanApproval`. These fields are
+  intentionally fail-closed: pending human approvals, production signing, and
+  physical validation are visible in reports but are not converted into passed
+  evidence.
+- Device, real-app-search, perf baseline, and emulator matrix scripts support
+  explicit deferred-mode reports with
+  `deferredReason=no-device-test-in-this-phase`. Deferred reports are useful
+  for planning and owner handoff only; they remain release blockers.
 
 ## Remaining release blockers by ownership
 
 | Status | Owner / environment | Item | Gate or evidence |
 | --- | --- | --- | --- |
-| Owner evidence required | Release owner | Fill `docs/release_record.json` with final owner, reviewer, target channel, changelog, release notes, artifact checksum, signing certificate fingerprint, verification reports, and resolved/accepted blockers. | `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; `PUBLIC_RELEASE=1` additionally binds the record to the final public AAB, artifact SHA-256, and production signing certificate SHA-256. |
-| Owner evidence required | Store / policy owner | Fill `docs/store_policy_record.json` with approved store listing, Data safety answers, privacy-policy URL, model download disclosure, Android permission purposes, and special-access disclosures. | `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`; verifier checks the current privacy notice SHA and Android manifest. |
+| Owner evidence required | Release owner | Fill `docs/release_record.json` with final owner, reviewer, target channel, changelog, release notes, artifact checksum, signing certificate fingerprint, fresh schema/owner-tagged verification reports, bound release-gate evidence for public release, and structured resolved/accepted blocker evidence. | `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh`; `PUBLIC_RELEASE=1` additionally binds the record to the final public AAB, artifact SHA-256, production signing certificate SHA-256, and a matching `ReleaseGateVerification/v1` report. |
+| Owner evidence required | Store / policy owner | Fill `docs/store_policy_record.json` with an approved status, real support contact, public privacy-policy URL, reviewer, review date, and approved store-policy evidence. Current machine-checkable SHA, permission, model-download, record binding, and confirmed-actions wording drift has been normalized, but the record remains intentionally pending. | `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh`; verifier checks the current privacy notice SHA, Android manifest, model capability profiles, model manifest, and store policy record binding. |
 | Owner evidence required | Release operations owner | Fill `docs/release_operations_record.json` with crash/ANR monitoring owner, signal source, first-24-hour watcher, staged rollout thresholds, crash/ANR smoke result, and rollback plan. | `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`; smoke evidence should come from `scripts/collect_crash_anr_smoke_evidence.sh` plus device verification, instrumentation output, and logcat. |
 | Owner evidence required | Validation owner | Fill `docs/release_validation_record.json` with approved emulator regression, physical-device instrumentation, API matrix, manual acceptance, flow matrix, sanitized screenshots, and performance sanity evidence. | `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh`; verifier rejects emulator serials as physical-device evidence and checks AndroidTest counts, required APIs, manual/system-mediated flows, screenshots, and review date. |
-| Manual approval required | Release, security, legal | Review `docs/privacy_notice.md` before publishing it as the external policy and record role approvals in `docs/privacy_review.json`. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`. App code cannot replace this approval. |
+| Manual approval required | Release, security, legal | Review `docs/privacy_notice.md` and `docs/capability_matrix.json` before publishing the external policy and record role approvals in `docs/privacy_review.json`. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`. The verifier binds both files by SHA-256 and requires role evidence to bind the current privacy review record; app code cannot replace this approval. |
 | Manual/legal approval required | Model/license reviewer | For all four recommended model downloads, verify upstream license name, concrete license/notice URL or file path, redistribution rights, attribution/notice requirements, reviewer, and date. | Record in `docs/model_license_review.json`; `VERIFY_MODEL_LICENSES=1` verifies alignment with `docs/model_manifest.md` and metadata. `VERIFY_MODEL_URLS=1` checks URL/content metadata only and is not license approval. |
 | Private environment required | Signing owner | Configure production release signing outside source control and run `scripts/sign_release_artifacts.sh` with production keystore material and `EXPECTED_SIGNING_CERT_SHA256`. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> scripts/verify_release_gate.sh`; debug keystores are rejected for production. |
 | Physical hardware required | Device validation owner | Investigate the current full physical-device instrumentation crash before binding physical-device release evidence. On 2026-06-17, `fb6272c` (`Xiaomi 23127PN0CC`, API 36, `arm64-v8a`) crashed in `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`; see `build/verification/device-20260617-000355/device-verification.properties` (`failedTarget=instrumentation`, `reason=instrumentation-failed`) and `instrumentation.txt` (`shortMsg=Process crashed.`). | A passing physical `scripts/install_and_test_device.sh` report, plus failure evidence for any remaining crash or timeout. |
 | SDK/AVD environment required | CI / emulator owner | Prepare API 28/32/33/34 arm64 emulator system images and AVDs before claiming API matrix coverage. | `scripts/check_emulator_api_matrix.sh` records missing packages/AVDs; `scripts/prepare_emulator_api_matrix.sh` produces dry-run/apply commands; `scripts/regression_emulator_api_matrix.sh` generates matrix evidence. |
 | Physical hardware required | Performance owner | Run final release-candidate validation and performance SLO collection on target physical arm64 hardware. Emulator validation does not cover LiteRT-LM GPU/performance behavior. | `scripts/collect_perf_baseline.sh` or equivalent `perf-baseline.properties`, then `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh`; verifier rejects emulator serials, stale/future timestamps, wrong ABI/version/artifact SHA, OOM/ANR, and zero timing/memory values. |
-| Public-release final gate | Release owner | After production signing, AAB generation, approvals, validation, and perf evidence are complete, run the public release gate. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> PERF_BASELINE_FILE=<rc perf baseline> scripts/verify_release_gate.sh`; this enables release record, store policy, operations, validation, privacy review, model license, signed artifact/AAB, cert fingerprint, and mapping checks. |
+| Public-release final gate | Release owner | After production signing, AAB generation, approvals, validation, perf evidence, and Agent behavior actual trace evidence are complete, run the public release gate. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> PERF_BASELINE_FILE=<rc perf baseline> AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl> scripts/verify_release_gate.sh`; this enables release record, store policy, operations, validation, privacy review, model license, signed artifact/AAB, cert fingerprint, mapping, perf, and AI behavior actual trace checks. |

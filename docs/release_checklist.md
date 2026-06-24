@@ -26,16 +26,38 @@ with each RC before treating this checklist as complete.
 - [ ] Agent/tool behavior changes are summarized, including remote
   OpenAI-style `tool_calls`, public evidence batch execution, all-or-nothing
   mixed-batch rejection, and the privacy boundary for LocalOnly tool results.
+- [ ] Agent behavior eval reports have no unexpected actual `failureMode`:
+  non-empty actual failure modes must be stable slugs and must either be listed
+  in the case `allowedFailureModes` or make the trace diff fail as mismatch.
+- [ ] Route-sensitive Agent behavior eval cases declare expected routing
+  evidence where needed. Plain-chat false positives such as explaining Wi-Fi
+  settings APIs must expect `no_action`; actual traces that route to tools must
+  fail the planning trace diff instead of passing from an empty final tool list.
 - [ ] `docs/release_record.json` is updated for the release candidate and
   `VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh` passes. The gate
   checks the recorded Gradle version, current HEAD Git commit, artifact
-  checksum, signing certificate fingerprint, `status=passed` verification evidence files,
-  unsupported capabilities, Agent behavior summary, and resolved or accepted
-  blockers with matching evidence SHA-256. For `PUBLIC_RELEASE=1`, the record
-  must use a public distribution channel and match the final AAB path, artifact
-  SHA-256, and production signing certificate SHA-256 passed to the release
-  gate; it also requires a clean Git worktree unless `ALLOW_DIRTY_RELEASE=1` is
-  explicitly set for non-production dry-run validation.
+  checksum, signing certificate fingerprint, and `verificationReports` whose
+  files match the recorded SHA-256, have `status=passed`, include
+  `artifactSchema`, owner, UTC `recordedAt`, reproducible command/path, and are
+  fresh within `RELEASE_RECORD_VERIFICATION_REPORT_MAX_AGE_DAYS` (default 30).
+  It also checks unsupported capabilities, Agent behavior summary, and resolved
+  or accepted blockers with matching evidence SHA-256. Blocker evidence must be
+  structured `ReleaseRecordBlockerEvidence/v1` properties that bind the blocker
+  id, owner, date, decision, current release Git commit, release artifact
+  SHA-256, and reproducible evidence path. For `PUBLIC_RELEASE=1`, the record
+  must reference a `ReleaseGateVerification/v1` report for the current release
+  record, current HEAD commit, and release artifact SHA-256, use a public
+  distribution channel, and match the final AAB path, artifact SHA-256, and
+  production signing certificate SHA-256 passed to the release gate; it also
+  requires a clean Git worktree unless
+  `ALLOW_DIRTY_RELEASE=1` is explicitly set for non-production dry-run
+  validation.
+- [ ] `release-gate.properties` and every generated child report bound by it are
+  auditable evidence. Release-gate-owned skipped or preflight-failed child
+  reports must include `ReleaseGateChildReport/v1`, owner, UTC `recordedAt`,
+  command, reason, reproducible path, release gate report path, release record
+  file, HEAD commit, and release artifact path/type/SHA-256 instead of only
+  `status` / `target`.
 
 ## Versioning And Release Track
 
@@ -108,7 +130,28 @@ with each RC before treating this checklist as complete.
   remote model endpoints and model hosts as external recipients where their own
   policies apply.
 - [ ] Model downloads are described as large optional/recommended assets and
-  not as APK-bundled files.
+  not as APK-bundled files. The store policy record's primary chat model id,
+  byte size, SHA-256, and upstream revision must match
+  `docs/model_capability_profiles.json` and `docs/model_manifest.md`, and the
+  verifier must derive the same lightweight local chat alternative and remote
+  alternative disclosure values as the record. Run
+  `scripts/verify_model_capability_profiles.sh --report <report>` and attach the
+  `ModelCapabilityProfilesVerification/v1` report; it must show that local
+  memory/action profiles are not remote-eligible, remote templates require send
+  confirmation, vision is Chat-only, and recommended profiles carry
+  byte/SHA/revision provenance.
+- [ ] Attach a fresh `CapabilityMatrixVerification/v1` report from
+  `scripts/verify_capability_matrix.sh --report <report>`. It must verify the
+  required sensitive disclosures for remote sends, voice, share/picker, device
+  actions, contacts/calendar, media/OCR, Usage Access, Accessibility, and
+  MediaProjection, and it must reject LocalOnly/LocalEvidence capabilities that
+  drift into remote eligibility.
+- [ ] Attach a fresh `ModelMemoryMultimodalLocalGates/v1` report from
+  `scripts/verify_model_memory_multimodal_local_gates.sh --report <report>`.
+  This local report must show remote vision templates require send
+  confirmation, local vision profiles remain local, OCR disclosures remain
+  LocalOnly, and memory/action profiles are not remote-eligible. It does not
+  replace physical model performance evidence.
 - [ ] Required Android permissions and special-access flows are explained in
   user-facing language.
 - [ ] Sensitive permission disclosures are complete for `RECORD_AUDIO`,
@@ -127,9 +170,12 @@ with each RC before treating this checklist as complete.
 - [ ] `docs/store_policy_record.json` is updated and approved, then
   `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh` passes. The gate
   checks store listing fields, privacy policy URL, Data safety answers, model
-  download disclosure, manifest permission purposes, special-access
-  disclosures, the current privacy notice SHA, and a review evidence file with
-  matching SHA-256.
+  download disclosure, model capability/profile manifest bindings, manifest
+  permission purposes, special-access disclosures, the current privacy notice
+  SHA, and a review evidence file with matching SHA-256. Approved store policy
+  review evidence must also declare `storePolicyRecordFile` resolving to the
+  current store policy record and bind the current privacy notice, Android
+  manifest, model capability profiles, and model manifest by path and SHA-256.
 
 ## Screenshots
 
@@ -158,8 +204,10 @@ with each RC before treating this checklist as complete.
 - [ ] `docs/privacy_notice.md` is reviewed by release, security, and legal
   owners before publication. Record the approved current notice SHA in
   `docs/privacy_review.json`; every role approval must include an evidence file
-  path and matching SHA-256. Then run `VERIFY_PRIVACY_REVIEW=1
-  scripts/verify_release_gate.sh`.
+  path and matching SHA-256. Approved privacy review evidence must declare
+  `privacyReviewFile` resolving to the current privacy review record and bind
+  the current privacy notice and capability matrix by path and SHA-256. Then run
+  `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`.
 - [ ] All four recommended model downloads in `docs/model_manifest.md` have
   manually verified manifest repository, pinned upstream revision, license
   name, license source URL or file path, redistribution decision, attribution
@@ -169,20 +217,28 @@ with each RC before treating this checklist as complete.
   such as a `blob`, `raw`, or `resolve` URL; the repository homepage is not
   acceptable as a license source.
 - [ ] `scripts/collect_model_license_metadata.sh` is run with `REPORT_FILE`
-  before manual model review. Attach the collector report and confirm
-  `docs/model_license_metadata.json` includes `licenseSourceCandidates` for
-  Hugging Face-hosted models. These candidates are reviewer input only; they do
-  not approve redistribution and do not replace the concrete license source
-  recorded in `docs/model_license_review.json`.
+  before manual model review. Attach the `ModelLicenseMetadataCollection/v1`
+  collector report; it must include owner, UTC `recordedAt`, reproducible
+  command/path, `outFileSha256`, `reviewSha256`, and `manifestSha256`. Confirm
+  `docs/model_license_metadata.json` includes `licenseSourceCandidates` for Hugging
+  Face-hosted models, a non-future UTC `recordedAt` within
+  `MODEL_LICENSE_METADATA_MAX_AGE_DAYS` (default 30 days), and concrete upstream
+  `modelSha` values. These candidates are reviewer input only; they do not
+  approve redistribution and do not replace the concrete license source recorded
+  in `docs/model_license_review.json`.
 - [ ] `docs/model_license_review.json` is updated from pending to approved
   records before broad distribution, and `VERIFY_MODEL_LICENSES=1
   scripts/verify_release_gate.sh` passes for the release candidate. The gate
   runs `scripts/verify_model_license_review.sh`, requiring all model IDs,
   repositories, and pinned upstream revisions to match `docs/model_manifest.md`,
-  metadata to match that manifest, and approvals to include aligned license
-  names, approved redistribution, attribution or notice, reviewer, and a valid
-  concrete license source plus a non-future review date not older than the
-  metadata collection date, with review evidence bound by SHA-256.
+  metadata to match that manifest and be freshly collected, and approvals to
+  include aligned license names, approved redistribution, attribution or notice,
+  reviewer, and a valid concrete license source plus a non-future review date
+  not older than the metadata collection date, with review evidence bound by
+  SHA-256. Each approved model review evidence file must also declare
+  `artifactSchema=ModelLicenseReviewApprovedEvidence/v1`, owner, UTC
+  `recordedAt`, reproducible command/path, approved target/status, matching
+  model ID, reviewer, license name, scope, and redistribution decision.
 - [ ] README License wording distinguishes app code from third-party model
   artifacts.
 - [ ] No API keys, bearer tokens, private model endpoints, raw prompts, or
@@ -229,19 +285,59 @@ with each RC before treating this checklist as complete.
 - [ ] Every `performanceSanity` item in `docs/release_validation_record.json`
   references a passed `perf-baseline-verification.properties` report generated
   by `scripts/verify_perf_baseline.sh`, with `target=perf-baseline`, a
-  `performanceKey` that matches the record key, `missingFieldCount=0`, and a
-  readable `baselineFile` plus matching `baselineSha256`. The verifier report
-  must include non-empty `expectedArtifactSha256` and `expectedAppVersion`
-  values, and the linked baseline must match those values, come from a
-  non-emulator `arm64-v8a` device, record `oomOrAnrObserved=false`, and have a
-  fresh UTC `recordedAt`; lightweight status-only, cross-key, or baseline-file
-  swapped performance evidence files are not accepted.
+  `performanceKey` that matches one of the release validation performance keys
+  and the record key, `missingFieldCount=0`, and a readable `baselineFile` plus
+  matching `baselineSha256`. The linked baseline itself must declare
+  `artifactSchema=PerfBaseline/v1`,
+  `target=perf-baseline-record`, non-empty `owner`, non-empty
+  `collectionCommand`, and a `reproduciblePath` that equals the verified
+  baseline path. The verifier report must include non-empty
+  `expectedArtifactSha256` and `expectedAppVersion` values, and the linked
+  baseline must match those values, come from a non-emulator `arm64-v8a`
+  device, record `oomOrAnrObserved=false`, and have a fresh UTC `recordedAt`;
+  lightweight status-only, provenance-free, cross-key, or baseline-file swapped
+  performance evidence files are not accepted.
 - [ ] Release assembly and bundle tasks pass with release minification/resource
   shrinking enabled.
 - [ ] ProGuard/R8 mapping files for the release candidate are archived with the
   artifact so crash stacks can be decoded. Attach
   `release-mapping.properties` from `scripts/verify_release_mapping.sh`; the
   `PUBLIC_RELEASE=1` gate requires this mapping check.
+- [ ] Public-release AI behavior eval is run with a real planner actual trace
+  file. Attach `ai-behavior-eval.properties` and
+  `ai-behavior-planning-trace-diff.jsonl`; the report must include
+  `artifactSchema=AgentBehaviorEvalVerification/v1`, owner, UTC `recordedAt`,
+  reproducible command, `actualTraceSha256`, `traceDiffSha256`, and
+  `capabilityMatrixSha256`, `fixtureDirSha256`, and `actionModelsSha256`, plus
+  `requireActualTrace=1` /
+  `requireRuntimeTraceSource=1` /
+  `requireAgentLoopRuntimeTraceSource=1` / `rejectAllowedFailures=1`. Risk
+  coverage must include public-evidence, low, medium, high, and sensitive cases;
+  the high-risk external-send case must remain second-confirmation gated.
+  Required public evidence boundaries must stay no-confirmation,
+  `public_evidence`, `RemoteEligible`, all-`web_search`, and free of allowed
+  failure modes.
+  Required boundary coverage must come from
+  `docs/capability_matrix.json` /
+  `CapabilityMatrix.requiredBehaviorEvalBoundaries`, not an untracked shell-only
+  list. For public release, every actual trace row must come from the
+  deterministic `agent_loop_runtime` collector and include the current
+  `fixtureDirSha256` plus a UTC `traceRecordedAt`; `android_instrumentation` and
+  `device_debug_eval` sources are acceptable only for non-public/debug evidence.
+  The collector report must transcribe `evalFixtureDirSha256`,
+  `evalCapabilityMatrixSha256`, `evalActionModelsSha256`, and the strict eval
+  flags from the verifier report so the release ticket can audit source/eval
+  consistency from the collection evidence. `PUBLIC_RELEASE=1` requires
+  `AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl>` and fails closed if the
+  file is missing, lacks runtime provenance, includes non-`agent_loop_runtime`
+  rows, is stale, uses a stale/different fixture hash, is mismatched, has extra
+  rows, or leaves any `allowed_failure` trace-diff rows. Stale means older than
+  30 days by default; override only with
+  `AI_BEHAVIOR_ACTUAL_TRACE_MAX_AGE_DAYS=<days>` when release policy explicitly
+  accepts a different window. Use `scripts/collect_ai_behavior_actual_trace.sh`
+  for the deterministic local `agent_loop_runtime` trace collection step; set
+  `AI_BEHAVIOR_REJECT_ALLOWED_FAILURES=1` for the strict collector profile. Do not
+  replace it with a hand-copied fixture file.
 
 ## Test Matrix
 
@@ -261,10 +357,11 @@ with each RC before treating this checklist as complete.
   nested API `regression-emulator.properties` report and matching SHA-256.
   Each nested report must have `status=passed`, `target=regression-emulator`,
   `exit_code=0`, empty `failedTarget`/`reason`, UTC start/finish fields,
-  `clean_device=1`, matching API level, an ABI list containing `arm64-v8a`, a
-  non-empty emulator serial and AVD name, source/expected/actual AndroidTest
-  counts, and a readable instrumentation output whose final `OK` count matches
-  `actual_android_test_count`. Each nested report must also link matching
+  `clean_device=1`, matching API level, an ABI list containing `arm64-v8a`
+  with no `x86` or `x86_64` token, a non-empty emulator serial and AVD name,
+  source/expected/actual AndroidTest counts, and a readable instrumentation
+  output whose final `OK` count matches `actual_android_test_count`.
+  Each nested report must also link matching
   `emulator-verification.properties` and `device-verification.properties`
   reports from the same API run.
 - [ ] `scripts/install_and_test_device.sh` passes on at least one physical
@@ -274,15 +371,38 @@ with each RC before treating this checklist as complete.
   `instrumentation_test_count` from the verification report. Physical device
   reports must also include `exit_code=0`, empty `failedTarget`/`reason`, UTC
   start/finish fields, sufficient `data_free_kb`, and a readable
-  `instrumentation_output_file` containing the final `OK` marker. The `OK`
-  count must match `instrumentation_test_count`, and `debug_apk` /
-  `android_test_apk` must match the project-approved debug APK paths. Emulator
-  release records should link `regression-emulator.properties` plus the nested
-  emulator/device reports, and each linked report must include a matching
-  SHA-256 in `docs/release_validation_record.json`.
+  `instrumentation_output_file` containing the final `OK` marker. The report
+  must also bind `instrumentation_output_sha256`, `logcat_file`, and
+  `logcat_sha256`; physical and API-matrix nested device reports without
+  matching instrumentation/logcat SHA are not acceptable release evidence. The
+  `OK` count must match `instrumentation_test_count`, `test_count` should mirror
+  that value, and `debug_apk` / `android_test_apk` must match the
+  project-approved debug APK paths. Emulator release records should link
+  `regression-emulator.properties` plus the nested emulator/device reports, and
+  each linked report must include a matching SHA-256 in
+  `docs/release_validation_record.json`.
 - [ ] Failed device, emulator, or regression reports include machine-readable
   `failedTarget` and `reason` fields plus any generated screenshot, window dump,
   logcat, or instrumentation evidence paths.
+- [ ] Debug device-control and real-app search evidence, when sampled for
+  App-control readiness, is attached separately from release physical evidence.
+  `run_device_control_debug_eval.sh` fatal reports must keep
+  `failedTarget` as the machine target category and `reason` as the specific
+  failure, for example `failedTarget=device-selection` plus
+  `reason=selected-device-unavailable` when an explicit serial is missing or not
+  authorized. Each failed `run_real_app_search_eval.sh` case must include a
+  `RealAppSearchCaseArtifact/v1` case report with `failed_step`,
+  `result_file_sha256`, `target_resolution_failure_kind`,
+  `target_resolution_candidates_json`, and screenshot/UIAutomator/window/logcat
+  files with SHA-256. Fatal real-app eval failures before a case can run, such
+  as no target apps installed, must put `failedTarget`, `reason`, serial/API/ABI,
+  and screenshot/UIAutomator/window/logcat paths plus SHA-256 values in the
+  top-level `real-app-search-eval.properties` report. Sampled real-app search
+  evidence must also attach a `RealAppSearchEvidenceVerification/v1` report from
+  `scripts/verify_real_app_search_report.sh`; this verifies case artifacts,
+  ranked resolver candidates, target-resolution evidence, diagnostics files, and
+  SHA-256 bindings, but it does not replace a fresh physical-device real-app
+  search run.
 - [ ] Manual acceptance in `docs/phone_acceptance.md` is sampled for model
   setup, remote-mode privacy, tool confirmation, permissions, background
   reminders, sharing, and multimodal entry points.
@@ -297,16 +417,31 @@ with each RC before treating this checklist as complete.
   bare string `passed` is not acceptable evidence.
 - [ ] Every `manualAcceptance` evidence file is a formal manual acceptance
   report with `status=passed`, `target=manual-acceptance`, a `manualKey` that
-  matches the record key, and `manualAcceptance=true`; lightweight status-only
-  manual evidence files are not accepted.
+  matches the record key, `manualAcceptance=true`,
+  `artifactSchema=ManualAcceptanceEvidence/v1`, matching owner/date, non-future
+  fresh UTC `recordedAt`, a non-empty command, and `reproduciblePath` equal to
+  the evidence file path; `validationRecordFile` must resolve to the current
+  `docs/release_validation_record.json`; lightweight status-only manual evidence
+  files are not accepted.
+- [ ] Every `manualAcceptance` evidence file also satisfies its key-specific
+  contract: remote-mode privacy records no automatic local-memory/raw private
+  context send, tool confirmation records visible confirmation plus cancel
+  blocking execution, permissions record system prompt and denied recovery,
+  voice/file/MediaProjection evidence records system-mediated consent/cancel
+  boundaries, public evidence remote calls bind request counts, and mixed
+  private/action batch evidence records rejection with no partial action
+  execution.
 - [ ] Manual acceptance evidence is generated from explicit owner sign-off, for
   example `OWNER="<reviewer>" MANUAL_ACCEPTANCE_ALL=1
   scripts/record_manual_acceptance_evidence.sh`; partial runs must remain
   failed until every required manual key is accepted.
 - [ ] Every `flowMatrix` evidence file is a formal release flow report with
   `status=passed`, `target=release-flow`, a `flowKey` that matches the record
-  key, and `releaseFlowPassed=true`; candidate-only or lightweight status-only
-  flow evidence files are not accepted.
+  key, `releaseFlowPassed=true`, `artifactSchema=ReleaseFlowEvidence/v1`,
+  matching owner/date, non-future fresh UTC `recordedAt`, a non-empty command,
+  and `reproduciblePath` equal to the evidence file path; `validationRecordFile`
+  must resolve to the current `docs/release_validation_record.json`;
+  candidate-only or lightweight status-only flow evidence files are not accepted.
 - [ ] `localModelDownloadVerification` release flow evidence must explicitly
   record local download verification, SHA-256 verification, storage preflight,
   failure recovery, unavailable download directory handling, SHA failure cleanup,
@@ -321,12 +456,26 @@ with each RC before treating this checklist as complete.
   ACTION_SEND text staging, remote-mode text-share protection, remote vision
   image attachment staging through an endpoint/model that supports
   OpenAI-compatible `image_url` content, unsupported-vision protection, no
-  implicit image OCR, bounded document excerpts, and picker attachment
-  prompting.
+  implicit image OCR, per-send remote vision preview confirmation, cancel path
+  that keeps the remote runtime idle, verified local-vision model image
+  attachment staging, local runtime image-attachment sending, LocalOnly
+  persistence, prompt metadata redaction, remote runtime idle protection for
+  local vision, unsupported local-vision OCR skip behavior, bounded document
+  excerpts, and picker attachment prompting. The local-vision runtime send count
+  must be at least one, while remote runtime calls, unsupported local runtime
+  image sends, and unsupported image OCR invocations must be zero.
 - [ ] `privacyAndDataControls` release flow evidence must explicitly record
   the App privacy notice entry, long-term memory clear and forget controls,
   current-session deletion, remote configuration clearing, and deletion/control
   copy visible to the user.
+- [ ] `upgradeInstall` release flow evidence must explicitly record `adb install -r`
+  upgrade execution, first-install timestamp preservation, last-update timestamp
+  refresh, versionCode increase, and instrumentation coverage. `encryptedApiKeyClear`
+  must prove blank-key save clears the encrypted secret and legacy plaintext
+  preference is not populated. `sessionPersistence`, `memoryControls`, and
+  `remindersAfterReboot` must each expose their create/restore/delete, memory
+  create/forget/clear, boot/package-replaced reschedule, catch-up, stale-running
+  recovery, and metadata-only audit checks as machine-readable fields.
 - [ ] `voiceInput` release flow evidence must explicitly record the near-field
   voice disclosure, one-shot transcript draft with no auto-send, microphone
   permission failure/recovery behavior, and voice-capture cancellation.
@@ -336,6 +485,10 @@ with each RC before treating this checklist as complete.
 - [ ] `adaptiveUi` release flow evidence must explicitly record large-font
   reachability, landscape reachability, and accessible labels/actions for core
   controls.
+- [ ] `accessibilityText` and `recentMediaOcr` release flow evidence must
+  explicitly record confirmation/cancel paths, LocalOnly metadata, trace
+  recording, screenshot/image OCR routing, one-item recent screenshot limits,
+  and remote-leakage fail-closed coverage.
 - [ ] Release flow evidence is generated from explicit owner sign-off, for
   example `OWNER="<reviewer>" RELEASE_FLOW_ALL=1
   scripts/record_release_flow_evidence.sh`; partial runs must remain failed
@@ -361,7 +514,8 @@ with each RC before treating this checklist as complete.
   HTTPS configuration, encrypted API key clear, session persistence, memory
   controls, privacy/data controls, reminders after reboot, share/picker input,
   voice input, Accessibility text, recent media OCR, and MediaProjection
-  cancellation.
+  cancellation, including one-shot MediaProjection consent and LocalOnly
+  current-screen screenshot OCR remote-continuation blocking.
   Candidate evidence files marked `candidateOnly=true`,
   `releaseFlowPassed=false`, or `target=release-flow-matrix-candidate-evidence`
   are reviewer input only and must not be referenced as passed flow evidence in
@@ -391,16 +545,27 @@ with each RC before treating this checklist as complete.
   `scripts/collect_crash_anr_smoke_evidence.sh` with the device verification
   report, instrumentation output, and captured `adb logcat` to generate this
   evidence. The operations gate parses the smoke report and requires
-  `status=passed`, analyzed logcat, all crash/ANR/LiteRT counters at 0, all
-  five `no*` booleans true, and matching SHA-256/size values for the nested
-  device report, instrumentation output, and logcat files.
+  `status=passed`, `operationsRecordField=crashAnrSmoke.evidence`,
+  `operationsRecordFile` resolving to the current operations record, analyzed
+  logcat, all crash/ANR/LiteRT counters at 0, all five `no*` booleans true, and
+  matching SHA-256/size values for the nested device report, instrumentation
+  output, and logcat files.
 - [ ] Manual validation captures `adb logcat`, tombstone/native crash evidence,
   and ANR traces for any failure; release notes link the issue or state that no
   crash/ANR was observed in the RC window.
 - [ ] Crash-free and ANR thresholds for staged rollout are written in the
   release record, with a named person watching the first 24 hours after each
   rollout step. Monitoring setup and rollback plan evidence files are recorded
-  with SHA-256 values so release operations approval cannot rely only on prose.
+  with SHA-256 values and typed properties content. Monitoring evidence must
+  declare `status=passed`, `target=release-monitoring-evidence`,
+  `operationsRecordField=monitoring.evidence`, `operationsRecordFile` resolving
+  to the current operations record, owner, signal sources, watcher, thresholds,
+  and crash SDK privacy review; rollback evidence must declare
+  `status=passed`, `target=release-rollback-evidence`,
+  `operationsRecordField=rollback.evidence`, `operationsRecordFile` resolving to
+  the current operations record, owner, rollback criteria, decision channel, Play
+  version-code policy, model-manifest rollback path, data compatibility, and
+  previous-known-good or initial-release binding.
 - [ ] `docs/release_operations_record.json` is updated and approved, then
   `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh` passes. The gate
   checks CI local verification, connected Android tests, release artifact

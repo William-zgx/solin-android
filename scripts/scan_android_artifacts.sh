@@ -6,19 +6,103 @@ REQUIRE_SIGNED=0
 ALLOW_DEBUG_CERTIFICATE=0
 EXPECTED_CERTIFICATE_SHA256=""
 ARTIFACTS=()
+ORIGINAL_ARGS=("$@")
 
 normalize_sha256() {
   tr '[:upper:]' '[:lower:]' <<<"$1" | tr -d ':'
 }
 
+shell_command() {
+  local quoted=()
+  local arg
+  quoted+=("$(printf '%q' "scripts/scan_android_artifacts.sh")")
+  if [[ "${#ORIGINAL_ARGS[@]}" -gt 0 ]]; then
+    for arg in "${ORIGINAL_ARGS[@]}"; do
+      quoted+=("$(printf '%q' "$arg")")
+    done
+  fi
+  local IFS=' '
+  printf '%s' "${quoted[*]}"
+}
+
+failed_target_for_reason() {
+  case "$1" in
+    unknown-argument|missing-*-argument)
+      printf 'argument-parser'
+      ;;
+    no-artifact-provided|artifact-*|apk-*|aab-*|forbidden-*|sensitive-*|signing-*|certificate-*|debug-certificate)
+      printf 'artifact'
+      ;;
+    *)
+      printf ''
+      ;;
+  esac
+}
+
+write_parse_report() {
+  local reason="$1"
+  if [[ -n "$REPORT_FILE" ]]; then
+    mkdir -p "$(dirname "$REPORT_FILE")"
+    {
+      printf 'status=failed\n'
+      printf 'target=android-artifact-scan\n'
+      printf 'artifactSchema=AndroidArtifactScanReport/v1\n'
+      printf 'owner=release-engineering\n'
+      printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'command=%s\n' "$(shell_command)"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
+      printf 'failedTarget=argument-parser\n'
+      printf 'reason=%s\n' "$reason"
+      printf 'artifactCount=%s\n' "${#ARTIFACTS[@]}"
+      printf 'findingCount=1\n'
+      printf 'requireSigned=%s\n' "$REQUIRE_SIGNED"
+      printf 'allowDebugCertificate=%s\n' "$ALLOW_DEBUG_CERTIFICATE"
+      printf 'expectedCertificateSha256=%s\n' "$(normalize_sha256 "$EXPECTED_CERTIFICATE_SHA256")"
+      local index=0
+      local artifact
+      if [[ "${#ARTIFACTS[@]}" -gt 0 ]]; then
+        for artifact in "${ARTIFACTS[@]}"; do
+          index=$((index + 1))
+          printf 'artifact%sPath=%s\n' "$index" "$artifact"
+          if [[ -f "$artifact" ]]; then
+            printf 'artifact%sSha256=%s\n' "$index" "$(shasum -a 256 "$artifact" | awk '{print $1}')"
+            printf 'artifact%sSizeBytes=%s\n' "$index" "$(wc -c < "$artifact" | tr -d ' ')"
+            printf 'artifact%sType=%s\n' "$index" "${artifact##*.}"
+          fi
+        done
+      fi
+    } > "$REPORT_FILE"
+  fi
+}
+
+fail_parse() {
+  local reason="$1"
+  local message="$2"
+  write_parse_report "$reason"
+  echo "$message" >&2
+  exit 2
+}
+
+REQUIRED_ARG_VALUE=""
+require_value() {
+  local option="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    fail_parse "missing-${option#--}-argument" "Missing value for $option"
+  fi
+  REQUIRED_ARG_VALUE="$value"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --apk|--aab)
-      ARTIFACTS+=("${2:?missing artifact path}")
+      require_value "$1" "${2:-}"
+      ARTIFACTS+=("$REQUIRED_ARG_VALUE")
       shift 2
       ;;
     --report)
-      REPORT_FILE="${2:?missing report path}"
+      require_value "$1" "${2:-}"
+      REPORT_FILE="$REQUIRED_ARG_VALUE"
       shift 2
       ;;
     --require-signed)
@@ -30,12 +114,12 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --expected-certificate-sha256)
-      EXPECTED_CERTIFICATE_SHA256="${2:?missing certificate SHA-256}"
+      require_value "$1" "${2:-}"
+      EXPECTED_CERTIFICATE_SHA256="$REQUIRED_ARG_VALUE"
       shift 2
       ;;
     *)
-      echo "Unknown argument: $1" >&2
-      exit 2
+      fail_parse unknown-argument "Unknown argument: $1"
       ;;
   esac
 done
@@ -49,6 +133,12 @@ write_report() {
     {
       printf 'status=%s\n' "$status"
       printf 'target=android-artifact-scan\n'
+      printf 'artifactSchema=AndroidArtifactScanReport/v1\n'
+      printf 'owner=release-engineering\n'
+      printf 'recordedAt=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'command=%s\n' "$(shell_command)"
+      printf 'reproduciblePath=%s\n' "$REPORT_FILE"
+      printf 'failedTarget=%s\n' "$(failed_target_for_reason "$reason")"
       printf 'reason=%s\n' "$reason"
       printf 'artifactCount=%s\n' "${#ARTIFACTS[@]}"
       printf 'findingCount=%s\n' "$finding_count"
@@ -56,18 +146,20 @@ write_report() {
       printf 'allowDebugCertificate=%s\n' "$ALLOW_DEBUG_CERTIFICATE"
       printf 'expectedCertificateSha256=%s\n' "$(normalize_sha256 "$EXPECTED_CERTIFICATE_SHA256")"
       local index=0
-      for artifact in "${ARTIFACTS[@]}"; do
-        index=$((index + 1))
-        printf 'artifact%sPath=%s\n' "$index" "$artifact"
-        if [[ -f "$artifact" ]]; then
-          printf 'artifact%sSha256=%s\n' "$index" "$(shasum -a 256 "$artifact" | awk '{print $1}')"
-          printf 'artifact%sSizeBytes=%s\n' "$index" "$(wc -c < "$artifact" | tr -d ' ')"
-          printf 'artifact%sType=%s\n' "$index" "${artifact##*.}"
-          printf 'artifact%sSigningStatus=%s\n' "$index" "$(artifact_signing_status "$artifact")"
-          printf 'artifact%sCertificateSha256=%s\n' "$index" "$(artifact_certificate_sha256 "$artifact")"
-          printf 'artifact%sCertificateSubject=%s\n' "$index" "$(artifact_certificate_subject "$artifact")"
-        fi
-      done
+      if [[ "${#ARTIFACTS[@]}" -gt 0 ]]; then
+        for artifact in "${ARTIFACTS[@]}"; do
+          index=$((index + 1))
+          printf 'artifact%sPath=%s\n' "$index" "$artifact"
+          if [[ -f "$artifact" ]]; then
+            printf 'artifact%sSha256=%s\n' "$index" "$(shasum -a 256 "$artifact" | awk '{print $1}')"
+            printf 'artifact%sSizeBytes=%s\n' "$index" "$(wc -c < "$artifact" | tr -d ' ')"
+            printf 'artifact%sType=%s\n' "$index" "${artifact##*.}"
+            printf 'artifact%sSigningStatus=%s\n' "$index" "$(artifact_signing_status "$artifact")"
+            printf 'artifact%sCertificateSha256=%s\n' "$index" "$(artifact_certificate_sha256 "$artifact")"
+            printf 'artifact%sCertificateSubject=%s\n' "$index" "$(artifact_certificate_subject "$artifact")"
+          fi
+        done
+      fi
     } > "$REPORT_FILE"
   fi
 }
