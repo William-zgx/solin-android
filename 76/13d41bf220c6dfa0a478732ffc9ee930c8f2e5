@@ -1,0 +1,31 @@
+scripts/test_validation_scripts.sh
+  s_138828127e17f2::t_83c74ca4d3057c 110-115
+  s_138828127e17f2::t_c38dccc5d8c2b8 572
+  s_138828127e17f2::t_43e277a5850f13 9287
+  s_138828127e17f2::t_d4a0ec22539083 564-571,573-575
+  s_138828127e17f2::t_da79d779be5074 142-150
+  s_138828127e17f2::t_23555af76d631a 9138-9286,9288-9341
+  s_138828127e17f2::t_45939a42bbd919 174-179
+  s_138828127e17f2::t_881acaace8dcf9 2709-2710
+  s_138828127e17f2::t_daf259d0a271f9 422-446
+scripts/verify_local.sh
+  s_138828127e17f2::t_78f9dca64d30c2 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7613d41bf220c6dfa0a478732ffc9ee930c8f2e5",
+  "prompts": {},
+  "sessions": {
+    "s_138828127e17f2": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a3aae2c8f08ebdb62615a20",
+        "model": "openrouter-3o__dev"
+      },
+      "human_author": "Zouguoxue <zouguoxue@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
