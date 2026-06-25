@@ -32,6 +32,7 @@ import com.bytedance.zgx.pocketmind.device.DeviceContextAuthorizationSnapshot
 import com.bytedance.zgx.pocketmind.device.PocketMindAccessibilityService
 import com.bytedance.zgx.pocketmind.multimodal.SharedInputReadMode
 import com.bytedance.zgx.pocketmind.multimodal.ShareIntentReader
+import com.bytedance.zgx.pocketmind.resource.SystemResourceMonitor
 import com.bytedance.zgx.pocketmind.ui.PocketMindScreen
 import com.bytedance.zgx.pocketmind.ui.theme.PocketMindTheme
 import kotlinx.coroutines.CoroutineScope
@@ -56,6 +57,9 @@ class MainActivity : ComponentActivity() {
     private var pendingSpecialAccessRequirement: SpecialAccessRequirement? = null
     private var speechRecognizer: SpeechRecognizer? = null
     private var voiceInputCancellationRequested = false
+    private val systemResourceMonitor: SystemResourceMonitor by lazy {
+        SystemResourceMonitor(applicationContext)
+    }
     private val runtimePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grantResults ->
@@ -231,6 +235,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onVoiceInputConsumed = viewModel::consumeVoiceInputDraft,
                     onStopGeneration = viewModel::stopGeneration,
+                    resourceSampler = { systemResourceMonitor.sample() },
                 )
             }
         }
