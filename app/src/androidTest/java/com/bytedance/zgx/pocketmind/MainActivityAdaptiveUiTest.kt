@@ -4,12 +4,17 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.view.KeyEvent
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -18,6 +23,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import com.bytedance.zgx.pocketmind.ui.REMOTE_ATTACHMENT_PROTECTION_NOTICE
@@ -25,6 +31,34 @@ import com.bytedance.zgx.pocketmind.ui.VOICE_INPUT_PRIVACY_DESCRIPTION
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+
+class MainActivityCompactResourceUiTest {
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun compactTopBarExposesDeviceResourcesInsideMoreMenu() {
+        composeRule.setPocketMindScreenWithResourceSnapshot(
+            modifier = Modifier
+                .width(360.dp)
+                .height(720.dp),
+        )
+
+        composeRule.waitForTag("app_title")
+        composeRule.onNodeWithTag("top_more_button")
+            .assertIsDisplayed()
+            .assertHasClickAction()
+        composeRule.onAllNodesWithTag(RESOURCE_ENTRY_TAG).assertCountEquals(0)
+        composeRule.onAllNodesWithTag(RESOURCE_MENU_ENTRY_TAG).assertCountEquals(0)
+
+        composeRule.onNodeWithTag("top_more_button").performClick()
+
+        composeRule.waitForTag(RESOURCE_MENU_ENTRY_TAG)
+        composeRule.onNodeWithTag(RESOURCE_MENU_ENTRY_TAG)
+            .assertIsDisplayed()
+            .assertHasClickAction()
+    }
+}
 
 class MainActivityAdaptiveUiTest {
     @get:Rule
@@ -74,7 +108,7 @@ class MainActivityAdaptiveUiTest {
             composeRule.assertLabeledAction("top_more_button", "更多")
             composeRule.assertLabeledAction(
                 "composer_attachment_button",
-                "选择附件；远程模式逐次确认后发送图片，其他附件不读取正文或 OCR",
+                "选择附件；已配置并切换远程后，图片和疑似敏感内容逐次确认，其他附件不读取正文或 OCR",
             )
             composeRule.assertLabeledAction("composer_voice_button", VOICE_INPUT_PRIVACY_DESCRIPTION)
             composeRule.onNodeWithTag("remote_attachment_protection_notice").assertIsDisplayed()

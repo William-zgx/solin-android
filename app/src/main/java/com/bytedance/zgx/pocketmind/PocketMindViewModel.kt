@@ -2535,7 +2535,7 @@ class PocketMindViewModel(
         replaceActiveSessionMessages(
             _uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
-                text = "已接收分享内容。当前为远程模型模式，只会在你主动选择图片时把图片发送给远程视觉模型；不会读取或自动发送分享文本、RTF/PDF/Office 文档摘录、JSON/XML/YAML 文本摘录、OCR 摘录或非图片附件元数据。",
+                text = "已接收分享内容。当前已切换远程模型，主动选择的图片只会在逐次确认后发送给远程视觉模型，疑似敏感内容也会逐次确认；不会读取或自动发送分享文本、RTF/PDF/Office 文档摘录、JSON/XML/YAML 文本摘录、OCR 摘录或非图片附件元数据。",
                 privacy = MessagePrivacy.LocalOnly,
             ),
             persistNow = true,
@@ -2553,7 +2553,7 @@ class PocketMindViewModel(
             } else {
                 append("我没有读取、OCR 或发送这次分享内容。")
             }
-            append("远程模式只会在远程模型配置完成、且你确认发送后，把主动选择的图片发送给远程视觉模型。")
+            append("远程模式只会在远程模型配置完成、切换到远程模型且你确认发送后，把主动选择的图片发送给远程视觉模型。")
         }
         replaceActiveSessionMessages(
             _uiState.value.messages + ChatMessage(
@@ -2582,7 +2582,7 @@ class PocketMindViewModel(
             _uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
                 text = buildString {
-                    append("当前远程模型未启用图片输入能力，未读取、OCR 或发送图片；请切换支持视觉的远程模型后重新选择图片。")
+                    append("当前远程模型未启用图片输入能力，未读取、OCR 或发送图片；请配置并切换支持视觉的远程模型后重新选择图片。")
                     if (protectedSourceCount > 0) {
                         append("本次分享中的其他内容也未读取或发送。")
                     }
@@ -2603,7 +2603,7 @@ class PocketMindViewModel(
         replaceActiveSessionMessages(
             _uiState.value.messages + ChatMessage(
                 role = MessageRole.Assistant,
-                text = "当前本地模型不支持图片输入，未读取、OCR 或发送图片；请切换到已校验的本地视觉模型后重新选择图片。",
+                text = "当前本地模型不支持图片输入，未读取、OCR 或发送图片；请切换到已校验且支持视觉的本地模型后重新选择图片。",
                 privacy = MessagePrivacy.LocalOnly,
             ),
             persistNow = true,

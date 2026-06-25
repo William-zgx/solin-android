@@ -25,7 +25,7 @@ class CapabilityMatrixDocumentationTest {
         assertEquals(CapabilityMatrix.targetUserJob, json.getString("targetUserJob"))
         assertTrue(json.getString("productPositioning").contains("隐私优先"))
         assertTrue(json.getString("productPositioning").contains("默认保守确认"))
-        assertTrue(json.getString("productPositioning").contains("低风险步骤"))
+        assertTrue(json.getString("productPositioning").contains("低风险连续"))
         assertTrue(json.getString("targetUserJob").contains("本地上下文留在本机"))
 
         assertEquals(
