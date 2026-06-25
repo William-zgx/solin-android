@@ -322,6 +322,28 @@ items below.
   explicit deferred-mode reports with
   `deferredReason=no-device-test-in-this-phase`. Deferred reports are useful
   for planning and owner handoff only; they remain release blockers.
+- Resource-status UI has been folded back into the primary trust/model setup
+  hierarchy. The current top bar no longer uses a root overlay or normal-state
+  percentage badge; compact phone widths expose `设备资源` from the More menu,
+  and the bottom sheet prioritizes app memory, available RAM, app CPU, and
+  temperature before advanced heap metrics.
+- Latest 2026-06-25 resource-indicator validation on `fb6272c` (Xiaomi
+  23127PN0CC, API 36, `arm64-v8a`) installed the debug APK, launched the app,
+  inspected PocketMind UI dumps/screenshots during the manual session, verified
+  `更多` remained fully visible/clickable, verified `设备资源` in the More menu,
+  verified the resource detail sheet, and found no fatal/ANR in logcat. No
+  `build/verification/` artifact path or SHA-256 was preserved for this session.
+  The targeted compact-resource instrumentation class timed out after 180
+  seconds on this MIUI device; treat the whole entry as a local manual
+  observation and test-channel risk record, not release-passing physical
+  evidence.
+- User-facing product copy has been recalibrated across the first screen, model
+  manager, trust center, runtime notices, Capability Matrix, and store-policy
+  draft: local vision requires a verified vision-capable local model; remote
+  models require configuration and switching; ordinary text follows the remote
+  reminder policy; images and suspected sensitive content are confirmed per
+  send; device actions are conservative by default with reduced prompts only for
+  low-risk continuous operations.
 
 ## Remaining release blockers by ownership
 
@@ -334,7 +356,7 @@ items below.
 | Manual approval required | Release, security, legal | Review `docs/privacy_notice.md` and `docs/capability_matrix.json` before publishing the external policy and record role approvals in `docs/privacy_review.json`. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`. The verifier binds both files by SHA-256 and requires role evidence to bind the current privacy review record; app code cannot replace this approval. |
 | Manual/legal approval required | Model/license reviewer | For all four recommended model downloads, verify upstream license name, concrete license/notice URL or file path, redistribution rights, attribution/notice requirements, reviewer, and date. | Record in `docs/model_license_review.json`; `VERIFY_MODEL_LICENSES=1` verifies alignment with `docs/model_manifest.md` and metadata. `VERIFY_MODEL_URLS=1` checks URL/content metadata only and is not license approval. |
 | Private environment required | Signing owner | Configure production release signing outside source control and run `scripts/sign_release_artifacts.sh` with production keystore material and `EXPECTED_SIGNING_CERT_SHA256`. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> scripts/verify_release_gate.sh`; debug keystores are rejected for production. |
-| Physical hardware required | Device validation owner | Investigate the current full physical-device instrumentation crash before binding physical-device release evidence. On 2026-06-17, `fb6272c` (`Xiaomi 23127PN0CC`, API 36, `arm64-v8a`) crashed in `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`; see `build/verification/device-20260617-000355/device-verification.properties` (`failedTarget=instrumentation`, `reason=instrumentation-failed`) and `instrumentation.txt` (`shortMsg=Process crashed.`). | A passing physical `scripts/install_and_test_device.sh` report, plus failure evidence for any remaining crash or timeout. |
+| Physical hardware required | Device validation owner | Investigate the current full physical-device instrumentation instability before binding physical-device release evidence. On 2026-06-17, `fb6272c` (`Xiaomi 23127PN0CC`, API 36, `arm64-v8a`) crashed in `MainActivityAdaptiveUiTest.largeFontChatShellAndModelManagerRemainReachable`; on 2026-06-25, targeted `MainActivityCompactResourceUiTest` timed out after 180 seconds on the same MIUI device even though manual resource-entry validation passed. | A passing physical `scripts/install_and_test_device.sh` report, plus failure evidence for any remaining crash or timeout. |
 | SDK/AVD environment required | CI / emulator owner | Prepare API 28/32/33/34 arm64 emulator system images and AVDs before claiming API matrix coverage. | `scripts/check_emulator_api_matrix.sh` records missing packages/AVDs; `scripts/prepare_emulator_api_matrix.sh` produces dry-run/apply commands; `scripts/regression_emulator_api_matrix.sh` generates matrix evidence. |
 | Physical hardware required | Performance owner | Run final release-candidate validation and performance SLO collection on target physical arm64 hardware. Emulator validation does not cover LiteRT-LM GPU/performance behavior. | `scripts/collect_perf_baseline.sh` or equivalent `perf-baseline.properties`, then `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh`; verifier rejects emulator serials, stale/future timestamps, wrong ABI/version/artifact SHA, OOM/ANR, and zero timing/memory values. |
 | Public-release final gate | Release owner | After production signing, AAB generation, approvals, validation, perf evidence, and Agent behavior actual trace evidence are complete, run the public release gate. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> PERF_BASELINE_FILE=<rc perf baseline> AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl> scripts/verify_release_gate.sh`; this enables release record, store policy, operations, validation, privacy review, model license, signed artifact/AAB, cert fingerprint, mapping, perf, and AI behavior actual trace checks. |

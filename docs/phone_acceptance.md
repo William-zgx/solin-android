@@ -133,6 +133,25 @@ scripts/install_review_device.sh
 该脚本生成 `target=manual-acceptance-install`、`regressionEvidence=false` 的 report；
 它只用于人工验收安装，不能作为 release validation 的 physical regression evidence。
 
+### 资源入口人工验收
+
+资源状态入口属于主屏信息层级验收，不能只看 instrumentation 结果。当前 UI 约束：
+
+- 首屏主任务仍是模型准备和隐私边界说明；资源状态不能覆盖或挤压顶部 `更多` 按钮。
+- 普通/流畅状态不显示大号百分比圆环；入口使用低调设备资源图标。
+- Warm/Hot 状态才用更明显的颜色或状态点提醒。
+- compact 手机宽度下，`设备资源` 应出现在 `更多` 菜单中；非 compact 顶栏可直接显示资源图标。
+- 点击 `设备资源` 后打开详情层，优先展示 `App 内存`、`可用 RAM`、`App CPU`、`温度`；Java/Native Heap 等工程指标放在 `高级指标`。
+
+2026-06-25 在 `fb6272c`（Xiaomi 23127PN0CC / API 36 / arm64-v8a）手动验证过
+debug 包：主屏 `更多` 可点击区域为 `[1044,152][1188,296]`，`设备资源` 菜单项存在于
+`更多` 菜单，资源详情 sheet 显示 `设备资源 · 流畅`、`App 内存`、`可用 RAM`、
+`App CPU`、`温度` 和 `高级指标/Heap`，logcat 未发现 fatal/ANR。定向
+`MainActivityCompactResourceUiTest` instrumentation 在该 MIUI 真机上 180 秒超时；
+该超时应记录为 MIUI instrumentation 通道风险，不能替代通过的 release
+physical-device evidence。本条为本地人工观察记录，未绑定 `build/verification/`
+artifact 路径或 SHA-256；正式 release 仍需脚本化真机证据。
+
 ## RC 性能基线
 
 正式 RC 需要把真机实测指标写成 `perf-baseline.properties`，并与签名 APK/AAB 的
@@ -298,7 +317,7 @@ provider endpoint、model 或 key；必须通过 `POCKETMIND_LIVE_REMOTE_BASE_UR
 - 配置 API Key 后重启 App，应仍可读取配置；SharedPreferences 中不应保存明文 key。
 - 远程回答应逐步显示流式片段，取消生成后 UI 应回到可继续输入状态。
 - 远程错误不应展示响应体、Authorization 或 API Key 内容。
-- 远程模型模式下，当前输入如果包含手机号、邮箱、身份证、token/API key 或明确个人地址/密码/工号等敏感模式，应在本地拦截为 `LocalOnly` 提示，不应进入远程请求。
+- 远程模型已配置并切换后，当前输入如果包含手机号、邮箱、身份证、token/API key、明确个人地址、密码、工号等敏感模式，应弹出逐次远程发送确认；取消不得请求远程，选择打码后发送只应发送 masked prompt，选择仍然发送必须记录远程发送审计。远程未配置时仍应显示 `LocalOnly` 提示且不发送。
 
 ## 记忆与动作验收
 
@@ -405,10 +424,10 @@ provider endpoint、model 或 key；必须通过 `POCKETMIND_LIVE_REMOTE_BASE_UR
 - 分享或选择用户主动提供的 RTF 文档时，App 可以生成用户可见、有界、本地文本层摘录；摘录只进入本地 shared-input prompt，不代表完整富文档解析、版式理解或语义理解。
 - 分享或选择用户主动提供的 PDF 文档时，App 可以生成用户可见、有界、本地 PDF 文本层摘录；没有可读文本层时，可以渲染前几页并生成有界的本地扫描页 OCR 摘录。摘录只进入本地 shared-input prompt，不代表版式理解、表格/坐标提取、图片语义理解或完整 PDF 解析。
 - 分享或选择用户主动提供的 `.docx` / `.xlsx` / `.pptx` Office Open XML 文件时，App 可以生成用户可见、有界、本地文本层摘录；摘录只进入本地 shared-input prompt，不代表完整文档解析、版式理解或语义理解。
-- 本地模式下分享或选择用户主动提供的 `image/*` 附件时，若当前已安装且已验证的本地 chat 模型声明支持视觉输入，App 应把受限图片字节作为本地模型图片输入处理，不跑 OCR，也不把图片写入 prompt、历史、审计或回执；若本地模型不支持视觉输入，应明确提示不支持且不读取图片像素。远程模式下，用户主动提供的 `image/*` 附件只应在用户确认远程发送预览后、发送给已开启图片输入且支持 OpenAI-compatible `image_url` 内容块的远程模型/API，不跑本地 OCR；若模型或接口不支持图片输入，应直接提示图片输入失败/不支持，不暴露接口响应正文或 API key。
+- 本地模式下分享或选择用户主动提供的 `image/*` 附件时，若当前已安装且已验证的本地 chat 模型声明支持视觉输入，App 应把受限图片字节作为本地模型图片输入处理，不跑 OCR，也不把图片写入 prompt、历史、审计或回执；若本地模型不支持视觉输入，应明确提示不支持且不读取图片像素。远程模式下，用户主动提供的 `image/*` 附件可先读取为本地待发送 payload，但只应在用户确认远程发送预览后，发送给已开启图片输入且支持 OpenAI-compatible `image_url` 内容块的远程模型/API，不跑本地 OCR；若模型或接口不支持图片输入，应直接提示图片输入失败/不支持，不暴露接口响应正文或 API key。
 - 当 Android provider 返回空 MIME 或 `application/octet-stream` 时，应使用显示文件名扩展名保守推断常见图片、文本、PDF、RTF 和 Office Open XML 类型；推断成功后仍只允许对应的有界本地摘录，未知或不支持扩展名继续 metadata-only。
 - 分享或选择音频、视频、旧版 Office、二进制和其他非文本附件时，App 只应读取 MIME 类型、文件名和大小等元数据，不应读取文件正文、像素或二进制内容。
-- 自动生成的 shared-input 文本、PDF 扫描页 OCR 摘录、文本/RTF/PDF/Office 摘录和非图片附件元数据应标记为 `LocalOnly`；远程模式不应自动上传这些内容，应在 ShareIntentReader 边界就避免读取分享文本值、非图片附件元数据、非图片文件流、文本摘录或 OCR。远程模式下用户主动提供的图片附件例外：只在 provider 识别为图片、用户确认远程发送预览、配置开启图片输入且接口支持 OpenAI-compatible `image_url` 时，读取并作为图片输入发送给远程视觉模型。
+- 自动生成的 shared-input 文本、PDF 扫描页 OCR 摘录、文本/RTF/PDF/Office 摘录和非图片附件元数据应标记为 `LocalOnly`；远程模式不应自动上传这些内容，应在 ShareIntentReader 边界就避免读取分享文本值、非图片附件元数据、非图片文件流、文本摘录或 OCR。远程模式下用户主动提供的图片附件例外：provider 识别为图片、配置开启图片输入且接口支持 OpenAI-compatible `image_url` 时，可先读取为本地待发送 payload；确认远程发送预览前不得请求远程接口或外发图片字节。
 - 本地模式下，即使模型已就绪，外部分享或附件选择生成的分享 prompt 也只能先进入输入区待发送草稿；用户点击发送后才可进入普通聊天路由。模型未就绪时，点击发送后应落到会话里并提示先准备模型。
 - `LocalOnly` 分享/OCR/屏幕文本会话内容不应进入自动记忆召回，也不应原文派生会话列表标题；显式长期记忆仍必须通过用户明确 remember/fact 路径。
 - 点击语音输入入口应拉起 Android 系统语音识别；转写成功后，文本只应出现在输入框。

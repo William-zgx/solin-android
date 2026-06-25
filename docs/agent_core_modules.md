@@ -1005,6 +1005,7 @@ Tests:
 Code:
 
 - `app/src/main/java/com/bytedance/zgx/pocketmind/device/`
+- `app/src/main/java/com/bytedance/zgx/pocketmind/resource/`
 - Current context sources: `MemoryRepository`, `SessionRepository`, model and
   device capability state in `ChatUiState`.
 
@@ -1145,6 +1146,10 @@ Current status:
   resolve search entry, type, submit search, and verify. Profiles currently
   cover Taobao, Pinduoduo, Amap/Gaode, Google Maps, JD, Chrome/Android Browser,
   Quark, UC, and Google App, with a generic resolver fallback.
+- Resource monitoring samples app PSS/heap, available RAM, app CPU, and Android
+  thermal state, then maps them to Normal/Warm/Hot UI pressure. It does not read
+  user content, screen text, files, clipboard, contacts, or calendar data, and it
+  is not a substitute for RC perf-baseline evidence.
 - JVM executor matrix tests cover foreground app, notification summary, contact
   summary, calendar availability, recent file metadata, recent screenshot OCR,
   and recent image OCR success, permission denied, provider failure, LocalOnly,
@@ -1174,6 +1179,9 @@ Tests:
 - `AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace`
 - `AgentLoopRuntimeTest.currentScreenTextSummarySharePlansShareAfterLocalModelResult`
 - `PocketMindViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation`
+- `SystemResourceMonitorTest`
+- `PocketMindResourceIndicatorUiTest`
+- `MainActivityAdaptiveUiTest.compactTopBarExposesDeviceResourcesInsideMoreMenu`
 - `MainActivityRuntimePermissionUiTest.contactLookupConfirmationShowsRuntimePermissionRequirementWithoutSpecialAccess`
 - `MainActivitySpecialAccessUiTest.currentScreenTextConfirmationShowsSpecialAccessRequirementWithoutRuntimePermission`
 

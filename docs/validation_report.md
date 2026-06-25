@@ -15446,3 +15446,65 @@ Roadmap 状态：
   记录现在能输出可执行缺口字段，但仍需人工 owner/approval/signing/device evidence。
 - Phase 5 本地 gate 继续推进：model/memory/multimodal 本地边界有 standalone report；真实模型
   加载、性能和 arm64 真机 evidence 仍是后续 blocker。
+
+## 2026-06-25 Resource indicator UI, copy, and documentation sync
+
+本轮覆盖项：
+
+- 资源状态入口从主屏根 overlay 移入顶栏/更多菜单：compact 手机宽度下 `设备资源`
+  位于 `更多` 菜单，普通/流畅状态不再显示大号百分比圆环。
+- 资源详情层级调整为普通用户优先：标题显示 `设备资源 · 流畅/可能卡顿/高负载`，
+  优先展示 `App 内存`、`可用 RAM`、`App CPU`、`温度`，Java/Native Heap 放入
+  `高级指标`。
+- 首屏、模型管理、信任中心、运行时提示、Capability Matrix、Store policy draft 和项目文档
+  同步为当前能力边界：本地图片处理只承诺已校验且支持视觉的本地模型；远程模型需配置并切换；
+  普通文本按远程提醒策略；图片和疑似敏感内容逐次确认；设备动作默认保守确认，低风险连续操作
+  才可按设置减少弹窗。
+- 项目文档补充资源入口真机人工验收标准，并把 MIUI instrumentation timeout 记录为测试通道风险。
+
+验证命令：
+
+```bash
+./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
+
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.ui.PocketMindScreenDisplayTest \
+  --tests com.bytedance.zgx.pocketmind.docs.CapabilityMatrixDocumentationTest
+
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+
+adb -s fb6272c install -r -t app/build/outputs/apk/debug/app-debug.apk
+adb -s fb6272c shell am start -W -S -a android.intent.action.MAIN \
+  -c android.intent.category.LAUNCHER \
+  -n com.bytedance.zgx.pocketmind/.MainActivity
+adb -s fb6272c shell uiautomator dump /sdcard/pocketmind-window.xml
+adb -s fb6272c logcat -d -v time
+```
+
+结果：
+
+- 通过：Debug Kotlin 与 AndroidTest Kotlin 编译。
+- 通过：目标文案/能力矩阵文档单测。
+- 通过：`:app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest`。
+- 通过：真机 `fb6272c`（Xiaomi 23127PN0CC / API 36 / arm64-v8a）安装 debug APK 并启动
+  PocketMind，UI dump 证明 `更多` 可点击区域为 `[1044,152][1188,296]`。
+- 通过：点击 `更多` 后，UI dump package 为 `com.bytedance.zgx.pocketmind`，菜单包含
+  `新建会话`、`设备资源`、`模型管理`、`隐私说明`、`后台任务`，其中 `设备资源`
+  bounds 为 `[714,446][1170,590]`。
+- 通过：资源详情 sheet 显示 `设备资源 · 流畅`、`App 内存`、`可用 RAM`、`App CPU`、
+  `温度`、`高级指标` 和 `Heap`；没有旧的 `20%` 大号 badge 文本。
+- 通过：logcat 未发现 fatal/ANR 关键字。
+- 预期风险记录：定向
+  `com.bytedance.zgx.pocketmind.MainActivityCompactResourceUiTest`
+  instrumentation 在同一 MIUI 真机上 180 秒超时；本轮按测试通道风险记录，不能替代 release
+  physical-device evidence。
+- 证据边界：本轮 UI dump、截图和 logcat 只在人工调试会话中检查，未保留为
+  `build/verification/` 下带 SHA-256 的 artifact；因此本小节不能作为 release
+  validation / physical-device evidence 绑定。
+
+按当前计划未运行：
+
+- 完整 `scripts/install_and_test_device.sh` 真机回归。
+- arm64 emulator API matrix。
+- RC perf baseline。
+- 生产签名或正式 release artifact gate。

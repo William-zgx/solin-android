@@ -3,11 +3,11 @@
   "policy": "Public release builds require VERIFY_STORE_POLICY=1 and an approved store policy record.",
   "status": "pending_policy_review",
   "privacyNoticePath": "docs/privacy_notice.md",
-  "privacyNoticeSha256": "6d1f1f3424fc80a92fa9ffc5c0cedcb127921d460993e9bfe5fbc0026cf62bbc",
+  "privacyNoticeSha256": "e47809e560901c70964cdd81cce9804d5928a831f393b3a809114fca8dee6cc3",
   "appListing": {
     "appName": "PocketMind",
     "shortDescription": "Privacy-first phone AI: local, optional remote, confirmed control.",
-    "fullDescription": "PocketMind is a privacy-first phone-side AI assistant for Android: it is locally usable with downloaded or imported models, can optionally use user-configured remote multimodal models, and can perform confirmed device actions through phone-control tools. Low-risk app search can continue under the user's setting; sending, deleting, paying, ordering, publishing, sensitive input, and permission changes still require confirmation. Chats, explicit memories, model files, and tool audit records stay in local app storage by default.",
+    "fullDescription": "PocketMind is a privacy-first phone-side AI assistant for Android: it is locally usable with downloaded or imported models, verified local vision-capable chat models can process user-provided images on device, and user-configured remote multimodal models are used only after configuration and switching. Ordinary remote text follows the selected reminder policy; images and suspected sensitive content require per-send confirmation. Device actions are conservative by default: low-risk app search can continue under the user's setting, while sending, deleting, paying, ordering, publishing, sensitive input, and permission changes still require confirmation. Chats, explicit memories, model files, and tool audit records stay in local app storage by default.",
     "category": "Productivity",
     "contactEmail": "release-contact@example.invalid",
     "privacyPolicyUrl": "https://example.invalid/pocketmind/privacy"
@@ -108,7 +108,7 @@
     },
     {
       "name": "AccessibilityService",
-      "purpose": "Used only after confirmation to read current-screen text nodes."
+      "purpose": "Used after confirmation for current-screen text reads and during user-initiated low-risk phone-control sessions for tap, type, search, scroll, back, and wait gestures."
     },
     {
       "name": "MediaProjection",
@@ -119,6 +119,6 @@
     "reviewer": "",
     "reviewDate": "",
     "evidencePath": "docs/store_policy_review_evidence/pending.properties",
-    "evidenceSha256": "2a23bea1c2896a7f1ec016d8556dd79967bff9789caf191181564348aa84ffbd"
+    "evidenceSha256": "60eba98f5eef170f547e42585b00286a860a84fa3762212badd380b8d1beda48"
   }
 }

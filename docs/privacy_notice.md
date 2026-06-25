@@ -26,11 +26,19 @@ preferences. Clearing the API key field removes the stored secret.
 
 ## Remote Model Mode
 
-Remote model mode sends requests only to the user-configured OpenAI-compatible
-chat endpoint. PocketMind accepts a base URL and appends `/chat/completions`
-unless the configured URL already points at that endpoint. The request can
-include the current user prompt, selected model name, generation parameters,
-and prior chat messages whose privacy is `RemoteEligible`.
+Remote model mode sends requests only after the user-configured
+OpenAI-compatible chat endpoint exists and the active backend is switched to
+remote.
+PocketMind accepts a base URL and appends `/chat/completions` unless the
+configured URL already points at that endpoint. The request can include the
+current user prompt, selected model name, generation parameters, and prior chat
+messages whose privacy is `RemoteEligible`.
+
+Remote send reminders are policy-controlled for ordinary text: the app can warn
+on remote-mode switch, every message, once per session, or only when content is
+detected as sensitive. User-provided images and suspected sensitive content are
+stricter than ordinary text and require per-send confirmation before they can
+leave the phone.
 
 The app filters `LocalOnly` messages from remote history and rejects a
 `LocalOnly` current prompt before making a remote request. Local memory hits,
@@ -40,10 +48,11 @@ not automatically sent to a remote model. If the user manually types or pastes
 the same content into a normal remote-eligible message, that message can be
 sent.
 
-When the user explicitly sends images to a configured remote vision model, the
-image bytes are attached as OpenAI-compatible `image_url` content parts only
-when image input is enabled and the endpoint/model supports that message shape.
-A text-compatible OpenAI-style endpoint is not automatically vision-capable.
+When the user explicitly sends images to a configured and selected remote vision
+model, the image bytes are attached as OpenAI-compatible `image_url` content
+parts only when image input is enabled, the endpoint/model supports that
+message shape, and the user confirms the send. A text-compatible OpenAI-style
+endpoint is not automatically vision-capable.
 If the endpoint rejects image content, PocketMind reports image-input failure
 and does not fall back to OCR. The text prompt uses only a generic image count
 and support notice. It does not include attachment display names, MIME types,
@@ -122,11 +131,15 @@ provided through the system file picker or Android share input.
 Special-access flows are disclosed separately from runtime permissions:
 Usage Access is used only for confirmed foreground-app estimates.
 Accessibility is used for confirmed current-screen reads and, during a
-phone-control session, for low-risk gestures requested by the user. A
-short-lived foreground service and a translucent Accessibility overlay show
-phone-control progress; the service stops when the Agent run reaches a terminal
-state or times out. MediaProjection is used only for one-shot current-screen
-screenshot OCR after foreground consent.
+phone-control session, for low-risk gestures requested by the user. Device
+actions are conservative by default; the reduce-confirmations setting can lower
+prompt frequency for low-risk continuous navigation/search/tap/scroll/back
+steps, while sending, deleting, paying, ordering, publishing, sensitive input,
+and permission authorization still require confirmation. A short-lived
+foreground service and a translucent Accessibility overlay show phone-control
+progress; the service stops when the Agent run reaches a terminal state or
+times out. MediaProjection is used only for one-shot current-screen screenshot
+OCR after foreground consent.
 
 ## External Intents And Sharing
 
@@ -142,12 +155,15 @@ System speech recognition inserts a transcript into the compose box only.
 Sending remains explicit. Audio/video/legacy Office/binary attachments are
 metadata-only in the current app; supported strict UTF-8 text, RTF, PDF text
 layers, PDF scanned-page OCR fallback, and Office Open XML attachments may
-produce bounded local excerpts. User-provided image attachments are read only
-when the active local model is a verified vision-capable profile or when the
-user confirms sending them to a remote endpoint/model that supports
-OpenAI-compatible `image_url` vision input; explicit confirmed OCR tools remain
-separate. Malformed PDFs remain
-metadata-only. If Android does not provide a useful MIME type for a
+produce bounded local excerpts. When the user selects an image, PocketMind reads
+restricted image bytes only if the active local model is a verified
+vision-capable profile, or if the remote model is configured, selected, and
+image input is explicitly enabled, forming a local pending image payload. The
+remote path does not call the remote endpoint until the user confirms that send.
+Images are not written into prompts, history, audit, or receipts; non-image
+attachments, shared text, text excerpts, and OCR excerpts are not read or sent
+on the remote path. Explicit confirmed OCR tools remain separate. Malformed PDFs
+remain metadata-only. If Android does not provide a useful MIME type for a
 user-provided attachment, PocketMind may infer common supported types from the
 display-name extension before deciding whether a bounded local excerpt is
 possible. Shared-input excerpts are staged as local composer drafts and are not
@@ -203,3 +219,7 @@ This codebase does not contain a first-party analytics upload path beyond
 user-configured remote model calls, recommended/custom model downloads, and
 Android external intents initiated by confirmed actions. Recheck release builds
 and any added SDKs before publishing this statement externally.
+The device resource entry displays only locally sampled aggregate app PSS, heap,
+available RAM, CPU, and thermal pressure state. It does not include prompts,
+files, images, tool parameters, API keys, or remote responses, and it is not
+uploaded as analytics.

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedFor": "PocketMind multi-agent capability roadmap",
-  "updatedDate": "2026-06-23",
+  "updatedDate": "2026-06-25",
   "policy": "This ledger tracks roadmap completion evidence. Local verifier evidence never replaces physical device, emulator, production signing, performance, store, security, legal, or release-owner approval evidence.",
   "items": [
     {
@@ -91,7 +91,7 @@
         "scripts/verify_release_operations_record.sh",
         "scripts/release_preflight_fields.sh"
       ],
-      "remainingWork": "Use the preflight fields in verifier reports to fill real owners, reviewers, public policy URLs, approvals, signing identity, artifact SHA values, and approved evidence files.",
+      "remainingWork": "Use the preflight fields in verifier reports to fill real owners, reviewers, public policy URLs, approvals, signing identity, artifact SHA values, and approved evidence files. Refresh privacy notice, Capability Matrix, privacy review, store policy, and pending evidence SHA bindings after the 2026-06-25 privacy/capability documentation update.",
       "blockedBy": [
         "release-owner-evidence-required",
         "store-policy-owner-evidence-required",
@@ -109,9 +109,11 @@
         "scripts/run_real_app_search_eval.sh",
         "scripts/collect_perf_baseline.sh",
         "scripts/regression_emulator_api_matrix.sh",
-        "docs/release_readiness.md"
+        "docs/release_readiness.md",
+        "docs/phone_acceptance.md",
+        "docs/validation_report.md"
       ],
-      "remainingWork": "Resolve physical instrumentation crash, run arm64 physical validation, prepare API 28/32/33/34 arm64 AVDs, and collect accepted validation reports. Deferred-mode reports now carry deferredReason=no-device-test-in-this-phase and serial/API/ABI/release-artifact fields where applicable.",
+      "remainingWork": "Resolve physical instrumentation instability, including the 2026-06-17 full-test crash and 2026-06-25 MIUI targeted-test timeout, run arm64 physical validation, prepare API 28/32/33/34 arm64 AVDs, and collect accepted validation reports. Deferred-mode reports now carry deferredReason=no-device-test-in-this-phase and serial/API/ABI/release-artifact fields where applicable.",
       "blockedBy": [
         "no-device-test-in-this-phase",
         "arm64-api-matrix-environment-required"

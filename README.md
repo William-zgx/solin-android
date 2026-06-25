@@ -1,13 +1,15 @@
 # PocketMind Android
 
 PocketMind Android is a privacy-first phone-side AI assistant: it can run local
-LiteRT-LM models on device, optionally use a user-configured remote multimodal
-model, and control common phone flows through confirmed, audited tools.
+LiteRT-LM models on device, use a user-configured remote model only after that
+model is configured and selected, and control common phone flows through
+confirmed, audited tools.
 
 The reason to install PocketMind is not "another chatbot". It is a phone-side
 assistant for private, everyday context: basic questions can work locally after
-a model is downloaded or imported, verified local vision models can handle
-user-provided images on device, remote image/chat support is opt-in, and
+a model is downloaded or imported, images are handled locally only by an active
+installed model whose verified profile declares vision support, remote
+text/image paths require a configured endpoint and switching to remote mode, and
 contacts, calendar, screen, media, reminders, sharing, app opening, and
 low-risk in-app search stay behind local permission, confirmation, and audit
 boundaries.
@@ -33,13 +35,15 @@ flowchart LR
 ## Product Contract
 
 - **Local by default:** basic questions can run from a downloaded or imported
-  local model, verified local vision models can process user-provided images on
-  device, and chat history, memory, and local tool results stay on device unless
-  the user chooses a remote path.
+  local model, verified local models that declare vision support can process
+  user-provided images on device, and chat history, memory, and local tool
+  results stay on device unless the user chooses a remote path.
 - **Remote is optional:** remote chat requires an explicitly configured
-  OpenAI-compatible chat endpoint; remote image understanding additionally
-  requires an endpoint/model that accepts OpenAI-style `image_url` content
-  parts. Every remote send shows what can leave the phone before it is sent.
+  OpenAI-compatible chat endpoint and an active switch to remote mode. Ordinary
+  text follows the selected remote-send reminder policy; image attachments and
+  suspected sensitive content require per-send confirmation. Remote image
+  understanding additionally requires an endpoint/model that accepts
+  OpenAI-style `image_url` content parts.
 - **Actions are confirmed:** contacts, calendar, screen, media, reminders,
   sharing, settings, and phone-control actions stay behind permission,
   disclosure, and confirmation gates. The "reduce phone-control confirmations"
@@ -103,6 +107,13 @@ flowchart TD
   output tokens, and displays the input/output/token boundary in the model UI.
 - First-screen model path guidance for optional remote setup, local download,
   or trusted `.litertlm` import.
+- Custom or imported `.litertlm` models remain text-only unless a catalog
+  profile explicitly verifies and declares vision support.
+- Top-bar device resource status that stays out of the primary model setup path:
+  normal resource pressure uses a quiet memory icon, warm/hot states add visible
+  status emphasis, compact phone widths place "Device resources" inside the More
+  menu, and the detail sheet prioritizes app memory, available RAM, app CPU, and
+  temperature before advanced heap metrics.
 - Optional higher-quality chat model presets.
 - Custom `.litertlm` download links and local file import.
 - Model manager for switching downloaded or imported models.
@@ -221,7 +232,8 @@ flowchart TD
 - Android share-target and in-app attachment picker entries for bounded shared text,
   bounded local `text/*` plus JSON/XML/YAML text-like application excerpts,
   RTF/PDF text-layer, PDF scanned-page OCR fallback, and Office Open XML
-  excerpts, plus bounded local image bytes for verified local vision models;
+  excerpts, plus bounded local image bytes for installed models whose verified
+  profile declares vision support;
   audio, video, legacy Office, and binary attachments remain metadata-only, plus
   confirmed outbound system sharing for text.
 - GPU backend with CPU fallback when GPU initialization is unavailable.
@@ -236,18 +248,22 @@ flowchart TD
 
 PocketMind opens directly into the assistant surface. The first screen explains
 the promise before asking for model setup: local basic chat is available after a
-model download/import, remote multimodal use is optional, and remote sends or
-high-risk device actions still require confirmation.
+model download/import, installed models whose verified profile declares vision
+support can process images on device, remote models require configuration and
+switching before use, and high-risk device actions still require confirmation.
 
 1. Choose the local path by downloading or importing a trusted `.litertlm`
    model, or choose the remote path by configuring a compatible chat endpoint.
+   Custom/imported local models remain text-only unless a catalog profile
+   explicitly verifies and declares vision support.
    Enable remote image input only when that endpoint/model supports
    OpenAI-compatible `image_url` message content.
 2. Review the in-app privacy guidance from the top bar whenever model,
    attachment, voice, memory, or device-action behavior is unclear.
 3. Chat once the selected backend reports ready.
-4. Confirm remote sends after reviewing the destination, history, and attached
-   images that can leave the phone.
+4. Confirm remote sends according to the selected reminder policy: ordinary text
+   can follow the configured reminder cadence, while image attachments and
+   suspected sensitive content are reviewed before each send.
 5. Confirm or cancel any device action after reviewing its purpose, permission
    needs, and data destination.
 
@@ -788,6 +804,7 @@ app/
     memory/                  Local memory indexing and search
     multimodal/              Shared/picked text, local image payloads, and attachment metadata ingestion
     orchestration/           Chat, memory, and action route selection
+    resource/                System resource sampling and pressure classification
     runtime/                 LiteRT-LM runtime boundary
     safety/                  Tool safety policy and confirmation decisions
     skill/                   Built-in skill manifests and skill-to-tool plans

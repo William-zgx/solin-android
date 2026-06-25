@@ -26,6 +26,16 @@ with each RC before treating this checklist as complete.
 - [ ] Agent/tool behavior changes are summarized, including remote
   OpenAI-style `tool_calls`, public evidence batch execution, all-or-nothing
   mixed-batch rejection, and the privacy boundary for LocalOnly tool results.
+- [ ] User-facing model/remote/action copy is checked against current behavior:
+  verified local vision only, remote models only after configuration and
+  switching, ordinary text under the remote reminder policy, images and suspected
+  sensitive content confirmed per send, and device actions conservative by
+  default with reduced prompts only for low-risk continuous operations.
+- [ ] Resource-status UI is checked on phone widths: `top_more_button` remains
+  fully visible and clickable, normal resource pressure does not show a large
+  percentage ring, compact widths expose `设备资源` from the More menu, and the
+  detail sheet prioritizes app memory, available RAM, app CPU, and temperature
+  before advanced heap metrics.
 - [ ] Agent behavior eval reports have no unexpected actual `failureMode`:
   non-empty actual failure modes must be stable slugs and must either be listed
   in the case `allowedFailureModes` or make the trace diff fail as mismatch.
@@ -185,6 +195,10 @@ with each RC before treating this checklist as complete.
 - [ ] Confirmation sheet screenshot shows an example low-risk tool request.
 - [ ] Background tasks or audit screenshot uses synthetic task names and
   redacted metadata.
+- [ ] If a resource-status screenshot is attached, it must show synthetic or
+  non-sensitive app state, no private conversations, no system notification
+  contents, and either the More-menu `设备资源` entry or the resource detail
+  sheet with normal/warm/hot wording visible.
 - [ ] Screenshots do not include real contacts, notifications, clipboard text,
   current-screen text, API keys, emails, phone numbers, or internal hostnames.
 - [ ] Every screenshot attached to release validation is listed in
