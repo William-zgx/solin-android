@@ -216,6 +216,18 @@ data class AgentSkillRunCheckpointEntity(
     val updatedAtMillis: Long,
 )
 
+@Entity(tableName = "local_storage_migration_state")
+data class LocalStorageMigrationStateEntity(
+    @PrimaryKey val id: String,
+    val phase: String,
+    val lastDomain: String?,
+    val lastId: String?,
+    val startedAtMillis: Long,
+    val completedAtMillis: Long?,
+    val errorJson: String?,
+    val schemaVersion: Int,
+)
+
 @Dao
 interface SessionDao {
     @Query("SELECT * FROM chat_sessions ORDER BY updatedAtMillis DESC")
@@ -508,6 +520,15 @@ interface MemoryEmbeddingDao {
 }
 
 @Dao
+interface LocalStorageMigrationStateDao {
+    @Query("SELECT * FROM local_storage_migration_state WHERE id = :id LIMIT 1")
+    fun state(id: String): LocalStorageMigrationStateEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsert(state: LocalStorageMigrationStateEntity)
+}
+
+@Dao
 interface MemoryDeletionEventDao {
     @Query("SELECT * FROM memory_deletion_events ORDER BY deletedAtMillis DESC, id DESC")
     fun events(): List<MemoryDeletionEventEntity>
@@ -668,8 +689,9 @@ interface AgentTraceDao {
         AgentStepEntity::class,
         PendingAgentConfirmationEntity::class,
         AgentSkillRunCheckpointEntity::class,
+        LocalStorageMigrationStateEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = false,
 )
 abstract class PocketMindDatabase : RoomDatabase() {
@@ -684,6 +706,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
     abstract fun memoryDeletionEventDao(): MemoryDeletionEventDao
     abstract fun memoryDeletionTransactionDao(): MemoryDeletionTransactionDao
     abstract fun agentTraceDao(): AgentTraceDao
+    abstract fun localStorageMigrationStateDao(): LocalStorageMigrationStateDao
 
     companion object {
         @Volatile
@@ -990,6 +1013,26 @@ abstract class PocketMindDatabase : RoomDatabase() {
             }
         }
 
+        internal val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `local_storage_migration_state` (
+                        `id` TEXT NOT NULL,
+                        `phase` TEXT NOT NULL,
+                        `lastDomain` TEXT,
+                        `lastId` TEXT,
+                        `startedAtMillis` INTEGER NOT NULL,
+                        `completedAtMillis` INTEGER,
+                        `errorJson` TEXT,
+                        `schemaVersion` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun get(context: Context): PocketMindDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -1013,6 +1056,7 @@ abstract class PocketMindDatabase : RoomDatabase() {
                         MIGRATION_13_14,
                         MIGRATION_14_15,
                         MIGRATION_15_16,
+                        MIGRATION_16_17,
                     )
                     .allowMainThreadQueries()
                     .build()

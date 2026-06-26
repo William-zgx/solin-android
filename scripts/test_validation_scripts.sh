@@ -528,7 +528,7 @@ FAKE_FRESH_START_UI
         fi
         ;;
       /sdcard/pocketmind-model-manager.xml)
-        printf '<hierarchy><node text="%s" /></hierarchy>\n' "${FAKE_MODEL_MANAGER_UI_TEXT:-本地对话和本地视觉可用，可离线使用；远程多模态可选。远程发送和设备动作仍会先确认。}" > "$destination"
+        printf '<hierarchy><node text="%s" /></hierarchy>\n' "${FAKE_MODEL_MANAGER_UI_TEXT:-可下载或导入本地模型离线使用；远程多模态可选。切换远程会提醒，设备动作仍会先确认。}" > "$destination"
         ;;
       /sdcard/pocketmind-release-*.xml)
         cat > "$destination" <<'FAKE_RELEASE_SCREENSHOT_UI'

@@ -6,8 +6,15 @@ import android.net.Uri
 import android.os.Environment
 import com.bytedance.zgx.pocketmind.ModelCatalog
 import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
+import com.bytedance.zgx.pocketmind.isLocalDebugHost
 import java.io.File
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URI
+import java.net.URL
 import java.util.concurrent.CancellationException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 interface ModelDownloadClient {
     fun enqueue(source: ModelDownloadSource, targetFile: File): Result<Long>
@@ -23,6 +30,8 @@ class ModelDownloadService(
 ) : ModelDownloadClient {
     private val appContext = context.applicationContext
     private val downloadManager = appContext.getSystemService(DownloadManager::class.java)
+    private val directDownloadIds = AtomicLong(-1L)
+    private val directDownloads = ConcurrentHashMap<Long, DownloadInfo>()
     @Volatile
     private var preflightCancelled = false
 
@@ -35,19 +44,23 @@ class ModelDownloadService(
                 shouldCancel = { preflightCancelled },
             ).getOrThrow()
             if (preflightCancelled) throw CancellationException("下载已取消")
+            if (modelDownloadNetworkPolicyFor(preparedDownloadUrl.url) == ModelDownloadNetworkPolicy.LocalDebug) {
+                return@runCatching downloadLocalDebugUrl(preparedDownloadUrl, targetFile)
+            }
             val request = DownloadManager.Request(Uri.parse(preparedDownloadUrl.url))
                 .setTitle(source.title)
                 .setDescription("正在下载本地模型")
                 .setMimeType("application/octet-stream")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
-                .setAllowedOverMetered(false)
                 .setAllowedOverRoaming(false)
                 .setDestinationInExternalFilesDir(
                     appContext,
                     Environment.DIRECTORY_DOWNLOADS,
                     targetFile.name,
                 )
+            request
+                .setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
+                .setAllowedOverMetered(false)
             preparedDownloadUrl.authorizationHeader?.let { authorizationHeader ->
                 request.addRequestHeader("Authorization", authorizationHeader)
             }
@@ -62,12 +75,15 @@ class ModelDownloadService(
     }
 
     override fun cancel(downloadId: Long) {
-        if (downloadId > 0L) {
+        if (downloadId < 0L) {
+            directDownloads.remove(downloadId)
+        } else if (downloadId > 0L) {
             downloadManager.remove(downloadId)
         }
     }
 
     override fun query(downloadId: Long): DownloadInfo? {
+        if (downloadId < 0L) return directDownloads[downloadId]
         val query = DownloadManager.Query().setFilterById(downloadId)
         downloadManager.query(query)?.use { cursor ->
             if (!cursor.moveToFirst()) return null
@@ -86,7 +102,84 @@ class ModelDownloadService(
         }
         return null
     }
+
+    private fun downloadLocalDebugUrl(preparedDownloadUrl: PreparedDownloadUrl, targetFile: File): Long {
+        val downloadId = directDownloadIds.getAndDecrement()
+        var downloadedBytes = 0L
+        var totalBytes = -1L
+        directDownloads[downloadId] = DownloadInfo(
+            status = DownloadManager.STATUS_RUNNING,
+            reason = 0,
+            downloadedBytes = 0L,
+            totalBytes = totalBytes,
+        )
+        val connection = URL(preparedDownloadUrl.url).openConnection()
+        return try {
+            connection.connectTimeout = 30_000
+            connection.readTimeout = 30_000
+            preparedDownloadUrl.authorizationHeader?.let { authorizationHeader ->
+                connection.setRequestProperty("Authorization", authorizationHeader)
+            }
+            connection.setRequestProperty("User-Agent", "PocketMind model downloader")
+            if (connection is HttpURLConnection) {
+                connection.requestMethod = "GET"
+                val code = connection.responseCode
+                if (code !in 200..299) throw IOException("HTTP $code")
+            }
+            totalBytes = connection.contentLengthLong.takeIf { it > 0L } ?: -1L
+            targetFile.parentFile?.mkdirs()
+            connection.getInputStream().use { input ->
+                targetFile.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                        downloadedBytes += read
+                        directDownloads[downloadId] = DownloadInfo(
+                            status = DownloadManager.STATUS_RUNNING,
+                            reason = 0,
+                            downloadedBytes = downloadedBytes,
+                            totalBytes = totalBytes,
+                        )
+                    }
+                }
+            }
+            directDownloads[downloadId] = DownloadInfo(
+                status = DownloadManager.STATUS_SUCCESSFUL,
+                reason = 0,
+                downloadedBytes = downloadedBytes,
+                totalBytes = totalBytes.takeIf { it > 0L } ?: downloadedBytes,
+            )
+            downloadId
+        } catch (throwable: Throwable) {
+            targetFile.delete()
+            directDownloads[downloadId] = DownloadInfo(
+                status = DownloadManager.STATUS_FAILED,
+                reason = DownloadManager.ERROR_HTTP_DATA_ERROR,
+                downloadedBytes = downloadedBytes,
+                totalBytes = totalBytes,
+            )
+            throw throwable
+        } finally {
+            if (connection is HttpURLConnection) {
+                connection.disconnect()
+            }
+        }
+    }
 }
+
+internal enum class ModelDownloadNetworkPolicy {
+    LocalDebug,
+    WifiOnly,
+}
+
+internal fun modelDownloadNetworkPolicyFor(downloadUrl: String): ModelDownloadNetworkPolicy =
+    if (runCatching { URI(downloadUrl).host.isLocalDebugHost() }.getOrDefault(false)) {
+        ModelDownloadNetworkPolicy.LocalDebug
+    } else {
+        ModelDownloadNetworkPolicy.WifiOnly
+    }
 
 data class DownloadInfo(
     val status: Int,

@@ -55,6 +55,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -195,6 +196,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -244,6 +246,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -305,6 +308,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -420,6 +424,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -460,6 +465,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -525,6 +531,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -608,6 +615,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -657,6 +665,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -708,6 +717,7 @@ class PocketMindDatabaseMigrationTest {
                 PocketMindDatabase.MIGRATION_13_14,
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -774,6 +784,7 @@ class PocketMindDatabaseMigrationTest {
             .addMigrations(
                 PocketMindDatabase.MIGRATION_14_15,
                 PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
             )
             .allowMainThreadQueries()
             .build()
@@ -808,7 +819,10 @@ class PocketMindDatabaseMigrationTest {
             PocketMindDatabase::class.java,
             TEST_DB_NAME,
         )
-            .addMigrations(PocketMindDatabase.MIGRATION_15_16)
+            .addMigrations(
+                PocketMindDatabase.MIGRATION_15_16,
+                PocketMindDatabase.MIGRATION_16_17,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -832,6 +846,73 @@ class PocketMindDatabaseMigrationTest {
             val restored = database.memoryDeletionEventDao().events().single()
             assertEquals("pref-1", restored.recordId)
             assertEquals("hash-only", restored.recordTextHash)
+        } finally {
+            database.close()
+            context.deleteDatabase(TEST_DB_NAME)
+        }
+    }
+
+    @Test
+    fun migration16To17AddsLocalStorageMigrationStateOnly() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(TEST_DB_NAME)
+        val dbFile = context.getDatabasePath(TEST_DB_NAME)
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createVersion16Schema(db)
+            db.version = 16
+        }
+
+        val database = Room.databaseBuilder(
+            context,
+            PocketMindDatabase::class.java,
+            TEST_DB_NAME,
+        )
+            .addMigrations(PocketMindDatabase.MIGRATION_16_17)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            assertTrue(database.localStorageMigrationStateTableExists())
+            assertTrue(database.localStorageMigrationStateHasExpectedColumns())
+            assertTrue(database.zvecPayloadMirrorTablesAreAbsent())
+
+            database.openHelper.writableDatabase.execSQL(
+                """
+                INSERT INTO local_storage_migration_state(
+                    id,
+                    phase,
+                    lastDomain,
+                    lastId,
+                    startedAtMillis,
+                    completedAtMillis,
+                    errorJson,
+                    schemaVersion
+                ) VALUES(
+                    'local-storage-bootstrap',
+                    'Running',
+                    'documents',
+                    'doc-1',
+                    100,
+                    NULL,
+                    NULL,
+                    1
+                )
+                """.trimIndent(),
+            )
+
+            database.openHelper.writableDatabase.query(
+                "SELECT phase, lastDomain, lastId, startedAtMillis, completedAtMillis, errorJson, schemaVersion FROM local_storage_migration_state WHERE id = 'local-storage-bootstrap'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToNext())
+                assertEquals("Running", cursor.getString(0))
+                assertEquals("documents", cursor.getString(1))
+                assertEquals("doc-1", cursor.getString(2))
+                assertEquals(100L, cursor.getLong(3))
+                assertTrue(cursor.isNull(4))
+                assertTrue(cursor.isNull(5))
+                assertEquals(1, cursor.getInt(6))
+            }
         } finally {
             database.close()
             context.deleteDatabase(TEST_DB_NAME)
@@ -926,6 +1007,56 @@ class PocketMindDatabaseMigrationTest {
             "conflictKey",
             "deletedAtMillis",
         )
+    }
+
+    private fun PocketMindDatabase.localStorageMigrationStateTableExists(): Boolean {
+        openHelper.writableDatabase.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'local_storage_migration_state'",
+        ).use { cursor ->
+            return cursor.moveToNext()
+        }
+    }
+
+    private fun PocketMindDatabase.localStorageMigrationStateHasExpectedColumns(): Boolean {
+        val columns = mutableSetOf<ColumnSchema>()
+        openHelper.writableDatabase.query("PRAGMA table_info(`local_storage_migration_state`)").use { cursor ->
+            while (cursor.moveToNext()) {
+                columns += ColumnSchema(
+                    name = cursor.getString(cursor.getColumnIndexOrThrow("name")),
+                    type = cursor.getString(cursor.getColumnIndexOrThrow("type")),
+                    notNull = cursor.getInt(cursor.getColumnIndexOrThrow("notnull")) == 1,
+                    primaryKeyPosition = cursor.getInt(cursor.getColumnIndexOrThrow("pk")),
+                )
+            }
+        }
+        return columns == setOf(
+            ColumnSchema("id", "TEXT", notNull = true, primaryKeyPosition = 1),
+            ColumnSchema("phase", "TEXT", notNull = true, primaryKeyPosition = 0),
+            ColumnSchema("lastDomain", "TEXT", notNull = false, primaryKeyPosition = 0),
+            ColumnSchema("lastId", "TEXT", notNull = false, primaryKeyPosition = 0),
+            ColumnSchema("startedAtMillis", "INTEGER", notNull = true, primaryKeyPosition = 0),
+            ColumnSchema("completedAtMillis", "INTEGER", notNull = false, primaryKeyPosition = 0),
+            ColumnSchema("errorJson", "TEXT", notNull = false, primaryKeyPosition = 0),
+            ColumnSchema("schemaVersion", "INTEGER", notNull = true, primaryKeyPosition = 0),
+        )
+    }
+
+    private fun PocketMindDatabase.zvecPayloadMirrorTablesAreAbsent(): Boolean {
+        openHelper.writableDatabase.query(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table'
+                AND (
+                    name LIKE 'zvec%'
+                    OR (
+                        name LIKE 'local_storage_%'
+                        AND name != 'local_storage_migration_state'
+                    )
+                )
+            """.trimIndent(),
+        ).use { cursor ->
+            return !cursor.moveToNext()
+        }
     }
 
     private fun createVersion3Schema(db: SQLiteDatabase) {
@@ -1235,6 +1366,26 @@ class PocketMindDatabaseMigrationTest {
         db.execSQL("ALTER TABLE `memory_records` ADD COLUMN `conflictKey` TEXT")
     }
 
+    private fun createVersion16Schema(db: SQLiteDatabase) {
+        createVersion15Schema(db)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `memory_deletion_events` (
+                `id` TEXT NOT NULL,
+                `recordId` TEXT NOT NULL,
+                `recordType` TEXT NOT NULL,
+                `operation` TEXT NOT NULL,
+                `recordTextHash` TEXT NOT NULL,
+                `recordSource` TEXT NOT NULL,
+                `recordSensitivity` TEXT NOT NULL,
+                `conflictKey` TEXT,
+                `deletedAtMillis` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent(),
+        )
+    }
+
     private fun PocketMindDatabase.agentTraceTablesExist(): Boolean {
         val tables = mutableSetOf<String>()
         openHelper.writableDatabase.query(
@@ -1306,6 +1457,13 @@ class PocketMindDatabaseMigrationTest {
         override fun saveString(name: String, value: String): Result<Unit> =
             Result.success(Unit)
     }
+
+    private data class ColumnSchema(
+        val name: String,
+        val type: String,
+        val notNull: Boolean,
+        val primaryKeyPosition: Int,
+    )
 
     private companion object {
         const val TEST_DB_NAME = "pocketmind-migration-test.db"

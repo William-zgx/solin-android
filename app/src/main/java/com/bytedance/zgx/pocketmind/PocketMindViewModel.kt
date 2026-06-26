@@ -16,25 +16,29 @@ import com.bytedance.zgx.pocketmind.audit.RemoteSendDecision
 import com.bytedance.zgx.pocketmind.audit.InMemoryRemoteSendAuditStore
 import com.bytedance.zgx.pocketmind.audit.ToolAuditLog
 import com.bytedance.zgx.pocketmind.background.BackgroundTaskScheduler
+import com.bytedance.zgx.pocketmind.background.BackgroundTaskUseCases
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckPolicySummary
 import com.bytedance.zgx.pocketmind.background.PeriodicCheckScheduleRequest
 import com.bytedance.zgx.pocketmind.background.ScheduledTask
 import com.bytedance.zgx.pocketmind.background.ScheduledTaskStatus
+import com.bytedance.zgx.pocketmind.background.isActivePeriodicCheck
+import com.bytedance.zgx.pocketmind.data.BundledModelInstaller
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupRepository
 import com.bytedance.zgx.pocketmind.data.FirstRunSetupStore
-import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
 import com.bytedance.zgx.pocketmind.data.GenerationParametersStore
 import com.bytedance.zgx.pocketmind.data.HuggingFaceAuthStore
-import com.bytedance.zgx.pocketmind.data.ModelRepositoryFacade
+import com.bytedance.zgx.pocketmind.data.ModelDownloadSource
 import com.bytedance.zgx.pocketmind.data.ModelRepository
+import com.bytedance.zgx.pocketmind.data.ModelRepositoryFacade
 import com.bytedance.zgx.pocketmind.data.ModelSelectionState
 import com.bytedance.zgx.pocketmind.data.ModelVerificationStatus
+import com.bytedance.zgx.pocketmind.data.NoOpBundledModelInstaller
+import com.bytedance.zgx.pocketmind.data.NoOpHuggingFaceAuthStore
 import com.bytedance.zgx.pocketmind.data.NoOpRemoteSendPendingStore
-import com.bytedance.zgx.pocketmind.data.RemoteModelStore
 import com.bytedance.zgx.pocketmind.data.RemoteModelRepository
+import com.bytedance.zgx.pocketmind.data.RemoteModelStore
 import com.bytedance.zgx.pocketmind.data.RemoteSendPendingStore
 import com.bytedance.zgx.pocketmind.data.SessionStore
-import com.bytedance.zgx.pocketmind.data.NoOpHuggingFaceAuthStore
 import com.bytedance.zgx.pocketmind.device.DeviceContextAuthorizationSnapshot
 import com.bytedance.zgx.pocketmind.device.DeviceContextSnapshot
 import com.bytedance.zgx.pocketmind.device.DeviceContextToolReadiness
@@ -182,10 +186,12 @@ class PocketMindViewModel(
     private val remoteSendAuditSink: RemoteSendAuditSink = remoteSendAuditStore,
     private val remoteSendAuditLog: RemoteSendAuditLog = remoteSendAuditStore,
     private val remoteSendPendingStore: RemoteSendPendingStore = NoOpRemoteSendPendingStore,
+    private val bundledModelInstaller: BundledModelInstaller = NoOpBundledModelInstaller,
     private val skipStartupModelRuntimeWork: Boolean = false,
 ) : ViewModel() {
     private val runtimeLock = Mutex()
     private var generationJob: Job? = null
+    private var bundledModelInstallJob: Job? = null
     private var sessionRestoreJob: Job? = null
     private var sessionRestoreGeneration: Long = 0L
     private var activeGenerationRunId: String? = null
@@ -214,6 +220,7 @@ class PocketMindViewModel(
         dispatcher = ioDispatcher,
         publicEvidenceBatchRequestValidator = toolRegistry::validatePublicEvidenceBatchRequest,
     )
+    private val backgroundTaskUseCases = BackgroundTaskUseCases(backgroundTaskScheduler)
 
     private val _uiState = MutableStateFlow(createInitialState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -230,6 +237,11 @@ class PocketMindViewModel(
         _uiState.update { it.copy(longTermMemories = loadLongTermMemories()) }
         verifyLegacyModelsOnStartup(skipModelRuntimeWork)
         failStaleAgentRunsOnStartup()
+        if (startBundledModelInstallOnStartup(skipModelRuntimeWork)) {
+            restorePendingAgentConfirmationIfAny()
+            restorePendingExternalOutcomeIfAny()
+            return
+        }
 
         if (skipModelRuntimeWork) {
             if (_uiState.value.inferenceMode == InferenceMode.Remote) {
@@ -277,6 +289,62 @@ class PocketMindViewModel(
         }
         restorePendingAgentConfirmationIfAny()
         restorePendingExternalOutcomeIfAny()
+    }
+
+    private fun startBundledModelInstallOnStartup(skipModelRuntimeWork: Boolean): Boolean {
+        if (skipModelRuntimeWork || !bundledModelInstaller.isEnabled || bundledModelInstallJob != null) {
+            return false
+        }
+        bundledModelInstallJob = viewModelScope.launch(ioDispatcher) {
+            _uiState.update {
+                it.copy(
+                    showFirstRunSetup = false,
+                    statusText = "正在准备内置模型",
+                )
+            }
+            val result = runCatching { bundledModelInstaller.install() }
+                .getOrElse { error ->
+                    _uiState.update {
+                        it.copy(statusText = "内置模型准备失败：${error.cleanMessage()}")
+                    }
+                    return@launch
+                }
+            if (!result.available) {
+                return@launch
+            }
+
+            if (result.installedModelCount > 0 || modelRepository.currentState().activeModelPath != null) {
+                firstRunSetupRepository.markSetupDismissed()
+            }
+            val modelState = modelRepository.currentState()
+            updateModelState(modelState)
+            syncSemanticMemoryRuntime()
+            _uiState.update {
+                it.copy(
+                    showFirstRunSetup = false,
+                    semanticMemoryEnabled = currentSemanticMemoryEnabled(),
+                    semanticMemoryRuntimeStatus = currentSemanticMemoryRuntimeStatus(),
+                    semanticMemoryIndexedRecordCount = currentSemanticMemoryIndexedRecordCount(),
+                    semanticMemoryLastRebuiltAtMillis = currentSemanticMemoryLastRebuiltAtMillis(),
+                    statusText = when {
+                        result.hasFailures ->
+                            "内置模型部分准备失败：${result.failedModelIds.joinToString()}"
+                        modelState.activeModelPath != null ->
+                            "内置模型已准备好，正在加载"
+                        else ->
+                            "内置模型已准备好"
+                    },
+                )
+            }
+            if (
+                _uiState.value.inferenceMode == InferenceMode.Local &&
+                modelState.activeModelPath != null &&
+                !skipStartupModelRuntimeWork
+            ) {
+                loadModel()
+            }
+        }
+        return true
     }
 
     fun configureDebugRemoteModelForScreenshotEvidence(
@@ -501,11 +569,12 @@ class PocketMindViewModel(
 
     fun refreshBackgroundTasks() {
         syncTaskStateMemories()
+        val snapshot = backgroundTaskUseCases.snapshot()
         _uiState.update {
             it.copy(
-                backgroundTasks = loadBackgroundTasks(),
-                backgroundTaskHistory = loadBackgroundTaskHistory(),
-                periodicCheckPolicy = loadPeriodicCheckPolicy(),
+                backgroundTasks = snapshot.activeTasks,
+                backgroundTaskHistory = snapshot.history,
+                periodicCheckPolicy = snapshot.periodicCheckPolicy,
                 longTermMemories = loadLongTermMemories(),
             )
         }
@@ -517,101 +586,57 @@ class PocketMindViewModel(
 
     fun cancelBackgroundTask(taskId: String) {
         if (_uiState.value.isBusy) return
-        backgroundTaskScheduler.cancelScheduledTask(taskId)
-            .fold(
-                onSuccess = {
-                    syncTaskStateMemories()
-                    _uiState.update { state ->
-                        state.copy(
-                            backgroundTasks = loadBackgroundTasks(),
-                            backgroundTaskHistory = loadBackgroundTaskHistory(),
-                            periodicCheckPolicy = loadPeriodicCheckPolicy(),
-                            longTermMemories = loadLongTermMemories(),
-                            statusText = "后台任务已取消",
-                        )
-                    }
-                },
-                onFailure = { throwable ->
-                    syncTaskStateMemories()
-                    _uiState.update { state ->
-                        state.copy(
-                            backgroundTasks = loadBackgroundTasks(),
-                            backgroundTaskHistory = loadBackgroundTaskHistory(),
-                            periodicCheckPolicy = loadPeriodicCheckPolicy(),
-                            longTermMemories = loadLongTermMemories(),
-                            statusText = "后台任务取消失败：${throwable.cleanMessage()}",
-                        )
-                    }
-                },
+        val result = backgroundTaskUseCases.cancelScheduledTask(taskId)
+        syncTaskStateMemories()
+        _uiState.update { state ->
+            state.copy(
+                backgroundTasks = result.snapshot.activeTasks,
+                backgroundTaskHistory = result.snapshot.history,
+                periodicCheckPolicy = result.snapshot.periodicCheckPolicy,
+                longTermMemories = loadLongTermMemories(),
+                statusText = result.statusText,
             )
+        }
     }
 
     fun setPeriodicCheckPolicy(request: PeriodicCheckScheduleRequest) {
         if (_uiState.value.isBusy) return
         val previousPolicy = loadPeriodicCheckPolicy()
-        backgroundTaskScheduler.setPeriodicCheckPolicy(request)
-            .fold(
-                onSuccess = { policy ->
-                    if (policy.request.enabled && previousPolicy.isNotActivePeriodicCheck()) {
-                        longTermMemoryControls.unsuppressAutoManagedTaskState(
-                            taskStateMemoryRecordId(PeriodicCheckScheduleRequest.TASK_ID),
-                        )
-                    }
-                    syncTaskStateMemories()
-                    _uiState.update { state ->
-                        state.copy(
-                            backgroundTasks = loadBackgroundTasks(),
-                            backgroundTaskHistory = loadBackgroundTaskHistory(),
-                            periodicCheckPolicy = policy,
-                            longTermMemories = loadLongTermMemories(),
-                            statusText = "周期检查策略已保存",
-                        )
-                    }
-                },
-                onFailure = { throwable ->
-                    syncTaskStateMemories()
-                    _uiState.update {
-                        it.copy(
-                            backgroundTasks = loadBackgroundTasks(),
-                            backgroundTaskHistory = loadBackgroundTaskHistory(),
-                            periodicCheckPolicy = loadPeriodicCheckPolicy(),
-                            longTermMemories = loadLongTermMemories(),
-                            statusText = "周期检查策略保存失败：${throwable.cleanMessage()}",
-                        )
-                    }
-                },
+        val result = backgroundTaskUseCases.setPeriodicCheckPolicy(request)
+        if (
+            result.succeeded &&
+            result.snapshot.periodicCheckPolicy.request.enabled &&
+            !previousPolicy.isActivePeriodicCheck()
+        ) {
+            longTermMemoryControls.unsuppressAutoManagedTaskState(
+                taskStateMemoryRecordId(PeriodicCheckScheduleRequest.TASK_ID),
             )
+        }
+        syncTaskStateMemories()
+        _uiState.update { state ->
+            state.copy(
+                backgroundTasks = result.snapshot.activeTasks,
+                backgroundTaskHistory = result.snapshot.history,
+                periodicCheckPolicy = result.snapshot.periodicCheckPolicy,
+                longTermMemories = loadLongTermMemories(),
+                statusText = result.statusText,
+            )
+        }
     }
 
     fun disablePeriodicCheckPolicy() {
         if (_uiState.value.isBusy) return
-        backgroundTaskScheduler.disablePeriodicCheckPolicy()
-            .fold(
-                onSuccess = { policy ->
-                    syncTaskStateMemories()
-                    _uiState.update { state ->
-                        state.copy(
-                            backgroundTasks = loadBackgroundTasks(),
-                            backgroundTaskHistory = loadBackgroundTaskHistory(),
-                            periodicCheckPolicy = policy,
-                            longTermMemories = loadLongTermMemories(),
-                            statusText = "周期检查已关闭",
-                        )
-                    }
-                },
-                onFailure = { throwable ->
-                    syncTaskStateMemories()
-                    _uiState.update {
-                        it.copy(
-                            backgroundTasks = loadBackgroundTasks(),
-                            backgroundTaskHistory = loadBackgroundTaskHistory(),
-                            periodicCheckPolicy = loadPeriodicCheckPolicy(),
-                            longTermMemories = loadLongTermMemories(),
-                            statusText = "周期检查关闭失败：${throwable.cleanMessage()}",
-                        )
-                    }
-                },
+        val result = backgroundTaskUseCases.disablePeriodicCheckPolicy()
+        syncTaskStateMemories()
+        _uiState.update { state ->
+            state.copy(
+                backgroundTasks = result.snapshot.activeTasks,
+                backgroundTaskHistory = result.snapshot.history,
+                periodicCheckPolicy = result.snapshot.periodicCheckPolicy,
+                longTermMemories = loadLongTermMemories(),
+                statusText = result.statusText,
             )
+        }
     }
 
     fun refreshAuditEvents() {
@@ -5180,38 +5205,13 @@ class PocketMindViewModel(
     }
 
     private fun loadBackgroundTasks(): List<BackgroundTaskSummary> =
-        backgroundTaskScheduler.scheduledTasks()
-            .filter { task -> task.status == ScheduledTaskStatus.Scheduled }
-            .map { task -> task.toSummary() }
+        backgroundTaskUseCases.snapshot().activeTasks
 
     private fun loadBackgroundTaskHistory(): List<BackgroundTaskSummary> =
-        backgroundTaskScheduler.recentTasks()
-            .filter { task ->
-                task.status == ScheduledTaskStatus.Delivered ||
-                    task.status == ScheduledTaskStatus.Cancelled ||
-                    task.status == ScheduledTaskStatus.Deleted ||
-                    task.status == ScheduledTaskStatus.Failed
-            }
-            .map { task -> task.toSummary() }
+        backgroundTaskUseCases.snapshot().history
 
     private fun loadPeriodicCheckPolicy(): PeriodicCheckPolicySummary =
-        runCatching {
-            backgroundTaskScheduler.periodicCheckPolicy()
-        }.getOrDefault(PeriodicCheckPolicySummary.disabled())
-
-    private fun PeriodicCheckPolicySummary.isNotActivePeriodicCheck(): Boolean =
-        taskStatus != ScheduledTaskStatus.Scheduled &&
-            taskStatus != ScheduledTaskStatus.Running
-
-    private fun ScheduledTask.toSummary(): BackgroundTaskSummary =
-        BackgroundTaskSummary(
-            id = id,
-            type = type,
-            title = title,
-            body = body,
-            triggerAtMillis = triggerAtMillis,
-            status = status,
-        )
+        backgroundTaskUseCases.snapshot().periodicCheckPolicy
 
     private fun ScheduledTask.toTaskStateMemoryText(): String =
         listOf(
