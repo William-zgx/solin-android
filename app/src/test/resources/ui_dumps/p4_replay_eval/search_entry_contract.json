@@ -1,0 +1,56 @@
+{
+  "cases": [
+    {
+      "id": "taobao_result_feed_only_is_not_search_entry",
+      "source": "screen_observation",
+      "packageName": "com.taobao.taobao",
+      "targetKind": "search_entry",
+      "target": "搜索入口",
+      "expectedFailureKind": "search_entry_not_found",
+      "nodes": [
+        {
+          "id": "com.taobao.taobao:id/result_feed",
+          "text": "搜索 海河牛奶 综合 销量 筛选 商品列表 旗舰店 ￥29 已售1000 评价",
+          "className": "androidx.recyclerview.widget.RecyclerView",
+          "bounds": { "left": 0, "top": 120, "right": 1080, "bottom": 1800 },
+          "clickable": true,
+          "scrollable": true
+        }
+      ]
+    },
+    {
+      "id": "ocr_search_bar_preserves_bounds",
+      "source": "ocr",
+      "packageName": "com.xunmeng.pinduoduo",
+      "targetKind": "search_entry",
+      "target": "搜索入口",
+      "expectedSelectedNodeId": "ocr:search_bar",
+      "expectedBounds": { "left": 60, "top": 88, "right": 900, "bottom": 170 },
+      "excludedNodeIds": ["ocr:camera_search"],
+      "nodes": [
+        {
+          "id": "ocr:search_bar",
+          "text": "搜索商品 多多搜索",
+          "className": "ocr.TextBlock",
+          "bounds": { "left": 60, "top": 88, "right": 900, "bottom": 170 },
+          "clickable": true
+        },
+        {
+          "id": "ocr:camera_search",
+          "text": "拍照搜索",
+          "className": "ocr.TextBlock",
+          "bounds": { "left": 920, "top": 88, "right": 1028, "bottom": 170 },
+          "clickable": true
+        },
+        {
+          "id": "ocr:home_feed",
+          "text": "搜索 推荐 商品列表 百亿补贴 已售1000 评价",
+          "className": "ocr.TextBlock",
+          "bounds": { "left": 0, "top": 360, "right": 1080, "bottom": 1900 },
+          "clickable": true,
+          "scrollable": true
+        }
+      ]
+    }
+  ]
+}

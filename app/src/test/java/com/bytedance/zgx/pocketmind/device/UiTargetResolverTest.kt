@@ -460,6 +460,33 @@ class UiTargetResolverTest {
     }
 
     @Test
+    fun explanationContractNamesSourceFallbackVerificationSignalAndReason() {
+        val snapshot = snapshot(
+            nodes = listOf(
+                node(
+                    id = "search-entry",
+                    text = "搜索商品",
+                    bounds = ScreenBounds(16, 72, 1064, 152),
+                    clickable = true,
+                ),
+            ),
+        )
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")
+        val contract = evidence.explanationContract()
+
+        assertEquals(UiTargetEvidenceSource.Accessibility, contract.source)
+        assertEquals(UiTargetFallbackType.None, contract.fallbackType)
+        assertEquals(UiTargetVerificationSignal.EditableFocusedOrTextAccepted, contract.expectedVerificationSignal)
+        assertEquals(false, contract.requiresAdditionalEvidence)
+        assertEquals("matched 搜索商品", contract.reason)
+        assertTrue(UiTargetEvidenceSource.Accessibility.priority > UiTargetEvidenceSource.OcrPlaceholder.priority)
+        assertTrue(UiTargetEvidenceSource.Accessibility.priority > UiTargetEvidenceSource.VisionPlaceholder.priority)
+        assertTrue(UiTargetFallbackType.Coordinate.requiresEvidence)
+        assertTrue(UiTargetFallbackType.Coordinate.priority < UiTargetFallbackType.OcrGroundingPlaceholder.priority)
+    }
+
+    @Test
     fun explainCandidateEvidenceIncludesActionabilityBoundsHintPenaltyAndConfidenceScore() {
         val snapshot = snapshot(
             packageName = "com.jingdong.app.mall",

@@ -31,17 +31,18 @@ import com.bytedance.zgx.pocketmind.device.RecentImageTextProvider
 import com.bytedance.zgx.pocketmind.device.RecentImageTextReadResult
 import com.bytedance.zgx.pocketmind.device.AppSearchResultVerifier
 import com.bytedance.zgx.pocketmind.device.SearchResultVerification
-import com.bytedance.zgx.pocketmind.device.ScreenBounds
-import com.bytedance.zgx.pocketmind.device.ScreenNode
 import com.bytedance.zgx.pocketmind.device.ScreenStateReadResult
 import com.bytedance.zgx.pocketmind.device.ScreenStateSnapshot
 import com.bytedance.zgx.pocketmind.device.UiActionFailureKind
 import com.bytedance.zgx.pocketmind.device.UiActionReadResult
 import com.bytedance.zgx.pocketmind.device.UiActionStatus
 import com.bytedance.zgx.pocketmind.device.UiScrollDirection
+import com.bytedance.zgx.pocketmind.device.toScreenNodesJsonString
+import com.bytedance.zgx.pocketmind.device.toScreenObservationJsonString
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrProvider
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrReadResult
+import com.bytedance.zgx.pocketmind.multimodal.toOcrBlocksJsonString
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -1055,6 +1056,7 @@ class DeviceControlToolExecutor(
             "textSummary" to textSummary,
             "truncated" to truncated.toString(),
             "nodesJson" to nodes.toScreenNodesJsonString(),
+            "screenObservationJson" to toScreenObservationJsonString(),
             "maxTextChars" to requestedMaxTextChars.toString(),
             "maxNodes" to requestedMaxNodes.toString(),
         ) + packageName?.takeIf { it.isNotBlank() }?.let { mapOf("packageName" to it) }.orEmpty()
@@ -1140,7 +1142,10 @@ class CurrentScreenshotOcrToolExecutor(
                             "truncated" to result.truncated.toString(),
                             "ocrTextIncluded" to (ocrText != null).toString(),
                         ) +
-                        ocrText?.let { mapOf("ocrText" to it) }.orEmpty(),
+                        ocrText?.let { mapOf("ocrText" to it) }.orEmpty() +
+                        result.ocrBlocks.takeIf { it.isNotEmpty() }
+                            ?.let { mapOf("ocrBlocksJson" to it.toOcrBlocksJsonString()) }
+                            .orEmpty(),
                 )
             }
         }
@@ -1181,32 +1186,6 @@ private fun List<RecentFileItem>.toRecentFilesJsonString(): String {
     }
     return filesArray.toString()
 }
-
-private fun List<ScreenNode>.toScreenNodesJsonString(): String {
-    val nodesArray = JSONArray()
-    forEach { node ->
-        nodesArray.put(
-            JSONObject()
-                .put("id", node.id)
-                .put("text", node.text)
-                .put("contentDescription", node.contentDescription)
-                .put("className", node.className)
-                .put("bounds", node.bounds?.toJsonObject())
-                .put("clickable", node.clickable)
-                .put("editable", node.editable)
-                .put("scrollable", node.scrollable)
-                .put("enabled", node.enabled),
-        )
-    }
-    return nodesArray.toString()
-}
-
-private fun ScreenBounds.toJsonObject(): JSONObject =
-    JSONObject()
-        .put("left", left)
-        .put("top", top)
-        .put("right", right)
-        .put("bottom", bottom)
 
 private fun List<ScheduledTask>.appendToBackgroundTasksJson(
     scope: String,

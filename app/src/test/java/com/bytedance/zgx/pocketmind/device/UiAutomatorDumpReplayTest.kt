@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 import org.w3c.dom.Element
 import org.w3c.dom.Node as DomNode
 import javax.xml.parsers.DocumentBuilderFactory
@@ -232,6 +233,22 @@ class UiAutomatorDumpReplayTest {
     }
 
     @Test
+    fun jdDisabledKeyboardSubmitDumpDoesNotResolveSubmitSearch() {
+        val snapshot = loadDump("ui_dumps/real_app_search/jd_disabled_keyboard_submit.xml")
+
+        val evidence = UiTargetResolver.explain(snapshot, UiTargetKind.SubmitSearch, target = "提交搜索")
+
+        assertNull(evidence.selectedNodeId)
+        assertEquals(UiActionFailureKind.SubmitNotFound, evidence.failureKind)
+        val keyboardCandidate = requireNotNull(
+            evidence.rankedCandidates.firstOrNull { candidate ->
+                candidate.nodeId == "com.jingdong.app.mall:id/keyboard_search_action"
+            },
+        )
+        assertEquals(false, keyboardCandidate.enabled)
+    }
+
+    @Test
     fun browserHomeDumpResolvesAddressBarAndDemotesFeed() {
         val snapshot = loadDump("ui_dumps/real_app_search/quark_address_home.xml")
 
@@ -381,6 +398,37 @@ class UiAutomatorDumpReplayTest {
         )
     }
 
+    @Test
+    fun p4ReplayEvalFixturesCoverSearchEntryNegativeAndOcrBounds() {
+        val cases = loadReplayCases("ui_dumps/p4_replay_eval/search_entry_contract.json")
+
+        assertEquals(2, cases.size)
+        cases.forEach { replayCase ->
+            val evidence = UiTargetResolver.explain(
+                snapshot = replayCase.snapshot,
+                kind = replayCase.kind,
+                target = replayCase.target,
+            )
+
+            assertEquals(replayCase.id, replayCase.expectedSelectedNodeId, evidence.selectedNodeId)
+            assertEquals(replayCase.id, replayCase.expectedFailureKind, evidence.failureKind)
+            replayCase.expectedBounds?.let { expectedBounds ->
+                val selected = requireNotNull(
+                    evidence.rankedCandidates.firstOrNull { candidate ->
+                        candidate.nodeId == replayCase.expectedSelectedNodeId
+                    },
+                )
+                assertEquals(replayCase.id, expectedBounds, selected.bounds)
+            }
+            replayCase.excludedNodeIds.forEach { excludedNodeId ->
+                assertTrue(
+                    replayCase.id,
+                    evidence.rankedCandidates.none { candidate -> candidate.nodeId == excludedNodeId },
+                )
+            }
+        }
+    }
+
     private fun assertBrowserInputDump(
         resourcePath: String,
         editableNodeId: String,
@@ -424,6 +472,54 @@ class UiAutomatorDumpReplayTest {
         assertEquals("query_visible_after_change", verification.evidence)
         assertNull(verification.failureKind)
     }
+
+    private fun loadReplayCases(resourcePath: String): List<ReplayCase> {
+        val json = JSONObject(readResourceText(resourcePath))
+        val cases = json.getJSONArray("cases")
+        return (0 until cases.length()).map { index ->
+            val item = cases.getJSONObject(index)
+            val nodes = item.getJSONArray("nodes")
+            val parsedNodes = (0 until nodes.length()).map { nodeIndex ->
+                val node = nodes.getJSONObject(nodeIndex)
+                ScreenNode(
+                    id = node.getString("id"),
+                    text = node.optString("text"),
+                    contentDescription = node.optString("contentDescription"),
+                    className = node.optString("className"),
+                    bounds = node.optJSONObject("bounds")?.toScreenBounds(),
+                    clickable = node.optBoolean("clickable"),
+                    editable = node.optBoolean("editable"),
+                    scrollable = node.optBoolean("scrollable"),
+                    enabled = node.optBoolean("enabled", true),
+                )
+            }
+            ReplayCase(
+                id = item.getString("id"),
+                kind = UiTargetKind.entries.first { kind -> kind.schemaValue == item.getString("targetKind") },
+                target = item.optString("target").takeIf { value -> value.isNotBlank() },
+                snapshot = ScreenStateSnapshot(
+                    id = item.getString("id"),
+                    packageName = item.optString("packageName").takeIf { value -> value.isNotBlank() },
+                    capturedAtMillis = 1L,
+                    nodes = parsedNodes,
+                    textSummary = parsedNodes.joinToString(" ") { node -> node.text.ifBlank { node.contentDescription } },
+                    truncated = false,
+                ),
+                expectedSelectedNodeId = item.optString("expectedSelectedNodeId").takeIf { value -> value.isNotBlank() },
+                expectedFailureKind = item.optString("expectedFailureKind").takeIf { value -> value.isNotBlank() }
+                    ?.let { schemaValue ->
+                        UiActionFailureKind.entries.first { kind -> kind.schemaValue == schemaValue }
+                    },
+                expectedBounds = item.optJSONObject("expectedBounds")?.toScreenBounds(),
+                excludedNodeIds = item.optStringList("excludedNodeIds"),
+            )
+        }
+    }
+
+    private fun readResourceText(resourcePath: String): String =
+        requireNotNull(javaClass.classLoader?.getResourceAsStream(resourcePath)) {
+            "Missing replay fixture: $resourcePath"
+        }.bufferedReader().use { reader -> reader.readText() }
 
     private fun loadDump(resourcePath: String): ScreenStateSnapshot {
         val document = requireNotNull(javaClass.classLoader?.getResourceAsStream(resourcePath)) {
@@ -497,7 +593,31 @@ class UiAutomatorDumpReplayTest {
         )
     }
 
+    private fun JSONObject.toScreenBounds(): ScreenBounds =
+        ScreenBounds(
+            left = getInt("left"),
+            top = getInt("top"),
+            right = getInt("right"),
+            bottom = getInt("bottom"),
+        )
+
+    private fun JSONObject.optStringList(key: String): List<String> {
+        val array = optJSONArray(key) ?: return emptyList()
+        return (0 until array.length()).map { index -> array.getString(index) }
+    }
+
     private fun Element.attr(name: String): String = getAttribute(name).orEmpty()
+
+    private data class ReplayCase(
+        val id: String,
+        val kind: UiTargetKind,
+        val target: String?,
+        val snapshot: ScreenStateSnapshot,
+        val expectedSelectedNodeId: String?,
+        val expectedFailureKind: UiActionFailureKind?,
+        val expectedBounds: ScreenBounds?,
+        val excludedNodeIds: List<String>,
+    )
 
     private companion object {
         val BoundsRegex = Regex("""\[(\d+),(\d+)]\[(\d+),(\d+)]""")

@@ -14,6 +14,8 @@ import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.Locale
+import org.json.JSONArray
+import org.json.JSONObject
 
 private const val MAX_SHARED_TEXT_CHARS = 4_000
 
@@ -278,7 +280,78 @@ data class SharedTextPreview(
     val truncated: Boolean,
     val source: SharedTextPreviewSource = SharedTextPreviewSource.TextFile,
     val quality: MultimodalQuality = MultimodalQuality.fromText(text, truncated),
+    val ocrBlocks: List<OcrTextBlock> = emptyList(),
 )
+
+data class OcrTextBlock(
+    val text: String,
+    val bounds: OcrTextBounds? = null,
+    val lines: List<OcrTextLine> = emptyList(),
+)
+
+data class OcrTextLine(
+    val text: String,
+    val bounds: OcrTextBounds? = null,
+    val elements: List<OcrTextElement> = emptyList(),
+)
+
+data class OcrTextElement(
+    val text: String,
+    val bounds: OcrTextBounds? = null,
+)
+
+data class OcrTextBounds(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+)
+
+internal fun List<OcrTextBlock>.toOcrBlocksJsonString(): String =
+    JSONArray().also { blocks ->
+        forEach { block -> blocks.put(block.toJsonObject()) }
+    }.toString()
+
+private fun OcrTextBlock.toJsonObject(): JSONObject =
+    JSONObject()
+        .put("text", text)
+        .putBounds("bounds", bounds)
+        .put(
+            "lines",
+            JSONArray().also { linesJson ->
+                lines.forEach { line -> linesJson.put(line.toJsonObject()) }
+            },
+        )
+
+private fun OcrTextLine.toJsonObject(): JSONObject =
+    JSONObject()
+        .put("text", text)
+        .putBounds("bounds", bounds)
+        .put(
+            "elements",
+            JSONArray().also { elementsJson ->
+                elements.forEach { element -> elementsJson.put(element.toJsonObject()) }
+            },
+        )
+
+private fun OcrTextElement.toJsonObject(): JSONObject =
+    JSONObject()
+        .put("text", text)
+        .putBounds("bounds", bounds)
+
+private fun JSONObject.putBounds(name: String, bounds: OcrTextBounds?): JSONObject =
+    apply {
+        bounds?.let {
+            put(
+                name,
+                JSONObject()
+                    .put("left", it.left)
+                    .put("top", it.top)
+                    .put("right", it.right)
+                    .put("bottom", it.bottom),
+            )
+        }
+    }
 
 enum class MultimodalQualityLevel {
     High,
@@ -634,7 +707,7 @@ private fun ByteArray.decodeStrictUtf8OrNull(allowDroppingTrailingPartial: Boole
 }
 
 object ImageTextPreviewReader {
-    fun fromText(text: String): SharedTextPreview? {
+    fun fromText(text: String, ocrBlocks: List<OcrTextBlock> = emptyList()): SharedTextPreview? {
         val normalized = text
             .replace("\r\n", "\n")
             .replace('\r', '\n')
@@ -644,10 +717,12 @@ object ImageTextPreviewReader {
         if (normalized.isBlank()) return null
         val previewText = normalized.take(MAX_IMAGE_TEXT_PREVIEW_CHARS).trim()
         if (previewText.isBlank()) return null
+        val truncated = normalized.length > MAX_IMAGE_TEXT_PREVIEW_CHARS
         return SharedTextPreview(
             text = previewText,
-            truncated = normalized.length > MAX_IMAGE_TEXT_PREVIEW_CHARS,
+            truncated = truncated,
             source = SharedTextPreviewSource.ImageOcr,
+            ocrBlocks = if (truncated) emptyList() else ocrBlocks,
         )
     }
 

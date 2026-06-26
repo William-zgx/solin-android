@@ -15,6 +15,8 @@ class CurrentScreenshotOcrContractTest {
         val output = JSONObject(CurrentScreenshotOcrContract.OUTPUT_SCHEMA_JSON)
         val inputCaptureMode = input.getJSONObject("properties").getJSONObject("captureMode")
         val outputProperties = output.getJSONObject("properties")
+        val requiredOutputKeys = (0 until output.getJSONArray("required").length())
+            .map { index -> output.getJSONArray("required").getString(index) }
 
         assertEquals(CurrentScreenshotOcrContract.TOOL_NAME, outputProperties.getJSONObject("toolName").getString("const"))
         assertEquals("current_screen", inputCaptureMode.getJSONArray("enum").getString(0))
@@ -26,6 +28,12 @@ class CurrentScreenshotOcrContractTest {
         assertEquals(
             CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY,
             outputProperties.getJSONObject("metadataPolicy").getJSONArray("enum").getString(0),
+        )
+        assertFalse(requiredOutputKeys.contains("ocrBlocksJson"))
+        assertEquals("string", outputProperties.getJSONObject("ocrBlocksJson").getString("type"))
+        assertEquals(
+            "application/json",
+            outputProperties.getJSONObject("ocrBlocksJson").getString("contentMediaType"),
         )
         assertFalse(outputProperties.has("pixels"))
         assertFalse(outputProperties.has("uri"))

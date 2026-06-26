@@ -123,6 +123,13 @@ confirmed foreground-app estimates. Accessibility is used for confirmed
 current-screen reads and low-risk phone-control gestures. MediaProjection is
 used only for one-shot current-screen screenshot OCR after foreground consent.
 
+For screen understanding specifically, screen pixels, OCR excerpts,
+Accessibility text, Accessibility snapshot nodes/bounds metadata, and
+post-action verification summaries stay `LocalOnly`. They are not automatically
+included in remote history, sent to a remote endpoint, or sent to a remote VLM.
+The same content may leave the device only if the user manually creates a
+separate `RemoteEligible` message containing it.
+
 ## External Intents And Attachments
 
 Confirmed tools may open Android system screens, the share sheet, email drafts,

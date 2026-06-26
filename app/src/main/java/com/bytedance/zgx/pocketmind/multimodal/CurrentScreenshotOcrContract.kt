@@ -41,6 +41,12 @@ object CurrentScreenshotOcrContract {
     "source": {"type": "string", "enum": ["current_screen"]},
     "captureMode": {"type": "string", "enum": ["current_screen"]},
     "ocrText": {"type": "string", "minLength": 1},
+    "ocrBlocksJson": {
+      "type": "string",
+      "minLength": 1,
+      "contentMediaType": "application/json",
+      "description": "Optional JSON array of OCR blocks. Each block may include bounds and lines; each line may include bounds and elements. No pixels, URI/path, or window title metadata."
+    },
     "truncated": {"type": "boolean"},
     "ocrTextIncluded": {"type": "boolean"},
     "rawPayloadIncluded": {"type": "boolean", "const": false},

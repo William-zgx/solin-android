@@ -42,6 +42,7 @@ sealed interface CurrentScreenshotOcrReadResult {
     data class Available(
         val text: String?,
         val truncated: Boolean,
+        val ocrBlocks: List<OcrTextBlock> = emptyList(),
     ) : CurrentScreenshotOcrReadResult
 
     data class Failed(val reason: String) : CurrentScreenshotOcrReadResult
@@ -130,6 +131,7 @@ class AndroidCurrentScreenshotOcrProvider(
                     CurrentScreenshotOcrReadResult.Available(
                         text = preview?.text?.takeIf { it.isNotBlank() },
                         truncated = preview?.truncated ?: false,
+                        ocrBlocks = preview?.ocrBlocks.orEmpty(),
                     )
                 } finally {
                     if (ocrBitmap !== bitmap) ocrBitmap.recycle()

@@ -2,9 +2,11 @@ package com.bytedance.zgx.pocketmind.multimodal
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.net.Uri
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
@@ -47,21 +49,53 @@ class MlKitImageTextExtractor(
                 recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build()),
             )
         }.getOrNull()
+        val blocks = OcrTextLayoutFormatter.mergeRecognizedBlocks(listOfNotNull(latinBlocks, chineseBlocks))
         return ImageTextPreviewReader.fromText(
-            OcrTextLayoutFormatter.mergeRecognizedBlocks(listOfNotNull(latinBlocks, chineseBlocks)),
+            text = OcrTextLayoutFormatter.toPlainText(blocks),
+            ocrBlocks = blocks,
         )
     }
 
     private fun extractTextBlocks(
         image: InputImage,
         recognizer: TextRecognizer,
-    ): List<List<String>> =
+    ): List<OcrTextBlock> =
         try {
             Tasks.await(recognizer.process(image), RECOGNIZER_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
                 .textBlocks
-                .map { block -> block.lines.map { line -> line.text } }
+                .map { block -> block.toOcrTextBlock() }
         } finally {
             recognizer.close()
+        }
+
+    private fun Text.TextBlock.toOcrTextBlock(): OcrTextBlock =
+        OcrTextBlock(
+            text = text,
+            bounds = boundingBox.toOcrTextBounds(),
+            lines = lines.map { line -> line.toOcrTextLine() },
+        )
+
+    private fun Text.Line.toOcrTextLine(): OcrTextLine =
+        OcrTextLine(
+            text = text,
+            bounds = boundingBox.toOcrTextBounds(),
+            elements = elements.map { element -> element.toOcrTextElement() },
+        )
+
+    private fun Text.Element.toOcrTextElement(): OcrTextElement =
+        OcrTextElement(
+            text = text,
+            bounds = boundingBox.toOcrTextBounds(),
+        )
+
+    private fun Rect?.toOcrTextBounds(): OcrTextBounds? =
+        this?.let { rect ->
+            OcrTextBounds(
+                left = rect.left,
+                top = rect.top,
+                right = rect.right,
+                bottom = rect.bottom,
+            )
         }
 
     private companion object {
@@ -70,26 +104,49 @@ class MlKitImageTextExtractor(
 }
 
 internal object OcrTextLayoutFormatter {
-    fun mergeRecognizedBlocks(recognizerBlocks: List<List<List<String>>>): String {
+    fun mergeRecognizedBlocks(recognizerBlocks: List<List<OcrTextBlock>>): List<OcrTextBlock> {
         val seenLines = linkedSetOf<String>()
-        val outputBlocks = mutableListOf<List<String>>()
+        val outputBlocks = mutableListOf<OcrTextBlock>()
         recognizerBlocks.forEach { blocks ->
             blocks.forEach { block ->
                 val lines = block
+                    .lines
                     .mapNotNull { line ->
                         line.normalizedOcrLine()
                             .takeIf { normalized -> normalized.isNotBlank() }
                             ?.takeIf(seenLines::add)
+                            ?.let { normalized ->
+                                line.copy(
+                                    text = normalized,
+                                    elements = line.elements.normalizedOcrElements(),
+                                )
+                            }
                     }
                 if (lines.isNotEmpty()) {
-                    outputBlocks += lines
+                    outputBlocks += block.copy(
+                        text = lines.joinToString(separator = "\n") { line -> line.text },
+                        lines = lines,
+                    )
                 }
             }
         }
-        return outputBlocks.joinToString(separator = "\n\n") { block ->
-            block.joinToString(separator = "\n")
-        }
+        return outputBlocks
     }
+
+    fun toPlainText(blocks: List<OcrTextBlock>): String =
+        blocks.joinToString(separator = "\n\n") { block ->
+            block.lines.joinToString(separator = "\n") { line -> line.text }
+        }
+
+    private fun List<OcrTextElement>.normalizedOcrElements(): List<OcrTextElement> =
+        mapNotNull { element ->
+            element.text.normalizedOcrLine()
+                .takeIf { it.isNotBlank() }
+                ?.let { normalized -> element.copy(text = normalized) }
+        }
+
+    private fun OcrTextLine.normalizedOcrLine(): String =
+        text.normalizedOcrLine()
 
     private fun String.normalizedOcrLine(): String =
         replace("\r\n", "\n")

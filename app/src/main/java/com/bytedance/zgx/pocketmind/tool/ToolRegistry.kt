@@ -1501,6 +1501,7 @@ private val observeCurrentScreenOutputSchemaJson = """
         "textSummary",
         "truncated",
         "nodesJson",
+        "screenObservationJson",
         "maxTextChars",
         "maxNodes"
       ],
@@ -1518,6 +1519,7 @@ private val observeCurrentScreenOutputSchemaJson = """
         "textSummary": {"type": "string"},
         "truncated": {"type": "boolean"},
         "nodesJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"},
+        "screenObservationJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"},
         "maxTextChars": {"type": "integer", "minimum": 1, "maximum": 4000},
         "maxNodes": {"type": "integer", "minimum": 1, "maximum": 120}
       },
@@ -1622,6 +1624,7 @@ private val observeCurrentScreenPrivateOutputKeys = setOf(
     "actionableNodeCount",
     "textSummary",
     "nodesJson",
+    "screenObservationJson",
 )
 
 private val uiActionPrivateOutputKeys = setOf(
@@ -2230,7 +2233,7 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
             pendingArgumentAllowlist = setOf("captureMode"),
-            privateOutputKeys = setOf("ocrText"),
+            privateOutputKeys = setOf("ocrText", "ocrBlocksJson"),
             redactedResultSummary = "已读取当前屏幕截图 OCR 摘录",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
             tags = sequentialLocalContinuationTags,

@@ -1730,11 +1730,18 @@ class AiBehaviorActualTraceGeneratorTest {
                 "textSummary" to textSummary,
                 "truncated" to "false",
                 "nodesJson" to "[]",
+                "screenObservationJson" to screenObservationJson("screen-${request.id}", packageName),
                 "maxTextChars" to "2000",
                 "maxNodes" to "50",
                 "packageName" to packageName,
             ),
         )
+
+    private fun screenObservationJson(
+        observationId: String,
+        packageName: String,
+    ): String =
+        """{"schemaVersion":1,"observationId":"$observationId","capturedAtMillis":1000,"packageName":"$packageName","privacyLevel":"LocalOnly","sources":["accessibility"],"elementCount":0,"sourceCounts":{},"truncated":false,"elements":[]}"""
 
     private fun uiActionResult(
         request: ToolRequest,

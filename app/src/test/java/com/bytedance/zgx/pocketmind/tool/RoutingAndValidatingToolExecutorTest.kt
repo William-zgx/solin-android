@@ -46,7 +46,11 @@ import com.bytedance.zgx.pocketmind.device.UiScrollDirection
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrProvider
 import com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrReadResult
+import com.bytedance.zgx.pocketmind.multimodal.OcrTextBlock
+import com.bytedance.zgx.pocketmind.multimodal.OcrTextBounds
+import com.bytedance.zgx.pocketmind.multimodal.OcrTextLine
 import java.time.Instant
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -149,6 +153,11 @@ class RoutingAndValidatingToolExecutorTest {
             assertEquals(MessagePrivacy.LocalOnly.name, result.data["privacy"])
             assertEquals(true.toString(), result.data["requiresLocalModel"])
             assertTrue(result.data.containsKey(routedDataKey))
+            if (request.toolName == MobileActionFunctions.OBSERVE_CURRENT_SCREEN) {
+                assertTrue(result.data.containsKey("screenObservationJson"))
+                assertTrue(result.data.containsKey("nodesJson"))
+                assertTrue(result.data.containsKey("textSummary"))
+            }
         }
         assertTrue(delegate.requests.isEmpty())
     }
@@ -246,6 +255,13 @@ class RoutingAndValidatingToolExecutorTest {
             CurrentScreenshotOcrReadResult.Available(
                 text = "当前屏幕 OCR 文本",
                 truncated = false,
+                ocrBlocks = listOf(
+                    OcrTextBlock(
+                        text = "当前屏幕 OCR 文本",
+                        bounds = OcrTextBounds(left = 1, top = 2, right = 120, bottom = 42),
+                        lines = listOf(OcrTextLine(text = "当前屏幕 OCR 文本")),
+                    ),
+                ),
             ),
         )
         val executor = ValidatingToolExecutor(
@@ -269,6 +285,9 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals(CurrentScreenshotOcrContract.SOURCE, result.data["source"])
         assertEquals(CurrentScreenshotOcrContract.CAPTURE_MODE, result.data["captureMode"])
         assertEquals("当前屏幕 OCR 文本", result.data["ocrText"])
+        val ocrBlocks = JSONArray(result.data.getValue("ocrBlocksJson"))
+        assertEquals("当前屏幕 OCR 文本", ocrBlocks.getJSONObject(0).getString("text"))
+        assertEquals(1, ocrBlocks.getJSONObject(0).getJSONObject("bounds").getInt("left"))
         assertEquals("true", result.data["ocrTextIncluded"])
         assertEquals("false", result.data["truncated"])
         assertEquals("false", result.data["rawPayloadIncluded"])
@@ -961,6 +980,7 @@ class RoutingAndValidatingToolExecutorTest {
         assertEquals(SPECIAL_ACCESS_ACCESSIBILITY_DEVICE_CONTROL, result.data["specialAccess"])
         assertEquals("android.settings.ACCESSIBILITY_SETTINGS", result.data["settingsAction"])
         assertFalse(result.data.containsKey("nodesJson"))
+        assertFalse(result.data.containsKey("screenObservationJson"))
         assertFalse(result.data.containsKey("textSummary"))
         assertTrue(delegate.requests.isEmpty())
     }

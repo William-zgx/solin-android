@@ -15571,3 +15571,43 @@ adb -s fb6272c logcat -d -v time
 - arm64 emulator API matrix。
 - RC perf baseline。
 - 生产签名或正式 release artifact gate。
+
+## 2026-06-27 Screen/OCR Safety Docs Minimum Loop
+
+本轮覆盖项：
+
+- `docs/screen_ocr_agent_optimization_plan.md` 记录 Safety/Docs 最小闭环：哪些屏幕/OCR/
+  Accessibility 隐私诉求已有代码/测试边界，哪些仍需真机、人审、性能证据。
+- `docs/privacy_notice.md` 明确屏幕像素、OCR 摘录、Accessibility 文本、节点/bounds
+  元数据和动作后验证摘要均为 `LocalOnly`，不自动进入远程历史、远程 endpoint 或远程 VLM。
+- Runtime/test 本轮完成：`ScreenObservation` 合同、`observe_current_screen.screenObservationJson`、
+  OCR block/bounds 合同、当前屏幕 OCR `ocrBlocksJson` 私有输出、`UiTargetResolver`
+  explain 合同，以及小型 replay fixture。
+- 没有把 P3/P4 真机 benchmark、50k 物理 perf gate 或 release gate 写成已完成。
+
+验证命令：
+
+```bash
+rg -n "Screen/OCR Safety Docs Minimum Loop|Safety/Docs 最小闭环|不自动进入远程历史|不会自动发送|not automatically|未执行：Gradle/JVM" \
+  docs/screen_ocr_agent_optimization_plan.md docs/privacy_notice.md docs/validation_report.md
+git diff --check -- docs/screen_ocr_agent_optimization_plan.md docs/privacy_notice.md docs/validation_report.md
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.pocketmind.device.ScreenObservationContractTest \
+  --tests com.bytedance.zgx.pocketmind.device.UiTargetResolverTest \
+  --tests com.bytedance.zgx.pocketmind.device.UiAutomatorDumpReplayTest \
+  --tests com.bytedance.zgx.pocketmind.multimodal.ImageTextExtractorTest \
+  --tests com.bytedance.zgx.pocketmind.multimodal.CurrentScreenshotOcrContractTest \
+  --tests com.bytedance.zgx.pocketmind.tool.ToolRegistryTest \
+  --tests com.bytedance.zgx.pocketmind.tool.RoutingAndValidatingToolExecutorTest \
+  --tests com.bytedance.zgx.pocketmind.tool.ToolSchemaContractTest
+ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest
+```
+
+结果：
+
+- 通过：关键 Safety/Docs、LocalOnly、不会自动发送远程的文档措辞可检索。
+- 通过：`git diff --check` 未发现 whitespace error。
+- 通过：上述 JVM targeted tests。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 未执行：connected Android tests、真机 real-app eval、50k 物理 perf gate、
+  release/security/legal/store-policy/support owner 人审。

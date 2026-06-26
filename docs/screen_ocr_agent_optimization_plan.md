@@ -223,6 +223,42 @@ gantt
 5. Eval Agent：新增 10 个 UI dump + OCR block 回放样本，先覆盖搜索入口负例。
 6. Safety Agent：补远程模式、审计、隐私 notice 和 store policy 回归断言。
 
+## 2026-06-27 Safety/Docs 最小闭环
+
+本轮代码化 P0 和部分无设备 P1/P2/P4 合同；仍不把真机、人审或性能证据标成完成。
+
+已代码化并由现有测试钉住的诉求：
+
+- 私有工具结果必须声明 `privacy=LocalOnly` 和 `requiresLocalModel=true`；否则
+  `ToolRegistry.validateResult` fail closed。
+- `read_current_screen_text`、`capture_current_screenshot_ocr`、`observe_current_screen`
+  和 `ui_*` 屏幕/OCR/Accessibility 工具不是 public evidence batch，也不进入远程模型
+  planning surface。
+- 当前屏幕 OCR 需要 MediaProjection 前台同意；Accessibility 读屏和 UI 动作仍走用户确认、
+  Tool Registry、SafetyPolicy 和本地 trace/audit。
+- `ScreenStateSnapshot` 可投影为 `ScreenObservation` JSON，包含来源、bounds、role、
+  clickability、confidence、`LocalOnly` 隐私级别和截断摘要；旧 `nodesJson` 兼容保留。
+- OCR 预览保留旧文本摘要，同时可携带 block/line/element bounds；当前屏幕 OCR 输出的
+  `ocrBlocksJson` 是私有本地证据。
+- `UiTargetResolver` 增加解释合同，标明 Accessibility 来源、fallback 类型和预期验证信号；
+  OCR/vision grounding 仍只是占位合同，未宣称已接入真实排序。
+- Replay eval 增加小样本覆盖搜索入口负例和 OCR bounds，不替代 6 App/50 task 真机 benchmark。
+
+本轮文档化的诉求：
+
+- `docs/privacy_notice.md` 明确屏幕像素、OCR 摘录、Accessibility 文本、节点/bounds
+  元数据和动作后验证摘要均为 `LocalOnly`，不会自动发送到远程 endpoint 或远程 VLM。
+- P3/P4 真机 benchmark、50k 物理 perf gate 和 release checklist 同步仍保留为未完成门槛，
+  不作为本轮完成项。
+
+仍需真机/人审/性能证据：
+
+- 真机：MediaProjection 取消/同意、Accessibility special access、6 App/50 task benchmark、
+  connected Android tests 和 real-app eval JSON evidence。
+- 人审：release、security、legal、store-policy、support owner 对隐私 notice、
+  Accessibility 用途和商店文案的发布前审阅。
+- 性能：OCR 限频、截图尺寸上限、观察缓存、50k 物理 perf gate 和耗电/内存 evidence。
+
 ## 放行门槛
 
 - `./gradlew :app:testDebugUnitTest` 通过，且新增 resolver/observation/OCR contract tests。

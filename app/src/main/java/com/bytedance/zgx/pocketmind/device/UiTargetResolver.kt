@@ -81,6 +81,39 @@ object AppInteractionProfiles {
     }
 }
 
+// ponytail: OCR/vision are contract placeholders until real grounding is wired.
+enum class UiTargetEvidenceSource(val schemaValue: String, val priority: Int) {
+    Accessibility("accessibility", 100),
+    OcrPlaceholder("ocr_placeholder", 40),
+    VisionPlaceholder("vision_placeholder", 40),
+}
+
+enum class UiTargetFallbackType(
+    val schemaValue: String,
+    val priority: Int,
+    val requiresEvidence: Boolean,
+) {
+    None("none", 100, false),
+    OcrGroundingPlaceholder("ocr_grounding_placeholder", 40, true),
+    VisionGroundingPlaceholder("vision_grounding_placeholder", 40, true),
+    Coordinate("coordinate", 10, true),
+}
+
+enum class UiTargetVerificationSignal(val schemaValue: String) {
+    EditableFocusedOrTextAccepted("editable_focused_or_text_accepted"),
+    SearchResultEvidence("search_result_evidence"),
+    UiMutationOrActionAccepted("ui_mutation_or_action_accepted"),
+    None("none"),
+}
+
+data class UiTargetExplanationContract(
+    val source: UiTargetEvidenceSource,
+    val fallbackType: UiTargetFallbackType,
+    val expectedVerificationSignal: UiTargetVerificationSignal,
+    val requiresAdditionalEvidence: Boolean,
+    val reason: String,
+)
+
 object UiTargetResolver {
     fun resolve(
         snapshot: ScreenStateSnapshot,
@@ -286,6 +319,43 @@ object UiTargetResolver {
         return score
     }
 }
+
+fun UiTargetResolutionEvidence.explanationContract(): UiTargetExplanationContract {
+    val selectedCandidate = rankedCandidates.firstOrNull { candidate -> candidate.nodeId == selectedNodeId }
+    return kind.explanationContract(
+        selected = selectedCandidate != null,
+        reason = selectedCandidate?.reason
+            ?: failureKind?.let { failure -> "failed:${failure.schemaValue}" }
+            ?: "no_accessibility_candidate",
+    )
+}
+
+fun UiResolvedTarget.explanationContract(): UiTargetExplanationContract =
+    kind.explanationContract(selected = true, reason = reason)
+
+private fun UiTargetKind.explanationContract(
+    selected: Boolean,
+    reason: String,
+): UiTargetExplanationContract {
+    val fallbackType = UiTargetFallbackType.None
+    return UiTargetExplanationContract(
+        source = UiTargetEvidenceSource.Accessibility,
+        fallbackType = fallbackType,
+        expectedVerificationSignal = if (selected) expectedVerificationSignal() else UiTargetVerificationSignal.None,
+        requiresAdditionalEvidence = fallbackType.requiresEvidence,
+        reason = reason,
+    )
+}
+
+private fun UiTargetKind.expectedVerificationSignal(): UiTargetVerificationSignal =
+    when (this) {
+        UiTargetKind.SearchEntry,
+        UiTargetKind.EditableField -> UiTargetVerificationSignal.EditableFocusedOrTextAccepted
+        UiTargetKind.SubmitSearch -> UiTargetVerificationSignal.SearchResultEvidence
+        UiTargetKind.FilterEntry,
+        UiTargetKind.ResultItem,
+        UiTargetKind.ScrollContainer -> UiTargetVerificationSignal.UiMutationOrActionAccepted
+    }
 
 object AppSearchResultVerifier {
     fun verify(

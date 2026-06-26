@@ -580,6 +580,8 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.PerformsAccessibilityGesture !in observeScreenSpec.permissions)
         assertTrue(observeScreenSpec.inputSchemaJson.contains("\"maxNodes\""))
         assertTrue(observeScreenSpec.outputSchemaJson.contains("\"nodesJson\""))
+        assertTrue(observeScreenSpec.outputSchemaJson.contains("\"screenObservationJson\""))
+        assertTrue("screenObservationJson" in observeScreenSpec.privateOutputKeys)
         assertTrue(observeScreenSpec.description.contains("短期节点 id"))
         assertFalse(observeScreenSpec.isRemoteModelPlanningEligible())
 
@@ -1008,7 +1010,7 @@ class ToolRegistryTest {
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to
                 setOf("capturedAtMillis", "nodeCount", "screenText", "packageName", "structureSummary"),
-            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to setOf("ocrText"),
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to setOf("ocrText", "ocrBlocksJson"),
         )
 
         expectedPrivateOutputs.forEach { (toolName, privateKeys) ->
@@ -1293,7 +1295,7 @@ class ToolRegistryTest {
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to
                 setOf("capturedAtMillis", "nodeCount", "screenText", "packageName", "structureSummary"),
-            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to setOf("ocrText"),
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to setOf("ocrText", "ocrBlocksJson"),
         )
 
         expectedPrivateOutputs.forEach { (toolName, privateKeys) ->
