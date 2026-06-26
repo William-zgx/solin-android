@@ -1,10 +1,9 @@
 # PocketMind Agent Core Modules
 
-This document is the module map for the end-side Agent architecture. It records
-what each core module owns, what it must not own, and the current implementation
-status.
-
-Current Agent lifecycle:
+This is the current architecture reference for PocketMind's end-side Agent.
+Keep it about module ownership, boundaries, current status, and regression
+coverage. Historical migration plans belong in
+`docs/agent_loop_multi_agent_plan.md`.
 
 ```mermaid
 flowchart LR
@@ -16,13 +15,13 @@ flowchart LR
     Confirm --> Permission["Runtime permission or special access"]
     Permission --> Execute["Execute tool or model step"]
     Execute --> Validate["Validate ToolResult"]
-    Validate --> Observe{"Observe decision"}
-    Observe -->|Local evidence| Local["Continue local model"]
+    Validate --> Observe{"Observation decision"}
+    Observe -->|Local evidence| Local["Local model continuation"]
     Observe -->|Public evidence| Remote["Remote public evidence continuation"]
-    Observe -->|Next action| Next["Plan next tool"]
-    Observe -->|External action| External["AwaitingExternalOutcome"]
+    Observe -->|External launch| External["AwaitingExternalOutcome"]
     Observe -->|Retryable read| Retry["Retry read-only once"]
-    Observe -->|Done or blocked| End["Answer, fail, or cancel"]
+    Observe -->|Next step| Next["Plan next tool confirmation"]
+    Observe -->|Terminal| Done["Answer, fail, or cancel"]
 ```
 
 ## Tool Layer
@@ -34,196 +33,52 @@ Code:
 
 Responsibilities:
 
-- Declare every device capability as a `ToolSpec`.
-- Validate `ToolRequest` names and arguments before execution.
-- Declare output schemas for successful `ToolResult` data.
-- Declare permissions, risk level, and confirmation policy.
-- Return structured `ToolResult` values with `ToolError` codes.
+- Describe every device capability as a `ToolSpec`.
+- Validate tool names, arguments, permissions, risk, confirmation policy, and
+  successful output data before the Agent observes a result.
+- Expose provider-owned tool sets through `ToolRegistry` so the Agent loop does
+  not keep parallel allowlists.
 
-Non-responsibilities:
+Boundaries:
 
-- Tool code must not decide conversation flow.
-- Tool code must not bypass user confirmation for medium or higher risk work.
+- Tools do not decide conversation flow.
+- Tools do not bypass confirmation for medium or higher risk work.
+- Private output tools must be `LocalOnly` and `requiresLocalModel=true`.
 
 Current status:
 
-- Implemented registry, JSON schema strings, argument validation, permission
-  declarations, risk levels, confirmation policy, structured result helpers,
-  and Android Intent execution results.
-- `ToolRegistry` can now aggregate `ToolSpec` values from `ToolProvider`
-  instances. The current built-in provider preserves the existing tool set and
-  ordering, while making Web search, device context, device control, Android
-  Intent, background task, and future software-specific providers separable
-  without changing the Agent loop contract.
-- `ToolSpec.tags` now carries runtime policy categories that used to be
-  scattered as tool-name allowlists in the Agent loop and executors. The
-  registry answers questions such as whether a tool starts a device-control
-  session, can skip reduced-confirmation prompts, can continue a low-risk app
-  control skill, counts toward UI checkpoints, can source an app-launch
-  continuation, or requires a local model before a sequential tail. `Action`
-  parsing and device-control routing now query the registry instead of
-  treating `MobileActionFunctions.supported` or local `setOf(...)` lists as
-  authoritative.
-- Tool argument validation is now driven by each tool's JSON schema for
-  required properties, closed argument sets, `minLength`, and regex `pattern`
-  checks.
-- `ToolSpec` now includes an `outputSchemaJson` contract for successful
-  `ToolResult.data`. `ValidatingToolExecutor` validates successful delegate
-  results after execution; rejected, failed, and cancelled results remain
-  structured error/cancellation states and are not required to satisfy the
-  success schema. Output schema failures are wrapped as non-retryable
-  `InvalidResult` failures carrying only tool context, so malformed success
-  data cannot flow into Agent observation, trace summaries, audit display, or
-  Skill output binding as a successful observation. `AgentLoopRuntime` and
-  `SkillRunExecutor` also repeat this validation at observe, execute, and
-  resume boundaries to protect restored or externally supplied tool results
-  that did not come directly from `ValidatingToolExecutor`.
-- Successful results for any tool that declares `privateOutputKeys` must also
-  satisfy `privacy=LocalOnly` and `requiresLocalModel=true`; schema-valid but
-  remote-eligible private output is converted into a non-retryable
-  `InvalidResult`.
-- `ToolResult.data` remains a string map for Android/runtime compatibility, so
-  payload fields such as `resultsJson`, `filesJson`, `contactsJson`,
-  `tasksJson`, `policyJson`, and `blocksJson` are declared as JSON-encoded
-  strings with `contentMediaType=application/json` instead of pretending to be
-  arrays or objects in the schema.
-- `ToolSpec.resultContinuationPolicy` separates the tool safety contract from
-  answer synthesis. `PublicEvidence` tools such as `web_search` may return
-  public evidence to the model; `LocalEvidence` tools such as contacts,
-  calendar, notifications, recent files, foreground app, and background task
-  queries can only be synthesized by a local model; action, navigation, draft,
-  and scheduling tools keep the default `None` policy. The policy does not own
-  domain semantics such as city comparison or multi-hop decomposition; those
-  remain model/runtime responsibilities.
-- `ToolSpec.isPublicEvidenceBatchEligible()` is the explicit allowlist contract
-  for concurrent remote tool requests. A tool is eligible only when it is
-  `PublicEvidence`, `LowReadOnly`, `NotRequired`, has no `privateOutputKeys`,
-  and declares no device-context, runtime-permission, MediaProjection,
-  scheduling, notification, external-navigation, external-share, or other
-  side-effect permission. Today this keeps `web_search` batchable and keeps
-  local/private or action tools out of remote batch execution. Public
-  `web_search` queries can run without confirmation, but the safety policy
-  dynamically moves queries that look like personal data or secrets back to the
-  confirmation path before network access.
-- `web_search` now uses a typed evidence request rather than query-text
-  heuristics. `searchMode=general` stays on the general public search endpoint
-  even when the query contains weather words; `searchMode=weather_current` is
-  the only mode that calls Open-Meteo. The result keeps the legacy top-level
-  `summaryText`/`resultsJson` shape, but `resultsJson` is evidence schema v1
-  with `schemaVersion`, `query`, `searchMode`, `retrievedAt`, `freshness`,
-  `sources`, and bounded `results`.
-- `ToolExecutionBoundary` owns app-side tool timeout/exception mapping and
-  public-evidence batch retry. ViewModel code keeps UI/job/run lifecycle, while
-  thrown executor errors become retryable `ExecutionFailed` results and a
-  public-evidence batch retries only failed retryable request ids once.
-- For tools that declare `privateOutputKeys`, failed, rejected, and cancelled
-  results are still not required to satisfy the success schema, but the Tool
-  Registry sanitizes their non-success contract: data is rebuilt from a small
-  allowlist of permission-recovery metadata, unknown keys are discarded,
-  `toolName` is normalized, and `privacy=LocalOnly` plus
-  `requiresLocalModel=true` are enforced before the result can continue
-  through validating executors, Agent observation, or Skill execution paths.
-  Execution-provided summaries and error messages for those sensitive
-  non-success results are replaced with fixed safe text; request-validation
-  rejections keep their schema/argument error summary.
-- `ToolSchemaContractTest` now derives minimal successful output data from
-  every registered `outputSchemaJson` and verifies result validation accepts the
-  minimal shape while rejecting missing required keys, undeclared keys, and
-  schema-invalid values. This keeps tool-result contracts test-driven as new
-  tools or output fields are added.
-- Reminder scheduling and cancellation success schemas now constrain rollback
-  metadata at the Tool Registry boundary: scheduled reminder results must report
-  `taskStatus=Scheduled`, `recoveryToolName=cancel_reminder`, and safe
-  `task-*` ids, while cancel results must report `taskStatus=Cancelled` with a
-  safe `task-*` id. Unsafe or spoofed recovery metadata becomes a non-retryable
-  `InvalidResult` before Agent observation can surface an undo action.
-- `configure_periodic_check` exposes the existing WorkManager-backed local
-  reminder patrol policy as a confirmed BackgroundTask tool. Its schema keeps
-  only structural booleans and bounded minute values, and successful output is
-  closed to typed policy/status metadata plus optional recovery metadata for
-  disabling the policy.
-- `query_background_tasks` exposes the same local background task store as a
-  confirmed, read-only BackgroundTask tool. Its schema accepts only
-  `scope=active|history|policy|all` and bounded `maxCount`; the tool has
-  `ReadsDeviceContext` only, does not declare scheduling, notification, or
-  runtime-permission capabilities, and successful output is `LocalOnly` with
-  private `tasksJson` / `policyJson` fields.
-- Tool schema contract tests now also compare matching numeric input/output
-  fields so result schemas cannot silently advertise a wider bound than the
-  corresponding tool input schema.
-- Current tools cover Wi-Fi settings, flashlight settings, map search, web
-  search, email draft, calendar draft, contact draft, local reminders, local
-  periodic reminder-check configuration, read-only background task queries,
-  confirmed clipboard text reads,
-  outbound system sharing for text, current foreground app summaries, contact
-  lookup, recent notification summaries, calendar availability, recent file
-  metadata summaries, confirmed recent screenshot OCR, confirmed recent image
-  OCR, confirmed current-screen Accessibility text snapshots, safe HTTPS
-  deep-link navigation, package-level app launches, camera launch,
-  allowlisted app deep targets, current-screen observation, and Accessibility
-  UI actions for tap, type, submit search, scroll, back, and wait.
+- `ToolRegistry` is provider-backed and covers web search, device context,
+  Android Intent/draft/navigation tools, phone-control primitives, background
+  tasks, sharing, reminders, OCR, and settings entry points.
+- Input schemas reject unknown tools, unknown fields, missing required values,
+  bad enums, regex mismatches, and numeric bounds failures. Output schemas are
+  also enforced for successful `ToolResult.data`.
+- `ToolSpec.tags` owns runtime policy categories that previously lived as
+  scattered tool-name lists: device-control sessions, low-risk app-control
+  continuations, UI checkpoints, app-launch continuation, and local-model
+  requirements.
+- `ToolSpec.resultContinuationPolicy` separates tool safety from answer
+  synthesis. `PublicEvidence` tools such as `web_search` can continue through
+  the configured model; `LocalEvidence` tools such as contacts, calendar,
+  files, notifications, clipboard, screen text, and OCR require local synthesis.
+- Concurrent remote execution is intentionally narrow. A batch is accepted only
+  when every tool is public, read-only, no-confirmation, has no private output,
+  and declares no device-context, runtime-permission, scheduling,
+  notification, navigation, share, or other side-effect boundary.
+- `web_search` uses typed evidence requests. `searchMode=general` stays on
+  public search; `searchMode=weather_current` is the only weather endpoint.
 - Phone-control tools return `LocalOnly` observations and structured
-  `UiActionResult` values. `UiTargetResolver` scores current-screen nodes for
-  search, editable, submit, filter, result, and scroll targets; app profiles
-  only improve ranking and verification, not safety policy.
-
-```mermaid
-flowchart TD
-    Plan["Skill or planner tool draft"] --> Registry["ToolRegistry validation"]
-    Registry --> Policy["SafetyPolicy"]
-    Policy --> Pending{"Needs user confirmation?"}
-    Pending -->|Yes| Confirm["Pending confirmation"]
-    Pending -->|No low-risk continuation| Executor["ActionExecutor"]
-    Confirm --> Executor
-    Executor --> Session["DeviceControlSessionService"]
-    Executor --> Access["PocketMindAccessibilityService"]
-    Access --> Snapshot["ScreenStateSnapshot"]
-    Snapshot --> Resolver["UiTargetResolver"]
-    Resolver --> Executor
-    Executor --> Result["UiActionResult"]
-    Result --> Validate["Result schema validation"]
-    Validate --> Loop["AgentLoopRuntime observe"]
-```
-
-- `read_current_screen_text` belongs to this
-  tool boundary as a confirmed, `LocalOnly` device-context read. It may expose
-  only a bounded current Accessibility text-node snapshot plus coarse structure
-  summary metadata, not screenshots, OCR output, pixels, coordinates, node ids,
-  full hierarchy, or semantic screen understanding.
-- `capture_current_screenshot_ocr` is now a registered ToolSpec backed by a
-  one-shot Android MediaProjection consent flow. Its input/output schema is
-  locked to `current_screen` capture, `LocalOnly`, `requiresLocalModel=true`,
-  `truncated` status, and bounded OCR text only. The ActivityResult token is
-  kept in memory, bound to the pending tool `requestId`, consumed once by
-  `CurrentScreenshotOcrProvider` before a short TTL expires, and is never
-  serialized into `ToolRequest`, trace, audit, or pending confirmation rows.
-  Without a fresh matching foreground MediaProjection consent result, the
-  executor fails closed.
-- Tools that may require runtime permissions declare abstract
-  `ToolSpec.androidRuntimePermissions` descriptors alongside
-  `RequiresAndroidRuntimePermission`. The Android boundary expands those
-  descriptors into concrete manifest permissions by API level before handing
-  the same confirmation back to the ViewModel for execution.
-- Special app access requirements are declared separately from Android runtime
-  permissions. Usage Access (`PACKAGE_USAGE_STATS`) is modeled as a
-  settings-granted capability, not a dangerous runtime permission.
+  `UiActionResult` values. `UiTargetResolver` ranks Accessibility nodes for
+  search/edit/submit/filter/result/scroll targets; app profiles improve
+  ranking, not safety policy.
 
 Tests:
 
 - `ToolRegistryTest`
-- `ToolRegistryTest.publicEvidenceBatchEligibilityOnlyAllowsSafePublicReadOnlyTools`
 - `ToolSchemaContractTest`
-- `ToolSchemaContractTest.privateOutputToolsRejectNonLocalModelBoundary`
-- `WebSearchProviderTest`
-- `CalendarAvailabilityToolExecutorTest`
-- `DeviceContextToolExecutorTest`
 - `RoutingAndValidatingToolExecutorTest`
-- `RoutingAndValidatingToolExecutorTest.currentScreenshotOcrFailsClosedUntilMediaProjectionConsent`
-- `RoutingAndValidatingToolExecutorTest.currentScreenshotOcrUsesOneShotProviderResultAfterConsent`
+- `WebSearchProviderTest`
 - `ActionExecutorTest`
-- `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
-- `MainActivityRuntimePermissionUiTest` runtime permission requirement confirmation UI
-- `MainActivitySpecialAccessUiTest` special access requirement confirmation UI
 
 ## Agent Loop
 
@@ -233,553 +88,54 @@ Code:
 
 Responsibilities:
 
-- Own the run state machine.
-- Load local memory context.
-- Plan chat, tool, or skill-backed tool work.
-- Request user confirmation before tool execution.
-- Observe `ToolResult` values after execution and append trace steps.
+- Own the run state machine, step budgets, cancellation, retry, and restore
+  rules.
+- Load local context, plan chat/tool/skill work, request confirmation, observe
+  results, and decide whether to continue or finish.
+- Keep model output, remote tool calls, local rule plans, and Skill-first plans
+  behind one validation and safety boundary.
 
-Non-responsibilities:
+Boundaries:
 
 - The loop does not start Android activities directly.
-- The loop does not store secret or full remote error payloads in trace.
+- The loop does not persist raw prompts, private tool data, full remote error
+  bodies, or arbitrary next-action payloads.
+- Restored state is UI recovery only unless the current request is explicitly
+  reconfirmed by the user.
 
 Current status:
 
-- Implemented single-run planning for chat and tool requests.
-- Implemented conservative Skill-first routing for explicit clipboard context,
-  current-screen Accessibility text, clipboard-summary-share, and
-  current-screen-text-summary-share requests. These requests can enter
-  `AwaitingUserConfirmation` without first being classified by the action
-  planner, because their first tool step does not require model-driven
-  parameter extraction.
-- Implemented confirmation state and post-confirmation observation.
-- Implemented low-risk app-control continuation. When a Skill opens an app and
-  the next steps are observe/tap/type/search/scroll/back/wait, the loop may
-  continue within the configured phone-control confirmation policy. Sending,
-  deleting, paying, ordering, publishing, sensitive input, permission changes,
-  and mixed-risk batches stay on the confirmation/fail-closed path. Eligibility
-  is declared on `SkillManifest.lowRiskAppControlEligible`, while individual
-  UI tool categories still come from `ToolSpec.tags`. Continuing after an
-  unverified app launch is separately declared by
-  `SkillManifest.continuesAfterUnverifiedOpenAppLaunch`.
-- App-control runs use a small step budget and stop the foreground
-  `DeviceControlSessionService` when the run reaches a terminal state.
-- Confirmed tool observations revalidate successful `ToolResult.data` against
-  the registered output schema before building local continuation prompts,
-  redacting trace, auditing, retrying, or replanning. A malformed successful
-  result becomes a non-retryable `InvalidResult` failure without preserving raw
-  result payload in trace/audit.
-- Confirmed clipboard observations can now create a follow-up model prompt so
-  the assistant can answer from the just-read tool result instead of stopping at
-  a generic "tool succeeded" message.
-- Confirmed tool observations use `resultContinuationPolicy` to decide whether
-  a successful result is a final tool outcome or evidence for model synthesis.
-  Public evidence can continue through the configured model, and the model may
-  issue another public read-only tool call when the evidence is insufficient;
-  local evidence requires local-model synthesis and is blocked from remote
-  continuations by the ViewModel privacy boundary. Local evidence continuation
-  takes precedence over observation replanning so a private read result is
-  synthesized by the local model before any dependent action is planned.
-  Skill-defined model steps still take precedence over this generic policy.
-- Model-step Skills now have an app-level continuation path: after a confirmed
-  tool step, the loop can build the next model-step prompt from that tool
-  result, then bind the model output into the next `ToolStep` and return to
-  `AwaitingUserConfirmation`. It does not execute follow-up tools directly.
-  If a private read such as clipboard, recent screenshot OCR, or a
-  current-screen Accessibility text snapshot belongs to a `SkillPlan` with a
-  following `ModelStep`, the Skill-defined model title and instruction take
-  precedence over the legacy hard-coded prompt; those continuations still
-  require a local model and redact private payloads from persisted trace/audit.
-  The hard-coded clipboard/OCR prompts remain as fallback for one-off private
-  reads without a declarative model step.
-- Generic Skill model continuations also honor tool-result privacy metadata:
-  `privacy=LocalOnly` or `requiresLocalModel=true` forces the continuation to
-  stay local even when the `ModelStep` is otherwise marked remote-eligible.
-- Restored Skill pending confirmations now carry a value-free completed-step
-  frontier from their checkpoint. The Agent loop can use those completed step
-  ids to satisfy dependencies after the user reconfirms the restored tool, but
-  it still does not restore prior tool/model output values. Follow-up tools that
-  only need the current tool result or no payload can continue; tools whose
-  arguments depend on old model/private output fail closed.
-  Direct `confirmToolRequest(runId, requestId)` on a restored pending Skill
-  confirmation also reloads the Room pending snapshot and remembers that
-  frontier, so callers do not need to call `latestPendingConfirmation()` first.
-- Attached and restored `SkillPlan`s are reauthorized against the current
-  `SkillRuntime.manifests()` before confirmation or continuation. The runtime
-  compares the Skill authorization contract rather than display copy, so
-  title/description/example-only manifest edits do not invalidate old pending
-  confirmations, while version, risk, required-tool, or input-schema contract
-  drift fails closed and clears the restored pending checkpoint.
-- Unknown tool-result privacy metadata fails closed as `LocalOnly` before any
-  remote continuation, matching the stored-message privacy boundary.
-- Retryable local read failures now schedule one bounded retry on the already
-  confirmed request, record a `ToolRetryScheduled` trace/audit event, and only
-  fail the run after the retry budget is exhausted. External Activity launches,
-  external sends, notification posting, background scheduling, and high/critical
-  risk tools are not automatically replayed even if a lower layer marks the
-  failure retryable.
-- A successful retry of a read-only step still resumes the normal observation
-  path: explicit sequential requests may plan the next segment after the retried
-  observation succeeds, while keeping the retry trace to a single bounded
-  `ToolRetryScheduled` step.
-- Tool observation now produces an explicit `AgentObservationDecision`:
-  complete, continue with model, retry tool, fail, or cancel. The decision is
-  recorded in trace without storing private continuation prompts.
-- Plain chat answer runs now carry their trace `runId` through the ViewModel and
-  call `observeModelResult()` after generation, so successful answers finish as
-  `Completed` instead of being recovered as stale `GeneratingAnswer` failures on
-  the next process start.
-- The local LiteRT engine configuration now sets `EngineConfig.maxNumTokens`
-  from `LocalModelTokenLimits.MAX_TOTAL_TOKENS`. For the current Gemma 4
-  `.litertlm` chat assets this is intentionally capped at an app-level 8k
-  total window so conversation restore stays responsive on device. PocketMind
-  budgets local context before each local send: roughly 6k tokens for
-  system/history/current input and 2k tokens reserved for output because the
-  Kotlin Conversation API exposes no separate max-output-token knob. The UI
-  shows the total token window, input budget, and output reserve.
-- Model generation and parse failures now close the active run immediately via
-  `failModelGeneration(runId, reason)`. The entry point only applies while the
-  run is still `GeneratingAnswer`, appends a failure decision to trace, refreshes
-  the UI timeline, and ignores late model output instead of waiting for startup
-  stale-run repair.
-- The same immediate failure closure is used when a remote-mode continuation is
-  blocked because the tool result requires a local model, so privacy protection
-  does not leave an in-flight run behind.
-- User stop-generation now maps to `cancelRun(runId, reason)` instead of only
-  stopping the model runtime/coroutine. Non-terminal runs move to `Cancelled`,
-  late model output is ignored, and awaiting tool confirmations reuse the
-  existing user-cancelled tool observation path so the tool is not executed.
-- Launch-only external Activity observations now move the run to
-  `AwaitingExternalOutcome` instead of `Completed`. This state records the
-  real boundary: the external UI opened, but the target app outcome is still
-  waiting for explicit user confirmation. Older launch-only completed traces
-  remain restorable for compatibility. On process restart, an
-  `AwaitingExternalOutcome` run is kept only when allowlisted trace metadata
-  still proves that a launch-only observation can restore the pending outcome
-  sheet; otherwise startup repair fails the run closed.
-- The loop has run-level hard budgets in addition to per-tool retry attempts:
-  it fails closed before saving another pending confirmation when the run tool
-  step budget is exhausted, and fails closed before retry/replan/model
-  continuation when the observation-decision budget is exhausted. Budget failure
-  trace uses generic reasons and does not include prompts, model output, or
-  private tool data.
-- Remote OpenAI-compatible chat can now opt into `tools` and parse
-  OpenAI-style `tool_calls`. Parsed remote tool calls are converted into
-  `ToolRequest` values and handed back to the Agent loop, which still performs
-  registry validation, safety evaluation, trace/audit recording, and explicit
-  user confirmation before any Android tool execution. The legacy remote
-  `send()` text stream remains available for pure chat compatibility.
-- Remote mode uses `AgentRunOptions(initialPlanningMode=ModelFirstRemoteTools)`
-  for the initial turn, with a direct built-in Skill preflight. Explicit
-  built-in Skills still produce local confirmations or local no-confirmation
-  tool execution first, protecting clipboard, contacts, files, screen text, OCR,
-  settings, and direct search workflows. If the input is not claimed by a direct
-  Skill, the remote model can decide whether to call tools through
-  `RemoteToolScope.ModelPlanning`. That scope exposes only remote-safe planning
-  specs: public evidence tools plus non-private, non-critical
-  draft/navigation/share/background-planning tools that still require local
-  confirmation. Local evidence tools such as clipboard, contacts, files,
-  calendar details, notifications, screen text, and OCR remain outside remote
-  planning.
-- Remote OpenAI-compatible chat may also return multiple `tool_calls` in one
-  model turn. The runtime treats this as a batch only when every request is a
-  public evidence eligible tool such as `web_search`; it validates the whole
-  batch before execution, rejects mixed unsafe batches without running the safe
-  subset, records `PlanToolBatch`, and aggregates successful public results
-  into one continuation prompt for model synthesis. This solves comparison and
-  multi-evidence questions generically rather than hard-coding weather or city
-  logic in the tool layer. Batch tool execution retries retryable per-request
-  failures once before observation, then fail-closes through ordinary tool
-  observation: thrown executor errors become failed `ToolResult`s, invalid or
-  local-only batch results fail the run, and cancelled results cancel the Agent
-  run instead of being reported as generic failures.
-- Batch execution isolates per-tool executor cancellation: a single tool's own
-  `CancellationException` becomes that request's `Cancelled` result while
-  sibling public evidence calls can still report their results. Parent job
-  cancellation, such as the user stopping the active generation, still cancels
-  the whole batch.
-- Streaming `tool_calls` require stable tool-call identity. Indexed chunks are
-  merged by `index`; unindexed single-call continuations can still merge, but
-  ambiguous unindexed multi-tool argument fragments fail closed before any tool
-  execution so arguments cannot be attached to the wrong request.
-- The remote chat system prompt and `web_search` tool description explicitly
-  describe evidence-first tool use: for comparison, difference, summary, or
-  cross-check questions, the model should issue independent public read-only
-  calls for each evidence target when needed, then synthesize after observation.
-  The decomposition remains a model-planning responsibility; the Android
-  runtime only validates, executes eligible public batches concurrently, and
-  rejects unsafe mixtures before any tool starts.
-- Public evidence continuations keep the remote tool scope restricted to
-  public read-only evidence tools. Remote plain text is treated as answer text;
-  only structured remote `tool_calls` can request tools, while inline
-  `call:tool{...}` parsing remains a local-model-only protocol.
-- Local model answers can also hand back an explicit, whole-output
-  `call:function{...}` request. That protocol is parsed strictly: ordinary
-  answers are left alone, malformed calls and unknown tools fail closed, and
-  valid calls become parameter-free-audited `ToolRequest` values that re-enter
-  the same validation, safety, trace, and pending-confirmation boundary as
-  remote `tool_calls`. The ViewModel replaces the raw call text with a
-  `LocalOnly` title-only confirmation prompt before persisting the chat turn, so
-  tool arguments do not become later remote history.
-- Successful observations can now call `AgentObservationReplanner` to produce a
-  next tool plan. The default production strategy is conservative: it splits
-  explicit sequence words such as "然后" / "then" into bounded segments,
-  replans at most one next segment after each verified successful segment
-  observation, and returns to user confirmation before any execution. The
-  cursor counts completed sequence segments rather than raw tool requests, so a
-  composite Skill segment can complete its internal tools before the next
-  segment is considered. The next-action cursor is kept only in process memory;
-  Room restore no longer persists or resumes raw remaining sequence text across
-  process death.
-- A model-backed observation replanner can now use the verified local mobile
-  action model as a bounded draft source after a schema-valid successful
-  observation. Its prompt contains only a redacted intent preview, tool names,
-  argument keys, status, redacted summary, and data key names; it never includes
-  raw `ToolResult.data` values. The model output is accepted only when the
-  mobile action planner reports `usedModel = true` and returns a supported
-  `Draft`; rule fallback output is ignored. Accepted drafts still re-enter Tool
-  Registry validation, SafetyPolicy, trace/audit, and user confirmation before
-  execution, and the current production limit is one model-backed observation
-  replan per run.
-- Per-segment planning can also use an explicit sequence segment to start a
-  single-tool, single-step Skill, or validated composite Skill plan, so rule-only
-  planning can enter the loop for requests like "search, then open Wi-Fi" and
-  local composite flows can appear at the beginning or middle of a sequence.
-  Bare private-read segments that would require local model continuation while
-  more segments remain still fall back instead of starting a partial flow.
-- Later sequential replans apply the same continuation guard to bare
-  clipboard/current-screen/OCR reads: those may appear as the final segment, but
-  are not planned while another explicit segment remains. Composite Skills that
-  carry their own local model boundary can complete before the next segment is
-  considered.
-- Replanned tools are validated, safety checked, audited, traced, and returned
-  to `AwaitingUserConfirmation` instead of being executed directly.
-- The action-planner preflight gate now reuses the same conservative parsers as
-  the eventual draft planner. Generic words such as app, file, document, image,
-  video, or audio no longer make ordinary chat enter the action-planning path
-  unless an explicit supported tool intent is present.
-- Confirmation and observation are now bound to the current pending/confirmed
-  request id, so stale request ids from earlier steps cannot advance the run.
-- Implemented trace steps for skill planning, user confirmation, tool
-  observation, assistant response, rejection, cancellation, and failure.
-- Pending tool confirmations are persisted separately from the trace, then
-  restored on startup as UI confirmation state only. Restoration does not
-  execute tools; explicit user confirmation is still required before Android
-  execution can continue. Pending rows only persist `ToolSpec`-declared
-  allowlisted request arguments. Content-bearing tools such as search, share,
-  email, calendar/contact drafts, schedule-reminder title/body, contacts, and
-  deep-link URI payloads fail closed after process restart instead of restoring
-  executable text. Low-semantic structural ids such as `cancel_reminder.taskId`
-  can be restored only when they remain schema-valid and allowlisted.
-  Cross-restart `nextActionInput` persistence is disabled. Persisted
-  `SkillPlan` recovery stores only redacted plan structure and parameter key
-  shape, not the original skill input or tool/draft payload text, and terminal
-  runs clear the in-memory recovery copy.
-- `AwaitingUserConfirmation` is treated as recoverable only when its pending
-  confirmation row can be parsed and still matches the pending tool boundary.
-  Startup repair fails awaiting runs without a valid pending row, and malformed
-  pending or `SkillPlan` JSON is not silently downgraded into a plain pending
-  confirmation.
-- Skill pending restore treats a redacted `SkillPlan` as recoverable only when
-  the same pending row has a matching value-free `SkillRunCheckpoint`. Missing,
-  malformed, or mismatched checkpoints fail the owning awaiting run closed and
-  clear the pending/checkpoint recovery rows. Plain pending confirmations
-  without a `SkillPlan` do not require a checkpoint, and saving a plain pending
-  clears any stale checkpoint for that run/request.
-- If a pending Skill tool argument is bound from earlier Skill outputs, restore
-  is allowed only when that argument target is also in the current tool's
-  pending-argument allowlist. Payload-bearing targets such as `share_text.text`
-  fail closed after restart with an unrestorable pending-confirmation trace
-  instead of restoring a confirmation with missing parameters.
-- Pending confirmation and skill checkpoint writes/deletes go through Room
-  transaction helpers so restore never observes a pending row and checkpoint
-  that were saved or removed separately.
-- Model-bound multi-step Skills that reach a second confirmation persist that
-  second pending tool request as the active pending confirmation. If that
-  request carries model-produced outbound payload, startup restore fails the run
-  closed; confirm or observe calls using either the earlier private-read
-  request id or the un-restored share request id cannot advance, rerun, or
-  overwrite the current run.
-- Completed persisted runs now rehydrate summary-only `RestoredSummary` steps
-  from the trace store. This keeps typed timeline inspection available after a
-  restart without restoring raw tool arguments or private payloads.
-- Recent Agent run timeline summaries can now be restored from the persisted
-  trace store and shown in the background activity surface. The UI reads only
-  `AgentTraceStepSummary` type/summary metadata and does not parse or display
-  persisted trace JSON or tool arguments.
-- Room-backed trace stores redact `agent_runs.input` at the persistence
-  boundary. The full raw run input is not written to Room. Active pending
-  confirmations keep their raw snapshot only in memory for the current process;
-  Room stores only declared safe argument keys and does not persist sequential
-  next-action text.
-- Agent runs now carry the owning chat `sessionId` at creation time. Startup
-  pending-confirmation restore is scoped to the active session, and deleting a
-  chat session removes that session's agent runs, steps, pending confirmations,
-  and skill-run checkpoints before any stale action can be confirmed from the
-  next active conversation.
-- Persisted trace summaries and JSON previews now reuse the audit redactor for
-  credential-like assignments, bearer values, API-key-shaped strings, and email
-  addresses before truncation. Tool request and `UseTool` planning trace is
-  parameter-free: it records tool names, argument keys, and draft titles only,
-  not parameterized request reasons. Redaction still covers draft titles,
-  observed summaries, retry/failure reasons, assistant text previews, and
-  allowlisted completion metadata values. Foreground-app package/name outputs
-  are treated as private device context and are redacted before trace/audit
-  persistence.
-- Background reminder requests with explicit relative delays now also have a
-  Skill-first path. The reminder skill reuses the same delay/title parser as
-  the action planner, then enters the normal confirmation and runtime
-  permission boundary before scheduling any AlarmManager work.
-- Explicit local periodic reminder-check configuration now also has a
-  Skill-first path. The shared parser accepts only clear enable/disable
-  periodic-check wording with optional bounded intervals, rejects
-  API/implementation/explanation phrasing, and still routes through
-  notification runtime permission, registry validation, safety checks, audit,
-  and user confirmation before WorkManager policy changes. This tool only
-  patrols local reminders; it is not a background chat runner, screen scanner,
-  file scanner, or arbitrary periodic automation executor.
-- Explicit map search, email draft, and calendar draft commands now also have a
-  conservative Skill-first path. The built-in Skill runtime reuses the same
-  parameter parsers as the action planner, rejects discussion/negative
-  phrasing, and still routes through registry validation, safety checks, audit,
-  and user confirmation before any external app opens.
-- Compound sequential inputs are not collapsed into a single direct parser
-  result; if a full Agent plan cannot preserve the sequence, the request falls
-  back to an answer instead of silently executing only one later action.
-- Explicit Wi-Fi, Usage Access, and flashlight settings commands now also have
-  a conservative Skill-first path. The shared device-settings parser accepts
-  only settings navigation requests, rejects explanation/implementation/negative
-  phrasing, and still routes through registry validation, safety checks, audit,
-  and user confirmation before any system settings page opens.
-- Explicit web search and weather information commands now also have a
-  conservative Skill-first path. The shared parser accepts
-  search/web-search/online-search phrasing or location-qualified weather
-  questions with a non-empty query, rejects bare ambiguous “查一下” and
-  discussion/negative phrasing, and routes them to the low-risk read-only
-  `web_search` tool without opening a browser.
-- Explicit recent media metadata requests now also have a conservative
-  Skill-first path. The shared parser accepts recent images/screenshots/videos
-  or audio metadata requests, keeps documents/downloads/all-files on the action
-  fallback path, and rejects negative, discussion/API, and OCR/text-extraction
-  phrasing so recent screenshot and image OCR remain separate confirmed tools.
-- Explicit HTTPS link navigation now also has a conservative Skill-first path.
-  The shared parser requires an open/visit intent plus an `https://` URI,
-  rejects bare links, explanation/negative phrasing, and non-HTTPS schemes, and
-  keeps URI-like text out of package app-intent inference.
-- Explicit current foreground app requests now also have a conservative
-  Skill-first path. The shared parser accepts only current/foreground/active
-  app metadata requests, rejects foreground-service, implementation/design
-  discussions, and sentence-start negation, and still relies on Usage Access
-  special-app-access handling before reading the minimal app name/package
-  metadata.
-- Explicit current-app notification summary requests now also have a
-  conservative Skill-first path. The shared parser accepts recent/current-app
-  notification-summary wording, rejects bare English `notification`,
-  permission/channel/push/global/system/shade/listener wording and
-  sentence-start negation, and keeps the tool scoped to confirmed LocalOnly
-  summaries of PocketMind/current-app active notifications. `maxCount` is
-  schema-bounded to 20 and the query does not request Android runtime permission
-  or special access.
-- Explicit contact lookup requests now also have a conservative Skill-first
-  path. The shared parser requires an explicit query, rejects bare
-  contact/contacts wording, permission/API/implementation/list/export/negative
-  phrasing, and keeps create/edit contact requests outside the lookup skill.
-  `query_contacts` still requires confirmed `READ_CONTACTS`, schema-bounds
-  `maxCount` to 20, returns only name/phone summaries, and marks both query and
-  contacts JSON as private trace outputs.
-- Explicit contact draft requests now also have a conservative Skill-first
-  path. `create_contact_draft` is an ExternalDraft/navigation capability that
-  opens the system contact insert page with only `name`/`email`/`phone` draft
-  fields, does not read contacts, does not request `READ_CONTACTS`, and remains
-  separate from `query_contacts`.
-- Explicit calendar availability requests now also have a conservative
-  Skill-first path. The shared parser requires a busy/free intent plus two
-  timezone-qualified ISO timestamps, rejects permissions/API/implementation
-  discussion and natural-language-only dates, and keeps the existing
-  `query_calendar_availability` boundary: confirmed `READ_CALENDAR`, at most
-  the schema/provider window, and busy/free blocks without event titles,
-  locations, attendees, notes, or calendar IDs.
-- Explicit current-screen text requests now also have a conservative
-  Skill-first path. The shared parser accepts only current-screen Accessibility
-  text snapshot wording, rejects screenshot/OCR/pixel/visual/semantic
-  screen-understanding phrasing and ambiguous current-screen/page/content
-  requests that do not explicitly ask for text, and routes to confirmed
-  `read_current_screen_text` with `LocalOnly` private `screenText` output and
-  Accessibility special-access handling rather than Android runtime permission.
-- Explicit current-screen-text summary share requests now have a constrained
-  composite Skill: confirmed `read_current_screen_text`, local-only `ModelStep`
-  summary, then a second confirmed `share_text`. Raw `screenText` remains a
-  private tool output and cannot bind directly to `share_text.text`; if the app
-  restarts at the payload-bearing share confirmation, restore fails closed
-  instead of recovering the generated text or rerunning the screen read.
-- Skill model-step results can now be consumed generically: when a declarative
-  `ToolStep` depends on a `ModelStep`, the model output is bound through the
-  tool step's `argumentBindings`, then validated, safety-checked, audited, and
-  returned to `AwaitingUserConfirmation`. The progression fails closed if the
-  next tool still depends on another unsatisfied step, preventing model output
-  from skipping required tool or model prerequisites.
-- Declarative Skill tool-to-tool progressions can now continue within the
-  current process without a model step: after a schema-valid successful
-  `ToolStep` observation, `SkillRunProgressor` may bind public tool result data
-  into the next dependent `ToolStep`, then the Agent loop reruns Tool Registry
-  validation, `SafetyPolicy`, trace/audit, and user confirmation before any
-  execution. When that follow-up confirmation only carries allowlisted,
-  low-semantic structural arguments, such as `schedule_reminder.taskId` bound
-  into `cancel_reminder.taskId`, Room restore can recover the same confirmation
-  after process restart. Content payloads and private outputs still fail closed.
-  The path fails closed when the result does not belong to a requested skill
-  step, when the next tool has unmet dependencies, when a binding is missing,
-  or when a private tool output would be bound directly into another tool
-  argument.
-- Default sequential replanning now splits explicit connectors such as
-  "then", "然后", and "再" into a live-only bounded sequence. A verified
-  successful segment can plan only the next segment, returns to
-  `AwaitingUserConfirmation`, and stops after the final segment or the
-  configured step limit. The cursor is segment-based, so internal tools from a
-  composite Skill do not prematurely skip the remaining explicit sequence.
-- Pending confirmations keep only the immediate next segment in process memory.
-  Room persistence still writes `nextActionInput = null`, so a restart can
-  restore the current pending tool but cannot resume raw remaining sequence text.
-- For a restored pending confirmation, Room may persist a structured
-  continuation cursor for the next already-validated, no-payload single-tool
-  sequence segment. The cursor stores tool/request shape and redacted draft
-  metadata, never raw `nextActionInput` or full run input. After the user
-  reconfirms the restored pending tool and its observation succeeds, the Agent
-  loop revalidates that cursor through the normal budget, Tool Registry,
-  SafetyPolicy, trace, audit, and user-confirmation boundary before planning
-  the next tool. If that observation only opened an external Activity and the
-  target-side outcome is still unverified, the same value-free cursor is
-  recorded as a redacted `ContinuationCursorRecorded` trace step so a later
-  restart can continue only after the user records `Completed`. Payload-bearing,
-  model-planned, and composite Skill tails remain fail-closed across restart
-  until a richer value-free cursor is added.
-- `AgentContinuationCursorV2` makes that restore contract explicit in the core
-  model types: restore is allowed only for matching source request ids,
-  current-result revalidation, value-free request/draft shapes, no raw
-  persisted payload, no model-planned tail, and no Skill input payload. It is a
-  typed guard for future cursor persistence rather than arbitrary step
-  rehydration.
-- Full-input Skill-first planning still rejects sequential commands so a Skill
-  cannot swallow later user intent. Per-segment fallback may start a composite
-  Skill for that segment only, while a bare private-read segment such as "read
-  clipboard, then open Wi-Fi settings" remains fail-closed.
-- Planned-tool audit persistence stores parameter-free planned/confirmation
-  summaries; tool arguments remain out of persisted audit text.
-- Open-ended autonomous model-driven replanning beyond the bounded
-  observation-draft path, cross-restart arbitrary payload-bearing
-  multi-confirmation skill continuation, and full argument-bearing typed step
-  rehydration are still pending.
+- The loop supports chat-only runs, direct Skill-first plans, local
+  `call:function{...}` parsing, OpenAI-compatible remote `tool_calls`, and
+  conservative rule replanning.
+- Explicit built-in Skills run before remote model planning. Clipboard,
+  contacts, files, calendar details, notifications, screen text, OCR, settings,
+  and direct search workflows stay local unless the user supplies uploadable
+  content.
+- Observation produces a typed decision: complete, local/remote model
+  continuation, retry a read-only tool once, plan the next confirmation, await
+  an external outcome, fail, or cancel.
+- Remote models may request multiple tool calls in one turn only for eligible
+  public evidence batches. Mixed public/private/action batches are rejected as
+  a whole before any tool starts.
+- Private observations are synthesized locally and take precedence over generic
+  replanning. Unknown privacy metadata fails closed as `LocalOnly`.
+- Pending confirmations, redacted Skill plan shapes, value-free Skill
+  checkpoints, and selected no-payload continuation cursors can restore after
+  process death. Raw tool arguments, model output, private payload, and
+  arbitrary sequence text are not restored.
+- External Activity launches move to `AwaitingExternalOutcome` when PocketMind
+  can prove only that the external UI opened. Follow-up planning waits for the
+  user to record whether the target-side outcome completed.
+- Run-level step and observation budgets fail closed before another pending
+  confirmation, retry, replan, or model continuation is saved.
 
 Tests:
 
 - `AgentLoopRuntimeTest`
 - `AssistantOrchestratorTest`
-- `AgentLoopRuntimeCompatibilityTest`
-- `AgentLoopRuntimeTest.successfulObservationCanPlanNextToolAndRequestConfirmationAgain`
-- `AgentLoopRuntimeTest.cancelGeneratingRunMarksCancelledAndIgnoresLateModelOutput`
-- `AgentLoopRuntimeTest.cancelRunAwaitingConfirmationClearsPendingWithoutExecutingTool`
-- `AgentLoopRuntimeTest.runBudgetExceededFailsBeforeNextToolConfirmation`
-- `AgentLoopRuntimeTest.replannedToolCannotReuseExistingRequestId`
-- `AgentLoopRuntimeTest.remoteModelMultiplePublicEvidenceToolCallsPlanBatchWithoutConfirmation`
-- `AgentLoopRuntimeTest.remoteModelMixedToolBatchIsRejectedAsWholeBeforeAnyToolRequest`
-- `AgentLoopRuntimeTest.modelFirstRemoteToolsSkipsActionRuntimeForNonSkillInput`
-- `AgentLoopRuntimeTest.modelFirstRemoteToolsKeepsDirectSkillPreflightLocal`
-- `AgentLoopRuntimeTest.modelFirstRemoteToolsKeepsDirectPublicEvidenceSkillLocal`
-- `AgentLoopRuntimeTest.defaultRuleFirstStillPlansActionLikeInputBeforeModelAnswer`
-- `AssistantOrchestratorTest.remotePlanningToolScopeIncludesSafeActionDraftsAndExcludesLocalEvidence`
-- `AgentLoopRuntimeTest.publicEvidenceToolBatchResultsAggregateAndContinueToModel`
-- `AgentLoopRuntimeTest.publicEvidenceToolBatchCancelledResultCancelsRun`
 - `ToolExecutionBoundaryTest`
-- `LiteRtRuntimeConfigTest.engineConfigUsesExplicitLocalContextWindow`
-- `PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutesAndContinuesWithModel`
-- `PocketMindViewModelTest.remotePublicEvidenceToolCallBatchExecutorFailureIsObservedAsToolFailure`
-- `PocketMindViewModelTest.remoteModeUsesModelFirstPlanningAndExposesSafePlanningToolsToRemoteRuntime`
-- `AgentLoopRuntimeTest.skillFirstClipboardSummaryShareBypassesActionPlannerAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.skillFirstClipboardContextBypassesActionPlannerAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.skillFirstPlanStillUsesRegistryAndRejectsInvalidToolArguments`
-- `AgentLoopRuntimeTest.skillFirstPlanMustMatchCurrentRuntimeManifestContract`
-- `AgentLoopRuntimeTest.skillFirstReminderBypassesActionPlannerAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.skillFirstEnglishReminderBypassesActionPlannerAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.skillFirstDeviceSettingsBypassActionPlannerAndRequestConfirmation`
-- `AgentLoopRuntimeTest.skillFirstWebSearchBypassesActionPlannerAndExecutesWithoutConfirmation`
-- `AgentLoopRuntimeTest.publicEvidenceToolResultContinuesToModelForSynthesis`
-- `AgentLoopRuntimeTest.skillFirstRecentMediaFilesBypassesActionPlannerAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.skillFirstHttpsDeepLinkBypassesActionPlannerAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.skillFirstForegroundAppBypassesActionPlannerAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.skillFirstRecentNotificationsBypassesActionPlannerAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.skillFirstContactLookupBypassesActionPlannerAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.contactObservationRedactsPrivateTraceFields`
-- `AgentLoopRuntimeTest.skillFirstCalendarAvailabilityBypassesActionPlannerAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.reminderTimingDiscussionFallsBackToAnswerWithoutConfirmation`
-- `AgentLoopRuntimeTest.clipboardSummarySharePlansShareAfterLocalModelResult`
-- `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation`
-- `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`
-- `AgentLoopRuntimeTest.toolStepOutputBindsToDependentToolStepInCurrentProcessAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.restoredToolStepOutputBoundPendingContinuesAfterRestart`
-- `AgentLoopRuntimeTest.restoredSkillPendingSurvivesDisplayOnlyManifestDrift`
-- `AgentLoopRuntimeTest.restoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged`
-- `AgentLoopRuntimeTest.directConfirmRestoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged`
-- `AgentLoopRuntimeTest.toolStepToToolStepBindingCannotDirectlyExposePrivateToolOutputToShare`
-- `AgentLoopRuntimeTest.compositeSkillIgnoresOldRequestIdsAfterShareIsPendingOrExecuting`
-- `AgentLoopRuntimeTest.restoredClipboardSummaryPendingContinuesWithModelAndPlansShareConfirmation`
-- `AgentLoopRuntimeTest.restoredClipboardSummarySharePendingFailsClosedAfterRestart`
-- `AgentLoopRuntimeTest.defaultSequentialReplannerCanAdvanceThroughThreeExplicitActions`
-- `AgentLoopRuntimeTest.roomSequentialReplannerDoesNotRepeatFinalSegmentWhenNextInputClears`
-- `AgentLoopRuntimeTest.restoredSequentialPendingUsesContinuationCursorForNoPayloadTailAfterObservation`
-- `AgentLoopRuntimeTest.payloadSequentialTailDoesNotPersistContinuationCursor`
-- `AgentLoopRuntimeTest.restoredExternalOutcomeUsesContinuationCursorForNoPayloadTailAfterCompletion`
-- `AgentLoopRuntimeTest.restoredExternalOutcomeDoesNotContinuePayloadTailWithoutContinuationCursor`
-- `AgentLoopRuntimeTest.restoredValueFreeModelFrontierLetsMiddleToolContinueToNextNoPayloadTool`
-- `AgentLoopRuntimeTest.restoredValueFreeModelFrontierSurvivesDirectConfirmWithoutPendingLookup`
-- `AgentLoopRuntimeTest.restoredValueFreeFrontierDoesNotRecoverModelOutputForPayloadBinding`
-- `PocketMindViewModelTest.restoredPendingExternalOutcomeCompletedCanShowNextPendingConfirmation`
-- `AgentTraceStoreTest.roomStoreRestoresContinuationCursorFromTraceAfterPendingConfirmationClears`
-- `AgentTraceStoreTest.roomStoreDoesNotPersistContinuationCursorWithExecutablePayload`
-- `AgentContinuationCursorV2Test.valueFreeCursorWithRevalidatedCurrentResultIsRestorable`
-- `AgentContinuationCursorV2Test.cursorWithPayloadOrMissingRevalidationIsNotRestorable`
-- `AgentContinuationCursorV2Test.cursorSourceMismatchIsNotRestorable`
-- `AgentTraceStoreTest.roomStoreFailsClosedWhenContinuationCursorSkillPlanContainsRawInput`
-- `AgentTraceStoreTest.roomStoreKeepsRestorablePendingExternalOutcomeOnStartupRepair`
-- `AgentTraceStoreTest.roomStoreFailsUnrestorablePendingExternalOutcomeOnStartupRepair`
-- `AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolRequestedJsonMissingToolNameOnStartupRepair`
-- `AgentTraceStoreTest.roomStoreFailsAwaitingExternalOutcomeWhenToolObservedMetadataIsCorruptOnStartupRepair`
-- `AgentLoopRuntimeTest.failStaleInFlightRunsClosesUnrestorableExternalOutcomeBeforeRestore`
-- `AgentLoopRuntimeTest.modelBackedObservationReplanWorksWhenMobileActionInstalled`
-- `AgentLoopRuntimeTest.modelBackedObservationReplanWithoutMobileActionReturnsMissingModel`
-- `AgentLoopRuntimeTest.ruleBackedObservationReplanDoesNotRequireMobileAction`
-- `AgentLoopRuntimeTest.localEvidenceContinuationTakesPriorityOverObservationReplanner`
-- `AgentLoopRuntimeTest.modelObservationReplannerIgnoresRuleFallbackDraft`
-- `AgentLoopRuntimeTest.initialSequentialInputPlansFirstSingleToolSegmentThenContinues`
-- `AgentLoopRuntimeTest.initialSequentialCompositeSkillSegmentPlansFirstCompositeSkill`
-- `AgentLoopRuntimeTest.sequentialCompositeSkillSegmentContinuesToNextSegmentAfterInternalToolsComplete`
-- `AgentLoopRuntimeTest.sequentialMiddleCompositeSkillSegmentContinuesToTailAfterInternalToolsComplete`
-- `AgentLoopRuntimeTest.initialSequentialPrivateReadSegmentFallsBackToAnswer`
-- `AgentLoopRuntimeTest.sequentialReplannerSkipsPrivateReadWhenMoreSegmentsRemain`
-- `AgentLoopRuntimeTest.sequentialReplannerAllowsFinalPrivateReadSegment`
-- `AgentLoopRuntimeTest.explanatorySequentialTextStillFallsBackToAnswer`
-- `AgentTraceStoreTest.roomStorePersistsRunAndStepSummariesWithoutRawToolArguments`
-- `AgentTraceStoreTest.roomStoreToolPlanningTraceDoesNotPersistParameterLikeReasonText`
-- `AgentTraceStoreTest.roomStoreRedactsSensitiveTraceTextAcrossSummariesAndJson`
-- `AgentTraceStoreTest.roomStoreRedactsAllowlistedCompletionMetadataValues`
-- `AgentTraceStoreTest.roomStoreFailsPayloadPendingConfirmationWithoutPuttingRawArgumentsInTrace`
-- `AgentTraceStoreTest.roomStoreReturnsRecentRunSummariesWithStepLimit`
-- `ToolAuditRepositoryTest.recordDoesNotPersistToolParametersFromPlannedSummary`
-- `PocketMindViewModelTest.malformedRemoteToolCallFailsClosedBeforeConfirmationOrExecution`
-- `MainActivityComprehensiveTest.remoteWebSearchToolCallExecutesReadOnlyToolWithoutConfirmation`
-- `PocketMindViewModelTest.restoreStartupStateRestoresPendingAgentConfirmationWithoutExecutingTool`
-- `PocketMindViewModelTest.restoredSharePendingPreviewDoesNotExecuteUntilCurrentConfirmation`
-- `PocketMindViewModelTest.refreshAuditEventsAlsoLoadsAgentTraceSummaries`
-- `BuiltInSkillRuntimeTest.plansReminderSkillFirstWithoutActionDraft`
-- `BuiltInSkillRuntimeTest.plansEnglishReminderSkillFirstWithoutActionDraft`
-- `BuiltInSkillRuntimeTest.plansReminderSkillFirstWithVariantDelayPhrases`
-- `BuiltInSkillRuntimeTest.reminderSkillFirstRejectsTimingDiscussionFalsePositives`
-- `BuiltInSkillRuntimeTest.plansPeriodicCheckSkillFirstWithoutActionDraft`
-- `AgentLoopRuntimeTest.skillFirstPeriodicCheckBypassesActionPlannerAndRequestsConfirmation`
-- `AssistantOrchestratorTest.defaultSequentialReplannerPlansExplicitNextActionAfterObservation`
-- `AssistantOrchestratorTest.clipboardSummaryShareAdvancesFromModelOutputToShareConfirmation`
-- `AssistantOrchestratorTest.skillFirstClipboardSummaryShareRoutesEvenWhenActionRuntimeDoesNotClassifyAction`
+- `PocketMindViewModelTest`
 
 ## Skill Framework
 
@@ -789,216 +145,46 @@ Code:
 
 Responsibilities:
 
-- Declare reusable, versioned task skills.
-- Map skill steps to Tool Registry requests.
-- Keep task composition separate from Android execution.
+- Declare reusable, versioned task flows with `SkillManifest`.
+- Convert Skill steps into Tool Registry requests.
+- Validate Skill structure, argument bindings, required tools, risk, and restore
+  authorization before confirmation or execution.
 
-Non-responsibilities:
+Boundaries:
 
-- Skills must not call `Context.startActivity`.
-- Skills must not define private tool names outside the registry.
+- Skills do not call Android APIs directly.
+- Skills do not define private tool names outside the registry.
+- Private tool outputs cannot bind directly into later external tool arguments.
 
 Current status:
 
-- Implemented `SkillManifest`, `SkillRequest`, `SkillPlan`, `SkillStep`, and
-  `SkillRuntime`.
-- Built-in parser-backed Skills are now represented by `SkillDefinition` values
-  in a `SkillCatalog`, so manifests, trigger examples, direct tool mappings,
-  and planner metadata live behind one catalog contract instead of scattered
-  intent-only mappings.
-- `SkillRuntime` now exposes an optional Skill-first planner for requests that
-  can safely build their first tool step from the raw user input.
-- Implemented built-in manifests for email drafts, calendar drafts, map search,
-  information lookup, device settings including Usage Access settings,
-  background reminders, clipboard context, app navigation, and system text
-  sharing.
-- `SkillRequest.arguments` is now validated against
-  `SkillManifest.inputSchemaJson` before confirmation or execution. Missing
-  required inputs, blank required string inputs, extra fields, type mismatches,
-  invalid enum values, regex mismatches, and numeric range failures reject the
-  skill plan. Tool parameters remain owned and validated separately by the Tool
-  Registry.
-- `SkillManifest.authorizationContractHash()` defines the current-runtime
-  reauthorization scope for restored or attached plans. It hashes only
-  id/version/risk, low-risk app-control eligibility, unverified app-launch
-  continuation eligibility, background execution metadata, normalized required
-  tools, and canonicalized input schema; title, description, trigger examples,
-  and raw JSON formatting stay outside the execution authorization contract.
-- `SkillPlan` reserves `.` as the `stepId.outputKey` source-reference
-  delimiter. Step ids and model output keys containing that delimiter are
-  rejected during structure validation so bindings and value-free checkpoints
-  cannot misparse private-output refs.
-- `SkillPlan.validateStructure()` is now registry-aware: source references must
-  use strict `stepId.outputKey` syntax, read only declared prior output keys, and
-  bind only declared destination tool arguments. Duplicate tool request ids,
-  unknown required tools, under-declared skill risk, literal/bound argument
-  collisions, and request/draft argument drift reject the plan before user
-  confirmation.
-- Implemented a minimal declarative composition model for ordered skill steps:
-  tool steps can declare stable ids, dependencies, and argument bindings; model
-  transform steps can consume prior tool outputs and expose named outputs.
-- Built-in single-tool Skills now use stable declarative step ids based on the
-  tool contract instead of request UUIDs. Request ids remain per-run confirmation
-  handles; step ids remain versioned Skill structure.
-- Added `clipboard_summary_share_skill` as the first composite skill contract:
-  it reads clipboard text after confirmation, keeps the transform local, then
-  binds the generated summary into the system share tool.
-- Explicit clipboard context and clipboard-summary-share inputs can now be
-  planned directly by the built-in Skill runtime before action planning.
-- The app loop can now consume declarative model-step output bindings for
-  composite skills, not just the built-in clipboard summary share flow. Bound
-  tool requests still go through registry validation, safety checks, trace,
-  audit, and explicit confirmation before execution.
-- Private tool outputs are not available for direct model-result bindings into
-  later external tools. Clipboard text and similar private values must pass
-  through the local model step boundary and still require a second
-  confirmation before sharing.
-- Added `SkillRunExecutor` as the first executable multi-step skill runner. It
-  validates the plan, resolves step output bindings, enforces a step limit, and
-  separates private binding outputs from the public result/trace.
-- Added `SkillRunProgressor` as the pure Kotlin skill progression boundary for
-  plan validation, argument binding, model-output-to-tool progression, and
-  private tool output fences. `SkillRunExecutor` and Agent model-result
-  replanning now share this progression logic instead of maintaining separate
-  binding implementations.
-- `SkillRunProgressor` also supports current-process tool-result-to-tool-step
-  progression for declarative Skills. It binds only available public outputs,
-  treats private output refs as unbindable to later tool arguments, requires the
-  current result id to be among requested skill steps, and rejects unmet
-  dependencies instead of letting a generic replanner bypass the Skill graph.
-- `SkillRunProgressor.nextToolAfterModelOutput()` also verifies that every
-  declared dependency of the next `ToolStep` is already satisfied before
-  returning another confirmation. A model output cannot skip an unrequested
-  prerequisite tool and jump directly to a later external action.
-- Skill validation now rejects direct `ToolStep.argumentBindings` from private
-  tool outputs such as `read_clipboard.text` into later tool arguments before
-  any tool confirmation or execution. Private values can feed local model steps,
-  but external tool payloads must come from explicit model-step outputs and still
-  pass confirmation.
-- `SkillRunExecutor` now gates every tool step through registry validation and
-  safety policy before execution. Steps that require user confirmation return
-  `AwaitingConfirmation` instead of calling the injected `ToolExecutor`
-  directly.
-- `SkillRunExecutor` revalidates successful `ToolResult.data` before recording
-  tool-finished trace or binding step outputs, both after direct execution and
-  after resume from a user-confirmed continuation. Malformed successful results
-  fail the Skill before a model step can consume private or schema-extra data.
-- `SkillRunExecutor` now returns an opaque `SkillRunContinuation` at
-  confirmation boundaries. A confirmed `ToolResult` can resume from the pending
-  tool step, continue through model transforms, and stop again at the next
-  confirmation without re-running earlier steps or exposing private tool output.
-- `SkillRunExecutor` now has an explicit `Cancelled` state for pending skill
-  continuations. Cancelling a multi-step skill stops before the pending tool,
-  preserves only public outputs, and records a cancellation trace without
-  exposing private tool outputs.
-- App-level persistence covers the active pending tool confirmation produced by
-  model-bound continuations, including the pending request/draft and `SkillPlan`
-  structure needed to resume from that confirmation boundary when the active
-  tool request has no private executable payload. The persisted `SkillPlan` is
-  redacted before Room writes it; the raw `SkillRunContinuation` object is still
-  not persisted, so private skill input, `outputs/privateOutputRefs/trace`, and
-  draft payload text remain outside Room.
-- Pending Skill confirmations now also get a separate
-  `agent_skill_run_checkpoints` Room row. The checkpoint is value-free: it
-  stores schema version, run/request/step ids, manifest id/version/hash, phase,
-  completed step ids, exact value-free output key names for each completed
-  step, and private-output refs only. Restore validates the checkpoint against
-  the redacted key-shape `SkillPlan` and current `ToolRegistry`; missing
-  checkpoints for redacted skill pending rows, malformed JSON, changed pending
-  step/tool, manifest mismatch, noncanonical or changed output keys, or
-  private-ref drift fails the owning awaiting run closed and clears the
-  pending/checkpoint rows. The separate pending row may persist only the current
-  tool's `ToolSpec` allowlisted structural arguments; the checkpoint itself
-  remains value-free and does not restore prior output values.
-  The checkpoint is not enough to replay private prior outputs, so broad
-  arbitrary skill-runner state persistence is still pending.
-- Room restore validates that a persisted pending confirmation with an attached
-  `SkillPlan` still points at a tool step in that plan before restoring the UI.
-  Invalid or malformed pending rows fail the owning awaiting run so restart does
-  not leave an invisible confirmation zombie.
-  Corrupt or stale rows are skipped instead of reviving an unexplainable skill
-  continuation.
-- Built-in Skill manifest tests now lock the exact manifest id set using
-  test-owned literal ids, version, trigger examples, risk level, exact required
-  tool declarations, raw closed input schema text, and required-tool presence in
-  `ToolRegistry`. Every trigger example must route back to its owning Skill, and
-  the representative planning fixture set must cover every built-in manifest, so
-  adding or removing a built-in Skill requires an explicit contract update.
-- Added a narrow current-screen screenshot OCR context Skill for explicit
-  current-screen screenshot/OCR text requests. It maps to
-  `capture_current_screenshot_ocr` and remains separate from both recent
-  MediaStore screenshot OCR and Accessibility text-node reads.
+- Built-in Skills live in a `SkillCatalog` with manifests, trigger examples,
+  parser-backed planning, direct tool mappings, and planner metadata in one
+  contract.
+- `SkillManifest.authorizationContractHash()` covers id/version/risk,
+  low-risk app-control eligibility, unverified launch continuation eligibility,
+  background metadata, required tools, and canonical input schema. Display text
+  and trigger examples do not authorize execution.
+- Declarative Skill plans support stable step ids, dependencies,
+  tool-to-tool bindings, local model transform steps, and bounded progression.
+- `SkillRunProgressor` is the shared pure Kotlin boundary for structure
+  validation, public-output binding, private-output fences, model-output to tool
+  progression, and current-process tool-result progression.
+- `SkillRunExecutor` can execute multi-step Skills until a confirmation
+  boundary, resume from a confirmed result, cancel pending work, and revalidate
+  successful tool output before any model step consumes it.
+- Current built-ins cover drafts, maps/search, device settings, app navigation,
+  reminders, periodic-check configuration, background-task queries, web search,
+  clipboard context, summary-and-share flows, foreground/current-app context,
+  contacts, calendar availability, recent media metadata/OCR, current-screen
+  text/OCR, and system sharing.
 
 Tests:
 
 - `BuiltInSkillRuntimeTest`
-- `BuiltInSkillRuntimeTest.builtInSkillCatalogOwnsManifestsAndDirectToolMappings`
-- `BuiltInSkillRuntimeTest.plansCurrentScreenshotOcrWithoutActionDraftWhenCommandIsExplicit`
-- `ActionPlannerTest.parsesCurrentScreenshotOcrCallOutput`
-- `BuiltInSkillRuntimeTest.plansClipboardSummaryShareAsOrderedCompositeSkill`
-- `BuiltInSkillRuntimeTest.plansCurrentScreenTextSummaryShareAsOrderedCompositeSkill`
-- `BuiltInSkillRuntimeTest.exposesVersionedManifestsForCoreSkills`
-- `BuiltInSkillRuntimeTest.builtInSkillPlanStepContractsUseStableDeclarativeIds`
-- `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`
-- `BuiltInSkillRuntimeTest.builtInManifestTriggerExamplesRouteToDeclaredSkills`
-- `BuiltInSkillRuntimeTest.currentScreenTextSummaryShareRejectsFalsePositiveQuestionsAndNegations`
-- `BuiltInSkillRuntimeTest.routesClipboardSummaryShareInputToCompositePlan`
-- `BuiltInSkillRuntimeTest.plansClipboardSummaryShareWithoutActionDraft`
-- `BuiltInSkillRuntimeTest.clipboardSummaryShareSkillFirstRejectsSequentialFollowUp`
-- `BuiltInSkillRuntimeTest.clipboardSummaryShareRejectsNegativeAndDiscussionRequests`
-- `BuiltInSkillRuntimeTest.plansClipboardContextWithoutActionDraft`
-- `BuiltInSkillRuntimeTest.clipboardContextSkillFirstRejectsSequentialFollowUp`
-- `BuiltInSkillRuntimeTest.plansDeviceSettingsWithoutActionDraftWhenCommandIsExplicit`
-- `BuiltInSkillRuntimeTest.plansWebSearchWithoutActionDraftWhenCommandIsExplicit`
-- `BuiltInSkillRuntimeTest.plansRecentMediaFilesWithoutActionDraftWhenMetadataRequestIsExplicit`
-- `BuiltInSkillRuntimeTest.plansHttpsDeepLinkWithoutActionDraftWhenCommandIsExplicit`
-- `BuiltInSkillRuntimeTest.plansForegroundAppWithoutActionDraftWhenCommandIsExplicit`
-- `BuiltInSkillRuntimeTest.plansRecentNotificationsWithoutActionDraftWhenCurrentAppRequestIsExplicit`
-- `BuiltInSkillRuntimeTest.plansContactLookupWithoutActionDraftWhenQueryIsExplicit`
-- `BuiltInSkillRuntimeTest.plansCalendarAvailabilityWithoutActionDraftWhenIsoWindowIsExplicit`
-- `BuiltInSkillRuntimeTest.skillFirstPlannerDoesNotTreatOrdinaryShareDiscussionAsShareTool`
-- `BuiltInSkillRuntimeTest.shareTextSkillFirstRejectsNegativeRequests`
-- `BuiltInSkillRuntimeTest.shareTextSkillFirstRejectsQuestionAndDocumentationRequests`
-- `BuiltInSkillRuntimeTest.validateStructureRejectsUnorderedOrInvalidCompositePlan`
-- `BuiltInSkillRuntimeTest.builtInPlansUseSkillInputArgumentsAndValidateAgainstManifestSchema`
-- `BuiltInSkillRuntimeTest.validateStructureRejectsSkillRequestArgumentsOutsideManifestSchema`
 - `SkillRunExecutorTest`
 - `SkillRunProgressorTest`
-- `MainActivitySkillUiTest.webSearchSkillFirstExecutesReadOnlyToolWithoutRemoteRuntime`
-- `MainActivitySkillUiTest.clipboardSummaryShareSkillStartsAtLocalReadConfirmation`
-- `SkillRunExecutorTest.failsBeforeExecutingWhenSkillArgumentsDoNotMatchManifestSchema`
-- `SkillRunExecutorTest.resumesAfterConfirmedToolResultAndStopsAtNextConfirmation`
-- `SkillRunExecutorTest.continuationCheckpointContainsOnlyValueFreeSkillState`
-- `SkillRunExecutorTest.resumesAgainAfterSecondConfirmationAndCompletesSkill`
-- `SkillRunExecutorTest.resumeRejectsToolResultThatDoesNotMatchPendingRequest`
-- `SkillRunExecutorTest.duplicateToolRequestIdsFailBeforeExecutingSkillTools`
-- `SkillRunExecutorTest.executeRejectsMalformedSucceededToolResultBeforeSkillOutput`
-- `SkillRunExecutorTest.resumeRejectsMalformedSucceededToolResultBeforeModelStep`
-- `SkillRunExecutorTest.privateToolOutputCannotBindDirectlyToLaterToolArgument`
-- `SkillRunExecutorTest.cancelStopsPendingSkillWithoutExecutingOrLeakingPrivateOutputs`
-- `SkillRunProgressorTest.bindsPublicToolOutputToDependentToolRequestAndDraft`
-- `SkillRunProgressorTest.missingModelOutputBindingFailsClosedDuringPlanValidation`
-- `SkillRunProgressorTest.validateForExecutionRejectsBindingsOutsideDeclaredToolContracts`
-- `SkillRunProgressorTest.rejectsPrivateToolOutputBindingBetweenToolSteps`
-- `SkillRunProgressorTest.nextToolAfterToolResultUsesValueFreeSatisfiedStepsWithoutRecoveringOutputValues`
-- `AgentTraceStoreTest.roomStoreKeepsRedactedSkillPlanKeyShapeForPublicToolStepRecovery`
-- `AgentTraceStoreTest.roomStoreFailsScheduleReminderPendingWithoutPersistingReminderPayload`
-- `AgentLoopRuntimeTest.modelStepOutputBindsToDependentToolStepAndRequestsConfirmation`
-- `AgentLoopRuntimeTest.modelStepBindingRejectsMissingOutputBeforeConfirmation`
-- `AgentLoopRuntimeTest.modelStepBindingCannotDirectlyExposePrivateToolOutputToShare`
-- `AgentLoopRuntimeTest.actionPlannerAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
-- `AgentLoopRuntimeTest.replannedToolAttachedSkillPlanMustSatisfyManifestSchemaBeforeConfirmation`
-- `AgentLoopRuntimeTest.skillFirstPlanMustMatchCurrentRuntimeManifestContract`
-- `AgentLoopRuntimeTest.restoredSkillPendingSurvivesDisplayOnlyManifestDrift`
-- `AgentLoopRuntimeTest.restoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged`
-- `AgentLoopRuntimeTest.directConfirmRestoredSkillPendingFailsClosedWhenCurrentRuntimeManifestContractChanged`
-- `AgentLoopRuntimeTest.malformedSucceededToolResultFailsBeforeContinuationAndDoesNotLeakPayload`
-- `AgentTraceStoreTest.roomStoreSkipsPendingSkillPlanThatDoesNotContainPendingToolRequest`
-- `AgentTraceStoreTest.roomStorePersistsSkillRunCheckpointWithoutRawOutputs`
-- `AgentTraceStoreTest.roomStoreRejectsSkillRunCheckpointWithExecutableOutputValues`
-- `AgentTraceStoreTest.roomStoreFailsCheckpointWhenPendingStepDoesNotMatchSkillPlan`
-- `ToolSchemaContractTest`
-- `AgentLoopRuntimeTest.wifiActionInputRequestsConfirmationBeforeExecution`
+- `MainActivitySkillUiTest`
 
 ## Device Context
 
@@ -1006,307 +192,104 @@ Code:
 
 - `app/src/main/java/com/bytedance/zgx/pocketmind/device/`
 - `app/src/main/java/com/bytedance/zgx/pocketmind/resource/`
-- Current context sources: `MemoryRepository`, `SessionRepository`, model and
-  device capability state in `ChatUiState`.
+- `MemoryRepository`, `SessionRepository`, and `ChatUiState` context snapshots
 
 Responsibilities:
 
-- Provide controlled, minimal context to the loop and planner.
-- Keep private device data out of remote prompts unless explicitly allowed.
+- Provide minimal local context to the loop and planner.
+- Represent tool readiness without exposing private values.
+- Keep private device data out of remote prompts unless the user explicitly
+  provides uploadable content.
+
+Boundaries:
+
+- Device context is not a general screen, file, contact, calendar, or media
+  scraping layer.
+- Accessibility text reads do not capture screenshots, pixels, node ids, full
+  hierarchy, or semantic screen understanding.
+- Recent-file tools return metadata only unless the user confirms an OCR tool
+  with a narrow scope.
 
 Current status:
 
-- Implemented local memory hits, recent session history, and a minimal
-  `DeviceContextSnapshot` containing non-secret state such as inference mode,
+- `DeviceContextSnapshot` records non-secret runtime state: inference mode,
   installed capability classes, memory toggle, storage estimate, active-session
-  presence, and pending confirmation state.
-- `DeviceContextSnapshot.toolReadiness` exposes
-  `DeviceContextToolReadiness` entries for local context tools, including
-  available, runtime-permission blocked, special-access blocked,
-  foreground-consent required, and unavailable states. The prompt includes tool
-  names and state/reason metadata only, never clipboard text, OCR text,
-  contacts, calendar data, files, screen text, or raw session ids.
-- The Agent loop records this context in trace and may include it in the model
-  prompt behind an instruction to use it only when relevant.
-- Implemented a confirmed `read_clipboard` tool for current foreground text
-  clipboard access. Raw text is used only to build the immediate in-memory
-  continuation prompt after user confirmation; trace steps, audit events, and
-  persisted tool-observation messages store sanitized summaries instead of the
-  raw text. Successful and failed clipboard tool results both carry
-  `privacy=LocalOnly` and `requiresLocalModel=true`, matching the other
-  private device-context read boundaries.
-- Remote model mode does not automatically receive clipboard continuation
-  prompts; it asks the user to switch local or manually provide text they agree
-  to upload.
-- Remote model mode also strips memory hits and device context from ordinary
-  chat prompts. Local memory-control commands such as `记住：...` / `remember ...`,
-  Android share-intent text, generated shared-input text excerpts, and
-  attachment metadata are held back from automatic remote generation unless the
-  user manually provides the content they are willing to upload.
-- Chat history now carries `MessagePrivacy`; messages marked `LocalOnly` are
-  persisted for the local conversation but are filtered from remote history, and
-  a `LocalOnly` current prompt is rejected before any remote request is made.
-- The Room `chat_messages.privacy` column now defaults to `LocalOnly`, so rows
-  inserted without an explicit privacy value fail closed at the persistence
-  boundary as well as at the remote-history boundary.
-- Remote current prompts also pass a conservative outbound safety gate before
-  runtime calls. Inputs containing personal identifiers, contact details, or
-  token/API-key-like content are recorded as `LocalOnly` with a local notice
-  instead of being uploaded automatically.
-- Local action draft turns are persisted as `LocalOnly` user/assistant messages,
-  even when the app is in remote mode. The confirmation flow executes Android
-  tools locally and does not make that action text part of later remote-model
-  history.
-- Unknown stored `MessagePrivacy` enum values restore as `LocalOnly` rather
-  than `RemoteEligible`, so future-version or corrupted history fails closed at
-  the remote-history boundary.
-- Legacy chat rows that predate the `privacy` column, and sessions imported
-  from old SharedPreferences, are migrated as `LocalOnly` because they have no
-  reliable remote-upload provenance.
-- ViewModel dependencies now sit behind narrow ports for model state, sessions,
-  generation settings, remote settings, downloads, memory, tool execution, and
-  assistant routing so privacy behavior can be regression-tested without
-  Android-bound concrete repositories.
-- Implemented confirmed, read-only device context tools for current foreground
-  app metadata, current-app notification summaries, contact lookup, calendar
-  busy/free windows, and recent file metadata. Recent file reads return
-  `LocalOnly` metadata only: file name, MIME type, coarse kind, size, and last
-  modified time. The tool does not return file paths, URIs, or file contents.
-  The successful outputs for contact matches, calendar busy/free windows,
-  foreground-app metadata, current-app notification summaries, recent file
-  metadata, recent OCR excerpts, and current-screen Accessibility snapshots
-  declare their local payload fields as private tool outputs so Skill public
-  outputs and trace redaction share the same local-only policy source.
-- Foreground app summaries may require Usage Access. Without the grant the tool
-  returns a structured permission failure with the recovery settings action;
-  successful reads remain `LocalOnly` minimal app metadata with
-  `source=usage_stats_estimate` and `confidence=estimate`, not a window manager
-  truth source, usage history, or screen content.
-- `query_recent_files` supports a `screenshots` kind that filters recent image
-  metadata likely belonging to screenshot folders or names. It remains
-  metadata-only and returns the same minimal fields as other recent-file reads.
-  The MediaStore cursor stops once the requested number of matching metadata
-  rows is collected, so the provider does not continue reading later file
-  metadata after `maxCount` is satisfied. On Android 13 and above, non-media
-  file kinds such as `documents`, `downloads`, and `others` have no executable
-  direct-read authorization path for this MediaStore tool; the schema excludes
-  them and those files must be user-provided through the system file picker or
-  share input. Android 14+ selected photo/video grants are reported with
-  `mediaAccessScope=user_selected_visual_media` instead of being treated as
-  full-library access.
-- `read_recent_screenshot_ocr` is a separate skill-first, confirmed tool for
-  explicit "识别最近 1 张截图文字" / recent screenshot OCR requests. It rejects
-  multi-screenshot OCR requests, reads only the most recent screenshot pixels
-  after confirmation through `READ_MEDIA_IMAGES`, Android 14+
-  `READ_MEDIA_VISUAL_USER_SELECTED` selected visual media access, or legacy
-  storage permission, extracts a bounded local OCR text excerpt, marks the
-  result `LocalOnly`, treats `ocrText` as private Skill output, and does not
-  persist or expose the MediaStore id, URI, path, original image, or raw
-  pixels. The tool result also omits file identity metadata such as `name`,
-  `mimeType`, `sizeBytes`, and `lastModifiedMillis`; OCR continuation only needs
-  bounded text, counts, truncation state, LocalOnly flags, and metadata policy.
-  OCR formatting preserves recognized block/line order when ML Kit provides it,
-  while still omitting coordinates, image labels, captions, pixels, and visual
-  semantics.
-  Remote mode treats the OCR continuation like other protected local context and
-  stops before sending it to a configured backend. Its input and output schemas
-  both cap `maxCount` at 1, so the registry rejects any result that tries to
-  report multi-screenshot OCR.
-- `read_recent_image_ocr` is a separate skill-first, confirmed tool for
-  explicit "识别最近图片/照片文字" requests. It scans up to 3 recent images, returns
-  the first bounded local OCR text excerpt, marks the result `LocalOnly`, and
-  reports whether the image candidate set came from full visual media or
-  Android 14+ user-selected visual media. It reuses the same trace/audit
-  redaction, remote-mode protection, and private Skill output boundary as
-  screenshot OCR. Plain
-  `query_recent_files(kind="images")` remains metadata-only and does not read
-  pixels. The parser rejects all/many/more-than-3 image OCR, implementation/API
-  or permission discussion, negated reads, and visual/semantic image
-  understanding such as describing what is in an image.
-- `read_current_screen_text` is a separate confirmed Device Context read for
-  explicit current-screen text requests. It
-  reads only the current Accessibility text nodes exposed by Android
-  accessibility services at confirmation time, returns a bounded `screenText`
-  snapshot marked
-  `LocalOnly` / `requiresLocalModel=true`, and stops remote-mode automatic
-  continuation. It must not capture a screenshot, run OCR, inspect pixels,
-  infer visual or semantic screen state, or persist/expose raw `screenText` in
-  trace, audit, persisted tool-observation messages, or remote model prompts.
-  Its Accessibility requirement is special access, not a normal runtime
-  permission.
-- The Accessibility screen text snapshot now also returns a coarse structure
-  summary such as node count and visible-text-item count. That summary is
-  `LocalOnly`, private, and excludes node ids, bounds, hierarchy, screenshots,
-  OCR, and visual semantics.
-- `observe_current_screen` is a separate phone-control observation for
-  Accessibility nodes. It may include short-lived node ids and bounds so local
-  UI actions can resolve targets, but those fields are `LocalOnly`, private,
-  and not remote-eligible.
-- Current App search uses the same device package: open app, wait, observe,
-  resolve search entry, type, submit search, and verify. Profiles currently
-  cover Taobao, Pinduoduo, Amap/Gaode, Google Maps, JD, Chrome/Android Browser,
-  Quark, UC, and Google App, with a generic resolver fallback.
-- Resource monitoring samples app PSS/heap, available RAM, app CPU, and Android
-  thermal state, then maps them to Normal/Warm/Hot UI pressure. It does not read
-  user content, screen text, files, clipboard, contacts, or calendar data, and it
-  is not a substitute for RC perf-baseline evidence.
-- JVM executor matrix tests cover foreground app, notification summary, contact
-  summary, calendar availability, recent file metadata, recent screenshot OCR,
-  and recent image OCR success, permission denied, provider failure, LocalOnly,
-  and minimal-field boundaries.
-- Broad screen semantic understanding, screenshot capture, complete document
-  parsing, Office/PDF parsing, arbitrary image/media OCR, image pixel analysis,
-  and media content understanding are still pending. The Accessibility text
-  snapshot boundary does not complete any of those modules.
+  presence, pending confirmation state, and per-tool readiness.
+- Readiness entries describe available, runtime-permission blocked,
+  special-access blocked, foreground-consent required, and unavailable states.
+  Prompts include tool names and state/reason metadata only.
+- Confirmed `LocalOnly` device-context tools cover clipboard reads, foreground
+  app metadata, current-app notifications, contacts, calendar busy/free blocks,
+  recent file metadata, recent screenshot OCR, recent image OCR, current-screen
+  Accessibility text, current-screen observation, and one-shot current
+  screenshot OCR through MediaProjection consent.
+- Remote mode filters local memory, shared-input generated text, device
+  context, and `LocalOnly` history from automatic requests. Unknown stored
+  message privacy restores as `LocalOnly`.
+- Resource monitoring samples PSS/heap, available RAM, CPU, and thermal state
+  for UI pressure only; it does not read user content.
+- Pending areas remain intentionally outside this module: broad screen semantic
+  understanding, complete document parsing, arbitrary media understanding, and
+  uncontrolled screenshot capture.
 
 Tests:
 
 - `DeviceContextModelsTest`
-- `DeviceContextModelsTest.promptContextRedactsRawSessionId`
+- `DeviceContextToolExecutorTest`
 - `ForegroundAppProviderTest`
 - `CalendarAvailabilityProviderTest`
 - `RecentFileCollectorTest`
-- `DeviceContextToolExecutorTest`
-- `DeviceContextToolExecutorTest.currentScreenTextSuccessReturnsLocalOnlyTextWithoutNodeTree`
-- `ToolSchemaContractTest.recentScreenshotOcrOutputRejectsMultiScreenshotCount`
-- `CalendarAvailabilityToolExecutorTest`
-- `RoutingAndValidatingToolExecutorTest.routingExecutorDispatchesDeviceContextToolsBeforeDelegate`
-- `RoutingAndValidatingToolExecutorTest.validatingRoutingExecutorAcceptsPrivateDeviceContextOutputsAndKeepsPrivateKeyBoundary`
-- `AgentRuntimePermissionPolicyTest.foregroundAppDeclaresUsageAccessAsSpecialAccessNotRuntimePermission`
-- `AgentRuntimePermissionPolicyTest.recentNotificationsDeclareNoRuntimePermissionOrSpecialAccess`
-- `AgentRuntimePermissionPolicyTest.currentScreenTextDeclaresAccessibilityAsSpecialAccessNotRuntimePermission`
-- `AgentLoopRuntimeTest.recentScreenshotOcrObservationBuildsLocalPromptAndRedactsTrace`
-- `AgentLoopRuntimeTest.recentImageOcrObservationBuildsLocalPromptAndRedactsTrace`
-- `AgentLoopRuntimeTest.currentScreenTextSummarySharePlansShareAfterLocalModelResult`
-- `PocketMindViewModelTest.remoteModeProtectsCurrentScreenTextBeforeRemoteContinuation`
-- `SystemResourceMonitorTest`
-- `PocketMindResourceIndicatorUiTest`
-- `MainActivityAdaptiveUiTest.compactTopBarExposesDeviceResourcesInsideMoreMenu`
-- `MainActivityRuntimePermissionUiTest.contactLookupConfirmationShowsRuntimePermissionRequirementWithoutSpecialAccess`
-- `MainActivitySpecialAccessUiTest.currentScreenTextConfirmationShowsSpecialAccessRequirementWithoutRuntimePermission`
 
 ## Execution Boundary
 
 Code:
 
-- `ActionExecutor`
+- `app/src/main/java/com/bytedance/zgx/pocketmind/action/ActionExecutor.kt`
 - `PendingAgentConfirmation`
 - `PocketMindViewModel.confirmAgentConfirmation`
 
 Responsibilities:
 
-- Convert confirmed `ToolRequest` values into Android system intents.
-- Return execution success or failure as `ToolResult`.
+- Convert confirmed `ToolRequest` values into Android Intents, system sheets,
+  scheduler calls, or special consent flows.
+- Return execution success, cancellation, rejection, or failure as structured
+  `ToolResult` values.
 - Surface safe execution summaries to the UI while structured result details
   remain in Agent trace and audit.
 
+Boundaries:
+
+- Confirmation is required before Android execution, runtime permission prompts,
+  or special-access dependent tool execution.
+- Share sheets, drafts, app launches, and deep links prove only that the
+  external UI opened unless the user later records the outcome.
+- Arbitrary Intent actions, activities, extras, non-HTTPS links, and
+  non-allowlisted app targets are not exposed.
+
 Current status:
 
-- Implemented Intent-based draft/navigation execution, AlarmManager-backed
-  reminder scheduling, and observation.
-- User cancellation of a pending tool request now closes the run as
-  `Cancelled` and records trace/audit events without executing Android intents.
-- Implemented runtime notification permission request for reminder confirmation
-  and generalized runtime permission requests for confirmed calendar, contact,
-  recent-media-file, and reminder tools. Permission prompts are issued only
-  after the user confirms the Agent tool request; denial returns through the
-  normal structured tool result path without executing the tool. Permission
-  denial is treated as non-auto-retryable at the Agent loop boundary even when
-  a lower-level provider marks the failure as retryable.
-- Runtime permission requirements are now modeled with user-facing labels and
-  rationales. Pending confirmation UI can show which Android runtime
-  permissions may be requested before the system prompt appears, while
-  structured failure data still preserves the raw manifest permission names.
-- Startup restoration can rehydrate the latest pending Agent confirmation from
-  Room without invoking Android execution or runtime permission requests.
-- Android share-target ingestion for shared text, bounded `text/*` plus
-  JSON/XML/YAML text-like application document excerpts, bounded RTF/PDF and
-  Office Open XML text-layer excerpts, bounded PDF scanned-page OCR fallback,
-  bounded image OCR excerpts, and audio/video/legacy-Office/binary metadata is
-  implemented.
-- Implemented outbound `share_text` as a confirmed tool that opens Android's
-  system share panel. Explicit “分享这段文字...” requests can now enter the
-  confirmation flow through the built-in Skill runtime without waiting for the
-  action planner. The shared parser rejects negative share wording such as
-  “不要分享/别分享/不要把...分享出去” and “don't share”, plus question/API-style
-  discussion phrasing. Success means the chooser was opened; the app cannot
-  know whether the user completed sharing in the destination app.
-- Implemented constrained external navigation: `open_deep_link` only opens
-  safe HTTPS links with `ACTION_VIEW`, and `open_app_intent` only opens an app
-  launcher by package name. Arbitrary Intent extras, activities, actions, data
-  URIs, and non-HTTPS schemes are intentionally not exposed.
-- Implemented `open_app_deep_target` for fixed allowlisted app targets. The
-  first target opens Android's application details settings for a package using
-  a fixed system action and `package:` URI; the tool accepts only `targetId`
-  and target-declared arguments, not arbitrary Intent payloads.
-- Explicit app launch and app details settings requests now also have a
-  conservative `app_navigation_skill` Skill-first path. The shared parser
-  rejects negation, troubleshooting, docs/API/Intent payloads, app-internal
-  targets such as mini-programs or payment codes, and non-allowlisted settings
-  pages instead of downgrading them to a generic app launch.
-- External Activity tool results now make this launch-only completion explicit
-  with allowlisted metadata: `completionState`, `completionVerified=false`,
-  `externalOutcome=Unknown`, `externalOutcomeSource=Unknown`, `targetKind`,
-  and safe target identifiers such as URI scheme/host, package name, or app
-  target id. Agent trace persists only that allowlisted metadata, not raw
-  payload text or original URI paths/query strings.
-- Agent observation, UI status, and audit summaries now consume launch-only
-  metadata directly. Low-risk app-control sessions can continue after app
-  launch into observe/action/verify steps. Share sheets, drafts, high-risk, and
-  unknown external actions still report an opened-but-unverified boundary and
-  do not auto-plan from an unverified result.
-- After a share sheet, draft page, high-risk, or unknown external Activity
-  opens, the UI asks the user to record whether the target-side operation
-  completed, did not complete, or merely opened. This appends an audited
-  `ExternalOutcomeConfirmed` trace step with
-  `externalOutcomeSource=UserConfirmed`; only `Completed` sets
-  `completionVerified=true` and can unlock the next Agent tool plan.
-- If the app restarts after a launch-only external result, the pending outcome
-  sheet is restored from allowlisted Agent trace metadata for the active
-  session. The restore path does not replay the tool, does not restore raw
-  arguments or payloads, and refuses to restore once an
-  `ExternalOutcomeConfirmed` step exists.
-- For no-payload sequential tails, a launch-only external result can also
-  restore a redacted `ContinuationCursorRecorded` trace cursor. After restart,
-  only a user-recorded `Completed` outcome can revalidate that cursor and move
-  to the next pending confirmation; `NotCompleted` and `OpenedOnly` complete
-  without planning another tool.
-- Startup repair treats `AwaitingExternalOutcome` as recoverable only when the
-  trace still has both a matching `ToolRequested` summary and an unconfirmed
-  launch-only `ToolObserved` summary. Missing or corrupted trace metadata fails
-  the run instead of leaving an invisible pending external outcome.
-- Special-app-access flow is modeled for Usage Access
-  (`query_foreground_app`) and Accessibility screen text/control
-  (`read_current_screen_text`, `observe_current_screen`, `ui_*`): the
-  confirmation UI warns with a
-  special-access requirement and settings entry, denial returns structured
-  `specialAccess/settingsAction` recovery metadata, and settings-return handling
-  updates UI status without executing the pending tool. Before confirmation
-  executes a tool, MainActivity rechecks required special access and fails the
-  pending tool with `PermissionDenied` when access is still disabled, so the
-  executor is not entered. Usage Access is rechecked with AppOps; Accessibility
-  screen text is rechecked against the enabled PocketMind AccessibilityService.
-  Broader special-access surfaces beyond these two bounded reads are still
-  pending.
+- Intent-backed tools cover settings, drafts, safe HTTPS deep links, app
+  launchers, fixed app deep targets, camera launch, maps, email/calendar/contact
+  drafts, and system sharing.
+- Runtime permission prompts are issued only after the user confirms the Agent
+  request. Denial returns through the normal tool-result path and is not
+  auto-retried.
+- Usage Access and Accessibility are modeled as special app access. Returning
+  from settings updates status; it does not execute the pending tool.
+- External launch results carry allowlisted completion metadata:
+  `completionState`, `completionVerified=false`, `externalOutcome=Unknown`,
+  `externalOutcomeSource=Unknown`, target kind, and safe target identifiers.
+- `AwaitingExternalOutcome` can restore from allowlisted trace metadata for the
+  active session. Restore does not replay the tool or recover raw payload.
+- Android share-target ingestion and the in-app picker are handled before chat
+  generation; generated prompts are staged as user-visible local drafts.
 
 Tests:
 
-- `AgentRuntimePermissionPolicyTest.deniedGrantResultKeepsToolFromExecutingUntilPermissionIsActuallyGranted`
-- `PocketMindViewModelTest.specialAccessReturnUpdatesStatusTextWithoutExecutingTools`
-- `PocketMindViewModelTest.accessibilitySpecialAccessReturnUpdatesStatusTextWithoutExecutingTools`
-- `PocketMindViewModelTest.deniedRuntimePermissionFailsPendingToolWithoutExecutingIt`
-- `PocketMindViewModelTest.deniedSpecialAccessFailsPendingToolWithoutExecutingIt`
-- `AgentRuntimePermissionPolicyTest.specialAccessDenialSummaryUsesRequirementTitles`
-- `AgentLoopRuntimeTest.pendingToolPermissionDenialIsObservedWithoutEnteringExecutionState`
-- `AgentLoopRuntimeTest.permissionDeniedToolFailureDoesNotScheduleAutomaticRetry`
-- `ActionExecutorTest.opensAllowedDeepLinkAsActionViewIntent`
-- `ActionExecutorTest.shareTextMetadataDoesNotIncludeRawPayload`
-- `ActionExecutorTest.reportsActivityNotFoundAsNotStartedExternalCompletion`
-- `ActionExecutorTest.reportsExternalActivityExceptionWithExceptionType`
-- `AgentTraceStoreTest.roomStorePersistsOnlyAllowlistedToolObservationCompletionMetadata`
-- `AgentLoopRuntimeTest.unverifiedExternalLaunchDoesNotAutoPlanNextTool`
-- `ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess`
-- `PocketMindViewModelTest.unverifiedExternalLaunchShowsLaunchOnlyStatus`
+- `ActionExecutorTest`
+- `AgentRuntimePermissionPolicyTest`
+- `PocketMindViewModelTest`
+- `MainActivitySpecialAccessUiTest`
 
 ## Safety And Audit
 
@@ -1314,259 +297,93 @@ Code:
 
 - `app/src/main/java/com/bytedance/zgx/pocketmind/safety/`
 - `app/src/main/java/com/bytedance/zgx/pocketmind/audit/`
-- `ToolSpec.riskLevel`
-- `ToolSpec.confirmationPolicy`
-- `ToolSpec.permissions`
 - `AgentTraceStore`
 - `tool_audit_events` Room table
 
 Responsibilities:
 
-- Make capability risk explicit in code.
-- Keep a trace of planned and executed work.
-- Minimize stored private data.
+- Make capability risk, permission boundaries, and confirmation policy explicit
+  in code.
+- Persist enough trace/audit metadata to explain what happened.
+- Minimize retained private data and fail closed when policy metadata is
+  missing or malformed.
+
+Boundaries:
+
+- Audit does not store tool arguments, prompts, remote responses, raw
+  clipboard/screen/OCR text, bearer values, API keys, or full errors.
+- Trace summaries are for diagnosis, not a second chat transcript.
+- Recovery actions still re-enter validation, safety, audit, and user
+  confirmation before execution.
 
 Current status:
 
-- Implemented risk and permission declarations, `SafetyPolicy`, in-memory run
-  trace, and persistent audit events for tool planning, confirmation request,
-  user confirmation, user cancellation, rejection, and observation.
-- `SafetyPolicy` rejects tools whose specs cross execution/privacy boundaries
-  without mandatory confirmation. This covers external Activity launches,
-  outbound text sharing, Android runtime permissions, background scheduling,
-  notifications, clipboard, contacts, files, calendar, Accessibility text, and
-  generic device-context reads, so future registry mistakes cannot silently
-  downgrade a boundary tool to optional/no confirmation.
-- Audit events store request metadata, status, risk, permission names, and a
-  short sanitized summary. They intentionally do not store tool arguments,
-  prompts, remote responses, or secrets.
-- The Room-backed audit repository prunes old rows after each insert and keeps
-  only the most recent 500 audit events by `createdAtMillis`, preventing audit
-  metadata from growing without bound on-device.
-- Recent persisted audit events are now visible from the background task
-  activity entry. The UI is intentionally metadata-only: time, event type, tool
-  name, status, risk, permission names, and a parameter-free generated summary.
-  It does not expose tool arguments, prompts, remote responses, raw clipboard
-  text, raw `screenText`, Authorization headers, or API keys.
-- Launch-only external activity observations are displayed as "opened but
-  unverified" audit records rather than generic success, so audit history does
-  not imply the user completed a share, draft, or target-app action.
-- Successful reminder observations can now promote allowlisted recovery
-  metadata into a typed `AgentRecoveryAction`. The typed action is limited to
-  `schedule_reminder -> cancel_reminder(taskId)`, is surfaced through UI state
-  as a local recovery entry, and does not include reminder title or body
-  content.
-- Tapping the reminder recovery entry does not cancel the task directly. It asks
-  the Agent runtime to create a new audited `cancel_reminder` pending tool
-  confirmation, reruns tool validation and safety policy, persists the pending
-  confirmation for restore, and only executes after the user confirms the normal
-  action sheet.
-- `pending_agent_confirmations` is a narrower recovery table for the latest
-  awaiting tool confirmation and may hold only `ToolSpec`-allowlisted arguments
-  needed for an explicit later confirmation. It is separate from trace/audit
-  summaries and is cleared when the request is confirmed, cancelled, or found
-  stale.
-- Run-level cancellation and hard-budget failure explicitly clear pending
-  confirmations for that run, including persisted Room pending rows and skill
-  checkpoints, so restart repair does not later resurrect or double-fail a
-  terminal run.
-- On startup, persisted in-flight Agent runs that cannot be safely resumed
-  after process death (`Created`, context loading, planning, executing,
-  observing, retrying, or model generation) are marked `Failed` with a trace
-  failure step. `AwaitingUserConfirmation` runs are not failed because their
-  pending confirmation snapshot remains the explicit recovery boundary.
-- Audit summary sanitization removes key-like tokens, bearer credentials, and
-  email addresses before truncation, including quoted JSON-style credential
-  assignments. The in-memory audit sink stores the
-  same redacted copy as the Room-backed repository so tests cannot accidentally
-  depend on raw private data.
-- The first local-only privacy boundary is implemented for shared input,
-  clipboard-derived continuations, and remote chat history. Tool specs now
-  declare private output keys for clipboard text, contact matches, calendar
-  busy/free windows, foreground-app metadata, current-app notification
-  summaries, recent file metadata, recent OCR text, and current-screen
-  Accessibility text/snapshot metadata so Skill output fencing and trace
-  redaction share one policy source. Recent OCR file identity metadata is
-  omitted at the tool boundary rather than carried as private output. Reminder
-  rollback now has a visible Agent/UI confirmation handoff, while broader taint
-  propagation is still pending.
+- `SafetyPolicy` rejects registered boundary tools that would cross execution
+  or privacy boundaries without mandatory confirmation.
+- Persistent audit records include time, event type, tool name, status, risk,
+  permission names, and sanitized summaries. The Room repository keeps the most
+  recent 500 records.
+- Pending confirmations are stored separately from trace/audit and may include
+  only `ToolSpec`-allowlisted structural arguments.
+- Startup repair fails non-restorable in-flight runs closed while preserving
+  recoverable pending confirmations.
+- Reminder scheduling can expose a typed recovery action
+  `cancel_reminder(taskId)`, but tapping it creates a fresh pending tool
+  confirmation instead of cancelling directly.
 
 Tests:
 
 - `SafetyPolicyTest`
-- `SafetyPolicyTest.registeredBoundaryToolsRequireConfirmationBeforeExecution`
-- `ToolRegistryTest.privateDeviceReadToolsMustRequireConfirmation`
 - `ToolAuditEventTest`
-- `ToolAuditRepositoryTest.unverifiedExternalLaunchAuditDoesNotClaimExecutionSuccess`
-- `ToolAuditRepositoryTest.recordPrunesOldAuditEventsToRetentionLimit`
-- `SessionRepositoryTest`
-- `AgentLoopRuntimeTest.confirmedToolResultIsObservedAndCompletesRun`
-- `AgentTraceStoreTest.roomStoreClearPendingConfirmationsForRunDeletesPersistedPendingAndCheckpoint`
-- `PocketMindViewModelTest.stopGenerationCancelsActiveAgentRunForLocalChat`
-- `MainActivitySkillUiTest.webSearchSkillFirstExecutesReadOnlyToolWithoutRemoteRuntime`
-- `MainActivitySkillUiTest.clipboardSummaryShareSkillStartsAtLocalReadConfirmation`
-- `AgentTraceStoreTest.roomStoreFailsStaleInFlightRunsButKeepsPendingConfirmationsOnStartup`
+- `ToolAuditRepositoryTest`
+- `AgentTraceStoreTest`
 
 ## Memory
 
 Code:
 
 - `app/src/main/java/com/bytedance/zgx/pocketmind/memory/`
-- `memory_records` Room table
+- `memory_records` and `memory_embeddings` Room tables
 
 Responsibilities:
 
 - Recall relevant local context when memory is enabled.
-- Avoid injecting unrelated private content.
-- Persist explicit user preferences and task-state records until the user
-  forgets or clears them.
+- Persist explicit preferences, user facts, and bounded task-state records until
+  the user forgets or clears them.
+- Keep memory-derived context local unless the user manually provides it.
+
+Boundaries:
+
+- Memory control commands are local commands, not chat or remote model
+  requests.
+- Background task memory records omit reminder title/body, prompts, arguments,
+  and remote responses.
+- Semantic recall is available only after verified model assets and runtime
+  probes succeed.
 
 Current status:
 
-- Default local memory uses a lightweight token/hash index over saved sessions
-  and explicit persisted records; it does not require a dedicated memory model
-  asset to be installed.
-- The default hash index now adds conservative in-memory alias terms only for
-  explicit `Preference` records about answer length/language and structured
-  active `TaskState` records. These aliases are not persisted, do not change
-  `MemoryHit.text` or `buildContext`, do not apply to ordinary conversation
-  records, and are separate from true semantic retrieval.
-- Added explicit long-term memory controls for reviewing saved records,
-  forgetting a single record, and clearing explicit memory records.
-- Explicit preference and task-state records are now persisted in Room and
-  reloaded during memory rebuild; ordinary conversation-derived memory remains
-  rebuilt from saved chat messages instead of duplicated into the memory table.
-- Active background tasks are now synced into deterministic `TaskState`
-  long-term memory records, giving the Agent recallable task state without
-  requiring the user to manually remember it. The sync stores only task type,
-  status, trigger time, and an opaque auto-managed record id; reminder titles,
-  bodies, prompts, tool arguments, and remote responses are not written to
-  long-term memory. Terminal or missing auto-managed task-state records are
-  forgotten on refresh. When the user explicitly forgets one of these active
-  auto-managed records or clears long-term memory, a hidden suppression marker
-  keeps later startup, refresh, or chat-triggered sync from recreating it. For
-  the singleton periodic-check task, that suppression is released only after
-  the policy has become inactive and a later successful enable creates a fresh
-  scheduled task state, so a deliberate re-enable can become recallable again
-  without making ordinary refreshes undo a user forget/clear action.
-- `sendMessage` treats explicit user preference statements such as
-  `记住：...` / `remember ...` as local memory-control commands. They update
-  persisted `Preference` records without invoking the chat/action router or
-  remote runtime; visible control/status messages are stored as `LocalOnly`.
-  `rebuild` reloads persisted records and saved non-control session history into
-  the in-memory index.
-- When local memory is disabled, explicit remember/fact commands remain
-  `LocalOnly` control messages but do not create new long-term memory records.
-  Forget and clear controls still delete existing records while memory is off.
-- `sendMessage` also treats explicit preference deletion statements such as
-  `忘记：...` / `forget ...` as local memory-control commands. They delete the
-  deterministic `Preference` record for the normalized target, or delete the
-  matching response-length / response-language preference family for targets
-  such as "回答语言偏好" or "answer length preference". They store only `LocalOnly`
-  control/status messages, bypass the chat/action router and remote runtime,
-  and are skipped during memory rebuild so a forgotten preference is not
-  reindexed from command history.
-- Explicit preference records use deterministic ids derived from normalized
-  preference text, so repeating the same remember command upserts one record
-  instead of creating duplicate long-term memories.
-- Explicit user facts now use `MemoryRecordType.UserFact` instead of being
-  folded into `Preference`. Fact records use deterministic ids derived from the
-  normalized fact key, can be remembered, updated, and forgotten through
-  local-only control commands, are skipped during rebuild from control-message
-  history, and remain outside remote prompts/history unless the user manually
-  provides the content.
-- Explicit response-length and response-language preferences resolve conflicts
-  by replacing older records in the same preference family, so `记住` commands
-  update the user's current answer-style preference instead of keeping
-  contradictory long-term memories.
-- Explicit local remember control messages are not re-derived from chat history,
-  so forgetting a persisted preference prevents it from being restored by a
-  later memory rebuild.
-- Agent planning treats memory lookup/context formatting as optional: failures
-  fall back to empty memory context and continue ordinary chat/planning.
-- CJK memory recall requires specific multi-character overlap when the query
-  has multi-character tokens, reducing unrelated single-character matches on
-  the lightweight index.
-- `MemoryRepository` has a semantic runtime extension point: an injected runtime
-  with `supportsSemanticRecall=true` can return semantic hits without the
-  lightweight term-overlap gate. V1 semantic indexing is limited to explicit
-  long-term `Preference`, `UserFact`, and `TaskState` records; ordinary
-  conversation recall remains on the existing lightweight path.
-- `ModelRepository` now exposes a verified memory-embedding model path only
-  for existing `MemoryEmbedding` assets that passed recommended-model
-  verification with stored catalog size, revision, and SHA-256 evidence plus a
-  current file size/SHA-256 check. `PocketMindViewModel` syncs that path into
-  `SemanticMemoryRuntimeController` before rebuilding memory so runtime
-  switching happens at model verification boundaries.
-- `MemoryRepository` implements the semantic runtime controller and can switch
-  between the default hash runtime and an injected semantic runtime, re-embedding
-  current eligible entries on switch. It persists semantic vectors in
-  `memory_embeddings` keyed by `recordId + modelId`, invalidates them on record
-  update/forget/clear/model delete, and only treats semantic recall as available
-  after runtime probe returns a finite normalized vector with a stable dimension.
-  If an active semantic runtime later throws during indexing or query embedding,
-  the controller clears the active model path, marks `DegradedLexical`,
-  re-embeds entries with the default hash runtime, and only returns lexical
-  fallback hits.
-- The controller reports explicit runtime status:
-  `NoVerifiedModel`, `AssetMissing`, `RuntimeUnavailable`, `ProbeFailed`,
-  `BuildingIndex`, `Active`, or `DegradedLexical`. ViewModel/UI state uses this
-  status so a verified memory asset without a successful runtime probe is not
-  presented as enabled semantic recall.
-- The production app container now passes `TfliteTextEmbeddingRuntimeFactory`
-  into `MemoryRepository`. The factory loads the recommended EmbeddingGemma
-  LiteRT `.tflite` file plus `sentencepiece.model` through the Google AI Edge
-  Local Agents Gemma embedding runtime on CPU. The legacy
-  `LiteRtEmbeddingRuntimeFactory` remains only as an explicit fail-closed
-  compatibility explanation for old `.litertlm` embedding assets.
-- UI state separates an installed memory asset from an active semantic runtime,
-  and local turns produced with memory context are kept local-only so later
-  remote chats do not inherit that private context through history.
-- Recommended model cards report memory runtime states such as
-  `已安装待探测`, `正在建立索引`, `语义记忆可用`, and `已回退轻量索引` so
-  installation is not presented as active semantic recall until probe/index
-  succeeds.
+- The default runtime uses a lightweight token/hash index over saved sessions
+  and explicit memory records. It adds non-persisted alias terms only for answer
+  style preferences and active task-state records.
+- Explicit `remember`/`forget` commands upsert or delete deterministic
+  `Preference` and `UserFact` records while storing control/status messages as
+  `LocalOnly`.
+- Active reminders and periodic-check state sync into deterministic
+  `TaskState` records. User forget/clear creates suppression markers so refresh
+  does not recreate deliberately removed records.
+- A semantic runtime controller can switch to verified EmbeddingGemma LiteRT
+  assets, persist vectors by `recordId + modelId`, and degrade back to lexical
+  recall if probing, indexing, or query embedding fails.
+- UI state distinguishes installed memory assets from active semantic recall,
+  so a downloaded model is not presented as usable until probe/index succeeds.
 
 Tests:
 
 - `MemoryRepositoryTest`
-- `MemoryRepositoryTest.hashRuntimeRecallsResponseLengthPreferenceThroughLocalAliases`
-- `MemoryRepositoryTest.preferenceAliasesDoNotChangePersistedRecordTextOrContext`
-- `MemoryRepositoryTest.responseLengthAliasesAreValueSpecific`
-- `MemoryRepositoryTest.responseLanguageAliasesAreLanguageSpecific`
-- `MemoryRepositoryTest.preferenceAliasesRequireResponsePreferenceIntent`
-- `MemoryRepositoryTest.taskStateAliasesRecallReminderAndPeriodicCheckByLocalizedActiveStatus`
-- `MemoryRepositoryTest.taskStateAliasesDoNotRecallTerminalStatusQueries`
-- `MemoryRepositoryTest.conversationRecordsDoNotReceiveLongTermAliasTokens`
-- `MemoryRepositoryTest.conflictingResponseLengthPreferenceReplacesOlderRecord`
-- `MemoryRepositoryTest.unrelatedResponsePreferenceFamiliesCanCoexist`
-- `MemoryRepositoryTest.combinedResponsePreferenceReplacesBothFamilies`
-- `MemoryRepositoryTest.explicitPreferenceForgetConflictKeysRecognizeFamilyTargets`
-- `MemoryRepositoryTest.forgetPreferenceCanDeleteResponsePreferenceFamily`
-- `MemoryRepositoryTest.forgetPreferenceStillDeletesExactUnrelatedPreference`
-- `MemoryRepositoryTest.explicitPreferenceForgetExtractorSupportsChineseAndEnglishCommands`
-- `MemoryRepositoryTest.explicitUserFactExtractorSupportsChineseAndEnglishRememberCommands`
-- `MemoryRepositoryTest.explicitUserFactRecordsPersistUpdateAndForgetByFactKey`
-- `MemoryRepositoryTest.rebuildSkipsExplicitPreferenceForgetCommandsWithoutConversationRecord`
-- `MemoryRepositoryTest.rebuildSkipsExplicitUserFactCommandsWithoutConversationRecord`
-- `MemoryRepositoryTest.semanticRuntimeControllerSwitchesBetweenFallbackAndSemanticRuntime`
-- `MemoryRepositoryTest.memoryModelPathDoesNotEnableSemanticRecallWithoutRuntimeSupport`
 - `ModelRepositoryPathTest`
-- `MemoryRepositoryTest.taskStateMemoryRecordIdIsStableForWhitespace`
 - `PocketMindViewModelTest`
-- `PocketMindViewModelTest.rememberCommandReplacesConflictingPreferenceMemory`
-- `PocketMindViewModelTest.rememberCommandPersistsUserFactMemory`
-- `PocketMindViewModelTest.forgetPreferenceCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime`
-- `PocketMindViewModelTest.forgetUserFactCommandDeletesMemoryAndBypassesRouterAndRemoteRuntime`
-- `PocketMindViewModelTest.forgetPreferenceFamilyCommandDeletesMatchingPreferenceAndBypassesRemoteRuntime`
-- `PocketMindViewModelTest.remoteForgetPreferenceCommandDoesNotEnterLaterRemoteHistory`
-- `PocketMindViewModelTest.restoreStartupStateSyncsVerifiedMemoryModelBeforeRebuildingMemoryIndex`
-- `PocketMindViewModelTest.restoreStartupStateIndexesScheduledTasksAsForgettableTaskState`
-- `PocketMindViewModelTest.backgroundTaskStateMemoryDoesNotEnterRemotePromptOrHistory`
-- `PocketMindViewModelTest.cancelBackgroundTaskForgetsTaskStateMemory`
-- `PocketMindViewModelTest.refreshBackgroundTasksDropsTerminalTaskStateMemory`
-- `MainActivityLongTermMemoryUiTest` explicit preference review/forget/clear UI path
-- `AgentLoopRuntimeTest`
+- `MainActivityLongTermMemoryUiTest`
 
 ## Background Tasks
 
@@ -1579,190 +396,45 @@ Code:
 Responsibilities:
 
 - Persist scheduled Agent tasks before handing them to Android.
-- Use Android system scheduling instead of keeping foreground coroutines alive.
-- Deliver reminder notifications through a dedicated notification channel.
-- Keep background task scheduling separate from conversation planning.
+- Use Android scheduling primitives instead of foreground coroutines.
+- Keep background scheduling separate from conversation planning.
+
+Boundaries:
+
+- Background skills must be explicitly user configured, frequency bounded,
+  local-only, and limited to local read-only state or notification work.
+- Outbound or execution follow-up must return to foreground confirmation.
+- Periodic checks are for local reminder patrol only; they are not background
+  chat, screen scanning, file scanning, or arbitrary automation.
 
 Current status:
 
-- Implemented `schedule_reminder` as a confirmed tool and `reminder_skill` as a
-  built-in one-step skill.
-- `SkillManifest.backgroundExecution` defines the approved scheduled-local-skill
-  boundary and `BackgroundSkillSpec` is derived from that manifest metadata:
-  background skills must be explicitly user-configured, frequency-bounded,
-  local-only, limited to read-only local state or local notification work, and
-  any outbound or execution follow-up must return to foreground confirmation.
-- Implemented `ScheduledTaskRepository`, `AndroidBackgroundTaskScheduler`, a
-  reminder notification channel, `ReminderAlarmReceiver`, and
-  `ReminderBootReceiver`.
-- Reminder task ids are generated independently of title/body text and retry on
-  local collisions before persistence, so two same-title reminders created in
-  the same clock tick do not overwrite each other or share rollback ids.
-- The scheduler uses `AlarmManager.setAndAllowWhileIdle`; triggered reminders
-  first move through `Running`, then post a local notification when notification
-  permission is available and update the task status to `Delivered` or
-  `Failed`.
-- Reminder alarms use an Intent data URI derived from the opaque task id in
-  addition to the request code, so Java hash collisions between task ids cannot
-  make two reminders share one `PendingIntent`. Cancellation also probes the
-  legacy no-data identity so alarms scheduled by older builds can still be
-  removed.
-- Reminder alarm delivery treats the local `scheduled_tasks` row as the source
-  of truth. A fired alarm only carries the opaque task id; delivery ignores
-  title/body extras from old alarms, verifies that the task still exists, is a
-  `Reminder`, and is still `Scheduled`, then posts using the stored title/body.
-  Missing, cancelled, deleted, or failed tasks are ignored without changing
-  state or posting stale notifications.
-- Reminder cancellation and deletion now use a conditional Scheduled-only
-  database update before cancelling the platform alarm/work. This closes the
-  in-flight broadcast window because delivery still gates on the database row
-  being `Scheduled`; a stale cancellation path also cannot overwrite a task that
-  has already moved to `Running`, `Delivered`, `Failed`, or another terminal
-  state.
-- Reminder delivery completion and reschedule failures also use conditional
-  state updates, so old delivery/rescheduler snapshots cannot overwrite a
-  concurrently written terminal state.
-- `ReminderBootReceiver` listens for `BOOT_COMPLETED` and asks
-  `ReminderRescheduler` to restore every still-`Scheduled` reminder after the
-  system clears alarms on reboot. The same receiver also listens for
-  `MY_PACKAGE_REPLACED`, so reminders are restored after the app package is
-  updated even when the user does not open PocketMind immediately. The
-  rescheduler first recovers stale
-  `Running` reminder rows whose lease has expired, then pages through scheduled
-  reminders by stable `(triggerAtMillis, id)` order instead of stopping at the
-  first batch. Past-due reminders are rescheduled with a short catch-up delay
-  instead of being silently dropped; after the catch-up alarm is accepted, the
-  stored `triggerAtMillis` is conditionally moved to the same catch-up time
-  while the row is still `Reminder` + `Scheduled`. After registering the new
-  data-URI alarm identity, the rescheduler performs a best-effort cleanup of the
-  legacy hash-only identity to prevent duplicate wakeups after upgrade.
-- If an alarm cannot be scheduled or restored while the row is still
-  `Scheduled`, the task is marked `Failed` so repository state does not claim a
-  reminder is still pending when Android has no alarm registered.
-- Reminder confirmation requests notification permission before execution on
-  Android versions that require it. If permission is still unavailable,
-  execution fails with a structured `PermissionDenied` tool result.
-- Periodic checks now enter `Running` for each worker execution and settle back
-  to `Scheduled` after a successful scan. Runner or Worker exceptions mark the
-  periodic task `Failed` so local state no longer claims a healthy scheduled
-  check.
-- `PeriodicCheckScheduler` validates the registered
-  `periodic_local_reminder_patrol` `BackgroundSkillSpec` against production
-  tool specs before saving an enabled policy or enqueueing work. Invalid specs
-  close the policy as `Failed` and return a scheduling failure.
-- A stale `Running` periodic check is reclaimed before a new worker run tries to
-  acquire it, using the same bounded lease as reminder delivery recovery.
-- App startup now reconciles the singleton periodic check after reminder alarm
-  recovery: stale `Running` checks are reclaimed, enabled `Scheduled` policy is
-  re-enqueued through WorkManager, enqueue failure marks the task `Failed`, and
-  the ViewModel reloads active/history/policy state from the recovered store.
-- Periodic check worker state updates are conditional transitions:
-  `Scheduled -> Running` and `Running -> Scheduled/Failed`. If the user disables
-  the policy while a worker is notifying, the final `Cancelled` state is kept
-  and worker completion or outer worker failure cannot revive or fail it.
-- `schedule_reminder` and `cancel_reminder` tool observation audit includes
-  bounded task metadata (`taskId`, `taskStatus`, `triggerAtMillis`,
-  `recoveryToolName`, `recoveryTaskId`) while continuing to omit reminder
-  title/body content from audit display.
-- `cancel_reminder` now declares the local background scheduling boundary with
-  `SchedulesBackgroundWork`, so audit summaries and safety checks see the same
-  mutation class as reminder scheduling/configuration tools while still
-  requiring foreground confirmation.
-- Successful `schedule_reminder` results now include bounded rollback metadata:
-  `recoveryToolName=cancel_reminder` and the scheduled `recoveryTaskId`. Agent
-  trace preserves only this recovery metadata, not reminder title/body content.
-- Agent observation now converts that allowlisted pair into a typed
-  `AgentRecoveryAction` with a fresh `cancel_reminder(taskId)` request/draft.
-  The observation message includes the bounded task id so the user can ask to
-  undo the reminder without exposing reminder body text.
-- `cancel_reminder` reports success only after a still-`Scheduled` task has had
-  its platform schedule cancelled and local state moved out of `Scheduled`.
-  Missing, already delivered, already cancelled, or concurrently changed tasks
-  fail as non-retryable stale rollback requests instead of claiming success.
-- Explicit cancel reminder requests now also have a conservative Skill-first
-  path. The shared parser accepts only cancel/undo reminder wording with a
-  `task-*` id, and rejects missing task ids, API/implementation/explanation
-  discussions, negated commands, and non-reminder cancellations such as
-  calendar/contact/mail cancellation.
-- Implemented runtime background task review UI for active `Scheduled` tasks.
-  Internal `Running` rows stay available to task-state memory and recovery
-  logic, but they are not shown as user-cancellable running tasks. Explicit
-  cancellation is shown only for still-`Scheduled` tasks, where it cancels the
-  platform schedule, updates local task state to `Cancelled`, and removes the
-  task from the active-task list. Cancellation failure paths reload active and
-  history lists from the scheduler so stale UI rows do not keep old status.
-- Implemented recent background task history in the same review surface for
-  terminal `Delivered`, `Cancelled`, `Deleted`, and `Failed` tasks. History rows
-  are read-only and cannot be mistaken for still-running tasks.
-- Implemented periodic check policy UX in the background task surface. Users
-  can inspect and save the local reminder patrol policy, including enabled
-  state, interval, minimum notification spacing, overdue grace, battery
-  constraints, task status, next allowed check time, and latest run summary.
-  Policy changes are persisted through the singleton `periodic-check-local`
-  task and remain separate from one-shot reminder scheduling.
-- `configure_periodic_check` now lets the Agent propose the same local reminder
-  patrol policy changes as a confirmed tool/Skill. The tool is deliberately
-  limited to WorkManager policy updates for local reminders and does not create
-  background chat tasks, screen scans, file scans, or arbitrary repeated
-  execution.
-- `query_background_tasks` now lets the Agent answer explicit read-only
-  questions about local background reminders, recent task history, and periodic
-  check policy through the Skill-first `background_tasks_context_skill`. It is
-  routed through `RoutingToolExecutor` before the side-effecting
-  `ActionExecutor`, calls only `scheduledTasks`, `recentTasks`, and
-  `periodicCheckPolicy`, and never calls schedule/cancel/set/disable methods.
-  Results are `LocalOnly` and `requiresLocalModel=true`; `tasksJson` may include
-  task id, type, status, and timestamps for local reasoning, but reminder
-  title/body, prompts, raw periodic `lastRunSummary`, remote responses, and
-  secrets are omitted. `tasksJson`, `policyJson`, and task counts are private
-  outputs and are redacted from trace/audit summaries.
-- Periodic check run summaries preserve the saved policy fields instead of
-  replacing them, so the UI reads typed policy state from the background layer
-  rather than parsing task history rows.
+- `schedule_reminder`, `cancel_reminder`, `configure_periodic_check`, and
+  `query_background_tasks` are registered tools with Skill-first paths.
+- Reminders use opaque task ids, `AlarmManager.setAndAllowWhileIdle`, data-URI
+  `PendingIntent` identity, conditional state transitions, boot/package-update
+  rescheduling, and structured failure when Android scheduling cannot be
+  restored.
+- Periodic checks are backed by WorkManager and a singleton
+  `periodic-check-local` task. Worker state uses conditional
+  `Scheduled -> Running -> Scheduled/Failed` transitions so disable/cancel
+  cannot be overwritten by stale completion.
+- `query_background_tasks` is a confirmed read-only local context tool. It is
+  `LocalOnly`, `requiresLocalModel=true`, never calls schedule/cancel/set/disable,
+  and returns private `tasksJson` / `policyJson` metadata with reminder
+  title/body omitted.
+- The background task surface shows active scheduled tasks, read-only terminal
+  history, and periodic-check policy state. Running internals stay available to
+  memory/recovery logic but are not shown as user-cancellable work.
 
 Tests:
 
 - `ScheduledTaskRepositoryTest`
-- `BackgroundSkillSpecTest.acceptsUserConfiguredBoundedLocalReadOnlyOrNotificationSkill`
-- `BackgroundSkillSpecTest.rejectsImplicitUnboundedRemoteOrOutboundBackgroundSkill`
-- `BackgroundSkillSpecTest.rejectsToolThatCouldRunWithoutExplicitConfirmation`
 - `PeriodicCheckSchedulerTest`
 - `ReminderAlarmReceiverTest`
-- `ActionExecutorTest.schedulesReminderThroughBackgroundScheduler`
-- `ActionExecutorTest.configuresPeriodicCheckThroughBackgroundScheduler`
-- `ActionExecutorTest.disablesPeriodicCheckThroughBackgroundScheduler`
-- `ActionExecutorTest.reportsStaleReminderCancellationAsNonRetryableInvalidRequest`
-- `DeviceContextToolExecutorTest.backgroundTasksQueryReturnsLocalOnlyTaskAndPolicyMetadataWithoutReminderContent`
-- `DeviceContextToolExecutorTest.backgroundTasksPolicyScopeDoesNotReadTaskLists`
-- `RoutingAndValidatingToolExecutorTest.routingExecutorDispatchesDeviceContextToolsBeforeDelegate`
-- `AgentLoopRuntimeTest.skillFirstBackgroundTasksQueryBypassesActionPlannerAndRequestsReadOnlyConfirmation`
-- `AgentLoopRuntimeTest.backgroundTasksObservationRedactsTaskAndPolicyJson`
-- `AgentRuntimePermissionPolicyTest.backgroundTasksQueryDeclaresNoRuntimePermissionOrSpecialAccess`
-- `AgentTraceStoreTest.roomStorePersistsReminderRecoveryMetadataWithoutReminderContent`
-- `ScheduledTaskRemovalCoordinatorTest`
-- `AndroidManifestTest.reminderRecoveryReceiverHandlesBootAndPackageReplacement`
-- `PocketMindViewModelTest.restoreStartupStateLoadsScheduledBackgroundTasksAndIndexesRunningTaskStateWithoutRemoteWork`
-- `PocketMindViewModelTest.cancelScheduledBackgroundTaskRefreshesUiAndCancelsScheduler`
-- `PocketMindViewModelTest.cancelScheduledBackgroundTaskFailureKeepsTaskVisible`
-- `PocketMindViewModelTest.cancelScheduledBackgroundTaskFailureHidesConcurrentlyRunningTask`
-- `PocketMindViewModelTest.setPeriodicCheckPolicySchedulesDefaultPolicyAndRefreshesUi`
-- `PocketMindViewModelTest.setPeriodicCheckPolicyFailureDoesNotShowHealthyRunningTask`
-- `PocketMindViewModelTest.disablePeriodicCheckPolicyMovesTaskToHistory`
-- `PocketMindViewModelTest.disablePeriodicCheckPolicyFailureKeepsScheduledTaskVisible`
-- `MainActivitySmokeTest.backgroundTaskManagerShowsEmptyState`
 - `ActionExecutorTest`
-- `ActionPlannerTest.infersReminderDraftWithDelayMinutes`
-- `ActionPlannerTest.infersReminderDelayFromMatchedRelativeDelayPhrase`
-- `ActionPlannerTest.infersReminderDraftWithChineseVariantDelay`
-- `ActionPlannerTest.infersReminderDraftWithDecimalHourDelay`
-- `ActionPlannerTest.infersReminderDraftForPoliteEnglishCommand`
-- `ActionPlannerTest.rejectsReminderTimingDiscussionsAsNoAction`
-- `ToolRegistryTest.validatesReminderDelayMinutesAsPositiveInteger`
-- `BuiltInSkillRuntimeTest.plansReminderAsBackgroundToolStep`
-- `BuiltInSkillRuntimeTest.plansReminderSkillFirstWithoutActionDraft`
-- `BuiltInSkillRuntimeTest.plansEnglishReminderSkillFirstWithoutActionDraft`
-- `BuiltInSkillRuntimeTest.plansReminderSkillFirstWithVariantDelayPhrases`
-- `BuiltInSkillRuntimeTest.reminderSkillFirstRejectsTimingDiscussionFalsePositives`
+- `DeviceContextToolExecutorTest.backgroundTasksQueryReturnsLocalOnlyTaskAndPolicyMetadataWithoutReminderContent`
+- `AgentLoopRuntimeTest.backgroundTasksObservationRedactsTaskAndPolicyJson`
 
 ## Multimodal Inputs
 
@@ -1774,113 +446,42 @@ Code:
 
 Responsibilities:
 
-- Accept user-initiated shared text, bounded `text/*` plus JSON/XML/YAML
-  text-like application document excerpts, bounded RTF/PDF and Office Open XML
-  text-layer excerpts, bounded local PDF scanned-page OCR fallback, bounded
-  local image bytes for verified vision-capable local chat models, and
-  attachment metadata from Android share targets and the in-app picker.
-- Classify attachments by MIME type, with display-name extension fallback when
-  Android providers return no type or only `application/octet-stream`; keep
-  unsupported non-text files metadata-only.
-- Keep multimodal source handling separate from chat generation and tools.
+- Accept user-initiated shared text, attachments, picked documents/images, and
+  voice transcripts as composer drafts.
+- Extract bounded local text or image inputs only through supported, explicit
+  paths.
+- Keep source ingestion separate from chat generation and tools.
+
+Boundaries:
+
+- Share/picker input is staged; it does not auto-send or auto-route.
+- Remote image sends require a preview confirmation and a configured
+  image-capable OpenAI-compatible endpoint.
+- Unsupported media remains metadata-only.
 
 Current status:
 
-- Implemented Android share-target entry for `ACTION_SEND` and
-  `ACTION_SEND_MULTIPLE`, including text, JSON/XML/YAML text-like application,
-  image, audio, video, PDF, RTF, and Office MIME types.
-- Implemented a composer attachment entry that launches Android's system
-  document picker for user-selected text, JSON/XML/YAML text-like application,
-  image, audio, video, PDF, RTF, and Office files. Picked files reuse the same
-  `SharedInput` path as share intents.
-- Implemented privacy-minimal `SharedInput` prompts for bounded direct shared
-  text plus attachment metadata such as kind, MIME type, display name, and byte
-  size.
-- Share intents and picker selections now stage those generated prompts in the
-  composer as `LocalOnly` pending drafts. The prompt enters local chat
-  generation only after the user explicitly taps send; it no longer auto-routes
-  just because a local model is ready.
-- Implemented bounded local text excerpts for user-initiated shared `text/*`
-  documents and JSON/XML/YAML text-like application MIME types, bounded
-  text-layer excerpts for user-provided RTF, PDF text layers, and Office Open
-  XML `.docx` / `.xlsx` / `.pptx` files, bounded local scanned-page OCR fallback
-  for PDFs with no readable text layer, and bounded local image bytes for
-  verified vision-capable local chat models. Text excerpts are user-visible and
-  limited to the local shared-input prompt; image bytes are sent as LiteRT image
-  content parts and are not serialized into prompts, history, audit, or
-  receipts. Generic text-like excerpts require strict UTF-8; malformed UTF-8
-  binary content stays metadata-only instead of being decoded with replacement
-  characters.
-- Remote image sends are a separate opt-in path: after the remote-send preview
-  is confirmed, bounded image bytes are attached as OpenAI-compatible
-  `image_url` content parts only for configurations with image input enabled
-  and an endpoint/model that supports that message shape. A text-compatible
-  OpenAI-style endpoint is not treated as vision-capable by default, and image
-  rejection does not trigger OCR fallback.
-- Audio, video, legacy Office binary formats, binary, malformed PDF, and other
-  unsupported attachments stay metadata-only; the app does not parse or embed
-  their bytes into prompts.
-- Implemented a voice input entry that launches Android system speech
-  recognition and returns the transcript as a one-shot compose-box draft.
-  Transcripts are not auto-sent, do not create chat messages until the user
-  taps send, and do not trigger model generation by themselves. The UI keeps
-  the non-modal voice capture bar active across recording and the post-speech
-  transcription wait; RMS updates drive the waveform while recording, and
-  partial transcripts can still update after `onEndOfSpeech`.
-- Shared-input prompts are marked `LocalOnly` when generated automatically, so
-  local processing can continue without later leaking shared text, generated
-  excerpts, attachment metadata, or local assistant responses into remote chat
-  history. Remote mode now selects a protected shared-input read mode before
-  parsing the share intent or picked URIs; this value-free path does not read
-  `EXTRA_TEXT` values, query attachment metadata, open file streams, parse text
-  layers, or run OCR before showing the local privacy notice.
-- `LocalOnly` conversation messages are skipped by automatic memory rebuild and
-  are not used verbatim for session titles. Explicit user facts/preferences
-  still use the dedicated long-term memory record path.
-- The voice entry does not read or parse audio files. Recent screenshot OCR and
-  recent image OCR are implemented as confirmed Device Context tools, not
-  automatic shared-input ingestion. The current-screen Accessibility
-  text snapshot tool follows the same Device Context boundary and reads text
-  nodes only. `capture_current_screenshot_ocr` uses a user-confirmed, one-shot
-  Android MediaProjection ActivityResult flow, consumes the request-bound
-  consent token in memory before its TTL expires, captures one current-screen
-  frame, runs local ML Kit OCR, and returns only bounded OCR text plus
-  `truncated` / included flags. It does not persist pixels, URIs, paths, window
-  titles, or visual descriptions. Screen semantic
-  understanding, PDF layout parsing, legacy Office parsing, full rich-text
-  fidelity, and media content understanding are pending. User-provided image
-  understanding is limited to verified local vision chat models or explicitly
-  confirmed remote vision sends. RTF, PDF text layer, and Office Open XML
-  extraction are not complete document parsing. OCR is limited to
-  user-provided PDF scanned-page fallback, user-confirmed recent
-  screenshot/image OCR tools, or user-confirmed current screenshot OCR, and
-  produces text excerpts only.
+- Share intents and picker selections support text, JSON/XML/YAML text-like
+  application files, images, audio, video, PDF, RTF, and Office MIME types.
+- Local extraction covers bounded direct text, strict UTF-8 text-like files,
+  PDF/RTF/Office Open XML text layers, scanned-PDF OCR fallback, and bounded
+  image bytes for verified local vision-capable chat models.
+- Remote mode uses a protected read path before parsing shared values or URIs;
+  it shows a local privacy notice instead of reading/uploading content
+  automatically.
+- Voice input launches Android speech recognition and stages the transcript as
+  a one-shot draft. It does not read audio files, auto-send, or create chat
+  messages until the user taps send.
+- OCR outside shared-input scanned-PDF fallback remains a confirmed tool flow:
+  recent screenshot OCR, recent image OCR, and one-shot current screenshot OCR
+  all return bounded text excerpts only.
 
 Tests:
 
 - `SharedInputTest`
-- `CurrentScreenshotOcrContractTest.schemaLocksOneShotLocalOnlyOcrBoundary`
-- `CurrentScreenshotOcrContractTest.boundaryRejectsContinuousRemotePersistentOrSemanticCapture`
-- `RoutingAndValidatingToolExecutorTest.currentScreenshotOcrUsesOneShotProviderResultAfterConsent`
-- `AgentRuntimePermissionPolicyTest.currentScreenshotOcrDeclaresMediaProjectionConsentNotRuntimePermission`
-- `PocketMindViewModelTest.localSharedInputDoesNotEnterLaterRemoteHistory`
-- `PocketMindViewModelTest.remoteModeRejectsDirectSharedTextBeforeBuildingPrompt`
-- `PocketMindViewModelTest.remoteModeRejectsSharedAttachmentMetadataBeforeBuildingPrompt`
-- `PocketMindViewModelTest.remoteModeHandlesProtectedShareSignalWithoutBuildingPrompt`
-- `PocketMindViewModelTest.remoteModeRejectsSharedTextPreviewBeforeBuildingPrompt`
-- `PocketMindViewModelTest.remoteModeRejectsSharedTextLikeApplicationPreviewBeforeBuildingPrompt`
-- `PocketMindViewModelTest.remoteModeRejectsSharedOfficeDocumentPreviewBeforeBuildingPrompt`
-- `PocketMindViewModelTest.remoteModeRejectsSharedRichTextPreviewBeforeBuildingPrompt`
-- `PocketMindViewModelTest.remoteModeRejectsSharedPdfTextLayerPreviewBeforeBuildingPrompt`
-- `PocketMindViewModelTest.remoteModeRejectsSharedImageOcrPreviewBeforeBuildingPrompt`
-- `PocketMindViewModelTest.remoteModeRejectsLocalOnlyPromptBeforeCallingRemoteRuntime`
-- `PocketMindViewModelTest.remoteModeProtectsRecentScreenshotOcrBeforeRemoteContinuation`
-- `PocketMindViewModelTest.remoteModeProtectsRecentImageOcrBeforeRemoteContinuation`
-- `PocketMindViewModelTest.voiceTranscriptDraftIsOneShotAndDoesNotSendMessage`
-- `AndroidManifestTest.shareTargetsAcceptPickerSupportedDocumentMimeTypes`
-- `AndroidManifestTest.composerAttachmentPickerUsesShareTargetMimeTypes`
-- `MainActivitySharedIntentTest` cold-start local/protected share-intent entry
-- `MainActivitySmokeTest` composer attachment and voice entry visibility
+- `CurrentScreenshotOcrContractTest`
+- `PocketMindViewModelTest`
+- `MainActivitySharedIntentTest`
 
 ## Regression Strategy
 
@@ -1894,18 +495,15 @@ scripts/test_validation_scripts.sh
 
 Script contract gate:
 
-- `scripts/test_validation_scripts.sh` covers the fake-SDK validation contracts
-  for local, device, emulator, and regression-emulator helpers. Run it whenever
-  validation script behavior or documentation contracts change, before treating
-  shell helper output as release evidence.
+- `scripts/test_validation_scripts.sh` covers fake-SDK validation contracts for
+  local, device, emulator, and regression-emulator helpers. Run it whenever
+  validation script behavior or documentation contracts change.
 
 Documentation coverage:
 
-- `AgentCoreDocumentationTest` enforces that the ten Agent objective areas in
-  this document keep a stable top-level section order. Each core module section
-  must include code ownership, responsibilities, current status, and at least
-  one documented test class whose source file exists in `app/src/test` or
-  `app/src/androidTest`.
+- `AgentCoreDocumentationTest` enforces this document's top-level section order,
+  required module anchors, existing test references, key boundary phrases, and
+  the `query_background_tasks` privacy contract.
 
 Emulator regression:
 
@@ -1915,31 +513,12 @@ ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh
 AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 ```
 
-Use `AVD_NAME=<name> scripts/verify_emulator.sh` when the helper should launch
-an AVD first. The emulator helper refuses physical-device serials and exits
-before Gradle, APK install, or instrumentation when it cannot identify exactly
-one authorized `emulator-*` target. It also validates requested AVD names before
-startup and treats instrumentation failure markers such as failed test status
-codes, stack traces, and `FAILURES!!!` as hard failures even when `adb shell am
-instrument` exits zero. Use
-`ANDROID_SERIAL=<serial> scripts/install_and_test_device.sh` for physical
-device validation. A full regression report should record the target serial or
-AVD name, API level, ABI, whether `CLEAN_DEVICE=1` was used, and the current
-instrumentation test count. Direct device reports record that count as
-`instrumentation_test_count`. The helpers also write machine-readable evidence
-under `build/verification/`: `device-verification.properties` for direct device
-runs, and `emulator-verification.properties` plus a nested device report for
-emulator runs. Direct device validation keeps the debug app installed but clears
-app data by default before the final manual launch; use
-`RESET_APP_DATA_AFTER_TESTS=0` and avoid `CLEAN_DEVICE=1`, uninstall, or manual
-`pm clear` when preserving downloaded models, model metadata, remote
-configuration, sessions, or messages matters. `scripts/regression_emulator.sh`
-is the stricter full emulator gate: it forces `CLEAN_DEVICE=1`, validates the
-nested reports, checks that `instrumentation_test_count` is at least the current
-AndroidTest source count, and writes `regression-emulator.properties`. Treat
-those reports as the artifact-of-record for whether a device or emulator
-regression actually executed.
-
-Full device validation remains required for LiteRT-LM model execution because
-emulators usually do not expose the same GPU backend behavior as physical
-arm64-v8a devices.
+- Use `AVD_NAME=<name> scripts/verify_emulator.sh` when the helper should
+  launch an AVD first.
+- Use `ANDROID_SERIAL=<serial> scripts/install_and_test_device.sh` for physical
+  device validation.
+- Treat `device-verification.properties`,
+  `emulator-verification.properties`, and `regression-emulator.properties` as
+  evidence artifacts, not prose summaries.
+- Full physical-device validation remains required for LiteRT-LM model
+  execution because emulator GPU/backend behavior is not representative.

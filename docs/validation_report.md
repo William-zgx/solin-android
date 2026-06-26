@@ -1,5 +1,11 @@
 # PocketMind 验证报告
 
+本文件是 append-only 验证证据日志。它记录“实际跑过什么、结果是什么、证据在哪里”，不替代
+`docs/release_readiness.md` 的当前状态判断，也不替代 release owner / store /
+privacy / legal / model-license 审批。
+历史条目可能因为分支合并或补证据而不是严格倒序；阅读当前状态时先看“当前证据索引”和
+`docs/release_readiness.md`。
+
 ## 记录模板
 
 每个新增验证条目固定包含：
@@ -22,6 +28,63 @@
 证据；manual acceptance 必须链接正式 `manual-acceptance` 报告；flow matrix 必须链接正式
 `release-flow` 报告；performance sanity 必须链接通过的 `perf-baseline` verifier
 report；screenshots 必须链接通过的 `release-screenshots` report，并且每张截图文件必须是 PNG。
+
+## 当前证据索引
+
+| 证据面 | 当前读法 | 主要条目 |
+| --- | --- | --- |
+| 本地 build/sign 打包 | `BundledModelsPackageReport/v1` 只证明五个 split 已构建、签名和 report 生成；不证明真机安装或 UI 状态。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
+| bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
+| 完整本地门禁 | 最近完整本地门禁条目是历史证据；新提交仍需按需重新运行 `scripts/verify_local.sh`。 | 见 2026-06-22 / 2026-06-23 本地 gate 条目 |
+| 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
+
+## 2026-06-26 Bundled Model Package Developer Entry Points
+
+本轮覆盖项：
+
+- `bundledModels` 体验包从隐藏的分模块构建命令提升为开发者可见入口：
+  `assembleBundledModelsPackage`、`bundleBundledModelsPackage`、
+  `checkBundledModelsPackageOutputs`。
+- `scripts/package_bundled_models.sh` 固化 build/sign/report/install 路径：
+  同一签名 key 签五个 split APK，可选
+  `adb install-multiple --no-incremental -r` 覆盖安装，并写出
+  `BundledModelsPackageReport/v1`。
+- README、模型 manifest、真机验收、release checklist/readiness 和
+  `docs/bundled_model_package.md` 统一说明体验包边界、授权 token 使用方式、
+  4GB split 原因、覆盖安装保留数据、远程模式保留状态和本地记忆 runtime 状态口径。
+
+验证命令：
+
+```bash
+bash -n scripts/package_bundled_models.sh
+./gradlew tasks --all | rg "BundledModelsPackage|bundledModels|Bundled Models"
+./gradlew checkBundledModelsPackageOutputs
+ALLOW_DEBUG_KEYSTORE=1 RUN_GRADLE_BUILD=0 scripts/package_bundled_models.sh
+rg -n "hf_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}" \
+  README.md docs scripts build.gradle.kts app modelpackE2b modelpackE2bExtra \
+  modelpackE4b modelpackE4bExtra
+git diff --check
+```
+
+结果：
+
+- 通过：脚本语法检查。
+- 通过：Gradle tasks 输出包含三个顶层入口，并能看到五个
+  `:modelpack*:assembleBundledModels` 任务。
+- 通过：`./gradlew checkBundledModelsPackageOutputs`，五个 raw split 输出存在；
+  本轮输出大小分别约 57 MB、1.19 GB、1.48 GB、1.55 GB、1.55 GB。
+- 通过：`ALLOW_DEBUG_KEYSTORE=1 RUN_GRADLE_BUILD=0
+  scripts/package_bundled_models.sh`，生成
+  `build/verification/bundled-models/package.properties`，
+  `status=passed`、`signedApkCount=5`、`installOnDevice=0`。
+- 通过：密钥扫描未命中用户提供的 Hugging Face token 或 DeepSeek API key；
+  仅命中单测中的假 `sk-abcdef...` 敏感检测样例。
+- 未重复执行：`INSTALL_ON_DEVICE=1` 覆盖安装。2026-06-26 早前已在
+  `fb6272c` 使用 `adb install-multiple --no-incremental -r` 安装同一 split
+  形态，PackageManager 列出 base 加四个 modelpack split，模型管理页显示
+  E2B/E4B/记忆/动作模型 `SHA-256 已校验`，E2B 加载为 `backend=GPU`。
+  该真机 smoke 没有独立 machine-readable report 绑定 UI dump、截图或 logcat；
+  本轮文档/入口固化没有清数据、卸载或删除本地模型数据。
 
 ## 2026-06-23 Inline Local Tool Call Action Profile Gate
 
@@ -11588,7 +11651,7 @@ ANDROID_HOME=/Users/bytedance/Documents/Codex/2026-05-24/gemma4-e2b/android-sdk 
 
 结果：通过。
 
-## 最新增量验证
+## 2026-05-24 Local Incremental Verification
 
 命令：
 
