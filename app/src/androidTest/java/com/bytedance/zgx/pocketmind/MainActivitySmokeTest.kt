@@ -1,7 +1,6 @@
 package com.bytedance.zgx.pocketmind
 
 import android.content.Context
-import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
@@ -9,6 +8,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -42,21 +42,15 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("app_title").assertIsDisplayed()
         composeRule.onNodeWithTag("app_positioning_subtitle").assertIsDisplayed()
         composeRule.waitForText("隐私优先的随身 AI 助手")
-        composeRule.waitForText("本地对话", substring = true)
-        composeRule.waitForText("图片需视觉", substring = true)
-        composeRule.waitForText("远程模型需配置并切换后使用", substring = true)
-        composeRule.waitForText("普通文本按提醒设置处理", substring = true)
-        composeRule.waitForText("设备动作默认保守确认", substring = true)
+        composeRule.waitForText("先配置远程模型或下载本地模型", substring = true)
         composeRule.waitForText("模型未就绪")
         composeRule.onNodeWithTag("home_positioning_panel").performScrollTo().assertIsDisplayed()
         composeRule.waitForText("为什么装它")
-        composeRule.waitForText("本地对话", substring = true)
-        composeRule.waitForText("远程配置后使用", substring = true)
-        composeRule.waitForText("远程提醒设置", substring = true)
-        composeRule.waitForText("低风险连续动作", substring = true)
+        composeRule.waitForText("本地可用")
+        composeRule.waitForText("远程多模态可选")
+        composeRule.waitForText("动作确认执行")
         composeRule.onNodeWithTag("home_privacy_notice_button").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("home_capability_pills").performScrollTo().assertIsDisplayed()
-        composeRule.waitForText("图片需视觉")
         composeRule.onNodeWithTag("model_startup_banner").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("top_model_button").assertIsDisplayed()
         composeRule.onNodeWithTag("top_session_button").assertIsDisplayed()
@@ -70,10 +64,7 @@ class MainActivitySmokeTest {
         composeRule.waitForTag("model_manager_sheet")
 
         composeRule.onNodeWithText("模型管理").assertIsDisplayed()
-        composeRule.waitForText("本地对话", substring = true)
-        composeRule.waitForText("已校验且支持视觉", substring = true)
-        composeRule.waitForText("远程模型需配置并切换后使用", substring = true)
-        composeRule.waitForText("设备动作默认保守确认", substring = true)
+        composeRule.waitForText("可下载或导入本地模型离线使用；远程多模态可选。切换远程会提醒，设备动作仍会先确认。")
         composeRule.waitForText("当前模型")
         composeRule.onNodeWithTag("model_tab_current").assertIsDisplayed()
         composeRule.onNodeWithTag("model_tab_remote").assertIsDisplayed()
@@ -116,13 +107,11 @@ class MainActivitySmokeTest {
         composeRule.openTopMenuItem("top_privacy_button")
         composeRule.waitForTag("model_manager_sheet")
 
-        composeRule.scrollToModelManagerText("隐私说明").assertIsDisplayed()
+        composeRule.onAllNodesWithText("隐私说明").onFirst().assertIsDisplayed()
         composeRule.waitForText("为什么装它")
-        composeRule.waitForText("本地对话", substring = true)
-        composeRule.waitForText("远程配置后使用", substring = true)
-        composeRule.waitForText("远程提醒设置", substring = true)
-        composeRule.waitForText("设备动作默认保守确认", substring = true)
-        composeRule.waitForText("低风险连续动作", substring = true)
+        composeRule.waitForText("本地可用")
+        composeRule.waitForText("远程多模态可选")
+        composeRule.waitForText("动作确认执行")
         composeRule.waitForText("能力与信任中心")
         composeRule.waitForText("本地私密问答与记忆")
         composeRule.waitForText("屏幕/剪贴板总结分享")
@@ -146,7 +135,7 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("home_privacy_notice_button").performScrollTo().performClick()
         composeRule.waitForTag("model_manager_sheet")
 
-        composeRule.scrollToModelManagerText("隐私说明").assertIsDisplayed()
+        composeRule.onAllNodesWithText("隐私说明").onFirst().assertIsDisplayed()
         composeRule.waitForText("能力与信任中心")
         composeRule.waitForText("远程公开证据查询")
         composeRule.waitForText("敏感能力披露")
@@ -166,22 +155,6 @@ class MainActivitySmokeTest {
     }
 
     @Test
-    fun topMoreButtonRemainsReachableWhenResourceSnapshotIsPresent() {
-        composeRule.waitForTag("app_title")
-
-        composeRule.onNodeWithTag("top_more_button")
-            .assertIsDisplayed()
-            .assertHasClickAction()
-            .performClick()
-        composeRule.waitForAnyTag(RESOURCE_ENTRY_TAG, RESOURCE_MENU_ENTRY_TAG, timeoutMillis = 10_000)
-
-        composeRule.onNodeWithTag("top_more_button")
-            .assertIsDisplayed()
-            .assertHasClickAction()
-        composeRule.onNodeWithTag("top_privacy_button").assertIsDisplayed()
-    }
-
-    @Test
     fun backgroundTaskManagerShowsEmptyState() {
         composeRule.waitForTag("app_title")
 
@@ -193,21 +166,9 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag("periodic_check_policy_section").assertIsDisplayed()
     }
 
-    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.waitForTag(
-        tag: String,
-        timeoutMillis: Long = 5_000,
-    ) {
-        waitUntil(timeoutMillis = timeoutMillis) {
+    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.waitForTag(tag: String) {
+        waitUntil(timeoutMillis = 5_000) {
             onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
-        }
-    }
-
-    private fun AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>.waitForAnyTag(
-        vararg tags: String,
-        timeoutMillis: Long = 5_000,
-    ) {
-        waitUntil(timeoutMillis = timeoutMillis) {
-            tags.any { tag -> onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
         }
     }
 

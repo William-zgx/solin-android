@@ -146,7 +146,7 @@ class MainActivityRuntimePermissionUiTest {
                 .assertIsDisplayed()
             composeRule.onNodeWithText("确认后只读取本次动作需要的本机内容或权限范围内摘要。")
                 .assertIsDisplayed()
-            composeRule.onNodeWithText("读取结果默认 LocalOnly，不会自动发送给远程模型。")
+            composeRule.onNodeWithText("读取结果默认仅留在本机，不会自动发送给远程模型。")
                 .assertIsDisplayed()
             composeRule.assertTagAbsent("special_access_requirements")
 
@@ -177,7 +177,7 @@ class MainActivityRuntimePermissionUiTest {
                 .assertIsDisplayed()
             composeRule.onNodeWithText("确认后只读取本次动作需要的本机内容或权限范围内摘要。")
                 .assertIsDisplayed()
-            composeRule.onNodeWithText("读取结果默认 LocalOnly，不会自动发送给远程模型。")
+            composeRule.onNodeWithText("读取结果默认仅留在本机，不会自动发送给远程模型。")
                 .assertIsDisplayed()
             composeRule.assertTagAbsent("special_access_requirements")
 

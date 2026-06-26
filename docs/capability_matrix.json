@@ -1,8 +1,8 @@
 {
   "version": 1,
   "source": "CapabilityMatrix and ToolRegistry",
-  "productPositioning": "隐私优先的随身 AI 助手：本地对话优先留在本机，已校验且支持视觉的本地模型可在本机处理图片；远程模型需配置并切换后使用；手机操作默认保守确认，低风险连续操作可按设置减少弹窗。",
-  "targetUserJob": "在手机上处理私人日常问答、记忆、需视觉支持的图片输入、用户主动提供的文件摘录、App 打开和低风险搜索交互，同时默认把本地上下文留在本机。",
+  "productPositioning": "隐私优先的随身 AI 助手：本地模型可下载或导入，远程多模态可选，手机操作默认保守确认，低风险连续步骤可按设置执行。",
+  "targetUserJob": "在手机上处理私人日常问答、记忆、图片/文件输入、App 打开和低风险搜索交互，同时默认让本地上下文留在本机。",
   "nextStageMvpScenarios": [
     {
       "capabilityId": "local_private_qa_and_memory",
@@ -37,8 +37,8 @@
       "capabilityId": "remote_model_send",
       "displayName": "远程模型发送",
       "dataAccessed": "当前输入、可远程发送历史和用户主动附加的图片；不包含本地记忆、设备上下文或 LocalOnly 历史。",
-      "consentBoundary": "配置并切换远程模型后，普通文本按提醒策略展示发送预览；图片和疑似敏感内容逐次确认，确认前不请求远程接口。",
-      "remoteBoundary": "远程请求只发往用户配置的 HTTPS 或本机调试 endpoint；图片字节只有在主动附加、配置显式启用图片输入、接口支持 OpenAI image_url 视觉输入且用户确认后发送。",
+      "consentBoundary": "切换远程模型并点击发送后展示远程发送预览；确认前不请求远程接口。",
+      "remoteBoundary": "远程请求只发往用户配置的 HTTPS 或本机调试 endpoint；图片字节只有在主动附加、配置显式启用图片输入且接口支持 OpenAI image_url 视觉输入时发送。",
       "revokeOrClearControl": "可取消发送预览、清除远程服务地址/模型名/API Key，并删除会话记录。",
       "requiredTests": [
         "PocketMindViewModelTest",
@@ -64,9 +64,9 @@
     {
       "capabilityId": "share_and_file_picker_input",
       "displayName": "分享和文件选择",
-      "dataAccessed": "用户通过分享入口或系统文件选择器主动提供的文本、文件元数据、受限文本摘录，以及已校验且支持视觉的本地模型可使用的受限图片字节。",
-      "consentBoundary": "仅处理用户主动分享或通过系统文件选择器确认的内容；本地模式才读取受支持文本/PDF/OCR 摘录；已校验且支持视觉的本地模型可在发送时读取受限图片字节，不支持视觉时不自动 OCR。",
-      "remoteBoundary": "远程模式保护分享文本、非图片附件、文本摘录和 OCR 摘录；图片只有在已配置并切换远程模型、视觉开启、接口支持 OpenAI image_url 且用户确认发送后才走远程视觉路径；本地视觉图片字节不进入远程请求。",
+      "dataAccessed": "用户通过分享入口或系统文件选择器主动提供的文本、文件元数据、受限文本摘录，以及已验证本地视觉模型可使用的受限图片字节。",
+      "consentBoundary": "仅处理用户主动分享或通过系统文件选择器确认的内容；本地模式才读取受支持文本/PDF/OCR 摘录；已验证本地视觉模型可在发送时读取受限图片字节，不支持视觉时不自动 OCR。",
+      "remoteBoundary": "远程模式保护分享文本、非图片附件、文本摘录和 OCR 摘录；图片只有在远程模式、视觉开启、接口支持 OpenAI image_url 且用户确认发送后才走远程视觉路径；本地视觉图片字节不进入远程请求。",
       "revokeOrClearControl": "可取消草稿、删除当前会话，并通过系统 picker/分享入口重新选择范围。",
       "requiredTests": [
         "SharedInputTest",

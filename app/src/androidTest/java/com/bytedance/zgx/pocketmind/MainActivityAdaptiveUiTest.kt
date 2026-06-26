@@ -7,7 +7,6 @@ import android.view.KeyEvent
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -37,7 +36,7 @@ class MainActivityCompactResourceUiTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun compactTopBarExposesDeviceResourcesInsideMoreMenu() {
+    fun compactTopBarShowsDeviceResourceBadgeBeforeModelStatus() {
         composeRule.setPocketMindScreenWithResourceSnapshot(
             modifier = Modifier
                 .width(360.dp)
@@ -45,18 +44,11 @@ class MainActivityCompactResourceUiTest {
         )
 
         composeRule.waitForTag("app_title")
-        composeRule.onNodeWithTag("top_more_button")
+        composeRule.onNodeWithTag("resource_pressure_badge")
             .assertIsDisplayed()
             .assertHasClickAction()
-        composeRule.onAllNodesWithTag(RESOURCE_ENTRY_TAG).assertCountEquals(0)
-        composeRule.onAllNodesWithTag(RESOURCE_MENU_ENTRY_TAG).assertCountEquals(0)
-
-        composeRule.onNodeWithTag("top_more_button").performClick()
-
-        composeRule.waitForTag(RESOURCE_MENU_ENTRY_TAG)
-        composeRule.onNodeWithTag(RESOURCE_MENU_ENTRY_TAG)
-            .assertIsDisplayed()
-            .assertHasClickAction()
+        composeRule.onNodeWithTag("top_model_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("top_more_button").assertIsDisplayed()
     }
 }
 

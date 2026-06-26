@@ -116,9 +116,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
 import com.bytedance.zgx.pocketmind.BackendChoice
 import com.bytedance.zgx.pocketmind.AuditEventSummary
 import com.bytedance.zgx.pocketmind.BackgroundTaskSummary
@@ -165,14 +162,12 @@ import com.bytedance.zgx.pocketmind.memory.MemoryRecordType
 import com.bytedance.zgx.pocketmind.orchestration.AgentExternalOutcome
 import com.bytedance.zgx.pocketmind.orchestration.AgentRecoveryAction
 import com.bytedance.zgx.pocketmind.orchestration.AgentRunState
-import com.bytedance.zgx.pocketmind.resource.SYSTEM_RESOURCE_SAMPLE_INTERVAL_MS
 import com.bytedance.zgx.pocketmind.resource.SystemResourceSnapshot
 import com.bytedance.zgx.pocketmind.ui.theme.LocalPocketMindColors
 import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.delay
 
 private const val MODEL_MANAGER_CURRENT_TAB_INDEX = 0
 private const val MODEL_MANAGER_REMOTE_TAB_INDEX = 2
@@ -248,12 +243,8 @@ fun PocketMindScreen(
     var modelManagerInitialTab by rememberSaveable { mutableStateOf(MODEL_MANAGER_CURRENT_TAB_INDEX) }
     var showSessions by rememberSaveable { mutableStateOf(false) }
     var showBackgroundTasks by rememberSaveable { mutableStateOf(false) }
-    var showResourceDetails by rememberSaveable { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val resourceSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val lastMessageId = state.messages.lastOrNull()?.id
-    var resourceSnapshot by remember { mutableStateOf<SystemResourceSnapshot?>(null) }
-    val lifecycleOwner = LocalLifecycleOwner.current
 
     LaunchedEffect(state.activeSessionId, lastMessageId) {
         if (state.messages.isNotEmpty()) {
@@ -264,19 +255,6 @@ fun PocketMindScreen(
         val draft = state.voiceInputDraft ?: return@LaunchedEffect
         input = appendComposerInput(input, draft.text)
         onVoiceInputConsumed(draft.id)
-    }
-    LaunchedEffect(resourceSampler, lifecycleOwner) {
-        val sampler = resourceSampler
-        if (sampler == null) {
-            resourceSnapshot = null
-            return@LaunchedEffect
-        }
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) {
-                runCatching { sampler() }.getOrNull()?.let { resourceSnapshot = it }
-                delay(SYSTEM_RESOURCE_SAMPLE_INTERVAL_MS)
-            }
-        }
     }
 
     Surface(
@@ -295,7 +273,7 @@ fun PocketMindScreen(
             ) {
                 ChatTopBar(
                     state = state,
-                    resourceSnapshot = resourceSnapshot,
+                    resourceSampler = resourceSampler,
                     onOpenModelManager = {
                         modelManagerInitialTab = MODEL_MANAGER_CURRENT_TAB_INDEX
                         showModelManager = true
@@ -310,7 +288,6 @@ fun PocketMindScreen(
                         onRefreshAuditEvents()
                         showBackgroundTasks = true
                     },
-                    onOpenResourceDetails = { showResourceDetails = true },
                     onCreateSession = onCreateSession,
                 )
 
@@ -455,17 +432,6 @@ fun PocketMindScreen(
                 }
             }
 
-            if (showResourceDetails) {
-                resourceSnapshot?.let { snapshot ->
-                    ModalBottomSheet(
-                        sheetState = resourceSheetState,
-                        onDismissRequest = { showResourceDetails = false },
-                    ) {
-                        ResourcePressureDetailSheet(snapshot = snapshot)
-                    }
-                }
-            }
-
             if (showSessions) {
                 ModalBottomSheet(
                     sheetState = sheetState,
@@ -590,12 +556,11 @@ private fun Modifier.pocketMindTechBackdrop(): Modifier {
 @Composable
 private fun ChatTopBar(
     state: ChatUiState,
-    resourceSnapshot: SystemResourceSnapshot?,
+    resourceSampler: (suspend () -> SystemResourceSnapshot?)?,
     onOpenModelManager: () -> Unit,
     onOpenPrivacyNotice: () -> Unit,
     onOpenSessions: () -> Unit,
     onOpenBackgroundTasks: () -> Unit,
-    onOpenResourceDetails: () -> Unit,
     onCreateSession: () -> Unit,
 ) {
     val topEdgeColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
@@ -616,16 +581,16 @@ private fun ChatTopBar(
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val compactTopBar = maxWidth < 430.dp
-            val actionButtonSize = if (compactTopBar) 36.dp else 40.dp
+            val actionButtonSize = if (compactTopBar) 34.dp else 40.dp
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
                     .padding(
-                        horizontal = if (compactTopBar) 10.dp else 14.dp,
+                        horizontal = if (compactTopBar) 8.dp else 14.dp,
                         vertical = if (compactTopBar) 6.dp else 7.dp,
                     ),
-                horizontalArrangement = Arrangement.spacedBy(if (compactTopBar) 6.dp else 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (compactTopBar) 4.dp else 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
@@ -645,7 +610,7 @@ private fun ChatTopBar(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .widthIn(min = if (compactTopBar) 92.dp else 132.dp),
+                        .widthIn(min = if (compactTopBar) 56.dp else 132.dp),
                     verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
                     Text(
@@ -680,10 +645,16 @@ private fun ChatTopBar(
                         )
                     }
                 }
+                if (resourceSampler != null) {
+                    ResourcePressureOverlay(
+                        resourceSampler = resourceSampler,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
                 CompactModelStatusChip(
                     modifier = Modifier.widthIn(
-                        min = if (compactTopBar) 74.dp else 102.dp,
-                        max = if (compactTopBar) 104.dp else 156.dp,
+                        min = if (compactTopBar) 64.dp else 102.dp,
+                        max = if (compactTopBar) 86.dp else 156.dp,
                     ),
                     state = state,
                     compact = compactTopBar,
@@ -696,15 +667,6 @@ private fun ChatTopBar(
                     size = actionButtonSize,
                     onClick = onOpenSessions,
                 )
-                if (!compactTopBar) {
-                    resourceSnapshot?.let { snapshot ->
-                        ResourcePressureEntry(
-                            snapshot = snapshot,
-                            size = actionButtonSize,
-                            onClick = onOpenResourceDetails,
-                        )
-                    }
-                }
                 Box {
                     TopActionButton(
                         modifier = Modifier.testTag("top_more_button"),
@@ -728,19 +690,6 @@ private fun ChatTopBar(
                                 onCreateSession()
                             },
                         )
-                        if (compactTopBar) {
-                            resourceSnapshot?.let {
-                                TopMenuItem(
-                                    modifier = Modifier.testTag("top_resource_button"),
-                                    icon = Icons.Filled.Memory,
-                                    label = "设备资源",
-                                    onClick = {
-                                        menuExpanded = false
-                                        onOpenResourceDetails()
-                                    },
-                                )
-                            }
-                        }
                         TopMenuItem(
                             modifier = Modifier.testTag("top_model_menu_button"),
                             icon = Icons.Filled.Tune,
@@ -978,7 +927,7 @@ private fun ChatEmptyState(
     }
     val readyDescription = when {
         state.inferenceMode == InferenceMode.Remote && state.isReady ->
-            "当前会话为空，可以直接输入问题；远程模型已配置并切换，普通文本按提醒设置发送可远程上下文，图片和疑似敏感内容逐次确认。"
+            "当前会话为空，可以直接输入问题；远程模式会发送当前对话上下文。"
         state.isReady ->
             "当前会话为空，选择一个开场问题，或在底部直接输入。问答和历史记录会保留在本机。"
         else ->
@@ -1174,7 +1123,7 @@ private fun FirstRunSetupPanel(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = "${capabilityLabel(model.capability)} · ${recommendedModelSizeDisplayText(model)}",
+                            text = "${capabilityLabel(model.capability)} · ${ModelCatalog.formatBytes(model.byteSize)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -1326,7 +1275,7 @@ private fun QuickModelSetup(
             )
             Text(
                 text = "本地推荐：${state.selectedRecommendedModel.shortName} · " +
-                    recommendedModelSizeDisplayText(state.selectedRecommendedModel),
+                    ModelCatalog.formatBytes(state.selectedRecommendedModel.byteSize),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -1412,7 +1361,7 @@ private fun RemoteModeDisclosureSheet(
     ) {
         SectionTitle(
             text = "已切换到远程模型",
-            subtitle = "远程模型需配置并切换后使用；普通文本按远程提醒设置处理，图片和疑似敏感内容逐次确认。",
+            subtitle = "远程模式提醒只在切换时展示；普通发送不会逐条弹窗，疑似敏感内容仍会单独确认。",
         )
         RemoteModeDisclosureRows(disclosure)
         Button(
@@ -1465,10 +1414,8 @@ internal fun remoteModeDisclosureDisplayRows(disclosure: PendingRemoteModeDisclo
     return listOf(
         destinationSummary,
         "模型：${disclosure.remoteModelName}",
-        "使用条件：远程模型只在配置并切换后使用。",
-        "普通文本：按远程提醒设置处理；图片和疑似敏感内容每次发送前都需要确认。",
-        "发送范围：仅发送 RemoteEligible 对话上下文、当前输入，以及确认后的主动选择图片。",
-        "不会发送：LocalOnly 历史、本地记忆、设备上下文、非图片附件正文或 OCR 摘录。",
+        "发送范围：仅发送可远程发送的对话上下文、当前输入，以及确认后的主动选择图片。",
+        "不会发送：仅本机历史、本地记忆、设备上下文、非图片附件正文或 OCR 摘录。",
         "图片规则：$imagePolicy",
         "远程服务方可能按其政策记录或保留请求和响应。",
         "凭据状态：${if (disclosure.apiKeyConfigured) "已配置 API Key" else "未配置 API Key"}",
@@ -1500,7 +1447,7 @@ private fun RemoteSendDisclosureSheet(
     ) {
         SectionTitle(
             text = "即将发送到远程模型",
-            subtitle = "普通文本按远程提醒设置处理；图片和疑似敏感内容逐次确认。API Key 只作为请求凭据使用，不在界面显示。",
+            subtitle = "确认后才会把本次内容交给远程模型；API Key 只作为请求凭据使用，不在界面显示。",
         )
         RemoteSendDisclosureRows(disclosure)
         if (canSuppressForSession) {
@@ -1639,8 +1586,7 @@ internal fun remoteSendDisclosureDisplayRows(disclosure: PendingRemoteSendDisclo
         "远程地址：${disclosure.remoteHost}",
         "模型：${disclosure.remoteModelName}",
         sendSummary,
-        "确认规则：普通文本按远程提醒设置处理；图片和疑似敏感内容每次发送前都需要确认。",
-        "不会发送：LocalOnly 历史 ${disclosure.localOnlyHistoryFilteredCount} 条、本地记忆、设备上下文、非图片附件",
+        "不会发送：仅本机历史 ${disclosure.localOnlyHistoryFilteredCount} 条、本地记忆、设备上下文、非图片附件",
         retentionNotice,
         "凭据状态：${if (disclosure.apiKeyConfigured) "已配置 API Key" else "未配置 API Key"}",
         "连接状态：${disclosure.connectivityStatus.label}",
@@ -2018,6 +1964,7 @@ private fun ModelManagerSheet(
 ) {
     var selectedTab by rememberSaveable(initialSelectedTab) { mutableStateOf(initialSelectedTab) }
     val tabs = listOf("当前", "模型", "远程", "高级", "隐私")
+    val sheetTitle = if (selectedTab == MODEL_MANAGER_PRIVACY_TAB_INDEX) "隐私说明" else "模型管理"
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2037,7 +1984,7 @@ private fun ModelManagerSheet(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    text = "模型管理",
+                    text = sheetTitle,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -2056,7 +2003,7 @@ private fun ModelManagerSheet(
             ) {
                 Icon(
                     imageVector = Icons.Filled.Close,
-                    contentDescription = "关闭模型管理",
+                    contentDescription = "关闭$sheetTitle",
                 )
             }
         }
@@ -2535,11 +2482,11 @@ internal fun modelPathGuidanceRows(selectedModel: RecommendedModel): List<ModelP
     listOf(
         ModelPathGuidanceRow(
             label = "本地",
-            body = "下载或导入 ${selectedModel.shortName}（${recommendedModelSizeDisplayText(selectedModel)}）后可离线问答；下载中断、校验失败或加载失败都可以重新下载，空间不足时先释放存储。",
+            body = "下载或导入 ${selectedModel.shortName}（约 ${ModelCatalog.formatBytes(selectedModel.byteSize)}）后可离线问答；下载中断、校验失败或加载失败都可以重新下载，空间不足时先释放存储。",
         ),
         ModelPathGuidanceRow(
             label = "远程",
-            body = "不下载本地对话模型也能开始；配置 HTTPS 兼容接口并切换到远程模型后使用。普通文本按远程提醒设置处理，图片和疑似敏感内容逐次确认。",
+            body = "不下载本地模型也能开始；配置 HTTP(S) 兼容接口后，切换到远程模型时会提醒一次，图片只在你主动附加、模型支持且逐次确认后发送。",
         ),
         ModelPathGuidanceRow(
             label = "轻量",
@@ -2853,7 +2800,7 @@ private fun remoteConfigStatusText(config: RemoteModelConfig): String =
             "非本机 HTTP 地址不可用；请使用 HTTPS 或本机调试地址；连接状态：${config.connectivityStatus.label}。"
 
         else ->
-            "填写 HTTPS 服务地址和模型名后可切换远程模型；连接状态：${config.connectivityStatus.label}。"
+            "填写 HTTP(S) 服务地址和模型名后可切换远程模型；连接状态：${config.connectivityStatus.label}。"
     }
 
 @Composable
@@ -2877,12 +2824,12 @@ private fun TrustBoundaryPanel(
                 )
                 TrustBoundaryRow(
                     icon = Icons.Filled.Cloud,
-                    title = "远程配置后使用",
+                    title = "远程多模态可选",
                     body = PRODUCT_REMOTE_VALUE_TEXT,
                 )
                 TrustBoundaryRow(
                     icon = Icons.Filled.Settings,
-                    title = "动作默认确认",
+                    title = "动作确认执行",
                     body = PRODUCT_ACTION_VALUE_TEXT,
                 )
             }
@@ -2934,7 +2881,7 @@ private fun TrustBoundaryPanel(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionTitle(
                     text = "远程模式提醒",
-                    subtitle = "远程模型需配置并切换后使用；普通文本按提醒设置处理，图片和疑似敏感内容逐次确认。",
+                    subtitle = "默认切换到远程模型时提醒一次；疑似敏感内容发送仍会单独确认。",
                 )
                 RemoteSendDisclosurePolicySelector(
                     selectedPolicy = state.remoteSendDisclosurePolicy,
@@ -2952,7 +2899,7 @@ private fun TrustBoundaryPanel(
                 SectionTitle(
                     modifier = Modifier.weight(1f),
                     text = "手机操作确认",
-                    subtitle = "默认保守确认；开启后，低风险系统页、应用导航和屏幕点击滚动会减少弹窗；发送、删除、支付、发布、敏感输入和权限授权仍会确认。",
+                    subtitle = "开启后，低风险系统页、应用导航和屏幕点击滚动会减少弹窗；发送、删除、支付、发布、敏感输入和权限授权仍会确认。",
                 )
                 Switch(
                     modifier = Modifier.testTag("reduce_device_action_confirmations_switch"),
@@ -3104,10 +3051,10 @@ private fun RemoteSendDisclosurePolicy.remoteSendPolicyLabel(): String =
 private fun RemoteSendDisclosurePolicy.remoteSendPolicyDescription(): String =
     when (this) {
         RemoteSendDisclosurePolicy.OnRemoteModeSwitch ->
-            "配置并切换到远程模型时提醒一次；普通文本随后不再逐条弹窗，图片和疑似敏感内容仍每次确认。"
-        RemoteSendDisclosurePolicy.EveryMessage -> "所有远程发送都会弹出确认；图片和疑似敏感内容同样逐次确认。"
-        RemoteSendDisclosurePolicy.OncePerSession -> "普通文本确认一次后本会话内静默，疑似敏感内容和图片每次仍会弹窗。"
-        RemoteSendDisclosurePolicy.OnlyWhenSensitive -> "普通文本直接发送；疑似敏感内容和图片仍会强制逐次确认。"
+            "切换到远程模型时弹一次提醒；普通文本随后不再逐条弹窗，图片仍每次确认。"
+        RemoteSendDisclosurePolicy.EveryMessage -> "所有远程发送都会弹出确认。"
+        RemoteSendDisclosurePolicy.OncePerSession -> "普通文本确认一次后本会话内静默，疑似敏感内容和图片仍会弹窗。"
+        RemoteSendDisclosurePolicy.OnlyWhenSensitive -> "普通文本直接发送；疑似敏感内容和图片仍会强制确认。"
     }
 
 private fun RemoteSendAuditSummary.remoteSendAuditTimeLabel(): String =
@@ -3907,10 +3854,10 @@ private fun AuditEventSummary.auditTimeLabel(): String =
     SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(createdAtMillis))
 
 internal const val REMOTE_ATTACHMENT_PROTECTION_NOTICE =
-    "切换到已配置的远程模型后，主动选择的图片只会在逐次预览确认后发送给远程视觉模型；疑似敏感内容也逐次确认。其他附件和分享文本不会读取正文、文本摘录或 OCR 摘录。若模型或接口不支持图片，会直接提示不支持。"
+    "远程模型模式下，主动选择的图片只会在逐次预览确认后发送给远程视觉模型；其他附件和分享文本不会读取正文、文本摘录或 OCR 摘录。若模型或接口不支持图片，会直接提示不支持。"
 
 internal const val PRODUCT_POSITIONING_TEXT =
-    "隐私优先的随身 AI 助手：本地对话优先留在本机，已校验且支持视觉的本地模型可在本机处理图片；远程模型需配置并切换后使用；设备动作默认保守确认。能力与信任中心会集中说明数据边界、权限和人工发布事项。"
+    "隐私优先的随身 AI 助手：可下载或导入本地模型，远程多模态可选，设备动作必须确认执行；能力与信任中心会集中说明数据边界和权限。"
 
 internal const val PRODUCT_POSITIONING_SHORT_TEXT =
     "隐私优先的随身 AI 助手"
@@ -3919,7 +3866,7 @@ internal const val PRODUCT_HOME_TITLE_TEXT =
     "隐私优先的随身 AI 助手"
 
 internal const val PRODUCT_HOME_DESCRIPTION_TEXT =
-    "本地对话优先留在本机；已校验且支持视觉的本地模型可在本机处理图片。远程模型需配置并切换后使用，普通文本按提醒设置处理，图片和疑似敏感内容逐次确认。没有模型时只展示启动选项，不读取本地数据，也不会自动发送远程请求。"
+    "本地模型可下载或导入，远程多模态可选，设备动作必须确认执行。没有模型时只展示启动选项，不读取本地数据，也不会自动发送远程请求。"
 
 internal enum class HomeValueKind {
     Local,
@@ -3937,17 +3884,17 @@ internal val HOME_VALUE_PROPOSITIONS = listOf(
     HomeValueProposition(
         kind = HomeValueKind.Local,
         title = "本地可用",
-        body = "基础问答、会话和显式记忆优先留在本机；已校验且支持视觉的本地模型可在本机处理图片。",
+        body = "基础问答、图片输入、会话和显式记忆优先留在本机；离线模型可稍后下载或导入。",
     ),
     HomeValueProposition(
         kind = HomeValueKind.Remote,
-        title = "远程配置后使用",
-        body = "远程模型需配置并切换后使用；普通文本按远程提醒设置处理，图片和疑似敏感内容逐次确认。",
+        title = "远程多模态可选",
+        body = "远程模型只在你配置并切换后使用；切换时提醒一次，疑似敏感内容仍会单独确认。",
     ),
     HomeValueProposition(
         kind = HomeValueKind.Action,
-        title = "动作默认确认",
-        body = "设备动作默认先说明用途、权限和风险；低风险连续动作可在设置中减少提示，发送、删除、支付、发布、敏感输入和权限授权仍确认。",
+        title = "动作确认执行",
+        body = "联系人、日历、分享、提醒和系统相关动作先说明权限与风险，再由你确认。",
     ),
 )
 
@@ -3955,12 +3902,12 @@ internal const val MODEL_STARTUP_BANNER_TITLE =
     "模型未就绪"
 
 internal const val MODEL_STARTUP_BANNER_DESCRIPTION =
-    "配置并切换远程模型可立即试用；下载或导入本地模型后可离线问答。设备动作默认保守确认，发送、删除、支付、发布、敏感输入和权限授权仍会先确认。"
+    "配置远程模型可立即试用；下载或导入本地模型后可离线问答。切换远程会提醒，设备动作仍会先让你确认。"
 
 internal val HOME_CAPABILITY_PILLS = listOf(
     "离线问答",
     "显式记忆",
-    "图片需视觉",
+    "图片/文件",
     "确认动作",
 )
 
@@ -3971,7 +3918,7 @@ internal const val LOCAL_SETUP_PANEL_DESCRIPTION =
     "下载后基础问答和历史默认留在本机；也可以先跳过，稍后配置远程模型或导入可信 .litertlm。"
 
 internal const val MODEL_MANAGER_POSITIONING_TEXT =
-    "本地对话优先留在本机；已校验且支持视觉的本地模型可在本机处理图片。远程模型需配置并切换后使用；设备动作默认保守确认。"
+    "可下载或导入本地模型离线使用；远程多模态可选。切换远程会提醒，设备动作仍会先确认。"
 
 internal val PRODUCT_PROMPT_SUGGESTIONS = listOf(
     "告诉我哪些内容会留在本机",
@@ -3980,22 +3927,22 @@ internal val PRODUCT_PROMPT_SUGGESTIONS = listOf(
 )
 
 internal const val PRODUCT_LOCAL_VALUE_TEXT =
-    "下载或导入已校验本地模型后，基础问答可在手机上运行；已校验且支持视觉的本地模型可在本机处理图片，会话、记忆和本地工具结果默认留在本机。"
+    "下载或导入已验证本地模型后，基础问答可在手机上运行；支持图片的本地模型可处理主动选择的图片。会话、记忆和本地工具结果默认留在本机。"
 
 internal const val PRODUCT_REMOTE_VALUE_TEXT =
-    "远程模型需配置并切换后使用；普通文本按远程提醒设置处理，主动选择的图片和疑似敏感内容逐次确认。"
+    "远程模型只在你配置并切换后使用；主动选择的图片只在逐次确认后发送给远程视觉模型，不支持图片时直接提示不支持。"
 
 internal const val PRODUCT_ACTION_VALUE_TEXT =
-    "设备动作默认先展示用途、权限和风险再确认；设置可减少低风险连续动作提示，发送、删除、支付、发布、敏感输入和权限授权仍会确认。"
+    "联系人、日历、系统页面、分享、提醒和屏幕相关能力都先展示用途、权限和风险，再由你确认或取消。"
 
 internal const val PRIVACY_POLICY_ENTRY_TEXT =
-    "说明哪些内容留在本机、什么时候会发送到远程，以及哪些设备能力默认确认或仍需逐次确认。"
+    "说明哪些内容留在本机、什么时候会发送到远程，以及哪些设备能力必须你确认后才执行。"
 
 internal const val REMOTE_MODE_DISCLOSURE_TEXT =
-    "兼容 /v1/chat/completions；远程模型需配置并切换后使用，只发送可远程发送的对话上下文；普通文本按提醒设置处理，图片和疑似敏感内容逐次确认。"
+    "兼容 /v1/chat/completions；远程模式只发送可远程发送的对话上下文，切换到远程时提醒一次，主动选择的图片会在逐次确认后随请求发送。"
 
 internal const val MODEL_DOWNLOAD_RATIONALE_TEXT =
-    "本地模型让基础问答离线可用；基础对话模型主文件约 2.4 GB，缺少、下载失败或文件不完整时可在这里补装，也可以先配置远程模型。"
+    "本地模型让基础问答离线可用；基础对话模型约 2.4 GB，缺少、下载失败或文件不完整时可在这里补装，也可以先配置远程模型。"
 
 internal const val VOICE_INPUT_PRIVACY_DESCRIPTION =
     "语音输入；使用系统语音转写，结果只进入输入框，不自动发送，不读取本地音频文件；开启前会先确认"
@@ -4007,13 +3954,13 @@ internal const val VOICE_INPUT_PERMISSION_DISCLOSURE_BODY =
     "语音会交由 Android 系统语音识别服务处理；PocketMind 不保存音频文件，转写结果只进入输入框，不会自动发送。确认后才会请求麦克风权限或开始收音。"
 
 internal const val TRUST_LOCAL_BOUNDARY_TEXT =
-    "会话、长期记忆、设备上下文和本地工具结果默认留在本机；切到远程模型时，本地隐私消息和 LocalOnly 工具结果不会进入远程历史。"
+    "会话、长期记忆、设备上下文和本地工具结果默认留在本机；切到远程模型时，标记为仅本机的隐私消息和工具结果不会进入远程历史。"
 
 internal const val TRUST_REMOTE_BOUNDARY_TEXT =
-    "远程模型需配置并切换后使用，会收到当前可远程发送的对话上下文；普通文本按提醒设置处理，你主动附加的图片和疑似敏感内容逐次确认；非图片附件、分享文本、OCR 摘录和本地工具私密结果不会自动发送。"
+    "远程模型会收到当前可远程发送的对话上下文；你主动附加的图片会在逐次确认后随请求发送，非图片附件、分享文本、OCR 摘录和本地工具私密结果不会自动发送。"
 
 internal const val TRUST_PERMISSION_BOUNDARY_TEXT =
-    "联系人、日历、媒体、通知、当前屏幕、Accessibility 文本和截图 OCR 都需要运行时权限、系统特殊授权或前台一次性确认；设备动作默认保守确认，低风险连续动作可在设置中减少提示，发送、删除、支付、发布、敏感输入和权限授权仍会确认。"
+    "联系人、日历、媒体、通知、当前屏幕、Accessibility 文本和截图 OCR 都需要运行时权限、系统特殊授权或前台一次性确认；动作工具仍需用户确认后执行。"
 
 internal const val SENSITIVE_CAPABILITY_DISCLOSURE_TEXT =
     "麦克风、媒体、联系人/日历、Usage Stats、Accessibility、截图、远程图片发送和设备动作都有数据范围、同意边界，以及取消、撤销或清除路径。"
@@ -4138,7 +4085,7 @@ internal fun actionDataBoundaryDisplayRows(functionName: String): List<String> =
         MobileActionFunctions.READ_CLIPBOARD,
         -> listOf(
             "确认后只读取本次动作需要的本机内容或权限范围内摘要。",
-            "读取结果默认 LocalOnly，不会自动发送给远程模型。",
+            "读取结果默认仅留在本机，不会自动发送给远程模型。",
         )
 
         MobileActionFunctions.SCHEDULE_REMINDER,
@@ -4344,15 +4291,21 @@ internal fun runDataReceiptDisplayText(receipt: RunDataReceiptUiSummary): String
         ?.joinToString(separator = "/")
         ?: "无"
     val evidenceUsage = if (receipt.evidenceCardCount > 0) {
-        "${receipt.evidenceCardCount} 条（LocalOnly ${receipt.localOnlyEvidenceCardCount}，截断 ${receipt.truncatedEvidenceCardCount}，低质量 ${receipt.lowQualityEvidenceCardCount}，来源 $evidenceSources）"
+        "${receipt.evidenceCardCount} 条（仅本机 ${receipt.localOnlyEvidenceCardCount}，截断 ${receipt.truncatedEvidenceCardCount}，低质量 ${receipt.lowQualityEvidenceCardCount}，来源 $evidenceSources）"
     } else {
         "未使用"
     }
-    return "去向：$destination；隐私：${receipt.currentPromptPrivacy}；远端历史：${receipt.remoteHistoryCount}；" +
-        "过滤 LocalOnly：${receipt.localOnlyHistoryFilteredCount}；记忆：$memoryUsage/${receipt.memoryHitCount}；" +
+    return "去向：$destination；隐私：${receipt.currentPromptPrivacy.userFacingPrivacyLabel()}；远端历史：${receipt.remoteHistoryCount}；" +
+        "过滤仅本机历史：${receipt.localOnlyHistoryFilteredCount}；记忆：$memoryUsage/${receipt.memoryHitCount}；" +
         "召回：$memoryRecall；设备上下文：$deviceUsage；图片：${receipt.imageAttachmentCount}；受保护源：${receipt.protectedSourceCount}；" +
-        "证据：$evidenceUsage；输出保护：$outputQuality；保护：$protectedTypes；可删除：$deletableRecords；原文持久化：$rawPersisted"
+        "证据：$evidenceUsage；输出保护：$outputQuality；保护：${protectedTypes.userFacingPrivacyLabel()}；可删除：$deletableRecords；原文持久化：$rawPersisted"
 }
+
+private fun String.userFacingPrivacyLabel(): String =
+    replace("RemoteEligible 对话上下文", "可远程发送的对话上下文")
+        .replace("LocalOnly 历史", "仅本机历史")
+        .replace("RemoteEligible", "可远程发送")
+        .replace("LocalOnly", "仅本机")
 
 @Composable
 private fun RecommendedModelCard(
@@ -4420,8 +4373,7 @@ private fun RecommendedModelCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "${capabilityLabel(model.capability)} · ${recommendedModelSizeDisplayText(model)} · " +
-                            recommendedModelDeviceHintText(model),
+                        text = "${capabilityLabel(model.capability)} · ${ModelCatalog.formatBytes(model.byteSize)} · ${model.deviceHint}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
@@ -4486,25 +4438,6 @@ private fun RecommendedModelCard(
 private fun RecommendedModel.requiresHuggingFaceAccessToken(): Boolean =
     requiresHuggingFaceAuthorization ||
         companionFiles.any { companion -> companion.requiresHuggingFaceAuthorization }
-
-private fun recommendedModelSizeDisplayText(model: RecommendedModel): String {
-    val primary = "主文件 ${ModelCatalog.formatBytes(model.byteSize)}"
-    if (model.companionFiles.isEmpty()) return primary
-    val companions = model.companionFiles.joinToString(separator = " + ") { companion ->
-        "${recommendedModelCompanionDisplayLabel(companion.fileName)} ${ModelCatalog.formatBytes(companion.byteSize)}"
-    }
-    return "$primary + $companions"
-}
-
-private fun recommendedModelCompanionDisplayLabel(fileName: String): String =
-    if (fileName.contains("token", ignoreCase = true) || fileName == "sentencepiece.model") {
-        "tokenizer"
-    } else {
-        "配套文件"
-    }
-
-private fun recommendedModelDeviceHintText(model: RecommendedModel): String =
-    model.deviceHint.substringBefore("，下载约").ifBlank { model.deviceHint }
 
 private fun memoryModelStatusText(
     installed: Boolean,
@@ -4828,7 +4761,7 @@ private fun DeviceCheck(
                 )
                 DeviceMetric(
                     modifier = Modifier.weight(1f),
-                    label = "主文件",
+                    label = "待下载",
                     value = if (hasPendingDownload) {
                         ModelCatalog.formatBytes(requiredBytes)
                     } else {
@@ -4845,7 +4778,7 @@ private fun DeviceCheck(
                 )
             } else if (!hasEnoughSpace) {
                 Text(
-                    text = "建议至少预留主文件合计 ${ModelCatalog.formatBytes(requiredBytes)}，并额外留出配套文件和加载缓存空间；也可以先配置远程模型，或导入你信任的更小 .litertlm。",
+                    text = "建议至少预留 ${ModelCatalog.formatBytes(requiredBytes)}，再多留一些空间给加载缓存；也可以先配置远程模型，或导入你信任的更小 .litertlm。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -5569,7 +5502,7 @@ private fun ComposerAttachmentButton(
             .testTag("composer_attachment_button")
             .semantics {
                 contentDescription = if (remoteMode) {
-                    "选择附件；已配置并切换远程后，图片和疑似敏感内容逐次确认，其他附件不读取正文或 OCR"
+                    "选择附件；远程模式逐次确认后发送图片，其他附件不读取正文或 OCR"
                 } else {
                     "选择附件"
                 }

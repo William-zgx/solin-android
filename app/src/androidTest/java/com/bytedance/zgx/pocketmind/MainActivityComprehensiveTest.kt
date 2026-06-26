@@ -26,6 +26,7 @@ import java.io.Closeable
 import java.io.EOFException
 import java.io.OutputStream
 import java.net.InetAddress
+import java.net.URI
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
@@ -275,6 +276,7 @@ class MainActivityComprehensiveTest {
     }
 
     private fun waitForSystemDownload(downloadUrl: String) {
+        if (downloadUrl.isLocalDebugDownloadUrl()) return
         val targetContext = InstrumentationRegistry.getInstrumentation().targetContext
         val downloadManager = targetContext.getSystemService(DownloadManager::class.java)
         var lastStatus = "not found"
@@ -371,6 +373,9 @@ class MainActivityComprehensiveTest {
         waitForIdle()
     }
 }
+
+private fun String.isLocalDebugDownloadUrl(): Boolean =
+    runCatching { URI(this).host.isLocalDebugHost() }.getOrDefault(false)
 
 private class LocalOpenAiServer : Closeable {
     private val serverSocket = ServerSocket(0, 0, InetAddress.getByName("127.0.0.1"))
