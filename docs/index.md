@@ -8,6 +8,7 @@ flowchart TD
     Need["What do you need?"] --> Run["Run or build the app"]
     Need --> Explain["Understand product or privacy behavior"]
     Need --> Architecture["Change Agent/tool/runtime code"]
+    Need --> ScreenOps["Improve screen understanding or phone operation"]
     Need --> Models["Work with model assets"]
     Need --> Device["Validate on phone or emulator"]
     Need --> Release["Prepare a release"]
@@ -17,6 +18,7 @@ flowchart TD
     Explain --> Privacy["privacy_notice.md"]
     Architecture --> Core["agent_core_modules.md"]
     Architecture --> Routing["intent_routing_skill_arbitration.md"]
+    ScreenOps --> ScreenPlan["screen_ocr_agent_optimization_plan.md"]
     Models --> Manifest["model_manifest.md"]
     Models --> Bundled["bundled_model_package.md"]
     Device --> Phone["phone_acceptance.md"]
@@ -32,6 +34,7 @@ flowchart TD
 | `../README.md` | Project entrance | What PocketMind is, how to build, where to go next |
 | `agent_core_modules.md` | Agent architecture reference | Current module ownership, boundaries, status |
 | `agent_loop_multi_agent_plan.md` | Historical design note | Early migration intent and what has changed since then |
+| `screen_ocr_agent_optimization_plan.md` | Optimization plan | Next-stage screen observation, OCR grounding, phone-control eval, and multi-agent work split |
 | `intent_routing_skill_arbitration.md` | Routing contract | Priority rules and evidence fields for route-sensitive behavior |
 | `model_manifest.md` | Model provenance | Pinned upstream revisions, bytes, hashes, license-review status |
 | `bundled_model_package.md` | Internal model-included package | Split package build/sign/install contract and caveats |
