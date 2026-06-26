@@ -387,6 +387,7 @@ fail_with_reason() {
   echo "$*" >&2
   capture_logcat_artifact
   cleanup_test_device_state
+  SCRIPT_COMPLETED=1
   write_verification_report 1
   exit 1
 }
@@ -655,6 +656,10 @@ EOF
   if [[ -z "$FAILURE_REASON" ]]; then
     FAILURE_REASON="instrumentation-command-failed"
   fi
+  capture_logcat_artifact
+  cleanup_test_device_state
+  SCRIPT_COMPLETED=1
+  write_verification_report "$TEST_STATUS"
   exit "$TEST_STATUS"
 fi
 INSTRUMENTATION_STATUS="passed"
