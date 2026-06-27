@@ -44,7 +44,10 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val appContainer: PocketMindAppContainer by lazy {
-        PocketMindAppContainer(applicationContext)
+        PocketMindAppContainer(
+            context = applicationContext,
+            skipLocalModelRuntime = shouldSkipStartupModelRuntimeWork(),
+        )
     }
     private val viewModel: PocketMindViewModel by viewModels {
         appContainer.viewModelFactory(
@@ -150,15 +153,26 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val useDarkSystemBars =
+            resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                Configuration.UI_MODE_NIGHT_YES
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.light(
-                scrim = Color.TRANSPARENT,
-                darkScrim = Color.TRANSPARENT,
-            ),
-            navigationBarStyle = SystemBarStyle.light(
-                scrim = Color.TRANSPARENT,
-                darkScrim = Color.TRANSPARENT,
-            ),
+            statusBarStyle = if (useDarkSystemBars) {
+                SystemBarStyle.dark(scrim = Color.TRANSPARENT)
+            } else {
+                SystemBarStyle.light(
+                    scrim = Color.TRANSPARENT,
+                    darkScrim = Color.TRANSPARENT,
+                )
+            },
+            navigationBarStyle = if (useDarkSystemBars) {
+                SystemBarStyle.dark(scrim = Color.TRANSPARENT)
+            } else {
+                SystemBarStyle.light(
+                    scrim = Color.TRANSPARENT,
+                    darkScrim = Color.TRANSPARENT,
+                )
+            },
         )
         val skipStartupModelRuntimeWork = shouldSkipStartupModelRuntimeWork()
         viewModel.restoreStartupState(

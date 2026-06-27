@@ -45,7 +45,7 @@ class MainActivitySmokeTest {
         composeRule.waitForText("先配置远程模型或下载本地模型", substring = true)
         composeRule.waitForText("模型未就绪")
         composeRule.onNodeWithTag("home_positioning_panel").performScrollTo().assertIsDisplayed()
-        composeRule.waitForText("为什么装它")
+        composeRule.waitForText("放心用的三件事")
         composeRule.waitForText("本地可用")
         composeRule.waitForText("远程多模态可选")
         composeRule.waitForText("动作确认执行")

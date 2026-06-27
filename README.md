@@ -197,6 +197,18 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 Record emulator regression as passed only when
 `regression-emulator.properties` contains `status=passed`.
 
+x86_64 emulator setup for local UI review on an x86 Linux workstation:
+
+```bash
+scripts/check_x86_emulator_host.sh
+APPLY=1 scripts/prepare_x86_emulator.sh
+scripts/capture_x86_release_screenshots.sh
+```
+
+The x86_64 path is for developer simulation and screenshot review. Public
+release evidence still requires the documented arm64 emulator and physical
+arm64 device gates.
+
 Recommended model URL provenance is checked only when requested:
 
 ```bash

@@ -105,7 +105,6 @@ class MainActivityAdaptiveUiTest {
             composeRule.assertLabeledAction("composer_voice_button", VOICE_INPUT_PRIVACY_DESCRIPTION)
             composeRule.onNodeWithTag("remote_attachment_protection_notice").assertIsDisplayed()
             composeRule.onNodeWithText(REMOTE_ATTACHMENT_PROTECTION_NOTICE).assertIsDisplayed()
-            composeRule.assertLabeledAction("composer_model_button", "模型管理")
 
             composeRule.waitForReadyComposer()
             composeRule.onNodeWithTag("composer_input").performTextInput("你好")

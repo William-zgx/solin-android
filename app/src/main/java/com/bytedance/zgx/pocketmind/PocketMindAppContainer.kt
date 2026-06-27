@@ -55,6 +55,8 @@ import com.bytedance.zgx.pocketmind.orchestration.ModelObservationReplanner
 import com.bytedance.zgx.pocketmind.orchestration.RoomAgentTraceStore
 import com.bytedance.zgx.pocketmind.orchestration.SequentialActionObservationReplanner
 import com.bytedance.zgx.pocketmind.runtime.OkHttpRemoteChatRuntime
+import com.bytedance.zgx.pocketmind.runtime.DisabledLiteRtRuntime
+import com.bytedance.zgx.pocketmind.runtime.LiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.RealLiteRtRuntime
 import com.bytedance.zgx.pocketmind.runtime.TfliteTextEmbeddingRuntimeFactory
 import com.bytedance.zgx.pocketmind.storage.SharedPreferencesLocalDocumentStore
@@ -66,7 +68,10 @@ import com.bytedance.zgx.pocketmind.tool.ToolExecutor
 import com.bytedance.zgx.pocketmind.tool.OkHttpWebSearchProvider
 import org.json.JSONObject
 
-class PocketMindAppContainer(context: Context) {
+class PocketMindAppContainer(
+    context: Context,
+    private val skipLocalModelRuntime: Boolean = false,
+) {
     private val appContext = context.applicationContext
     private val database = PocketMindDatabase.get(appContext)
     private val settingsStore = PreferenceSettingsStore(appContext)
@@ -80,7 +85,7 @@ class PocketMindAppContainer(context: Context) {
     private val huggingFaceAuthRepository: HuggingFaceAuthRepository
     private val firstRunSetupRepository: FirstRunSetupRepository
     private val downloadService: ModelDownloadService
-    private val localRuntime: RealLiteRtRuntime
+    private val localRuntime: LiteRtRuntime
     private val remoteRuntime: OkHttpRemoteChatRuntime
     private val memoryRepository: MemoryRepository
     private val toolAuditRepository: ToolAuditRepository
@@ -112,8 +117,12 @@ class PocketMindAppContainer(context: Context) {
             appContext,
             huggingFaceAuthRepository::authorizationHeader,
         )
-        RealLiteRtRuntime.configureNativeLogging()
-        localRuntime = RealLiteRtRuntime(appContext.cacheDir)
+        localRuntime = if (skipLocalModelRuntime) {
+            DisabledLiteRtRuntime
+        } else {
+            RealLiteRtRuntime.configureNativeLogging()
+            RealLiteRtRuntime(appContext.cacheDir)
+        }
         remoteRuntime = OkHttpRemoteChatRuntime()
         val roomMemoryRecordStore = RoomMemoryRecordStore(database.memoryRecordDao())
         val roomMemoryEmbeddingStore = RoomMemoryEmbeddingStore(database.memoryEmbeddingDao())
@@ -358,7 +367,7 @@ private class PocketMindViewModelFactory(
     private val huggingFaceAuthRepository: HuggingFaceAuthRepository,
     private val firstRunSetupRepository: FirstRunSetupRepository,
     private val downloadService: ModelDownloadService,
-    private val runtime: RealLiteRtRuntime,
+    private val runtime: LiteRtRuntime,
     private val remoteRuntime: OkHttpRemoteChatRuntime,
     private val memoryRepository: MemoryRepository,
     private val longTermMemoryControls: LongTermMemoryControls,

@@ -33,10 +33,10 @@ class MainActivityFirstRunSetupUiTest {
             composeRule.onNodeWithTag("home_positioning_panel")
                 .performScrollTo()
                 .assertIsDisplayed()
-            composeRule.waitForText("为什么装它", timeoutMillis = 10_000)
+            composeRule.waitForText("放心用的三件事", timeoutMillis = 10_000)
             composeRule.waitForText("本地可用", timeoutMillis = 10_000)
-            composeRule.waitForText("远程配置后使用", timeoutMillis = 10_000)
-            composeRule.waitForText("动作默认确认", timeoutMillis = 10_000)
+            composeRule.waitForText("远程多模态可选", timeoutMillis = 10_000)
+            composeRule.waitForText("动作确认执行", timeoutMillis = 10_000)
 
             val setupVisible = composeRule.waitForOptionalText("离线基础问答可选下载", timeoutMillis = 3_000)
             if (!setupVisible) {

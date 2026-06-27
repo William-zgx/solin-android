@@ -148,6 +148,35 @@ interface LocalChatRuntime {
 
 interface LiteRtRuntime : LocalChatRuntime
 
+object DisabledLiteRtRuntime : LiteRtRuntime {
+    private fun unavailable(): Nothing =
+        throw UnsupportedOperationException("Local LiteRT runtime is disabled for this debug launch")
+
+    override val isLoaded: Boolean = false
+
+    override fun load(
+        modelPath: String,
+        backend: BackendChoice,
+        history: List<ChatMessage>,
+        parameters: GenerationParameters,
+    ) {
+        unavailable()
+    }
+
+    override fun recreateConversation(
+        history: List<ChatMessage>,
+        parameters: GenerationParameters,
+    ) = Unit
+
+    override fun send(prompt: String): Flow<String> = unavailable()
+
+    override fun lastGenerationStats(): GenerationStats? = null
+
+    override fun stop() = Unit
+
+    override fun close() = Unit
+}
+
 class RealLiteRtRuntime(
     private val cacheDir: File,
 ) : LiteRtRuntime {

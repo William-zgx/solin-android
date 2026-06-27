@@ -131,6 +131,10 @@ adb -s "$ANDROID_SERIAL" shell am start -n com.bytedance.zgx.pocketmind/.MainAct
 
 覆盖安装后重点确认：已有 Room/DataStore 状态、会话、远程配置和已下载模型按预期保留；如果之前选择过远程模式，需手动切回本地再判断 bundled/local 模型是否可用。
 
+## 隐私边界人工核对
+
+远程模型模式下，`记住：...` 只写入本地记忆，不应发送到远程模型。相关验收记录必须说明本地记忆、Accessibility 文本、OCR 摘录和截图派生内容的隐私等级；OCR 摘录属于 `LocalOnly`，只能用于本机一次性确认或本地处理路径。
+
 ## 内置模型体验包
 
 验收“安装后直接可用”的内部体验包时，使用 `bundledModels` split 包，不使用普通 debug/release 单 APK。该路径会把推荐的 E2B、E4B、本地记忆模型和设备动作模型打入 install-time modelpack split，并在首启复制、校验、注册到本地模型目录。
@@ -161,6 +165,22 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 ```
 
 完整模拟器回归只以 `regression-emulator.properties` 中的 `status=passed` 为准。
+
+在 x86 Linux 工作站做 UI 实效检查时，先准备 x86_64 AVD，再跑截图链路：
+
+```bash
+scripts/check_x86_emulator_host.sh
+APPLY=1 scripts/prepare_x86_emulator.sh
+scripts/capture_x86_release_screenshots.sh
+```
+
+默认 AVD 为 `pocketmind_api36_x86_64`，默认 headless 启动参数为 `-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot`。如果要打开模拟器窗口，可显式传空的 `EMULATOR_ARGS`，但当前新版 Android Emulator 的 Qt UI 可能要求 glibc 2.30 或更新：
+
+```bash
+EMULATOR_ARGS= scripts/capture_x86_release_screenshots.sh
+```
+
+这条 x86_64 链路只用于开发模拟和截图复核；正式 release evidence 仍以 arm64 模拟器矩阵和 arm64 真机验收为准。
 
 已有模拟器时可用 emulator-only helper，避免误选真机：
 

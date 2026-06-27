@@ -23,12 +23,13 @@ import org.junit.Test
 class PocketMindScreenDisplayTest {
     @Test
     fun remoteAttachmentProtectionNoticeNamesVisionImagePath() {
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("远程模型模式"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("逐次预览确认"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("其他附件和分享文本"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("不会读取正文"))
+        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("远程图片"))
+        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("发送前逐次确认"))
+        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("视觉模型"))
+        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("非图片附件"))
+        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("分享文本"))
         assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("OCR 摘录"))
-        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("不支持图片"))
+        assertTrue(REMOTE_ATTACHMENT_PROTECTION_NOTICE.contains("不会自动读取或发送"))
     }
 
     @Test

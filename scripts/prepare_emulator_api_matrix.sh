@@ -169,15 +169,33 @@ has_installed_package() {
   grep -qF "$package" "$SDKMANAGER_OUTPUT"
 }
 
+config_value() {
+  local config="$1"
+  local key="$2"
+  awk -F= -v expected="$key" '
+    {
+      key = $1
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+      if (key == expected) {
+        value = $2
+        sub(/^[[:space:]]+/, "", value)
+        sub(/[[:space:]]+$/, "", value)
+        print value
+        exit
+      }
+    }
+  ' "$config"
+}
+
 has_avd_for_api() {
   local api="$1"
   local config image target abi tag
   shopt -s nullglob
   for config in "$AVD_ROOT"/*.avd/config.ini; do
-    image="$(awk -F= '$1 == "image.sysdir.1" {print $2; exit}' "$config")"
-    target="$(awk -F= '$1 == "target" {print $2; exit}' "$config")"
-    abi="$(awk -F= '$1 == "abi.type" {print $2; exit}' "$config")"
-    tag="$(awk -F= '$1 == "tag.id" {print $2; exit}' "$config")"
+    image="$(config_value "$config" image.sysdir.1)"
+    target="$(config_value "$config" target)"
+    abi="$(config_value "$config" abi.type)"
+    tag="$(config_value "$config" tag.id)"
     if [[ "$image" == *"system-images/android-${api}/${EMULATOR_TAG}/${EMULATOR_ABI}"* ]]; then
       return 0
     fi

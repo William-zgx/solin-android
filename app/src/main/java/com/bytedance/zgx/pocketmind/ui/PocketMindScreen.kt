@@ -11,7 +11,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -40,27 +42,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -69,10 +50,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -100,8 +81,12 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -144,6 +129,7 @@ import com.bytedance.zgx.pocketmind.RemoteSendAuditSummary
 import com.bytedance.zgx.pocketmind.RemoteSendDisclosureKind
 import com.bytedance.zgx.pocketmind.RemoteSendDisclosurePolicy
 import com.bytedance.zgx.pocketmind.RunDataReceiptUiSummary
+import com.bytedance.zgx.pocketmind.R
 import com.bytedance.zgx.pocketmind.SetupTier
 import com.bytedance.zgx.pocketmind.SpecialAccessRequirement
 import com.bytedance.zgx.pocketmind.runtimePermissionRequirementsFor
@@ -535,19 +521,229 @@ private fun appendComposerInput(current: String, addition: String): String {
     }
 }
 
+private enum class PocketGlyphKind {
+    Add,
+    Bell,
+    Chat,
+    Check,
+    Close,
+    Delete,
+    Download,
+    Memory,
+    More,
+    Spark,
+    Shield,
+    Stop,
+    Undo,
+    Voice,
+    Send,
+}
+
+@Composable
+private fun PocketGlyph(
+    kind: PocketGlyphKind,
+    modifier: Modifier = Modifier.size(20.dp),
+    tint: Color = MaterialTheme.colorScheme.primary,
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val unit = w.coerceAtMost(h)
+        val stroke = Stroke(
+            width = unit * 0.11f,
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round,
+        )
+        fun p(x: Float, y: Float) = Offset(w * x, h * y)
+
+        when (kind) {
+            PocketGlyphKind.Add -> {
+                drawCircle(tint, radius = unit * 0.42f, center = p(0.5f, 0.5f), style = stroke)
+                drawLine(tint, p(0.34f, 0.5f), p(0.66f, 0.5f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.5f, 0.34f), p(0.5f, 0.66f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+
+            PocketGlyphKind.Bell -> {
+                val bell = Path().apply {
+                    moveTo(w * 0.28f, h * 0.58f)
+                    lineTo(w * 0.32f, h * 0.42f)
+                    quadraticTo(w * 0.34f, h * 0.27f, w * 0.50f, h * 0.27f)
+                    quadraticTo(w * 0.66f, h * 0.27f, w * 0.68f, h * 0.42f)
+                    lineTo(w * 0.72f, h * 0.58f)
+                    lineTo(w * 0.80f, h * 0.68f)
+                    lineTo(w * 0.20f, h * 0.68f)
+                    close()
+                }
+                drawPath(bell, tint, style = stroke)
+                drawLine(tint, p(0.43f, 0.80f), p(0.57f, 0.80f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+
+            PocketGlyphKind.Chat -> {
+                val bubble = Path().apply {
+                    moveTo(w * 0.26f, h * 0.24f)
+                    lineTo(w * 0.76f, h * 0.24f)
+                    quadraticTo(w * 0.86f, h * 0.24f, w * 0.86f, h * 0.35f)
+                    lineTo(w * 0.86f, h * 0.58f)
+                    quadraticTo(w * 0.86f, h * 0.69f, w * 0.74f, h * 0.69f)
+                    lineTo(w * 0.50f, h * 0.69f)
+                    lineTo(w * 0.31f, h * 0.82f)
+                    lineTo(w * 0.34f, h * 0.69f)
+                    lineTo(w * 0.26f, h * 0.69f)
+                    quadraticTo(w * 0.14f, h * 0.69f, w * 0.14f, h * 0.58f)
+                    lineTo(w * 0.14f, h * 0.35f)
+                    quadraticTo(w * 0.14f, h * 0.24f, w * 0.26f, h * 0.24f)
+                }
+                drawPath(bubble, tint, style = stroke)
+                drawLine(tint, p(0.32f, 0.43f), p(0.68f, 0.43f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.32f, 0.55f), p(0.55f, 0.55f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+
+            PocketGlyphKind.Check -> {
+                drawCircle(tint, radius = unit * 0.40f, center = p(0.5f, 0.5f), style = stroke)
+                drawLine(tint, p(0.34f, 0.52f), p(0.46f, 0.64f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.46f, 0.64f), p(0.68f, 0.38f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+
+            PocketGlyphKind.Close -> {
+                drawCircle(tint, radius = unit * 0.38f, center = p(0.5f, 0.5f), style = stroke)
+                drawLine(tint, p(0.38f, 0.38f), p(0.62f, 0.62f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.62f, 0.38f), p(0.38f, 0.62f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+
+            PocketGlyphKind.Delete -> {
+                drawLine(tint, p(0.30f, 0.34f), p(0.70f, 0.34f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.42f, 0.22f), p(0.58f, 0.22f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.46f, 0.22f), p(0.42f, 0.34f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.54f, 0.22f), p(0.58f, 0.34f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                val bin = Path().apply {
+                    moveTo(w * 0.34f, h * 0.40f)
+                    lineTo(w * 0.66f, h * 0.40f)
+                    lineTo(w * 0.62f, h * 0.80f)
+                    lineTo(w * 0.38f, h * 0.80f)
+                    close()
+                }
+                drawPath(bin, tint, style = stroke)
+            }
+
+            PocketGlyphKind.Download -> {
+                drawLine(tint, p(0.50f, 0.20f), p(0.50f, 0.58f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.34f, 0.44f), p(0.50f, 0.60f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.66f, 0.44f), p(0.50f, 0.60f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.26f, 0.76f), p(0.74f, 0.76f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.26f, 0.64f), p(0.26f, 0.76f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.74f, 0.64f), p(0.74f, 0.76f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+
+            PocketGlyphKind.Memory -> {
+                drawCircle(tint, radius = unit * 0.09f, center = p(0.30f, 0.32f), style = stroke)
+                drawCircle(tint, radius = unit * 0.09f, center = p(0.70f, 0.32f), style = stroke)
+                drawCircle(tint, radius = unit * 0.09f, center = p(0.50f, 0.72f), style = stroke)
+                drawLine(tint, p(0.36f, 0.38f), p(0.46f, 0.64f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.64f, 0.38f), p(0.54f, 0.64f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.39f, 0.32f), p(0.61f, 0.32f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+
+            PocketGlyphKind.More -> {
+                drawCircle(tint, radius = unit * 0.07f, center = p(0.5f, 0.26f))
+                drawCircle(tint, radius = unit * 0.07f, center = p(0.5f, 0.5f))
+                drawCircle(tint, radius = unit * 0.07f, center = p(0.5f, 0.74f))
+            }
+
+            PocketGlyphKind.Send -> {
+                val arrow = Path().apply {
+                    moveTo(w * 0.24f, h * 0.22f)
+                    lineTo(w * 0.82f, h * 0.50f)
+                    lineTo(w * 0.24f, h * 0.78f)
+                    lineTo(w * 0.36f, h * 0.53f)
+                    lineTo(w * 0.82f, h * 0.50f)
+                    lineTo(w * 0.36f, h * 0.47f)
+                    close()
+                }
+                drawPath(arrow, tint)
+            }
+
+            PocketGlyphKind.Shield -> {
+                val shield = Path().apply {
+                    moveTo(w * 0.50f, h * 0.16f)
+                    lineTo(w * 0.80f, h * 0.28f)
+                    lineTo(w * 0.74f, h * 0.60f)
+                    quadraticTo(w * 0.70f, h * 0.76f, w * 0.50f, h * 0.86f)
+                    quadraticTo(w * 0.30f, h * 0.76f, w * 0.26f, h * 0.60f)
+                    lineTo(w * 0.20f, h * 0.28f)
+                    close()
+                }
+                drawPath(shield, tint, style = stroke)
+                drawLine(tint, p(0.38f, 0.50f), p(0.48f, 0.60f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.48f, 0.60f), p(0.66f, 0.40f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+
+            PocketGlyphKind.Spark -> {
+                drawLine(tint, p(0.50f, 0.12f), p(0.50f, 0.38f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.50f, 0.62f), p(0.50f, 0.88f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.12f, 0.50f), p(0.38f, 0.50f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.62f, 0.50f), p(0.88f, 0.50f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.28f, 0.28f), p(0.39f, 0.39f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.61f, 0.61f), p(0.72f, 0.72f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.72f, 0.28f), p(0.61f, 0.39f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.39f, 0.61f), p(0.28f, 0.72f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawCircle(tint, radius = unit * 0.055f, center = p(0.76f, 0.24f))
+            }
+
+            PocketGlyphKind.Stop -> {
+                drawCircle(tint, radius = unit * 0.40f, center = p(0.5f, 0.5f), style = stroke)
+                drawLine(tint, p(0.36f, 0.36f), p(0.64f, 0.64f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.64f, 0.36f), p(0.36f, 0.64f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+
+            PocketGlyphKind.Undo -> {
+                val curve = Path().apply {
+                    moveTo(w * 0.32f, h * 0.34f)
+                    lineTo(w * 0.18f, h * 0.50f)
+                    lineTo(w * 0.32f, h * 0.66f)
+                    moveTo(w * 0.20f, h * 0.50f)
+                    lineTo(w * 0.62f, h * 0.50f)
+                    quadraticTo(w * 0.80f, h * 0.50f, w * 0.80f, h * 0.68f)
+                }
+                drawPath(curve, tint, style = stroke)
+            }
+
+            PocketGlyphKind.Voice -> {
+                drawLine(tint, p(0.18f, 0.55f), p(0.18f, 0.45f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.34f, 0.68f), p(0.34f, 0.32f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.50f, 0.78f), p(0.50f, 0.22f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.66f, 0.68f), p(0.66f, 0.32f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(tint, p(0.82f, 0.55f), p(0.82f, 0.45f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+        }
+    }
+}
+
 @Composable
 private fun Modifier.pocketMindTechBackdrop(): Modifier {
     val base = MaterialTheme.colorScheme.background
     val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val tertiary = MaterialTheme.colorScheme.tertiary
+    val lift = MaterialTheme.colorScheme.surfaceContainerLow
     return background(base).drawBehind {
-        val maxDimension = size.width.coerceAtLeast(size.height)
-        // A single, soft ambient wash from the top — calm and unobtrusive,
-        // replacing the previous grid + dual-glow "tech" treatment.
         drawRect(
-            brush = Brush.radialGradient(
-                colors = listOf(primary.copy(alpha = 0.10f), Color.Transparent),
-                center = Offset(size.width * 0.5f, size.height * -0.05f),
-                radius = maxDimension * 0.9f,
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    primary.copy(alpha = 0.12f),
+                    secondary.copy(alpha = 0.08f),
+                    lift.copy(alpha = 0.50f),
+                    base,
+                ),
+            ),
+        )
+        drawRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    tertiary.copy(alpha = 0.07f),
+                    primary.copy(alpha = 0.05f),
+                    secondary.copy(alpha = 0.06f),
+                    Color.Transparent,
+                ),
             ),
         )
     }
@@ -563,7 +759,7 @@ private fun ChatTopBar(
     onOpenBackgroundTasks: () -> Unit,
     onCreateSession: () -> Unit,
 ) {
-    val topEdgeColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val topEdgeColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f)
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
     Surface(
         modifier = Modifier
@@ -576,36 +772,29 @@ private fun ChatTopBar(
                     strokeWidth = 1.dp.toPx(),
                 )
             },
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.88f),
         shadowElevation = 0.dp,
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val compactTopBar = maxWidth < 430.dp
-            val actionButtonSize = if (compactTopBar) 34.dp else 40.dp
+            val actionButtonSize = if (compactTopBar) 30.dp else 36.dp
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
                     .padding(
                         horizontal = if (compactTopBar) 8.dp else 14.dp,
-                        vertical = if (compactTopBar) 6.dp else 7.dp,
+                        vertical = if (compactTopBar) 4.dp else 5.dp,
                     ),
-                horizontalArrangement = Arrangement.spacedBy(if (compactTopBar) 4.dp else 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (compactTopBar) 4.dp else 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
+                Image(
                     modifier = Modifier
-                        .width(4.dp)
-                        .height(if (compactTopBar) 30.dp else 34.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.colorScheme.secondary,
-                                ),
-                            ),
-                        ),
+                        .size(if (compactTopBar) 28.dp else 32.dp)
+                        .clip(RoundedCornerShape(if (compactTopBar) 10.dp else 11.dp)),
+                    painter = painterResource(R.drawable.ic_launcher),
+                    contentDescription = null,
                 )
                 Column(
                     modifier = Modifier
@@ -648,13 +837,13 @@ private fun ChatTopBar(
                 if (resourceSampler != null) {
                     ResourcePressureOverlay(
                         resourceSampler = resourceSampler,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(24.dp),
                     )
                 }
                 CompactModelStatusChip(
                     modifier = Modifier.widthIn(
-                        min = if (compactTopBar) 64.dp else 102.dp,
-                        max = if (compactTopBar) 86.dp else 156.dp,
+                        min = if (compactTopBar) 58.dp else 96.dp,
+                        max = if (compactTopBar) 78.dp else 148.dp,
                     ),
                     state = state,
                     compact = compactTopBar,
@@ -662,7 +851,7 @@ private fun ChatTopBar(
                 )
                 TopActionButton(
                     modifier = Modifier.testTag("top_session_button"),
-                    icon = Icons.Filled.Hub,
+                    glyph = PocketGlyphKind.Chat,
                     label = "会话",
                     size = actionButtonSize,
                     onClick = onOpenSessions,
@@ -670,7 +859,7 @@ private fun ChatTopBar(
                 Box {
                     TopActionButton(
                         modifier = Modifier.testTag("top_more_button"),
-                        icon = Icons.Filled.MoreVert,
+                        glyph = PocketGlyphKind.More,
                         label = "更多",
                         size = actionButtonSize,
                         onClick = { menuExpanded = true },
@@ -682,7 +871,7 @@ private fun ChatTopBar(
                     ) {
                         TopMenuItem(
                             modifier = Modifier.testTag("top_create_session_button"),
-                            icon = Icons.Filled.Add,
+                            glyph = PocketGlyphKind.Add,
                             label = "新建会话",
                             enabled = !state.isBusy,
                             onClick = {
@@ -692,7 +881,7 @@ private fun ChatTopBar(
                         )
                         TopMenuItem(
                             modifier = Modifier.testTag("top_model_menu_button"),
-                            icon = Icons.Filled.Tune,
+                            glyph = PocketGlyphKind.Spark,
                             label = "模型管理",
                             onClick = {
                                 menuExpanded = false
@@ -701,7 +890,7 @@ private fun ChatTopBar(
                         )
                         TopMenuItem(
                             modifier = Modifier.testTag("top_privacy_button"),
-                            icon = Icons.Filled.Security,
+                            glyph = PocketGlyphKind.Shield,
                             label = "隐私说明",
                             onClick = {
                                 menuExpanded = false
@@ -710,7 +899,7 @@ private fun ChatTopBar(
                         )
                         TopMenuItem(
                             modifier = Modifier.testTag("top_background_tasks_button"),
-                            icon = Icons.Filled.Notifications,
+                            glyph = PocketGlyphKind.Bell,
                             label = "后台任务",
                             onClick = {
                                 menuExpanded = false
@@ -783,7 +972,7 @@ private fun CompactModelStatusChip(
 
 @Composable
 private fun TopMenuItem(
-    icon: ImageVector,
+    glyph: PocketGlyphKind,
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -804,11 +993,10 @@ private fun TopMenuItem(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
+        PocketGlyph(
             modifier = Modifier.size(20.dp),
-            imageVector = icon,
+            kind = glyph,
             tint = contentColor,
-            contentDescription = null,
         )
         Text(
             text = label,
@@ -823,7 +1011,7 @@ private fun TopMenuItem(
 
 @Composable
 private fun TopActionButton(
-    icon: ImageVector,
+    glyph: PocketGlyphKind,
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -846,9 +1034,10 @@ private fun TopActionButton(
             disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f),
         ),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
+        PocketGlyph(
+            kind = glyph,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(size * 0.56f),
         )
     }
 }
@@ -921,15 +1110,14 @@ private fun ChatEmptyState(
     onSendPrompt: (String) -> Unit,
 ) {
     val readyTitle = when {
-        state.inferenceMode == InferenceMode.Remote && state.isReady -> "远程模型已就绪"
-        state.isReady -> "本机模型已就绪"
+        state.isReady -> "想让 PocketMind 做什么？"
         else -> PRODUCT_HOME_TITLE_TEXT
     }
     val readyDescription = when {
         state.inferenceMode == InferenceMode.Remote && state.isReady ->
-            "当前会话为空，可以直接输入问题；远程模式会发送当前对话上下文。"
+            "直接输入问题、整理线索，或先看看哪些内容会发送到远程。"
         state.isReady ->
-            "当前会话为空，选择一个开场问题，或在底部直接输入。问答和历史记录会保留在本机。"
+            "直接输入问题、整理想法，或先看看哪些内容会留在本机。"
         else ->
             "先配置远程模型或下载本地模型；就绪前不会读取本地数据，也不会自动发送远程请求。"
     }
@@ -937,35 +1125,39 @@ private fun ChatEmptyState(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(start = 18.dp, top = 16.dp, end = 18.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(start = 18.dp, top = 14.dp, end = 18.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.86f),
+            color = if (state.isReady) {
+                MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.72f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.86f)
+            },
             border = BorderStroke(
                 width = 1.dp,
                 color = if (state.isReady) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.82f)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
                 } else {
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
                 },
             ),
             tonalElevation = 0.dp,
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 17.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(11.dp),
             ) {
                 Text(
                     text = readyTitle,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
                     text = readyDescription,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (state.isReady) {
@@ -992,9 +1184,10 @@ private fun ChatEmptyState(
                     onClick = onOpenPrivacyNotice,
                     enabled = !state.isBusy,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Security,
-                        contentDescription = null,
+                    PocketGlyph(
+                        kind = PocketGlyphKind.Shield,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(" 隐私说明")
                 }
@@ -1026,10 +1219,10 @@ private fun HomePositioningPanel() {
         modifier = Modifier
             .fillMaxWidth()
             .testTag("home_positioning_panel"),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         SectionTitle(
-            text = "为什么装它",
+            text = "放心用的三件事",
             subtitle = PRODUCT_POSITIONING_TEXT,
         )
         HOME_VALUE_PROPOSITIONS.forEach { proposition ->
@@ -1042,11 +1235,11 @@ private fun HomePositioningPanel() {
     }
 }
 
-private fun homeValueIcon(kind: HomeValueKind): ImageVector =
+private fun homeValueIcon(kind: HomeValueKind): PocketGlyphKind =
     when (kind) {
-        HomeValueKind.Local -> Icons.Filled.Storage
-        HomeValueKind.Remote -> Icons.Filled.Cloud
-        HomeValueKind.Action -> Icons.Filled.Settings
+        HomeValueKind.Local -> PocketGlyphKind.Shield
+        HomeValueKind.Remote -> PocketGlyphKind.Spark
+        HomeValueKind.Action -> PocketGlyphKind.Check
     }
 
 @Composable
@@ -1087,8 +1280,8 @@ private fun FirstRunSetupPanel(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.9f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.64f)),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.90f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.52f)),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
@@ -1208,9 +1401,10 @@ private fun QuickModelSetup(
             onClick = onDownloadModel,
             enabled = !state.isBusy && !state.isDownloading,
         ) {
-            Icon(
-                imageVector = Icons.Filled.Download,
-                contentDescription = null,
+            PocketGlyph(
+                kind = PocketGlyphKind.Download,
+                modifier = Modifier.size(18.dp),
+                tint = LocalContentColor.current,
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
@@ -1228,9 +1422,10 @@ private fun QuickModelSetup(
             onClick = onPickModel,
             enabled = !state.isBusy,
         ) {
-            Icon(
-                imageVector = Icons.Filled.FolderOpen,
-                contentDescription = null,
+            PocketGlyph(
+                kind = PocketGlyphKind.Add,
+                modifier = Modifier.size(18.dp),
+                tint = LocalContentColor.current,
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
@@ -1246,8 +1441,8 @@ private fun QuickModelSetup(
             .fillMaxWidth()
             .testTag("model_startup_banner"),
         shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.32f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.42f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.26f)),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
@@ -1296,9 +1491,10 @@ private fun QuickModelSetup(
                 onClick = onOpenRemoteModelConfig,
                 enabled = !state.isBusy,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Cloud,
-                    contentDescription = null,
+                PocketGlyph(
+                    kind = PocketGlyphKind.Spark,
+                    modifier = Modifier.size(18.dp),
+                    tint = LocalContentColor.current,
                 )
                 Text(" 配置远程模型，立即试用")
             }
@@ -1327,9 +1523,10 @@ private fun QuickModelSetup(
                 onClick = onOpenModelManager,
                 enabled = !state.isBusy,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Tune,
-                    contentDescription = null,
+                PocketGlyph(
+                    kind = PocketGlyphKind.Spark,
+                    modifier = Modifier.size(18.dp),
+                    tint = LocalContentColor.current,
                 )
                 Text(" 模型管理")
             }
@@ -1346,18 +1543,75 @@ private fun QuickModelSetup(
 }
 
 @Composable
-private fun RemoteModeDisclosureSheet(
-    disclosure: PendingRemoteModeDisclosure,
-    onDismiss: () -> Unit,
+private fun TrustSheetSurface(
+    modifier: Modifier = Modifier,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
+    content: @Composable () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
+    val edgeColor = accentColor.copy(alpha = 0.24f)
+    Surface(
+        modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp, vertical = 10.dp)
-            .testTag("remote_mode_disclosure_sheet"),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .drawBehind {
+                drawLine(
+                    color = edgeColor,
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, 0f),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            },
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.58f),
+        ),
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun TrustSheetGroup(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.78f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.44f),
+        ),
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun RemoteModeDisclosureSheet(
+    disclosure: PendingRemoteModeDisclosure,
+    onDismiss: () -> Unit,
+) {
+    TrustSheetSurface(
+        modifier = Modifier.testTag("remote_mode_disclosure_sheet"),
+        accentColor = LocalPocketMindColors.current.remote,
     ) {
         SectionTitle(
             text = "已切换到远程模型",
@@ -1370,10 +1624,10 @@ private fun RemoteModeDisclosureSheet(
                 .testTag("remote_mode_confirm_button"),
             onClick = onDismiss,
         ) {
-            Icon(
-                imageVector = Icons.Filled.Cloud,
-                contentDescription = null,
+            PocketGlyph(
+                kind = PocketGlyphKind.Spark,
                 modifier = Modifier.size(18.dp),
+                tint = LocalContentColor.current,
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text("知道了")
@@ -1384,11 +1638,8 @@ private fun RemoteModeDisclosureSheet(
 @Composable
 private fun RemoteModeDisclosureRows(disclosure: PendingRemoteModeDisclosure) {
     val rows = remoteModeDisclosureDisplayRows(disclosure)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("remote_mode_disclosure_rows"),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+    TrustSheetGroup(
+        modifier = Modifier.testTag("remote_mode_disclosure_rows"),
     ) {
         rows.forEach { row ->
             Text(
@@ -1436,14 +1687,13 @@ private fun RemoteSendDisclosureSheet(
         disclosure.imageAttachmentCount == 0
     val requiresSensitiveConsent = disclosure.requiresSensitiveConsent
     var suppressForSession by rememberSaveable(disclosure) { mutableStateOf(false) }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 10.dp)
-            .testTag("remote_send_disclosure_sheet"),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    TrustSheetSurface(
+        modifier = Modifier.testTag("remote_send_disclosure_sheet"),
+        accentColor = if (requiresSensitiveConsent) {
+            MaterialTheme.colorScheme.error
+        } else {
+            LocalPocketMindColors.current.remote
+        },
     ) {
         SectionTitle(
             text = "即将发送到远程模型",
@@ -1451,24 +1701,26 @@ private fun RemoteSendDisclosureSheet(
         )
         RemoteSendDisclosureRows(disclosure)
         if (canSuppressForSession) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { suppressForSession = !suppressForSession }
-                    .testTag("remote_send_suppress_session_row"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(
-                    checked = suppressForSession,
-                    onCheckedChange = { suppressForSession = it },
-                    modifier = Modifier.testTag("remote_send_suppress_session_checkbox"),
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "本次会话不再提示（含敏感内容或图片时仍会提示）",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            TrustSheetGroup {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { suppressForSession = !suppressForSession }
+                        .testTag("remote_send_suppress_session_row"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked = suppressForSession,
+                        onCheckedChange = { suppressForSession = it },
+                        modifier = Modifier.testTag("remote_send_suppress_session_checkbox"),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "本次会话不再提示（含敏感内容或图片时仍会提示）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         if (!requiresSensitiveConsent) {
@@ -1478,10 +1730,10 @@ private fun RemoteSendDisclosureSheet(
                     .testTag("remote_send_confirm_button"),
                 onClick = { onConfirm(canSuppressForSession && suppressForSession) },
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Cloud,
-                    contentDescription = null,
+                PocketGlyph(
+                    kind = PocketGlyphKind.Spark,
                     modifier = Modifier.size(18.dp),
+                    tint = LocalContentColor.current,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("确认发送")
@@ -1489,12 +1741,14 @@ private fun RemoteSendDisclosureSheet(
         }
         if (requiresSensitiveConsent) {
             if (disclosure.maskedPromptPreview.isNotBlank()) {
-                Text(
-                    modifier = Modifier.testTag("remote_send_masked_preview"),
-                    text = "打码后将发送：${disclosure.maskedPromptPreview}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                TrustSheetGroup {
+                    Text(
+                        modifier = Modifier.testTag("remote_send_masked_preview"),
+                        text = "打码后将发送：${disclosure.maskedPromptPreview}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (disclosure.allowMaskedSend) {
                 FilledTonalButton(
@@ -1503,10 +1757,10 @@ private fun RemoteSendDisclosureSheet(
                         .testTag("remote_send_mask_button"),
                     onClick = onMaskAndSend,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Security,
-                        contentDescription = null,
+                    PocketGlyph(
+                        kind = PocketGlyphKind.Shield,
                         modifier = Modifier.size(18.dp),
+                        tint = LocalContentColor.current,
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("打码后发送")
@@ -1518,10 +1772,10 @@ private fun RemoteSendDisclosureSheet(
                     .testTag("remote_send_anyway_button"),
                 onClick = onSendAnyway,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Cloud,
-                    contentDescription = null,
+                PocketGlyph(
+                    kind = PocketGlyphKind.Spark,
                     modifier = Modifier.size(18.dp),
+                    tint = LocalContentColor.current,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("仍然发送（已记录）")
@@ -1533,10 +1787,10 @@ private fun RemoteSendDisclosureSheet(
                 .testTag("remote_send_dismiss_button"),
             onClick = onDismiss,
         ) {
-            Icon(
-                imageVector = Icons.Filled.Close,
-                contentDescription = null,
+            PocketGlyph(
+                kind = PocketGlyphKind.Close,
                 modifier = Modifier.size(18.dp),
+                tint = LocalContentColor.current,
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text("取消")
@@ -1547,11 +1801,8 @@ private fun RemoteSendDisclosureSheet(
 @Composable
 private fun RemoteSendDisclosureRows(disclosure: PendingRemoteSendDisclosure) {
     val rows = remoteSendDisclosureDisplayRows(disclosure)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("remote_send_disclosure_rows"),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+    TrustSheetGroup(
+        modifier = Modifier.testTag("remote_send_disclosure_rows"),
     ) {
         rows.forEach { row ->
             Text(
@@ -1613,35 +1864,31 @@ private fun ActionDraftSheet(
     val draft = confirmation.draft
     val runtimePermissionRequirements = confirmation.runtimePermissionRequirementsFor()
     val specialAccessRequirements = confirmation.specialAccessRequirementsFor()
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    TrustSheetSurface(
+        accentColor = LocalPocketMindColors.current.busy,
     ) {
         SectionTitle(
             text = draft.title,
             subtitle = "动作只会在你确认后读取上下文、创建草稿或调起系统能力。",
         )
-        Text(
-            text = "参数只用于本次确认动作。链接优先显示域名，长文本会折叠显示长度。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        ExpandableActionText(
-            text = draft.summary,
-            collapsedMaxChars = ACTION_SUMMARY_COLLAPSE_CHARS,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            testTag = "action_summary_text",
-        )
-        ActionDataBoundary(functionName = draft.functionName)
+        TrustSheetGroup {
+            Text(
+                text = "参数只用于本次确认动作。链接优先显示域名，长文本会折叠显示长度。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ExpandableActionText(
+                text = draft.summary,
+                collapsedMaxChars = ACTION_SUMMARY_COLLAPSE_CHARS,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                testTag = "action_summary_text",
+            )
+            ActionDataBoundary(functionName = draft.functionName)
+        }
         if (draft.parameters.isNotEmpty()) {
-            Column(
+            TrustSheetGroup(
                 modifier = Modifier.testTag("action_parameters"),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 draft.parameters.forEach { (key, value) ->
                     ActionParameterRows(key = key, value = value)
@@ -1649,11 +1896,8 @@ private fun ActionDraftSheet(
             }
         }
         if (runtimePermissionRequirements.isNotEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("runtime_permission_requirements"),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            TrustSheetGroup(
+                modifier = Modifier.testTag("runtime_permission_requirements"),
             ) {
                 Text(
                     text = "确认后可能请求系统权限",
@@ -1671,11 +1915,8 @@ private fun ActionDraftSheet(
             }
         }
         if (specialAccessRequirements.isNotEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("special_access_requirements"),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            TrustSheetGroup(
+                modifier = Modifier.testTag("special_access_requirements"),
             ) {
                 Text(
                     text = "可能需要系统特殊授权",
@@ -1695,10 +1936,10 @@ private fun ActionDraftSheet(
                             .testTag("open_special_access_${requirement.id}"),
                         onClick = { onOpenSpecialAccessSettings(requirement) },
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = null,
+                        PocketGlyph(
+                            kind = PocketGlyphKind.Check,
                             modifier = Modifier.size(18.dp),
+                            tint = LocalContentColor.current,
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("打开系统设置")
@@ -1830,33 +2071,31 @@ private fun ExternalOutcomeSheet(
     pending: PendingExternalOutcomeConfirmation,
     onRecord: (AgentExternalOutcome) -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .testTag("external_outcome_sheet")
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    TrustSheetSurface(
+        modifier = Modifier.testTag("external_outcome_sheet"),
+        accentColor = LocalPocketMindColors.current.busy,
     ) {
         SectionTitle(
             text = "外部操作完成了吗？",
             subtitle = pending.title,
         )
-        Text(
-            text = pending.summary,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        TrustSheetGroup {
+            Text(
+                text = pending.summary,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Button(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("external_outcome_completed_button"),
             onClick = { onRecord(AgentExternalOutcome.Completed) },
         ) {
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = null,
+            PocketGlyph(
+                kind = PocketGlyphKind.Check,
                 modifier = Modifier.size(18.dp),
+                tint = LocalContentColor.current,
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text("已完成")
@@ -1867,10 +2106,10 @@ private fun ExternalOutcomeSheet(
                 .testTag("external_outcome_not_completed_button"),
             onClick = { onRecord(AgentExternalOutcome.NotCompleted) },
         ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = null,
+            PocketGlyph(
+                kind = PocketGlyphKind.Close,
                 modifier = Modifier.size(18.dp),
+                tint = LocalContentColor.current,
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text("未完成")
@@ -1895,18 +2134,14 @@ private fun PromptSuggestionList(
         PRODUCT_PROMPT_SUGGESTIONS.forEach { prompt ->
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                ),
+                shape = RoundedCornerShape(999.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.78f),
                 enabled = enabled,
                 onClick = { onSendPrompt(prompt) },
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(start = 14.dp, top = 9.dp, end = 8.dp, bottom = 9.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -1917,12 +2152,18 @@ private fun PromptSuggestionList(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Icon(
-                        modifier = Modifier.size(18.dp),
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    ) {
+                        PocketGlyph(
+                            kind = PocketGlyphKind.Spark,
+                            modifier = Modifier
+                                .padding(6.dp)
+                                .size(15.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
         }
@@ -1997,13 +2238,16 @@ private fun ModelManagerSheet(
                 )
             }
             IconButton(
-                modifier = Modifier.testTag("model_manager_close_button"),
+                modifier = Modifier
+                    .testTag("model_manager_close_button")
+                    .semantics { contentDescription = "关闭$sheetTitle" },
                 onClick = onDismiss,
                 enabled = !state.isBusy,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "关闭$sheetTitle",
+                PocketGlyph(
+                    kind = PocketGlyphKind.Close,
+                    tint = LocalContentColor.current,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
@@ -2262,7 +2506,7 @@ private fun HuggingFaceAuthorizationPanel(
             .fillMaxWidth()
             .testTag("hugging_face_authorization_panel"),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.88f),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.92f),
         border = BorderStroke(
             1.dp,
             MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (pendingAuthorization) 0.9f else 0.58f),
@@ -2279,7 +2523,7 @@ private fun HuggingFaceAuthorizationPanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CapabilityMark(
-                    icon = Icons.Filled.Security,
+                    icon = PocketGlyphKind.Shield,
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Column(
@@ -2397,9 +2641,9 @@ private fun AddModelPanel(
             onClick = { onDownloadCustomModel(customModelUrl) },
             enabled = enabled && customModelUrl.isNotBlank(),
         ) {
-            Icon(
-                imageVector = Icons.Filled.Download,
-                contentDescription = null,
+            PocketGlyph(
+                kind = PocketGlyphKind.Download,
+                tint = LocalContentColor.current,
             )
             Text(" 从链接下载")
         }
@@ -2410,9 +2654,9 @@ private fun AddModelPanel(
             onClick = onPickModel,
             enabled = enabled,
         ) {
-            Icon(
-                imageVector = Icons.Filled.FolderOpen,
-                contentDescription = null,
+            PocketGlyph(
+                kind = PocketGlyphKind.Add,
+                tint = LocalContentColor.current,
             )
             Text(" 导入本地文件")
         }
@@ -2424,8 +2668,8 @@ private fun EmptyPanelText(text: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.58f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.46f)),
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f)),
     ) {
         Text(
             modifier = Modifier.padding(14.dp),
@@ -2524,7 +2768,7 @@ private fun AdvancedModelPanel(
 
 @Composable
 private fun PanelSurface(content: @Composable () -> Unit) {
-    val panelEdge = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+    val panelEdge = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -2537,10 +2781,10 @@ private fun PanelSurface(content: @Composable () -> Unit) {
                 )
             },
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.86f),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.92f),
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.68f),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
         ),
         tonalElevation = 0.dp,
     ) {
@@ -2631,9 +2875,9 @@ private fun CurrentModelPanel(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onLoadModel,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = null,
+                    PocketGlyph(
+                        kind = PocketGlyphKind.Check,
+                        tint = LocalContentColor.current,
                     )
                     Text(" 加载模型")
                 }
@@ -2750,10 +2994,10 @@ private fun RemoteModelPanel(
                     config.isConfigured &&
                     config.connectivityStatus != RemoteModelConnectivityStatus.Checking,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.CheckCircle,
-                    contentDescription = null,
+                PocketGlyph(
+                    kind = PocketGlyphKind.Check,
                     modifier = Modifier.size(18.dp),
+                    tint = LocalContentColor.current,
                 )
                 Text(
                     if (config.connectivityStatus == RemoteModelConnectivityStatus.Checking) {
@@ -2770,10 +3014,10 @@ private fun RemoteModelPanel(
                 onClick = { onRemoteModelConfigChanged(RemoteModelConfig()) },
                 enabled = !state.isBusy && config.hasAnySavedValue(),
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Delete,
-                    contentDescription = null,
+                PocketGlyph(
+                    kind = PocketGlyphKind.Delete,
                     modifier = Modifier.size(18.dp),
+                    tint = LocalContentColor.current,
                 )
                 Text(" 清除远程配置")
             }
@@ -2818,17 +3062,17 @@ private fun TrustBoundaryPanel(
                     subtitle = PRODUCT_POSITIONING_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = Icons.Filled.Storage,
+                    icon = PocketGlyphKind.Shield,
                     title = "本地可用",
                     body = PRODUCT_LOCAL_VALUE_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = Icons.Filled.Cloud,
+                    icon = PocketGlyphKind.Spark,
                     title = "远程多模态可选",
                     body = PRODUCT_REMOTE_VALUE_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = Icons.Filled.Settings,
+                    icon = PocketGlyphKind.Check,
                     title = "动作确认执行",
                     body = PRODUCT_ACTION_VALUE_TEXT,
                 )
@@ -2842,7 +3086,7 @@ private fun TrustBoundaryPanel(
                 )
                 trustCenterCapabilityDisplayRows().forEach { row ->
                     TrustBoundaryRow(
-                        icon = Icons.Filled.Security,
+                        icon = PocketGlyphKind.Shield,
                         title = row.title,
                         body = row.body,
                     )
@@ -2856,22 +3100,22 @@ private fun TrustBoundaryPanel(
                     subtitle = PRIVACY_POLICY_ENTRY_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = Icons.Filled.Storage,
+                    icon = PocketGlyphKind.Shield,
                     title = "本地优先",
                     body = TRUST_LOCAL_BOUNDARY_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = Icons.Filled.Cloud,
+                    icon = PocketGlyphKind.Spark,
                     title = "远程模型",
                     body = TRUST_REMOTE_BOUNDARY_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = Icons.Filled.Settings,
+                    icon = PocketGlyphKind.Check,
                     title = "敏感权限",
                     body = TRUST_PERMISSION_BOUNDARY_TEXT,
                 )
                 TrustBoundaryRow(
-                    icon = Icons.Filled.Delete,
+                    icon = PocketGlyphKind.Delete,
                     title = "用户控制",
                     body = trustDeletionBoundaryText(state),
                 )
@@ -2926,7 +3170,7 @@ private fun TrustBoundaryPanel(
                 )
                 sensitiveDisclosureRows.forEach { row ->
                     TrustBoundaryRow(
-                        icon = Icons.Filled.Security,
+                        icon = PocketGlyphKind.Shield,
                         title = row.title,
                         body = row.body,
                     )
@@ -3062,7 +3306,7 @@ private fun RemoteSendAuditSummary.remoteSendAuditTimeLabel(): String =
 
 @Composable
 private fun TrustBoundaryRow(
-    icon: ImageVector,
+    icon: PocketGlyphKind,
     title: String,
     body: String,
 ) {
@@ -3071,10 +3315,9 @@ private fun TrustBoundaryRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Icon(
+        PocketGlyph(
             modifier = Modifier.size(20.dp),
-            imageVector = icon,
-            contentDescription = null,
+            kind = icon,
             tint = MaterialTheme.colorScheme.primary,
         )
         Column(
@@ -3291,13 +3534,16 @@ private fun LongTermMemoryRow(
                 )
             }
             IconButton(
-                modifier = Modifier.testTag("long_term_memory_forget_${memory.id}"),
+                modifier = Modifier
+                    .testTag("long_term_memory_forget_${memory.id}")
+                    .semantics { contentDescription = "遗忘这条记忆：${memory.text}" },
                 onClick = onForget,
                 enabled = enabled,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Delete,
-                    contentDescription = "遗忘这条记忆：${memory.text}",
+                PocketGlyph(
+                    kind = PocketGlyphKind.Delete,
+                    tint = LocalContentColor.current,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
@@ -3350,13 +3596,16 @@ private fun SessionManagerSheet(
                 Text("新建")
             }
             IconButton(
-                modifier = Modifier.testTag("session_manager_close_button"),
+                modifier = Modifier
+                    .testTag("session_manager_close_button")
+                    .semantics { contentDescription = "关闭会话管理" },
                 onClick = onDismiss,
                 enabled = !state.isBusy,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "关闭会话管理",
+                PocketGlyph(
+                    kind = PocketGlyphKind.Close,
+                    tint = LocalContentColor.current,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
@@ -3854,7 +4103,7 @@ private fun AuditEventSummary.auditTimeLabel(): String =
     SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(createdAtMillis))
 
 internal const val REMOTE_ATTACHMENT_PROTECTION_NOTICE =
-    "远程模型模式下，主动选择的图片只会在逐次预览确认后发送给远程视觉模型；其他附件和分享文本不会读取正文、文本摘录或 OCR 摘录。若模型或接口不支持图片，会直接提示不支持。"
+    "远程图片仅在发送前逐次确认后交给视觉模型；非图片附件、分享文本和 OCR 摘录不会自动读取或发送。"
 
 internal const val PRODUCT_POSITIONING_TEXT =
     "隐私优先的随身 AI 助手：可下载或导入本地模型，远程多模态可选，设备动作必须确认执行；能力与信任中心会集中说明数据边界和权限。"
@@ -3921,9 +4170,9 @@ internal const val MODEL_MANAGER_POSITIONING_TEXT =
     "可下载或导入本地模型离线使用；远程多模态可选。切换远程会提醒，设备动作仍会先确认。"
 
 internal val PRODUCT_PROMPT_SUGGESTIONS = listOf(
-    "告诉我哪些内容会留在本机",
-    "帮我整理一个只保存在本机的待办清单",
-    "切换远程模型会提醒什么？",
+    "哪些内容留在本机？",
+    "把想法整理成本机待办",
+    "切换远程模型前提醒什么？",
 )
 
 internal const val PRODUCT_LOCAL_VALUE_TEXT =
@@ -4201,13 +4450,16 @@ private fun BackgroundTaskRow(
             }
             if (onCancel != null) {
                 IconButton(
-                    modifier = Modifier.testTag("background_task_cancel_${task.id}"),
+                    modifier = Modifier
+                        .testTag("background_task_cancel_${task.id}")
+                        .semantics { contentDescription = "取消后台任务" },
                     onClick = onCancel,
                     enabled = enabled,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "取消后台任务",
+                    PocketGlyph(
+                        kind = PocketGlyphKind.Close,
+                        tint = LocalContentColor.current,
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
@@ -4414,9 +4666,9 @@ private fun RecommendedModelCard(
                     onClick = onDownload,
                     enabled = !state.isBusy && !state.isDownloading,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Download,
-                        contentDescription = null,
+                    PocketGlyph(
+                        kind = PocketGlyphKind.Download,
+                        tint = LocalContentColor.current,
                     )
                     Text(
                         text = when {
@@ -4529,9 +4781,12 @@ private fun ModelRow(
                         disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                     ),
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "删除模型 $title",
+                    PocketGlyph(
+                        kind = PocketGlyphKind.Delete,
+                        tint = LocalContentColor.current,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .semantics { contentDescription = "删除模型 $title" },
                     )
                 }
             }
@@ -4541,29 +4796,28 @@ private fun ModelRow(
 
 @Composable
 private fun CapabilityMark(
-    icon: ImageVector,
+    icon: PocketGlyphKind,
     tint: Color,
 ) {
     Surface(
         shape = CircleShape,
         color = tint.copy(alpha = 0.16f),
     ) {
-        Icon(
+        PocketGlyph(
             modifier = Modifier
                 .padding(7.dp)
                 .size(18.dp),
-            imageVector = icon,
-            contentDescription = null,
+            kind = icon,
             tint = tint,
         )
     }
 }
 
-private fun capabilityIcon(capability: ModelCapability): ImageVector =
+private fun capabilityIcon(capability: ModelCapability): PocketGlyphKind =
     when (capability) {
-        ModelCapability.Chat -> Icons.Filled.Storage
-        ModelCapability.MemoryEmbedding -> Icons.Filled.Memory
-        ModelCapability.MobileAction -> Icons.Filled.Settings
+        ModelCapability.Chat -> PocketGlyphKind.Chat
+        ModelCapability.MemoryEmbedding -> PocketGlyphKind.Memory
+        ModelCapability.MobileAction -> PocketGlyphKind.Check
     }
 
 @Composable
@@ -5012,10 +5266,9 @@ private fun MemoryContextStrip(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
+            PocketGlyph(
                 modifier = Modifier.size(16.dp),
-                imageVector = Icons.Filled.Memory,
-                contentDescription = null,
+                kind = PocketGlyphKind.Memory,
                 tint = semanticColors.onMemoryContainer,
             )
             Text(
@@ -5052,10 +5305,9 @@ private fun RecoveryActionEntry(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
+            PocketGlyph(
                 modifier = Modifier.size(18.dp),
-                imageVector = Icons.AutoMirrored.Filled.Undo,
-                contentDescription = null,
+                kind = PocketGlyphKind.Undo,
                 tint = MaterialTheme.colorScheme.primary,
             )
             Column(
@@ -5100,20 +5352,20 @@ private fun MessageBubble(
     val isUser = message.role == MessageRole.User
     val semanticColors = LocalPocketMindColors.current
     val bubbleColor = if (isUser) {
-        semanticColors.localContainer.copy(alpha = 0.88f)
+        semanticColors.local
     } else {
-        MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.90f)
+        MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.94f)
     }
     val textColor = if (isUser) {
-        semanticColors.onLocalContainer
+        semanticColors.onLocal
     } else {
         MaterialTheme.colorScheme.onSurface
     }
     val alignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
     val shape = if (isUser) {
-        RoundedCornerShape(18.dp, 6.dp, 18.dp, 18.dp)
+        RoundedCornerShape(20.dp, 8.dp, 20.dp, 20.dp)
     } else {
-        RoundedCornerShape(6.dp, 18.dp, 18.dp, 18.dp)
+        RoundedCornerShape(8.dp, 20.dp, 20.dp, 20.dp)
     }
 
     Box(
@@ -5126,9 +5378,9 @@ private fun MessageBubble(
             shape = shape,
             color = bubbleColor,
             border = if (isUser) {
-                BorderStroke(1.dp, semanticColors.local.copy(alpha = 0.48f))
+                BorderStroke(1.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f))
             } else {
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f))
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.46f))
             },
             shadowElevation = 0.dp,
         ) {
@@ -5143,7 +5395,7 @@ private fun MessageBubble(
                         else -> "PocketMind"
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = textColor.copy(alpha = 0.72f),
+                    color = textColor.copy(alpha = if (isUser) 0.82f else 0.64f),
                     fontWeight = FontWeight.SemiBold,
                 )
                 if (isStreaming && message.text.isBlank()) {
@@ -5228,7 +5480,7 @@ private fun CodeBlock(code: String) {
             .background(semanticColors.codeSurface)
             .border(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.62f),
                 shape = MaterialTheme.shapes.medium,
             ),
     ) {
@@ -5305,7 +5557,7 @@ private fun Composer(
     val voiceEnabled = !state.isBusy && !state.voiceCapture.isActive
     var showVoicePermissionDisclosure by rememberSaveable { mutableStateOf(false) }
     val actionIsStop = state.isGenerating
-    val composerEdge = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val composerEdge = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)
     val hasPendingSharedInput = state.pendingSharedInputDraft != null
     val canSend = inputEnabled && (input.isNotBlank() || hasPendingSharedInput)
     val placeholder = when {
@@ -5320,7 +5572,7 @@ private fun Composer(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.86f))
             .drawBehind {
                 drawLine(
                     color = composerEdge,
@@ -5330,8 +5582,8 @@ private fun Composer(
                 )
             }
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (state.voiceCapture.isActive) {
             VoiceCaptureBar(
@@ -5368,47 +5620,33 @@ private fun Composer(
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val compactControls = maxWidth < 360.dp
             if (compactControls) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.Bottom,
-                    ) {
-                        ComposerAttachmentButton(
-                            remoteMode = state.inferenceMode == InferenceMode.Remote,
-                            enabled = attachmentEnabled,
-                            onClick = onPickSharedAttachment,
-                        )
-                        ComposerTextInput(
-                            modifier = Modifier.weight(1f),
-                            input = input,
-                            onInputChanged = onInputChanged,
-                            inputEnabled = inputEnabled,
-                            placeholder = placeholder,
-                        )
-                        ComposerSendButton(
-                            actionIsStop = actionIsStop,
-                            canSend = canSend,
-                            onStopGeneration = onStopGeneration,
-                            onSend = onSend,
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ComposerVoiceButton(
-                            enabled = voiceEnabled,
-                            onClick = { showVoicePermissionDisclosure = true },
-                        )
-                        ComposerModelButton(
-                            enabled = !state.isBusy,
-                            onClick = onOpenModelManager,
-                        )
-                    }
+                    ComposerAttachmentButton(
+                        remoteMode = state.inferenceMode == InferenceMode.Remote,
+                        enabled = attachmentEnabled,
+                        onClick = onPickSharedAttachment,
+                    )
+                    ComposerTextInput(
+                        modifier = Modifier.weight(1f),
+                        input = input,
+                        onInputChanged = onInputChanged,
+                        inputEnabled = inputEnabled,
+                        placeholder = placeholder,
+                    )
+                    ComposerVoiceButton(
+                        enabled = voiceEnabled,
+                        onClick = { showVoicePermissionDisclosure = true },
+                    )
+                    ComposerSendButton(
+                        actionIsStop = actionIsStop,
+                        canSend = canSend,
+                        onStopGeneration = onStopGeneration,
+                        onSend = onSend,
+                    )
                 }
             } else {
                 Row(
@@ -5510,9 +5748,9 @@ private fun ComposerAttachmentButton(
         enabled = enabled,
         onClick = onClick,
     ) {
-        Icon(
-            imageVector = Icons.Filled.AttachFile,
-            contentDescription = null,
+        PocketGlyph(
+            kind = PocketGlyphKind.Add,
+            tint = LocalContentColor.current,
         )
     }
 }
@@ -5527,7 +5765,7 @@ private fun ComposerTextInput(
 ) {
     OutlinedTextField(
         modifier = modifier
-            .heightIn(min = 52.dp)
+            .height(50.dp)
             .testTag("composer_input"),
         value = input,
         onValueChange = onInputChanged,
@@ -5538,10 +5776,10 @@ private fun ComposerTextInput(
         shape = MaterialTheme.shapes.medium,
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.76f),
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
             disabledBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.34f),
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.74f),
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.58f),
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.96f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.70f),
             disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.32f),
             cursorColor = MaterialTheme.colorScheme.primary,
         ),
@@ -5562,9 +5800,9 @@ private fun ComposerVoiceButton(
         onClick = onClick,
         enabled = enabled,
     ) {
-        Icon(
-            imageVector = Icons.Filled.Mic,
-            contentDescription = null,
+        PocketGlyph(
+            kind = PocketGlyphKind.Voice,
+            tint = LocalContentColor.current,
         )
     }
 }
@@ -5583,9 +5821,9 @@ private fun ComposerModelButton(
         onClick = onClick,
         enabled = enabled,
     ) {
-        Icon(
-            imageVector = Icons.Filled.Tune,
-            contentDescription = null,
+        PocketGlyph(
+            kind = PocketGlyphKind.Spark,
+            tint = LocalContentColor.current,
         )
     }
 }
@@ -5600,15 +5838,15 @@ private fun ComposerSendButton(
     val semanticColors = LocalPocketMindColors.current
     IconButton(
         modifier = Modifier
-            .height(52.dp)
-            .width(52.dp)
+            .height(46.dp)
+            .width(46.dp)
             .clip(MaterialTheme.shapes.medium)
             .border(
                 width = 1.dp,
                 color = if (canSend || actionIsStop) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.34f)
                 } else {
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f)
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.26f)
                 },
                 shape = MaterialTheme.shapes.medium,
             )
@@ -5628,7 +5866,7 @@ private fun ComposerSendButton(
             containerColor = when {
                 actionIsStop -> semanticColors.busy
                 canSend -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.surfaceVariant
+                else -> MaterialTheme.colorScheme.surfaceContainerHigh
             },
             contentColor = when {
                 actionIsStop -> semanticColors.onBusy
@@ -5637,9 +5875,9 @@ private fun ComposerSendButton(
             },
         ),
     ) {
-        Icon(
-            imageVector = if (actionIsStop) Icons.Filled.Stop else Icons.AutoMirrored.Filled.Send,
-            contentDescription = null,
+        PocketGlyph(
+            kind = if (actionIsStop) PocketGlyphKind.Stop else PocketGlyphKind.Send,
+            tint = LocalContentColor.current,
         )
     }
 }
@@ -5651,14 +5889,15 @@ private fun RemoteAttachmentProtectionNotice() {
             .fillMaxWidth()
             .testTag("remote_attachment_protection_notice"),
         shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.46f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.32f)),
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.24f),
     ) {
         Text(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
             text = REMOTE_ATTACHMENT_PROTECTION_NOTICE,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onTertiaryContainer,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -5686,19 +5925,19 @@ private fun ComposerIconButton(
 ) {
     IconButton(
         modifier = modifier
-            .height(52.dp)
-            .width(46.dp)
+            .height(46.dp)
+            .width(42.dp)
             .clip(MaterialTheme.shapes.medium)
             .border(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.76f),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.24f),
                 shape = MaterialTheme.shapes.medium,
             ),
         onClick = onClick,
         enabled = enabled,
         colors = IconButtonDefaults.iconButtonColors(
             contentColor = MaterialTheme.colorScheme.primary,
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.64f),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.72f),
             disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.34f),
             disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
         ),
@@ -5717,18 +5956,17 @@ private fun PendingSharedInputStrip(
             .fillMaxWidth()
             .testTag("pending_shared_input_strip"),
         shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.58f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.34f)),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.66f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.28f)),
     ) {
         Row(
             modifier = Modifier.padding(start = 10.dp, top = 6.dp, end = 4.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
+            PocketGlyph(
                 modifier = Modifier.size(16.dp),
-                imageVector = Icons.Filled.AttachFile,
-                contentDescription = null,
+                kind = PocketGlyphKind.Add,
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             Text(
@@ -5745,9 +5983,10 @@ private fun PendingSharedInputStrip(
                     .semantics { contentDescription = "移除附件" },
                 onClick = onRemove,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = null,
+                PocketGlyph(
+                    kind = PocketGlyphKind.Close,
+                    modifier = Modifier.size(18.dp),
+                    tint = LocalContentColor.current,
                 )
             }
         }
@@ -5805,21 +6044,23 @@ private fun VoiceCaptureBar(
                     .semantics { contentDescription = "取消语音输入" },
                 onClick = onCancel,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = null,
+                PocketGlyph(
+                    kind = PocketGlyphKind.Close,
+                    modifier = Modifier.size(18.dp),
+                    tint = LocalContentColor.current,
                 )
             }
             if (!isTranscribing) {
                 IconButton(
                     modifier = Modifier
                         .size(38.dp)
-                        .semantics { contentDescription = "结束语音输入" },
+                    .semantics { contentDescription = "结束语音输入" },
                     onClick = onFinish,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = null,
+                    PocketGlyph(
+                        kind = PocketGlyphKind.Check,
+                        modifier = Modifier.size(18.dp),
+                        tint = LocalContentColor.current,
                     )
                 }
             }
