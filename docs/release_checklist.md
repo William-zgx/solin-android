@@ -19,7 +19,7 @@ flowchart TD
 ## Evidence Standard
 
 - [ ] Evidence files are structured properties or JSON records, not prose-only notes.
-- [ ] Passed evidence includes `status=passed`, `artifactSchema`, owner, UTC `recordedAt`, command, reproducible path, artifact path, and matching SHA-256.
+- [ ] Passed evidence includes `status=passed`, schema field, owner, UTC `recordedAt`, command, reproducible path, artifact path, and matching SHA-256. Properties reports may use the script-native `artifact_schema` key when the verifier contract documents it.
 - [ ] Failed, skipped, or preflight-failed evidence includes `failedTarget` and `reason`.
 - [ ] Release-gate-owned child reports include the release gate report path, release record file, current HEAD commit, release artifact path/type/SHA-256, and reproducible command/path.
 - [ ] Status-only files, stale files, hand-written summaries, or evidence whose SHA-256 does not match the record are not accepted.
@@ -28,6 +28,7 @@ flowchart TD
 
 - [ ] Release version name, version code, target channel, owner, reviewer, date, release branch, commit SHA, and changelog are final.
 - [ ] Current Gradle identity is recorded: `applicationId=com.bytedance.zgx.solin`, `minSdk=28`, `targetSdk=36`, current `versionCode=1`, and current `versionName=0.1.0`.
+- [ ] Localized listing is final and matches resources: zh-CN `栖知 Solin` / `让 AI 住在手机里`; en-US `栖知 Solin` / `Quiet intelligence, close at hand.`.
 - [ ] `versionCode` is higher than every artifact ever uploaded to the same Play application; rejected uploads still count.
 - [ ] Target audience is explicit: internal testing, closed testing, open testing, staged production, or full production.
 - [ ] Known unsupported or constrained capabilities are called out: continuous screen capture, semantic screen understanding, full PDF layout parsing, legacy Office parsing, arbitrary media OCR, and local image semantic understanding unless a verified vision-capable local model is active. One-shot current-screen/recent-image OCR remains confirmation-gated and `LocalOnly`.
@@ -41,8 +42,9 @@ flowchart TD
 - [ ] `scripts/sign_release_artifacts.sh` runs in the private signing environment with `RELEASE_KEYSTORE`, `RELEASE_KEY_ALIAS`, `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_PASSWORD`, and `EXPECTED_SIGNING_CERT_SHA256`. `ALLOW_DEBUG_KEYSTORE` is unset for production signing.
 - [ ] Play App Signing status is recorded. App-signing and upload certificate fingerprints are both captured because they are different trust anchors.
 - [ ] Play candidates use `./gradlew :app:bundleRelease`; internal ad hoc APK validation is separately labeled and never confused with the Play AAB.
-- [ ] `scripts/scan_android_artifacts.sh` runs against the final APK/AAB. The report confirms no `.litertlm` model binaries, API keys, bearer tokens, private hostnames, release keystore files, or unreadable APK/AAB structure.
+- [ ] `scripts/scan_android_artifacts.sh` runs against the final APK/AAB. The report confirms no `.litertlm`, `.tflite`, tokenizer/model companion assets, API keys, bearer tokens, private hostnames, release keystore files, or unreadable APK/AAB structure.
 - [ ] `scripts/verify_release_mapping.sh` archives R8/ProGuard mapping evidence for the RC; `PUBLIC_RELEASE=1` requires this mapping check.
+- [ ] Launcher, round launcher, adaptive foreground/background, monochrome icon, notification icon, docs preview assets, screenshots, and store artwork all use the current square Solin mark and unified background color.
 
 ## Internal `bundledModels`
 
@@ -52,7 +54,7 @@ flowchart TD
       has approved license source, redistribution decision, attribution/notice
       requirement, reviewer, date, evidence path, and matching SHA-256.
 - [ ] Build and package checks use `./gradlew checkBundledModelsPackageOutputs` and `scripts/package_bundled_models.sh`.
-- [ ] All five split APKs are signed by the same key and the package report from `build/verification/bundled-models/package.properties` is attached.
+- [ ] All five APKs are signed by the same key: base APK plus `modelpackE2b`, `modelpackE2bExtra`, `modelpackE4b`, and `modelpackE4bExtra`; the package report from `build/verification/bundled-models/package.properties` is attached.
 - [ ] Device install uses `adb install-multiple --no-incremental -r`; fast incremental-install `Success` is not accepted for this split set.
 - [ ] Device smoke records that `pm path` lists `base.apk` plus all four modelpack splits, Model Manager shows E2B, E4B, memory, and action models with `SHA-256 已校验`, and local E2B reaches `已加载` on GPU or CPU fallback.
 - [ ] Model byte size, SHA-256, license, attribution, and redistribution approval evidence are attached. No API keys, bearer tokens, private hostnames, or release keystore files are bundled.
@@ -60,13 +62,15 @@ flowchart TD
 ## Store, Privacy, And License
 
 - [ ] App name, descriptions, category, support contact, screenshots, and release notes are reviewed and match the target channel.
+- [ ] Public listing, screenshot text, package names, and store assets contain only the current `栖知 Solin` / Solin identity and no superseded project names, package identifiers, or logo assets.
 - [ ] Privacy policy URL points to the approved external version of `docs/privacy_notice.md`.
 - [ ] Google Play Data safety answers match implemented behavior for local Room/DataStore storage, encrypted remote API keys, user-configured remote model calls, model downloads, Android permissions, external intents, and the absence of first-party analytics upload in this codebase.
+- [ ] Data safety covers local vision image input: verified local Text+Vision chat models can process user-selected image bytes on device; unsupported local/remote vision paths fail closed; remote image sends require per-send preview confirmation.
 - [ ] Required Android permissions and special-access flows are explained in user-facing language, including microphone, calendar, contacts, media, notifications, foreground service, Usage Access, Accessibility, Accessibility gestures, and one-shot MediaProjection consent.
 - [ ] `docs/store_policy_record.json` is approved and `VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh` passes.
 - [ ] `docs/privacy_review.json` records release, security, and legal approvals for the current privacy notice and capability matrix; `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh` passes.
 - [ ] `docs/model_license_metadata.json` is freshly collected before review, and `docs/model_license_review.json` approves every recommended model with concrete license source, reviewer, review date, redistribution decision, attribution/notice requirements, evidence path, and SHA-256.
-- [ ] `VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh` passes for the RC.
+- [ ] `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh` passes for the focused model-license check; the final public gate still requires perf evidence.
 - [ ] `scripts/privacy_scan.sh` passes. No API keys, bearer tokens, private endpoints, raw prompts, private device-context payloads, contacts, notifications, clipboard text, or sensitive screenshots are present in release docs, logs, screenshots, or notes.
 
 ## Validation
@@ -74,17 +78,22 @@ flowchart TD
 - [ ] `scripts/verify_local.sh` passes on a clean checkout.
 - [ ] Emulator regression passes on prepared arm64 AVDs, including API 28, 32, 33, 34, and 36, or the release record explains why emulator validation was unavailable.
 - [ ] `scripts/check_emulator_api_matrix.sh` and, when needed, `scripts/prepare_emulator_api_matrix.sh` produce readiness evidence before API-matrix regression.
-- [ ] At least one physical `arm64-v8a` device passes `scripts/install_and_test_device.sh`. Emulator serials are rejected as physical-device evidence.
+- [ ] At least one physical `arm64-v8a` device passes `scripts/install_and_test_device.sh` against the final signed release APK. Emulator serials are rejected as physical-device evidence.
 - [ ] Physical device reports include `exit_code=0`, empty `failedTarget`/`reason`, UTC start/finish, sufficient `data_free_kb`, instrumentation output with final `OK`, `instrumentation_test_count`, `logcat_file`, and SHA-256 bindings.
+- [ ] Physical release evidence records `app_apk_mode=release`, `app_apk_sha256 == releaseArtifactSha256`, `RELEASE_ARTIFACT_TYPE=apk`, and a signed APK path. The Play AAB SHA is recorded separately and is not used as proof of a physical APK install.
 - [ ] Upgrade validation uses `adb install -r` and records first-install timestamp preservation, last-update timestamp refresh, versionCode increase, data retention, and instrumentation coverage.
 - [ ] Manual acceptance from `docs/phone_acceptance.md` covers model setup, remote-mode privacy, tool confirmation, permissions, background reminders, sharing, multimodal entry points, and resource-status UI.
 - [ ] Manual acceptance records voice input, the Android system document picker,
   and MediaProjection consent separately from scripted regression.
+- [ ] Formal manual-acceptance evidence covers all required keys from `scripts/record_manual_acceptance_evidence.sh`: model setup, remote privacy, tool confirmation, permissions, reminders, sharing, multimodal entry points, voice, file picker, MediaProjection, single public evidence, multi public evidence comparison, and mixed private/action batch fail-closed behavior.
+- [ ] Formal release-flow evidence covers all required keys from `scripts/record_release_flow_evidence.sh`, including first install, upgrade install, local model download verification, custom import/URL rejection, HTTPS remote setup, encrypted key clearing, session persistence, memory controls, privacy/data controls, reboot reminders, share/picker input, voice, adaptive UI, Accessibility text, recent media OCR, and MediaProjection cancellation.
 - [ ] System-mediated flows are manually accepted on device: voice input, Android document picker, runtime permission dialogs, Usage Access settings, Accessibility service, and MediaProjection consent/cancel.
-- [ ] Screenshots are sanitized and listed in `docs/release_validation_record.json` with screenshot SHA-256, UI dump SHA-256, required visible text, and `release-screenshots.properties` report path/SHA-256. Text placeholders are not accepted.
+- [ ] Screenshots are sanitized and listed in `docs/release_validation_record.json` with screenshot SHA-256, UI dump SHA-256, required visible text, and `release-screenshots.properties` report path/SHA-256. Text placeholders, superseded brand text, stale package names, and stale logo artwork are not accepted.
 - [ ] Performance sanity points to a real `perf-baseline.properties` collected on non-emulator physical `arm64-v8a` hardware and verified by `scripts/verify_perf_baseline.sh`.
+- [ ] RC performance provenance is collected through `scripts/collect_rc_perf_from_device.sh`, not a hand-written perf file. The baseline records `collectionCommand=scripts/collect_rc_perf_from_device.sh`, `runner=rc_perf_release_broadcast`, `preserves_model_data=true`, 50k memory metrics, final signed RC artifact SHA-256, and no OOM/ANR.
 - [ ] Public-release AI behavior eval uses a deterministic `agent_loop_runtime` actual trace collected by `scripts/collect_ai_behavior_actual_trace.sh`, with runtime provenance, current fixture/capability/action-model hashes, no mismatches, and zero allowed-failure trace diff rows.
 - [ ] Debug device-control and real-app search evidence is attached separately from release physical evidence. It must keep machine-readable failure semantics and case artifacts, but it never replaces fresh release physical validation.
+- [ ] The real-app search physical benchmark includes the required 50 task evidence when the release target requires `REQUIRE_50_TASK_BENCHMARK=1`.
 - [ ] `docs/release_validation_record.json` is approved and `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh` passes.
 
 ## Operations And Rollback
@@ -103,12 +112,12 @@ flowchart TD
 Run focused gates as records become ready:
 
 ```bash
-VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh
-VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh
-VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh
-VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
-VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh
-VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh
 ```
 
 Run the final public gate with the production artifact, signing fingerprint, physical perf baseline, and AI behavior actual trace:

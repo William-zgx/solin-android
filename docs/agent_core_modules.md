@@ -48,8 +48,10 @@ Boundaries:
 Current status:
 
 - `ToolRegistry` is provider-backed and covers web search, device context,
-  Android Intent/draft/navigation tools, phone-control primitives, background
-  tasks, sharing, reminders, OCR, and settings entry points.
+  Android Intent/draft/navigation tools, alarm/timer/reminder tools,
+  `cancel_reminder`, current-page and current-app UI search, open-app UI
+  search, phone-control primitives, background tasks, sharing, OCR, and
+  settings entry points.
 - Input schemas reject unknown tools, unknown fields, missing required values,
   bad enums, regex mismatches, and numeric bounds failures. Output schemas are
   also enforced for successful `ToolResult.data`.
@@ -118,8 +120,17 @@ Current status:
 - Remote models may request multiple tool calls in one turn only for eligible
   public evidence batches. Mixed public/private/action batches are rejected as
   a whole before any tool starts.
+- Remote send disclosure policy is explicit: `OnRemoteModeSwitch`,
+  `EveryMessage`, `OncePerSession`, or `OnlyWhenSensitive`. Suspected
+  sensitive content is always forced through confirmation with mask-and-send,
+  send-anyway, and cancel choices; image sends always require confirmation.
+- Pending remote sends fail closed after restart; they are not replayed without
+  a fresh user action.
 - Private observations are synthesized locally and take precedence over generic
   replanning. Unknown privacy metadata fails closed as `LocalOnly`.
+- Low-risk phone-control replanning can use the verified `mobile-action-270m`
+  local action model. If the model is missing, fails, or produces no valid
+  draft, the runtime falls back to conservative rule planning.
 - Pending confirmations, redacted Skill plan shapes, value-free Skill
   checkpoints, and selected no-payload continuation cursors can restore after
   process death. Raw tool arguments, model output, private payload, and
@@ -372,9 +383,10 @@ Current status:
 - Active reminders and periodic-check state sync into deterministic
   `TaskState` records. User forget/clear creates suppression markers so refresh
   does not recreate deliberately removed records.
-- A semantic runtime controller can switch to verified EmbeddingGemma LiteRT
-  assets, persist vectors by `recordId + modelId`, and degrade back to lexical
-  recall if probing, indexing, or query embedding fails.
+- A semantic runtime controller can switch to verified EmbeddingGemma
+  `.tflite` plus `sentencepiece.model` assets, persist vectors by
+  `recordId + modelId`, and degrade back to lexical recall if probing,
+  indexing, or query embedding fails.
 - UI state distinguishes installed memory assets from active semantic recall,
   so a downloaded model is not presented as usable until probe/index succeeds.
 
@@ -504,6 +516,16 @@ Documentation coverage:
 - `AgentCoreDocumentationTest` enforces this document's top-level section order,
   required module anchors, existing test references, key boundary phrases, and
   the `query_background_tasks` privacy contract.
+
+AI behavior evidence:
+
+```bash
+scripts/verify_ai_behavior_eval.sh --require-boundary-map
+scripts/collect_ai_behavior_actual_trace.sh
+```
+
+- `docs/ai_behavior_eval_plan.md` owns fixture taxonomy, actual-trace
+  provenance, allowed-failure rules, and public release behavior-eval gates.
 
 Emulator regression:
 

@@ -37,6 +37,52 @@ report；screenshots 必须链接通过的 `release-screenshots` report，并且
 | bundledModels 真机 smoke | 2026-06-26 在 `fb6272c` 有手工/会话证据：`pm path` 显示 base 加四个 modelpack split，模型管理页显示四个模型 SHA 校验，E2B 加载到 GPU。该证据没有独立 machine-readable device smoke report 绑定 UI dump/screenshot/logcat。 | `2026-06-26 Bundled Model Package Developer Entry Points` |
 | 完整本地门禁 | 最近完整本地门禁条目是历史证据；新提交仍需按需重新运行 `scripts/verify_local.sh`。 | 见 2026-06-22 / 2026-06-23 本地 gate 条目 |
 | 真机 release evidence | 当前仍不能声明 release-passing physical evidence；物理 instrumentation、real-app pass rate 和 RC perf 仍是 release blockers。 | 见 `docs/release_readiness.md` |
+| 文档/发布记录合同 | 2026-06-28 已刷新 README、隐私、模型、真机验收、release readiness/checklist、AI behavior plan 和 pending 机器记录；本轮验证为本地文档/脚本/编译合同，不替代真机 release evidence。 | `2026-06-28 Documentation Refresh And Release Evidence Contract` |
+
+## 2026-06-28 Documentation Refresh And Release Evidence Contract
+
+本轮覆盖项：
+
+- README、文档索引、隐私声明、模型 manifest/profile、Agent core、bundledModels、真机验收、release readiness/checklist/blocker dashboard 与 AI behavior eval plan 已按当前 Solin 项目事实刷新。
+- `docs/release_validation_record.json` 降回 pending 结构，移除旧截图/模拟器证据绑定，避免把历史报告误当当前 RC 证据。
+- store/privacy review 相关 SHA 绑定已同步到当前隐私声明、模型 profile 和模型 manifest；审批状态仍保持 pending。
+- 品牌和描述口径统一为 `栖知 Solin` / Solin，旧品牌文字、旧 logo 路径特征和旧 glyph 命名扫描无命中。
+
+验证命令：
+
+```bash
+SUPERSEDED_BRAND_PATTERN=<historical-brand-and-logo-regex>
+rg -n --hidden -i -S "$SUPERSEDED_BRAND_PATTERN" \
+  README.md docs app/src scripts modelpack* -g '!**/build/**'
+jq empty docs/release_validation_record.json docs/store_policy_record.json \
+  docs/privacy_review.json docs/model_capability_profiles.json \
+  docs/capability_matrix.json docs/model_license_review.json \
+  docs/model_license_metadata.json docs/release_record.json \
+  docs/release_operations_record.json
+git diff --check
+bash -n scripts/package_bundled_models.sh scripts/install_and_test_device.sh \
+  scripts/install_review_device.sh scripts/verify_release_gate.sh \
+  scripts/verify_release_validation_record.sh scripts/verify_store_policy_record.sh \
+  scripts/verify_privacy_review.sh scripts/test_validation_scripts.sh
+./gradlew --no-daemon :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.docs.AgentCoreDocumentationTest \
+  --tests com.bytedance.zgx.solin.docs.ModelManifestDocumentationTest \
+  --tests com.bytedance.zgx.solin.docs.ModelCapabilityProfilesDocumentationTest \
+  --tests com.bytedance.zgx.solin.docs.CapabilityMatrixDocumentationTest
+scripts/test_validation_scripts.sh
+./gradlew --no-daemon :app:processDebugResources :app:compileDebugKotlin
+```
+
+结果：
+
+- 通过：旧品牌/旧 logo 特征扫描无命中。
+- 通过：JSON 记录全部可解析。
+- 通过：`git diff --check`。
+- 通过：相关脚本 `bash -n` 语法检查。
+- 通过：文档合同 JVM 测试。
+- 通过：`scripts/test_validation_scripts.sh`，输出 `Validation script tests passed.`。
+- 通过：`processDebugResources` 与 `compileDebugKotlin`。
+- 未执行：本轮没有新增真机 release validation、API matrix、50 task benchmark、RC perf 或人工系统入口验收；这些仍按 `docs/release_readiness.md` 和 `docs/release_checklist.md` 作为 release blockers。
 
 ## 2026-06-26 Bundled Model Package Developer Entry Points
 
@@ -4314,7 +4360,7 @@ scripts/verify_release_validation_record.sh --report build/verification/release-
   `SOLIN_LIVE_REMOTE_TARGET=device` 后才允许选择真机 serial。
 - live remote 输入坐标改为读取设备屏幕尺寸后按比例计算，覆盖 1200x2670 真机；
   成功路径也保存 screenshot、UI dump 和 logcat evidence。
-- 使用用户提供的远程模型配置做真机 live remote 验证；API key 只通过静默 stdin/env
+- 使用用户提供的远程模型配置做真机 live remote 验证；API key 只通过环境变量
   注入，报告和 artifact 不记录实际密钥。
 
 验证命令：
@@ -7151,7 +7197,7 @@ git diff --check
   提醒列表、任务历史、周期检查状态/策略请求；拒绝开启/关闭/取消、API、实现、文档、
   测试和解释类输入。
 - Trace / Skill private-output policy 将 `activeTaskCount/historyTaskCount/tasksJson/policyJson`
-  标记为私密输出，Agent observation 和 trace 中只保留红acted summary。
+  标记为私密输出，Agent observation 和 trace 中只保留脱敏摘要。
 
 验证命令：
 
@@ -13840,7 +13886,7 @@ adb exec-out screencap -p > /tmp/solin-positioning-first-screen.png
 - `MainActivitySmokeTest` 新增首页隐私入口打开 App 内隐私说明页的模拟器合同，并把
   首屏可滚动区域的能力胶囊断言改为滚动可达。
 - `docs/store_policy_record.json` 的 Store listing 草稿收敛为：
-  privacy-first pocket AI、local usable、optional remote multimodal、confirmed device actions。
+  privacy-first Solin phone-side AI、local usable、optional remote multimodal、confirmed device actions。
 - `verify_store_policy_record.sh` 新增 Store listing 主定位检查；脚本自测新增缺失主定位的负例。
 - `docs/privacy_notice.md` 开头从 internal testing 草稿口径收敛为 Android release candidate
   隐私边界说明；同步 store policy 和 privacy review 的 notice SHA / evidence SHA。

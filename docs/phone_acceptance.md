@@ -15,7 +15,7 @@
 flowchart TD
     Local["本地验证\nscripts/verify_local.sh"] --> Device["真机回归\ninstall_and_test_device.sh"]
     Device --> Manual["人工验收\n系统入口/模型/隐私/动作"]
-    Manual --> Perf["RC 性能基线\ncollect_perf_baseline.sh"]
+    Manual --> Perf["RC 性能基线\ncollect_rc_perf_from_device.sh"]
     Perf --> Gate["release gate\nverify_release_gate.sh"]
     Device -.debug only.-> DebugEval["Debug receiver boundary\ndevice-control / real-app search eval"]
     DebugEval -.not release validation.-> Gate
@@ -26,7 +26,7 @@ flowchart TD
 ## 连接设备
 
 1. 手机连续点击“版本号”打开开发者选项。
-2. 打开“USB 调试”。
+2. 打开“USB 调试”。如果使用无线调试，同时打开“无线调试”。
 3. 使用支持数据传输的 USB 线连接 Mac。
 4. 在手机弹窗中允许调试。
 5. 在仓库根目录确认设备：
@@ -42,6 +42,17 @@ export ANDROID_SERIAL=<physical-device-serial>
 ```
 
 小米 / HyperOS / MIUI 出现 `INSTALL_FAILED_USER_RESTRICTED` 时，在开发者选项里打开“USB 安装 / 通过 USB 安装”，并在安装确认弹窗中允许。
+
+无线调试时，配对端口和调试端口通常不同。先用手机上显示的配对码配对，再连接调试端口：
+
+```bash
+adb pair <phone-ip>:<pair-port>
+adb connect <phone-ip>:<debug-port>
+adb devices -l
+export ANDROID_SERIAL=<phone-ip>:<debug-port>
+```
+
+当前脚本把非 `emulator-*` serial 视作真机候选；无线真机同样需要授权状态为 `device`。
 
 ## 自动回归
 
@@ -61,13 +72,14 @@ ANDROID_SERIAL=<physical-device-serial> scripts/install_and_test_device.sh
 
 `doctor --device` 只检查 SDK 工具。设备选择、授权状态、ABI、可用空间、APK 安装、AndroidTest 安装、instrumentation 总数和 App 启动由 `install_and_test_device.sh` 检查。没有授权设备、设备 `offline` / `unauthorized`、未指定目标且存在多台设备时，脚本会在 Gradle 构建、安装和 instrumentation 前退出。
 
-默认脚本会保留 debug App 安装包，但在最终人工启动前执行 `pm clear` 清空 App 数据。这会删除私有存储中的模型文件、模型登记、远程配置、会话和消息。需要连旧安装包一起清理时使用：
+默认脚本使用 `adb install -r` 覆盖安装并保留 App 数据。只有显式设置
+`RESET_APP_DATA_AFTER_TESTS=1` 时，脚本才会在退出前执行 `pm clear`，这会删除私有存储中的模型文件、模型登记、远程配置、会话和消息。需要连旧安装包一起清理时使用：
 
 ```bash
 CLEAN_DEVICE=1 ANDROID_SERIAL=<physical-device-serial> scripts/install_and_test_device.sh
 ```
 
-需要保留测试后的数据、模型或远程配置时，显式设置：
+需要在报告中明确记录保留测试后的数据、模型或远程配置时，可显式设置：
 
 ```bash
 RESET_APP_DATA_AFTER_TESTS=0 ANDROID_SERIAL=<physical-device-serial> scripts/install_and_test_device.sh
@@ -85,7 +97,7 @@ scripts/install_and_test_device.sh
 
 ## 覆盖安装与人工安装
 
-人工查看当前 debug 包时，不要把完整 smoke 脚本作为最后一步；它默认清空 App 数据。使用只负责安装和报告的脚本：
+人工查看当前 debug 包时，不要把完整 smoke 脚本作为最后一步；它会运行 instrumentation，和人工安装证据不是同一口径。使用只负责安装和报告的脚本：
 
 ```bash
 ANDROID_SERIAL=<physical-device-serial> \
@@ -106,27 +118,21 @@ scripts/install_review_device.sh
 
 该报告会写 `target=manual-acceptance-install` 和 `regressionEvidence=false`，只能作为人工安装证据，不能作为 release physical regression evidence。
 
-内部 ad hoc release smoke 可以用 release 构建加本地临时签名覆盖安装，验证混淆/压缩后的 APK 能启动并保留 App 数据。该签名不等同于正式分发签名：
+正式包人工覆盖安装使用已签名 release APK。该路径保留 App 数据，不运行 instrumentation，不支持 debug receiver 注入远程配置：
 
 ```bash
-./gradlew :app:assembleRelease
+SOLIN_REVIEW_TARGET=device \
+SOLIN_REVIEW_APK_MODE=release \
+SOLIN_REVIEW_APK_PATH=<signed-release.apk> \
+ANDROID_SERIAL=<physical-device-serial> \
+ARTIFACT_DIR=build/verification/manual-acceptance-install-release-current \
+scripts/install_review_device.sh
+```
 
-BUILD_TOOLS="$ANDROID_SDK_ROOT/build-tools/36.0.0"
-UNSIGNED=app/build/outputs/apk/release/app-release-unsigned.apk
-ALIGNED=app/build/outputs/apk/release/app-release-local-aligned.apk
-SIGNED=app/build/outputs/apk/release/app-release-local-signed.apk
+内部 ad hoc release smoke 可以先使用签名 helper 在本地私有环境生成签名 APK，再用上面的 review install 路径覆盖安装。`ALLOW_DEBUG_KEYSTORE=1` 只适合本地 lab；正式签名必须设置生产 keystore 环境变量和 `EXPECTED_SIGNING_CERT_SHA256`：
 
-"$BUILD_TOOLS/zipalign" -p -f 4 "$UNSIGNED" "$ALIGNED"
-"$BUILD_TOOLS/apksigner" sign \
-  --ks "$HOME/.android/debug.keystore" \
-  --ks-key-alias androiddebugkey \
-  --ks-pass pass:android \
-  --key-pass pass:android \
-  --out "$SIGNED" \
-  "$ALIGNED"
-"$BUILD_TOOLS/apksigner" verify --verbose "$SIGNED"
-adb -s "$ANDROID_SERIAL" install -r "$SIGNED"
-adb -s "$ANDROID_SERIAL" shell am start -n com.bytedance.zgx.solin/.MainActivity
+```bash
+ALLOW_DEBUG_KEYSTORE=1 scripts/sign_release_artifacts.sh
 ```
 
 覆盖安装后重点确认：已有 Room/DataStore 状态、会话、远程配置和已下载模型按预期保留；如果之前选择过远程模式，需手动切回本地再判断 bundled/local 模型是否可用。
@@ -134,6 +140,8 @@ adb -s "$ANDROID_SERIAL" shell am start -n com.bytedance.zgx.solin/.MainActivity
 ## 隐私边界人工核对
 
 远程模型模式下，`记住：...` 只写入本地记忆，不应发送到远程模型。相关验收记录必须说明本地记忆、Accessibility 文本、OCR 摘录和截图派生内容的隐私等级；OCR 摘录属于 `LocalOnly`，只能用于本机一次性确认或本地处理路径。
+
+本地视觉验收需要单独覆盖：已校验且声明 vision 的本地聊天模型可在设备内处理用户主动选择的图片字节；不支持本地 vision 时不得读取图片字节、不得隐式 OCR、不得发送远程。远程 vision 仍必须经过逐次预览确认。
 
 ## 内置模型体验包
 
@@ -188,7 +196,7 @@ EMULATOR_ARGS= scripts/capture_x86_release_screenshots.sh
 ANDROID_SERIAL=emulator-5554 scripts/verify_emulator.sh
 ```
 
-真实远程模型 debug 检查使用 `scripts/live_remote_emulator.sh`。脚本默认只选 emulator；要在真机上跑必须显式设置 `SOLIN_LIVE_REMOTE_TARGET=device`。远程 base URL、model、API key 必须来自环境变量或静默 stdin，报告不得记录实际 key。
+真实远程模型 debug 检查使用 `scripts/live_remote_emulator.sh`。脚本默认只选 emulator；要在真机上跑必须显式设置 `SOLIN_LIVE_REMOTE_TARGET=device`。远程 base URL、model、API key 必须来自环境变量，报告不得记录实际 key。
 
 ```bash
 SOLIN_LIVE_REMOTE_TARGET=device \
@@ -217,7 +225,7 @@ ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
 - 每个失败 case 使用 `RealAppSearchCaseArtifact/v1`，包含 `failed_step`、debug receiver `result_file` 与 SHA-256、resolver evidence、diagnostics 目录、截图、UIAutomator XML、focused-window dump、logcat 路径和 SHA-256。
 - 淘宝、拼多多、高德、京东、Chrome、Android Browser、Quark、UC 是低风险搜索矩阵目标；未安装只记录 skipped。
 
-2026-06-27 无线真机补充记录：
+2026-06-27 无线真机补充记录，属于历史 debug readiness evidence：
 
 - 设备：`192.168.1.27:35537`，Xiaomi `23127PN0CC`，API 36，`arm64-v8a`。
 - 覆盖安装 connected tests 通过：
@@ -230,6 +238,7 @@ ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
   `build/verification/real-app-search-wireless-action-observation-final-20260627-125900/real-app-search-eval.properties`，
   `run_count=7`、`pass_count=7`、`skip_count=1`、`fail_count=0`。
 - 本轮使用 `adb install -r` 或 `SKIP_INSTALL=1`，未执行 `pm clear`，未删除已下载或已加载模型。
+- 该记录不替代 final signed RC physical validation、arm64 API matrix、50 task real-app benchmark、release owner sign-off 或 public release gate。
 
 ## 手工验收场景
 
@@ -243,7 +252,7 @@ ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
 
 聊天中只应追加安全摘要；结构化工具结果、allowlisted completion metadata
 和执行细节通过 Agent trace / audit 入口查看。Agent trace / audit 应提供足够的
-状态、工具名、风险、权限和红acted summary，不能暴露原始私密 payload。
+状态、工具名、风险、权限和脱敏摘要，不能暴露原始私密 payload。
 
 | 场景 | 必看点 |
 | --- | --- |
@@ -253,7 +262,7 @@ ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
 | 记忆 | `记住/忘记/清空` 只走本地控制路径；远程模式不得自动携带长期记忆文本或 embedding。语义记忆必须证明不是关键词召回。 |
 | 动作与 Skill | 中高风险和外发文本动作先确认；取消不执行；低风险公开 `web_search` 可无确认；混入私密或副作用工具的批次全批拒绝。 |
 | 系统入口 | 语音输入、系统文档选择器、MediaProjection 当前屏幕 OCR 必须在设备上点真实系统入口。 |
-| 多模态 | 文本/RTF/PDF/Office 只做有界本地摘录；图片仅在已验证本地视觉或逐次确认远程视觉时读取；音频/视频/未知二进制 metadata-only。 |
+| 多模态 | 文本/RTF/PDF/Office 只做有界本地摘录；图片仅在已验证本地视觉或逐次确认远程视觉时读取；覆盖 8 MB 单图、最多 5 张、unsupported local/remote vision fail-closed、图片不进入文本 prompt/history/audit；音频/视频/未知二进制 metadata-only。 |
 | 后台任务 | 提醒确认后才创建；Android 13+ 通知权限拒绝不误报成功；任务完成/失败/取消后的列表状态正确。 |
 | 资源入口 | compact 宽度从 `更多` 菜单进入；普通状态不显示大号百分比圆环；详情优先展示 App 内存、可用 RAM、App CPU、温度，高级 heap 指标靠后。 |
 
@@ -263,12 +272,21 @@ ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
 
 ## RC 性能基线
 
-正式 RC 需要把真机实测指标写成 `perf-baseline.properties`，并与签名 APK/AAB SHA-256 绑定。脚本只记录已测得的值，不生成推测值：
+正式 RC 主路径是 `scripts/collect_rc_perf_from_device.sh`。它安装 `rcPerfRelease` 测量 APK 但把 perf baseline 绑定到最终签名 RC artifact；脚本不清数据、不删除已下载模型，并要求 `RELEASE_ARTIFACT` 与 `APP_VERSION`：
+
+```bash
+ANDROID_SERIAL=<physical-device-serial> \
+RELEASE_ARTIFACT=app/build/outputs/apk/release/app-release-signed.apk \
+APP_VERSION=<versionName> \
+HARNESS_MODEL_ID=<installed-vision-chat-model-id> \
+scripts/collect_rc_perf_from_device.sh
+```
+
+`HARNESS_MODEL_ID` 可指定已安装且支持视觉输入的本地对话模型，例如 `chat-e4b`。该参数只决定本次只读 perf harness 加载哪个已安装模型，不修改用户当前 active model，不删除模型文件。底层手工 fallback 才直接调用 `collect_perf_baseline.sh`，且必须填入所有已测得字段，不生成推测值：
 
 ```bash
 OUT_FILE=build/verification/rc/perf-baseline.properties \
 RELEASE_ARTIFACT=app/build/outputs/apk/release/app-release-signed.apk \
-ANDROID_SERIAL=<physical-device-serial> \
 APP_VERSION=<versionName> \
 MODEL_ID=chat-e2b \
 BACKEND=GPU \
@@ -287,14 +305,19 @@ OOM_OR_ANR_OBSERVED=false \
 scripts/collect_perf_baseline.sh
 ```
 
-推荐用真机 harness 自动采集这些字段：
+正式 manual acceptance 和 release-flow 证据用脚本生成，不手写 JSON 片段。两个脚本都要求
+`OWNER`、`SOURCE_EVIDENCE_FILES`、`RELEASE_ARTIFACT_SHA256`，并且必须一次覆盖全部 required keys / flows 才能作为 passed release validation 证据：
 
 ```bash
-ANDROID_SERIAL=<physical-device-serial> \
-RELEASE_ARTIFACT=app/build/outputs/apk/release/app-release-signed.apk \
-APP_VERSION=<versionName> \
-HARNESS_MODEL_ID=<installed-vision-chat-model-id> \
-scripts/collect_rc_perf_from_device.sh
-```
+OWNER=<qa-owner> \
+SOURCE_EVIDENCE_FILES=<comma-separated-evidence-files> \
+RELEASE_ARTIFACT_SHA256=<signed-release-apk-sha256> \
+MANUAL_ACCEPTANCE_ALL=1 \
+scripts/record_manual_acceptance_evidence.sh
 
-`HARNESS_MODEL_ID` 可指定已安装且支持视觉输入的本地对话模型，例如 `chat-e4b`。该参数只决定本次只读 perf harness 加载哪个已安装模型，不修改用户当前 active model，不删除模型文件。
+OWNER=<qa-owner> \
+SOURCE_EVIDENCE_FILES=<comma-separated-evidence-files> \
+RELEASE_ARTIFACT_SHA256=<signed-release-apk-sha256> \
+RELEASE_FLOW_ALL=1 \
+scripts/record_release_flow_evidence.sh
+```

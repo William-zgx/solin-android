@@ -4,13 +4,18 @@ Localized release names:
 
 | Locale | App name | Subtitle |
 | --- | --- | --- |
-| Chinese | 栖知 | 让 AI 住在手机里 |
-| English | Solin | Quiet intelligence, close at hand. |
+| Chinese | 栖知 Solin | 让 AI 住在手机里 |
+| English | 栖知 Solin | Quiet intelligence, close at hand. |
+
+<p align="center">
+  <img src="docs/assets/solin_brand_lockup.png" alt="Solin brand lockup" width="280">
+</p>
 
 Solin is a privacy-first Android assistant. It can answer with local
-LiteRT-LM models, use a user-configured OpenAI-compatible remote endpoint, and
-run confirmed phone-side tools such as reminders, sharing, app navigation,
-screen text reads, OCR, contacts, calendar, and low-risk app search.
+LiteRT-LM Text+Vision chat models, use a user-configured OpenAI-compatible
+remote endpoint, and run confirmed phone-side tools such as reminders,
+sharing, app navigation, screen text reads, OCR, contacts, calendar, and
+low-risk app search.
 
 ![Cartoon Solin Android project visual: local AI stays on device, remote use is optional, and phone-side tools are confirmed.](docs/assets/solin-readme-hero.png)
 
@@ -20,8 +25,8 @@ optional remote endpoint, and confirmed phone-side tools._
 ## Product Contract
 
 - Local by default: chat history, memory, private tool results, screen text,
-  OCR excerpts, and attachment excerpts stay on device as `LocalOnly` unless
-  the user chooses a remote path.
+  OCR excerpts, local image inputs, and attachment excerpts stay on device as
+  `LocalOnly` unless the user chooses a remote path.
 - Remote is optional: remote chat works only after an endpoint is configured
   and remote mode is selected. Images, suspected sensitive text, and configured
   remote sends require the documented preview/confirmation policy.
@@ -29,7 +34,8 @@ optional remote endpoint, and confirmed phone-side tools._
   permission, disclosure, confirmation, audit, and fail-closed boundaries;
   high-risk device actions still require confirmation.
 - Models explicit: local chat needs a downloaded, imported, or bundled
-  `.litertlm` model. Memory/action assets do not replace a chat model.
+  `.litertlm` chat model. Recommended E2B/E4B chat models support bounded
+  local image input; memory/action assets do not replace a chat model.
 - Users stay in control: keys can be cleared, conversations and memories can
   be deleted, and release records track privacy/Data safety consistency.
 
@@ -52,6 +58,8 @@ flowchart LR
 ## Implementation Highlights
 
 - LiteRT-LM local chat with GPU/CPU fallback and explicit model loading.
+- Bounded local vision input for verified local chat models; unsupported
+  models fail closed instead of silently OCRing or uploading images.
 - OpenAI-compatible remote chat with local filtering of `LocalOnly` context.
 - Registry-driven tools, built-in Skills, local safety policy, redacted trace,
   and audit records.
@@ -60,12 +68,30 @@ flowchart LR
 - Internal `bundledModels` packaging can build a same-signature split set with
   pinned recommended model assets for lab validation.
 
+## Brand And Listing Contract
+
+The release display name is `栖知 Solin` in both Chinese and English locale
+resources. The current launcher, adaptive, monochrome, notification, and
+documentation preview assets use the square Solin mark on the unified
+background color. Public copy and screenshots should use the localized names:
+
+| Locale | Name | Subtitle |
+| --- | --- | --- |
+| zh-CN | 栖知 Solin | 让 AI 住在手机里 |
+| en-US | 栖知 Solin | Quiet intelligence, close at hand. |
+
+Before a release candidate, scan public docs, resources, and scripts for stale
+project names, stale package identifiers, placeholder store contacts, and
+superseded icon assets.
+
 ## First Screen And Trust Flow
 
 Solin opens into the assistant surface. The first-run path asks the user
-to choose remote setup, recommended local download, trusted model import, or an
-internal bundled-model package. Local model setup, remote sends, attachments,
-voice, memory, and tool execution remain visible user choices.
+to choose remote setup, recommended local download, trusted model import, or
+model management. A controlled `bundledModels` build can make local setup
+immediate for lab validation, but it is a package path rather than ordinary
+public release behavior. Local model setup, remote sends, attachments, voice,
+memory, and tool execution remain visible user choices.
 
 Scripted regression and manual acceptance must be recorded separately. Voice
 input, the Android system document picker, foreground prompts, and the
@@ -165,10 +191,10 @@ registered only after size and SHA-256 verification.
 
 | Capability | Artifact | Approximate size | Purpose |
 | --- | --- | ---: | --- |
-| Basic chat E2B | `.litertlm` chat model | 2.59 GB | Default local chat path |
-| Local memory | EmbeddingGemma `.tflite` + tokenizer | 184 MB | Semantic memory index when runtime probe succeeds |
-| Device action | `.litertlm` action model | 284 MB | Bounded action planning with rule fallback |
-| High-quality chat E4B | `.litertlm` chat model | 3.66 GB | Higher quality local chat option |
+| Basic chat E2B | `.litertlm` chat model | 2.59 GB | Default local Text+Vision chat path; each image is bounded before local runtime use |
+| Local memory | EmbeddingGemma `.tflite` + tokenizer | 184 MB | Semantic memory index only when both files verify and runtime probe succeeds |
+| Device action | `.litertlm` action model | 284 MB | Bounded action planning with rule fallback; not a chat model |
+| High-quality chat E4B | `.litertlm` chat model | 3.66 GB | Higher quality local Text+Vision chat option |
 
 Model files are not committed to Git. Ordinary Play/public release artifacts do
 not bundle model files. The internal `bundledModels` package is the documented
@@ -204,6 +230,14 @@ AVD_NAME=focus_agent_api36_arm64 scripts/regression_emulator.sh
 Record emulator regression as passed only when
 `regression-emulator.properties` contains `status=passed`.
 
+Release validation also needs the arm64 API matrix:
+
+```bash
+scripts/check_emulator_api_matrix.sh
+scripts/prepare_emulator_api_matrix.sh
+scripts/regression_emulator_api_matrix.sh
+```
+
 x86_64 emulator setup for local UI review on an x86 Linux workstation:
 
 ```bash
@@ -234,7 +268,7 @@ Add `INSTALL_ON_DEVICE=1 ANDROID_SERIAL=<device>` to overwrite-install the
 signed split set with `adb install-multiple --no-incremental -r`.
 Before sharing bundled-model artifacts outside local lab validation, refresh
 model license metadata and pass
-`VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`.
+`VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`.
 
 ## Release Paths
 

@@ -54,6 +54,25 @@ Because those split APKs contain model bytes, any handoff outside local lab
 validation must be treated as model redistribution and must be approved in
 `docs/model_license_review.json` before distribution.
 
+## Runtime Mapping
+
+Recommended profiles map to different runtime paths:
+
+- `chat-e2b` and `chat-e4b` are `.litertlm` local chat models. Their catalog
+  profiles declare Text+Vision input, so verified files can process bounded
+  user-provided image bytes on device.
+- `memory-embedding-gemma-300m` is not a chat model and is not a LiteRT-LM
+  conversational runtime. It uses an EmbeddingGemma `.tflite` primary file plus
+  the `sentencepiece.model` companion through the local text-embedding runtime.
+- `mobile-action-270m` is a `.litertlm` action-planning model. The runtime tries
+  the verified action model first and falls back to conservative rule planning
+  when the model is missing, fails to load, or produces no valid draft.
+
+For memory embedding, the companion tokenizer is part of the verification
+closure. Semantic memory becomes eligible only when the primary `.tflite`, the
+`sentencepiece.model` companion, catalog size/SHA checks, and runtime probe all
+succeed.
+
 ## Recommended Model Artifacts
 
 The table rows describe primary artifacts. Companion assets are listed below so
@@ -79,6 +98,12 @@ manual review boundary.
 Custom imported or custom URL models are user-supplied. They can be useful for
 local testing, but they are not covered by this manifest, the recommended-model
 SHA-256 guarantees, or the recommended-model license review.
+
+Custom URL downloads accept HTTPS `.litertlm` chat model URLs, with HTTP limited
+to local debug hosts. Local import is also restricted to `.litertlm` display
+names before copy. Custom imports are registered as unverified custom chat
+models and do not imply memory embedding, mobile action planning, or local
+vision support.
 
 ## Release Review Record
 

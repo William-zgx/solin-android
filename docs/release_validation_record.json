@@ -1,15 +1,15 @@
 {
   "version": 1,
-  "policy": "Public release builds require VERIFY_RELEASE_VALIDATION=1 and an approved validation record covering emulator, non-emulator physical device, manual acceptance, matrix coverage, and sanitized screenshots. Approved records must bind every linked report, evidence file, and screenshot by existing path and matching SHA-256; manual, flow, and performance entries must be structured evidence records, not bare status strings.",
+  "policy": "Public release builds require VERIFY_RELEASE_VALIDATION=1 and an approved validation record covering emulator, non-emulator physical device, manual acceptance, matrix coverage, and sanitized screenshots. Approved records must bind every linked report, evidence file, and screenshot by existing path and matching SHA-256; manual and flow entries must bind source evidence files by SHA-256; performance entries must be structured evidence records, not bare status strings. Physical-device release validation must prove a release APK installation by app_apk/app_apk_sha256 matching releaseArtifactSha256; an AAB SHA alone cannot be claimed as physical install evidence.",
   "status": "pending_validation",
   "emulatorRegression": {
-    "status": "passed",
-    "reportPath": "build/verification/goal-emulator-trust-center-final-rerun/regression-emulator.properties",
-    "reportSha256": "df6a7c11398710fa654396a2c952afb9e7dafc0a91441ae57d3059794290cf63",
-    "avd": "solin_api36_arm64",
-    "apiLevel": 36,
-    "abi": "arm64-v8a",
-    "cleanDevice": true
+    "status": "pending",
+    "reportPath": "",
+    "reportSha256": "",
+    "avd": "",
+    "apiLevel": 0,
+    "abi": "",
+    "cleanDevice": false
   },
   "physicalDevice": {
     "status": "pending",
@@ -18,7 +18,7 @@
     "serial": "",
     "apiLevel": 0,
     "abi": "",
-    "cleanDevice": true
+    "cleanDevice": false
   },
   "apiMatrix": [
     {
@@ -51,86 +51,298 @@
     },
     {
       "apiLevel": 36,
-      "status": "passed",
-      "evidence": "API 36 arm64 clean-device emulator regression passed 56 AndroidTest(s) on solin_api36_arm64 with source AndroidTest count matching the current regression report after Trust/Capability Center fixes.",
-      "evidencePath": "build/verification/goal-emulator-trust-center-final-rerun/regression-emulator.properties",
-      "evidenceSha256": "df6a7c11398710fa654396a2c952afb9e7dafc0a91441ae57d3059794290cf63"
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": ""
     }
   ],
   "manualAcceptance": {
-    "modelSetup": "pending",
-    "remoteModePrivacy": "pending",
-    "toolConfirmation": "pending",
-    "permissions": "pending",
-    "backgroundReminders": "pending",
-    "sharing": "pending",
-    "multimodalEntryPoints": "pending",
-    "voiceInput": "pending",
-    "filePicker": "pending",
-    "mediaProjection": "pending",
-    "remoteSinglePublicEvidence": "pending",
-    "remoteMultiEvidenceComparison": "pending",
-    "mixedPrivateActionBatchFailClosed": "pending"
+    "modelSetup": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "remoteModePrivacy": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "toolConfirmation": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "permissions": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "backgroundReminders": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "sharing": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "multimodalEntryPoints": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "voiceInput": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "filePicker": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "mediaProjection": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "remoteSinglePublicEvidence": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "remoteMultiEvidenceComparison": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "mixedPrivateActionBatchFailClosed": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    }
   },
   "flowMatrix": {
-    "firstInstall": "pending",
-    "upgradeInstall": "pending",
-    "localModelDownloadVerification": "pending",
-    "customModelImportOrUrlRejection": "pending",
-    "remoteHttpsConfiguration": "pending",
-    "encryptedApiKeyClear": "pending",
-    "sessionPersistence": "pending",
-    "memoryControls": "pending",
-    "privacyAndDataControls": "pending",
-    "remindersAfterReboot": "pending",
-    "shareAndPickerInput": "pending",
-    "voiceInput": "pending",
-    "adaptiveUi": "pending",
-    "accessibilityText": "pending",
-    "recentMediaOcr": "pending",
-    "mediaProjectionCancellation": "pending"
-  },
-  "screenshots": [
-    {
-      "name": "chat-home",
-      "path": "build/verification/release-screenshots-current/screenshots/chat-home.png",
-      "sha256": "b044f00b87ea9d237a3f700a78c48251b16ab78d2b81e798959b19c38aad6600",
-      "reportPath": "build/verification/release-screenshots-current/release-screenshots.properties",
-      "reportSha256": "f274bc04f8c730cae2aba783a0e763ae213094d1d4747c800093f6f79fe94b27",
-      "sanitized": true
+    "firstInstall": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
     },
-    {
-      "name": "model-manager",
-      "path": "build/verification/release-screenshots-current/screenshots/model-manager.png",
-      "sha256": "46ca9bf87c23b39ce77993425727476b5de16413be2066e1332800af7afbb972",
-      "reportPath": "build/verification/release-screenshots-current/release-screenshots.properties",
-      "reportSha256": "f274bc04f8c730cae2aba783a0e763ae213094d1d4747c800093f6f79fe94b27",
-      "sanitized": true
+    "upgradeInstall": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
     },
-    {
-      "name": "confirmation-sheet",
-      "path": "build/verification/release-screenshots-current/screenshots/confirmation-sheet.png",
-      "sha256": "34402a138904d1ab6abe192347d1218a08cd4fdb0a49d92e34eb8af1109d9c91",
-      "reportPath": "build/verification/release-screenshots-current/release-screenshots.properties",
-      "reportSha256": "f274bc04f8c730cae2aba783a0e763ae213094d1d4747c800093f6f79fe94b27",
-      "sanitized": true
+    "localModelDownloadVerification": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
     },
-    {
-      "name": "background-tasks-or-audit",
-      "path": "build/verification/release-screenshots-current/screenshots/background-tasks-or-audit.png",
-      "sha256": "cfa52a3942812a218c8589edc767ff9efc3873d493f30dbb3b540281eb2516a3",
-      "reportPath": "build/verification/release-screenshots-current/release-screenshots.properties",
-      "reportSha256": "f274bc04f8c730cae2aba783a0e763ae213094d1d4747c800093f6f79fe94b27",
-      "sanitized": true
+    "customModelImportOrUrlRejection": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "remoteHttpsConfiguration": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "encryptedApiKeyClear": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "sessionPersistence": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "memoryControls": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "privacyAndDataControls": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "remindersAfterReboot": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "shareAndPickerInput": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "voiceInput": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "adaptiveUi": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "accessibilityText": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "recentMediaOcr": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "mediaProjectionCancellation": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
     }
-  ],
+  },
+  "screenshots": [],
   "performanceSanity": {
-    "firstLaunch": "pending",
-    "modelLoad": "pending",
-    "firstToken": "pending",
-    "streamingStopCancel": "pending",
-    "backgroundReminderDelivery": "pending",
-    "memoryPressure": "pending"
+    "firstLaunch": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "modelLoad": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "firstToken": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "streamingStopCancel": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "backgroundReminderDelivery": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    },
+    "memoryPressure": {
+      "status": "pending",
+      "evidence": "",
+      "evidencePath": "",
+      "evidenceSha256": "",
+      "owner": "",
+      "date": ""
+    }
   },
   "review": {
     "reviewer": "",

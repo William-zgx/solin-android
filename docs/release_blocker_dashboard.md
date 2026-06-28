@@ -5,7 +5,7 @@ evidence; it does not close device, performance, signing, store, legal,
 privacy, or release-owner blockers by itself.
 
 - Roadmap source date: `2026-06-23`
-- Dashboard refreshed: `2026-06-27`
+- Dashboard refreshed: `2026-06-28`
 - Close rule: a blocker is closed only by linked evidence with owner/date/SHA-256, or by explicit release-owner risk acceptance recorded in the release record.
 - Final authority: `PUBLIC_RELEASE=1 ... scripts/verify_release_gate.sh`
 
@@ -38,16 +38,18 @@ privacy, or release-owner blockers by itself.
 ## Next Commands
 
 ```bash
-VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh
-VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh
-VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh
-VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
-VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh
-VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh
 scripts/check_emulator_api_matrix.sh
 scripts/prepare_emulator_api_matrix.sh
-RESET_APP_DATA_AFTER_TESTS=0 ANDROID_SERIAL=<physical-device-serial> scripts/install_and_test_device.sh
+scripts/regression_emulator_api_matrix.sh
+APP_APK_MODE=release APP_APK=<signed-release.apk> RELEASE_ARTIFACT_TYPE=apk RELEASE_ARTIFACT_SHA256=<apk-sha> RESET_APP_DATA_AFTER_TESTS=0 ANDROID_SERIAL=<physical-device-serial> scripts/install_and_test_device.sh
 ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
-ANDROID_SERIAL=<physical-device-serial> scripts/collect_rc_perf_from_device.sh
+RELEASE_ARTIFACT=<signed-rc-artifact> APP_VERSION=<version> ANDROID_SERIAL=<physical-device-serial> scripts/collect_rc_perf_from_device.sh
+scripts/collect_ai_behavior_actual_trace.sh
 PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production-upload-cert-sha256> PERF_BASELINE_FILE=<rc-perf-baseline.properties> AI_BEHAVIOR_ACTUAL_TRACE_FILE=<actual-trace.jsonl> scripts/verify_release_gate.sh
 ```

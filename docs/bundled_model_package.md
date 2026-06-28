@@ -43,7 +43,9 @@ approval says otherwise.
 
 ```bash
 scripts/collect_model_license_metadata.sh
-VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
+scripts/verify_model_license_review.sh
+# Or, when testing through the focused release gate:
+VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
 ```
 
 ## Contents
@@ -60,9 +62,15 @@ The package includes the pinned recommended model set from
 
 On first launch, `AssetBundledModelInstaller` reads
 `assets/solin-bundled-models/manifest.json`, copies bundled assets into the
-app model download directory, verifies size and SHA-256 against the catalog,
-registers the models as recommended verified models, and selects the default
-local E2B chat model when no previous active model exists.
+repository download-file location under the app's external files Downloads
+area, verifies size and SHA-256 against the catalog, registers the models as
+recommended verified models, and selects the default local E2B chat model when
+no previous active chat model exists.
+
+Already verified recommended models are skipped rather than overwritten. A
+failure for one recommended model does not stop the installer from attempting
+the remaining models; partial results are surfaced through the installer result
+and `failedModelIds`.
 
 Overwrite install preserves app data. If the user previously selected remote
 mode, that mode can remain active until the user switches back to local mode in
@@ -149,6 +157,16 @@ RELEASE_KEY_PASSWORD=<key-password> \
 scripts/package_bundled_models.sh
 ```
 
+Password files are preferred in private signing environments when available:
+
+```bash
+RELEASE_KEYSTORE=/secure/path/upload.jks \
+RELEASE_KEY_ALIAS=<alias> \
+RELEASE_KEYSTORE_PASSWORD_FILE=/secure/path/store-password.txt \
+RELEASE_KEY_PASSWORD_FILE=/secure/path/key-password.txt \
+scripts/package_bundled_models.sh
+```
+
 To overwrite-install on one authorized device while preserving app data and
 downloaded model data:
 
@@ -175,7 +193,8 @@ Signing boundary:
 - All five APKs must be signed by the same key.
 - The signing key must match the currently installed package for overwrite
   install.
-- Debug signing is only for local lab checks.
+- Debug signing is only for local lab checks and cannot overwrite a
+  production-signed install.
 - Signing does not approve model license, redistribution, attribution, store
   policy, or remote model access.
 
@@ -184,6 +203,10 @@ The script writes:
 ```text
 build/verification/bundled-models/package.properties
 ```
+
+That report records the compliance boundary, whether external distribution
+requires model-license approval, and the raw/signed SHA-256 values for the base
+APK plus four modelpack split APKs.
 
 ## Expected Device State
 
@@ -207,8 +230,9 @@ For a fresh or local-selected state, the home screen should show
 backend such as `backend=GPU` or a CPU fallback if the GPU backend fails.
 
 The semantic memory status is separate from file verification. The memory asset
-can be present and SHA-256 verified while the UI still reports `已安装待探测` or
-`已回退轻量索引` if the embedding runtime probe fails.
+can be present and SHA-256 verified while the UI still reports `已安装待探测`,
+`RuntimeUnavailable`, `ProbeFailed`, or `已回退轻量索引` if the embedding runtime
+probe fails.
 
 ## Boundaries
 

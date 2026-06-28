@@ -1,6 +1,6 @@
 # Privacy Notice
 
-This notice describes the privacy boundary implemented by Solin for
+This notice describes the privacy boundary implemented by `栖知 Solin` for
 Android release candidates. It is not a publication approval: public
 distribution still requires release, security, legal, store-policy, and support
 owner review for the exact build and channel.
@@ -49,6 +49,9 @@ Remote model API keys and Hugging Face read tokens are stored separately in
 Android Keystore-backed encrypted preferences. Clearing the relevant field
 removes the stored secret.
 
+The Android manifest sets `allowBackup=false`, so this codebase does not opt
+local app storage into Android cloud backup or app-data sync.
+
 ## Remote Model Mode
 
 Remote model mode sends requests only after the user-configured
@@ -81,6 +84,11 @@ Remote transport requires HTTPS, except for local debug hosts such as
 key is configured, the runtime sends it as an authorization credential to the
 configured endpoint. The endpoint operator's logging and retention policies
 apply.
+
+Local vision is separate from remote vision. A verified local chat model whose
+profile declares vision support can process user-provided image bytes on
+device, within the app's bounded size/count limits. Unsupported local vision
+paths fail closed instead of implicitly OCRing or uploading the image.
 
 ## Tool And Device Context Boundary
 
@@ -133,6 +141,11 @@ separate `RemoteEligible` message containing it.
 Current-screen screenshot OCR may return a fused LocalOnly screen observation
 that combines OCR text/bounds with transient Accessibility nodes/bounds; it
 does not persist screenshots, pixels, URI/path metadata, or window titles.
+Text-only OCR and screen evidence cannot directly bypass target validation for
+tap/type actions. When a post-action page-change check fails or the action
+target cannot be grounded, phone control fails closed or asks for a new
+confirmation instead of converting private screen evidence into `web_search`,
+external sends, or other outbound actions.
 
 ## External Intents And Attachments
 
@@ -150,9 +163,12 @@ layers, PDF scanned-page OCR fallback, and Office Open XML attachments may
 produce bounded local excerpts. Shared-input excerpts are staged as local
 composer drafts and are not sent to generation until the user taps send.
 
-Images are not written into prompts, history, audit, or receipts. Non-image
-attachments, shared text, text excerpts, and OCR excerpts are not read or sent
-on the remote image path. Explicit confirmed OCR tools remain separate.
+Images are not written into text prompts, chat history, audit, or receipts.
+They enter model requests only as bounded image bytes on a verified local
+vision path or as confirmed remote vision content parts on a configured remote
+vision path. Non-image attachments, shared text, text excerpts, and OCR
+excerpts are not read or sent on the remote image path. Explicit confirmed OCR
+tools remain separate.
 
 ## Model Downloads And Tokens
 

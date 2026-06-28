@@ -28,6 +28,9 @@ only summarizes current readiness and blockers.
 - Remote OpenAI-compatible `tool_calls` are revalidated locally. Public
   read-only evidence may continue remotely; mixed private/action batches fail
   closed before execution.
+- Public identity is unified as `栖知 Solin`; launcher/adaptive/round/
+  monochrome icons, docs preview images, and listing copy use the current Solin
+  mark and shared background color.
 - Privacy notice, release checklist, release records, store policy records,
   validation records, operations records, privacy review records, and model
   license review records exist and are wired into verifier scripts.
@@ -40,13 +43,14 @@ only summarizes current readiness and blockers.
 
 | Area | Current evidence | Caveat |
 | --- | --- | --- |
-| Local build gate | Historical local gates have passed `scripts/verify_local.sh`; see `docs/validation_report.md`. | Must be rerun for the current RC or working tree. |
-| Emulator regression | API 36 arm64 emulator regression has passed in prior evidence. | API 28/32/33/34 arm64 images and AVDs are still missing locally. |
-| Physical device | `fb6272c` has recent manual/debug evidence for resource UI, release APK overwrite install, and bundled split install. | Full physical instrumentation is not release-passing yet. |
-| Real-app search | Replay and debug evidence exist for supported shopping/map/browser surfaces. | Fresh physical real-app pass rate is still required. |
-| Bundled model package | On 2026-06-26, `fb6272c` installed base plus four modelpack splits; Model Manager showed E2B/E4B/memory/action assets as `SHA-256 已校验`; E2B loaded with `backend=GPU`. | Internal quick-experience evidence only. It is not Play/public release evidence, and external handoff still requires approved model license and redistribution review. |
-| Store/privacy/license | Records and verifiers exist. | Real owners, reviewers, public URLs, approvals, and model redistribution decisions remain pending. |
-| Perf | Perf baseline schema and verifier exist. | RC metrics must be measured on physical arm64 hardware. |
+| Local build gate | Historical local gates have passed `scripts/verify_local.sh`; see `docs/validation_report.md`. | Must be rerun for the current commit before an RC handoff. |
+| Brand/assets | Current source and docs use `栖知 Solin`, current Solin icon resources, and current docs preview images. | Store screenshots and final listing still need release-owner review and fresh screenshot evidence. |
+| Emulator regression | API 36 arm64 emulator/debug evidence exists in historical records. | Current validation record must not reuse stale reports that bind older package/brand state; API 28/32/33/34 arm64 matrix is still incomplete. |
+| Physical device | 2026-06-27 wireless API 36 debug/connected evidence exists with app data preserved. | It is partial readiness evidence, not final signed RC physical validation. |
+| Real-app search | Replay and debug evidence exist for supported shopping/map/browser surfaces. | Fresh physical real-app evidence and the required 50 task benchmark are still blockers. |
+| Bundled model package | Internal split package path exists and can install base plus four modelpack splits with same-signature `adb install-multiple --no-incremental -r`. | Internal quick-experience evidence only. It is not Play/public release evidence, and external handoff still requires approved model license and redistribution review. |
+| Store/privacy/license | Records and verifiers exist. | Real support contact, public privacy URL, reviewers, approvals, and model redistribution decisions remain pending. |
+| Perf | RC perf collector and verifier exist. | Final metrics must be measured on physical arm64 hardware against the final signed RC artifact with `runner=rc_perf_release_broadcast`. |
 
 ## Release Blockers
 
@@ -57,12 +61,13 @@ only summarizes current readiness and blockers.
 | Operations owner | Fill `docs/release_operations_record.json` with crash/ANR monitoring owner, rollout thresholds, first-24-hour watcher, and rollback plan. | `VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh`. |
 | Validation owner | Fill `docs/release_validation_record.json` with approved emulator regression, physical instrumentation, API matrix, manual acceptance, release-flow, screenshots, and perf sanity evidence. | `VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh`. |
 | Release, security, legal | Approve the current privacy notice and capability matrix. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`. |
-| Model/license reviewer | Verify license, attribution, notice, and redistribution rights for all recommended models. | `VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`. |
+| Model/license reviewer | Verify license, attribution, notice, and redistribution rights for all recommended models. | `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`. |
 | Signing owner | Configure production signing outside source control. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> scripts/verify_release_gate.sh`. |
-| Device validation owner | Resolve physical-device instrumentation instability and rerun on target arm64 hardware without resetting app data after tests. | Passing `RESET_APP_DATA_AFTER_TESTS=0 scripts/install_and_test_device.sh` report with instrumentation/logcat SHA bindings. |
+| Device validation owner | Rerun on target arm64 hardware against the final signed release APK without resetting app data after tests. | Passing `APP_APK_MODE=release APP_APK=<signed-release.apk> RELEASE_ARTIFACT_TYPE=apk RELEASE_ARTIFACT_SHA256=<apk-sha> RESET_APP_DATA_AFTER_TESTS=0 scripts/install_and_test_device.sh` report with instrumentation/logcat SHA bindings. |
 | CI / emulator owner | Prepare API 28/32/33/34 arm64 emulator images and AVDs. | `scripts/check_emulator_api_matrix.sh`, then `scripts/prepare_emulator_api_matrix.sh`, then matrix regression evidence. |
-| Performance owner | Collect RC load, first-token, throughput, memory, ANR/OOM, and GPU fallback measurements on physical arm64 hardware. | `scripts/collect_rc_perf_from_device.sh` report and `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh`. |
-| Release / model owner | If sharing the large bundled-model tester package, bind split APKs, signing certificate, model hashes, model license approval, and install smoke separately from Play artifacts. | `VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`, then `scripts/package_bundled_models.sh` report plus device smoke showing base plus four modelpack splits and verified models. |
+| Performance owner | Collect RC load, first-token, throughput, memory, ANR/OOM, GPU fallback, and 50k memory metrics on physical arm64 hardware. | `RELEASE_ARTIFACT=<signed-rc> APP_VERSION=<version> scripts/collect_rc_perf_from_device.sh` report and `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh`. |
+| AI behavior owner | Collect a fresh public-strict `agent_loop_runtime` actual trace for the current fixture set. | `scripts/collect_ai_behavior_actual_trace.sh` and strict `scripts/verify_ai_behavior_eval.sh` report with zero mismatches and zero unresolved allowed failures. |
+| Release / model owner | If sharing the large bundled-model tester package, bind split APKs, signing certificate, model hashes, model license approval, and install smoke separately from Play artifacts. | `VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`, then `scripts/package_bundled_models.sh` report plus device smoke showing base plus four modelpack splits and verified models. |
 
 ## Next Commands
 
@@ -70,13 +75,27 @@ only summarizes current readiness and blockers.
 scripts/verify_local.sh
 scripts/check_emulator_api_matrix.sh
 scripts/prepare_emulator_api_matrix.sh
-RESET_APP_DATA_AFTER_TESTS=0 ANDROID_SERIAL=<physical-device-serial> scripts/install_and_test_device.sh
+scripts/regression_emulator_api_matrix.sh
+scripts/sign_release_artifacts.sh
+APP_APK_MODE=release \
+APP_APK=<signed-release.apk> \
+RELEASE_ARTIFACT_TYPE=apk \
+RELEASE_ARTIFACT_SHA256=<signed-release-apk-sha256> \
+RESET_APP_DATA_AFTER_TESTS=0 \
+ANDROID_SERIAL=<physical-device-serial> \
+scripts/install_and_test_device.sh
 ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
-ANDROID_SERIAL=<physical-device-serial> scripts/collect_rc_perf_from_device.sh
-VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh
-VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh
-VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh
-VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
+RELEASE_ARTIFACT=<signed-rc-artifact> \
+APP_VERSION=<versionName-versionCode> \
+ANDROID_SERIAL=<physical-device-serial> \
+scripts/collect_rc_perf_from_device.sh
+scripts/collect_ai_behavior_actual_trace.sh
+VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_VALIDATION=1 scripts/verify_release_gate.sh
+VERIFY_PERF_BASELINE=0 VERIFY_RELEASE_OPERATIONS=1 scripts/verify_release_gate.sh
 PUBLIC_RELEASE=1 \
 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> \
 PERF_BASELINE_FILE=<rc perf baseline> \
