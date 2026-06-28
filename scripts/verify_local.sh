@@ -25,7 +25,7 @@ fi
 # lintDebug's lint models can reference Room/KSP release generated sources.
 # Generate them first so lint does not race assembleRelease for the same files.
 "$GRADLE_CMD" :app:kspReleaseKotlin
-"$GRADLE_CMD" testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease bundleRelease
+"$GRADLE_CMD" :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease
 
 DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
 RELEASE_APK="app/build/outputs/apk/release/app-release-unsigned.apk"

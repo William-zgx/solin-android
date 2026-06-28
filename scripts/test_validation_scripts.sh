@@ -1248,7 +1248,7 @@ LOW_INSTRUMENTATION_OUTPUT="$(printf 'INSTRUMENTATION_STATUS: numtests=%s\nOK (%
 HIGH_INSTRUMENTATION_OUTPUT="$(printf 'INSTRUMENTATION_STATUS: numtests=%s\nOK (%s tests)' "$HIGH_ANDROID_TEST_COUNT" "$HIGH_ANDROID_TEST_COUNT")"
 
 ksp_line="$(grep -n 'GRADLE_CMD.*:app:kspReleaseKotlin' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
-verify_line="$(grep -n 'GRADLE_CMD.*testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease bundleRelease' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
+verify_line="$(grep -n 'GRADLE_CMD.*:app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease' scripts/verify_local.sh | cut -d: -f1 | head -n 1)"
 if [[ -z "$ksp_line" || -z "$verify_line" || "$ksp_line" -ge "$verify_line" ]]; then
   fail "verify_local.sh must generate release KSP sources before lintDebug"
 fi
