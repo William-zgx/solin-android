@@ -24,13 +24,34 @@ interface CurrentScreenControlProvider {
         timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS,
     ): UiActionReadResult
 
+    fun tapWithOcrGrounding(
+        target: String,
+        ocrGroundingHint: UiOcrGroundingHint?,
+        timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS,
+    ): UiActionReadResult =
+        tap(target = target, timeoutMillis = timeoutMillis)
+
     fun typeText(
         text: String,
         target: String? = null,
         timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS,
     ): UiActionReadResult
 
+    fun typeTextWithOcrGrounding(
+        text: String,
+        target: String? = null,
+        ocrGroundingHint: UiOcrGroundingHint?,
+        timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS,
+    ): UiActionReadResult =
+        typeText(text = text, target = target, timeoutMillis = timeoutMillis)
+
     fun submitSearch(timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS): UiActionReadResult
+
+    fun submitSearchWithOcrGrounding(
+        ocrGroundingHint: UiOcrGroundingHint?,
+        timeoutMillis: Long = DEFAULT_UI_ACTION_TIMEOUT_MILLIS,
+    ): UiActionReadResult =
+        submitSearch(timeoutMillis = timeoutMillis)
 
     fun scroll(
         direction: UiScrollDirection,
@@ -52,6 +73,33 @@ data class ScreenBounds(
     val centerX: Int get() = left + ((right - left) / 2)
     val centerY: Int get() = top + ((bottom - top) / 2)
 }
+
+const val DEFAULT_OCR_GROUNDING_BOUNDS_COVERAGE = 0.55
+
+fun ScreenBounds.containsOcrGroundingBounds(
+    ocrBounds: ScreenBounds,
+    minOcrCoverage: Double = DEFAULT_OCR_GROUNDING_BOUNDS_COVERAGE,
+): Boolean {
+    val intersectionLeft = maxOf(left, ocrBounds.left)
+    val intersectionTop = maxOf(top, ocrBounds.top)
+    val intersectionRight = minOf(right, ocrBounds.right)
+    val intersectionBottom = minOf(bottom, ocrBounds.bottom)
+    val intersectionArea = (intersectionRight - intersectionLeft).coerceAtLeast(0) *
+        (intersectionBottom - intersectionTop).coerceAtLeast(0)
+    val ocrArea = (ocrBounds.right - ocrBounds.left).coerceAtLeast(0) *
+        (ocrBounds.bottom - ocrBounds.top).coerceAtLeast(0)
+    if (ocrArea <= 0) return false
+    return intersectionArea.toDouble() / ocrArea.toDouble() >= minOcrCoverage
+}
+
+data class UiOcrGroundingHint(
+    val observationId: String,
+    val packageName: String?,
+    val capturedAtMillis: Long?,
+    val elementId: String,
+    val text: String,
+    val bounds: ScreenBounds,
+)
 
 data class ScreenNode(
     val id: String,
@@ -122,6 +170,7 @@ enum class UiActionFailureKind(val schemaValue: String) {
     EditableNotFound("editable_not_found"),
     SubmitNotFound("submit_not_found"),
     ResultNotVerified("result_not_verified"),
+    DangerousAction("dangerous_action"),
     Unknown("unknown"),
 }
 
@@ -140,6 +189,8 @@ data class UiResolvedTarget(
     val bounds: ScreenBounds?,
     val confidence: Int,
     val reason: String,
+    val source: UiTargetEvidenceSource = UiTargetEvidenceSource.Accessibility,
+    val fallbackType: UiTargetFallbackType = UiTargetFallbackType.None,
 )
 
 data class UiTargetScoreComponents(
@@ -150,6 +201,7 @@ data class UiTargetScoreComponents(
     val positionScore: Int,
     val riskPenalty: Int,
     val noisePenalty: Int,
+    val fallbackPenalty: Int = 0,
     val finalScore: Int,
 )
 
@@ -157,6 +209,8 @@ data class UiTargetEvidenceCandidate(
     val nodeId: String?,
     val label: String,
     val bounds: ScreenBounds?,
+    val source: UiTargetEvidenceSource = UiTargetEvidenceSource.Accessibility,
+    val fallbackType: UiTargetFallbackType = UiTargetFallbackType.None,
     val clickable: Boolean,
     val editable: Boolean,
     val scrollable: Boolean,
@@ -218,6 +272,17 @@ class AndroidCurrentScreenControlProvider : CurrentScreenControlProvider {
             timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
         )
 
+    override fun tapWithOcrGrounding(
+        target: String,
+        ocrGroundingHint: UiOcrGroundingHint?,
+        timeoutMillis: Long,
+    ): UiActionReadResult =
+        SolinAccessibilityService.performTap(
+            target = target,
+            ocrGroundingHint = ocrGroundingHint,
+            timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
+        )
+
     override fun typeText(text: String, target: String?, timeoutMillis: Long): UiActionReadResult =
         SolinAccessibilityService.performTypeText(
             text = text.take(MAX_UI_TYPE_TEXT_CHARS),
@@ -225,9 +290,31 @@ class AndroidCurrentScreenControlProvider : CurrentScreenControlProvider {
             timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
         )
 
+    override fun typeTextWithOcrGrounding(
+        text: String,
+        target: String?,
+        ocrGroundingHint: UiOcrGroundingHint?,
+        timeoutMillis: Long,
+    ): UiActionReadResult =
+        SolinAccessibilityService.performTypeText(
+            text = text.take(MAX_UI_TYPE_TEXT_CHARS),
+            target = target?.trim()?.takeIf { it.isNotBlank() },
+            ocrGroundingHint = ocrGroundingHint,
+            timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
+        )
+
     override fun submitSearch(timeoutMillis: Long): UiActionReadResult =
         SolinAccessibilityService.performSubmitSearch(
             timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
+        )
+
+    override fun submitSearchWithOcrGrounding(
+        ocrGroundingHint: UiOcrGroundingHint?,
+        timeoutMillis: Long,
+    ): UiActionReadResult =
+        SolinAccessibilityService.performSubmitSearch(
+            timeoutMillis = timeoutMillis.coerceIn(MIN_UI_ACTION_TIMEOUT_MILLIS, MAX_UI_ACTION_TIMEOUT_MILLIS),
+            ocrGroundingHint = ocrGroundingHint,
         )
 
     override fun scroll(direction: UiScrollDirection, target: String?, timeoutMillis: Long): UiActionReadResult =

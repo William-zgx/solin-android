@@ -212,6 +212,20 @@ class MemoryRepositoryTest {
     }
 
     @Test
+    fun lexicalRuntimeDoesNotMaintainSemanticIndexStatsDuringBulkIndexing() {
+        val repository = MemoryRepository()
+
+        repeat(1_000) { index ->
+            repository.index("bulk-$index", "synthetic memory benchmark record $index lookup token")
+        }
+
+        assertFalse(repository.semanticMemoryEnabled)
+        assertEquals(0, repository.semanticMemoryIndexedRecordCount)
+        assertNull(repository.semanticMemoryLastRebuiltAtMillis)
+        assertTrue(repository.search("lookup token", topK = 10).isNotEmpty())
+    }
+
+    @Test
     fun semanticRuntimeCanRecallWithoutTokenOverlap() {
         val repository = MemoryRepository(embeddingRuntime = ConceptEmbeddingRuntime())
         repository.indexPreference("pref", "I prefer concise answers")

@@ -380,6 +380,56 @@ class ActionPlannerTest {
     }
 
     @Test
+    fun modelToolOutputNormalizesUiTargetCandidateMetadata() {
+        val tap = planner.parseModelToolOutput(
+            """call:ui_tap{"target":"搜索{target=search-submit,modeTags=tap,bounds=[1,2,3,4]}"}""",
+        )
+        val tapDraft = (tap as ModelToolOutputParseResult.Parsed).draft
+        assertEquals(MobileActionFunctions.UI_TAP, tapDraft.functionName)
+        assertEquals("search-submit", tapDraft.parameters["target"])
+
+        val typeText = planner.parseModelToolOutput(
+            """
+            call:ui_type_text{"target":"targetShortlist(type=search-input,tap=search-input|search-submit,ocrFallback=搜索)","text":"Kotlin"}
+            """.trimIndent(),
+        )
+        val typeTextDraft = (typeText as ModelToolOutputParseResult.Parsed).draft
+        assertEquals(MobileActionFunctions.UI_TYPE_TEXT, typeTextDraft.functionName)
+        assertEquals("search-input", typeTextDraft.parameters["target"])
+        assertEquals("Kotlin", typeTextDraft.parameters["text"])
+
+        val scroll = planner.parseModelToolOutput(
+            """call:ui_scroll{"direction":"down","target":"scroll=results-list"}""",
+        )
+        val scrollDraft = (scroll as ModelToolOutputParseResult.Parsed).draft
+        assertEquals(MobileActionFunctions.UI_SCROLL, scrollDraft.functionName)
+        assertEquals("results-list", scrollDraft.parameters["target"])
+    }
+
+    @Test
+    fun modelOutputParsesPrimitiveJsonAndNormalizesUiTargetMetadata() {
+        val draft = planner.parseModelOutput(
+            """call:ui_tap{"target":"target=search-submit","timeoutMillis":1500}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.UI_TAP, draft.functionName)
+        assertEquals("search-submit", draft.parameters["target"])
+        assertEquals("1500", draft.parameters["timeoutMillis"])
+    }
+
+    @Test
+    fun modelToolOutputLeavesNonUiTargetParametersUnchanged() {
+        val draft = planner.parseModelOutput(
+            """call:open_system_settings{"target":"target=network"}""",
+        )
+
+        requireNotNull(draft)
+        assertEquals(MobileActionFunctions.OPEN_SYSTEM_SETTINGS, draft.functionName)
+        assertEquals("target=network", draft.parameters["target"])
+    }
+
+    @Test
     fun rejectsUnsupportedFunctionCalls() {
         assertNull(planner.parseModelOutput("""call:delete_contact{"name":"A"}"""))
     }

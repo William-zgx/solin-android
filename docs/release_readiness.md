@@ -59,9 +59,9 @@ only summarizes current readiness and blockers.
 | Release, security, legal | Approve the current privacy notice and capability matrix. | `VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh`. |
 | Model/license reviewer | Verify license, attribution, notice, and redistribution rights for all recommended models. | `VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`. |
 | Signing owner | Configure production signing outside source control. | `PUBLIC_RELEASE=1 EXPECTED_SIGNING_CERT_SHA256=<production upload cert> scripts/verify_release_gate.sh`. |
-| Device validation owner | Resolve physical-device instrumentation instability and rerun on target arm64 hardware. | Passing `scripts/install_and_test_device.sh` report with instrumentation/logcat SHA bindings. |
+| Device validation owner | Resolve physical-device instrumentation instability and rerun on target arm64 hardware without resetting app data after tests. | Passing `RESET_APP_DATA_AFTER_TESTS=0 scripts/install_and_test_device.sh` report with instrumentation/logcat SHA bindings. |
 | CI / emulator owner | Prepare API 28/32/33/34 arm64 emulator images and AVDs. | `scripts/check_emulator_api_matrix.sh`, then `scripts/prepare_emulator_api_matrix.sh`, then matrix regression evidence. |
-| Performance owner | Collect RC load, first-token, throughput, memory, ANR/OOM, and GPU fallback measurements on physical arm64 hardware. | `scripts/collect_perf_baseline.sh` report and `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh`. |
+| Performance owner | Collect RC load, first-token, throughput, memory, ANR/OOM, and GPU fallback measurements on physical arm64 hardware. | `scripts/collect_rc_perf_from_device.sh` report and `PERF_BASELINE_FILE=... scripts/verify_release_gate.sh`. |
 | Release / model owner | If sharing the large bundled-model tester package, bind split APKs, signing certificate, model hashes, model license approval, and install smoke separately from Play artifacts. | `VERIFY_MODEL_LICENSES=1 scripts/verify_release_gate.sh`, then `scripts/package_bundled_models.sh` report plus device smoke showing base plus four modelpack splits and verified models. |
 
 ## Next Commands
@@ -70,9 +70,9 @@ only summarizes current readiness and blockers.
 scripts/verify_local.sh
 scripts/check_emulator_api_matrix.sh
 scripts/prepare_emulator_api_matrix.sh
-ANDROID_SERIAL=<physical-device-serial> scripts/install_and_test_device.sh
+RESET_APP_DATA_AFTER_TESTS=0 ANDROID_SERIAL=<physical-device-serial> scripts/install_and_test_device.sh
 ANDROID_SERIAL=<physical-device-serial> scripts/run_real_app_search_eval.sh
-ANDROID_SERIAL=<physical-device-serial> scripts/collect_perf_baseline.sh
+ANDROID_SERIAL=<physical-device-serial> scripts/collect_rc_perf_from_device.sh
 VERIFY_RELEASE_RECORD=1 scripts/verify_release_gate.sh
 VERIFY_STORE_POLICY=1 scripts/verify_release_gate.sh
 VERIFY_PRIVACY_REVIEW=1 scripts/verify_release_gate.sh

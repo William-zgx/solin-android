@@ -7,6 +7,7 @@ EXPECTED_ARTIFACT_SHA256=""
 EXPECTED_APP_VERSION=""
 PERFORMANCE_KEY="${PERFORMANCE_KEY:-}"
 MAX_RECORD_AGE_DAYS="${MAX_RECORD_AGE_DAYS:-30}"
+REQUIRE_RC_PERF_PROVENANCE="${REQUIRE_RC_PERF_PROVENANCE:-0}"
 EVIDENCE_OWNER="${EVIDENCE_OWNER:-${OWNER:-release-engineering}}"
 ORIGINAL_ARGS=("$@")
 
@@ -34,6 +35,9 @@ failed_target_for_reason() {
       printf 'baseline-file'
       ;;
     artifact-schema-invalid|target-invalid|reproducible-path-mismatch)
+      printf 'baseline-provenance'
+      ;;
+    rc-perf-*|runner-missing|preserves_model_data-missing|harnessResultSha256-missing|rcPerfCollectorReportFile-missing)
       printf 'baseline-provenance'
       ;;
     *-missing)
@@ -179,10 +183,20 @@ required_fields=(
   gpuFallbackStatus
   visionInputMs
   memorySearch5kMs
+  zvecMemoryIndex50kMs
+  zvecMemorySearch50kMs
   memoryPeakMb
   oomOrAnrObserved
   recordedAt
 )
+if [[ "$REQUIRE_RC_PERF_PROVENANCE" == "1" ]]; then
+  required_fields+=(
+    runner
+    preserves_model_data
+    harnessResultSha256
+    rcPerfCollectorReportFile
+  )
+fi
 
 missing=0
 if [[ -n "$PERFORMANCE_KEY" ]]; then
@@ -211,6 +225,29 @@ fi
 if ! grep -qx 'target=perf-baseline-record' "$BASELINE_FILE"; then
   echo "Perf baseline target must be perf-baseline-record." >&2
   record_failure "target-invalid"
+fi
+
+if [[ "$REQUIRE_RC_PERF_PROVENANCE" == "1" ]]; then
+  collection_command="$(awk -F= '$1 == "collectionCommand" {print $2; exit}' "$BASELINE_FILE")"
+  if [[ "$collection_command" != "scripts/collect_rc_perf_from_device.sh" ]]; then
+    echo "RC perf baseline collectionCommand must be scripts/collect_rc_perf_from_device.sh." >&2
+    record_failure "rc-perf-collection-command-invalid"
+  fi
+  runner="$(awk -F= '$1 == "runner" {print $2; exit}' "$BASELINE_FILE")"
+  if [[ "$runner" != "rc_perf_release_broadcast" ]]; then
+    echo "RC perf baseline runner must be rc_perf_release_broadcast." >&2
+    record_failure "rc-perf-runner-invalid"
+  fi
+  preserves_model_data="$(awk -F= '$1 == "preserves_model_data" {print $2; exit}' "$BASELINE_FILE")"
+  if [[ "$preserves_model_data" != "true" ]]; then
+    echo "RC perf baseline must preserve model data." >&2
+    record_failure "rc-perf-preserves-model-data-invalid"
+  fi
+  harness_result_sha="$(awk -F= '$1 == "harnessResultSha256" {print $2; exit}' "$BASELINE_FILE")"
+  if [[ -n "$harness_result_sha" && ! "$harness_result_sha" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "RC perf baseline harnessResultSha256 must be a SHA-256 hex digest." >&2
+    record_failure "rc-perf-harness-result-sha-invalid"
+  fi
 fi
 
 reproducible_path="$(awk -F= '$1 == "reproduciblePath" {print $2; exit}' "$BASELINE_FILE")"
@@ -307,6 +344,8 @@ numeric_fields=(
   stopGenerationRecoveryMs
   visionInputMs
   memorySearch5kMs
+  zvecMemoryIndex50kMs
+  zvecMemorySearch50kMs
   memoryPeakMb
 )
 

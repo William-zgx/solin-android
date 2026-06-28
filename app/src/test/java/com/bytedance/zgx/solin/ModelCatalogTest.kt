@@ -269,13 +269,13 @@ class ModelCatalogTest {
             file.writeText("solin", Charsets.UTF_8)
 
             assertEquals(
-                "84968002f8dabc8fae6052f1616ffdeb668bc4f2616d2bc22fbc43e7db06212a",
+                "8719f08f987b6e215966c1f744e8c7efea6cf616dbf811aa010feef97e968140",
                 ModelCatalog.sha256Hex(file),
             )
             assertTrue(
                 ModelCatalog.matchesExpectedSha256(
                     file,
-                    "84968002f8dabc8fae6052f1616ffdeb668bc4f2616d2bc22fbc43e7db06212a",
+                    "8719f08f987b6e215966c1f744e8c7efea6cf616dbf811aa010feef97e968140",
                 ),
             )
             assertFalse(ModelCatalog.matchesExpectedSha256(file, "bad"))

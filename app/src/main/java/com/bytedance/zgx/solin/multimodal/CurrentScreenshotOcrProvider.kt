@@ -31,6 +31,11 @@ interface CurrentScreenshotOcrProvider {
 
     fun clearOneShotConsent(requestId: String)
 
+    fun hasOneShotConsent(
+        requestId: String,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): Boolean
+
     fun captureCurrentScreenshotOcr(
         requestId: String,
         nowMillis: Long = System.currentTimeMillis(),
@@ -77,6 +82,9 @@ class AndroidCurrentScreenshotOcrProvider(
     override fun clearOneShotConsent(requestId: String) {
         pendingConsent.clear(requestId)
     }
+
+    override fun hasOneShotConsent(requestId: String, nowMillis: Long): Boolean =
+        pendingConsent.has(requestId, nowMillis)
 
     override fun captureCurrentScreenshotOcr(
         requestId: String,
@@ -188,17 +196,32 @@ internal class RequestBoundOneShotConsentStore<T>(
         }
     }
 
+    fun has(requestId: String, nowMillis: Long): Boolean {
+        while (true) {
+            val current = pending.get() ?: return false
+            if (current.requestId != requestId) return false
+            if (!current.isFresh(nowMillis)) {
+                if (pending.compareAndSet(current, null)) return false
+                continue
+            }
+            return true
+        }
+    }
+
     fun consume(requestId: String, nowMillis: Long): T? {
         while (true) {
             val current = pending.get() ?: return null
             if (current.requestId != requestId) return null
-            if (nowMillis < current.issuedAtMillis || nowMillis - current.issuedAtMillis > ttlMillis) {
+            if (!current.isFresh(nowMillis)) {
                 if (pending.compareAndSet(current, null)) return null
                 continue
             }
             if (pending.compareAndSet(current, null)) return current.data
         }
     }
+
+    private fun RequestBoundOneShotConsent<T>.isFresh(nowMillis: Long): Boolean =
+        nowMillis >= issuedAtMillis && nowMillis - issuedAtMillis <= ttlMillis
 }
 
 private data class RequestBoundOneShotConsent<T>(

@@ -42,6 +42,7 @@ done
 python3 - "$SOURCE_REPORT" "$REPORT_FILE" "$EVIDENCE_OWNER" "$(command_line)" <<'PY'
 import hashlib
 import json
+import os
 import re
 import sys
 from collections import Counter
@@ -52,6 +53,7 @@ source_report = Path(sys.argv[1])
 verification_report = sys.argv[2]
 owner = sys.argv[3]
 command = sys.argv[4]
+require_50_task_benchmark = os.environ.get("REQUIRE_REAL_APP_50_TASK_BENCHMARK", "0") == "1"
 
 EXPECTED_CASES = [
     "taobao",
@@ -161,10 +163,61 @@ def validate_ranked_candidates_json(path, failures, *, context):
         failures.append(f"ranked-candidates-json-missing-candidates:{context}")
 
 
+def validate_task_benchmark(path, expected_sha, failures, metrics):
+    if not path:
+        failures.append("taskbench-file-missing")
+        return
+    benchmark_path = Path(path)
+    if not benchmark_path.is_file():
+        failures.append("taskbench-file-missing")
+        return
+    if not expected_sha:
+        failures.append("taskbench-sha-missing")
+    elif not HEX64.match(expected_sha):
+        failures.append("taskbench-sha-invalid")
+    elif sha256_file(benchmark_path) != expected_sha:
+        failures.append("taskbench-sha-mismatch")
+    try:
+        document = json.loads(benchmark_path.read_text(encoding="utf-8"))
+    except Exception:
+        failures.append("taskbench-json-invalid")
+        return
+    if document.get("artifactSchema") != "RealAppTaskBenchmark/v1":
+        failures.append("taskbench-schema-mismatch")
+    tasks = document.get("tasks")
+    if not isinstance(tasks, list):
+        failures.append("taskbench-tasks-missing")
+        return
+    metrics["task_benchmark_count"] = len(tasks)
+    if len(tasks) < 50:
+        failures.append("taskbench-count-too-low")
+    task_ids = []
+    for index, task in enumerate(tasks):
+        if not isinstance(task, dict):
+            failures.append(f"taskbench-task-invalid:{index}")
+            continue
+        task_id = str(task.get("taskId", ""))
+        if not task_id:
+            failures.append(f"taskbench-task-id-missing:{index}")
+        task_ids.append(task_id)
+        for key in ("app", "packageName", "query", "reward"):
+            if not str(task.get(key, "")):
+                failures.append(f"taskbench-task-field-missing:{task_id or index}:{key}")
+        evidence_sha = str(task.get("evidenceSha256", ""))
+        if not evidence_sha:
+            failures.append(f"taskbench-task-field-missing:{task_id or index}:evidenceSha256")
+        elif not HEX64.match(evidence_sha):
+            failures.append(f"taskbench-task-evidence-sha-invalid:{task_id or index}")
+    if len(set(task_ids)) != len(task_ids):
+        failures.append("taskbench-task-ids-duplicate")
+
+
 def failed_target_for(reason):
     first = reason.split(",", 1)[0] if reason else ""
     if not first:
         return ""
+    if first.startswith("taskbench-"):
+        return "real-app-50-task-benchmark"
     if first.startswith(("missing-real-app-search-report", "report-", "source-")):
         return "real-app-search-report"
     if "diagnostics" in first:
@@ -383,6 +436,10 @@ def write_report(status, reason, metrics, source_props):
         f"rankedCandidatesArtifactCount={len(metrics['ranked_candidate_files'])}",
         f"targetResolutionEvidenceCount={len(metrics['target_resolution_evidence_files'])}",
         f"diagnosticsArtifactCount={len(metrics['diagnostics_files'])}",
+        f"require50TaskBenchmark={int(require_50_task_benchmark)}",
+        f"taskBenchmarkFile={source_props.get('task_benchmark_file', '')}",
+        f"taskBenchmarkSha256={source_props.get('task_benchmark_sha256', '')}",
+        f"taskBenchmarkCount={metrics['task_benchmark_count']}",
         f"failureKindBreakdown={failure_breakdown}",
     ]
     report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -402,6 +459,7 @@ metrics = {
     "ranked_candidate_files": set(),
     "target_resolution_evidence_files": set(),
     "diagnostics_files": set(),
+    "task_benchmark_count": 0,
 }
 
 if not source_report.is_file():
@@ -506,6 +564,14 @@ if source_props:
                 required=True,
                 counted=metrics["diagnostics_files"],
             )
+
+    if require_50_task_benchmark:
+        validate_task_benchmark(
+            source_props.get("task_benchmark_file", ""),
+            source_props.get("task_benchmark_sha256", ""),
+            failures,
+            metrics,
+        )
 
 reason = ",".join(failures)
 status = "failed" if failures else "passed"

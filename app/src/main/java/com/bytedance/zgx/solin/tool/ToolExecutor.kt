@@ -31,17 +31,29 @@ import com.bytedance.zgx.solin.device.RecentImageTextProvider
 import com.bytedance.zgx.solin.device.RecentImageTextReadResult
 import com.bytedance.zgx.solin.device.AppSearchResultVerifier
 import com.bytedance.zgx.solin.device.SearchResultVerification
+import com.bytedance.zgx.solin.device.ScreenBounds
+import com.bytedance.zgx.solin.device.ScreenNode
 import com.bytedance.zgx.solin.device.ScreenStateReadResult
 import com.bytedance.zgx.solin.device.ScreenStateSnapshot
+import com.bytedance.zgx.solin.device.UiActionExecutionResult
 import com.bytedance.zgx.solin.device.UiActionFailureKind
 import com.bytedance.zgx.solin.device.UiActionReadResult
 import com.bytedance.zgx.solin.device.UiActionStatus
+import com.bytedance.zgx.solin.device.UiOcrGroundingHint
 import com.bytedance.zgx.solin.device.UiScrollDirection
+import com.bytedance.zgx.solin.device.hasDangerousActionControl
+import com.bytedance.zgx.solin.device.hasOcrDangerousActionText
+import com.bytedance.zgx.solin.device.hasSearchSubmitContext
+import com.bytedance.zgx.solin.device.hasTargetlessTypingContext
+import com.bytedance.zgx.solin.device.height
+import com.bytedance.zgx.solin.device.normalizedLookupKey
 import com.bytedance.zgx.solin.device.toScreenNodesJsonString
 import com.bytedance.zgx.solin.device.toScreenObservationJsonString
+import com.bytedance.zgx.solin.device.width
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrProvider
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrReadResult
+import com.bytedance.zgx.solin.multimodal.OcrTextBlock
 import com.bytedance.zgx.solin.multimodal.toOcrBlocksJsonString
 import org.json.JSONArray
 import org.json.JSONObject
@@ -51,6 +63,8 @@ private const val MAX_NOTIFICATION_SUMMARY_COUNT = 20
 private const val DEFAULT_BACKGROUND_TASK_QUERY_COUNT = 20
 private const val MAX_BACKGROUND_TASK_QUERY_COUNT = 50
 private const val BACKGROUND_TASK_METADATA_POLICY = "background_tasks_local_only_no_reminder_body"
+private const val CURRENT_SCREEN_OCR_GROUNDING_TTL_MILLIS = 15_000L
+private const val OCR_GROUNDING_SIGNATURE_MAX_ELEMENTS = 24
 
 interface ToolExecutor {
     fun execute(request: ToolRequest): ToolResult
@@ -70,7 +84,16 @@ class RoutingToolExecutor(
     private val currentScreenshotOcrProvider: CurrentScreenshotOcrProvider? = null,
     private val currentScreenControlProvider: CurrentScreenControlProvider? = null,
     private val toolRegistry: ToolRegistry = ToolRegistry(),
+    private val clockMillis: () -> Long = { System.currentTimeMillis() },
 ) : ToolExecutor {
+    private val currentScreenOcrGroundingCache = CurrentScreenOcrGroundingCache(clockMillis)
+    private val currentScreenControlProviderWithOcrGrounding =
+        currentScreenControlProvider?.let { provider ->
+            OcrGroundingCurrentScreenControlProvider(
+                delegate = provider,
+                cache = currentScreenOcrGroundingCache,
+            )
+        }
     private val calendarAvailabilityToolExecutor =
         CalendarAvailabilityToolExecutor(calendarAvailabilityProvider)
     private val foregroundAppToolExecutor = ForegroundAppToolExecutor(foregroundAppProvider)
@@ -86,12 +109,22 @@ class RoutingToolExecutor(
     private val currentScreenTextToolExecutor =
         currentScreenTextProvider?.let(::CurrentScreenTextToolExecutor)
     private val currentScreenshotOcrToolExecutor =
-        CurrentScreenshotOcrToolExecutor(currentScreenshotOcrProvider)
+        CurrentScreenshotOcrToolExecutor(
+            provider = currentScreenshotOcrProvider,
+            currentScreenControlProvider = currentScreenControlProvider,
+            clockMillis = clockMillis,
+        )
     private val deviceControlToolExecutor =
-        DeviceControlToolExecutor(currentScreenControlProvider)
+        DeviceControlToolExecutor(
+            provider = currentScreenControlProviderWithOcrGrounding,
+            preflightProvider = currentScreenControlProvider,
+        )
 
     override fun execute(request: ToolRequest): ToolResult {
         if (request.isDeviceControlTool()) return deviceControlToolExecutor.execute(request)
+        if (request.toolName != MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR) {
+            currentScreenOcrGroundingCache.clear()
+        }
         return when (request.toolName) {
             MobileActionFunctions.QUERY_CALENDAR_AVAILABILITY ->
                 calendarAvailabilityToolExecutor.execute(request)
@@ -133,7 +166,9 @@ class RoutingToolExecutor(
                     )
 
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR ->
-                currentScreenshotOcrToolExecutor.execute(request)
+                currentScreenshotOcrToolExecutor.execute(request).also { result ->
+                    currentScreenOcrGroundingCache.updateFrom(result)
+                }
 
             else -> delegate.execute(request)
         }
@@ -142,6 +177,442 @@ class RoutingToolExecutor(
     private fun ToolRequest.isDeviceControlTool(): Boolean =
         toolRegistry.specFor(toolName)?.capability == ToolCapability.DeviceControl
 }
+
+private class OcrGroundingCurrentScreenControlProvider(
+    private val delegate: CurrentScreenControlProvider,
+    private val cache: CurrentScreenOcrGroundingCache,
+) : CurrentScreenControlProvider {
+    override fun observeCurrentScreen(maxTextChars: Int, maxNodes: Int): ScreenStateReadResult {
+        cache.clear()
+        return delegate.observeCurrentScreen(maxTextChars = maxTextChars, maxNodes = maxNodes)
+    }
+
+    override fun tap(target: String, timeoutMillis: Long): UiActionReadResult {
+        val validationSnapshot = ocrGroundingValidationSnapshot()
+        val hint = cache.consumeFor(target, currentSnapshot = validationSnapshot)
+        hint.rejectDangerousOcrAction(validationSnapshot)?.let { return it }
+        return delegate.tapWithOcrGrounding(
+            target = target,
+            ocrGroundingHint = hint,
+            timeoutMillis = timeoutMillis,
+        )
+    }
+
+    override fun tapWithOcrGrounding(
+        target: String,
+        ocrGroundingHint: UiOcrGroundingHint?,
+        timeoutMillis: Long,
+    ): UiActionReadResult {
+        val validationSnapshot = ocrGroundingValidationSnapshot()
+        val hint = ocrGroundingHint ?: cache.consumeFor(
+                target,
+                currentSnapshot = validationSnapshot,
+            )
+        hint.rejectDangerousOcrAction(validationSnapshot)?.let { return it }
+        return delegate.tapWithOcrGrounding(
+            target = target,
+            ocrGroundingHint = hint,
+            timeoutMillis = timeoutMillis,
+        )
+    }
+
+    override fun typeText(text: String, target: String?, timeoutMillis: Long): UiActionReadResult {
+        val validationSnapshot = ocrGroundingValidationSnapshot()
+        val hint = if (target.isNullOrBlank()) {
+            cache.consumeForSearchEntry(currentSnapshot = validationSnapshot)
+        } else {
+            cache.consumeFor(target, currentSnapshot = validationSnapshot)
+        }
+        hint.rejectDangerousOcrAction(validationSnapshot)?.let { return it }
+        validationSnapshot.rejectTargetlessTypingWithoutContext(target, hint)?.let { return it }
+        return delegate.typeTextWithOcrGrounding(
+            text = text,
+            target = target,
+            ocrGroundingHint = hint,
+            timeoutMillis = timeoutMillis,
+        )
+    }
+
+    override fun submitSearch(timeoutMillis: Long): UiActionReadResult {
+        val validationSnapshot = ocrGroundingValidationSnapshot()
+        val hint = cache.consumeForSubmitSearch(currentSnapshot = validationSnapshot)
+        hint.rejectDangerousOcrAction(validationSnapshot)?.let { return it }
+        validationSnapshot.rejectSubmitWithoutSearchContext(hint)?.let { return it }
+        return delegate.submitSearchWithOcrGrounding(
+            ocrGroundingHint = hint,
+            timeoutMillis = timeoutMillis,
+        )
+    }
+
+    override fun submitSearchWithOcrGrounding(
+        ocrGroundingHint: UiOcrGroundingHint?,
+        timeoutMillis: Long,
+    ): UiActionReadResult {
+        val validationSnapshot = ocrGroundingValidationSnapshot()
+        val hint = ocrGroundingHint ?: cache.consumeForSubmitSearch(
+            currentSnapshot = validationSnapshot,
+        )
+        hint.rejectDangerousOcrAction(validationSnapshot)?.let { return it }
+        validationSnapshot.rejectSubmitWithoutSearchContext(hint)?.let { return it }
+        return delegate.submitSearchWithOcrGrounding(
+            ocrGroundingHint = hint,
+            timeoutMillis = timeoutMillis,
+        )
+    }
+
+    override fun scroll(direction: UiScrollDirection, target: String?, timeoutMillis: Long): UiActionReadResult {
+        cache.clear()
+        return delegate.scroll(direction = direction, target = target, timeoutMillis = timeoutMillis)
+    }
+
+    override fun pressBack(timeoutMillis: Long): UiActionReadResult {
+        cache.clear()
+        return delegate.pressBack(timeoutMillis = timeoutMillis)
+    }
+
+    override fun waitForScreen(timeoutMillis: Long): UiActionReadResult {
+        cache.clear()
+        return delegate.waitForScreen(timeoutMillis = timeoutMillis)
+    }
+
+    private fun ocrGroundingValidationSnapshot(): ScreenStateSnapshot? =
+        when (val result = delegate.observeCurrentScreen()) {
+            is ScreenStateReadResult.Available -> result.snapshot
+            else -> null
+        }
+
+    private fun ScreenStateSnapshot?.rejectSubmitWithoutSearchContext(
+        hint: UiOcrGroundingHint?,
+    ): UiActionReadResult? {
+        if (hint != null) return null
+        if (this != null && hasSearchSubmitContext()) return null
+        return toGuardFailure(
+            reason = "当前屏幕没有搜索输入框、搜索提交控件或 OCR 搜索提交证据",
+            failureKind = UiActionFailureKind.SubmitNotFound,
+        )
+    }
+
+    private fun ScreenStateSnapshot?.rejectTargetlessTypingWithoutContext(
+        target: String?,
+        hint: UiOcrGroundingHint?,
+    ): UiActionReadResult? {
+        if (!target.isNullOrBlank()) return null
+        if (hint != null) return null
+        if (this != null && hasTargetlessTypingContext()) return null
+        return toGuardFailure(
+            reason = "当前屏幕没有明确的搜索输入目标，请先点击或指定输入框",
+            failureKind = UiActionFailureKind.EditableNotFound,
+        )
+    }
+
+    private fun UiOcrGroundingHint?.rejectDangerousOcrAction(
+        snapshot: ScreenStateSnapshot?,
+    ): UiActionReadResult? {
+        if (this == null || !text.hasOcrDangerousActionText()) return null
+        return snapshot.toGuardFailure(
+            reason = "当前屏幕 OCR 显示支付、发送、删除、发布、下单、购买、转账或授权类控件，已停止自动 UI 动作。",
+            failureKind = UiActionFailureKind.DangerousAction,
+            retryable = false,
+        )
+    }
+
+    private fun ScreenStateSnapshot?.toGuardFailure(
+        reason: String,
+        failureKind: UiActionFailureKind,
+        retryable: Boolean = true,
+    ): UiActionReadResult =
+        if (this == null) {
+            UiActionReadResult.Failed(
+                reason = reason,
+                retryable = retryable,
+                failureKind = failureKind,
+            )
+        } else {
+            UiActionReadResult.Available(
+                UiActionExecutionResult(
+                    status = UiActionStatus.Failed,
+                    before = this,
+                    after = this,
+                    summary = reason,
+                    retryable = retryable,
+                    failureKind = failureKind,
+                ),
+            )
+        }
+}
+
+private class CurrentScreenOcrGroundingCache(
+    private val clockMillis: () -> Long,
+) {
+    private var cachedHint: CachedOcrGroundingHint? = null
+
+    fun updateFrom(result: ToolResult) {
+        if (result.status != ToolStatus.Succeeded) {
+            clear()
+            return
+        }
+        cachedHint = runCatching {
+            val observationJson = result.data["screenObservationJson"]?.takeIf { value -> value.isNotBlank() }
+                ?: return@runCatching null
+            val observation = JSONObject(observationJson)
+            val screenSignature = observation.toOcrGroundingScreenSignature()
+                ?: return@runCatching null
+            val elements = observation.optJSONArray("elements") ?: return@runCatching null
+            val ocrElements = (0 until elements.length())
+                .mapNotNull { index -> elements.optJSONObject(index)?.toOcrGroundingHint(observation) }
+            if (ocrElements.isEmpty()) null else CachedOcrGroundingHint(
+                capturedAtMillis = clockMillis(),
+                screenSignature = screenSignature,
+                hints = ocrElements,
+            )
+        }.getOrNull()
+    }
+
+    fun consumeFor(target: String, currentSnapshot: ScreenStateSnapshot?): UiOcrGroundingHint? {
+        val cache = cachedHint ?: return null
+        cachedHint = null
+        if (clockMillis() - cache.capturedAtMillis > CURRENT_SCREEN_OCR_GROUNDING_TTL_MILLIS) return null
+        if (!cache.screenSignature.matches(currentSnapshot)) return null
+        val normalizedTarget = target.normalizedLookupKey()
+        if (normalizedTarget.isBlank()) return null
+        return cache.hints.bestForTarget(normalizedTarget)
+    }
+
+    fun consumeForSearchEntry(currentSnapshot: ScreenStateSnapshot?): UiOcrGroundingHint? {
+        val cache = cachedHint ?: return null
+        cachedHint = null
+        if (clockMillis() - cache.capturedAtMillis > CURRENT_SCREEN_OCR_GROUNDING_TTL_MILLIS) return null
+        if (!cache.screenSignature.matches(currentSnapshot)) return null
+        return cache.hints
+            .filter { hint -> hint.hasSearchContextText() }
+            .maxByOrNull { hint -> hint.scoreForSearchEntryTarget() }
+    }
+
+    fun consumeForSubmitSearch(currentSnapshot: ScreenStateSnapshot?): UiOcrGroundingHint? {
+        val cache = cachedHint ?: return null
+        cachedHint = null
+        if (clockMillis() - cache.capturedAtMillis > CURRENT_SCREEN_OCR_GROUNDING_TTL_MILLIS) return null
+        if (!cache.screenSignature.matches(currentSnapshot)) return null
+        if (!cache.hints.hasOcrSearchSubmitContext()) return null
+        return cache.hints
+            .filter { hint -> hint.matchesSubmitSearchTarget() }
+            .maxByOrNull { hint -> hint.scoreForSubmitSearchTarget() }
+    }
+
+    fun clear() {
+        cachedHint = null
+    }
+}
+
+private data class CachedOcrGroundingHint(
+    val capturedAtMillis: Long,
+    val screenSignature: OcrGroundingScreenSignature,
+    val hints: List<UiOcrGroundingHint>,
+)
+
+private data class OcrGroundingScreenSignature(
+    val packageName: String?,
+    val nodeCount: Int,
+    val actionableNodeCount: Int,
+    val elementFingerprint: String,
+) {
+    fun matches(snapshot: ScreenStateSnapshot?): Boolean =
+        snapshot?.toOcrGroundingScreenSignature() == this
+}
+
+private fun ScreenStateSnapshot.toOcrGroundingScreenSignature(): OcrGroundingScreenSignature =
+    OcrGroundingScreenSignature(
+        packageName = packageName,
+        nodeCount = nodeCount,
+        actionableNodeCount = actionableNodeCount,
+        elementFingerprint = nodes
+            .asSequence()
+            .map { node -> node.ocrGroundingFingerprint() }
+            .take(OCR_GROUNDING_SIGNATURE_MAX_ELEMENTS)
+            .joinToString(separator = ";"),
+    )
+
+private fun JSONObject.toOcrGroundingScreenSignature(): OcrGroundingScreenSignature? {
+    val elements = optJSONArray("elements") ?: return null
+    val accessibilityElements = (0 until elements.length())
+        .mapNotNull { index -> elements.optJSONObject(index) }
+        .filter { element -> element.optString("source") == "accessibility" }
+    if (accessibilityElements.isEmpty()) return null
+    return OcrGroundingScreenSignature(
+        packageName = optNullableString("packageName"),
+        nodeCount = accessibilityElements.size,
+        actionableNodeCount = accessibilityElements.count { element -> element.isActionableObservationElement() },
+        elementFingerprint = accessibilityElements
+            .asSequence()
+            .map { element -> element.ocrGroundingFingerprint() }
+            .take(OCR_GROUNDING_SIGNATURE_MAX_ELEMENTS)
+            .joinToString(separator = ";"),
+    )
+}
+
+private fun ScreenNode.ocrGroundingFingerprint(): String =
+    listOf(
+        clickable.toString(),
+        editable.toString(),
+        scrollable.toString(),
+        enabled.toString(),
+        bounds?.boundsFingerprint().orEmpty(),
+        text.ifBlank { contentDescription }.normalizedLookupKey(),
+    ).joinToString(separator = ",")
+
+private fun JSONObject.ocrGroundingFingerprint(): String {
+    val clickability = optJSONObject("clickability")
+    return listOf(
+        clickability?.optBoolean("clickable", false).toString(),
+        clickability?.optBoolean("editable", false).toString(),
+        clickability?.optBoolean("scrollable", false).toString(),
+        clickability?.optBoolean("enabled", true).toString(),
+        optJSONObject("bounds")?.boundsFingerprint().orEmpty(),
+        optString("text").normalizedLookupKey(),
+    ).joinToString(separator = ",")
+}
+
+private fun JSONObject.isActionableObservationElement(): Boolean {
+    val clickability = optJSONObject("clickability") ?: return false
+    if (clickability.optBoolean("enabled", true) == false) return false
+    return clickability.optBoolean("clickable", false) ||
+        clickability.optBoolean("editable", false) ||
+        clickability.optBoolean("scrollable", false)
+}
+
+private fun ScreenBounds.boundsFingerprint(): String =
+    "$left,$top,$right,$bottom"
+
+private fun JSONObject.boundsFingerprint(): String =
+    "${optInt("left")},${optInt("top")},${optInt("right")},${optInt("bottom")}"
+
+private fun List<UiOcrGroundingHint>.hasOcrSearchSubmitContext(): Boolean =
+    any { hint -> hint.matchesSubmitSearchTarget() } &&
+        any { hint -> hint.hasSearchContextText() }
+
+private fun UiOcrGroundingHint.hasSearchContextText(): Boolean {
+    val normalizedText = text.normalizedLookupKey()
+    if (normalizedText.isBlank()) return false
+    return listOf(
+        "搜索框",
+        "搜索栏",
+        "搜索商品",
+        "搜索输入",
+        "搜索词",
+        "搜索或输入网址",
+        "地址栏",
+        "网址",
+        "目的地",
+        "搜地点",
+        "searchbox",
+        "searchfield",
+        "omnibox",
+        "keyword",
+    ).any { marker -> normalizedText.contains(marker.normalizedLookupKey()) }
+}
+
+private fun JSONObject.toOcrGroundingHint(observation: JSONObject): UiOcrGroundingHint? {
+    if (optString("source") != "ocr") return null
+    val text = optString("text").takeIf { value -> value.isNotBlank() } ?: return null
+    val bounds = optJSONObject("bounds")?.toScreenBoundsOrNull() ?: return null
+    if (bounds.width() <= 0 || bounds.height() <= 0) return null
+    return UiOcrGroundingHint(
+        observationId = observation.optString("observationId", "unknown"),
+        packageName = observation.optNullableString("packageName"),
+        capturedAtMillis = observation.optLong("capturedAtMillis").takeIf { value -> value > 0L },
+        elementId = optString("id", "ocr"),
+        text = text,
+        bounds = bounds,
+    )
+}
+
+private fun JSONObject.toScreenBoundsOrNull(): ScreenBounds? {
+    if (!has("left") || !has("top") || !has("right") || !has("bottom")) return null
+    return ScreenBounds(
+        left = optInt("left"),
+        top = optInt("top"),
+        right = optInt("right"),
+        bottom = optInt("bottom"),
+    )
+}
+
+private fun List<UiOcrGroundingHint>.bestForTarget(normalizedTarget: String): UiOcrGroundingHint? {
+    val idMatches = filter { hint -> hint.elementId.normalizedLookupKey() == normalizedTarget }
+    if (idMatches.isNotEmpty()) {
+        return idMatches.maxByOrNull { hint -> hint.scoreForTarget(normalizedTarget) }
+    }
+    val textMatches = filter { hint -> hint.textMatchesTarget(normalizedTarget) }
+    if (textMatches.size != 1) return null
+    return textMatches.single()
+}
+
+private fun UiOcrGroundingHint.textMatchesTarget(normalizedTarget: String): Boolean {
+    val normalizedText = text.normalizedLookupKey()
+    return normalizedText == normalizedTarget ||
+        normalizedText.contains(normalizedTarget) ||
+        normalizedTarget.contains(normalizedText)
+}
+
+private fun UiOcrGroundingHint.scoreForTarget(normalizedTarget: String): Int {
+    val normalizedText = text.normalizedLookupKey()
+    val normalizedId = elementId.normalizedLookupKey()
+    return when {
+        normalizedId == normalizedTarget -> 1_400
+        normalizedText == normalizedTarget -> 1_000
+        normalizedText.contains(normalizedTarget) -> 800 - (normalizedText.length - normalizedTarget.length).coerceAtLeast(0)
+        normalizedTarget.contains(normalizedText) -> 620 - (normalizedTarget.length - normalizedText.length).coerceAtLeast(0)
+        else -> 0
+    } + bounds.width().coerceAtMost(200) + bounds.height().coerceAtMost(120)
+}
+
+private val SUBMIT_SEARCH_OCR_HINTS = listOf(
+    "提交搜索",
+    "搜索",
+    "查找",
+    "前往",
+    "转到",
+    "search",
+    "go",
+    "enter",
+).map { value -> value.normalizedLookupKey() }
+
+private fun UiOcrGroundingHint.matchesSubmitSearchTarget(): Boolean {
+    val normalizedText = text.normalizedLookupKey()
+    if (normalizedText.isBlank()) return false
+    return normalizedText in SUBMIT_SEARCH_OCR_HINTS
+}
+
+private fun UiOcrGroundingHint.scoreForSubmitSearchTarget(): Int {
+    val normalizedText = text.normalizedLookupKey()
+    val matchScore = when {
+        normalizedText in SUBMIT_SEARCH_OCR_HINTS -> 1_200
+        else -> 0
+    }
+    val rightBias = (bounds.left / 20).coerceIn(0, 120)
+    val topBias = if (bounds.top <= 300) 80 else 0
+    val areaPenalty = (bounds.area() / 1_000).coerceAtMost(500)
+    val widthPenalty = (bounds.width() / 8).coerceAtMost(250)
+    return matchScore + rightBias + topBias - areaPenalty - widthPenalty
+}
+
+private fun UiOcrGroundingHint.scoreForSearchEntryTarget(): Int {
+    val normalizedText = text.normalizedLookupKey()
+    val contextScore = if (hasSearchContextText()) 1_200 else 0
+    val topBias = if (bounds.top <= 360) 90 else 0
+    val leftBias = ((10_000 - bounds.left.coerceIn(0, 10_000)) / 100).coerceIn(0, 80)
+    val widthScore = (bounds.width() / 8).coerceAtMost(240)
+    val shortTextPenalty = if (normalizedText.length <= 2) 220 else 0
+    return contextScore + topBias + leftBias + widthScore - shortTextPenalty
+}
+
+private fun ScreenBounds.area(): Int =
+    boundsDimension(width()) * boundsDimension(height())
+
+private fun boundsDimension(value: Int): Int =
+    value.coerceAtLeast(0).coerceAtMost(10_000)
+
+private fun JSONObject.optNullableString(name: String): String? =
+    if (isNull(name)) null else optString(name).takeIf { value -> value.isNotBlank() }
 
 class WebSearchToolExecutor(
     private val provider: WebSearchProvider,
@@ -770,6 +1241,7 @@ class CurrentScreenTextToolExecutor(
 
 class DeviceControlToolExecutor(
     private val provider: CurrentScreenControlProvider?,
+    private val preflightProvider: CurrentScreenControlProvider? = provider,
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         val controlProvider = provider
@@ -829,37 +1301,44 @@ class DeviceControlToolExecutor(
     private fun executeTap(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
-    ): ToolResult =
-        actionResult(
+    ): ToolResult {
+        val target = request.arguments["target"].orEmpty()
+        dangerousUiActionPreflight(request, actionType = "tap", target = target)?.let { return it }
+        return actionResult(
             request = request,
             actionType = "tap",
-            target = request.arguments["target"].orEmpty(),
+            target = target,
             result = provider.tap(
-                target = request.arguments["target"].orEmpty(),
+                target = target,
                 timeoutMillis = request.timeoutMillis(),
             ),
         )
+    }
 
     private fun executeTypeText(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
-    ): ToolResult =
-        actionResult(
+    ): ToolResult {
+        val target = request.arguments["target"].orEmpty()
+        dangerousUiActionPreflight(request, actionType = "type_text", target = target)?.let { return it }
+        return actionResult(
             request = request,
             actionType = "type_text",
-            target = request.arguments["target"].orEmpty(),
+            target = target,
             result = provider.typeText(
                 text = request.arguments["text"].orEmpty(),
                 target = request.arguments["target"],
                 timeoutMillis = request.timeoutMillis(),
             ),
         )
+    }
 
     private fun executeSubmitSearch(
         request: ToolRequest,
         provider: CurrentScreenControlProvider,
-    ): ToolResult =
-        actionResult(
+    ): ToolResult {
+        dangerousUiActionPreflight(request, actionType = "submit_search", target = "")?.let { return it }
+        return actionResult(
             request = request,
             actionType = "submit_search",
             target = "",
@@ -867,6 +1346,7 @@ class DeviceControlToolExecutor(
                 timeoutMillis = request.timeoutMillis(),
             ),
         )
+    }
 
     private fun executeScroll(
         request: ToolRequest,
@@ -879,16 +1359,54 @@ class DeviceControlToolExecutor(
                 retryable = false,
                 data = request.deviceControlBaseData(),
             )
+        val target = request.arguments["target"].orEmpty()
+        dangerousUiActionPreflight(request, actionType = "scroll", target = target)?.let { return it }
         return actionResult(
             request = request,
             actionType = "scroll",
-            target = request.arguments["target"].orEmpty(),
+            target = target,
             result = provider.scroll(
                 direction = direction,
                 target = request.arguments["target"],
                 timeoutMillis = request.timeoutMillis(),
             ),
             extraData = mapOf("direction" to direction.schemaValue),
+        )
+    }
+
+    private fun dangerousUiActionPreflight(
+        request: ToolRequest,
+        actionType: String,
+        target: String,
+    ): ToolResult? {
+        val snapshot = when (
+            val result = preflightProvider?.observeCurrentScreen(
+                maxTextChars = DEFAULT_MAX_SCREEN_STATE_TEXT_CHARS,
+                maxNodes = DEFAULT_MAX_SCREEN_STATE_NODES,
+            )
+        ) {
+            is ScreenStateReadResult.Available -> result.snapshot
+            else -> return null
+        }
+        if (!snapshot.hasDangerousActionControl()) return null
+        return request.failed(
+            code = ToolErrorCode.ExecutionFailed,
+            summary = "当前屏幕包含支付、发送、删除、发布、下单、购买、转账或授权类控件，已停止自动 UI 动作。",
+            retryable = false,
+            data = request.deviceControlBaseData() +
+                mapOf(
+                    "actionType" to actionType,
+                    "status" to UiActionStatus.Failed.schemaValue(),
+                    "retryable" to false.toString(),
+                    "summary" to "dangerous_ui_action_control_detected",
+                    "failureKind" to UiActionFailureKind.DangerousAction.schemaValue,
+                    "beforeObservationId" to snapshot.id,
+                    "afterObservationId" to "",
+                    "verificationSummary" to "动作前检测到危险控件，未执行 UI 动作。",
+                    "screenObservationDiffSummary" to "blocked_before_execution;reason=dangerous_action_control",
+                ) +
+                target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty() +
+                snapshot.toBeforeObservationData(),
         )
     }
 
@@ -938,9 +1456,14 @@ class DeviceControlToolExecutor(
                         "beforeObservationId" to execution.before?.id.orEmpty(),
                         "afterObservationId" to after?.id.orEmpty(),
                         "verificationSummary" to (after?.observationSummary() ?: "动作后未能读取屏幕状态"),
+                        "screenObservationDiffSummary" to screenObservationDiffSummary(
+                            before = execution.before,
+                            after = after,
+                        ),
                     ) +
                     target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty() +
                     execution.failureKind?.let { mapOf("failureKind" to it.schemaValue) }.orEmpty() +
+                    execution.before?.toBeforeObservationData().orEmpty() +
                     after?.toAfterObservationData().orEmpty() +
                     extraData
                 if (execution.status == UiActionStatus.Succeeded) {
@@ -970,14 +1493,14 @@ class DeviceControlToolExecutor(
                     },
                     summary = result.reason,
                     retryable = result.retryable,
-                    data = request.deviceControlBaseData() + mapOf(
-                        "actionType" to actionType,
-                        "status" to UiActionStatus.Failed.schemaValue(),
-                        "retryable" to result.retryable.toString(),
-                        "summary" to result.reason,
-                        "failureKind" to result.failureKind.schemaValue,
-                    ),
-                )
+	                data = request.deviceControlBaseData() + mapOf(
+	                    "actionType" to actionType,
+	                    "status" to UiActionStatus.Failed.schemaValue(),
+	                    "retryable" to result.retryable.toString(),
+	                    "summary" to result.reason,
+	                    "failureKind" to result.failureKind.schemaValue,
+	                ) + target.takeIf { it.isNotBlank() }?.let { mapOf("target" to it) }.orEmpty(),
+	            )
         }
 
     private fun ToolRequest.timeoutMillis(): Long =
@@ -1070,11 +1593,97 @@ class DeviceControlToolExecutor(
             "afterTextSummary" to textSummary,
             "afterTruncated" to truncated.toString(),
             "afterNodesJson" to nodes.toScreenNodesJsonString(),
+            "afterScreenObservationJson" to toScreenObservationJsonString(),
+        )
+
+    private fun ScreenStateSnapshot.toBeforeObservationData(): Map<String, String> =
+        mapOf(
+            "beforePackageName" to packageName.orEmpty(),
+            "beforeCapturedAtMillis" to capturedAtMillis.toString(),
+            "beforeNodeCount" to nodeCount.toString(),
+            "beforeActionableNodeCount" to actionableNodeCount.toString(),
+            "beforeTextSummary" to textSummary,
+            "beforeTruncated" to truncated.toString(),
+            "beforeNodesJson" to nodes.toScreenNodesJsonString(),
+            "beforeScreenObservationJson" to toScreenObservationJsonString(),
         )
 
     private fun ScreenStateSnapshot.observationSummary(): String {
         val packagePart = packageName?.takeIf { it.isNotBlank() }?.let { "包名 $it，" }.orEmpty()
         return "已观察当前屏幕：${packagePart}${nodeCount} 个节点，${actionableNodeCount} 个可交互节点。"
+    }
+
+    private fun screenObservationDiffSummary(
+        before: ScreenStateSnapshot?,
+        after: ScreenStateSnapshot?,
+    ): String {
+        if (before == null && after == null) return "before_after_unavailable"
+        if (before == null) return "before_unavailable;afterNodes=${after?.nodeCount ?: 0}"
+        if (after == null) return "after_unavailable;beforeNodes=${before.nodeCount}"
+        val beforeTexts = before.nodes.mapNotNull { node -> node.diffTextLabel() }.toOrderedSet()
+        val afterTexts = after.nodes.mapNotNull { node -> node.diffTextLabel() }.toOrderedSet()
+        val beforeActions = before.nodes.mapNotNull { node -> node.diffActionableLabel() }.toOrderedSet()
+        val afterActions = after.nodes.mapNotNull { node -> node.diffActionableLabel() }.toOrderedSet()
+        val addedTexts = (afterTexts - beforeTexts).take(6)
+        val removedTexts = (beforeTexts - afterTexts).take(6)
+        val addedActions = (afterActions - beforeActions).take(4)
+        val removedActions = (beforeActions - afterActions).take(4)
+        val changed = before.packageName != after.packageName ||
+            before.nodeCount != after.nodeCount ||
+            before.actionableNodeCount != after.actionableNodeCount ||
+            addedTexts.isNotEmpty() ||
+            removedTexts.isNotEmpty() ||
+            addedActions.isNotEmpty() ||
+            removedActions.isNotEmpty()
+        return buildString {
+            append("changed=")
+            append(changed)
+            append(";package=")
+            append(before.packageName.orEmpty().ifBlank { "unknown" })
+            append("->")
+            append(after.packageName.orEmpty().ifBlank { "unknown" })
+            append(";nodes=")
+            append(before.nodeCount)
+            append("->")
+            append(after.nodeCount)
+            append(";actionable=")
+            append(before.actionableNodeCount)
+            append("->")
+            append(after.actionableNodeCount)
+            append(";addedText=")
+            append(addedTexts.joinToStringLimited().ifBlank { "none" })
+            append(";removedText=")
+            append(removedTexts.joinToStringLimited().ifBlank { "none" })
+            append(";addedActionable=")
+            append(addedActions.joinToStringLimited().ifBlank { "none" })
+            append(";removedActionable=")
+            append(removedActions.joinToStringLimited().ifBlank { "none" })
+        }
+    }
+
+    private fun List<String>.toOrderedSet(): Set<String> =
+        map { value -> value.trim() }
+            .filter { value -> value.isNotBlank() }
+            .toCollection(linkedSetOf())
+
+    private fun List<String>.joinToStringLimited(): String =
+        joinToString(separator = "|") { value -> value.take(64) }
+
+    private fun ScreenNode.diffTextLabel(): String? =
+        (text.ifBlank { contentDescription })
+            .trim()
+            .takeIf { value -> value.isNotBlank() }
+
+    private fun ScreenNode.diffActionableLabel(): String? {
+        if (!clickable && !editable && !scrollable) return null
+        val label = diffTextLabel() ?: id.takeIf { value -> value.isNotBlank() } ?: className
+        val role = when {
+            editable -> "editable"
+            clickable -> "clickable"
+            scrollable -> "scrollable"
+            else -> "actionable"
+        }
+        return "$role:$label"
     }
 
     private fun UiActionStatus.schemaValue(): String =
@@ -1092,6 +1701,8 @@ class DeviceControlToolExecutor(
 
 class CurrentScreenshotOcrToolExecutor(
     private val provider: CurrentScreenshotOcrProvider?,
+    private val currentScreenControlProvider: CurrentScreenControlProvider? = null,
+    private val clockMillis: () -> Long = { System.currentTimeMillis() },
 ) : ToolExecutor {
     override fun execute(request: ToolRequest): ToolResult {
         if (request.toolName != MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR) {
@@ -1102,7 +1713,13 @@ class CurrentScreenshotOcrToolExecutor(
             )
         }
 
-        return when (val result = provider?.captureCurrentScreenshotOcr(request.id)) {
+        val nowMillis = clockMillis()
+        val screenObservationBeforeCapture = provider
+            ?.takeIf { candidate -> candidate.hasOneShotConsent(request.id, nowMillis) }
+            ?.let {
+                currentScreenControlProvider?.observeCurrentScreen()
+            }
+        return when (val result = provider?.captureCurrentScreenshotOcr(request.id, nowMillis)) {
             null ->
                 request.failed(
                     code = ToolErrorCode.ExecutionFailed,
@@ -1131,6 +1748,10 @@ class CurrentScreenshotOcrToolExecutor(
 
             is CurrentScreenshotOcrReadResult.Available -> {
                 val ocrText = result.text?.takeIf { it.isNotBlank() }
+                val screenObservationData = currentScreenControlProvider.screenObservationData(
+                    ocrBlocks = result.ocrBlocks,
+                    beforeCapture = screenObservationBeforeCapture,
+                )
                 request.succeeded(
                     summary = if (ocrText == null) {
                         "已完成当前屏幕单次 OCR，未识别到可用文字。"
@@ -1145,9 +1766,66 @@ class CurrentScreenshotOcrToolExecutor(
                         ocrText?.let { mapOf("ocrText" to it) }.orEmpty() +
                         result.ocrBlocks.takeIf { it.isNotEmpty() }
                             ?.let { mapOf("ocrBlocksJson" to it.toOcrBlocksJsonString()) }
-                            .orEmpty(),
+                            .orEmpty() +
+                        screenObservationData,
                 )
             }
+        }
+    }
+
+    private fun CurrentScreenControlProvider?.screenObservationData(
+        ocrBlocks: List<OcrTextBlock>,
+        beforeCapture: ScreenStateReadResult?,
+    ): Map<String, String> {
+        val provider = this ?: return mapOf(
+            "screenObservationIncluded" to false.toString(),
+            "screenObservationFailureKind" to "provider_unavailable",
+        )
+        return when (val beforeResult = beforeCapture ?: provider.observeCurrentScreen()) {
+            is ScreenStateReadResult.Available ->
+                when (val afterResult = provider.observeCurrentScreen()) {
+                    is ScreenStateReadResult.Available -> {
+                        val beforeSignature = beforeResult.snapshot.toOcrGroundingScreenSignature()
+                        val afterSignature = afterResult.snapshot.toOcrGroundingScreenSignature()
+                        if (beforeSignature != afterSignature) {
+                            mapOf(
+                                "screenObservationIncluded" to false.toString(),
+                                "screenObservationFailureKind" to "page_changed",
+                            )
+                        } else {
+                            mapOf(
+                                "screenObservationIncluded" to true.toString(),
+                                "screenObservationJson" to afterResult.snapshot.toScreenObservationJsonString(
+                                    ocrBlocks = ocrBlocks,
+                                ),
+                            )
+                        }
+                    }
+
+                    is ScreenStateReadResult.PermissionDenied ->
+                        mapOf(
+                            "screenObservationIncluded" to false.toString(),
+                            "screenObservationFailureKind" to UiActionFailureKind.PermissionMissing.schemaValue,
+                        )
+
+                    is ScreenStateReadResult.Failed ->
+                        mapOf(
+                            "screenObservationIncluded" to false.toString(),
+                            "screenObservationFailureKind" to afterResult.failureKind.schemaValue,
+                        )
+                }
+
+            is ScreenStateReadResult.PermissionDenied ->
+                mapOf(
+                    "screenObservationIncluded" to false.toString(),
+                    "screenObservationFailureKind" to UiActionFailureKind.PermissionMissing.schemaValue,
+                )
+
+            is ScreenStateReadResult.Failed ->
+                mapOf(
+                    "screenObservationIncluded" to false.toString(),
+                    "screenObservationFailureKind" to beforeResult.failureKind.schemaValue,
+                )
         }
     }
 }

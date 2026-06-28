@@ -43,10 +43,12 @@ import kotlinx.coroutines.withTimeoutOrNull
  * production release never declares it (manifest lives in `app/src/rcPerfRelease/`) and the entry is
  * additionally gated behind [BuildConfig.RC_PERF_ENABLED].
  *
- * It exercises the real local model path already installed on the device and reports measured
- * metrics. It is strictly read-only with respect to user data and model files:
+ * It exercises a real local model path already installed on the device and reports measured
+ * metrics. By default it uses the active model; collectors may pass a specific installed model id
+ * for a release profile without changing the user's active selection. It is strictly read-only with
+ * respect to user data and model files:
  *  - it never calls `pm clear`, `clearAllTables`, `deleteInstalledModel`, or deletes model dirs;
- *  - it only reads the active model path via [ModelRepository.currentState];
+ *  - it only reads installed model paths via [ModelRepository.currentState];
  *  - the synthetic memory 5k search runs on an isolated in-memory index, never the user's data.
  *
  * Throughput (`tokensPerSecond`) is only ever the raw LiteRT decode benchmark value; when the
@@ -167,21 +169,28 @@ class RcPerfHarnessService : Service() {
         val requestedBackend = intent.getStringExtra(EXTRA_BACKEND)
             ?.let { runCatching { BackendChoice.valueOf(it.uppercase()) }.getOrNull() }
             ?: BackendChoice.GPU
+        val requestedModelId = intent.getStringExtra(EXTRA_MODEL_ID)?.takeIf { it.isNotBlank() }
 
         logProgress(requestId, "model-state")
         val selection = ModelRepository(appContext).currentState()
-        val modelPath = selection.activeModelPath
-            ?: return RcPerfResult.Failure("no active model installed on device")
-        if (!File(modelPath).exists()) {
-            return RcPerfResult.Failure("active model path missing on device: $modelPath")
+        val selectedModel = if (requestedModelId != null) {
+            selection.installedModels.firstOrNull { it.id == requestedModelId }
+                ?: return RcPerfResult.Failure("requested model not installed on device: $requestedModelId")
+        } else {
+            val activeId = selection.activeInstalledModelId
+                ?: return RcPerfResult.Failure("no active installed model id")
+            selection.installedModels.firstOrNull { it.id == activeId }
+                ?: return RcPerfResult.Failure("active installed model summary missing: $activeId")
         }
-        val modelId = selection.activeInstalledModelId
-            ?: return RcPerfResult.Failure("no active installed model id")
-        val activeModel = selection.installedModels.firstOrNull { it.id == modelId }
-            ?: return RcPerfResult.Failure("active installed model summary missing: $modelId")
-        val runtimeCapabilities = LocalModelRuntimeCapabilities.fromProfile(activeModel.capabilityProfile)
+        val modelId = selectedModel.id
+        val modelPath = selectedModel.path.takeIf { it.isNotBlank() }
+            ?: return RcPerfResult.Failure("installed model path missing on device: $modelId")
+        if (!File(modelPath).exists()) {
+            return RcPerfResult.Failure("selected model path missing on device: $modelPath")
+        }
+        val runtimeCapabilities = LocalModelRuntimeCapabilities.fromProfile(selectedModel.capabilityProfile)
         if (!runtimeCapabilities.supportsVisionInput) {
-            return RcPerfResult.Failure("vision unsupported: active model $modelId has no vision support")
+            return RcPerfResult.Failure("vision unsupported: selected model $modelId has no vision support")
         }
 
         val parameters = GenerationParameters()
@@ -217,10 +226,16 @@ class RcPerfHarnessService : Service() {
             val stopRecoveryMs = measureStopRecovery(runtime, parameters, runtimeCapabilities)
             logProgress(requestId, "stop-done")
 
-            // 4) Synthetic memory 5k search on isolated data (never user memory).
-            logProgress(requestId, "memory-start")
-            val memorySearch5kMs = RcPerfSyntheticMemory.measure().elapsedMs.coerceAtLeast(1L)
-            logProgress(requestId, "memory-done")
+            // 4) Synthetic memory searches on isolated data (never user memory).
+            logProgress(requestId, "memory-5k-start")
+            val memory5k = RcPerfSyntheticMemory.measure()
+            val memorySearch5kMs = memory5k.searchMs.coerceAtLeast(1L)
+            logProgress(requestId, "memory-5k-done")
+            logProgress(requestId, "memory-50k-start")
+            val memory50k = RcPerfSyntheticMemory.measure(recordCount = RcPerfSyntheticMemory.LARGE_RECORD_COUNT)
+            val zvecMemoryIndex50kMs = memory50k.indexMs.coerceAtLeast(1L)
+            val zvecMemorySearch50kMs = memory50k.searchMs.coerceAtLeast(1L)
+            logProgress(requestId, "memory-50k-done")
             val benchmarkResult = resolveDecodeBenchmark(
                 conversationBenchmark = textTiming.benchmark,
                 modelPath = modelPath,
@@ -238,6 +253,8 @@ class RcPerfHarnessService : Service() {
                 stopGenerationRecoveryMs = stopRecoveryMs.coerceAtLeast(1L),
                 visionInputMs = visionInputMs.coerceAtLeast(1L),
                 memorySearch5kMs = memorySearch5kMs,
+                zvecMemoryIndex50kMs = zvecMemoryIndex50kMs,
+                zvecMemorySearch50kMs = zvecMemorySearch50kMs,
             )
         } catch (throwable: Throwable) {
             RcPerfResult.Failure(failureReason(throwable))
@@ -466,6 +483,7 @@ class RcPerfHarnessService : Service() {
     private companion object {
         const val EXTRA_REQUEST_ID = "requestId"
         const val EXTRA_BACKEND = "backend"
+        const val EXTRA_MODEL_ID = "modelId"
         const val RESULT_FILE_PREFIX = "rc_perf_result_"
         const val LEGACY_RESULT_FILE_NAME = "rc_perf_result.properties"
         const val LOG_TAG = "RcPerfHarness"

@@ -1,5 +1,7 @@
 package com.bytedance.zgx.solin.device
 
+import com.bytedance.zgx.solin.multimodal.OcrTextBlock
+import com.bytedance.zgx.solin.multimodal.OcrTextBounds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -80,6 +82,41 @@ class UiTargetResolverTest {
     }
 
     @Test
+    fun jdFullWidthNonActionableSearchBarYieldsToClickableSearchControl() {
+        val snapshot = snapshot(
+            packageName = "com.jingdong.app.mall",
+            nodes = listOf(
+                node(
+                    id = "activity-feed",
+                    text = "京享好物汇 限时抢购 优惠券 立即购买",
+                    className = "android.view.View",
+                    bounds = ScreenBounds(0, 420, 1200, 2200),
+                    clickable = true,
+                    scrollable = true,
+                ),
+                node(
+                    id = "search-bar-container",
+                    contentDescription = "搜索栏",
+                    className = "android.view.ViewGroup",
+                    bounds = ScreenBounds(0, 276, 1200, 396),
+                    clickable = false,
+                ),
+                node(
+                    id = "clickable-search-control",
+                    text = "搜索",
+                    className = "android.widget.TextView",
+                    bounds = ScreenBounds(1012, 276, 1166, 396),
+                    clickable = true,
+                ),
+            ),
+        )
+
+        val resolved = UiTargetResolver.resolve(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")
+
+        assertEquals("clickable-search-control", resolved?.nodeId)
+    }
+
+    @Test
     fun deprioritizesCameraSearchForTextSearchEntry() {
         val snapshot = snapshot(
             packageName = "com.xunmeng.pinduoduo",
@@ -105,6 +142,169 @@ class UiTargetResolverTest {
         val resolved = UiTargetResolver.resolve(snapshot, UiTargetKind.SearchEntry, target = "搜索入口")
 
         assertEquals("text-search-entry", resolved?.nodeId)
+    }
+
+    @Test
+    fun observationUsesOverlappingOcrTextToGroundBlankAccessibilitySearchEntry() {
+        val searchBounds = ScreenBounds(60, 88, 900, 170)
+        val snapshot = snapshot(
+            packageName = "com.xunmeng.pinduoduo",
+            nodes = listOf(
+                node(
+                    id = "blank-search-entry",
+                    className = "android.view.ViewGroup",
+                    bounds = searchBounds,
+                    clickable = true,
+                ),
+                node(
+                    id = "camera-slot",
+                    className = "android.widget.ImageView",
+                    bounds = ScreenBounds(920, 88, 1028, 170),
+                    clickable = true,
+                ),
+                node(
+                    id = "home-feed",
+                    text = "推荐 商品列表 百亿补贴 已售1000 评价",
+                    bounds = ScreenBounds(0, 360, 1080, 1900),
+                    clickable = true,
+                    scrollable = true,
+                ),
+            ),
+        )
+        val observation = snapshot.toScreenObservation(
+            ocrBlocks = listOf(
+                OcrTextBlock(
+                    text = "搜索商品 多多搜索",
+                    bounds = OcrTextBounds(60, 88, 900, 170),
+                ),
+                OcrTextBlock(
+                    text = "拍照搜索",
+                    bounds = OcrTextBounds(920, 88, 1028, 170),
+                ),
+            ),
+        )
+
+        val evidence = UiTargetResolver.explain(observation, UiTargetKind.SearchEntry, target = "搜索入口")
+        val selected = requireNotNull(evidence.rankedCandidates.firstOrNull { candidate ->
+            candidate.nodeId == "blank-search-entry"
+        })
+        val contract = evidence.explanationContract()
+
+        assertEquals("blank-search-entry", evidence.selectedNodeId)
+        assertEquals(searchBounds, selected.bounds)
+        assertEquals("搜索商品 多多搜索", selected.label)
+        assertEquals(UiTargetEvidenceSource.Ocr, selected.source)
+        assertEquals(UiTargetFallbackType.OcrGrounding, selected.fallbackType)
+        assertTrue(selected.clickable)
+        assertTrue(selected.reason.contains("OCR-grounded"))
+        assertEquals(UiTargetEvidenceSource.Ocr, contract.source)
+        assertEquals(UiTargetFallbackType.OcrGrounding, contract.fallbackType)
+        assertTrue(contract.requiresAdditionalEvidence)
+        assertTrue(evidence.rankedCandidates.none { candidate -> candidate.nodeId == "camera-slot" })
+    }
+
+    @Test
+    fun observationDoesNotUseSparseOcrEdgeOverlapToGroundBlankAccessibilitySearchEntry() {
+        val snapshot = snapshot(
+            packageName = "com.xunmeng.pinduoduo",
+            nodes = listOf(
+                node(
+                    id = "blank-search-entry",
+                    className = "android.view.ViewGroup",
+                    bounds = ScreenBounds(60, 88, 900, 170),
+                    clickable = true,
+                ),
+                node(
+                    id = "home-feed",
+                    text = "推荐 商品列表 百亿补贴 已售1000 评价",
+                    bounds = ScreenBounds(0, 360, 1080, 1900),
+                    clickable = true,
+                    scrollable = true,
+                ),
+            ),
+        )
+        val observation = snapshot.toScreenObservation(
+            ocrBlocks = listOf(
+                OcrTextBlock(
+                    text = "搜索商品 多多搜索",
+                    bounds = OcrTextBounds(876, 96, 1200, 156),
+                ),
+            ),
+        )
+
+        val evidence = UiTargetResolver.explain(observation, UiTargetKind.SearchEntry, target = "搜索入口")
+
+        assertEquals("ocr:block:0", evidence.selectedNodeId)
+        assertTrue(evidence.rankedCandidates.none { candidate ->
+            candidate.nodeId == "blank-search-entry" &&
+                candidate.source == UiTargetEvidenceSource.Ocr &&
+                candidate.fallbackType == UiTargetFallbackType.OcrGrounding
+        })
+    }
+
+    @Test
+    fun observationCanReturnOcrCoordinateFallbackWhenAccessibilityNodeIsMissing() {
+        val searchBounds = ScreenBounds(60, 88, 900, 170)
+        val snapshot = snapshot(
+            packageName = "com.xunmeng.pinduoduo",
+            nodes = listOf(
+                node(
+                    id = "root",
+                    bounds = ScreenBounds(0, 0, 1080, 2200),
+                ),
+            ),
+        )
+        val observation = snapshot.toScreenObservation(
+            ocrBlocks = listOf(
+                OcrTextBlock(
+                    text = "搜索商品 多多搜索",
+                    bounds = OcrTextBounds(60, 88, 900, 170),
+                ),
+            ),
+        )
+
+        val evidence = UiTargetResolver.explain(observation, UiTargetKind.SearchEntry, target = "搜索入口")
+        val selected = requireNotNull(evidence.rankedCandidates.firstOrNull())
+
+        assertEquals("ocr:block:0", evidence.selectedNodeId)
+        assertEquals(searchBounds, selected.bounds)
+        assertEquals(UiTargetEvidenceSource.Ocr, selected.source)
+        assertEquals(UiTargetFallbackType.OcrGrounding, selected.fallbackType)
+        assertEquals(false, selected.clickable)
+        assertTrue(selected.score.fallbackPenalty > 0)
+        assertTrue(evidence.explanationContract().requiresAdditionalEvidence)
+    }
+
+    @Test
+    fun observationKeepsNativeAccessibilityTextAheadOfDuplicateOcrFallback() {
+        val searchBounds = ScreenBounds(60, 88, 900, 170)
+        val snapshot = snapshot(
+            packageName = "com.xunmeng.pinduoduo",
+            nodes = listOf(
+                node(
+                    id = "native-search-entry",
+                    text = "搜索商品 多多搜索",
+                    bounds = searchBounds,
+                    clickable = true,
+                ),
+            ),
+        )
+        val observation = snapshot.toScreenObservation(
+            ocrBlocks = listOf(
+                OcrTextBlock(
+                    text = "搜索商品 多多搜索",
+                    bounds = OcrTextBounds(60, 88, 900, 170),
+                ),
+            ),
+        )
+
+        val evidence = UiTargetResolver.explain(observation, UiTargetKind.SearchEntry, target = "搜索入口")
+        val selected = requireNotNull(evidence.rankedCandidates.firstOrNull())
+
+        assertEquals("native-search-entry", evidence.selectedNodeId)
+        assertEquals(UiTargetEvidenceSource.Accessibility, selected.source)
+        assertEquals(UiTargetFallbackType.None, selected.fallbackType)
+        assertEquals(0, selected.score.fallbackPenalty)
     }
 
     @Test
@@ -480,8 +680,12 @@ class UiTargetResolverTest {
         assertEquals(UiTargetVerificationSignal.EditableFocusedOrTextAccepted, contract.expectedVerificationSignal)
         assertEquals(false, contract.requiresAdditionalEvidence)
         assertEquals("matched 搜索商品", contract.reason)
+        assertTrue(UiTargetEvidenceSource.Accessibility.priority > UiTargetEvidenceSource.Ocr.priority)
+        assertTrue(UiTargetEvidenceSource.Ocr.priority > UiTargetEvidenceSource.OcrPlaceholder.priority)
         assertTrue(UiTargetEvidenceSource.Accessibility.priority > UiTargetEvidenceSource.OcrPlaceholder.priority)
         assertTrue(UiTargetEvidenceSource.Accessibility.priority > UiTargetEvidenceSource.VisionPlaceholder.priority)
+        assertTrue(UiTargetFallbackType.None.priority > UiTargetFallbackType.OcrGrounding.priority)
+        assertTrue(UiTargetFallbackType.OcrGrounding.priority > UiTargetFallbackType.OcrGroundingPlaceholder.priority)
         assertTrue(UiTargetFallbackType.Coordinate.requiresEvidence)
         assertTrue(UiTargetFallbackType.Coordinate.priority < UiTargetFallbackType.OcrGroundingPlaceholder.priority)
     }
@@ -624,6 +828,26 @@ class UiTargetResolverTest {
     }
 
     @Test
+    fun browserProfileResolvesUcResultPageSearchBarLabel() {
+        val snapshot = snapshot(
+            packageName = "com.UCMobile",
+            nodes = listOf(
+                node(
+                    id = "uc-result-search",
+                    text = "网页搜索_SolinAgentUC",
+                    className = "android.webkit.WebView",
+                    bounds = ScreenBounds(0, 134, 1200, 2480),
+                    scrollable = true,
+                ),
+            ),
+        )
+
+        val resolved = UiTargetResolver.resolve(snapshot, UiTargetKind.SearchEntry, target = "地址栏")
+
+        assertEquals("uc-result-search", resolved?.nodeId)
+    }
+
+    @Test
     fun unknownAppDoesNotResolveBrowserOnlyGoSubmitLabel() {
         val snapshot = snapshot(
             packageName = "com.example.reader",
@@ -753,6 +977,74 @@ class UiTargetResolverTest {
         assertEquals(false, verification.verified)
         assertEquals(UiActionFailureKind.ResultNotVerified, verification.failureKind)
         assertEquals("page_not_changed", verification.evidence)
+    }
+
+    @Test
+    fun resultVerificationPassesWhenStableResultPageKeepsQueryInSearchField() {
+        val resultPage = snapshot(
+            packageName = "com.taobao.taobao",
+            nodes = listOf(
+                node(id = "search-field", text = "海河牛奶", editable = true),
+                node(id = "sort", text = "综合", clickable = true),
+                node(id = "sales", text = "销量", clickable = true),
+                node(id = "filter", text = "筛选", clickable = true),
+            ),
+        )
+
+        val verification = AppSearchResultVerifier.verify(
+            before = resultPage,
+            after = resultPage,
+            query = "海河牛奶",
+            expectedPackageName = "com.taobao.taobao",
+        )
+
+        assertTrue(verification.summary, verification.verified)
+        assertEquals("result_hints_visible", verification.evidence)
+    }
+
+    @Test
+    fun resultVerificationPassesForBrowserResultTabsWithQueryInAddressField() {
+        val resultPage = snapshot(
+            packageName = "com.quark.browser",
+            nodes = listOf(
+                node(id = "address-field", text = "SolinAgentQuark", editable = true),
+                node(id = "all-tab", text = "全部", clickable = true),
+                node(id = "image-tab", text = "图片", clickable = true),
+                node(id = "doc-tab", text = "文档", clickable = true),
+            ),
+        )
+
+        val verification = AppSearchResultVerifier.verify(
+            before = resultPage,
+            after = resultPage,
+            query = "SolinAgentQuark",
+            expectedPackageName = "com.quark.browser",
+        )
+
+        assertTrue(verification.summary, verification.verified)
+        assertEquals("result_hints_visible", verification.evidence)
+    }
+
+    @Test
+    fun resultVerificationPassesForJdProductResultsWithDisplayMode() {
+        val resultPage = snapshot(
+            packageName = "com.jingdong.app.mall",
+            nodes = listOf(
+                node(id = "display-mode", text = "显示模式", clickable = true),
+                node(id = "list-mode", text = "列表", clickable = true),
+                node(id = "query", text = "数据线", clickable = true),
+            ),
+        )
+
+        val verification = AppSearchResultVerifier.verify(
+            before = null,
+            after = resultPage,
+            query = "数据线",
+            expectedPackageName = "com.jingdong.app.mall",
+        )
+
+        assertTrue(verification.summary, verification.verified)
+        assertEquals("query_visible", verification.evidence)
     }
 
     @Test

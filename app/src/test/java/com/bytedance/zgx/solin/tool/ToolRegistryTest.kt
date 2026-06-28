@@ -594,7 +594,13 @@ class ToolRegistryTest {
         assertTrue(ToolPermission.ReadsDeviceContext in uiTapSpec.permissions)
         assertTrue(ToolPermission.ReadsAccessibilityText in uiTapSpec.permissions)
         assertTrue(ToolPermission.PerformsAccessibilityGesture in uiTapSpec.permissions)
+        assertTrue(uiTapSpec.outputSchemaJson.contains("\"beforeScreenObservationJson\""))
         assertTrue(uiTapSpec.outputSchemaJson.contains("\"afterNodesJson\""))
+        assertTrue(uiTapSpec.outputSchemaJson.contains("\"afterScreenObservationJson\""))
+        assertTrue(uiTapSpec.outputSchemaJson.contains("\"screenObservationDiffSummary\""))
+        assertTrue("beforeScreenObservationJson" in uiTapSpec.privateOutputKeys)
+        assertTrue("afterScreenObservationJson" in uiTapSpec.privateOutputKeys)
+        assertTrue("screenObservationDiffSummary" in uiTapSpec.privateOutputKeys)
         assertFalse(uiTapSpec.isRemoteModelPlanningEligible())
 
         val uiSubmitSearchSpec = registry.specFor(MobileActionFunctions.UI_SUBMIT_SEARCH)
@@ -626,13 +632,18 @@ class ToolRegistryTest {
         assertEquals(RiskLevel.MediumDraftOrNavigation, currentScreenshotOcrSpec.riskLevel)
         assertEquals(ConfirmationPolicy.Required, currentScreenshotOcrSpec.confirmationPolicy)
         assertTrue(ToolPermission.ReadsDeviceContext in currentScreenshotOcrSpec.permissions)
+        assertTrue(ToolPermission.ReadsAccessibilityText in currentScreenshotOcrSpec.permissions)
         assertTrue(ToolPermission.RequiresMediaProjectionConsent in currentScreenshotOcrSpec.permissions)
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in currentScreenshotOcrSpec.permissions)
         assertTrue(currentScreenshotOcrSpec.inputSchemaJson.contains("\"captureMode\""))
         assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("capture_current_screenshot_ocr"))
         assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("\"truncated\""))
+        assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("\"screenObservationIncluded\""))
+        assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("\"screenObservationJson\""))
+        assertTrue("screenObservationJson" in currentScreenshotOcrSpec.privateOutputKeys)
         assertTrue(currentScreenshotOcrSpec.outputSchemaJson.contains("\"rawPayloadIncluded\""))
         assertTrue(currentScreenshotOcrSpec.description.contains("MediaProjection"))
+        assertTrue(currentScreenshotOcrSpec.description.contains("Accessibility"))
         assertTrue(currentScreenshotOcrSpec.description.contains("不保存图片"))
 
         val recentNotificationSpec = registry.specFor(MobileActionFunctions.QUERY_RECENT_NOTIFICATIONS)
@@ -1010,7 +1021,8 @@ class ToolRegistryTest {
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to
                 setOf("capturedAtMillis", "nodeCount", "screenText", "packageName", "structureSummary"),
-            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to setOf("ocrText", "ocrBlocksJson"),
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to
+                setOf("ocrText", "ocrBlocksJson", "screenObservationJson"),
         )
 
         expectedPrivateOutputs.forEach { (toolName, privateKeys) ->
@@ -1295,7 +1307,8 @@ class ToolRegistryTest {
             MobileActionFunctions.READ_RECENT_IMAGE_OCR to recentImageOcrPrivateKeys,
             MobileActionFunctions.READ_CURRENT_SCREEN_TEXT to
                 setOf("capturedAtMillis", "nodeCount", "screenText", "packageName", "structureSummary"),
-            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to setOf("ocrText", "ocrBlocksJson"),
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR to
+                setOf("ocrText", "ocrBlocksJson", "screenObservationJson"),
         )
 
         expectedPrivateOutputs.forEach { (toolName, privateKeys) ->

@@ -396,7 +396,7 @@ elif [[ -n "$PERF_BASELINE_FILE" ]]; then
   elif [[ -f "$RELEASE_APK" ]]; then
     perf_args+=(--artifact-sha256 "$(shasum -a 256 "$RELEASE_APK" | awk '{print $1}')")
   fi
-  if ! scripts/verify_perf_baseline.sh "${perf_args[@]}"; then
+  if ! REQUIRE_RC_PERF_PROVENANCE=1 scripts/verify_perf_baseline.sh "${perf_args[@]}"; then
     fail_gate perf-baseline "$ARTIFACT_DIR/perf-baseline-verification.properties"
   fi
 else

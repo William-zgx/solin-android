@@ -15579,10 +15579,11 @@ adb -s fb6272c logcat -d -v time
 - `docs/screen_ocr_agent_optimization_plan.md` 记录 Safety/Docs 最小闭环：哪些屏幕/OCR/
   Accessibility 隐私诉求已有代码/测试边界，哪些仍需真机、人审、性能证据。
 - `docs/privacy_notice.md` 明确屏幕像素、OCR 摘录、Accessibility 文本、节点/bounds
-  元数据和动作后验证摘要均为 `LocalOnly`，不自动进入远程历史、远程 endpoint 或远程 VLM。
+  元数据、动作后结构化观测和验证摘要均为 `LocalOnly`，不自动进入远程历史、远程 endpoint 或远程 VLM。
 - Runtime/test 本轮完成：`ScreenObservation` 合同、`observe_current_screen.screenObservationJson`、
-  OCR block/bounds 合同、当前屏幕 OCR `ocrBlocksJson` 私有输出、`UiTargetResolver`
-  explain 合同，以及小型 replay fixture。
+  OCR block/bounds 合同、当前屏幕 OCR `ocrBlocksJson` 私有输出、当前屏幕 OCR 融合
+  Accessibility+OCR `screenObservationJson` 私有输出、`UiTargetResolver`
+  explain 合同、`ui_*` 动作后的 `afterScreenObservationJson` 私有输出，以及小型 replay fixture。
 - 没有把 P3/P4 真机 benchmark、50k 物理 perf gate 或 release gate 写成已完成。
 
 验证命令：
@@ -15611,3 +15612,1585 @@ ANDROID_HOME=/data00/home/zouguoxue/android-sdk ./gradlew :app:testDebugUnitTest
 - 通过：完整 `:app:testDebugUnitTest`。
 - 未执行：connected Android tests、真机 real-app eval、50k 物理 perf gate、
   release/security/legal/store-policy/support owner 人审。
+
+## 2026-06-27 Wireless Device OCR/Action Observation Follow-up
+
+本轮覆盖项：
+
+- `ui_*` 动作结果新增 `afterScreenObservationJson` 私有输出，保留旧
+  `afterNodesJson`，让动作后验证和本地 replanning 继续使用统一
+  `ScreenObservation` 合同。
+- `run_real_app_search_eval.sh` 对京东真实结果页不再要求固定 `筛选` 文案；
+  京东新版页面以查询词 `数据线` 和 `searchVerificationStatus=verified` 作为成功证据。
+- 京东/UC 历史页面会污染 eval 起点；最终真机 eval 使用 `FORCE_STOP_TARGET_APP=1`
+  仅停止目标 App 进程，不清除 Solin 数据、不删除已下载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+scripts/verify_capability_matrix.sh \
+  --report build/verification/capability-matrix-final-action-observation.properties
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-after-real-app-final2.properties || true
+
+ARTIFACT_DIR=build/verification/device-wireless-action-observation-20260627-123000 \
+ANDROID_HOME=/Users/bytedance/Library/Android/sdk \
+ANDROID_SDK_ROOT=/Users/bytedance/Library/Android/sdk \
+PATH=/Users/bytedance/Library/Android/sdk/platform-tools:$PATH \
+CLEAN_DEVICE=0 RESET_APP_DATA_AFTER_TESTS=0 REQUIRE_POCKETMIND_ACCESSIBILITY=0 \
+scripts/install_and_test_device.sh
+
+ARTIFACT_DIR=build/verification/device-control-debug-wireless-action-observation-rerun-20260627-124000 \
+ANDROID_SERIAL=192.168.1.27:35537 SKIP_BUILD=1 SKIP_INSTALL=1 \
+AUTO_ENABLE_POCKETMIND_ACCESSIBILITY=1 \
+scripts/run_device_control_debug_eval.sh
+
+ARTIFACT_DIR=build/verification/real-app-search-wireless-action-observation-final-20260627-125900 \
+ANDROID_SERIAL=192.168.1.27:35537 SKIP_BUILD=1 SKIP_INSTALL=1 \
+FORCE_STOP_TARGET_APP=1 AUTO_ENABLE_POCKETMIND_ACCESSIBILITY=1 \
+scripts/run_real_app_search_eval.sh
+```
+
+结果：
+
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：Capability Matrix verification。
+- 预期失败：privacy review 仍只剩 release/security/legal reviewer、reviewDate
+  和 approval pending；没有 stale SHA。
+- 通过：无线真机 `192.168.1.27:35537`，Xiaomi `23127PN0CC`，API 36，
+  `arm64-v8a`，覆盖安装 connected tests；报告
+  `build/verification/device-wireless-action-observation-20260627-123000/device-verification.properties`
+  记录 `clean_device=0`、`reset_app_data_after_tests=0`、`instrumentation=passed`、
+  `instrumentation_test_count=63`。
+- 通过：device-control debug eval，报告
+  `build/verification/device-control-debug-wireless-action-observation-rerun-20260627-124000/device-control-debug-eval.properties`
+  记录 `command_count=39` 和 `status=passed`。
+- 通过：真实 App 搜索 eval，报告
+  `build/verification/real-app-search-wireless-action-observation-final-20260627-125900/real-app-search-eval.properties`
+  记录 `run_count=7`、`pass_count=7`、`skip_count=1`、`fail_count=0`；
+  Chrome 未安装按 skipped 处理。
+- 仍未完成：50 task benchmark、人审/release gate approval、store-policy/support owner 审批。
+
+## 2026-06-27 Local Replanner Observation Evidence Prompt
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 不再只看到 “private data keys omitted”；本机 action model
+  会收到有界 `LocalOnly` 观察摘要，包含 `screenObservationJson`/
+  `afterScreenObservationJson` 元信息、Accessibility/OCR element 抽样、OCR blocks 备份、
+  OCR 文本和 Accessibility `screenText`。
+- Runtime 在当前屏幕 OCR/当前读屏后允许本机 replanner 先于本地回答规划下一步手机动作；
+  replanner 使用未脱敏 `safeResult`，但 `ToolObserved` trace、audit 和
+  `AgentObservationResult.result` 仍使用 `redactedForTrace` 后的结果。
+- DeviceControl 工具的动作后观察只在没有 active skill plan 时交给通用 replanner；
+  低风险 App skill 的专属 progression 仍优先，避免真实 App eval 流程被通用 replanner 打断。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest
+scripts/test_validation_scripts.sh
+scripts/verify_capability_matrix.sh \
+  --report build/verification/capability-matrix-replanner-observation-runtime.properties
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-replanner-observation-runtime.properties || true
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest` 覆盖本机 action prompt 中的有界 LocalOnly
+  observation evidence、OCR source 抽样、Accessibility-only observation 时的 OCR blocks
+  回退，以及 raw JSON key 不进入 prompt。
+- 通过：`AgentLoopRuntimeTest` 覆盖当前屏幕 OCR raw LocalOnly evidence 可驱动本机
+  `ui_tap` replan，同时 trace/audit/result 保持 `[redacted]`；既有低风险 App
+  skill progression 未被通用 replanner 打断。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`build/verification/capability-matrix-replanner-observation-runtime.properties`，
+  `localEvidenceRemoteEligibleCount=0`。
+- 预期失败：`build/verification/privacy-review-replanner-observation-runtime.properties`
+  仍缺 release/security/legal reviewer、reviewDate 和 approval；`missingEvidenceFiles=`
+  为空，无 stale SHA。
+- 已有但不关闭 release gate 的性能样本：
+  `build/verification/rc/perf-baseline-wireless-ocr-chat-e4b-20260627-113217.properties`
+  通过 standalone verifier，设备 `192.168.1.27:35537`，API 36，`arm64-v8a`，
+  `zvecMemoryIndex50kMs=26224`、`zvecMemorySearch50kMs=87`，并记录
+  `preserves_model_data=true`；该样本绑定 `app-release-unsigned.apk`，仍需最终签名
+  RC artifact 重新采集/验证后才能关闭 release perf gate。
+- 仍未完成：50 task benchmark、API 28/32/33/34 arm64 matrix、privacy/store/model
+  license/release owner 人审、生产签名和最终 `PUBLIC_RELEASE=1` release gate。
+
+## 2026-06-27 OCR Grounding Hint Execution Fallback
+
+本轮覆盖项：
+
+- `capture_current_screenshot_ocr` 成功返回融合 `screenObservationJson` 后，路由层记录一个
+  内存内、短 TTL、一次性的 OCR grounding hint。
+- 下一次 `ui_tap(target)`、`ui_type_text(target=...)` 或 `ui_submit_search` 若 target
+  与 OCR 元素文本匹配，会把 OCR bounds 作为低优先 fallback 传给 Accessibility service；原有 Accessibility
+  节点匹配仍优先，hint 在任意下一次 device-control 动作后消费或清除，避免跨页面复用旧坐标。
+- `ui_type_text` 只用 OCR bounds 负责点击/聚焦目标；真正写文本仍要求动作后出现
+  Accessibility editable 节点，不做盲坐标输入。
+- `ui_submit_search` 仍优先走 IME search action 和 Accessibility submit button；二者都不可用时，
+  才用提交前当前屏幕 OCR 中精确匹配“搜索/前往/完成/Search/Go/Done”等按钮文案的 bounds
+  做一次坐标 fallback；`搜索商品`、`Google` 等非提交文案不会触发。
+- OCR grounding hint 只允许被紧邻的下一次 device-control 动作消费；如果中间插入
+  `query_foreground_app` 等非设备控制工具，路由层会清除 hint。
+- fallback 仍是 `LocalOnly`，不持久化、不进入远程模型；动作后仍产出
+  `afterScreenObservationJson` 用于本地验证。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest \
+  --tests com.bytedance.zgx.solin.device.UiTargetResolverTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+scripts/verify_capability_matrix.sh \
+  --report build/verification/capability-matrix-ocr-submit-grounding.properties
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-ocr-submit-grounding.properties || true
+git diff --check
+```
+
+结果：
+
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintIsConsumedByNextUiTap`
+  覆盖当前屏幕 OCR 后的下一次 `ui_tap("继续")` 收到 `ocr:block:0` bounds，
+  且第二次同目标点击不复用旧 hint。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintCanFocusNextUiTypeTextTarget`
+  覆盖当前屏幕 OCR 后的下一次 `ui_type_text(target="搜索输入框")` 收到 OCR bounds，
+  且第二次输入不复用旧 hint。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintCanSubmitSearchButton`
+  覆盖当前屏幕 OCR 后的下一次 `ui_submit_search` 会在宽搜索框和右侧小搜索按钮同时存在时，
+  选择小搜索按钮 bounds，且第二次提交不复用旧 hint。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintDoesNotTreatGoogleLogoAsSubmitSearch`
+  覆盖短英文 `go` 只接受精确提交按钮匹配，避免把 `Google` logo 当作搜索提交入口。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintDoesNotTreatSearchPlaceholderAsSubmitSearch`
+  覆盖 `搜索商品` 这类搜索框占位文本不会作为提交按钮 OCR fallback。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintClearedByInterveningNonDeviceTool`
+  覆盖当前屏幕 OCR 后如果先执行 `query_foreground_app`，后续 `ui_submit_search`
+  不再收到旧 OCR hint。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`build/verification/capability-matrix-ocr-submit-grounding.properties`，
+  `localEvidenceRemoteEligibleCount=0`。
+- 预期失败：`build/verification/privacy-review-ocr-submit-grounding.properties`
+  仍缺 release/security/legal reviewer、reviewDate 和 approval；`missingEvidenceFiles=`
+  为空，无 stale 证据缺口。
+- 通过：`git diff --check`。
+- 未重跑真机：本轮是路由和 Accessibility service fallback 的 JVM 可验证逻辑；
+  下一次设备回归仍必须使用覆盖安装或 `SKIP_INSTALL=1`，不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Action Observation Diff Evidence
+
+本轮覆盖项：
+
+- `ui_*` 动作结果在 `afterScreenObservationJson` 之外新增
+  `beforeScreenObservationJson`，保留动作前后两侧结构化观察，均为 `LocalOnly`
+  私有输出。
+- 动作结果新增有界 `screenObservationDiffSummary`：记录包名、节点数、可交互节点数、
+  新增/消失文本、新增/消失可交互目标，帮助本机 action model 判断“动作是否改变了屏幕”
+  以及下一步该继续、换候选还是停手。
+- `ModelObservationReplanner` 的本地 prompt 现在同时接收
+  `beforeScreenObservationJson`、`afterScreenObservationJson` 和
+  `screenObservationDiffSummary` 的裁剪摘要；raw JSON key 不进入 prompt，仍不进入远程模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest.routingExecutorDispatchesDeviceContextToolsBeforeDelegate \
+  --tests com.bytedance.zgx.solin.tool.ToolRegistryTest.deviceControlAndScreenObservationSpecsAreLocalOnly
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+scripts/verify_capability_matrix.sh \
+  --report build/verification/capability-matrix-action-observation-diff.properties
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-action-observation-diff.properties || true
+git diff --check
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerPromptIncludesActionObservationDiffEvidence`
+  覆盖本机 action prompt 含 before/after observation 摘要、diff summary、新增文本和新增可交互目标。
+- 通过：`RoutingAndValidatingToolExecutorTest.routingExecutorDispatchesDeviceContextToolsBeforeDelegate`
+  覆盖 `ui_tap` / `ui_submit_search` 输出 before/after observation 和 diff summary。
+- 通过：`ToolRegistryTest.deviceControlAndScreenObservationSpecsAreLocalOnly`
+  覆盖新输出字段在 schema 中声明，且 `beforeScreenObservationJson`、
+  `screenObservationDiffSummary` 属于 private output keys。
+- 未重跑真机：当前 `adb devices -l` 无在线设备；下一次设备验证仍必须覆盖安装或
+  `SKIP_INSTALL=1`，不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Local Observation Target Candidate Prompt
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 的本机屏幕观测摘要新增 `targets=[...]` 候选列表，
+  从已裁剪 `ScreenObservation` 元素中抽取可点、可编辑、可滚动的 Accessibility 元素，
+  以及可作为低优先 fallback 的 OCR block。
+- 裁剪顺序改为优先保留可操作 Accessibility 元素，再保留 OCR block，最后才用静态
+  Accessibility 文案补上下文，避免真实页面顶部大量静态文本挤掉后置输入框或提交按钮。
+- 每个候选只保留 label、mode、source、role、bounds 和 confidence，继续不把 raw
+  `elements` JSON、截图或 OCR 原文写入 trace/audit。
+- 目标是把 UI-TARS / Mobile-Agent 类 grounding 思路落到本地 action prompt：
+  本机模型可以直接看到“哪些 label 可作为 tap/type/scroll/OCR hint 目标”，减少从静态文本
+  中猜测下一步 target 的负担。
+- Prompt 同时明确要求：输出 `ui_*` 工具时应把候选 label 原样复制到 `target` 参数；
+  `mode=type/tap/scroll/ocr_tap_hint` 分别对应输入、点击、滚动和 OCR 低优先 fallback。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+scripts/verify_capability_matrix.sh \
+  --report build/verification/capability-matrix-local-target-label-guidance.properties
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-local-target-label-guidance.properties || true
+git diff --check
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerPromptIncludesBoundedLocalObservationEvidence`
+  覆盖 Accessibility `继续` tap target 和 OCR `继续` `ocr_tap_hint` target 同时进入本机 prompt。
+  同时覆盖本机 prompt 要求模型原样复制候选 label，并把 `mode` 映射到对应 `ui_*` 工具。
+- 通过：`AgentObservationReplannerTest.modelReplannerPrioritizesActionableTargetsAfterStaticText`
+  覆盖前 12 个元素均为静态文本时，后置 `搜索输入框`、`搜索` 按钮和 OCR submit hint 仍进入
+  本机 prompt。
+- 通过：`AgentObservationReplannerTest.modelReplannerPromptIncludesActionObservationDiffEvidence`
+  覆盖动作后观测中的 `搜索输入框` type+tap target 和 `搜索` tap target。
+- 通过：`AgentObservationReplannerTest.modelReplannerUsesRecoverableFailedObservationEvidence`
+  覆盖失败恢复 prompt 在含 failure diagnostics 的同时，也包含动作后 `搜索输入框` target 候选。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`build/verification/capability-matrix-local-target-label-guidance.properties`，
+  `localEvidenceRemoteEligibleCount=0`。
+- 预期失败：`build/verification/privacy-review-local-target-label-guidance.properties`
+  仍缺 release/security/legal reviewer、reviewDate 和 approval；`missingEvidenceFiles=`
+  为空，无 stale 证据缺口。
+- 通过：`git diff --check`。
+- 未重跑真机：当前 `adb devices -l` 无在线设备；下一次设备验证仍必须覆盖安装或
+  `SKIP_INSTALL=1`，不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Failed Action Local Diagnostic Prompt
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 的本机 action prompt 增加有界 `Observation diagnostics`：
+  `actionType`、`target`、`status`、`retryable`、`failureKind`、搜索验证状态、
+  before/after 节点计数和 `verificationSummary` 等字段会逐值脱敏、限长后提供给本机模型。
+- 该诊断摘要只进入本机 action model prompt，不改变 `ToolRegistry` 对失败态
+  `LocalOnly` 私有字段的 trace/audit sanitizer。
+- 目标是让本机模型不仅看到 OCR/屏幕 diff，还能知道失败是 `node_not_found`、
+  `editable_not_found`、`result_not_verified` 还是其他稳定 failure kind，从而更容易选择
+  换目标、等待、滚动、重试或停手。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.failedUiActionObservationCanReplanWithRawLocalEvidenceButKeepsTraceRedacted
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+scripts/verify_capability_matrix.sh \
+  --report build/verification/capability-matrix-failed-action-diagnostics.properties
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-failed-action-diagnostics.properties || true
+git diff --check
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerUsesRecoverableFailedObservationEvidence`
+  覆盖 prompt 含 `failureKind=node_not_found`、`actionType=tap`、`target=搜索入口`、
+  `resultRetryable=true` 和脱敏后的 `verificationSummary`，且不包含原始邮箱。
+- 通过：`AgentLoopRuntimeTest.failedUiActionObservationCanReplanWithRawLocalEvidenceButKeepsTraceRedacted`
+  继续覆盖失败动作本地证据可驱动下一步 `ui_tap`，同时 failed trace/result 不保存私有证据。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`build/verification/capability-matrix-failed-action-diagnostics.properties`，
+  `localEvidenceRemoteEligibleCount=0`。
+- 预期失败：`build/verification/privacy-review-failed-action-diagnostics.properties`
+  仍缺 release/security/legal reviewer、reviewDate 和 approval；`missingEvidenceFiles=`
+  为空，无 stale 证据缺口。
+- 通过：`git diff --check`。
+- 未重跑真机：当前 `adb devices -l` 无在线设备；下一次设备验证仍必须覆盖安装或
+  `SKIP_INSTALL=1`，不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Failed Device Action Local Observation Recovery
+
+本轮覆盖项：
+
+- 可恢复的失败 `ui_*` 动作如果返回 `beforeScreenObservationJson`、
+  `afterScreenObservationJson`、`screenObservationDiffSummary` 或 OCR/读屏本地证据，
+  会先把有界 `LocalOnly` 摘要交给本机 action model 尝试规划下一步手机动作。
+- 权限缺失、不可重试、非 `ExecutionFailed`、无本地观察证据或 active skill plan 场景不会触发
+  失败态模型恢复，继续沿用原有 fail-closed / safe observe-wait 恢复路径。
+- 失败态 raw `LocalOnly` 证据只用于本地规划；`ToolObserved` trace、audit 和返回给上层的
+  failed result 会移除这些私有字段，不把 before/after/diff/OCR 原文写入可持久化轨迹。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.failedUiActionObservationCanReplanWithRawLocalEvidenceButKeepsTraceRedacted \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.currentScreenOcrObservationReplannerUsesRawLocalEvidenceButKeepsTraceRedacted
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+scripts/verify_capability_matrix.sh \
+  --report build/verification/capability-matrix-failed-action-recovery.properties
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-failed-action-recovery.properties || true
+git diff --check
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest` 覆盖成功观察、可恢复失败观察和权限缺失失败的模型
+  replanner 边界。
+- 通过：`AgentLoopRuntimeTest.failedUiActionObservationCanReplanWithRawLocalEvidenceButKeepsTraceRedacted`
+  覆盖失败 `ui_tap` 的 before/after/diff raw 本地证据能驱动本机 action model 规划下一次
+  `ui_tap("搜索输入框")`，同时 failed trace/result 不保存这些私有字段。
+- 通过：`AgentLoopRuntimeTest.currentScreenOcrObservationReplannerUsesRawLocalEvidenceButKeepsTraceRedacted`
+  继续覆盖当前屏幕 OCR raw `screenObservationJson` 可驱动本机动作规划且 trace/audit 脱敏。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`build/verification/capability-matrix-failed-action-recovery.properties`，
+  `localEvidenceRemoteEligibleCount=0`。
+- 预期失败：`build/verification/privacy-review-failed-action-recovery.properties`
+  仍缺 release/security/legal reviewer、reviewDate 和 approval；`missingEvidenceFiles=`
+  为空，无 stale 证据缺口。
+- 通过：`git diff --check`。
+- 未重跑真机：当前 `adb devices -l` 无在线设备；下一次设备验证仍必须覆盖安装或
+  `SKIP_INSTALL=1`，不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Local Target Shortlist and Transient Id Matching
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 的本机 action prompt 将 `targets=[...]` 从“候选 label”
+  收敛为“候选 `target=...` 可执行字符串”，并新增 `targetShortlist(...)`。
+- Accessibility 候选优先把 transient node id 作为 exact `target` 值，OCR fallback
+  只把 OCR 文本作为 exact `target` 值；`modeTags`、bounds、confidence 只作为候选注解，
+  prompt 明确禁止把这些字段输出成工具参数。
+- `SolinAccessibilityService` 的 transient node id 匹配补上 raw id 前缀路径，观察输出的
+  `n*_hash_snapshotSalt` 可以匹配动作执行阶段的 `n*_hash` 候选，同时不把 `n1_*`
+  误匹配为 `n10_*`。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.device.SolinAccessibilityServiceTargetIdTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+scripts/verify_capability_matrix.sh \
+  --report build/verification/capability-matrix-target-shortlist-id-matching.properties
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-target-shortlist-id-matching.properties || true
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest` 覆盖本机 prompt 中的
+  `targetShortlist(...)`、`target=...` exact string、Accessibility id 优先、
+  OCR fallback 文本，以及禁止输出 `mode`/bounds/confidence 等非 schema 参数。
+- 通过：`SolinAccessibilityServiceTargetIdTest` 覆盖 exact id、带 snapshot salt 的
+  observed id，以及相邻 index 前缀不误匹配。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`build/verification/capability-matrix-target-shortlist-id-matching.properties`，
+  `localEvidenceRemoteEligibleCount=0`。
+- 预期失败：`build/verification/privacy-review-target-shortlist-id-matching.properties`
+  仍缺 release/security/legal reviewer、reviewDate 和 approval；`requiresHumanApproval=1`，
+  `missingEvidenceFiles=` 为空。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+
+## 2026-06-27 Exact Diff Target Evidence Guard
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 的 diff summary target evidence 从原来的 raw substring
+  匹配收紧为 exact label 匹配：只解析 `addedText` / `addedActionable` 字段，按 `|`
+  切分候选，并允许剥离 `clickable:`、`editable:` 等模式前缀后再做 normalized exact match。
+- 这样动作后恢复仍可从 `addedActionable=editable:搜索输入框` 放行
+  `target=搜索输入框`，但不会因为 `target=搜索` 是 `搜索输入框` 的短子串而误放行 `ui_tap`。
+- 搜索上下文和滚动上下文 guard 仍复用 diff summary 的新增证据；本轮只收紧具体 target
+  证据，不改变 targetless typing / submit search 的上下文判断。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest.modelReplannerAllowsExactTargetFromDiffEvidence \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest.modelReplannerRejectsSubstringTargetFromDiffEvidence
+./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+```
+
+结果：
+
+- 通过：`modelReplannerAllowsExactTargetFromDiffEvidence` 覆盖完整 diff label 能驱动下一步
+  `ui_tap(target=搜索输入框)`。
+- 通过：`modelReplannerRejectsSubstringTargetFromDiffEvidence` 覆盖短子串 `target=搜索`
+  不能仅凭 `搜索输入框` diff 证据继续动作。
+
+## 2026-06-27 Repeated OCR Text Requires Element Id
+
+本轮覆盖项：
+
+- standalone OCR blocks 和 fused OCR observation 的 target evidence guard 保留 `ocr:block:N`
+  element id 路径；standalone OCR prompt 现在也暴露
+  `ocr:block:N:line:M` 和 `ocr:block:N:line:M:element:K`，优先推荐更精确的 element/line
+  target，再回退 block target。OCR 文本 target 只在当前 OCR 文案唯一时兼容放行。
+- `CurrentScreenOcrGroundingCache` 消费 hint 时先匹配 OCR element id；如果只能按 OCR 文本匹配且
+  匹配到多个 hint，则不返回 OCR grounding hint，避免两个“继续”时选错 bounds。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest.modelReplannerUsesOcrElementIdsForRepeatedOcrFallbackTargets \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest.modelReplannerRejectsAmbiguousRepeatedOcrTextTarget \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest.modelReplannerExposesStandaloneOcrElementTargetsForMultiTokenBlock \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest.modelReplannerRejectsNestedOcrTextTargetWhenBlockAndElementBothMatch \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintMatchesOcrElementIdTarget \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintRequiresElementIdForRepeatedOcrText \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintMatchesNestedOcrElementIdTarget
+```
+
+结果：
+
+- 通过：重复 OCR 文案下 `target=ocr:block:1` 继续通过 replanner，并命中第二个 OCR bounds。
+- 通过：重复 OCR 文案下 `target=继续` 被 replanner 拦截；执行器也不会为该文本 target
+  消费 OCR grounding hint。
+- 通过：一个 OCR block 内同时包含“取消 / 继续”时，prompt 暴露
+  `target=ocr:block:0:line:0:element:1`，本机模型输出该 id 可通过 replanner，并在执行器中命中
+  “继续” element 的 bounds；短文本 `target=继续` 因 block/line/element 都匹配而被判为歧义。
+
+## 2026-06-27 Preserved Physical Device Report Gate
+
+本轮覆盖项：
+
+- `verify_release_validation_record.sh` 在 `physicalDevice.cleanDevice=false` 时要求嵌套 device
+  report 同时声明 `clean_device=0` 和 `reset_app_data_after_tests=0`。
+- release readiness / blocker dashboard 的物理验证命令改为
+  `RESET_APP_DATA_AFTER_TESTS=0 ANDROID_SERIAL=... scripts/install_and_test_device.sh`，
+  perf 命令改为 RC harness collector `scripts/collect_rc_perf_from_device.sh`。
+- `docs/perf_baseline_template.properties` 的 `collectionCommand` 指向 RC perf collector，减少手填
+  baseline 绕过 RC harness 的风险。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+scripts/test_validation_scripts.sh
+```
+
+结果：
+
+- `cleanDevice=false + reset_app_data_after_tests=1` 的 physical report 失败，并报告
+  `physical-device-report-reset-app-data-after-tests-not-disabled`。
+
+
+## 2026-06-27 Intent-Prioritized Resolver Target Shortlist
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 的 `targetShortlist(...)` 在复用 `UiTargetResolver` 排序时，
+  先从 `User intent preview` 推断当前优先目标 kind：搜索入口、输入框、提交搜索、筛选或滚动容器。
+- 当前意图命中的 kind 会先进入 resolver ranking，再回填默认 kind；同一 target 仍保留最优 rank，
+  所以“点筛选”这类请求不会被默认搜索入口排序压在后面。
+- 回归覆盖同屏同时存在 `搜索商品` 搜索入口、结果列表和 `筛选` 按钮时，
+  `targetShortlist(tap=...)` 必须把 `filter-button` 放在首位，并且不能以 `search-entry` 开头。
+- 该改动只影响本机 `LocalOnly` prompt target shortlist 的排序，不扩大可执行工具 allowlist，
+  不放宽当前证据守卫，也不把 OCR/Accessibility 证据发送到远程模型。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest.modelReplannerTargetShortlistPrioritizesIntentKindForFilterEntry
+./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerTargetShortlistPrioritizesIntentKindForFilterEntry`
+  覆盖 `input=点筛选` 时 prompt 同时包含搜索入口和筛选按钮，但
+  `targetShortlist(tap=filter-button...)` 优先推荐筛选按钮。
+- 通过：完整 `AgentObservationReplannerTest`。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：真机 connected tests、real-app eval、50 task benchmark、人审/release gate、
+  最终签名 RC perf gate。
+
+## 2026-06-27 OCR Fallback Element Id Targets
+
+本轮覆盖项：
+
+- OCR fallback target 从纯 OCR 文本改为 OCR element id：standalone `ocrBlocksJson` 使用
+  `ocr:block:N`，fused `screenObservationJson` 中的 OCR element 使用自身 `id`。
+- OCR 文本仍作为 label、prompt 证据和旧 target 兼容匹配保留，但 `targetShortlist(ocrFallback=...)`
+  会暴露可区分的 element id，避免两个同文案 OCR block 坍缩成一个 target。
+- Standalone `ocrBlocksJson` 的 `targetShortlist(...)` 也前置到 block 摘要和 verbose
+  `targets=[...]` 之前，避免长 OCR 摘要先截断掉可复制的 fallback target id。
+- 执行器 OCR grounding cache 已按 `UiOcrGroundingHint.elementId` 匹配 target；新增回归覆盖
+  `ui_tap(target=ocr:block:1)` 会消费第二个同名 OCR block 的 bounds。
+- 该改动只改变本机 `LocalOnly` prompt 与 OCR grounding target 身份合同，不扩大工具 allowlist，
+  不放宽 MediaProjection consent、屏幕签名稳定性或当前证据守卫。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest.modelReplannerUsesOcrElementIdsForRepeatedOcrFallbackTargets \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest.modelReplannerKeepsLateOcrFallbackFromFusedObservation \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintMatchesOcrElementIdTarget \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest.modelObservationReplanConsumesCurrentScreenshotOcrGroundingHint
+./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerUsesOcrElementIdsForRepeatedOcrFallbackTargets`
+  覆盖两个同文案 `继续` OCR block 生成 `targetShortlist(ocrFallback=ocr:block:0|ocr:block:1)`，
+  本机模型输出 `target=ocr:block:1` 可通过当前证据守卫。
+- 通过：`AgentObservationReplannerTest.modelReplannerFallsBackToOcrBlocksWhenObservationLacksOcrSource`
+  覆盖 standalone OCR blocks 的 `targetShortlist(ocrFallback=ocr:block:0)` 先于 verbose
+  `targets=[...]` 输出。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintMatchesOcrElementIdTarget`
+  覆盖 `ui_tap(target=ocr:block:1)` 消费第二个 OCR hint，bounds 为 `[20,260,220,328]`。
+- 通过：完整 `AgentObservationReplannerTest`。
+- 通过：完整 `RoutingAndValidatingToolExecutorTest`。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：真机 connected tests、real-app eval、50 task benchmark、人审/release gate、
+  最终签名 RC perf gate。
+
+## 2026-06-27 Resolver-Ranked Target Shortlist
+
+本轮覆盖项：
+
+- `ScreenObservation` JSON 增加反序列化入口，结构化 `LocalOnly` observation 可被本机
+  replanner 还原为 `ScreenObservation`，用于复用同一套 `UiTargetResolver` 排序逻辑。
+- `ModelObservationReplanner` 的 `targetShortlist(...)` 现在按 resolver ranking 重排候选，
+  复用 App profile、搜索入口负例和可操作性信号；同一 target 同时被 search-entry /
+  submit / filter 等 kind 命中时保留最优 rank，不再被后续 kind 覆盖。
+- `targetShortlist(...)` 在 screen observation prompt 中先于 verbose `elements=[...]`
+  和 `targets=[...]` 输出，避免长观察摘要截断时先丢掉可执行 target shortlist。
+- 回归覆盖淘宝搜索入口噪声：`拍照搜索`、结果列表和 `搜索好物 推荐 商品图片` 不能挤掉
+  真正的 `搜索商品` 搜索入口；prompt 首个 tap target 必须是 `real-search-entry`。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.device.ScreenObservationContractTest.screenObservationJsonParsesBackToLocalOnlyObservationModel \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest.modelReplannerTargetShortlistUsesResolverRankingForSearchEntryNoise
+./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`ScreenObservationContractTest.screenObservationJsonParsesBackToLocalOnlyObservationModel`
+  覆盖 `toScreenObservationJsonString()` 输出可解析回 `LocalOnly` model，保留 sources、
+  Accessibility/OCR elements、bounds、clickability 和文本。
+- 通过：`AgentObservationReplannerTest.modelReplannerTargetShortlistUsesResolverRankingForSearchEntryNoise`
+  覆盖 `targetShortlist(tap=real-search-entry...)` 复用 resolver 排序，避免 `拍照搜索`
+  或视觉/推荐入口排在真实搜索入口之前。
+- 通过：完整 `AgentObservationReplannerTest`。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：真机 connected tests、real-app eval、50 task benchmark、人审/release gate、
+  最终签名 RC perf gate。
+
+## 2026-06-27 OCR Label On Blank Accessibility Target Prompt Fusion
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 的 structured observation prompt 增加 `accessibility+ocr` 融合候选：
+  当 OCR block 的 bounds 大部分落在无文本、可操作的 Accessibility 节点 bounds 内时，
+  prompt 使用 OCR 文案作为 label，但 `target` 仍给可执行的 Accessibility transient node id。
+- 融合候选在 `targetShortlist(tap=...)` 中优先出现，避免页面有大量可点击噪声时，
+  关键 OCR 文案覆盖的无文本按钮被普通 element 裁剪挤掉。
+- 该改动只影响本机 LocalOnly replanner prompt；不改变远程可见输出，不新增截图或 OCR 文本持久化。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest.modelReplannerPromptPromotesOcrLabelOnBlankAccessibilityTarget
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerPromptPromotesOcrLabelOnBlankAccessibilityTarget`
+  覆盖 12 个可点击噪声元素之后的无文本 Accessibility 节点被重叠 OCR `搜索入口` 标注为
+  `source=accessibility+ocr`，并在 shortlist 中暴露 `target=icon-search-entry`。
+- 通过：完整 `AgentObservationReplannerTest`。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Standalone OCR Block Target Shortlist
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 在 `screenObservationJson` 没有 OCR source、但工具结果提供
+  standalone `ocrBlocksJson` 时，会继续保留 `ocrBlocks(count=...)` 摘要，同时从 OCR
+  blocks 生成 `targets=[...]` 和 `targetShortlist(ocrFallback=...)`。
+- 这让本机模型可以把 OCR block 作为明确的低优先 fallback target 复制到 `ui_tap` /
+  `ui_type_text` / `ui_scroll` 等工具参数里，而不是只根据普通 OCR 摘要猜测目标。
+- 该路径仍只使用本机 `LocalOnly` OCR 文本和 bounds，不展开 OCR lines，也不进入远程模型。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerFallsBackToOcrBlocksWhenObservationLacksOcrSource`
+  覆盖 `screenObservationJson` 无 OCR source、`ocrBlocksJson` 含 `继续` 时，本机 prompt 同时包含
+  `ocrBlocks(count=1)`、`targets=[继续{target=ocr:block:0,...}]` 和
+  `targetShortlist(ocrFallback=ocr:block:0)`，并且不包含原始 `lines` JSON。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  当前仍无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Model Replanner Current Target Evidence Guard
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 对本机 action model 输出的 `ui_tap`、`ui_type_text` 和
+  `ui_scroll` draft 增加当前证据守卫：当最新结果包含 `screenObservationJson`、
+  `afterScreenObservationJson`、`ocrBlocksJson` 或 `screenObservationDiffSummary` 的
+  新增文本/可操作项时，draft 的 `target` 必须能在当前 Accessibility/OCR/diff 证据中找到。
+- 当前证据只看当前屏幕、动作后的结构化观测、当前 OCR blocks 和动作后的新增 diff；
+  不会用旧的 `beforeScreenObservationJson` 支持已经消失的目标。
+- 对没有 `target` 的 `ui_scroll` draft，当前结构化观测或新增 diff 也必须显示
+  scrollable 元素；否则不下发泛滚动，避免本机模型在非滚动页上循环操作。
+- 对没有 `target` 的 `ui_submit_search` draft，当前结构化观测、OCR blocks 或新增 diff
+  必须显示搜索输入框、搜索提交控件或搜索相关新增文本/可操作项；否则不在非搜索上下文里
+  盲提交。
+- 该保护把 prompt 里的 `targetShortlist(...)` 从“建议”收紧为执行前约束，避免小模型凭空
+  生成不在屏幕上的 target。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.failedUiActionObservationCanReplanWithRawLocalEvidenceButKeepsTraceRedacted
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsTargetMissingFromCurrentObservationEvidence`
+  覆盖当前观测只包含 `continue-button` 时，本机模型输出
+  `ui_tap(target=missing-checkout-button)` 会被 replanner 拦截。
+- 通过：`AgentObservationReplannerTest.modelReplannerFallsBackToOcrBlocksWhenObservationLacksOcrSource`
+  继续覆盖 `screenObservationJson` 无 OCR source 但 `ocrBlocksJson` 含 `继续` 时，
+  OCR fallback target 仍可用于下一步动作。
+- 通过：`AgentObservationReplannerTest.modelReplannerAllowsTargetFromObservationDiffEvidence`
+  覆盖 after observation 元素为空、但 diff 中 `addedActionable=editable:搜索输入框` 时，
+  target `搜索输入框` 仍被视为动作后当前证据。
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsUntargetedScrollWithoutScrollableEvidence`
+  覆盖当前观测没有 scrollable 元素时，本机模型输出无 target 的 `ui_scroll(direction=down)`
+  会被 replanner 拦截。
+- 通过：`AgentObservationReplannerTest.modelReplannerAllowsUntargetedScrollWithScrollableEvidence`
+  覆盖当前观测有 scrollable 列表时，无 target 的 `ui_scroll(direction=down)` 不被误拦。
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsSubmitSearchWithoutSearchEvidence`
+  覆盖当前观测没有搜索输入/提交证据时，本机模型输出 `ui_submit_search` 会被 replanner 拦截。
+- 通过：`AgentObservationReplannerTest.modelReplannerAllowsSubmitSearchFromObservationDiffEvidence`
+  覆盖 diff 中新增 `搜索输入框` 和 `搜索` 可操作项时，`ui_submit_search` 不被误拦。
+- 通过：`AgentLoopRuntimeTest.failedUiActionObservationCanReplanWithRawLocalEvidenceButKeepsTraceRedacted`
+  覆盖失败动作的 raw LocalOnly diff 能驱动下一步本机 replan，同时 trace/audit 仍保持脱敏。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  当前仍无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Model Replanner Dangerous Action Evidence Guard
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 对本地 OCR/屏幕观测中的危险动作语义增加停手保护：
+  当前证据显示支付、发送、删除、发布、下单、购买、转账或授权类控制时，不继续接受
+  本机 action model 输出的 `ui_tap`、`ui_type_text`、`ui_submit_search` 或 `ui_scroll`。
+- 危险证据来源包含当前 `screenObservationJson`、`afterScreenObservationJson`、
+  `ocrBlocksJson`，以及强危险短语的 `ocrText` / `screenText`；静态说明文案不被当成
+  可执行危险控制。
+- OCR-only 危险判定收窄为强危险短语或独立危险按钮词：`确认支付`、独立 `删除` 等会停手，
+  `支付说明` 这类静态 OCR 文案不会误拦低风险继续动作。
+- Prompt 同步要求：当前 LocalOnly evidence 显示支付/发送/删除/发布/下单/购买/转账/授权
+  控件时应停手，而不是继续规划 UI 动作。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsDangerousOcrActionEvidence`
+  覆盖 OCR block / OCR text 出现 `确认支付` 时，即使本机模型输出
+  `ui_tap(target=确认支付)`，replanner 也返回 null，不继续自动下发动作。
+- 通过：`AgentObservationReplannerTest.modelReplannerAllowsStaticDangerousTextWithoutActionControl`
+  覆盖静态 `支付说明` 文案不会误拦当前可点击的 `continue-button`。
+- 通过：`AgentObservationReplannerTest.modelReplannerAllowsStaticDangerousOcrCopyWithoutActionControl`
+  覆盖 OCR block、`ocrText` 和 OCR observation element 中的 `支付说明` 不会误拦低风险
+  `continue-button`。
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsStandaloneDangerousOcrButtonText`
+  覆盖 OCR block 识别为独立 `删除` 时仍会停手。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Model Replanner Repeated Target Guard
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 对本机 action model 输出增加窄口径保护：上一条失败动作和
+  下一条 model draft 如果是同一个 `ui_tap`、`ui_type_text` 或 `ui_scroll`，且 target
+  完全一致，会先检查最新本地证据。
+- 只有当 diff 包含 `changed=true`，或当前 `screenObservationJson` /
+  `afterScreenObservationJson` / `ocrBlocksJson` 能证明该 target 当前可见且可操作或可作为
+  OCR fallback 时，才允许重复 target；否则不下发重复动作，让外层走 observe/wait 安全恢复。
+- 该保护不作用于非 UI target 工具，也不阻止“屏幕有变化”或“当前观测有证据”的重试。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsRepeatedFailedTargetWithoutCurrentEvidence`
+  覆盖失败后本机模型重复输出同一 `ui_tap(target=搜索入口)`，且 diff 为 `changed=false`、
+  当前观测无该 target 证据时，replanner 返回 null，不继续下发重复动作。
+- 通过：`AgentObservationReplannerTest.modelReplannerAllowsRepeatedFailedTargetWhenCurrentEvidenceSupportsIt`
+  覆盖当前观测仍有可点击 `search-entry` 证据时，同 target 重试不会被误拦。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Prior Request Details for Local Replanner
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 的本机 action prompt 新增有界 `Prior request details`，
+  记录最近几步工具的 target、direction、captureMode、timeout 等执行上下文。
+- Prompt 明确：如果最新观察显示动作失败，不要在没有新证据时重复同一个 prior target。
+- `ui_type_text.text` 不进入 prompt，只记录 `textChars`，避免把用户输入正文扩散到本机
+  action prompt 的历史摘要里。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+scripts/verify_capability_matrix.sh \
+  --report build/verification/capability-matrix-prior-request-details.properties
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-prior-request-details.properties || true
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerUsesRecoverableFailedObservationEvidence`
+  覆盖失败动作 prompt 包含 `Prior request details: ui_tap{target=搜索入口}`，并包含不要无证据
+  重复 prior target 的指令。
+- 通过：`AgentObservationReplannerTest.modelReplannerPriorRequestDetailsOmitTypedText`
+  覆盖 `ui_type_text` 历史摘要只包含 `target=search-input`、`textChars=17` 和 timeout，
+  不包含原始邮箱输入文本。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`build/verification/capability-matrix-prior-request-details.properties`，
+  `localEvidenceRemoteEligibleCount=0`。
+- 预期失败：`build/verification/privacy-review-prior-request-details.properties`
+  仍缺 release/security/legal reviewer、reviewDate 和 approval；`requiresHumanApproval=1`，
+  `missingEvidenceFiles=` 为空。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 UI Target Argument Normalization and Primitive JSON Parsing
+
+本轮覆盖项：
+
+- `MobileActionPlanner` 对 `ui_tap`、`ui_type_text`、`ui_scroll` 的 `target` 参数增加
+  局部归一化：当本机模型把 `target=...`、`targetShortlist(...)` 或候选摘要片段误填进
+  JSON 字段时，进入工具请求前提取真正可执行的 target 字符串。
+- 该归一化只作用于接受 UI target 的三类设备控制工具；`open_system_settings` 等其它
+  `target` 参数保持原样，避免扩大行为面。
+- `parseModelOutput` 优先按严格 primitive JSON object 解析，再回退旧的字符串键值解析；
+  本机动作模型输出 `timeoutMillis:1500` 等数字参数时不再被宽松 parser 丢弃。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.action.ActionPlannerTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+scripts/verify_capability_matrix.sh \
+  --report build/verification/capability-matrix-ui-target-argument-normalization-primitive-json.properties
+scripts/verify_privacy_review.sh \
+  --report build/verification/privacy-review-ui-target-argument-normalization-primitive-json.properties || true
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`ActionPlannerTest.modelToolOutputNormalizesUiTargetCandidateMetadata`
+  覆盖 `ui_tap` 从候选摘要提取 `target=search-submit`、`ui_type_text` 从
+  `targetShortlist(type=search-input,...)` 提取 `search-input`、`ui_scroll` 从
+  `scroll=results-list` 提取 `results-list`。
+- 通过：`ActionPlannerTest.modelToolOutputLeavesNonUiTargetParametersUnchanged`
+  覆盖非 UI 工具 `open_system_settings(target=...)` 不被该纠偏修改。
+- 通过：`ActionPlannerTest.modelOutputParsesPrimitiveJsonAndNormalizesUiTargetMetadata`
+  覆盖本机模型路径 `parseModelOutput` 同时保留数字 `timeoutMillis=1500` 并归一化
+  `target=search-submit`。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`build/verification/capability-matrix-ui-target-argument-normalization-primitive-json.properties`，
+  `localEvidenceRemoteEligibleCount=0`。
+- 预期失败：`build/verification/privacy-review-ui-target-argument-normalization-primitive-json.properties`
+  仍缺 release/security/legal reviewer、reviewDate 和 approval；该项需要人审。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Model Replanner Target Normalization and OCR Search Submit Context Guard
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 在接收本机模型 draft 后复用 UI target 归一化：如果模型把
+  `targets=[...]` 候选摘要或 `target=...` 片段误放进 `target` 字段，会先提取真正 target，
+  再执行危险动作、当前证据和重复 target 守卫。
+- `ModelObservationReplanner` 对 `ui_tap` 增加必填 target 守卫：无 `target` 的 tap draft
+  直接停手，不把无效点击请求交给执行器。
+- OCR-only 的 `ui_submit_search` 证据收窄为“搜索上下文 + 提交词”：单独的 `确定`、`完成`、
+  `go` 或 `enter` 不再足以让本机模型提交搜索，避免确认弹窗被当作搜索按钮。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerNormalizesTargetCandidateMetadataBeforeEvidenceGuards`
+  覆盖候选摘要 target 被纠正为 `continue-button` 后再下发。
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsTargetlessTapDraft`
+  覆盖本机模型输出无 target 的 `ui_tap` 时 replanner 停手。
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsSubmitSearchWithOnlyConfirmOcrEvidence`
+  覆盖 OCR/observation 只有 `确定` 时，`ui_submit_search` 不被放行。
+- 通过：`AgentObservationReplannerTest.modelReplannerAllowsSubmitSearchWithOcrSearchContextAndSubmitEvidence`
+  覆盖 OCR 同时出现 `搜索商品` 和 `确定` 时，搜索提交仍可由本机模型规划。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Direct UI Action Dangerous Control Preflight Guard
+
+本轮覆盖项：
+
+- 危险动作文本判断从 `ModelObservationReplanner` 局部逻辑抽成共享 UI guard，
+  replanner 和 direct UI tool path 使用同一套支付、发送、删除、发布、下单、购买、转账、
+  授权语义。
+- `DeviceControlToolExecutor` 在执行 direct/skill `ui_tap`、`ui_type_text`、
+  `ui_submit_search`、`ui_scroll` 前，先用原始 `CurrentScreenControlProvider`
+  观察当前屏幕；若当前 Accessibility 观测显示可交互危险控件，则返回
+  `failureKind=dangerous_action`，不调用实际动作 provider。
+- 该 preflight 不使用带 OCR grounding cache 的 wrapper provider，因此不会因为动作前观察
+  清掉刚由 `capture_current_screenshot_ocr` 缓存的一次性 OCR hint。
+- `ToolRegistry` 的 UI action output schema 和失败结果脱敏 allowlist 增加
+  `dangerous_action`，保持 fail-closed 结果可验证。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`RoutingAndValidatingToolExecutorTest.routingExecutorRejectsDirectUiActionWhenDangerousControlIsVisible`
+  覆盖 direct `ui_tap(target=确认支付)` 在动作前被拦截，`tap` provider 未被调用。
+- 通过：`AgentObservationReplannerTest`，覆盖共享危险文本 guard 没有破坏既有 OCR/结构化
+  observation replanner 停手逻辑。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 OCR Grounding Hint Screen Signature Binding
+
+本轮覆盖项：
+
+- `CurrentScreenOcrGroundingCache` 保存当前屏幕 OCR hint 时，同时保存 capture 阶段由
+  Accessibility observation 计算出的私有屏幕签名。
+- `OcrGroundingCurrentScreenControlProvider` 在消费 hint 前重新读取当前 Accessibility 快照，
+  比对 package、节点数、可交互数和有界元素指纹；若同包页面已经漂移，则丢弃旧 OCR hint。
+- 签名只存在 cache 内部，不写入工具输出 schema，不新增远程可见字段，也不保存像素。
+- 与上一轮 direct UI action preflight 组合后：危险控件页面会先 fail closed，非危险但已漂移的
+  页面不会继续复用上一屏 OCR 坐标。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintIsRejectedAfterScreenSignatureChanges`
+  覆盖 OCR 捕获 `继续` 后，同包页面变为另一个非危险页面时，下一次 `ui_tap` 不再携带旧 OCR hint。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintIsConsumedByNextUiTap`
+  继续覆盖屏幕签名未变时，一次性 OCR hint 仍可被下一次 `ui_tap` 使用且只消费一次。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Direct Submit Search Context Guard
+
+本轮覆盖项：
+
+- 新增 `ScreenStateSnapshot.hasSearchSubmitContext()`，用当前 Accessibility 快照判断是否存在
+  搜索输入框、搜索提交控件或 App profile 中的搜索提交证据。
+- `OcrGroundingCurrentScreenControlProvider` 在 direct/skill `ui_submit_search` 进入底层
+  AccessibilityService 前做搜索上下文 gate；无搜索上下文时返回 `submit_not_found`，
+  不调用底层 submit provider，也不会触发任意 focused editable 的 IME enter。
+- OCR submit hint 也收窄为“OCR 搜索上下文 + OCR 提交词”同时存在；只有 `确定`、`完成`
+  或单个 `搜索` 这类孤立文本时，不再作为 submit-search OCR fallback。
+- 真正搜索页仍可执行：Accessibility 有搜索输入/搜索按钮时允许 direct submit；
+  OCR 同时包含 `搜索商品` 和右侧 `搜索` 时仍可作为下一次 submit fallback。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`RoutingAndValidatingToolExecutorTest.routingExecutorRejectsSubmitSearchWithoutSearchContext`
+  覆盖普通消息输入框 + 非搜索按钮时，`ui_submit_search` 返回 `submit_not_found`，底层 provider
+  未被调用。
+- 通过：`RoutingAndValidatingToolExecutorTest.routingExecutorAllowsSubmitSearchWithSearchContext`
+  覆盖当前 Accessibility 快照有 `搜索商品` 输入框和 `搜索` 按钮时，direct submit 仍成功。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintCanSubmitSearchButton`
+  覆盖 OCR 搜索上下文和 OCR 搜索提交按钮同时存在时，下一次 `ui_submit_search` 可消费 OCR hint。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintDoesNotSubmitWithOnlyConfirmOcr`
+  覆盖 OCR 只有 `确定` 时不会触发 submit-search fallback。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Targetless Type Text Context Guard
+
+本轮覆盖项：
+
+- 新增 `ScreenStateSnapshot.hasTargetlessTypingContext()`：direct/skill `ui_type_text`
+  在 `target` 为空时必须看到搜索输入上下文，否则 fail-closed 为 `editable_not_found`。
+- `ModelObservationReplanner` 对本机模型产出的 targetless `ui_type_text` 也增加当前证据
+  guard；当前 observation / diff 没有搜索输入证据时，replanner 停手，不再把 draft
+  交给工具执行层。
+- `OcrGroundingCurrentScreenControlProvider` 在进入底层 provider 前拒绝无搜索上下文的
+  targetless typing，避免普通聊天、评论、表单输入框被盲打。
+- `SolinAccessibilityService` 不再把空 target 或未命中 target 回退到任意 editable；
+  只接受已聚焦且非密码的输入框，或明确 target / 搜索入口打开后的输入框。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`RoutingAndValidatingToolExecutorTest.routingExecutorRejectsTargetlessTypeTextWithoutSearchContext`
+  覆盖普通非搜索输入框场景，targetless `ui_type_text` 返回 `editable_not_found`，
+  底层 provider 未收到输入文本。
+- 通过：`RoutingAndValidatingToolExecutorTest.routingExecutorAllowsTargetlessTypeTextWithSearchContext`
+  覆盖当前 Accessibility 快照有搜索输入上下文时，targetless `ui_type_text` 仍可进入底层 provider。
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsTargetlessTypeTextWithoutSearchEvidence`
+  覆盖本机模型在非搜索 observation 上产出空 target `ui_type_text` 时，replanner 直接停手。
+- 通过：`AgentObservationReplannerTest.modelReplannerAllowsTargetlessTypeTextWithSearchEvidence`
+  覆盖当前 observation 有搜索输入证据时，targetless `ui_type_text` 仍可进入执行层。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 OCR Search Entry Targetless Typing Grounding
+
+本轮覆盖项：
+
+- 当前屏幕 OCR grounding cache 新增 targetless search-entry 消费路径：当 OCR blocks 明确
+  包含 `搜索商品`、搜索框、地址栏等强搜索输入上下文，且 Accessibility 屏幕签名未漂移时，
+  targetless `ui_type_text` 可带 OCR hint 进入底层 provider，用于先聚焦 OCR 搜索入口再输入。
+- 孤立 `搜索`、`确定`、`go` 等提交词仍不能放行 targetless typing，也不能作为 OCR-only
+  `ui_submit_search` 的充分证据。
+- `ModelObservationReplanner` 将 targetless typing 证据从 submit-search 证据中拆出：
+  OCR/diff 侧必须有强搜索输入上下文，避免把搜索按钮 OCR 当成输入框；结构化 Accessibility
+  editable 搜索框仍保持可放行。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintCanFocusTargetlessUiTypeTextSearchEntry`
+  覆盖 Accessibility 无搜索语义但 OCR 有 `搜索商品` 时，targetless `ui_type_text`
+  可携带 `ocr:block:0` hint 进入底层 provider。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintDoesNotTargetlessTypeWithOnlySearchButtonText`
+  覆盖 OCR 只有孤立 `搜索` 时，targetless typing 返回 `editable_not_found`，底层 provider 未收到输入。
+- 通过：`AgentObservationReplannerTest.modelReplannerAllowsTargetlessTypeTextWithOcrSearchEntryEvidence`
+  覆盖本机模型在 OCR-only `搜索商品` 证据上可规划 targetless typing。
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsTargetlessTypeTextWithOnlySearchButtonOcrEvidence`
+  覆盖本机模型在 OCR 只有孤立 `搜索` 时停手。
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsSubmitSearchWithOnlySearchButtonOcrEvidence`
+  覆盖 OCR-only 孤立 `搜索` 不能让 submit-search 通过。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Fused OCR Candidate Prompt Dedup
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 对 fused `screenObservationJson` 中的 OCR elements 改为优先选择
+  `ocr_block`，并按 OCR 文本去重后再进入 prompt 裁剪。
+- 同一 OCR block 展开的 line / element 不再能占满前 4 个 OCR slot，从而挤掉后置关键 OCR
+  target；本机 action model 更稳定看到 `targets=[...]` 和 `targetShortlist(ocrFallback=...)`。
+- 该改动只影响本机 LocalOnly prompt 摘要，不改变远程可见输出、不增加像素或 OCR 原文持久化。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerKeepsLateOcrFallbackFromFusedObservation`
+  覆盖 6 个 Accessibility 可操作元素加重复 OCR line/element 的裁剪压力下，后置
+  `ocr:block:1` 的 `继续` 仍进入 prompt 和 `ocrFallback` shortlist。
+- 通过：`AgentObservationReplannerTest` 与
+  `RoutingAndValidatingToolExecutorTest` 目标集。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 UI Search Action Missing Screen Context Guard
+
+本轮覆盖项：
+
+- `OcrGroundingCurrentScreenControlProvider` 对 direct/skill `ui_submit_search` 和 targetless
+  `ui_type_text` 增加 fail-closed 边界：动作前无法读取当前屏幕、且没有有效 OCR grounding
+  hint 时，不再把请求交给底层 provider。
+- 有明确 `target` 的 `ui_type_text` 不受该 targetless guard 影响；有有效 OCR search-entry /
+  submit hint 的路径仍可执行。
+- 这补齐了“搜索上下文守卫”的根因边界：没有当前 Accessibility/OCR 证据时，不盲打、不盲提交。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`RoutingAndValidatingToolExecutorTest.routingExecutorRejectsTargetlessTypeTextWhenScreenContextUnavailable`
+  覆盖动作前读屏失败时，targetless `ui_type_text` 返回 `editable_not_found`，底层 provider
+  未收到输入文本。
+- 通过：`RoutingAndValidatingToolExecutorTest.routingExecutorRejectsSubmitSearchWhenScreenContextUnavailable`
+  覆盖动作前读屏失败时，`ui_submit_search` 返回 `submit_not_found`，底层 provider 未被调用。
+- 通过：`RoutingAndValidatingToolExecutorTest` 目标集。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 OCR Grounding TTL And Capture Stability Guard
+
+本轮覆盖项：
+
+- 当前屏幕 OCR grounding cache 保持一次性消费，并补充 15s TTL 回归：过期 OCR 搜索入口 hint
+  不能再放行 targetless `ui_type_text`。
+- `capture_current_screenshot_ocr` 在生成可执行 `screenObservationJson` 前，会比较截图 OCR 前后
+  Accessibility 签名；如果 capture 与后置 observation 之间页面已变化，则只返回 OCR 文本，
+  标记 `screenObservationFailureKind=page_changed`，不缓存 OCR 坐标。
+- 保留 post-cache 漂移保护：capture 阶段稳定生成 hint 后，如果下一步动作前屏幕签名变化，
+  执行器仍拒绝消费旧 hint。
+- `scripts/test_validation_scripts.sh` 增加静态契约，要求覆盖 capture/observation race 和
+  `page_changed` fail-closed 行为。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintExpiresBeforeTargetlessUiTypeText`
+  覆盖 OCR search-entry hint 超过 TTL 后，targetless typing 返回 `editable_not_found`，底层
+  provider 未收到输入。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintRejectedWhenScreenChangesBetweenCaptureAndObservation`
+  覆盖 OCR capture 与 Accessibility observation 之间页面变化时，不输出 `screenObservationJson`，
+  返回 `screenObservationFailureKind=page_changed`，下一步 tap 不携带 OCR hint。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrGroundingHintIsRejectedAfterScreenSignatureChanges`
+  覆盖 cache 建立后、动作前页面漂移时，hint 不被消费。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：真机 connected tests、real-app eval、50 task benchmark、人审/release gate、
+  最终签名 RC perf gate。
+
+## 2026-06-27 OCR Agent Control Loop JVM Integration
+
+本轮覆盖项：
+
+- 新增本地 JVM 集成回归，把当前屏幕 OCR、`ModelObservationReplanner` 和同一个
+  `RoutingToolExecutor` 的 OCR grounding cache 串起来：OCR capture 产生 `ocrFallback`
+  shortlist，本机 action model 输出 `ui_tap(target=继续)`，随后执行器消费同一个 cache 中的
+  `ocr:block:0` bounds。
+- 该测试证明的不是单个 provider 原语，而是“OCR -> 本机模型判断 -> tool request ->
+  OCR grounding hint -> device-control provider”的最小闭环。
+- `scripts/test_validation_scripts.sh` 增加静态契约，要求保留该闭环测试，避免 debug/fake
+  验证只覆盖固定 target 原语。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`RoutingAndValidatingToolExecutorTest.modelObservationReplanConsumesCurrentScreenshotOcrGroundingHint`
+  覆盖本机 replanner prompt 包含 `targetShortlist(...ocrFallback=ocr:block:0)`，模型输出的 `ui_tap`
+  通过同一个 executor 消费到 `elementId=ocr:block:0`、`bounds=[10,20,110,70]` 的 OCR hint。
+- 通过：完整 `RoutingAndValidatingToolExecutorTest`。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：真机 connected tests、real-app eval、50 task benchmark、人审/release gate、
+  最终签名 RC perf gate。
+
+## 2026-06-27 Text-Only OCR/Screen Evidence UI Control Guard
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 新增 text-only UI control guard：当最新本地证据只有
+  `ocrText` 或 `screenText`，没有结构化 observation、可执行 OCR blocks 或 diff target 证据时，
+  不再下发 `ui_tap`、`ui_type_text`、`ui_submit_search` 或 `ui_scroll`。
+- 纯文本 OCR/读屏摘要仍进入本机 prompt 用于理解和回答；它只是不能作为坐标/target 证据驱动
+  手机控制，避免本机模型把“看见了文字”误当成“知道该点哪里”。
+- 该 guard 不影响已有结构化 `screenObservationJson`、动作后 `afterScreenObservationJson`、
+  稳定可执行 `ocrBlocksJson` 或 `screenObservationDiffSummary` 的正例。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsUiTapFromOcrTextOnlyEvidence`
+  覆盖只有 `ocrText=继续` 时，模型输出 `ui_tap(target=继续)` 被 replanner 拦截。
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsTargetlessTypeTextFromScreenTextOnlyEvidence`
+  覆盖只有 `screenText=搜索商品` 时，模型输出 targetless `ui_type_text` 被 replanner 拦截。
+- 通过：完整 `AgentObservationReplannerTest`。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：真机 connected tests、real-app eval、50 task benchmark、人审/release gate、
+  最终签名 RC perf gate。
+
+## 2026-06-27 OCR Executable Evidence Consent And Page-Change Gate
+
+本轮覆盖项：
+
+- `CurrentScreenshotOcrProvider` 增加非消费式 `hasOneShotConsent()`；当前屏幕 OCR 只有在
+  request-bound MediaProjection one-shot consent 已存在时，才会做 capture 前 Accessibility
+  稳定性采样。缺少 consent 时直接保持原 fail-closed 行为，不额外读屏。
+- `ModelObservationReplanner` 将裸 `ocrBlocksJson` 降级为只读 OCR 摘要：只有
+  `screenObservationIncluded=true` 且存在稳定 `screenObservationJson`、无
+  `screenObservationFailureKind` 时，才会生成可执行 `ocrFallback` target 或作为
+  `ui_tap` / `ui_type_text` / `ui_submit_search` 的 guard 证据。
+- `screenObservationIncluded=false` / `page_changed` 时，本机模型仍能看到 OCR 摘要用于理解，
+  但不能把旧 OCR bounds 当成可执行坐标链路。
+- `scripts/test_validation_scripts.sh` 增加静态契约，固定 consent 前置、page-change replanner
+  guard 和 OCR capture/observation race 覆盖。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest \
+  --tests com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContractTest \
+  --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsOcrTargetsWhenCurrentScreenshotObservationNotIncluded`
+  覆盖 `page_changed` OCR blocks 只进入只读摘要，不生成 `ocrFallback` target，模型输出
+  `ui_tap(target=继续)` 被 replanner 拦截。
+- 通过：`CurrentScreenshotOcrContractTest.oneShotConsentStoreRequiresMatchingRequestIdAndTtl`
+  覆盖 `has()` 只 peek、不消费 request-bound one-shot consent，且过期 consent 会失效。
+- 通过：`RoutingAndValidatingToolExecutorTest.currentScreenshotOcrFailsClosedUntilMediaProjectionConsent`
+  覆盖 MissingConsent 时不提前调用 `observeCurrentScreen()`。
+- 通过：目标测试集、完整 `:app:testDebugUnitTest`、`scripts/test_validation_scripts.sh`、
+  `git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：真机 connected tests、real-app eval、50 task benchmark、人审/release gate、
+  最终签名 RC perf gate。
+
+## 2026-06-27 LocalOnly OCR Observation Replan Allowlist
+
+本轮覆盖项：
+
+- `ModelObservationReplanner` 在接受本机模型 draft 前增加 LocalOnly observation 工具 allowlist：
+  当最新结果来自 `privacy=LocalOnly`、`requiresLocalModel=true`、OCR 文本/blocks、屏幕文本，或
+  `privacyLevel=LocalOnly` 的结构化屏幕 observation 时，只允许继续规划明确本地设备控制工具：
+  `observe_current_screen`、`ui_tap`、`ui_type_text`、`ui_submit_search`、`ui_scroll`、`ui_wait`。
+- 本机 replanner prompt 同步明示该 allowlist，并明确要求不要从 LocalOnly OCR/屏幕证据输出
+  `web_search`、外部发送/分享、联系人/文件/剪贴板、background work 或其它非列表工具；硬门仍保留
+  在 draft 接受前，prompt 只用于减少小模型无效输出。
+- `web_search`、外部发送/分享、联系人/文件/剪贴板等非本地控制工具即使由本机 action model 输出 draft，
+  也不会从 LocalOnly OCR/屏幕证据自动下发，避免把当前屏幕文本改写成网络查询或外发动作。
+- `ui_press_back` 暂不放入 allowlist；它没有 target 证据，不能仅凭 OCR observation 自动补出退出/返回动作。
+- `scripts/test_validation_scripts.sh` 增加静态契约，要求保留 replanner 和 AgentLoop 层的 LocalOnly->web_search 负例。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentObservationReplannerTest \
+  --tests com.bytedance.zgx.solin.orchestration.AgentLoopRuntimeTest.currentScreenOcrObservationDoesNotReplanWebSearchFromLocalOnlyEvidence
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`AgentObservationReplannerTest.modelReplannerRejectsWebSearchFromLocalOnlyOcrObservation`
+  覆盖 LocalOnly 当前屏幕 OCR observation 后，本机模型输出 `web_search(query=继续)` 会被 replanner 拦截。
+- 通过：`AgentObservationReplannerTest.modelReplannerPromptIncludesBoundedLocalObservationEvidence`
+  覆盖 prompt 明示 LocalOnly allowlist，并点名禁止从 LocalOnly observation evidence 输出 `web_search`。
+- 通过：`AgentLoopRuntimeTest.currentScreenOcrObservationDoesNotReplanWebSearchFromLocalOnlyEvidence`
+  覆盖运行时不会从 LocalOnly OCR evidence 产生 `web_search` 的 `ToolRequested`，而是进入本地 continuation，且无 pending confirmation。
+- 通过：完整 `AgentObservationReplannerTest`。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。
+- 仍未完成：真机 connected tests、real-app eval、50 task benchmark、人审/release gate、最终签名 RC perf gate。
+
+## 2026-06-27 Guard Failure Observation Evidence For Local Replan
+
+本轮覆盖项：
+
+- `ui_submit_search` 和无目标 `ui_type_text` 的上下文 guard 仍然 fail-closed，不会执行盲提交或盲输入。
+- 当 `observeCurrentScreen()` 能拿到当前屏幕快照时，guard failure 改为返回 failed
+  `UiActionExecutionResult`，携带同一份 before/after `ScreenStateSnapshot`、observation id、
+  `beforeScreenObservationJson`、`afterScreenObservationJson` 和 `changed=false` diff summary。
+- `ToolRegistry` 的 failed private-output sanitizer 对 `DeviceControl` 工具保留本机恢复需要的
+  observation id、before/after screen observation JSON、verification summary 和 diff summary；
+  screen observation JSON 必须是 `privacyLevel=LocalOnly`，`beforeNodesJson`/`afterNodesJson`
+  仍会被清洗，避免把更大的原始节点列表穿过 validating 边界。
+- 本机 `ModelObservationReplanner` 因此能从 validated LocalOnly guard failure 中看到当前可点击/可输入候选；
+  新增回归覆盖 `ValidatingToolExecutor` 生产链路下“先无目标输入失败，再由本机模型规划点击搜索入口”
+  的恢复路径。
+- AgentLoop 的 trace/UI 结果仍会把 before/after observation JSON 和 diff 替换成 `[redacted]`，
+  raw LocalOnly evidence 只在本机 replanner 决策前可用，不进入 trace/audit 明文。
+- 屏幕状态不可读时仍返回原来的 retryable bare failure，不伪造 observation。
+- 本轮没有安装 APK、没有 `pm clear`、没有卸载，也没有删除或清理已下载/已加载模型。
+
+验证命令：
+
+```bash
+./gradlew :app:testDebugUnitTest --tests com.bytedance.zgx.solin.tool.RoutingAndValidatingToolExecutorTest
+./gradlew :app:testDebugUnitTest
+scripts/test_validation_scripts.sh
+git diff --check
+/Users/bytedance/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+结果：
+
+- 通过：`RoutingAndValidatingToolExecutorTest.routingExecutorRejectsSubmitSearchWithoutSearchContext`
+  覆盖搜索提交 guard failure 带 before/after observation 和 unchanged diff。
+- 通过：`RoutingAndValidatingToolExecutorTest.routingExecutorRejectsTargetlessTypeTextWithoutSearchContext`
+  覆盖无目标输入 guard failure 带 before/after observation 和 unchanged diff。
+- 通过：`RoutingAndValidatingToolExecutorTest.targetlessTypeGuardFailureCanDriveModelReplanWithCurrentObservation`
+  覆盖 guard failure observation 穿过 `ValidatingToolExecutor`，进入本机 replanner prompt，
+  并驱动下一步 `ui_tap(target=搜索入口)`；同测例断言 `afterNodesJson` 仍被清洗。
+- 通过：`AgentLoopRuntimeTest.failedUiActionObservationCanReplanWithRawLocalEvidenceButKeepsTraceRedacted`
+  覆盖本机 replanner 能看 raw LocalOnly observation，trace/UI result 仅保留 `[redacted]`。
+- 通过：完整 `:app:testDebugUnitTest`。
+- 通过：`scripts/test_validation_scripts.sh`。
+- 通过：`git diff --check`。
+- 未执行真机 connected tests / real-app eval / 50 task benchmark / 50k RC perf：
+  `adb devices -l` 仅输出 `List of devices attached`，无在线设备。
+- 下一次真机验证必须继续使用覆盖安装、`RESET_APP_DATA_AFTER_TESTS=0` 或 `SKIP_INSTALL=1`，
+  不清除已下载/已加载模型。

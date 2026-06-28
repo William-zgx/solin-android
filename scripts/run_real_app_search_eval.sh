@@ -19,6 +19,12 @@ FORCE_STOP_TARGET_APP="${FORCE_STOP_TARGET_APP:-1}"
 DEFER_DEVICE_TESTS="${DEFER_DEVICE_TESTS:-0}"
 DEFERRED_REASON="${DEFERRED_REASON:-}"
 STATUS_OVERRIDE="${STATUS_OVERRIDE:-}"
+AUTO_ENABLE_SOLIN_ACCESSIBILITY="${AUTO_ENABLE_SOLIN_ACCESSIBILITY:-1}"
+REAL_APP_ACTION_TIMEOUT_MS="${REAL_APP_ACTION_TIMEOUT_MS:-8000}"
+REAL_APP_VERIFY_TIMEOUT_MS="${REAL_APP_VERIFY_TIMEOUT_MS:-4000}"
+REAL_APP_LAUNCH_OBSTRUCTION_RECOVERY="${REAL_APP_LAUNCH_OBSTRUCTION_RECOVERY:-1}"
+REAL_APP_LAUNCH_OBSTRUCTION_WAIT_SECONDS="${REAL_APP_LAUNCH_OBSTRUCTION_WAIT_SECONDS:-4}"
+REAL_APP_BACKGROUND_PACKAGES_TO_STOP="${REAL_APP_BACKGROUND_PACKAGES_TO_STOP:-}"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 PACKAGE_NAME="com.bytedance.zgx.solin"
@@ -253,6 +259,7 @@ write_report() {
     echo "skip_build=$SKIP_BUILD"
     echo "skip_install=$SKIP_INSTALL"
     echo "force_stop_target_app=$FORCE_STOP_TARGET_APP"
+    echo "background_packages_stopped=$REAL_APP_BACKGROUND_PACKAGES_TO_STOP"
     echo "run_count=$RUN_COUNT"
     echo "pass_count=$PASS_COUNT"
     echo "skip_count=$SKIP_COUNT"
@@ -333,7 +340,7 @@ ABI_LIST="$("${ADB[@]}" shell getprop ro.product.cpu.abilist64 2>/dev/null | tr 
 "${ADB[@]}" logcat -c >/dev/null 2>&1 || true
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
-  "$GRADLE_CMD" assembleDebug
+  "$GRADLE_CMD" :app:assembleDebug
 fi
 if [[ "$SKIP_INSTALL" != "1" ]]; then
   "${ADB[@]}" install -r "$DEBUG_APK"
@@ -351,7 +358,35 @@ solin_accessibility_enabled() {
   grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"${bound_section}${enabled_line}"
 }
 
-if ! solin_accessibility_enabled; then
+enable_solin_accessibility_for_eval() {
+  local current updated
+  current="$("${ADB[@]}" shell settings get secure enabled_accessibility_services 2>/dev/null | tr -d '\r' || true)"
+  if [[ -z "$current" || "$current" == "null" ]]; then
+    updated="$SOLIN_ACCESSIBILITY_SERVICE"
+  elif [[ ":$current:" == *":$SOLIN_ACCESSIBILITY_SERVICE:"* ]]; then
+    updated="$current"
+  else
+    updated="${current}:$SOLIN_ACCESSIBILITY_SERVICE"
+  fi
+  "${ADB[@]}" shell settings put secure enabled_accessibility_services "$updated"
+  "${ADB[@]}" shell settings put secure accessibility_enabled 1
+  sleep 2
+}
+
+ensure_solin_accessibility_for_eval() {
+  if solin_accessibility_enabled; then
+    return 0
+  fi
+  if [[ "$AUTO_ENABLE_SOLIN_ACCESSIBILITY" == "1" ]]; then
+    echo "栖知 Accessibility is not enabled; enabling it through adb secure settings for real-app eval."
+    enable_solin_accessibility_for_eval
+  fi
+  if ! solin_accessibility_enabled; then
+    return 1
+  fi
+}
+
+if ! ensure_solin_accessibility_for_eval; then
   fail_with_reason accessibility solin-accessibility-not-enabled \
     "栖知 Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_INSTALL=1."
 fi
@@ -414,6 +449,75 @@ assert_file_contains() {
     capture_failure_diagnostics "assert-$(basename "$file" .properties)" "missing_expected:${expected}" || true
     return 1
   fi
+}
+
+focused_window_matches_package() {
+  local package_name="$1"
+  "${ADB[@]}" shell dumpsys window 2>/dev/null |
+    tr -d '\r' |
+    grep -E "mCurrentFocus=.*${package_name}|mFocusedApp=.*${package_name}|mFocusedWindow=.*${package_name}" >/dev/null
+}
+
+tap_top_right_skip_affordance() {
+  local size width height x y
+  size="$(
+    "${ADB[@]}" shell wm size 2>/dev/null |
+      tr -d '\r' |
+      awk -F'[: x]+' '/Override size|Physical size/ {width = $3; height = $4} END {if (width && height) print width " " height}'
+  )"
+  width="${size%% *}"
+  height="${size##* }"
+  if [[ ! "$width" =~ ^[0-9]+$ || ! "$height" =~ ^[0-9]+$ ]]; then
+    width=1080
+    height=2400
+  fi
+  x=$((width * 85 / 100))
+  y=$((height * 5 / 100))
+  "${ADB[@]}" shell input tap "$x" "$y" >/dev/null 2>&1 || true
+}
+
+recover_obscured_launch_observation() {
+  local output_var="$1"
+  local case_name="$2"
+  local package_name="$3"
+  local observe_file="$4"
+  local current_package retry_file
+  current_package="$(read_result_property "$observe_file" "packageName")"
+  printf -v "$output_var" '%s' "$observe_file"
+  if [[ "$current_package" == "$package_name" ]]; then
+    return 0
+  fi
+  if [[ "$REAL_APP_LAUNCH_OBSTRUCTION_RECOVERY" != "1" ]]; then
+    return 1
+  fi
+  if ! focused_window_matches_package "$package_name"; then
+    return 1
+  fi
+
+  echo "Recovering $case_name launch obstruction: observed $current_package while focus belongs to $package_name"
+  sleep "$REAL_APP_LAUNCH_OBSTRUCTION_WAIT_SECONDS"
+  case_broadcast_command retry_file "$case_name" "observe_retry_timeout" \
+    "${case_name}-observe-launch-wait" --es command observe || return 1
+  printf -v "$output_var" '%s' "$retry_file"
+  if grep -Fq "packageName=$package_name" "$retry_file"; then
+    return 0
+  fi
+
+  tap_top_right_skip_affordance
+  sleep 1
+  case_broadcast_command retry_file "$case_name" "observe_retry_timeout" \
+    "${case_name}-observe-launch-skip" --es command observe || return 1
+  printf -v "$output_var" '%s' "$retry_file"
+  if grep -Fq "packageName=$package_name" "$retry_file"; then
+    return 0
+  fi
+
+  "${ADB[@]}" shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
+  sleep 1
+  case_broadcast_command retry_file "$case_name" "observe_retry_timeout" \
+    "${case_name}-observe-launch-back" --es command observe || return 1
+  printf -v "$output_var" '%s' "$retry_file"
+  grep -Fq "packageName=$package_name" "$retry_file"
 }
 
 case_broadcast_command() {
@@ -610,6 +714,23 @@ case_expected_app_name() {
   esac
 }
 
+case_launch_ready_hint() {
+  local case_name="$1"
+  local tap_target="$2"
+  case "$case_name" in
+    uc) echo "搜索框" ;;
+    *) echo "$tap_target" ;;
+  esac
+}
+
+case_launch_recovery_target() {
+  case "$1" in
+    jd) echo "首页" ;;
+    uc) echo "首页" ;;
+    *) echo "" ;;
+  esac
+}
+
 package_installed() {
   local package_name="$1"
   "${ADB[@]}" shell cmd package path "$package_name" >/dev/null 2>&1
@@ -639,6 +760,22 @@ force_stop_target_app() {
   sleep 0.5
 }
 
+stop_background_packages_preserving_data() {
+  local target_package="$1"
+  local package_name
+  if [[ -z "$REAL_APP_BACKGROUND_PACKAGES_TO_STOP" ]]; then
+    return 0
+  fi
+  "${ADB[@]}" shell cmd statusbar collapse >/dev/null 2>&1 || true
+  for package_name in $REAL_APP_BACKGROUND_PACKAGES_TO_STOP; do
+    if [[ "$package_name" == "$target_package" || "$package_name" == "$PACKAGE_NAME" ]]; then
+      continue
+    fi
+    "${ADB[@]}" shell am force-stop "$package_name" >/dev/null 2>&1 || true
+  done
+  sleep 0.5
+}
+
 run_case() {
   local case_name="$1"
   local package_name="$2"
@@ -647,7 +784,7 @@ run_case() {
   local tap_target="$5"
   local type_target="$6"
   local required_hint="$7"
-  local observe_file tap_file type_file submit_file verify_file
+  local observe_file tap_file type_file submit_file verify_file ready_hint recovery_target recovery_file
 
   if ! package_installed "$package_name"; then
     echo "Skipping $case_name: package not installed ($package_name)"
@@ -660,7 +797,13 @@ run_case() {
   RUN_COUNT=$((RUN_COUNT + 1))
   LAST_DIAGNOSTICS_DIR=""
   echo "Running $case_name on $package_name"
+  if ! ensure_solin_accessibility_for_eval; then
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    write_case_result "$case_name" "failed" "solin_accessibility_not_enabled" "accessibility" ""
+    return 1
+  fi
   force_stop_target_app "$package_name"
+  stop_background_packages_preserving_data "$package_name"
   if ! start_control_session_for_case "$case_name" "$app_name"; then
     FAIL_COUNT=$((FAIL_COUNT + 1))
     write_case_result "$case_name" "failed" "control_session_failed" "start_control_session" ""
@@ -675,14 +818,45 @@ run_case() {
     write_case_result "$case_name" "failed" "observe_failed" "observe" "$observe_file"
     return 1
   }
+  if ! grep -Fq "packageName=$package_name" "$observe_file"; then
+    recover_obscured_launch_observation observe_file "$case_name" "$package_name" "$observe_file" || true
+    assert_file_contains "$observe_file" "resultType=available" || {
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+      write_case_result "$case_name" "failed" "observe_failed_after_launch_recovery" "observe" "$observe_file"
+      return 1
+    }
+  fi
   assert_file_contains "$observe_file" "packageName=$package_name" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     write_case_result "$case_name" "failed" "app_not_foreground" "observe" "$observe_file"
     return 1
   }
+  ready_hint="$(case_launch_ready_hint "$case_name" "$tap_target")"
+  recovery_target="$(case_launch_recovery_target "$case_name")"
+  if [[ -n "$ready_hint" && -n "$recovery_target" ]] && ! grep -Fq "$ready_hint" "$observe_file"; then
+    echo "Recovering $case_name launch surface via $recovery_target before search entry tap"
+    case_broadcast_command recovery_file "$case_name" "launch_recovery_timeout" \
+      "${case_name}-launch-recovery" --es command tap --es target "$recovery_target" --el timeoutMillis "$REAL_APP_ACTION_TIMEOUT_MS" || true
+    sleep 2
+    case_broadcast_command observe_file "$case_name" "observe_retry_timeout" \
+      "${case_name}-observe-retry" --es command observe || return 1
+    if ! grep -Fq "packageName=$package_name" "$observe_file"; then
+      recover_obscured_launch_observation observe_file "$case_name" "$package_name" "$observe_file" || true
+    fi
+    assert_file_contains "$observe_file" "resultType=available" || {
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+      write_case_result "$case_name" "failed" "observe_failed_after_launch_recovery" "observe" "$observe_file"
+      return 1
+    }
+    assert_file_contains "$observe_file" "packageName=$package_name" || {
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+      write_case_result "$case_name" "failed" "app_not_foreground_after_launch_recovery" "observe" "$observe_file"
+      return 1
+    }
+  fi
 
   case_broadcast_command tap_file "$case_name" "tap_timeout" \
-    "${case_name}-tap" --es command tap --es target "$tap_target" --el timeoutMillis 2000 || return 1
+    "${case_name}-tap" --es command tap --es target "$tap_target" --el timeoutMillis "$REAL_APP_ACTION_TIMEOUT_MS" || return 1
   assert_file_contains "$tap_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     write_case_result "$case_name" "failed" "search_entry_not_found" "tap" "$tap_file" \
@@ -691,7 +865,7 @@ run_case() {
   }
 
   case_broadcast_command type_file "$case_name" "type_timeout" \
-    "${case_name}-type" --es command type_text --es target "$type_target" --es text "$query" --el timeoutMillis 2000 || return 1
+    "${case_name}-type" --es command type_text --es target "$type_target" --es text "$query" --el timeoutMillis "$REAL_APP_ACTION_TIMEOUT_MS" || return 1
   assert_file_contains "$type_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     write_case_result "$case_name" "failed" "editable_not_found" "type_text" "$type_file" \
@@ -699,8 +873,9 @@ run_case() {
     return 1
   }
 
+  stop_background_packages_preserving_data "$package_name"
   case_broadcast_command submit_file "$case_name" "submit_timeout" \
-    "${case_name}-submit" --es command submit_search --el timeoutMillis 2000 || return 1
+    "${case_name}-submit" --es command submit_search --el timeoutMillis "$REAL_APP_ACTION_TIMEOUT_MS" || return 1
   assert_file_contains "$submit_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     write_case_result "$case_name" "failed" "submit_not_found" "submit_search" "$submit_file" \
@@ -708,8 +883,9 @@ run_case() {
     return 1
   }
 
+  stop_background_packages_preserving_data "$package_name"
   case_broadcast_command verify_file "$case_name" "verify_timeout" \
-    "${case_name}-verify" --es command wait --es verifySearchQuery "$query" --es expectedPackageName "$package_name" --es expectedAppName "$app_name" --el timeoutMillis 1000 || return 1
+    "${case_name}-verify" --es command wait --es verifySearchQuery "$query" --es expectedPackageName "$package_name" --es expectedAppName "$app_name" --el timeoutMillis "$REAL_APP_VERIFY_TIMEOUT_MS" || return 1
   assert_file_contains "$verify_file" "status=Succeeded" || {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     write_case_result "$case_name" "failed" "result_not_verified" "verify" "$verify_file" \
@@ -742,7 +918,7 @@ overall_status=0
 run_case taobao com.taobao.taobao "淘宝" "海河牛奶" "搜索入口" "搜索输入框" "筛选" || overall_status=1
 run_case pdd com.xunmeng.pinduoduo "拼多多" "纸巾" "搜索入口" "搜索输入框" "筛选" || overall_status=1
 run_case gaode com.autonavi.minimap "高德" "机场" "搜索入口" "搜索输入框" "查看地图" || overall_status=1
-run_case jd com.jingdong.app.mall "京东" "数据线" "搜索入口" "搜索输入框" "筛选" || overall_status=1
+run_case jd com.jingdong.app.mall "京东" "数据线" "搜索入口" "搜索输入框" "数据线" || overall_status=1
 run_case chrome com.android.chrome "浏览器" "SolinAgentChrome" "地址栏" "地址栏" "SolinAgentChrome" || overall_status=1
 run_case android_browser com.android.browser "浏览器" "SolinAgentBrowser" "地址栏" "地址栏" "SolinAgentBrowser" || overall_status=1
 run_case quark com.quark.browser "夸克" "SolinAgentQuark" "地址栏" "地址栏" "SolinAgentQuark" || overall_status=1

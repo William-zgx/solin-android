@@ -37,7 +37,7 @@ object AppInteractionProfiles {
             packageNames = setOf("com.jingdong.app.mall"),
             searchEntryHints = setOf("搜索", "搜索商品", "搜一搜", "搜索京东", "搜索京东商品", "搜索京东商品店铺", "搜索好物"),
             submitHints = setOf("搜索"),
-            resultHints = setOf("综合", "销量", "筛选", "京东物流"),
+            resultHints = setOf("综合", "销量", "筛选", "京东物流", "显示模式", "列表"),
         ),
         AppInteractionProfile(
             appNameAliases = setOf("浏览器", "browser", "网页", "web", "chrome", "谷歌浏览器", "google", "谷歌"),
@@ -61,9 +61,11 @@ object AppInteractionProfiles {
                 "搜索或输入网址",
                 "请输入搜索词或网址",
                 "搜索词或网址",
+                "网页搜索",
+                "AI搜索",
             ),
             submitHints = setOf("搜索", "검색", "前往", "转到", "search"),
-            resultHints = setOf("搜索结果", "검색결과", "网页", "相关搜索"),
+            resultHints = setOf("搜索结果", "검색결과", "网页", "相关搜索", "百度", "全部", "综合", "图片", "资讯", "文档", "问答", "经验"),
         ),
     )
 
@@ -81,9 +83,9 @@ object AppInteractionProfiles {
     }
 }
 
-// ponytail: OCR/vision are contract placeholders until real grounding is wired.
 enum class UiTargetEvidenceSource(val schemaValue: String, val priority: Int) {
     Accessibility("accessibility", 100),
+    Ocr("ocr", 60),
     OcrPlaceholder("ocr_placeholder", 40),
     VisionPlaceholder("vision_placeholder", 40),
 }
@@ -94,6 +96,7 @@ enum class UiTargetFallbackType(
     val requiresEvidence: Boolean,
 ) {
     None("none", 100, false),
+    OcrGrounding("ocr_grounding", 60, true),
     OcrGroundingPlaceholder("ocr_grounding_placeholder", 40, true),
     VisionGroundingPlaceholder("vision_grounding_placeholder", 40, true),
     Coordinate("coordinate", 10, true),
@@ -128,6 +131,19 @@ object UiTargetResolver {
             profile = profile,
         ).firstOrNull()
 
+    fun resolve(
+        observation: ScreenObservation,
+        kind: UiTargetKind,
+        target: String? = null,
+        profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(observation.packageName),
+    ): UiResolvedTarget? =
+        resolveAll(
+            observation = observation,
+            kind = kind,
+            target = target,
+            profile = profile,
+        ).firstOrNull()
+
     fun resolveAll(
         snapshot: ScreenStateSnapshot,
         kind: UiTargetKind,
@@ -147,6 +163,33 @@ object UiTargetResolver {
                 bounds = candidate.bounds,
                 confidence = candidate.score.finalScore,
                 reason = candidate.reason,
+                source = candidate.source,
+                fallbackType = candidate.fallbackType,
+            )
+        }
+    }
+
+    fun resolveAll(
+        observation: ScreenObservation,
+        kind: UiTargetKind,
+        target: String? = null,
+        profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(observation.packageName),
+    ): List<UiResolvedTarget> {
+        return rankedCandidates(
+            observation = observation,
+            kind = kind,
+            target = target,
+            profile = profile,
+            includeDiagnostics = false,
+        ).map { candidate ->
+            UiResolvedTarget(
+                kind = kind,
+                nodeId = candidate.nodeId,
+                bounds = candidate.bounds,
+                confidence = candidate.score.finalScore,
+                reason = candidate.reason,
+                source = candidate.source,
+                fallbackType = candidate.fallbackType,
             )
         }
     }
@@ -170,6 +213,31 @@ object UiTargetResolver {
             kind = kind,
             target = target,
             packageName = snapshot.packageName,
+            selectedNodeId = selectableCandidates.firstOrNull()?.nodeId,
+            rankedCandidates = evidenceCandidates,
+            failureKind = if (selectableCandidates.isEmpty()) kind.missingResolutionFailureKind() else null,
+        )
+    }
+
+    fun explain(
+        observation: ScreenObservation,
+        kind: UiTargetKind,
+        target: String? = null,
+        profile: AppInteractionProfile? = AppInteractionProfiles.forPackage(observation.packageName),
+    ): UiTargetResolutionEvidence {
+        val candidates = rankedCandidates(
+            observation = observation,
+            kind = kind,
+            target = target,
+            profile = profile,
+            includeDiagnostics = true,
+        )
+        val selectableCandidates = candidates.filter { candidate -> candidate.isSelectable(kind) }
+        val evidenceCandidates = selectableCandidates.takeIf { it.isNotEmpty() } ?: candidates
+        return UiTargetResolutionEvidence(
+            kind = kind,
+            target = target,
+            packageName = observation.packageName,
             selectedNodeId = selectableCandidates.firstOrNull()?.nodeId,
             rankedCandidates = evidenceCandidates,
             failureKind = if (selectableCandidates.isEmpty()) kind.missingResolutionFailureKind() else null,
@@ -220,20 +288,42 @@ object UiTargetResolver {
     ): List<UiTargetEvidenceCandidate> {
         val metrics = SnapshotBoundsMetrics.from(snapshot.nodes)
         return snapshot.nodes
+            .map { node ->
+                GroundingNode(
+                    node = node,
+                    source = UiTargetEvidenceSource.Accessibility,
+                    fallbackType = UiTargetFallbackType.None,
+                )
+            }
+            .mapNotNull { node -> scoreNode(node, kind, target, profile, metrics, includeDiagnostics) }
+            .sortedByDescending { candidate -> candidate.score.finalScore }
+    }
+
+    private fun rankedCandidates(
+        observation: ScreenObservation,
+        kind: UiTargetKind,
+        target: String?,
+        profile: AppInteractionProfile?,
+        includeDiagnostics: Boolean,
+    ): List<UiTargetEvidenceCandidate> {
+        val nodes = observation.toGroundingNodes()
+        val metrics = SnapshotBoundsMetrics.from(nodes.map { node -> node.node })
+        return nodes
             .mapNotNull { node -> scoreNode(node, kind, target, profile, metrics, includeDiagnostics) }
             .sortedByDescending { candidate -> candidate.score.finalScore }
     }
 
     private fun scoreNode(
-        node: ScreenNode,
+        groundingNode: GroundingNode,
         kind: UiTargetKind,
         target: String?,
         profile: AppInteractionProfile?,
         metrics: SnapshotBoundsMetrics,
         includeDiagnostics: Boolean,
     ): UiTargetEvidenceCandidate? {
+        val node = groundingNode.node
         if (kind == UiTargetKind.SubmitSearch && node.editable) return null
-        val label = node.visibleLabel()
+        val label = groundingNode.labelOverride ?: node.visibleLabel()
         val normalizedLabel = label.normalizedLookupKey()
         if (kind == UiTargetKind.SubmitSearch && looksNonTextSearchControl(normalizedLabel)) return null
         val normalizedTarget = target.normalizedLookupKey()
@@ -265,7 +355,8 @@ object UiTargetResolver {
         val position = node.positionScore(kind, metrics)
         val riskPenalty = node.targetRiskPenalty(kind, normalizedLabel, profile, metrics)
         val noisePenalty = labelNoisePenalty(kind, normalizedLabel)
-        val penalty = riskPenalty + noisePenalty
+        val fallbackPenalty = groundingNode.fallbackPenalty()
+        val penalty = riskPenalty + noisePenalty + fallbackPenalty
         val score = evidenceScore + actionability + position - penalty
         if (score <= 0) return null
         if (!includeDiagnostics && !node.isSelectable(kind, score)) return null
@@ -274,6 +365,8 @@ object UiTargetResolver {
             nodeId = node.id,
             label = resolvedLabel,
             bounds = node.bounds,
+            source = groundingNode.source,
+            fallbackType = groundingNode.fallbackType,
             clickable = node.clickable,
             editable = node.editable,
             scrollable = node.scrollable,
@@ -287,9 +380,10 @@ object UiTargetResolver {
                 positionScore = position,
                 riskPenalty = riskPenalty,
                 noisePenalty = noisePenalty,
+                fallbackPenalty = fallbackPenalty,
                 finalScore = score,
             ),
-            reason = "matched $resolvedLabel",
+            reason = groundingNode.reasonFor(resolvedLabel),
         )
     }
 
@@ -324,6 +418,8 @@ fun UiTargetResolutionEvidence.explanationContract(): UiTargetExplanationContrac
     val selectedCandidate = rankedCandidates.firstOrNull { candidate -> candidate.nodeId == selectedNodeId }
     return kind.explanationContract(
         selected = selectedCandidate != null,
+        source = selectedCandidate?.source ?: UiTargetEvidenceSource.Accessibility,
+        fallbackType = selectedCandidate?.fallbackType ?: UiTargetFallbackType.None,
         reason = selectedCandidate?.reason
             ?: failureKind?.let { failure -> "failed:${failure.schemaValue}" }
             ?: "no_accessibility_candidate",
@@ -331,15 +427,21 @@ fun UiTargetResolutionEvidence.explanationContract(): UiTargetExplanationContrac
 }
 
 fun UiResolvedTarget.explanationContract(): UiTargetExplanationContract =
-    kind.explanationContract(selected = true, reason = reason)
+    kind.explanationContract(
+        selected = true,
+        source = source,
+        fallbackType = fallbackType,
+        reason = reason,
+    )
 
 private fun UiTargetKind.explanationContract(
     selected: Boolean,
+    source: UiTargetEvidenceSource,
+    fallbackType: UiTargetFallbackType,
     reason: String,
 ): UiTargetExplanationContract {
-    val fallbackType = UiTargetFallbackType.None
     return UiTargetExplanationContract(
-        source = UiTargetEvidenceSource.Accessibility,
+        source = source,
         fallbackType = fallbackType,
         expectedVerificationSignal = if (selected) expectedVerificationSignal() else UiTargetVerificationSignal.None,
         requiresAdditionalEvidence = fallbackType.requiresEvidence,
@@ -394,6 +496,7 @@ object AppSearchResultVerifier {
         val pageChanged = before == null || before.searchVerificationSignature() != snapshot.searchVerificationSignature()
         val newQueryEvidence = snapshot.newNonEditableQueryEvidenceSince(before, normalizedQuery)
         val hasNonEditableQueryEvidence = snapshot.nonEditableVisibleLabelsContaining(normalizedQuery).isNotEmpty()
+        val hasEditableQueryEvidence = snapshot.editableVisibleLabelsContaining(normalizedQuery).isNotEmpty()
         val resultHintCount = profile?.resultHints.orEmpty().count { hint ->
             snapshot.containsVisibleTextNormalized(hint.normalizedLookupKey())
         }
@@ -415,6 +518,13 @@ object AppSearchResultVerifier {
             return SearchResultVerification(
                 verified = true,
                 summary = "搜索结果验证通过：页面已变化并出现多个结果页特征。",
+                evidence = "result_hints_visible",
+            )
+        }
+        if (hasEditableQueryEvidence && resultHintCount >= 2) {
+            return SearchResultVerification(
+                verified = true,
+                summary = "搜索结果验证通过：当前搜索框保留关键词且页面包含多个结果页特征。",
                 evidence = "result_hints_visible",
             )
         }
@@ -467,13 +577,24 @@ private fun ScreenNode.targetRiskPenalty(
     if (!enabled && kind.requiresPreciseTarget()) penalty += 520
     if (editable) return penalty
     if (kind.requiresPreciseTarget()) {
+        if (kind == UiTargetKind.SearchEntry && isBrowserResultSearchBarLabel(normalizedLabel)) return penalty
         val areaRatio = metrics.areaRatio(bounds)
         val heightRatio = metrics.heightRatio(bounds)
+        val widthRatio = metrics.widthRatio(bounds) ?: 0f
         penalty += when {
             areaRatio >= 0.35f || heightRatio >= 0.55f -> 820
             areaRatio >= 0.20f || heightRatio >= 0.38f -> 460
             areaRatio >= 0.12f -> 180
             else -> 0
+        }
+        if (
+            kind == UiTargetKind.SearchEntry &&
+            !clickable &&
+            !editable &&
+            widthRatio >= 0.90f &&
+            (normalizedLabel == "搜索栏" || normalizedLabel.startsWith("搜索栏"))
+        ) {
+            penalty += 820
         }
         if (scrollable) penalty += 380
         if (looksResultOrCommerceContainer(normalizedLabel, profile)) penalty += 360
@@ -541,6 +662,91 @@ private fun UiTargetKind.missingResolutionFailureKind(): UiActionFailureKind =
         UiTargetKind.SubmitSearch -> UiActionFailureKind.SubmitNotFound
         else -> UiActionFailureKind.NodeNotFound
     }
+
+private data class GroundingNode(
+    val node: ScreenNode,
+    val source: UiTargetEvidenceSource,
+    val fallbackType: UiTargetFallbackType,
+    val labelOverride: String? = null,
+) {
+    fun fallbackPenalty(): Int =
+        when (fallbackType) {
+            UiTargetFallbackType.None -> 0
+            UiTargetFallbackType.OcrGrounding ->
+                if (node.clickable || node.editable || node.scrollable) 80 else 240
+            else -> 320
+        }
+
+    fun reasonFor(label: String): String =
+        if (fallbackType == UiTargetFallbackType.OcrGrounding) {
+            "matched OCR-grounded $label"
+        } else {
+            "matched $label"
+        }
+}
+
+private fun ScreenObservation.toGroundingNodes(): List<GroundingNode> {
+    val ocrElements = elements
+        .filter { element ->
+            element.source == UiTargetEvidenceSource.Ocr.schemaValue &&
+                element.text.isNotBlank() &&
+                element.bounds != null
+        }
+    val accessibilityNodes = elements
+        .filter { element -> element.source == UiTargetEvidenceSource.Accessibility.schemaValue }
+        .map { element ->
+            val ocrLabel = if (element.text.isBlank()) {
+                element.overlappingOcrLabel(ocrElements)
+            } else {
+                null
+            }
+            GroundingNode(
+                node = element.toScreenNode(textOverride = ocrLabel),
+                source = if (ocrLabel != null) UiTargetEvidenceSource.Ocr else UiTargetEvidenceSource.Accessibility,
+                fallbackType = if (ocrLabel != null) UiTargetFallbackType.OcrGrounding else UiTargetFallbackType.None,
+                labelOverride = ocrLabel,
+            )
+        }
+    val ocrNodes = ocrElements.map { element ->
+        GroundingNode(
+            node = element.toScreenNode(textOverride = null),
+            source = UiTargetEvidenceSource.Ocr,
+            fallbackType = UiTargetFallbackType.OcrGrounding,
+        )
+    }
+    return accessibilityNodes + ocrNodes
+}
+
+private fun ObservationElement.overlappingOcrLabel(ocrElements: List<ObservationElement>): String? {
+    val boundsValue = bounds ?: return null
+    return ocrElements
+        .asSequence()
+        .filter { element -> element.bounds?.let(boundsValue::containsOcrGroundingBounds) == true }
+        .sortedBy { element -> element.bounds?.top ?: Int.MAX_VALUE }
+        .map { element -> element.text.trim() }
+        .filter { text -> text.isNotBlank() }
+        .distinct()
+        .take(3)
+        .joinToString(" ")
+        .takeIf { text -> text.isNotBlank() }
+}
+
+private fun ObservationElement.toScreenNode(textOverride: String?): ScreenNode =
+    ScreenNode(
+        id = id,
+        text = textOverride ?: text,
+        contentDescription = "",
+        className = if (source == UiTargetEvidenceSource.Ocr.schemaValue) {
+            "ocr.$role"
+        } else {
+            "observation.$role"
+        },
+        bounds = bounds,
+        clickable = clickability.clickable,
+        editable = clickability.editable,
+        scrollable = clickability.scrollable,
+        enabled = clickability.enabled,
+    )
 
 private data class ProfileHintScore(
     val hint: String,
@@ -646,6 +852,9 @@ internal fun looksInputLike(normalized: String): Boolean =
     listOf("输入", "地址", "网址", "url", "omnibox", "关键词", "商品", "目的地", "宝贝", "店铺", "input", "edit", "keyword")
         .any { normalized.contains(it.normalizedLookupKey()) }
 
+internal fun isBrowserResultSearchBarLabel(normalized: String): Boolean =
+    normalized.startsWith("网页搜索")
+
 internal fun looksResultOrCommerceContainer(
     normalizedLabel: String,
     profile: AppInteractionProfile? = null,
@@ -711,6 +920,16 @@ private fun ScreenStateSnapshot.nonEditableVisibleLabelsContaining(needle: Strin
     return nodes
         .asSequence()
         .filterNot { node -> node.editable }
+        .map { node -> node.visibleLabel().normalizedLookupKey() }
+        .filter { label -> label.contains(needle) }
+        .toSet()
+}
+
+private fun ScreenStateSnapshot.editableVisibleLabelsContaining(needle: String): Set<String> {
+    if (needle.isBlank()) return emptySet()
+    return nodes
+        .asSequence()
+        .filter { node -> node.editable }
         .map { node -> node.visibleLabel().normalizedLookupKey() }
         .filter { label -> label.contains(needle) }
         .toSet()

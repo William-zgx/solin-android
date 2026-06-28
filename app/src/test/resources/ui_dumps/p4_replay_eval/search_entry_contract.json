@@ -19,36 +19,64 @@
       ]
     },
     {
-      "id": "ocr_search_bar_preserves_bounds",
-      "source": "ocr",
+      "id": "blank_accessibility_search_entry_uses_overlapping_ocr_label",
+      "source": "screen_observation+ocr",
       "packageName": "com.xunmeng.pinduoduo",
       "targetKind": "search_entry",
       "target": "搜索入口",
-      "expectedSelectedNodeId": "ocr:search_bar",
+      "expectedSelectedNodeId": "blank-search-entry",
       "expectedBounds": { "left": 60, "top": 88, "right": 900, "bottom": 170 },
-      "excludedNodeIds": ["ocr:camera_search"],
+      "expectedSource": "ocr",
+      "expectedFallbackType": "ocr_grounding",
+      "excludedNodeIds": ["camera-slot", "ocr:block:1"],
       "nodes": [
         {
-          "id": "ocr:search_bar",
-          "text": "搜索商品 多多搜索",
-          "className": "ocr.TextBlock",
+          "id": "blank-search-entry",
+          "text": "",
+          "className": "android.view.ViewGroup",
           "bounds": { "left": 60, "top": 88, "right": 900, "bottom": 170 },
           "clickable": true
         },
         {
-          "id": "ocr:camera_search",
-          "text": "拍照搜索",
-          "className": "ocr.TextBlock",
+          "id": "camera-slot",
+          "text": "",
+          "className": "android.widget.ImageView",
           "bounds": { "left": 920, "top": 88, "right": 1028, "bottom": 170 },
           "clickable": true
         },
         {
-          "id": "ocr:home_feed",
-          "text": "搜索 推荐 商品列表 百亿补贴 已售1000 评价",
-          "className": "ocr.TextBlock",
+          "id": "home-feed",
+          "text": "推荐 商品列表 百亿补贴 已售1000 评价",
+          "className": "androidx.recyclerview.widget.RecyclerView",
           "bounds": { "left": 0, "top": 360, "right": 1080, "bottom": 1900 },
           "clickable": true,
           "scrollable": true
+        }
+      ],
+      "ocrBlocks": [
+        {
+          "text": "搜索商品 多多搜索",
+          "bounds": { "left": 60, "top": 88, "right": 900, "bottom": 170 },
+          "lines": [
+            {
+              "text": "搜索商品 多多搜索",
+              "bounds": { "left": 84, "top": 102, "right": 620, "bottom": 148 },
+              "elements": [
+                {
+                  "text": "搜索商品",
+                  "bounds": { "left": 84, "top": 102, "right": 288, "bottom": 148 }
+                },
+                {
+                  "text": "多多搜索",
+                  "bounds": { "left": 320, "top": 102, "right": 620, "bottom": 148 }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "text": "拍照搜索",
+          "bounds": { "left": 920, "top": 88, "right": 1028, "bottom": 170 }
         }
       ]
     }

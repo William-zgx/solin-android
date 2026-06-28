@@ -61,7 +61,8 @@ class MobileActionPlanner(
         val match = CALL_PATTERN.find(output.trim()) ?: return null
         val functionName = match.groupValues[1]
         if (!toolRegistry.isKnownTool(functionName)) return null
-        val parameters = parseJsonLikeObject(match.groupValues[2])
+        val parameters = parseStrictJsonObject(match.groupValues[2])
+            ?: parseJsonLikeObject(match.groupValues[2])
         return functionName.toDraft(parameters)
     }
 
@@ -180,14 +181,24 @@ class MobileActionPlanner(
         }
     }
 
-    private fun String.toDraft(parameters: Map<String, String>): ActionDraft =
-        ActionDraft(
+    private fun String.toDraft(parameters: Map<String, String>): ActionDraft {
+        val normalizedParameters = normalizeModelActionParameters(parameters)
+        return ActionDraft(
             functionName = this,
             title = titleFor(this),
-            summary = summaryFor(this, parameters),
-            parameters = parameters,
+            summary = summaryFor(this, normalizedParameters),
+            parameters = normalizedParameters,
             requiresConfirmation = this != MobileActionFunctions.WEB_SEARCH,
         )
+    }
+
+    private fun String.normalizeModelActionParameters(parameters: Map<String, String>): Map<String, String> {
+        if (this !in UI_TARGET_TOOL_NAMES) return parameters
+        val target = parameters["target"] ?: return parameters
+        val normalizedTarget = target.extractUiTargetArgumentValue(toolName = this)
+        if (normalizedTarget == target) return parameters
+        return parameters + ("target" to normalizedTarget)
+    }
 
     private fun titleFor(functionName: String): String =
         when (functionName) {
@@ -407,6 +418,67 @@ class MobileActionPlanner(
     private companion object {
         val CALL_PATTERN = Regex("""^call:([a-zA-Z0-9_]+)\s*(\{.*\})$""", RegexOption.DOT_MATCHES_ALL)
         val KEY_VALUE_PATTERN = Regex(""""([^"]+)"\s*:\s*"([^"]*)"""")
+    }
+}
+
+private val UI_TARGET_TOOL_NAMES = setOf(
+    MobileActionFunctions.UI_TAP,
+    MobileActionFunctions.UI_TYPE_TEXT,
+    MobileActionFunctions.UI_SCROLL,
+)
+
+private val EXPLICIT_TARGET_ARGUMENT_PATTERN =
+    Regex("""(?:^|[{\s,(])target\s*=\s*([^,;}\])]+)""")
+
+internal fun String.extractUiTargetArgumentValue(toolName: String): String {
+    val value = trim().trimMatchingQuotes()
+    val explicitTarget = EXPLICIT_TARGET_ARGUMENT_PATTERN.find(value)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.cleanExtractedTargetArgument()
+    if (!explicitTarget.isNullOrBlank()) return explicitTarget
+
+    return toolName.preferredUiTargetModeKeys()
+        .asSequence()
+        .mapNotNull { key -> value.extractTargetValueForModeKey(key) }
+        .firstOrNull()
+        ?: value
+}
+
+private fun String.preferredUiTargetModeKeys(): List<String> =
+    when (this) {
+        MobileActionFunctions.UI_TYPE_TEXT -> listOf("type", "tap", "ocrFallback")
+        MobileActionFunctions.UI_TAP -> listOf("tap", "type", "ocrFallback")
+        MobileActionFunctions.UI_SCROLL -> listOf("scroll")
+        else -> emptyList()
+    }
+
+private fun String.extractTargetValueForModeKey(key: String): String? {
+    val pattern = Regex("""(?:^|[(,\s])${Regex.escape(key)}\s*=\s*([^,;)\]}]+)""")
+    return pattern.find(this)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.substringBefore("|")
+        ?.cleanExtractedTargetArgument()
+        ?.takeIf { value -> value.isNotBlank() }
+}
+
+private fun String.cleanExtractedTargetArgument(): String =
+    trim()
+        .trimMatchingQuotes()
+        .trimEnd('}', ')', ']')
+        .trim()
+        .trimMatchingQuotes()
+
+private fun String.trimMatchingQuotes(): String {
+    val trimmed = trim()
+    if (trimmed.length < 2) return trimmed
+    val first = trimmed.first()
+    val last = trimmed.last()
+    return if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+        trimmed.substring(1, trimmed.length - 1)
+    } else {
+        trimmed
     }
 }
 

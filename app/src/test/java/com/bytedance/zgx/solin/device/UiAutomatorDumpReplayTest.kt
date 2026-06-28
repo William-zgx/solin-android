@@ -1,5 +1,9 @@
 package com.bytedance.zgx.solin.device
 
+import com.bytedance.zgx.solin.multimodal.OcrTextBlock
+import com.bytedance.zgx.solin.multimodal.OcrTextBounds
+import com.bytedance.zgx.solin.multimodal.OcrTextElement
+import com.bytedance.zgx.solin.multimodal.OcrTextLine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -404,11 +408,19 @@ class UiAutomatorDumpReplayTest {
 
         assertEquals(2, cases.size)
         cases.forEach { replayCase ->
-            val evidence = UiTargetResolver.explain(
-                snapshot = replayCase.snapshot,
-                kind = replayCase.kind,
-                target = replayCase.target,
-            )
+            val evidence = if (replayCase.ocrBlocks.isEmpty()) {
+                UiTargetResolver.explain(
+                    snapshot = replayCase.snapshot,
+                    kind = replayCase.kind,
+                    target = replayCase.target,
+                )
+            } else {
+                UiTargetResolver.explain(
+                    observation = replayCase.snapshot.toScreenObservation(replayCase.ocrBlocks),
+                    kind = replayCase.kind,
+                    target = replayCase.target,
+                )
+            }
 
             assertEquals(replayCase.id, replayCase.expectedSelectedNodeId, evidence.selectedNodeId)
             assertEquals(replayCase.id, replayCase.expectedFailureKind, evidence.failureKind)
@@ -419,6 +431,12 @@ class UiAutomatorDumpReplayTest {
                     },
                 )
                 assertEquals(replayCase.id, expectedBounds, selected.bounds)
+                replayCase.expectedSource?.let { expectedSource ->
+                    assertEquals(replayCase.id, expectedSource, selected.source)
+                }
+                replayCase.expectedFallbackType?.let { expectedFallbackType ->
+                    assertEquals(replayCase.id, expectedFallbackType, selected.fallbackType)
+                }
             }
             replayCase.excludedNodeIds.forEach { excludedNodeId ->
                 assertTrue(
@@ -511,7 +529,18 @@ class UiAutomatorDumpReplayTest {
                         UiActionFailureKind.entries.first { kind -> kind.schemaValue == schemaValue }
                     },
                 expectedBounds = item.optJSONObject("expectedBounds")?.toScreenBounds(),
+                expectedSource = item.optString("expectedSource")
+                    .takeIf { value -> value.isNotBlank() }
+                    ?.let { schemaValue ->
+                        UiTargetEvidenceSource.entries.first { source -> source.schemaValue == schemaValue }
+                    },
+                expectedFallbackType = item.optString("expectedFallbackType")
+                    .takeIf { value -> value.isNotBlank() }
+                    ?.let { schemaValue ->
+                        UiTargetFallbackType.entries.first { fallback -> fallback.schemaValue == schemaValue }
+                    },
                 excludedNodeIds = item.optStringList("excludedNodeIds"),
+                ocrBlocks = item.optOcrBlocks("ocrBlocks"),
             )
         }
     }
@@ -601,6 +630,49 @@ class UiAutomatorDumpReplayTest {
             bottom = getInt("bottom"),
         )
 
+    private fun JSONObject.optOcrBlocks(key: String): List<OcrTextBlock> {
+        val array = optJSONArray(key) ?: return emptyList()
+        return (0 until array.length()).map { index -> array.getJSONObject(index).toOcrTextBlock() }
+    }
+
+    private fun JSONObject.toOcrTextBlock(): OcrTextBlock =
+        OcrTextBlock(
+            text = getString("text"),
+            bounds = optJSONObject("bounds")?.toOcrTextBounds(),
+            lines = optOcrTextLines("lines"),
+        )
+
+    private fun JSONObject.optOcrTextLines(key: String): List<OcrTextLine> {
+        val array = optJSONArray(key) ?: return emptyList()
+        return (0 until array.length()).map { index -> array.getJSONObject(index).toOcrTextLine() }
+    }
+
+    private fun JSONObject.toOcrTextLine(): OcrTextLine =
+        OcrTextLine(
+            text = getString("text"),
+            bounds = optJSONObject("bounds")?.toOcrTextBounds(),
+            elements = optOcrTextElements("elements"),
+        )
+
+    private fun JSONObject.optOcrTextElements(key: String): List<OcrTextElement> {
+        val array = optJSONArray(key) ?: return emptyList()
+        return (0 until array.length()).map { index ->
+            val element = array.getJSONObject(index)
+            OcrTextElement(
+                text = element.getString("text"),
+                bounds = element.optJSONObject("bounds")?.toOcrTextBounds(),
+            )
+        }
+    }
+
+    private fun JSONObject.toOcrTextBounds(): OcrTextBounds =
+        OcrTextBounds(
+            left = getInt("left"),
+            top = getInt("top"),
+            right = getInt("right"),
+            bottom = getInt("bottom"),
+        )
+
     private fun JSONObject.optStringList(key: String): List<String> {
         val array = optJSONArray(key) ?: return emptyList()
         return (0 until array.length()).map { index -> array.getString(index) }
@@ -616,7 +688,10 @@ class UiAutomatorDumpReplayTest {
         val expectedSelectedNodeId: String?,
         val expectedFailureKind: UiActionFailureKind?,
         val expectedBounds: ScreenBounds?,
+        val expectedSource: UiTargetEvidenceSource?,
+        val expectedFallbackType: UiTargetFallbackType?,
         val excludedNodeIds: List<String>,
+        val ocrBlocks: List<OcrTextBlock>,
     )
 
     private companion object {

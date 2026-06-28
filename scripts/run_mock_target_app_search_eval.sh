@@ -141,7 +141,7 @@ if [[ "$("${ADB[@]}" shell getprop ro.kernel.qemu | tr -d '\r')" != "1" ]]; then
 fi
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
-  "$GRADLE_CMD" assembleDebug
+  "$GRADLE_CMD" :app:assembleDebug
 fi
 if [[ "$SKIP_SOLIN_INSTALL" != "1" ]]; then
   "${ADB[@]}" install -r "$DEBUG_APK"

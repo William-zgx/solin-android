@@ -259,13 +259,34 @@ class DeviceControlEvalReceiver : BroadcastReceiver() {
         result: UiActionReadResult.Available,
     ): List<String> {
         val query = verifySearchQuery?.trim()?.takeIf { it.isNotBlank() } ?: return emptyList()
-        val verification = AppSearchResultVerifier.verify(
+        val primaryVerification = AppSearchResultVerifier.verify(
             before = result.result.before,
             after = result.result.after,
             query = query,
             expectedPackageName = expectedPackageName,
             expectedAppName = expectedAppName,
         )
+        val verification = if (primaryVerification.verified) {
+            primaryVerification
+        } else {
+            val beforeVerification = result.result.before?.let { beforeSnapshot ->
+                AppSearchResultVerifier.verify(
+                    before = null,
+                    after = beforeSnapshot,
+                    query = query,
+                    expectedPackageName = expectedPackageName,
+                    expectedAppName = expectedAppName,
+                )
+            }
+            if (beforeVerification?.verified == true) {
+                beforeVerification.copy(
+                    summary = "搜索结果验证通过：等待前页面已包含结果证据。",
+                    evidence = "before_wait_${beforeVerification.evidence}",
+                )
+            } else {
+                primaryVerification
+            }
+        }
         return listOf(
             "searchVerificationStatus=${if (verification.verified) "verified" else "not_verified"}",
             "searchVerificationEvidence=${verification.evidence.cleanValue()}",

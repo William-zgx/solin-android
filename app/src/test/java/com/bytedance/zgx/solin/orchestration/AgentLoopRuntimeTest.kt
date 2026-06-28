@@ -32,6 +32,7 @@ import com.bytedance.zgx.solin.device.DEVICE_CONTROL_SOURCE_ACCESSIBILITY
 import com.bytedance.zgx.solin.memory.MemoryHit
 import com.bytedance.zgx.solin.memory.MemoryIndex
 import com.bytedance.zgx.solin.memory.MemoryRepository
+import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
 import com.bytedance.zgx.solin.safety.SafetyOutcome
 import com.bytedance.zgx.solin.skill.BuiltInSkillRuntime
 import com.bytedance.zgx.solin.skill.SkillManifest
@@ -4061,6 +4062,77 @@ class AgentLoopRuntimeTest {
         assertTrue(!observed.steps.toString().contains(rawImageName))
         assertTrue(!auditSink.events.toString().contains(rawOcrText))
         assertTrue(!auditSink.events.toString().contains(rawImageName))
+    }
+
+    @Test
+    fun currentScreenshotOcrObservationIncludesFusedScreenObservationInLocalPromptOnly() {
+        val auditSink = InMemoryToolAuditSink()
+        val actionRuntime = RecordingActionRuntime(
+            likelyAction = true,
+            planningResult = ActionPlanningResult(
+                plan = ActionPlan(
+                    kind = ActionPlanKind.Draft,
+                    draft = ActionDraft(
+                        functionName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+                        title = "当前屏幕截图 OCR",
+                        summary = "单次截取当前屏幕并在本地提取 OCR 文本。",
+                        parameters = mapOf("captureMode" to "current_screen"),
+                        requiresConfirmation = true,
+                    ),
+                ),
+                usedModel = false,
+                fallbackReason = "test fallback",
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+        )
+        val rawOcrText = "当前屏幕 OCR 里的搜索框"
+        val rawObservationJson =
+            """{"schemaVersion":1,"sources":["accessibility","ocr"],"elements":[{"id":"n0","text":"搜索"}]}"""
+        val planned = runtime.runOnce(
+            input = "识别当前屏幕截图文字并判断哪里能搜索",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕截图 OCR 摘录",
+                data = currentScreenshotOcrResultData(
+                    text = rawOcrText,
+                    screenObservationJson = rawObservationJson,
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        val prompt = observed.continuationPromptForModel.orEmpty()
+        assertTrue(prompt.contains(rawOcrText))
+        assertTrue(prompt.contains(rawObservationJson))
+        assertTrue(prompt.contains("LocalOnly"))
+        assertTrue(prompt.contains("Accessibility/OCR"))
+        assertTrue(prompt.contains("不推断视觉语义"))
+        assertEquals("[redacted]", observed.result.data["ocrText"])
+        assertEquals("[redacted]", observed.result.data["screenObservationJson"])
+        val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
+        assertEquals("[redacted]", toolObserved.result.data["ocrText"])
+        assertEquals("[redacted]", toolObserved.result.data["screenObservationJson"])
+        assertFalse(observed.steps.toString().contains(rawOcrText))
+        assertFalse(observed.steps.toString().contains(rawObservationJson))
+        assertFalse(auditSink.events.toString().contains(rawOcrText))
+        assertFalse(auditSink.events.toString().contains(rawObservationJson))
     }
 
     @Test
@@ -8835,7 +8907,11 @@ class AgentLoopRuntimeTest {
         val runtime = AgentLoopRuntime(
             memoryIndex = MemoryRepository(),
             actionPlanningRuntime = actionRuntime,
-            skillRuntime = NoDirectPlanSkillRuntime(),
+            skillRuntime = object : SkillRuntime {
+                override fun manifests(): List<SkillManifest> = emptyList()
+                override fun plan(input: String): SkillPlan? = null
+                override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+            },
             auditSink = auditSink,
             traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
             observationReplanner = ModelObservationReplanner(
@@ -8972,6 +9048,319 @@ class AgentLoopRuntimeTest {
         assertEquals("[redacted]", observed.result.data["lastTimeUsedMillis"])
         assertEquals(1, actionRuntime.plannedInputs.size)
         assertNull(runtime.latestPendingConfirmation())
+    }
+
+    @Test
+    fun currentScreenOcrObservationReplannerUsesRawLocalEvidenceButKeepsTraceRedacted() {
+        val actionRuntime = ObservationModelActionRuntime(
+            initialDraft = ActionDraft(
+                functionName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+                title = "当前屏幕截图 OCR",
+                summary = "单次截取当前屏幕并在本地提取 OCR 文本。",
+                parameters = mapOf("captureMode" to "current_screen"),
+                requiresConfirmation = true,
+            ),
+            modelDraft = ActionDraft(
+                functionName = MobileActionFunctions.UI_TAP,
+                title = "点击继续",
+                summary = "点击当前屏幕上的继续按钮。",
+                parameters = mapOf("target" to "继续"),
+                requiresConfirmation = true,
+            ),
+        )
+        val auditSink = InMemoryToolAuditSink()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = object : SkillRuntime {
+                override fun manifests(): List<SkillManifest> = emptyList()
+                override fun plan(input: String): SkillPlan? = null
+                override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+            },
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = ModelObservationReplanner(
+                actionPlanningRuntime = actionRuntime,
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
+            ),
+        )
+        val rawOcrText = "继续"
+        val rawObservationJson = """
+            {
+              "schemaVersion": 1,
+              "observationId": "screen-current",
+              "capturedAtMillis": 1000,
+              "packageName": "com.example.app",
+              "privacyLevel": "LocalOnly",
+              "sources": ["accessibility", "ocr"],
+              "elementCount": 2,
+              "sourceCounts": {"accessibility": 1, "ocr": 1},
+              "truncated": false,
+              "elements": [
+                {
+                  "id": "continue-button",
+                  "source": "accessibility",
+                  "bounds": {"left": 10, "top": 20, "right": 110, "bottom": 70},
+                  "text": "继续",
+                  "role": "button",
+                  "clickability": {"clickable": true, "editable": false, "scrollable": false, "enabled": true},
+                  "confidence": 1.0,
+                  "sensitiveFlags": [],
+                  "privacyLevel": "LocalOnly"
+                },
+                {
+                  "id": "ocr:block:0",
+                  "source": "ocr",
+                  "bounds": {"left": 10, "top": 20, "right": 110, "bottom": 70},
+                  "text": "继续",
+                  "role": "ocr_block",
+                  "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
+                  "confidence": 0.72,
+                  "sensitiveFlags": [],
+                  "privacyLevel": "LocalOnly"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val planned = runtime.runOnce(
+            input = "看当前屏幕 OCR，点击继续",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕截图 OCR 摘录",
+                data = currentScreenshotOcrResultData(
+                    text = rawOcrText,
+                    screenObservationJson = rawObservationJson,
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        val nextPlan = observed.decision.plan
+        assertEquals(
+            "actionModelPaths=${actionRuntime.actionModelPaths}, plannedInputs=${actionRuntime.plannedInputs}",
+            MobileActionFunctions.UI_TAP,
+            nextPlan.request.toolName,
+        )
+        assertTrue(nextPlan.plannedByModel)
+        assertEquals("继续", nextPlan.request.arguments["target"])
+        assertEquals(nextPlan.request.id, runtime.latestPendingConfirmation()?.request?.id)
+        assertEquals(listOf(null, "/verified/mobile-action.litertlm"), actionRuntime.actionModelPaths)
+        val replannerPrompt = actionRuntime.plannedInputs[1]
+        assertTrue(replannerPrompt.contains("LocalOnly observation evidence"))
+        assertTrue(replannerPrompt.contains("screenObservationJson(id=screen-current"))
+        assertTrue(replannerPrompt.contains("sourceCounts=accessibility=1,ocr=1"))
+        assertTrue(replannerPrompt.contains("continue-button{accessibility/button,text=继续"))
+        assertTrue(replannerPrompt.contains("ocr:block:0{ocr/ocr_block,text=继续"))
+        assertFalse(replannerPrompt.contains("[redacted]"))
+        assertFalse(replannerPrompt.contains("\"elements\""))
+        assertEquals("[redacted]", observed.result.data["ocrText"])
+        assertEquals("[redacted]", observed.result.data["screenObservationJson"])
+        val toolObserved = observed.steps.filterIsInstance<AgentStep.ToolObserved>().last()
+        assertEquals("[redacted]", toolObserved.result.data["ocrText"])
+        assertEquals("[redacted]", toolObserved.result.data["screenObservationJson"])
+        assertFalse(observed.steps.toString().contains(rawObservationJson))
+        assertFalse(auditSink.events.toString().contains(rawObservationJson))
+    }
+
+    @Test
+    fun currentScreenOcrObservationDoesNotReplanWebSearchFromLocalOnlyEvidence() {
+        val actionRuntime = ObservationModelActionRuntime(
+            initialDraft = ActionDraft(
+                functionName = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+                title = "当前屏幕截图 OCR",
+                summary = "单次截取当前屏幕并在本地提取 OCR 文本。",
+                parameters = mapOf("captureMode" to "current_screen"),
+                requiresConfirmation = true,
+            ),
+            modelDraft = ActionDraft(
+                functionName = MobileActionFunctions.WEB_SEARCH,
+                title = "Web 搜索",
+                summary = "错误地把当前屏幕 OCR 文本改写为网络搜索。",
+                parameters = mapOf("query" to "Kotlin协程"),
+                requiresConfirmation = false,
+            ),
+        )
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = NoDirectPlanSkillRuntime(),
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = ModelObservationReplanner(
+                actionPlanningRuntime = actionRuntime,
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
+            ),
+        )
+        val rawObservationJson = """
+            {
+              "schemaVersion": 1,
+              "observationId": "screen-current-local-only",
+              "capturedAtMillis": 1000,
+              "packageName": "com.example.app",
+              "privacyLevel": "LocalOnly",
+              "sources": ["accessibility", "ocr"],
+              "elementCount": 1,
+              "sourceCounts": {"ocr": 1},
+              "truncated": false,
+              "elements": [
+                {
+                  "id": "ocr:block:0",
+                  "source": "ocr",
+                  "bounds": {"left": 10, "top": 20, "right": 300, "bottom": 70},
+                  "text": "Kotlin协程",
+                  "role": "ocr_block",
+                  "clickability": {"clickable": false, "editable": false, "scrollable": false, "enabled": true},
+                  "confidence": 0.72,
+                  "sensitiveFlags": [],
+                  "privacyLevel": "LocalOnly"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val planned = runtime.runOnce(
+            input = "看当前屏幕 OCR，帮我决定下一步",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Succeeded,
+                summary = "已读取当前屏幕截图 OCR 摘录",
+                data = currentScreenshotOcrResultData(
+                    text = "Kotlin协程",
+                    screenObservationJson = rawObservationJson,
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.GeneratingAnswer, observed.run.state)
+        require(observed.decision is AgentObservationDecision.ContinueWithModel)
+        assertTrue(observed.decision.requiresLocalModel)
+        assertTrue(observed.continuationRequiresLocalModel)
+        assertEquals(listOf(null, "/verified/mobile-action.litertlm"), actionRuntime.actionModelPaths)
+        assertTrue(actionRuntime.plannedInputs[1].contains("LocalOnly observation evidence"))
+        assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+            step.request.toolName == MobileActionFunctions.WEB_SEARCH
+        })
+        assertNull(runtime.latestPendingConfirmation())
+    }
+
+    @Test
+    fun failedUiActionObservationCanReplanWithRawLocalEvidenceButKeepsTraceRedacted() {
+        val actionRuntime = ObservationModelActionRuntime(
+            initialDraft = ActionDraft(
+                functionName = MobileActionFunctions.UI_TAP,
+                title = "点击搜索入口",
+                summary = "点击当前屏幕上的搜索入口。",
+                parameters = mapOf("target" to "搜索入口"),
+                requiresConfirmation = true,
+            ),
+            modelDraft = ActionDraft(
+                functionName = MobileActionFunctions.UI_TAP,
+                title = "点击搜索输入框",
+                summary = "根据失败后的屏幕证据点击搜索输入框。",
+                parameters = mapOf("target" to "搜索输入框"),
+                requiresConfirmation = true,
+            ),
+        )
+        val auditSink = InMemoryToolAuditSink()
+        val runtime = AgentLoopRuntime(
+            memoryIndex = MemoryRepository(),
+            actionPlanningRuntime = actionRuntime,
+            skillRuntime = object : SkillRuntime {
+                override fun manifests(): List<SkillManifest> = emptyList()
+                override fun plan(input: String): SkillPlan? = null
+                override fun plan(input: String, draft: ActionDraft, request: ToolRequest): SkillPlan? = null
+            },
+            auditSink = auditSink,
+            traceStore = InMemoryAgentTraceStore(clockMillis = { 1_000L }),
+            observationReplanner = ModelObservationReplanner(
+                actionPlanningRuntime = actionRuntime,
+                actionModelPathProvider = { "/verified/mobile-action.litertlm" },
+            ),
+        )
+        val beforeObservationJson = screenObservationJson("before-failed-tap", "com.example.app")
+        val afterObservationJson = screenObservationJson("after-failed-tap", "com.example.app")
+        val diffSummary =
+            "changed=true;package=com.example.app->com.example.app;nodes=2->3;" +
+                "addedText=搜索输入框|搜索;addedActionable=editable:搜索输入框|clickable:搜索"
+
+        val planned = runtime.runOnce(
+            input = "点击搜索入口",
+            installedCapabilities = setOf(ModelCapability.Chat),
+            memoryEnabled = false,
+            installedCapabilityProfiles = listOf(ModelCatalog.profileForModelId(MOBILE_ACTION_MODEL_ID)),
+        )
+        require(planned.plan is AgentPlan.UseTool)
+        assertEquals(MobileActionFunctions.UI_TAP, planned.plan.request.toolName)
+        runtime.confirmToolRequest(planned.run.id, planned.plan.request.id)
+
+        val observed = runtime.observeToolResult(
+            runId = planned.run.id,
+            result = ToolResult(
+                requestId = planned.plan.request.id,
+                status = ToolStatus.Failed,
+                summary = "未找到可点击目标：搜索入口",
+                retryable = true,
+                data = localDeviceControlData(MobileActionFunctions.UI_TAP) + mapOf(
+                    "actionType" to "tap",
+                    "status" to "failed",
+                    "retryable" to "true",
+                    "summary" to "未找到可点击目标：搜索入口",
+                    "failureKind" to "node_not_found",
+                    "beforeObservationId" to "before-failed-tap",
+                    "afterObservationId" to "after-failed-tap",
+                    "verificationSummary" to "动作失败后已观察当前屏幕。",
+                    "beforeScreenObservationJson" to beforeObservationJson,
+                    "afterScreenObservationJson" to afterObservationJson,
+                    "screenObservationDiffSummary" to diffSummary,
+                ),
+            ),
+        )
+
+        requireNotNull(observed)
+        assertEquals(AgentRunState.AwaitingUserConfirmation, observed.run.state)
+        require(observed.decision is AgentObservationDecision.PlanNextTool)
+        val nextPlan = observed.decision.plan
+        assertEquals(listOf(null, "/verified/mobile-action.litertlm"), actionRuntime.actionModelPaths)
+        assertEquals(MobileActionFunctions.UI_TAP, nextPlan.request.toolName)
+        assertTrue(nextPlan.plannedByModel)
+        assertEquals("搜索输入框", nextPlan.request.arguments["target"])
+        assertEquals(nextPlan.request.id, runtime.latestPendingConfirmation()?.request?.id)
+        val replannerPrompt = actionRuntime.plannedInputs[1]
+        assertTrue(replannerPrompt.contains("Observation status: Failed"))
+        assertTrue(replannerPrompt.contains("screenObservationDiffSummary=changed=true"))
+        assertTrue(replannerPrompt.contains("addedText=搜索输入框|搜索"))
+        assertFalse(replannerPrompt.contains("[redacted]"))
+        assertEquals("[redacted]", observed.result.data["beforeScreenObservationJson"])
+        assertEquals("[redacted]", observed.result.data["afterScreenObservationJson"])
+        assertEquals("[redacted]", observed.result.data["screenObservationDiffSummary"])
+        assertFalse(observed.steps.toString().contains(beforeObservationJson))
+        assertFalse(observed.steps.toString().contains(diffSummary))
+        assertFalse(auditSink.events.toString().contains(diffSummary))
+        assertTrue(observed.steps.filterIsInstance<AgentStep.ToolRequested>().none { step ->
+            step.request.reason == "Device control failure recovery checkpoint."
+        })
     }
 
     @Test
@@ -9283,6 +9672,25 @@ class AgentLoopRuntimeTest {
             "ocrTextIncluded" to "true",
             "rawPayloadIncluded" to "false",
             "metadataPolicy" to "ocr_text_local_only_no_uri_path_or_pixels_persisted",
+        )
+
+    private fun currentScreenshotOcrResultData(
+        text: String,
+        screenObservationJson: String,
+    ): Map<String, String> =
+        mapOf(
+            "toolName" to MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
+            "privacy" to MessagePrivacy.LocalOnly.name,
+            "requiresLocalModel" to "true",
+            "source" to CurrentScreenshotOcrContract.SOURCE,
+            "captureMode" to CurrentScreenshotOcrContract.CAPTURE_MODE,
+            "ocrText" to text,
+            "truncated" to "false",
+            "ocrTextIncluded" to "true",
+            "screenObservationIncluded" to "true",
+            "screenObservationJson" to screenObservationJson,
+            "rawPayloadIncluded" to "false",
+            "metadataPolicy" to CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY,
         )
 
     private fun currentScreenTextResultData(text: String): Map<String, String> =

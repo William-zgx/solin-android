@@ -1002,7 +1002,24 @@ class AgentLoopRuntime(
         val continuationRemoteToolScope =
             continuation?.remoteToolScope ?: RemoteToolScope.PublicEvidenceOnly
         val canPlanNextToolBeforeContinuation = continuation?.canPlanNextToolBeforeModel ?: false
+        val rawLocalPlanningResult = if (
+            result.requestId == request.id &&
+            request.canPlanLocalToolFromCurrentScreenObservation(run) &&
+            result.hasLocalObservationEvidenceForPlanning()
+        ) {
+            result
+        } else {
+            null
+        }
         val observedResult = safeResult.redactedForTrace(request)
+        val localPlanningResult = if (
+            canPlanNextToolBeforeContinuation ||
+            rawLocalPlanningResult != null
+        ) {
+            rawLocalPlanningResult ?: safeResult
+        } else {
+            observedResult
+        }
         val budgetExceeded = observationDecisionBudgetExceeded(runId)
         val retryAttempt = if (budgetExceeded) 0 else nextRetryAttempt(runId, observedResult)
         val retryRequest = if (retryAttempt > 0) request else null
@@ -1046,14 +1063,14 @@ class AgentLoopRuntime(
             observedResult.status == ToolStatus.Succeeded &&
             retryRequest == null
         ) {
-            planNextOpenAppUiSearchStepAfterUnverifiedLaunch(run, request, observedResult)
-                ?: planNextLowRiskAppControlSkillStepBeforeContinuation(run, request, observedResult)
+            planNextOpenAppUiSearchStepAfterUnverifiedLaunch(run, request, localPlanningResult)
+                ?: planNextLowRiskAppControlSkillStepBeforeContinuation(run, request, localPlanningResult)
                 ?: planNextCompositeSkillSegmentBeforeContinuation(run, continuation)
                 ?: if (
                     (continuationPrompt == null || canPlanNextToolBeforeContinuation) &&
-                    canPlanNextToolAfterObservation(run, request, observedResult)
+                    canPlanNextToolAfterObservation(run, request, localPlanningResult)
                 ) {
-                    planNextToolAfterObservation(run, request, observedResult)
+                    planNextToolAfterObservation(run, request, localPlanningResult)
                 } else {
                     NextObservationPlan.None
                 }
@@ -1063,7 +1080,8 @@ class AgentLoopRuntime(
             !observedResult.isPermissionFailure() &&
             retryRequest == null
         ) {
-            planSafeDeviceControlRecoveryAfterFailure(run, request, observedResult)
+            planModelDeviceControlRecoveryAfterFailure(run, request, localPlanningResult)
+                ?: planSafeDeviceControlRecoveryAfterFailure(run, request, observedResult)
         } else {
             NextObservationPlan.None
         }
@@ -1224,6 +1242,44 @@ class AgentLoopRuntime(
                 completedSegmentCount = completedSegmentCount,
             ),
         ) ?: return NextObservationPlan.None
+        if (
+            replan.plannedByModel &&
+            !hasMobileActionPlanningModel(
+                installedCapabilityProfiles = installedCapabilityProfilesByRunId[run.id].orEmpty(),
+            )
+        ) {
+            return failMissingModelNextPlan(run.id, AgentPlan.MissingModel(ModelCapability.MobileAction))
+        }
+        val skillPlan = skillRuntime.plan(replan.input ?: run.input, replan.draft, replan.request)
+        return buildNextToolPlan(
+            runId = run.id,
+            request = replan.request,
+            draft = replan.draft,
+            plannedByModel = replan.plannedByModel,
+            fallbackReason = replan.fallbackReason,
+            skillPlan = skillPlan,
+        )
+    }
+
+    private fun planModelDeviceControlRecoveryAfterFailure(
+        run: AgentRun,
+        request: ToolRequest,
+        result: ToolResult,
+    ): NextObservationPlan? {
+        if (latestSkillPlan(run.id) != null) return null
+        if (!result.hasLocalObservationEvidenceForPlanning()) return null
+        val priorRequests = toolRequestsFor(run.id)
+        val completedSegmentCount = plannedSequentialSegmentCount(run.id)
+        val replan = observationReplanner.planNext(
+            AgentObservationReplanContext(
+                run = run,
+                previousRequest = request,
+                observedResult = result,
+                priorRequests = priorRequests,
+                nextActionInput = traceStore.nextActionInput(run.id),
+                completedSegmentCount = completedSegmentCount,
+            ),
+        ) ?: return null
         if (
             replan.plannedByModel &&
             !hasMobileActionPlanningModel(
@@ -1409,6 +1465,25 @@ class AgentLoopRuntime(
 
     private fun ToolRequest.isDeviceControlTool(): Boolean =
         toolRegistry.specFor(toolName)?.capability == ToolCapability.DeviceControl
+
+    private fun ToolRequest.canPlanLocalToolFromCurrentScreenObservation(run: AgentRun): Boolean =
+        when (toolName) {
+            MobileActionFunctions.READ_CURRENT_SCREEN_TEXT,
+            MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> true
+
+            else -> isDeviceControlTool() && latestSkillPlan(run.id) == null
+        }
+
+    private fun ToolResult.hasLocalObservationEvidenceForPlanning(): Boolean =
+        listOf(
+            "screenObservationJson",
+            "beforeScreenObservationJson",
+            "afterScreenObservationJson",
+            "screenObservationDiffSummary",
+            "ocrBlocksJson",
+            "ocrText",
+            "screenText",
+        ).any { key -> data[key]?.isNotBlank() == true }
 
     private fun ToolResult.isPermissionFailure(): Boolean =
         error?.code == ToolErrorCode.PermissionDenied ||
@@ -2411,6 +2486,7 @@ class AgentLoopRuntime(
                     $clipboardText
                     """.trimIndent(),
                     requiresLocalModel = true,
+                    canPlanNextToolBeforeModel = request.canPlanLocalToolFromCurrentScreenObservation(run),
                 )
             }
 
@@ -2419,17 +2495,29 @@ class AgentLoopRuntime(
             MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR -> {
                 val ocrText = result.data["ocrText"]?.takeIf { it.isNotBlank() } ?: return null
                 val truncated = result.data["truncated"]?.toBooleanStrictOrNull() ?: false
+                val screenObservationJson = if (request.toolName == MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR) {
+                    result.data["screenObservationJson"]?.takeIf { it.isNotBlank() }
+                } else {
+                    null
+                }
                 val contentLabel = request.toolName.recentImageOcrContentLabel()
                 val sourceBoundary = when (request.toolName) {
                     MobileActionFunctions.READ_RECENT_SCREENSHOT_OCR ->
                         "这不是当前屏幕捕获，也不是图片语义理解；只使用已提取的截图文字。"
 
                     MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR ->
-                        "这是用户前台同意后的单次当前屏幕截图 OCR；只使用已提取的文字，不推断视觉语义。"
+                        "这是用户前台同意后的单次当前屏幕截图 OCR；只使用本地 OCR 文本和可选 Accessibility/OCR 结构化观测，不推断视觉语义。"
 
                     else ->
                         "这不是当前屏幕捕获，也不是图片语义理解；只使用已提取的图片文字。"
                 }
+                val screenObservationSection = screenObservationJson?.let { observationJson ->
+                    """
+
+                    当前屏幕结构化观测 JSON（LocalOnly，融合 OCR/Accessibility）：
+                    $observationJson
+                    """.trimIndent()
+                }.orEmpty()
                 ToolObservationContinuation(
                     prompt = """
                     用户已经确认读取$contentLabel 并在本地提取 OCR 文本。请根据用户原始请求处理 OCR 摘录。
@@ -2440,8 +2528,10 @@ class AgentLoopRuntime(
                     工具观察：${result.summary}
                     $contentLabel OCR 文本${if (truncated) "（已截断）" else ""}：
                     $ocrText
+                    $screenObservationSection
                     """.trimIndent(),
                     requiresLocalModel = true,
+                    canPlanNextToolBeforeModel = request.canPlanLocalToolFromCurrentScreenObservation(run),
                 )
             }
 
@@ -2777,6 +2867,7 @@ class AgentLoopRuntime(
                 $localData
             """.trimIndent(),
             requiresLocalModel = true,
+            canPlanNextToolBeforeModel = request.canPlanLocalToolFromCurrentScreenObservation(run),
         )
     }
 

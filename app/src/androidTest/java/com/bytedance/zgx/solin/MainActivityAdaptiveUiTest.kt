@@ -100,7 +100,7 @@ class MainActivityAdaptiveUiTest {
             composeRule.assertLabeledAction("top_more_button", "更多")
             composeRule.assertLabeledAction(
                 "composer_attachment_button",
-                "选择附件；已配置并切换远程后，图片和疑似敏感内容逐次确认，其他附件不读取正文或 OCR",
+                "选择附件；远程模式逐次确认后发送图片，其他附件不读取正文或 OCR",
             )
             composeRule.assertLabeledAction("composer_voice_button", VOICE_INPUT_PRIVACY_DESCRIPTION)
             composeRule.onNodeWithTag("remote_attachment_protection_notice").assertIsDisplayed()

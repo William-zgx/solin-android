@@ -1249,6 +1249,8 @@ else:
     expected_clean = "1" if physical.get("cleanDevice") is True else "0"
     if props.get("clean_device") != expected_clean:
         failures.append("physical-device-report-clean-device-mismatch")
+    if expected_clean == "0" and props.get("reset_app_data_after_tests") != "0":
+        failures.append("physical-device-report-reset-app-data-after-tests-not-disabled")
     try:
         data_free_kb = int(props.get("data_free_kb", ""))
     except ValueError:

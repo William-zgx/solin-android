@@ -53,6 +53,8 @@ internal object DeviceControlEvalResultFormatter {
                     .put("nodeId", candidate.nodeId.orEmpty())
                     .put("label", candidate.label)
                     .put("bounds", candidate.bounds?.toJson() ?: JSONObject.NULL)
+                    .put("source", candidate.source.schemaValue)
+                    .put("fallbackType", candidate.fallbackType.schemaValue)
                     .put("clickable", candidate.clickable)
                     .put("editable", candidate.editable)
                     .put("scrollable", candidate.scrollable)
@@ -62,7 +64,11 @@ internal object DeviceControlEvalResultFormatter {
                     .put("finalScore", candidate.score.finalScore)
                     .put("riskPenalty", candidate.score.riskPenalty)
                     .put("noisePenalty", candidate.score.noisePenalty)
-                    .put("totalPenalty", candidate.score.riskPenalty + candidate.score.noisePenalty)
+                    .put("fallbackPenalty", candidate.score.fallbackPenalty)
+                    .put(
+                        "totalPenalty",
+                        candidate.score.riskPenalty + candidate.score.noisePenalty + candidate.score.fallbackPenalty,
+                    )
                     .put("reason", candidate.reason)
                     .put(
                         "score",
@@ -74,6 +80,7 @@ internal object DeviceControlEvalResultFormatter {
                             .put("position", candidate.score.positionScore)
                             .put("riskPenalty", candidate.score.riskPenalty)
                             .put("noisePenalty", candidate.score.noisePenalty)
+                            .put("fallbackPenalty", candidate.score.fallbackPenalty)
                             .put("final", candidate.score.finalScore),
                     ),
             )

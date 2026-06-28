@@ -2,7 +2,8 @@ package com.bytedance.zgx.solin.multimodal
 
 object CurrentScreenshotOcrContract {
     const val TOOL_NAME = "capture_current_screenshot_ocr"
-    const val OUTPUT_METADATA_POLICY = "ocr_text_local_only_no_uri_path_or_pixels_persisted"
+    const val OUTPUT_METADATA_POLICY =
+        "ocr_accessibility_observation_local_only_no_uri_path_or_pixels_persisted"
     const val CONSENT_REASON = "media_projection_one_shot_current_screen_ocr"
     const val SOURCE = "current_screen"
     const val CAPTURE_MODE = "current_screen"
@@ -31,6 +32,7 @@ object CurrentScreenshotOcrContract {
     "captureMode",
     "truncated",
     "ocrTextIncluded",
+    "screenObservationIncluded",
     "rawPayloadIncluded",
     "metadataPolicy",
     "privacy",
@@ -47,12 +49,27 @@ object CurrentScreenshotOcrContract {
       "contentMediaType": "application/json",
       "description": "Optional JSON array of OCR blocks. Each block may include bounds and lines; each line may include bounds and elements. No pixels, URI/path, or window title metadata."
     },
+    "screenObservationIncluded": {
+      "type": "boolean",
+      "description": "Whether a fused LocalOnly Accessibility + OCR screen observation was included."
+    },
+    "screenObservationJson": {
+      "type": "string",
+      "minLength": 1,
+      "contentMediaType": "application/json",
+      "description": "Optional LocalOnly structured screen observation built from transient Accessibility nodes plus OCR text blocks. No pixels, URI/path, or window title metadata."
+    },
+    "screenObservationFailureKind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Diagnostic reason when OCR succeeded but screenObservationJson could not be included."
+    },
     "truncated": {"type": "boolean"},
     "ocrTextIncluded": {"type": "boolean"},
     "rawPayloadIncluded": {"type": "boolean", "const": false},
     "metadataPolicy": {
       "type": "string",
-      "enum": ["ocr_text_local_only_no_uri_path_or_pixels_persisted"]
+      "enum": ["ocr_accessibility_observation_local_only_no_uri_path_or_pixels_persisted"]
     },
     "privacy": {"type": "string", "enum": ["LocalOnly"]},
     "requiresLocalModel": {"type": "boolean", "const": true}
@@ -79,7 +96,7 @@ object CurrentScreenshotOcrContract {
             errors += "current screenshot OCR must not persist pixels, URI/path, or window title metadata"
         }
         if (boundary.producesSemanticVisualUnderstanding) {
-            errors += "current screenshot OCR may produce OCR text only, not visual semantics"
+            errors += "current screenshot OCR may produce LocalOnly OCR text and structured Accessibility/OCR observation only, not visual semantics"
         }
         return errors
     }

@@ -239,15 +239,149 @@ gantt
 - `ScreenStateSnapshot` 可投影为 `ScreenObservation` JSON，包含来源、bounds、role、
   clickability、confidence、`LocalOnly` 隐私级别和截断摘要；旧 `nodesJson` 兼容保留。
 - OCR 预览保留旧文本摘要，同时可携带 block/line/element bounds；当前屏幕 OCR 输出的
-  `ocrBlocksJson` 是私有本地证据。
+  `ocrBlocksJson` 和融合 Accessibility+OCR 的 `screenObservationJson` 是私有本地证据。
+- `ui_*` 动作结果在保留旧 `afterNodesJson` 的同时输出
+  `beforeScreenObservationJson`、`afterScreenObservationJson` 和有界
+  `screenObservationDiffSummary`，让动作后验证和本地 replanning 能判断屏幕是否变化、
+  新增/消失了哪些文本和可交互目标。
+- 本机 observation replanner 接收有界 `LocalOnly` 观察摘要：`screenObservationJson`、
+  `beforeScreenObservationJson`、`afterScreenObservationJson`、`screenObservationDiffSummary`、
+  OCR blocks、OCR 文本和 Accessibility 文本先被本地裁剪/脱敏成 action-model prompt
+  evidence；当前屏幕 OCR/读屏可在本地模型回答前规划下一步手机动作，trace、audit
+  和公开返回值仍只保存脱敏结果。
+- 可恢复的失败 `ui_*` 动作如果携带 before/after/diff/OCR 本地证据，也可以先交给本机
+  action model 规划下一步；权限缺失、无本地证据、不可重试或 active skill plan 场景仍走
+  原有 fail-closed / safe observe-wait 恢复路径，失败态私有证据不会进入 trace/audit。
+- 本机 observation replanner prompt 增加有界动作诊断摘要：`actionType`、`target`、
+  `failureKind`、`retryable`、搜索验证状态、节点计数和 `verificationSummary` 等字段会先脱敏
+  再交给本机 action model，帮助区分换目标、等待、滚动、重试或停手。
+- 本机 observation replanner prompt 增加有界 `Prior request details`：记录最近几步
+  UI 工具的 target/direction/captureMode/timeout 等执行上下文，并明确失败后不要无证据重复
+  同一个 target；`ui_type_text.text` 只记录字符数，不把输入正文放进 prompt。
+- 本机 observation replanner 对小模型输出增加窄口径重复目标保护：当上一条失败的
+  `ui_tap`、`ui_type_text` 或 `ui_scroll` 与本机模型下一步 draft 是同一工具、同一 target，
+  且最新 diff 没有 `changed=true`、当前结构化观测/OCR blocks 也没有支持该 target 的证据时，
+  不继续下发这条重复动作，让外层走已有 observe/wait 安全恢复；如果屏幕变化或当前观测确有
+  可操作/OCR target 证据，则仍允许模型判断重试。
+- 本机 observation replanner 对本地 OCR/结构化观测里的危险语义增加停手保护：如果当前
+  `screenObservationJson`、`afterScreenObservationJson`、`ocrBlocksJson`、强危险
+  `ocrText` 或 `screenText` 显示支付、发送、删除、发布、下单、购买、转账或授权类控制，
+  小模型即使输出 `ui_tap`、`ui_type_text`、`ui_submit_search` 或 `ui_scroll` draft，
+  也不会继续自动下发；OCR-only 证据只接受强危险短语或独立按钮词，静态说明文案不被当成
+  可执行危险控制。
+- 危险控件判断已下沉为共享 UI guard：绕过 observation replanner 的 direct/skill
+  `ui_tap`、`ui_type_text`、`ui_submit_search` 和 `ui_scroll` 也会先用原始
+  Accessibility provider 观察当前屏幕；若发现可交互的支付/发送/删除/发布/下单/购买/转账/授权
+  控件，则返回 `failureKind=dangerous_action`，不调用动作 provider，也不清掉当前屏幕 OCR
+  grounding cache。
+- 结构化屏幕观测的本机 prompt 现在显式生成 `targets=[...]` 和 `targetShortlist(...)`
+  候选列表，把可点、可编辑、可滚动的 Accessibility 元素和可作为低优先坐标 fallback
+  的 OCR block 按 label/target/modeTags/source/role/bounds/confidence 摘要给本机模型；
+  裁剪时优先保留可操作元素和 OCR 候选，减少模型从静态文本里猜目标或漏掉后置输入框/按钮的负担。
+- 本机 prompt 会把 `screenObservationJson` 反序列化回 `ScreenObservation`，复用
+  `UiTargetResolver` 的 profile 排序、负例惩罚和来源优先级来排序 `targetShortlist(...)`；
+  排序会先根据当前 `User intent preview` 提升搜索入口、筛选、提交或滚动等目标 kind，
+  再回填默认 resolver kind；同一 target 被多个 kind 命中时保留最优 rank，且 shortlist
+  先于 verbose `elements=[...]` / `targets=[...]` 输出，降低长屏幕摘要截断时丢失可执行目标的风险。
+- 当 OCR 文案空间覆盖在无文本 Accessibility 可操作节点上时，本机 prompt 会生成
+  `source=accessibility+ocr` 的融合候选：label 来自 OCR，target 仍使用可执行的
+  Accessibility transient node id，并要求 OCR bounds 大部分落在节点 bounds 内，降低模型输出
+  纯 OCR 文本后运行时找不到节点的概率。
+- fused `screenObservationJson` 中的 OCR 候选裁剪会优先选择 `ocr_block`、按 OCR 文本去重，
+  再回填其它元素；同一 OCR block 展开的 line/element 不再能挤掉后置关键 OCR target，
+  确保 `targetShortlist(ocrFallback=...)` 更稳定暴露给本机 action model。
+- 当 `screenObservationJson` 尚未融合 OCR source、但工具结果带有 standalone `ocrBlocksJson`
+  时，本机 prompt 也会从 OCR blocks 生成 `targets=[...]` 和
+  `targetShortlist(ocrFallback=...)`；OCR fallback target 使用稳定的 `ocr:block:N`
+  / `ocr:block:N:line:M` / `ocr:block:N:line:M:element:K`
+  元素 id，文本和 bounds 保留为 label/证据，避免多个相同 OCR 文案坍缩成同一个 target；
+  standalone OCR 的 shortlist 优先暴露更精确的 element/line target，再回退 block target，
+  并先于 block 摘要和 verbose targets 输出，减少长 OCR 摘要截断风险。
+  当同一 OCR 文案在当前证据里出现多次时，replanner 和执行器都要求使用 OCR element id；
+  只有唯一 OCR 文本才保留文本 target 兼容路径。
+- 本机 replanner 明确要求模型只把候选 `target=...` 值复制到工具 `target` 参数：
+  Accessibility 候选优先使用可执行的 transient node id，OCR fallback 使用 OCR element id；
+  `modeTags`、label、bounds、confidence 等只是候选注解，不能作为工具参数输出，避免模型生成
+  执行器 schema 不支持的字段。
+- 本机 observation replanner 对 `ui_tap`、`ui_type_text` 和 `ui_scroll` draft 增加当前证据
+  守卫：当最新结果提供 `screenObservationJson`、`afterScreenObservationJson` 或
+  `ocrBlocksJson`，或 `screenObservationDiffSummary` 里有新增文本/可操作项时，模型输出的
+  `target` 必须能在当前 Accessibility/OCR/diff 证据中找到；找不到则停手，避免模型凭空
+  生成不在屏幕上的目标。diff summary 只按 `|` 分隔后的完整新增文本或可操作 label
+  匹配 target，`clickable:`/`editable:` 等模式前缀可剥离，但短子串不能单独放行动作。
+- 对无 `target` 的 `ui_scroll` draft 也增加证据守卫：当前结构化观测或新增 diff 必须显示
+  scrollable 元素，否则停手，避免本机模型在非滚动页上泛滚并形成循环。
+- 对无 `target` 的 `ui_submit_search` draft 增加搜索上下文守卫：当前结构化观测、OCR
+  blocks 或新增 diff 必须显示搜索输入框、搜索提交控件或搜索相关新增文本/可操作项，
+  否则停手，避免本机模型在非搜索上下文里盲提交；OCR-only 的 `确定`、`完成`、
+  `go`、`enter` 这类提交词必须同时伴随搜索上下文，不能单独触发 `ui_submit_search`。
+- 执行器 wrapper 也增加 `ui_submit_search` 搜索上下文守卫：direct/skill path 在触发
+  Accessibility IME enter 或 submit button 前，当前 Accessibility 快照必须显示搜索输入框、
+  搜索提交控件，或 OCR cache 必须同时包含搜索上下文与提交词；普通聊天/评论/表单输入框
+  不再能被 blind submit；动作前无法读取当前屏幕且没有有效 OCR submit hint 时也 fail closed。
+- 本机 observation replanner、执行器 wrapper 和 AccessibilityService 都收紧了无 target 输入：
+  `ui_type_text` 在 target 为空时必须有搜索输入上下文，否则 replanner 停手或执行器返回
+  `editable_not_found`；底层服务不再回退到任意 editable，只接受已聚焦且非密码的输入框，
+  或明确 target/搜索入口打开后的输入框。
+- direct/skill `ui_type_text` 的空 target 路径在无法读取当前屏幕上下文时也 fail closed；
+  只有当前 Accessibility 快照证明搜索输入上下文，或一次性 OCR cache 证明强搜索入口时，
+  才会进入底层输入 provider。
+- targetless `ui_type_text` 现在可使用一次性 OCR 搜索入口 grounding：当当前屏幕 OCR cache
+  明确包含 `搜索商品`、搜索框、地址栏等强搜索输入上下文，且 Accessibility 屏幕签名未漂移时，
+  执行器可带 OCR hint 先聚焦该入口再输入；孤立 `搜索`、`确定`、`go` 等提交词不会放行
+  targetless 输入或 OCR-only `ui_submit_search`。
+- 当前屏幕 OCR grounding 只在 capture 前后 Accessibility 签名稳定时生成可执行
+  `screenObservationJson`；如果截图 OCR 与后置观察之间页面已变化，则只返回 OCR 文本并标记
+  `screenObservationFailureKind=page_changed`，不缓存 OCR 坐标。缓存仍保持一次性且 15s 短 TTL，
+  过期 hint 不能放行 targetless 输入。
+- 本机 replanner 区分“OCR 可读”和“OCR 可执行”：`screenObservationIncluded=false` 或
+  `page_changed` 时，`ocrBlocksJson` 只作为本机只读摘要，不生成 `ocrFallback` target、不放行
+  `ui_tap`/`ui_type_text`/`ui_submit_search`；当前屏幕 OCR 也只在已有 request-bound
+  MediaProjection one-shot consent 时才做 capture 前 Accessibility 稳定性采样。
+- `ocrText` / `screenText` 这类纯文本摘要同样只作为理解证据；当没有
+  `screenObservationJson`、`afterScreenObservationJson`、可执行 `ocrBlocksJson` 或 diff
+  证据时，本机 replanner 不会仅凭文本摘要下发 tap/type/submit/scroll。
+- LocalOnly OCR/屏幕 observation 后的本机模型重规划增加工具 allowlist：只允许
+  `observe_current_screen`、`ui_tap`、`ui_type_text`、`ui_submit_search`、`ui_scroll`
+  和 `ui_wait` 这类明确本地设备控制继续执行；`web_search`、外部发送/分享、联系人/文件/剪贴板
+  等非本地控制工具即使由本机模型输出 draft，也不会从 LocalOnly 屏幕证据自动下发。
+- 同一 allowlist 也进入本机 replanner prompt：模型会直接看到 LocalOnly observation 只能输出哪些
+  本地 device-control 工具，并被明确要求不要从 OCR/屏幕证据输出 `web_search` 或外发工具，减少无效
+  draft 后再被硬门拦截的概率。
+- 搜索提交和无目标输入的上下文 guard 仍然阻止盲提交/盲输入；当当前屏幕快照可用时，
+  失败结果会携带同一份 before/after structured screen observation 和 `changed=false` diff，
+  让本机 replanner 可以基于当前按钮/输入框候选先点击或聚焦目标，而不是停在裸失败上。
+- `ValidatingToolExecutor` 的 failed private-output 清洗边界保留上述本地恢复所需的
+  observation id、before/after screen observation JSON 和 diff，但只限 `DeviceControl`
+  工具，且 screen observation JSON 必须声明 `privacyLevel=LocalOnly`；`nodesJson` 等更大
+  私有原始字段仍会被清洗掉。
+- 本机 action parser 对 `ui_tap`、`ui_type_text`、`ui_scroll` 的 `target` 增加轻量纠偏：
+  如果小模型把 `target=...`、`targetShortlist(...)` 或候选摘要片段误放进 JSON 字段，
+  会在进入工具前提取真正的 target 字符串；非 UI 工具参数不做该归一化，避免扩大行为面。
+- 本机 observation replanner 在接受模型 draft 后也复用同一套 UI target 纠偏，再运行危险动作、
+  当前证据和重复 target 守卫；这样即使模型绕过 parser 层或输出候选摘要片段，最终下发的
+  `ToolRequest` 也只携带真正的 target 值。
+- 本机 observation replanner 对 `ui_tap` 增加必填 target 守卫：模型输出无 `target` 的 tap
+  draft 会在 replanner 层停住，不再把无效点击请求交给后续工具 schema 或执行器处理。
+- 同一路径优先按严格 primitive JSON 解析模型参数，再回退旧的字符串键值解析；这样本机模型
+  输出 `timeoutMillis:1500`、布尔值或其它 primitive 参数时不会丢失，UI 动作可保留模型给出的等待预算。
+- 运行时 transient node id 匹配补上 raw id 前缀路径，观察输出里的
+  `n*_hash_snapshotSalt` 可匹配动作执行阶段的 `n*_hash` 候选，降低本机模型按观测 id
+  指定目标后的误失配概率。
 - `UiTargetResolver` 增加解释合同，标明 Accessibility 来源、fallback 类型和预期验证信号；
-  OCR/vision grounding 仍只是占位合同，未宣称已接入真实排序。
+  OCR grounding 已进入 resolver 排序和当前屏幕 OCR 后的下一次 `ui_tap`、`ui_type_text`
+  或 `ui_submit_search` 低优先 fallback；`ui_submit_search` 只接受精确提交按钮 OCR 文案，
+  且中间插入任何非 device-control 工具都会清除 hint。vision grounding 仍只是占位合同，未宣称已接入真实排序。
+- 当前屏幕 OCR grounding hint 现在绑定 capture 时的 Accessibility 屏幕签名：消费 hint 前会用
+  最新 Accessibility 快照比对 package、节点数、可交互数和有界元素指纹；同包页面漂移后会丢弃
+  旧 OCR 坐标，避免把上一屏 OCR bounds 用到下一屏。危险控件漂移仍由 direct UI action
+  preflight 先行 fail closed。
 - Replay eval 增加小样本覆盖搜索入口负例和 OCR bounds，不替代 6 App/50 task 真机 benchmark。
 
 本轮文档化的诉求：
 
 - `docs/privacy_notice.md` 明确屏幕像素、OCR 摘录、Accessibility 文本、节点/bounds
-  元数据和动作后验证摘要均为 `LocalOnly`，不会自动发送到远程 endpoint 或远程 VLM。
+  元数据、动作后结构化观测和验证摘要均为 `LocalOnly`，不会自动发送到远程 endpoint 或远程 VLM。
 - P3/P4 真机 benchmark、50k 物理 perf gate 和 release checklist 同步仍保留为未完成门槛，
   不作为本轮完成项。
 

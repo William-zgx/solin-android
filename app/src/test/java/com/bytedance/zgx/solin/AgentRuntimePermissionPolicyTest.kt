@@ -552,7 +552,7 @@ class AgentRuntimePermissionPolicyTest {
         val spec = requireNotNull(ToolRegistry().specFor(MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR))
         assertTrue(spec.permissions.contains(ToolPermission.RequiresMediaProjectionConsent))
         assertTrue(ToolPermission.RequiresAndroidRuntimePermission !in spec.permissions)
-        assertTrue(ToolPermission.ReadsAccessibilityText !in spec.permissions)
+        assertTrue(ToolPermission.ReadsAccessibilityText in spec.permissions)
     }
 
     @Test

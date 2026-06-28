@@ -391,7 +391,7 @@ object CapabilityMatrix {
             SensitiveCapabilityDisclosure(
                 capabilityId = "confirmed_device_actions",
                 displayName = "设备动作和外部 App",
-                dataAccessed = "用户请求、动作草稿、目标 App/链接/提醒参数、屏幕状态摘要和外部打开结果；不在未确认结果前宣称高风险动作完成。",
+                dataAccessed = "用户请求、动作草稿、目标 App/链接/提醒参数、屏幕状态摘要、动作后结构化观测和外部打开结果；不在未确认结果前宣称高风险动作完成。",
                 consentBoundary = "默认保守确认；中高风险设备动作、发送、删除、支付、发布、敏感输入、权限授权、后台提醒和批量混合风险都必须先确认；低风险 App 搜索可按设置连续执行。",
                 remoteBoundary = "设备动作结果和私密参数默认 LocalOnly，不作为远程模型自动上下文；只读公共 evidence 工具才可进入远程规划。",
                 revokeOrClearControl = "可取消动作确认、标记外部操作未完成、撤销可撤销提醒，并删除相关会话记录。",
@@ -451,7 +451,7 @@ object CapabilityMatrix {
             SensitiveCapabilityDisclosure(
                 capabilityId = "media_projection_screenshot_ocr",
                 displayName = "当前屏幕截图 OCR",
-                dataAccessed = "前台一次性 MediaProjection 同意后的当前屏幕截图 OCR 文字；不把原始截图作为长期记录。",
+                dataAccessed = "前台一次性 MediaProjection 同意后的当前屏幕截图 OCR 文字；可包含临时 Accessibility 节点、bounds 与 OCR bounds 融合出的 LocalOnly 结构化 observation；不把原始截图作为长期记录。",
                 consentBoundary = "每次当前屏幕截图 OCR 都需要前台 MediaProjection 同意和工具确认；取消即不执行。",
                 remoteBoundary = "截图 OCR 结果是 LocalOnly，不自动发送给远程模型。",
                 revokeOrClearControl = "可拒绝 MediaProjection 弹窗、取消工具确认，并删除相关会话记录；审计仅保留脱敏摘要并按保留策略裁剪。",

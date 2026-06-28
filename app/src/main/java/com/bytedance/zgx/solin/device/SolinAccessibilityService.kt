@@ -2,6 +2,8 @@ package com.bytedance.zgx.solin.device
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Path
@@ -30,13 +32,26 @@ private const val MAX_SCREEN_TEXT_NODE_COUNT = 120
 private const val MAX_SCREEN_STATE_NODE_WALK = 240
 private const val MAX_SCREEN_NODE_CHILDREN = 80
 private const val SCREEN_TEXT_WALK_BUDGET_MILLIS = 1_500L
-private const val SCREEN_STATE_WALK_BUDGET_MILLIS = 1_800L
-private const val OBSERVE_HARD_TIMEOUT_MILLIS = 2_500L
+private const val SCREEN_STATE_WALK_BUDGET_MILLIS = 3_000L
+private const val OBSERVE_HARD_TIMEOUT_MILLIS = 5_000L
 private const val UI_ACTION_HARD_TIMEOUT_MILLIS = 4_000L
 private const val DEFAULT_POST_ACTION_WAIT_MILLIS = 250L
 private const val MAX_SEARCH_ENTRY_FOCUS_ATTEMPTS = 4
-private const val MAX_SEARCH_ENTRY_FOCUS_WAIT_MILLIS = 900L
+private const val MAX_SEARCH_ENTRY_FOCUS_WAIT_MILLIS = 3_000L
 private const val SEARCH_ENTRY_FOCUS_POLL_MILLIS = 80L
+private val SUBMIT_SEARCH_OCR_TEXT_HINTS = listOf(
+    "提交搜索",
+    "搜索",
+    "查找",
+    "前往",
+    "转到",
+    "确定",
+    "完成",
+    "search",
+    "go",
+    "enter",
+    "done",
+).map { value -> value.normalizedLookupKey() }
 
 class SolinAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -142,7 +157,11 @@ class SolinAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun tapTarget(target: String, timeoutMillis: Long): UiActionReadResult =
+    private fun tapTarget(
+        target: String,
+        timeoutMillis: Long,
+        ocrGroundingHint: UiOcrGroundingHint? = null,
+    ): UiActionReadResult =
         executeUiAction(timeoutMillis = timeoutMillis) {
             val root = activeWindowRoot()
                 ?: return@executeUiAction UiPrimitiveResult.failed(
@@ -155,29 +174,37 @@ class SolinAccessibilityService : AccessibilityService() {
                         UiPrimitiveResult.succeeded("已聚焦搜索输入框")
 
                     is EditableFocusResult.Failed ->
-                        UiPrimitiveResult.failed(
-                            reason = result.reason,
-                            failureKind = result.failureKind,
-                        )
+                        tapOcrGroundingHint(root, target, ocrGroundingHint)
+                            ?: UiPrimitiveResult.failed(
+                                reason = result.reason,
+                                failureKind = result.failureKind,
+                            )
                 }
             }
             val match = root.findTargetCandidate(target)
-                ?: return@executeUiAction UiPrimitiveResult.failed(
-                    reason = "未找到可点击目标：$target",
-                    failureKind = missingTargetFailureKind(target),
-                )
+                ?: return@executeUiAction tapOcrGroundingHint(root, target, ocrGroundingHint)
+                    ?: UiPrimitiveResult.failed(
+                        reason = "未找到可点击目标：$target",
+                        failureKind = missingTargetFailureKind(target),
+                    )
             val performed = activateCandidate(match)
             if (performed) {
                 UiPrimitiveResult.succeeded("已点击目标：${match.label}")
             } else {
-                UiPrimitiveResult.failed(
-                    reason = "目标不可点击：${match.label}",
-                    failureKind = missingTargetFailureKind(target),
-                )
+                tapOcrGroundingHint(root, target, ocrGroundingHint)
+                    ?: UiPrimitiveResult.failed(
+                        reason = "目标不可点击：${match.label}",
+                        failureKind = missingTargetFailureKind(target),
+                    )
             }
         }
 
-    private fun typeText(text: String, target: String?, timeoutMillis: Long): UiActionReadResult =
+    private fun typeText(
+        text: String,
+        target: String?,
+        timeoutMillis: Long,
+        ocrGroundingHint: UiOcrGroundingHint? = null,
+    ): UiActionReadResult =
         executeUiAction(timeoutMillis = timeoutMillis) {
             if (text.isBlank()) {
                 return@executeUiAction UiPrimitiveResult.failed(
@@ -194,18 +221,23 @@ class SolinAccessibilityService : AccessibilityService() {
             val editableNode = when (val lookup = findEditableForTextInput(root, target, timeoutMillis)) {
                 is EditableFocusResult.Found -> lookup.node
                 is EditableFocusResult.Failed ->
-                    return@executeUiAction UiPrimitiveResult.failed(
-                        reason = lookup.reason,
-                        failureKind = lookup.failureKind,
-                    )
+                    when (val ocrLookup = focusEditableFromOcrGrounding(root, target, ocrGroundingHint, timeoutMillis)) {
+                        is EditableFocusResult.Found -> ocrLookup.node
+                        is EditableFocusResult.Failed ->
+                            return@executeUiAction UiPrimitiveResult.failed(
+                                reason = ocrLookup.reason,
+                                failureKind = ocrLookup.failureKind,
+                            )
+
+                        null ->
+                            return@executeUiAction UiPrimitiveResult.failed(
+                                reason = lookup.reason,
+                                failureKind = lookup.failureKind,
+                            )
+                    }
             }
-            val args = Bundle().apply {
-                putCharSequence(
-                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                    text,
-                )
-            }
-            val performed = editableNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            prepareEditableForTextInput(editableNode)
+            val performed = setTextDirectly(editableNode, text) || pasteTextIntoEditable(editableNode, text)
             if (performed) {
                 UiPrimitiveResult.succeeded("已向输入框写入 ${text.length} 个字符")
             } else {
@@ -216,7 +248,10 @@ class SolinAccessibilityService : AccessibilityService() {
             }
         }
 
-    private fun submitSearch(timeoutMillis: Long): UiActionReadResult =
+    private fun submitSearch(
+        timeoutMillis: Long,
+        ocrGroundingHint: UiOcrGroundingHint? = null,
+    ): UiActionReadResult =
         executeUiAction(timeoutMillis = timeoutMillis) {
             val root = activeWindowRoot()
                 ?: return@executeUiAction UiPrimitiveResult.failed(
@@ -229,10 +264,11 @@ class SolinAccessibilityService : AccessibilityService() {
                 candidate.node.isEditable
             }?.node
             if (editableNode == null) {
-                return@executeUiAction UiPrimitiveResult.failed(
-                    reason = "当前屏幕没有可提交搜索的输入框",
-                    failureKind = UiActionFailureKind.EditableNotFound,
-                )
+                return@executeUiAction tapSubmitSearchOcrGrounding(root, ocrGroundingHint)
+                    ?: UiPrimitiveResult.failed(
+                        reason = "当前屏幕没有可提交搜索的输入框",
+                        failureKind = UiActionFailureKind.EditableNotFound,
+                    )
             }
             val imeAccepted = editableNode.performImeSearchAction()
             if (imeAccepted) {
@@ -254,10 +290,11 @@ class SolinAccessibilityService : AccessibilityService() {
             } else if (imeAccepted) {
                 UiPrimitiveResult.succeeded("已提交当前搜索输入")
             } else {
-                UiPrimitiveResult.failed(
-                    reason = "未找到可提交搜索的输入法动作或按钮",
-                    failureKind = UiActionFailureKind.SubmitNotFound,
-                )
+                tapSubmitSearchOcrGrounding(refreshedRoot, ocrGroundingHint)
+                    ?: UiPrimitiveResult.failed(
+                        reason = "未找到可提交搜索的输入法动作或按钮",
+                        failureKind = UiActionFailureKind.SubmitNotFound,
+                    )
             }
         }
 
@@ -318,15 +355,16 @@ class SolinAccessibilityService : AccessibilityService() {
         }
 
     private fun activeWindowRoot(): AccessibilityNodeInfo? =
-        rootInActiveWindow
-            ?: windows
-                .asSequence()
-                .sortedWith(
-                    compareByDescending<AccessibilityWindowInfo> { it.isActive }
-                        .thenByDescending { it.isFocused },
-                )
-                .mapNotNull { window -> window.root }
-                .firstOrNull()
+        windows
+            .asSequence()
+            .sortedWith(
+                compareByDescending<AccessibilityWindowInfo> { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+                    .thenByDescending { it.isActive }
+                    .thenByDescending { it.isFocused },
+            )
+            .mapNotNull { window -> window.root }
+            .firstOrNull()
+            ?: rootInActiveWindow
 
     private fun executeUiAction(
         timeoutMillis: Long,
@@ -399,11 +437,95 @@ class SolinAccessibilityService : AccessibilityService() {
 
     private fun activateCandidate(candidate: NodeCandidate): Boolean {
         val clickNode = candidate.node.clickableSelfOrAncestor()
+        val preferredPoint = candidate.node.searchEntryFallbackTapPoint(candidate.label)
         val gestureBounds = candidate.node.safeBounds() ?: clickNode?.safeBounds()
-        val gesturePerformed = gestureBounds
-            ?.let { bounds -> dispatchTapGesture(bounds.centerX, bounds.centerY) }
+        val gesturePerformed = preferredPoint
+            ?.let { (x, y) -> dispatchTapGesture(x, y) }
+            ?: gestureBounds
+                ?.let { bounds -> dispatchTapGesture(bounds.centerX, bounds.centerY) }
             ?: false
         return gesturePerformed || clickNode?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+    }
+
+    private fun tapOcrGroundingHint(
+        root: AccessibilityNodeInfo,
+        target: String,
+        hint: UiOcrGroundingHint?,
+    ): UiPrimitiveResult? {
+        val safeHint = hint?.takeIf { candidate -> candidate.matchesCurrentWindow(root) } ?: return null
+        val performed = dispatchTapGesture(safeHint.bounds.centerX, safeHint.bounds.centerY)
+        return if (performed) {
+            UiPrimitiveResult.succeeded("已根据 OCR 证据点击目标：${safeHint.text.ifBlank { target }}")
+        } else {
+            UiPrimitiveResult.failed(
+                reason = "OCR 目标点击未被系统接受：${safeHint.text.ifBlank { target }}",
+                failureKind = missingTargetFailureKind(target),
+            )
+        }
+    }
+
+    private fun tapSubmitSearchOcrGrounding(
+        root: AccessibilityNodeInfo,
+        hint: UiOcrGroundingHint?,
+    ): UiPrimitiveResult? =
+        tapOcrGroundingHint(
+            root = root,
+            target = "提交搜索",
+            hint = hint?.takeIf { candidate -> candidate.matchesSubmitSearchText() },
+        )
+
+    private fun dismissTransientSearchOverlay(root: AccessibilityNodeInfo): Boolean {
+        root.findTransientOverlayDismissCandidate()?.let { candidate ->
+            if (activateCandidate(candidate)) {
+                sleepForUiIdle(DEFAULT_POST_ACTION_WAIT_MILLIS)
+                return true
+            }
+        }
+        if (!root.looksLikeSearchBlockingOverlay()) return false
+        val dismissed = performGlobalAction(GLOBAL_ACTION_BACK)
+        if (dismissed) sleepForUiIdle(DEFAULT_POST_ACTION_WAIT_MILLIS)
+        return dismissed
+    }
+
+    private fun prepareEditableForTextInput(editableNode: AccessibilityNodeInfo) {
+        editableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val bounds = editableNode.safeBounds() ?: return
+        dispatchTapGesture(bounds.centerX, bounds.centerY)
+        sleepForUiIdle(DEFAULT_POST_ACTION_WAIT_MILLIS)
+    }
+
+    private fun setTextDirectly(editableNode: AccessibilityNodeInfo, text: String): Boolean {
+        val args = Bundle().apply {
+            putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                text,
+            )
+        }
+        return editableNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+    }
+
+    private fun pasteTextIntoEditable(editableNode: AccessibilityNodeInfo, text: String): Boolean {
+        val clipboard = getSystemService(ClipboardManager::class.java) ?: return false
+        val previousClip = runCatching { clipboard.primaryClip }.getOrNull()
+        clipboard.setPrimaryClip(ClipData.newPlainText("栖知输入", text))
+        val pasted = editableNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        mainHandler.postDelayed(
+            { restoreClipboardAfterPaste(clipboard, previousClip) },
+            DEFAULT_POST_ACTION_WAIT_MILLIS,
+        )
+        return pasted
+    }
+
+    private fun restoreClipboardAfterPaste(clipboard: ClipboardManager, previousClip: ClipData?) {
+        runCatching {
+            if (previousClip != null) {
+                clipboard.setPrimaryClip(previousClip)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                clipboard.clearPrimaryClip()
+            } else {
+                clipboard.setPrimaryClip(ClipData.newPlainText("栖知输入", ""))
+            }
+        }
     }
 
     private fun findEditableForTextInput(
@@ -413,29 +535,29 @@ class SolinAccessibilityService : AccessibilityService() {
     ): EditableFocusResult {
         val normalizedTarget = target?.trim().orEmpty()
         if (normalizedTarget.isBlank()) {
-            return root.findEditableForTyping()
+            return root.findFocusedEditableForTyping()
                 ?.let { EditableFocusResult.Found(it) }
                 ?: EditableFocusResult.Failed(
-                    reason = "当前屏幕没有可输入文本框",
+                    reason = "当前屏幕没有已聚焦的可输入文本框",
                     failureKind = UiActionFailureKind.EditableNotFound,
                 )
         }
         val kind = UiTargetResolver.kindForTarget(normalizedTarget)
         if (kind == UiTargetKind.EditableField) {
-            return root.findEditableForTyping()
+            return root.findFocusedEditableForTyping()
                 ?.let { EditableFocusResult.Found(it) }
                 ?: EditableFocusResult.Failed(
-                    reason = "当前屏幕没有可输入文本框",
+                    reason = "当前屏幕没有已聚焦的可输入文本框",
                     failureKind = UiActionFailureKind.EditableNotFound,
                 )
         }
         if (kind == UiTargetKind.SearchEntry) {
-            root.findEditableForTyping()?.let { return EditableFocusResult.Found(it) }
+            root.findFocusedEditableForTyping()?.let { return EditableFocusResult.Found(it) }
             return focusSearchEditableFromEntry(root, normalizedTarget, timeoutMillis)
         }
 
         val targetNode = root.findTargetCandidate(normalizedTarget)?.node
-        if (targetNode?.isEditable == true) return EditableFocusResult.Found(targetNode)
+        if (targetNode?.isSafeEditableForTyping() == true) return EditableFocusResult.Found(targetNode)
         if (targetNode != null) {
             val candidate = NodeCandidate(
                 node = targetNode,
@@ -445,12 +567,36 @@ class SolinAccessibilityService : AccessibilityService() {
             activateCandidate(candidate)
             waitForEditable(timeoutMillis)?.let { return EditableFocusResult.Found(it) }
         }
-        return root.findEditableForTyping()
-            ?.let { EditableFocusResult.Found(it) }
-            ?: EditableFocusResult.Failed(
-                reason = "当前屏幕没有可输入文本框",
-                failureKind = UiActionFailureKind.EditableNotFound,
+        return EditableFocusResult.Failed(
+            reason = "未找到可输入目标：$normalizedTarget",
+            failureKind = UiActionFailureKind.EditableNotFound,
+        )
+    }
+
+    private fun focusEditableFromOcrGrounding(
+        root: AccessibilityNodeInfo,
+        target: String?,
+        hint: UiOcrGroundingHint?,
+        timeoutMillis: Long,
+    ): EditableFocusResult? {
+        val safeHint = hint?.takeIf { candidate ->
+            candidate.matchesCurrentWindow(root) &&
+                (target.isNullOrBlank() || candidate.matchesTargetText(target))
+        } ?: return null
+        if (!dispatchTapGesture(safeHint.bounds.centerX, safeHint.bounds.centerY)) {
+            return EditableFocusResult.Failed(
+                reason = "OCR 输入目标点击未被系统接受：${safeHint.text.ifBlank { target.orEmpty() }}",
+                failureKind = missingTargetFailureKind(target.orEmpty()),
             )
+        }
+        sleepForUiIdle(DEFAULT_POST_ACTION_WAIT_MILLIS)
+        waitForEditable(timeoutMillis)?.let { return EditableFocusResult.Found(it) }
+        val refreshedRoot = activeWindowRoot() ?: root
+        refreshedRoot.findFocusedEditableForTyping()?.let { return EditableFocusResult.Found(it) }
+        return EditableFocusResult.Failed(
+            reason = "已根据 OCR 证据点击目标：${safeHint.text.ifBlank { target.orEmpty() }}，但未出现可输入文本框",
+            failureKind = UiActionFailureKind.EditableNotFound,
+        )
     }
 
     private fun focusSearchEditableFromEntry(
@@ -458,7 +604,7 @@ class SolinAccessibilityService : AccessibilityService() {
         target: String,
         timeoutMillis: Long,
     ): EditableFocusResult {
-        initialRoot.findEditableForTyping()?.let { return EditableFocusResult.Found(it) }
+        initialRoot.findFocusedEditableForTyping()?.let { return EditableFocusResult.Found(it) }
         var currentRoot = initialRoot
         val attemptedFingerprints = mutableSetOf<String>()
         var matchedCandidates = 0
@@ -470,13 +616,18 @@ class SolinAccessibilityService : AccessibilityService() {
                 predicate = { candidate ->
                     candidate.node.isEnabled &&
                         candidate.node.fingerprint() !in attemptedFingerprints &&
-                        (candidate.node.isEditable || candidate.node.clickableSelfOrAncestor() != null)
+                        (
+                            candidate.node.isEditable ||
+                                candidate.node.clickableSelfOrAncestor() != null ||
+                                candidate.node.searchEntryFallbackTapPoint(candidate.label) != null
+                            )
                 },
                 limit = MAX_SEARCH_ENTRY_FOCUS_ATTEMPTS,
             ).firstOrNull() ?: return@repeat
 
             matchedCandidates += 1
-            attemptedFingerprints += candidate.node.fingerprint()
+            val candidateFingerprint = candidate.node.fingerprint()
+            attemptedFingerprints += candidateFingerprint
             if (candidate.node.isEditable) {
                 return EditableFocusResult.Found(candidate.node)
             }
@@ -485,7 +636,12 @@ class SolinAccessibilityService : AccessibilityService() {
             }
             activatedCandidates += 1
             waitForEditable(timeoutMillis)?.let { return EditableFocusResult.Found(it) }
-            currentRoot = activeWindowRoot() ?: currentRoot
+            val refreshedRoot = activeWindowRoot() ?: currentRoot
+            if (dismissTransientSearchOverlay(refreshedRoot)) {
+                attemptedFingerprints -= candidateFingerprint
+                waitForEditable(timeoutMillis)?.let { return EditableFocusResult.Found(it) }
+            }
+            currentRoot = activeWindowRoot() ?: refreshedRoot
         }
 
         return if (matchedCandidates == 0 || activatedCandidates == 0) {
@@ -507,7 +663,7 @@ class SolinAccessibilityService : AccessibilityService() {
             .coerceAtLeast(DEFAULT_POST_ACTION_WAIT_MILLIS)
         val deadline = System.currentTimeMillis() + waitMillis
         do {
-            activeWindowRoot()?.findEditableForTyping()?.let { return it }
+            activeWindowRoot()?.findFocusedEditableForTyping()?.let { return it }
             sleepForUiIdle(SEARCH_ENTRY_FOCUS_POLL_MILLIS)
         } while (System.currentTimeMillis() < deadline)
         return null
@@ -545,30 +701,42 @@ class SolinAccessibilityService : AccessibilityService() {
             }
         }
 
-        internal fun performTap(target: String, timeoutMillis: Long): UiActionReadResult {
+        internal fun performTap(
+            target: String,
+            timeoutMillis: Long,
+            ocrGroundingHint: UiOcrGroundingHint? = null,
+        ): UiActionReadResult {
             val service = activeService?.get()
                 ?: return UiActionReadResult.PermissionDenied("未开启栖知无障碍服务")
             showControlProgress("正在点击：$target")
             return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
-                service.tapTarget(target, timeoutMillis)
+                service.tapTarget(target, timeoutMillis, ocrGroundingHint)
             }
         }
 
-        internal fun performTypeText(text: String, target: String?, timeoutMillis: Long): UiActionReadResult {
+        internal fun performTypeText(
+            text: String,
+            target: String?,
+            timeoutMillis: Long,
+            ocrGroundingHint: UiOcrGroundingHint? = null,
+        ): UiActionReadResult {
             val service = activeService?.get()
                 ?: return UiActionReadResult.PermissionDenied("未开启栖知无障碍服务")
             showControlProgress("正在输入文本")
             return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
-                service.typeText(text, target, timeoutMillis)
+                service.typeText(text, target, timeoutMillis, ocrGroundingHint)
             }
         }
 
-        internal fun performSubmitSearch(timeoutMillis: Long): UiActionReadResult {
+        internal fun performSubmitSearch(
+            timeoutMillis: Long,
+            ocrGroundingHint: UiOcrGroundingHint? = null,
+        ): UiActionReadResult {
             val service = activeService?.get()
                 ?: return UiActionReadResult.PermissionDenied("未开启栖知无障碍服务")
             showControlProgress("正在提交搜索")
             return runDeviceControlWithTimeout(timeoutMillis = timeoutMillis.uiActionHardTimeout()) {
-                service.submitSearch(timeoutMillis)
+                service.submitSearch(timeoutMillis, ocrGroundingHint)
             }
         }
 
@@ -678,9 +846,13 @@ private fun String.controlProgressMessage(): String {
     return "栖知 · ${compact.take(64)}"
 }
 
-private fun AccessibilityNodeInfo.findEditableForTyping(): AccessibilityNodeInfo? =
-    findFocusedEditableCandidate()?.node
-        ?: findNodeCandidate { candidate -> candidate.node.isEditable }?.node
+private fun AccessibilityNodeInfo.findFocusedEditableForTyping(): AccessibilityNodeInfo? =
+    findNodeCandidate { candidate ->
+        candidate.node.isSafeEditableForTyping() && candidate.node.isFocused
+    }?.node
+
+private fun AccessibilityNodeInfo.isSafeEditableForTyping(): Boolean =
+    isEnabled && isEditable && !isPassword
 
 private fun AccessibilityNodeInfo.toCurrentScreenTextSnapshot(
     maxChars: Int,
@@ -864,11 +1036,9 @@ private data class NodeCandidate(
         rootBounds: ScreenBounds? = null,
     ): Int? {
         if (!node.isEnabled) return null
+        transientNodeIdTargetMatchScore(id, target)?.let { score -> return score + actionabilityScore() }
         val normalizedTarget = target.normalizedLookupKey()
         if (normalizedTarget.isBlank()) return null
-        val normalizedId = id.normalizedLookupKey()
-        if (normalizedId == normalizedTarget) return 1_000 + actionabilityScore()
-        if (normalizedTarget.startsWith("${normalizedId}_")) return 950 + actionabilityScore()
 
         val kind = UiTargetResolver.kindForTarget(target)
         val text = node.text.normalizedNodeText().normalizedLookupKey()
@@ -961,6 +1131,7 @@ private data class NodeCandidate(
     ): Int {
         if (kind?.requiresPreciseTarget() != true || node.isEditable) return 0
         var penalty = 0
+        if (kind == UiTargetKind.SearchEntry && isBrowserResultSearchBarLabel(normalizedLabel)) return penalty
         val areaRatio = areaRatio(rootBounds)
         val heightRatio = heightRatio(rootBounds)
         penalty += when {
@@ -1039,6 +1210,17 @@ private data class NodeCandidate(
         }
         return penalty
     }
+}
+
+internal fun transientNodeIdTargetMatchScore(candidateId: String, target: String): Int? {
+    val rawTarget = target.trim()
+    if (rawTarget == candidateId) return 1_000
+    if (rawTarget.startsWith("${candidateId}_")) return 950
+    val normalizedTarget = target.normalizedLookupKey()
+    if (normalizedTarget.isBlank()) return null
+    val normalizedId = candidateId.normalizedLookupKey()
+    if (normalizedId == normalizedTarget) return 1_000
+    return null
 }
 
 private fun profileHintScore(
@@ -1132,6 +1314,29 @@ private fun AccessibilityNodeInfo.findTargetCandidate(
 ): NodeCandidate? =
     findTargetCandidates(target = target, predicate = predicate, limit = 1).firstOrNull()
 
+private fun AccessibilityNodeInfo.findTransientOverlayDismissCandidate(): NodeCandidate? =
+    findNodeCandidate { candidate ->
+        candidate.node.isEnabled &&
+            (
+                candidate.node.isClickable ||
+                    candidate.node.clickableSelfOrAncestor() != null ||
+                    candidate.node.safeBounds() != null
+                ) &&
+            candidate.label.normalizedLookupKey().isTransientOverlayDismissLabel()
+    }
+
+private fun AccessibilityNodeInfo.looksLikeSearchBlockingOverlay(): Boolean {
+    var markerCount = 0
+    walkScreenNodes(maxWalkCount = MAX_SCREEN_STATE_NODE_WALK) { node ->
+        val label = node.nodeSearchLabel().normalizedLookupKey()
+        if (label.isNotBlank() && label.hasSearchBlockingOverlayMarker()) {
+            markerCount += 1
+        }
+        markerCount < 2
+    }
+    return markerCount >= 2
+}
+
 private fun AccessibilityNodeInfo.findTargetCandidates(
     target: String,
     predicate: (NodeCandidate) -> Boolean = { true },
@@ -1189,6 +1394,32 @@ private fun AccessibilityNodeInfo.findSearchSubmitCandidate(
         .maxByOrNull { (_, score) -> score }
         ?.first
 }
+
+private fun String.isTransientOverlayDismissLabel(): Boolean {
+    if (isBlank() || length > 16) return false
+    return this == "关闭" ||
+        this == "取消" ||
+        this == "跳过" ||
+        this == "稍后" ||
+        this == "暂不" ||
+        this == "我知道了" ||
+        this == "不感兴趣" ||
+        contains("关闭") ||
+        contains("close") ||
+        contains("dismiss")
+}
+
+private fun String.hasSearchBlockingOverlayMarker(): Boolean =
+    listOf(
+        "优惠券",
+        "立即购买",
+        "倒计时",
+        "限时抢购",
+        "专属权益",
+        "已获得",
+        "红包",
+        "弹窗",
+    ).any { marker -> contains(marker.normalizedLookupKey()) }
 
 private fun AccessibilityNodeInfo.isSubmitCandidateNear(anchorEditable: AccessibilityNodeInfo?): Boolean {
     val anchorBounds = anchorEditable?.safeBounds() ?: return true
@@ -1293,6 +1524,33 @@ private fun AccessibilityNodeInfo.safeBounds(): ScreenBounds? {
     )
 }
 
+private fun UiOcrGroundingHint.matchesCurrentWindow(root: AccessibilityNodeInfo): Boolean {
+    val hintPackage = packageName?.takeIf { value -> value.isNotBlank() }
+    val rootPackage = root.packageName?.toString()?.takeIf { value -> value.isNotBlank() }
+    if (hintPackage != null && rootPackage != null && hintPackage != rootPackage) return false
+    if (bounds.width() <= 0 || bounds.height() <= 0) return false
+    val rootBounds = root.safeBounds() ?: return true
+    return bounds.centerX in rootBounds.left..rootBounds.right &&
+        bounds.centerY in rootBounds.top..rootBounds.bottom
+}
+
+private fun UiOcrGroundingHint.matchesTargetText(target: String): Boolean {
+    val normalizedText = text.normalizedLookupKey()
+    val normalizedTarget = target.normalizedLookupKey()
+    return normalizedText.isNotBlank() &&
+        (
+            normalizedText == normalizedTarget ||
+                normalizedText.contains(normalizedTarget) ||
+                normalizedTarget.contains(normalizedText)
+            )
+}
+
+private fun UiOcrGroundingHint.matchesSubmitSearchText(): Boolean {
+    val normalizedText = text.normalizedLookupKey()
+    if (normalizedText.isBlank()) return false
+    return normalizedText in SUBMIT_SEARCH_OCR_TEXT_HINTS
+}
+
 private fun AccessibilityNodeInfo.clickableSelfOrAncestor(): AccessibilityNodeInfo? {
     var current: AccessibilityNodeInfo? = this
     repeat(6) {
@@ -1302,6 +1560,26 @@ private fun AccessibilityNodeInfo.clickableSelfOrAncestor(): AccessibilityNodeIn
     }
     return null
 }
+
+private fun AccessibilityNodeInfo.searchEntryFallbackTapPoint(label: String): Pair<Int, Int>? {
+    val bounds = safeBounds() ?: return null
+    val normalizedLabel = label.normalizedLookupKey()
+    if (isBrowserResultSearchBarLabel(normalizedLabel)) {
+        val xOffset = (bounds.width() * 35 / 100).coerceIn(1, (bounds.width() - 1).coerceAtLeast(1))
+        val yOffset = 72.coerceAtMost((bounds.height() - 1).coerceAtLeast(1))
+        return (bounds.left + xOffset) to (bounds.top + yOffset)
+    }
+    if (!isNonActionableSearchBarLabel(normalizedLabel, isClickable, isEditable)) return null
+    val xOffset = (bounds.width() * 35 / 100).coerceIn(1, (bounds.width() - 1).coerceAtLeast(1))
+    return (bounds.left + xOffset) to bounds.centerY
+}
+
+private fun isNonActionableSearchBarLabel(
+    normalizedLabel: String,
+    clickable: Boolean,
+    editable: Boolean,
+): Boolean =
+    !clickable && !editable && (normalizedLabel == "搜索栏" || normalizedLabel.startsWith("搜索栏"))
 
 private fun AccessibilityNodeInfo.performImeSearchAction(): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&

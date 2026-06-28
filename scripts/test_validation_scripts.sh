@@ -404,6 +404,7 @@ FAKE_PACKAGE_DUMPSYS
             echo "SolinAgentBrowser"
             echo "SolinAgentQuark"
             echo "SolinAgentUC"
+            echo "数据线"
             echo "筛选"
             echo "查看地图"
           else
@@ -442,6 +443,8 @@ FAKE_REAL_APP_UI
           echo "gpuFallbackStatus=${FAKE_RC_PERF_GPU_FALLBACK_STATUS:-not-needed}"
           echo "visionInputMs=${FAKE_RC_PERF_VISION_INPUT_MS:-500}"
           echo "memorySearch5kMs=${FAKE_RC_PERF_MEMORY_SEARCH_5K_MS:-25}"
+          echo "zvecMemoryIndex50kMs=${FAKE_RC_PERF_MEMORY_INDEX_50K_MS:-250}"
+          echo "zvecMemorySearch50kMs=${FAKE_RC_PERF_MEMORY_SEARCH_50K_MS:-50}"
         fi
         ;;
       *)
@@ -727,7 +730,7 @@ assert_no_gradle_call() {
 }
 
 assert_gradle_called() {
-  grep -q "assembleDebug assembleDebugAndroidTest" "$FAKE_GRADLE_LOG" ||
+  grep -q ":app:assembleDebug :app:assembleDebugAndroidTest" "$FAKE_GRADLE_LOG" ||
     fail "Expected install helper to assemble debug and androidTest APKs"
 }
 
@@ -1351,7 +1354,7 @@ grep -qx 'target=perf-baseline-record' docs/perf_baseline_template.properties ||
   fail "perf baseline template must declare perf-baseline-record target"
 grep -qE '^owner=.+$' docs/perf_baseline_template.properties ||
   fail "perf baseline template must include non-empty owner placeholder"
-grep -qE '^collectionCommand=.*scripts/collect_perf_baseline\.sh' docs/perf_baseline_template.properties ||
+grep -qE '^collectionCommand=.*scripts/collect_rc_perf_from_device\.sh' docs/perf_baseline_template.properties ||
   fail "perf baseline template must include collection command provenance"
 grep -qE '^reproduciblePath=/.+' docs/perf_baseline_template.properties ||
   fail "perf baseline template must include absolute reproduciblePath placeholder"
@@ -1396,6 +1399,219 @@ grep -q 'requiredBehaviorEvalBoundaries' docs/capability_matrix.json ||
   fail "Capability matrix must declare required behavior eval boundaries"
 grep -q 'requiredBehaviorEvalBoundaries' app/src/main/java/com/bytedance/zgx/solin/capability/CapabilityMatrix.kt ||
   fail "CapabilityMatrix must own required behavior eval boundary declarations"
+grep -q 'currentScreenshotOcrGroundingHintRejectedWhenScreenChangesBetweenCaptureAndObservation' \
+  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
+  fail "Current screenshot OCR grounding must cover capture/observation page drift"
+grep -q 'modelObservationReplanConsumesCurrentScreenshotOcrGroundingHint' \
+  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
+  fail "OCR agent control path must prove replanner output consumes OCR grounding hint"
+grep -q 'currentScreenshotOcrGroundingHintMatchesOcrElementIdTarget' \
+  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
+  fail "OCR grounding must support explicit OCR element id targets"
+grep -q 'toOcrTargetCandidatePrompts' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Standalone OCR fallback targets must use OCR block element ids"
+grep -q 'ocr:block:$blockIndex:line:$lineIndex' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Standalone OCR fallback targets must expose nested OCR line ids"
+grep -q '$lineId:element:$elementIndex' \
+  app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Standalone OCR fallback targets must expose nested OCR element ids"
+grep -q 'modelReplannerUsesOcrElementIdsForRepeatedOcrFallbackTargets' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must test repeated OCR fallback targets keep distinct element ids"
+grep -q 'modelReplannerExposesStandaloneOcrElementTargetsForMultiTokenBlock' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must expose standalone nested OCR element targets"
+grep -q 'modelReplannerRejectsNestedOcrTextTargetWhenBlockAndElementBothMatch' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must reject nested OCR text targets when block and element both match"
+grep -q 'modelReplannerExposesNestedOcrElementTargetsFromScreenObservationJsonBeforeBlockTargets' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must expose nested OCR target order from fused screenObservationJson"
+grep -q 'modelReplannerDoesNotExposeBoundlessOcrObservationTargets' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must not expose OCR fallback targets without bounds"
+grep -q 'currentScreenshotOcrDangerousGroundingHintBlocksNextUiTap' \
+  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
+  fail "Executor must block dangerous OCR-only grounding hints"
+grep -q 'modelReplannerRejectsAmbiguousRepeatedOcrTextTarget' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must reject repeated OCR text targets without OCR element ids"
+grep -q 'currentScreenshotOcrGroundingHintRequiresElementIdForRepeatedOcrText' \
+  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
+  fail "Current screenshot OCR grounding must require OCR element ids for repeated OCR text"
+grep -q 'currentScreenshotOcrGroundingHintMatchesNestedOcrElementIdTarget' \
+  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
+  fail "Current screenshot OCR grounding must consume nested OCR element ids"
+grep -q 'targetShortlist(ocrFallback=ocr:block:0|ocr:block:1)' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Repeated OCR fallback shortlist must expose distinct OCR block ids"
+grep -q 'evidence.id.normalizedLookupKey() == normalizedTarget' \
+  app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "OCR fallback evidence guard must accept OCR block element id targets"
+grep -q 'evidences.count' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Standalone OCR fallback evidence guard must reject ambiguous repeated OCR text"
+grep -q 'textMatches.size != 1' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
+  fail "OCR grounding cache must reject ambiguous repeated OCR text targets"
+grep -q 'diffSummaryValuesFor("addedText", "addedActionable")' \
+  app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Diff summary target evidence must parse only added text/actionable fields"
+grep -q 'diffSummaryEvidenceLabels' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Diff summary target evidence must compare split labels instead of raw substrings"
+grep -q 'value.normalizedLookupKey() == normalizedTarget' \
+  app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Diff summary target evidence must require exact normalized label matches"
+grep -q 'modelReplannerRejectsSubstringTargetFromDiffEvidence' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must reject substring-only diff summary targets"
+grep -q 'modelReplannerAllowsExactTargetFromDiffEvidence' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must keep exact diff summary target recovery"
+grep -q 'ocrGroundedAccessibilityTargetCandidates' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner prompt must promote OCR labels attached to blank Accessibility targets"
+grep -q 'source=accessibility+ocr' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner prompt must mark OCR-grounded Accessibility candidates"
+grep -q 'containsOcrGroundingBounds' app/src/main/java/com/bytedance/zgx/solin/device/ScreenControlModels.kt ||
+  fail "OCR-grounded Accessibility candidates must use a shared bounded spatial overlap helper"
+grep -q 'containsOcrGroundingBounds' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner OCR-grounded Accessibility candidates must use shared bounded spatial overlap"
+grep -q 'containsOcrGroundingBounds' app/src/main/java/com/bytedance/zgx/solin/device/UiTargetResolver.kt ||
+  fail "UiTargetResolver OCR-grounded Accessibility candidates must use shared bounded spatial overlap"
+grep -q 'modelReplannerPromptPromotesOcrLabelOnBlankAccessibilityTarget' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must test OCR labels on blank Accessibility targets"
+grep -q 'targetShortlist(tap=icon-search-entry' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "OCR-grounded Accessibility prompt test must expose executable node id in targetShortlist"
+grep -q 'screenObservationFromJsonStringOrNull' app/src/main/java/com/bytedance/zgx/solin/device/ScreenObservationModels.kt ||
+  fail "ScreenObservation JSON must parse back into the LocalOnly observation model"
+grep -q 'screenObservationJsonParsesBackToLocalOnlyObservationModel' \
+  app/src/test/java/com/bytedance/zgx/solin/device/ScreenObservationContractTest.kt ||
+  fail "ScreenObservation contract tests must cover JSON round-trip parsing"
+python3 - <<'PY' || fail "Model replanner targetShortlist must parse screen observation JSON into resolver ranks"
+from pathlib import Path
+
+text = Path("app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt").read_text()
+start = text.index("private fun String.toScreenObservationPromptSection")
+end = text.index("private fun JSONArray.selectedObservationElementsForPrompt")
+section = text[start:end]
+if "screenObservationFromJsonStringOrNull(this)" not in section or ".resolverTargetRanks(intentTargetKind)" not in section:
+    raise SystemExit(1)
+PY
+grep -q 'promptResolverTargetKind' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner targetShortlist must use the user intent to prioritize resolver target kind"
+grep -q 'defaultResolverPromptTargetKinds.prioritizing(intentTargetKind)' \
+  app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner resolver rank order must promote the intent target kind before default kinds"
+grep -q '.rankedByResolver(resolverTargetRanks)' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner target candidates must be sorted by resolver target ranking"
+grep -q 'minOf(rankByModeAndTarget' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner resolver rank map must preserve the best rank for duplicate targets"
+grep -q 'modelReplannerTargetShortlistUsesResolverRankingForSearchEntryNoise' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must test resolver-ranked targetShortlist against search-entry noise"
+grep -q 'targetShortlist(tap=real-search-entry' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Resolver-ranked targetShortlist test must put the true search entry first"
+grep -q 'assertFalse(prompt.contains("targetShortlist(tap=camera-search"))' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Resolver-ranked targetShortlist test must reject camera search as the leading target"
+grep -q 'modelReplannerTargetShortlistPrioritizesIntentKindForFilterEntry' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must test intent-kind priority for resolver-ranked targetShortlist"
+grep -q 'targetShortlist(tap=filter-button' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Intent-kind targetShortlist test must put the requested filter button first"
+grep -q 'assertFalse(prompt.contains("targetShortlist(tap=search-entry"))' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Intent-kind targetShortlist test must reject default search entry priority"
+python3 - <<'PY' || fail "Model replanner prompts must rank before truncating and emit targetShortlist before verbose evidence"
+from pathlib import Path
+
+text = Path("app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt").read_text()
+start = text.index("private fun String.toScreenObservationPromptSection")
+end = text.index("private fun JSONArray.selectedObservationElementsForPrompt")
+section = text[start:end]
+ranked = section.index(".rankedByResolver(resolverTargetRanks)")
+take = section.index(".take(MAX_LOCAL_TARGET_CANDIDATES)", ranked)
+target_shortlist = section.index("targetShortlist?.let")
+elements = section.index("if (elementSummaries.isNotEmpty())")
+targets = section.index("if (targetSummaries.isNotEmpty())")
+if ranked >= take or target_shortlist >= elements or target_shortlist >= targets:
+    raise SystemExit(1)
+
+ocr_start = text.index("private fun String.toOcrBlocksPromptSection")
+ocr_end = text.index("private fun JSONObject.toOcrTargetCandidatePrompts")
+ocr_section = text[ocr_start:ocr_end]
+ocr_shortlist = ocr_section.index("targetCandidates.targetShortlistPromptText()")
+ocr_summaries = ocr_section.index("if (summaries.isNotEmpty())")
+ocr_targets = ocr_section.index("if (targetCandidates.isNotEmpty())")
+if ocr_shortlist >= ocr_summaries or ocr_shortlist >= ocr_targets:
+    raise SystemExit(1)
+PY
+grep -q 'modelReplannerRejectsOcrTargetsWhenCurrentScreenshotObservationNotIncluded' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must reject executable OCR targets when screen observation is not included"
+grep -q 'modelReplannerRejectsUiTapFromOcrTextOnlyEvidence' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must not execute UI actions from OCR text-only evidence"
+grep -q 'modelReplannerRejectsTargetlessTypeTextFromScreenTextOnlyEvidence' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must not execute targetless typing from screen text-only evidence"
+grep -q 'modelReplannerRejectsWebSearchFromLocalOnlyOcrObservation' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplannerTest.kt ||
+  fail "Model replanner must not replan web_search from LocalOnly OCR observation"
+grep -q 'currentScreenOcrObservationDoesNotReplanWebSearchFromLocalOnlyEvidence' \
+  app/src/test/java/com/bytedance/zgx/solin/orchestration/AgentLoopRuntimeTest.kt ||
+  fail "Agent loop must not execute web_search replans from LocalOnly OCR observation"
+grep -q 'localOnlyObservationReplanAllowedTools' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner must define an allowlist for LocalOnly observation replans"
+grep -q 'localOnlyObservationAllowedToolsPrompt' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner prompt must disclose the LocalOnly observation allowlist"
+grep -q 'Do not output web_search' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner prompt must explicitly forbid web_search from LocalOnly observation evidence"
+grep -q 'shouldRejectNonLocalObservationTool' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner must reject non-local tools from LocalOnly observation evidence"
+grep -q 'hasLocalOnlyObservationEvidence' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner must detect LocalOnly OCR/screen observation evidence"
+grep -q 'hasReadOnlyLocalScreenTextEvidence' app/src/main/java/com/bytedance/zgx/solin/orchestration/AgentObservationReplanner.kt ||
+  fail "Model replanner must distinguish read-only OCR/screen text from executable UI evidence"
+grep -q 'hasOneShotConsent' app/src/main/java/com/bytedance/zgx/solin/multimodal/CurrentScreenshotOcrProvider.kt ||
+  fail "Current screenshot OCR provider must expose non-consuming consent readiness"
+grep -q 'candidate.hasOneShotConsent(request.id, nowMillis)' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
+  fail "Current screenshot OCR must not pre-read Accessibility before one-shot consent is available"
+grep -q 'beforeSignature != afterSignature' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
+  fail "Current screenshot OCR grounding must require stable Accessibility signatures"
+grep -q '"screenObservationFailureKind" to "page_changed"' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
+  fail "Current screenshot OCR grounding drift must be reported as page_changed"
+grep -q 'private fun ScreenStateSnapshot?.toGuardFailure' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
+  fail "Context guard failures must be produced from the current screen snapshot boundary"
+grep -q 'UiActionExecutionResult(' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
+  fail "Context guard failures with screen context must retain structured action execution evidence"
+grep -q 'privateNonSucceededDeviceControlObservationKeys' app/src/main/java/com/bytedance/zgx/solin/tool/ToolRegistry.kt ||
+  fail "ValidatingToolExecutor must preserve device-control observation evidence needed for local replan"
+grep -q 'spec.capability == ToolCapability.DeviceControl' app/src/main/java/com/bytedance/zgx/solin/tool/ToolRegistry.kt ||
+  fail "Private non-success observation evidence must stay scoped to device-control tools"
+grep -q 'isLocalOnlyScreenObservationJson' app/src/main/java/com/bytedance/zgx/solin/tool/ToolRegistry.kt ||
+  fail "Private non-success screen observation evidence must be validated as LocalOnly JSON"
+grep -q 'before = this' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
+  fail "Context guard failures must expose before-screen observation evidence"
+grep -q 'after = this' app/src/main/java/com/bytedance/zgx/solin/tool/ToolExecutor.kt ||
+  fail "Context guard failures must expose after-screen observation evidence"
+grep -q 'targetlessTypeGuardFailureCanDriveModelReplanWithCurrentObservation' \
+  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
+  fail "Targetless typing guard failure must drive local model replan from current observation"
+grep -q 'afterScreenObservationJson(id=screen-search-entry-only' \
+  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
+  fail "Targetless typing guard replan prompt must include current after-screen observation"
+grep -q 'targetShortlist(tap=search-entry|close-button)' \
+  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
+  fail "Targetless typing guard replan prompt must expose actionable screen targets"
+grep -q 'typeResult.data.containsKey("afterNodesJson")' \
+  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
+  fail "Validating guard replan test must prove bulky nodes JSON stays sanitized"
+grep -q 'screenObservationDiffSummary").contains("changed=false")' \
+  app/src/test/java/com/bytedance/zgx/solin/tool/RoutingAndValidatingToolExecutorTest.kt ||
+  fail "Context guard failure tests must assert unchanged before/after screen diff evidence"
 grep -q -- '--capability-matrix' scripts/verify_ai_behavior_eval.sh ||
   fail "AI behavior eval gate must accept an explicit capability matrix input"
 grep -q 'underCoveredMvpScenarios=' scripts/verify_ai_behavior_eval.sh ||
@@ -3090,6 +3306,8 @@ stopGenerationRecoveryMs=200
 gpuFallbackStatus=not-needed
 visionInputMs=500
 memorySearch5kMs=25
+zvecMemoryIndex50kMs=250
+zvecMemorySearch50kMs=50
 memoryPeakMb=512
 oomOrAnrObserved=false
 recordedAt=$PERF_RECORDED_AT
@@ -3144,6 +3362,14 @@ expect_failure \
 assert_report_contains "$ARTIFACT_DIR/perf-missing-provenance.properties" "status=failed"
 assert_report_contains "$ARTIFACT_DIR/perf-missing-provenance.properties" "failedTarget=baseline-fields"
 assert_report_contains_text "$ARTIFACT_DIR/perf-missing-provenance.properties" "collectionCommand-missing"
+expect_failure \
+  "perf baseline verifier rejects ordinary collector in RC provenance mode" \
+  env REQUIRE_RC_PERF_PROVENANCE=1 \
+  scripts/verify_perf_baseline.sh --file "$VALID_PERF" --report "$ARTIFACT_DIR/perf-ordinary-collector-rc-mode.properties"
+assert_report_contains "$ARTIFACT_DIR/perf-ordinary-collector-rc-mode.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/perf-ordinary-collector-rc-mode.properties" "failedTarget=baseline-provenance"
+assert_report_contains_text "$ARTIFACT_DIR/perf-ordinary-collector-rc-mode.properties" "rc-perf-collection-command-invalid"
+assert_report_contains_text "$ARTIFACT_DIR/perf-ordinary-collector-rc-mode.properties" "runner-missing"
 
 INVALID_PERF="$TMP_DIR/perf-baseline-invalid.properties"
 printf 'status=failed\n' > "$INVALID_PERF"
@@ -5276,6 +5502,8 @@ stopGenerationRecoveryMs=200
 gpuFallbackStatus=not-needed
 visionInputMs=500
 memorySearch5kMs=25
+zvecMemoryIndex50kMs=250
+zvecMemorySearch50kMs=50
 memoryPeakMb=512
 oomOrAnrObserved=false
 recordedAt=$PERF_RECORDED_AT
@@ -5534,6 +5762,55 @@ expect_success \
   scripts/verify_release_validation_record.sh --file "$VALIDATION_APPROVED" --report "$ARTIFACT_DIR/release-validation-current-artifact.properties"
 assert_release_verifier_passed_report "$ARTIFACT_DIR/release-validation-current-artifact.properties" "ReleaseValidationRecordVerification/v1"
 assert_report_contains "$ARTIFACT_DIR/release-validation-current-artifact.properties" "expectedReleaseArtifactSha256=$VALID_PERF_SHA"
+VALIDATION_PRESERVED_DEVICE_RECORD="$TMP_DIR/release-validation-preserved-device.json"
+VALIDATION_PRESERVED_DEVICE_REPORT="$TMP_DIR/preserved-device-verification.properties"
+VALIDATION_RESETTING_DEVICE_RECORD="$TMP_DIR/release-validation-resetting-device.json"
+VALIDATION_RESETTING_DEVICE_REPORT="$TMP_DIR/resetting-device-verification.properties"
+python3 - "$VALIDATION_APPROVED" "$VALIDATION_DEVICE_REPORT" \
+  "$VALIDATION_PRESERVED_DEVICE_RECORD" "$VALIDATION_PRESERVED_DEVICE_REPORT" \
+  "$VALIDATION_RESETTING_DEVICE_RECORD" "$VALIDATION_RESETTING_DEVICE_REPORT" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source_record = Path(sys.argv[1])
+source_report = Path(sys.argv[2])
+preserved_record = Path(sys.argv[3])
+preserved_report = Path(sys.argv[4])
+resetting_record = Path(sys.argv[5])
+resetting_report = Path(sys.argv[6])
+
+def write_report(path, reset_value):
+    lines = []
+    inserted = False
+    for line in source_report.read_text().splitlines():
+        if line == "clean_device=1":
+            lines.append("clean_device=0")
+            lines.append(f"reset_app_data_after_tests={reset_value}")
+            inserted = True
+        elif not line.startswith("reset_app_data_after_tests="):
+            lines.append(line)
+    if not inserted:
+        raise SystemExit("clean_device field missing")
+    path.write_text("\n".join(lines) + "\n")
+
+def write_record(path, report):
+    record = json.loads(source_record.read_text())
+    record["physicalDevice"]["cleanDevice"] = False
+    record["physicalDevice"]["reportPath"] = str(report)
+    record["physicalDevice"]["reportSha256"] = hashlib.sha256(report.read_bytes()).hexdigest()
+    path.write_text(json.dumps(record, indent=2))
+
+write_report(preserved_report, "0")
+write_record(preserved_record, preserved_report)
+write_report(resetting_report, "1")
+write_record(resetting_record, resetting_report)
+PY
+expect_failure \
+  "release validation verifier rejects preserved physical report that resets app data" \
+  scripts/verify_release_validation_record.sh --file "$VALIDATION_RESETTING_DEVICE_RECORD" --report "$ARTIFACT_DIR/release-validation-resetting-device.properties"
+assert_report_contains_text "$ARTIFACT_DIR/release-validation-resetting-device.properties" "physical-device-report-reset-app-data-after-tests-not-disabled"
 VALIDATION_LOCAL_VISION_COUNT_TWO="$TMP_DIR/release-validation-local-vision-count-two.json"
 VALIDATION_LOCAL_VISION_COUNT_TWO_EVIDENCE="$TMP_DIR/validation-flow-evidence/local-vision-count-two.properties"
 sed \
@@ -8462,7 +8739,7 @@ artifactSchema=PerfBaseline/v1
 status=passed
 target=perf-baseline-record
 owner=release-engineering
-collectionCommand=scripts/collect_perf_baseline.sh
+collectionCommand=scripts/collect_rc_perf_from_device.sh
 reproduciblePath=$VALID_GATE_PERF
 deviceSerial=device-a
 deviceModel=Pixel Test
@@ -8480,8 +8757,14 @@ stopGenerationRecoveryMs=200
 gpuFallbackStatus=not-needed
 visionInputMs=500
 memorySearch5kMs=25
+zvecMemoryIndex50kMs=250
+zvecMemorySearch50kMs=50
 memoryPeakMb=512
 oomOrAnrObserved=false
+runner=rc_perf_release_broadcast
+preserves_model_data=true
+harnessResultSha256=2222222222222222222222222222222222222222222222222222222222222222
+rcPerfCollectorReportFile=$TMP_DIR/rc-perf-collector.properties
 recordedAt=$PERF_RECORDED_AT
 VALID_GATE_PERF_BASELINE
 VALID_GATE_AAB_PERF="$TMP_DIR/perf-baseline-safe-aab.properties"
@@ -9028,6 +9311,8 @@ expect_failure \
   GPU_FALLBACK_STATUS=not-needed \
   VISION_INPUT_MS=500 \
   MEMORY_SEARCH_5K_MS=25 \
+  ZVEC_MEMORY_INDEX_50K_MS=250 \
+  ZVEC_MEMORY_SEARCH_50K_MS=50 \
   MEMORY_PEAK_MB=512 \
   OOM_OR_ANR_OBSERVED=false \
   scripts/collect_perf_baseline.sh
@@ -9062,6 +9347,8 @@ expect_failure \
   GPU_FALLBACK_STATUS=not-needed \
   VISION_INPUT_MS=500 \
   MEMORY_SEARCH_5K_MS=25 \
+  ZVEC_MEMORY_INDEX_50K_MS=250 \
+  ZVEC_MEMORY_SEARCH_50K_MS=50 \
   MEMORY_PEAK_MB=512 \
   OOM_OR_ANR_OBSERVED=false \
   scripts/collect_perf_baseline.sh
@@ -9090,6 +9377,8 @@ expect_failure \
   GPU_FALLBACK_STATUS=not-needed \
   VISION_INPUT_MS=500 \
   MEMORY_SEARCH_5K_MS=25 \
+  ZVEC_MEMORY_INDEX_50K_MS=250 \
+  ZVEC_MEMORY_SEARCH_50K_MS=50 \
   MEMORY_PEAK_MB=512 \
   OOM_OR_ANR_OBSERVED=false \
   scripts/collect_perf_baseline.sh
@@ -9120,6 +9409,8 @@ expect_success \
   GPU_FALLBACK_STATUS=not-needed \
   VISION_INPUT_MS=500 \
   MEMORY_SEARCH_5K_MS=25 \
+  ZVEC_MEMORY_INDEX_50K_MS=250 \
+  ZVEC_MEMORY_SEARCH_50K_MS=50 \
   MEMORY_PEAK_MB=512 \
   OOM_OR_ANR_OBSERVED=false \
   scripts/collect_perf_baseline.sh
@@ -9322,6 +9613,12 @@ assert_report_contains "$RC_COLLECT_BASELINE" "status=passed"
 assert_report_contains "$RC_COLLECT_BASELINE" "tokensPerSecond=12.5"
 assert_report_contains "$RC_COLLECT_BASELINE" "backend=GPU"
 assert_report_contains "$RC_COLLECT_BASELINE" "modelId=chat-e2b"
+assert_report_contains "$RC_COLLECT_BASELINE" "collectionCommand=scripts/collect_rc_perf_from_device.sh"
+assert_report_contains "$RC_COLLECT_BASELINE" "runner=rc_perf_release_broadcast"
+assert_report_contains "$RC_COLLECT_BASELINE" "preserves_model_data=true"
+grep -Eq '^harnessResultSha256=[0-9a-f]{64}$' "$RC_COLLECT_BASELINE" ||
+  fail "rc perf collector baseline must bind the harness result sha"
+assert_report_contains "$RC_COLLECT_BASELINE" "rcPerfCollectorReportFile=$RC_COLLECT_REPORT"
 assert_report_contains "$RC_COLLECT_BASELINE.verification.properties" "artifactSchema=PerfBaselineVerification/v1"
 assert_report_contains "$RC_COLLECT_BASELINE.verification.properties" "status=passed"
 grep -q -- "-s device-a shell am start-foreground-service -a com.bytedance.zgx.solin.rcperf.RUN -n com.bytedance.zgx.solin/.rcperf.RcPerfHarnessService --es requestId" "$FAKE_ADB_LOG" ||
@@ -9495,7 +9792,45 @@ assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "skippedCaseArtifactCount=7"
 assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "rankedCandidatesArtifactCount=2"
 assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "targetResolutionEvidenceCount=2"
 assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "diagnosticsArtifactCount=5"
+assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "require50TaskBenchmark=0"
 assert_report_contains "$REAL_APP_EVIDENCE_REPORT" "failureKindBreakdown=search_entry_not_found:1"
+
+REAL_APP_TASK_BENCHMARK="$ARTIFACT_DIR/real-app-50-task-benchmark.json"
+{
+  printf '{"artifactSchema":"RealAppTaskBenchmark/v1","tasks":['
+  for index in $(seq 1 50); do
+    [[ "$index" -eq 1 ]] || printf ','
+    printf '{"taskId":"search-%02d","app":"淘宝","packageName":"com.taobao.taobao","query":"query-%02d","reward":"search_result_verified","evidenceSha256":"%064d"}' "$index" "$index" "$index"
+  done
+  printf ']}\n'
+} > "$REAL_APP_TASK_BENCHMARK"
+REAL_APP_TASK_BENCHMARK_SHA="$(shasum -a 256 "$REAL_APP_TASK_BENCHMARK" | awk '{print $1}')"
+REAL_APP_SOURCE_REPORT_50="$ARTIFACT_DIR/real-app-search-eval-50task.properties"
+cp "$REAL_APP_SOURCE_REPORT" "$REAL_APP_SOURCE_REPORT_50"
+{
+  printf 'task_benchmark_file=%s\n' "$REAL_APP_TASK_BENCHMARK"
+  printf 'task_benchmark_sha256=%s\n' "$REAL_APP_TASK_BENCHMARK_SHA"
+} >> "$REAL_APP_SOURCE_REPORT_50"
+expect_success \
+  "real app search evidence verifier accepts required 50 task benchmark artifact" \
+  env REQUIRE_REAL_APP_50_TASK_BENCHMARK=1 \
+  scripts/verify_real_app_search_report.sh \
+    --file "$REAL_APP_SOURCE_REPORT_50" \
+    --report "$ARTIFACT_DIR/real-app-search-evidence-50task.properties"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-50task.properties" "status=passed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-50task.properties" "require50TaskBenchmark=1"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-50task.properties" "taskBenchmarkCount=50"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-50task.properties" "taskBenchmarkFile=$REAL_APP_TASK_BENCHMARK"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-50task.properties" "taskBenchmarkSha256=$REAL_APP_TASK_BENCHMARK_SHA"
+expect_failure \
+  "real app search evidence verifier rejects 8 case report when 50 task benchmark is required" \
+  env REQUIRE_REAL_APP_50_TASK_BENCHMARK=1 \
+  scripts/verify_real_app_search_report.sh \
+    --file "$REAL_APP_SOURCE_REPORT" \
+    --report "$ARTIFACT_DIR/real-app-search-evidence-missing-50task.properties"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-missing-50task.properties" "status=failed"
+assert_report_contains "$ARTIFACT_DIR/real-app-search-evidence-missing-50task.properties" "failedTarget=real-app-50-task-benchmark"
+assert_report_contains_text "$ARTIFACT_DIR/real-app-search-evidence-missing-50task.properties" "taskbench-file-missing"
 
 REAL_APP_CASE_REPORT_TAMPERED="$(mktemp)"
 sed 's/^ranked_candidates_sha256=.*/ranked_candidates_sha256=0000000000000000000000000000000000000000000000000000000000000000/' \
@@ -9887,7 +10222,7 @@ assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reason="
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "serial=device-a"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "api_level=36"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "abi=arm64-v8a,armeabi-v7a"
-assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reset_app_data_after_tests=1"
+assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "reset_app_data_after_tests=0"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation=passed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "instrumentation_test_count=20"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "test_count=20"
@@ -9909,10 +10244,14 @@ grep -q -- "-s device-a logcat -c" "$FAKE_ADB_LOG" ||
   fail "Expected install helper to clear the logcat window before validation"
 grep -q -- "-s device-a logcat -d -t 500" "$FAKE_ADB_LOG" ||
   fail "Expected install helper to capture logcat after validation"
-grep -q -- "-s device-a shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG" ||
-  fail "Expected install helper to clear target app data before default success launch"
-grep -q -- "-s device-a shell pm clear com.bytedance.zgx.solin.test" "$FAKE_ADB_LOG" ||
-  fail "Expected install helper to clear test app data before default success launch"
+grep -q -- "-s device-a install -r app/build/outputs/apk/debug/app-debug.apk" "$FAKE_ADB_LOG" ||
+  fail "Expected install helper to use overlay install for default success launch"
+if grep -q -- "shell pm clear com.bytedance.zgx.solin" "$FAKE_ADB_LOG"; then
+  fail "Default install helper run must preserve app data"
+fi
+if grep -q -- "uninstall com.bytedance.zgx.solin" "$FAKE_ADB_LOG"; then
+  fail "Default install helper run must not uninstall the app"
+fi
 
 reset_logs
 expect_success \
@@ -9932,9 +10271,10 @@ reset_logs
 expect_success \
   "install helper clears clean-device app data before success launch" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
-  FAKE_ADB_DEVICES=$'device-a\tdevice' \
-  CLEAN_DEVICE=1 \
-  GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
+	  FAKE_ADB_DEVICES=$'device-a\tdevice' \
+	  CLEAN_DEVICE=1 \
+	  RESET_APP_DATA_AFTER_TESTS=1 \
+	  GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
 assert_gradle_called
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=passed"
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "clean_device=1"
@@ -9974,9 +10314,10 @@ expect_failure \
   "install helper clears clean-device state after timeout" \
   env ANDROID_SDK_ROOT="$FAKE_SDK" ANDROID_HOME="$FAKE_SDK" \
   FAKE_ADB_DEVICES=$'device-a\tdevice' \
-  FAKE_INSTRUMENTATION_SLEEP_SECONDS=2 \
-  CLEAN_DEVICE=1 \
-  INSTRUMENTATION_TIMEOUT_SECONDS=1 \
+	  FAKE_INSTRUMENTATION_SLEEP_SECONDS=2 \
+	  CLEAN_DEVICE=1 \
+	  RESET_APP_DATA_AFTER_TESTS=1 \
+	  INSTRUMENTATION_TIMEOUT_SECONDS=1 \
   GRADLE_CMD="$FAKE_GRADLE" scripts/install_and_test_device.sh
 assert_gradle_called
 assert_report_contains "$ARTIFACT_DIR/device-verification.properties" "status=failed"

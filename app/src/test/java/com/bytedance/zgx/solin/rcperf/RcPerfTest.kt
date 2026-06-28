@@ -37,6 +37,8 @@ class RcPerfTest {
             stopGenerationRecoveryMs = 80L,
             visionInputMs = 410L,
             memorySearch5kMs = 12L,
+            zvecMemoryIndex50kMs = 120L,
+            zvecMemorySearch50kMs = 24L,
         )
 
         val success = result as RcPerfResult.Success
@@ -59,6 +61,8 @@ class RcPerfTest {
             stopGenerationRecoveryMs = 80L,
             visionInputMs = 410L,
             memorySearch5kMs = 12L,
+            zvecMemoryIndex50kMs = 120L,
+            zvecMemorySearch50kMs = 24L,
         )
 
         val failure = result as RcPerfResult.Failure
@@ -80,6 +84,8 @@ class RcPerfTest {
             stopGenerationRecoveryMs = 80L,
             visionInputMs = 410L,
             memorySearch5kMs = 12L,
+            zvecMemoryIndex50kMs = 120L,
+            zvecMemorySearch50kMs = 24L,
         )
         assertTrue((missingLoad as RcPerfResult.Failure).reason.contains("modelLoadMs unavailable"))
 
@@ -95,6 +101,8 @@ class RcPerfTest {
             stopGenerationRecoveryMs = 80L,
             visionInputMs = 410L,
             memorySearch5kMs = 12L,
+            zvecMemoryIndex50kMs = 120L,
+            zvecMemorySearch50kMs = 24L,
         )
         assertTrue((missingFirstToken as RcPerfResult.Failure).reason.contains("firstTokenMs unavailable"))
     }
@@ -113,6 +121,8 @@ class RcPerfTest {
                 gpuFallbackStatus = GpuFallbackStatus.CpuFallbackPassed,
                 visionInputMs = 510L,
                 memorySearch5kMs = 18L,
+                zvecMemoryIndex50kMs = 180L,
+                zvecMemorySearch50kMs = 36L,
             ),
         )
 
@@ -145,12 +155,16 @@ class RcPerfTest {
                     gpuFallbackStatus = GpuFallbackStatus.CpuFallbackPassed,
                     visionInputMs = 1L,
                     memorySearch5kMs = 1L,
+                    zvecMemoryIndex50kMs = 1L,
+                    zvecMemorySearch50kMs = 1L,
                 ),
             ),
         )
 
         assertTrue(text.contains("gpuFallbackStatus=cpu-fallback-passed"))
         assertTrue(text.contains("rcPerfSchema=${RcPerfResultFormatter.SCHEMA}"))
+        assertTrue(text.contains("zvecMemoryIndex50kMs=1"))
+        assertTrue(text.contains("zvecMemorySearch50kMs=1"))
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -166,6 +180,8 @@ class RcPerfTest {
             gpuFallbackStatus = GpuFallbackStatus.NotNeeded,
             visionInputMs = 1L,
             memorySearch5kMs = 1L,
+            zvecMemoryIndex50kMs = 1L,
+            zvecMemorySearch50kMs = 1L,
         )
     }
 
@@ -182,7 +198,8 @@ class RcPerfTest {
         )
 
         assertEquals(RcPerfSyntheticMemory.DEFAULT_RECORD_COUNT, measurement.recordCount)
-        assertEquals(7L, measurement.elapsedMs)
+        assertEquals(7L, measurement.indexMs)
+        assertEquals(7L, measurement.searchMs)
         assertTrue(measurement.hitCount > 0)
     }
 }

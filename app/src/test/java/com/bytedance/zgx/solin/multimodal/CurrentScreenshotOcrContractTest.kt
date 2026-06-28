@@ -29,12 +29,22 @@ class CurrentScreenshotOcrContractTest {
             CurrentScreenshotOcrContract.OUTPUT_METADATA_POLICY,
             outputProperties.getJSONObject("metadataPolicy").getJSONArray("enum").getString(0),
         )
+        assertTrue(requiredOutputKeys.contains("screenObservationIncluded"))
         assertFalse(requiredOutputKeys.contains("ocrBlocksJson"))
+        assertFalse(requiredOutputKeys.contains("screenObservationJson"))
+        assertFalse(requiredOutputKeys.contains("screenObservationFailureKind"))
         assertEquals("string", outputProperties.getJSONObject("ocrBlocksJson").getString("type"))
         assertEquals(
             "application/json",
             outputProperties.getJSONObject("ocrBlocksJson").getString("contentMediaType"),
         )
+        assertEquals("boolean", outputProperties.getJSONObject("screenObservationIncluded").getString("type"))
+        assertEquals("string", outputProperties.getJSONObject("screenObservationJson").getString("type"))
+        assertEquals(
+            "application/json",
+            outputProperties.getJSONObject("screenObservationJson").getString("contentMediaType"),
+        )
+        assertEquals("string", outputProperties.getJSONObject("screenObservationFailureKind").getString("type"))
         assertFalse(outputProperties.has("pixels"))
         assertFalse(outputProperties.has("uri"))
         assertFalse(outputProperties.has("path"))
@@ -74,7 +84,7 @@ class CurrentScreenshotOcrContractTest {
         assertTrue(errors.any { it.contains("one-shot") })
         assertTrue(errors.any { it.contains("LocalOnly") })
         assertTrue(errors.any { it.contains("must not persist pixels") })
-        assertTrue(errors.any { it.contains("OCR text only") })
+        assertTrue(errors.any { it.contains("structured Accessibility/OCR observation only") })
     }
 
     @Test
@@ -83,12 +93,15 @@ class CurrentScreenshotOcrContractTest {
 
         store.set(requestId = "request-a", issuedAtMillis = 10_000L, data = "consent-a")
 
+        assertFalse(store.has(requestId = "request-b", nowMillis = 10_100L))
+        assertTrue(store.has(requestId = "request-a", nowMillis = 10_100L))
         assertNull(store.consume(requestId = "request-b", nowMillis = 10_100L))
         assertEquals("consent-a", store.consume(requestId = "request-a", nowMillis = 10_100L))
         assertNull(store.consume(requestId = "request-a", nowMillis = 10_100L))
 
         store.set(requestId = "request-a", issuedAtMillis = 10_000L, data = "expired")
 
+        assertFalse(store.has(requestId = "request-a", nowMillis = 11_001L))
         assertNull(store.consume(requestId = "request-a", nowMillis = 11_001L))
         assertNull(store.consume(requestId = "request-a", nowMillis = 10_100L))
     }

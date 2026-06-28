@@ -79,6 +79,8 @@ data class RcPerfMetrics(
     val gpuFallbackStatus: GpuFallbackStatus,
     val visionInputMs: Long,
     val memorySearch5kMs: Long,
+    val zvecMemoryIndex50kMs: Long,
+    val zvecMemorySearch50kMs: Long,
 ) {
     init {
         require(modelId.isNotBlank()) { "modelId must not be blank" }
@@ -91,6 +93,8 @@ data class RcPerfMetrics(
         require(stopGenerationRecoveryMs > 0) { "stopGenerationRecoveryMs must be positive" }
         require(visionInputMs > 0) { "visionInputMs must be positive" }
         require(memorySearch5kMs > 0) { "memorySearch5kMs must be positive" }
+        require(zvecMemoryIndex50kMs > 0) { "zvecMemoryIndex50kMs must be positive" }
+        require(zvecMemorySearch50kMs > 0) { "zvecMemorySearch50kMs must be positive" }
     }
 }
 
@@ -113,6 +117,8 @@ fun buildRcPerfResult(
     stopGenerationRecoveryMs: Long,
     visionInputMs: Long,
     memorySearch5kMs: Long,
+    zvecMemoryIndex50kMs: Long,
+    zvecMemorySearch50kMs: Long,
 ): RcPerfResult {
     val benchmark = when (val result = timing.benchmark) {
         is RuntimeBenchmarkResult.Available -> result
@@ -135,6 +141,8 @@ fun buildRcPerfResult(
             gpuFallbackStatus = resolveGpuFallbackStatus(requestedBackend, loadedBackend),
             visionInputMs = visionInputMs,
             memorySearch5kMs = memorySearch5kMs,
+            zvecMemoryIndex50kMs = zvecMemoryIndex50kMs,
+            zvecMemorySearch50kMs = zvecMemorySearch50kMs,
         )
     }.fold(
         onSuccess = { RcPerfResult.Success(it) },
@@ -164,6 +172,8 @@ object RcPerfResultFormatter {
     const val KEY_GPU_FALLBACK_STATUS = "gpuFallbackStatus"
     const val KEY_VISION_INPUT_MS = "visionInputMs"
     const val KEY_MEMORY_SEARCH_5K_MS = "memorySearch5kMs"
+    const val KEY_ZVEC_MEMORY_INDEX_50K_MS = "zvecMemoryIndex50kMs"
+    const val KEY_ZVEC_MEMORY_SEARCH_50K_MS = "zvecMemorySearch50kMs"
 
     const val RESULT_SUCCESS = "success"
     const val RESULT_FAILED = "failed"
@@ -194,6 +204,8 @@ object RcPerfResultFormatter {
             line(KEY_GPU_FALLBACK_STATUS, metrics.gpuFallbackStatus.wireValue),
             line(KEY_VISION_INPUT_MS, metrics.visionInputMs.toString()),
             line(KEY_MEMORY_SEARCH_5K_MS, metrics.memorySearch5kMs.toString()),
+            line(KEY_ZVEC_MEMORY_INDEX_50K_MS, metrics.zvecMemoryIndex50kMs.toString()),
+            line(KEY_ZVEC_MEMORY_SEARCH_50K_MS, metrics.zvecMemorySearch50kMs.toString()),
         )
         return lines.joinToString(separator = "\n", postfix = "\n")
     }
@@ -241,6 +253,8 @@ object RcPerfResultFormatter {
                     ?: error("unknown gpuFallbackStatus"),
                 visionInputMs = fields.getValue(KEY_VISION_INPUT_MS).toLong(),
                 memorySearch5kMs = fields.getValue(KEY_MEMORY_SEARCH_5K_MS).toLong(),
+                zvecMemoryIndex50kMs = fields.getValue(KEY_ZVEC_MEMORY_INDEX_50K_MS).toLong(),
+                zvecMemorySearch50kMs = fields.getValue(KEY_ZVEC_MEMORY_SEARCH_50K_MS).toLong(),
             )
         }.fold(
             onSuccess = { RcPerfResult.Success(it) },
@@ -256,9 +270,15 @@ object RcPerfResultFormatter {
  */
 object RcPerfSyntheticMemory {
     const val DEFAULT_RECORD_COUNT = 5_000
+    const val LARGE_RECORD_COUNT = 50_000
     const val QUERY = "synthetic memory benchmark record lookup"
 
-    data class Measurement(val elapsedMs: Long, val recordCount: Int, val hitCount: Int)
+    data class Measurement(
+        val indexMs: Long,
+        val searchMs: Long,
+        val recordCount: Int,
+        val hitCount: Int,
+    )
 
     /** Generates deterministic synthetic records with overlapping tokens for the search query. */
     fun syntheticRecords(count: Int = DEFAULT_RECORD_COUNT): List<Pair<String, String>> {
@@ -279,10 +299,13 @@ object RcPerfSyntheticMemory {
         indexFactory: () -> MemoryIndex = { MemoryRepository() },
     ): Measurement {
         val index = indexFactory()
-        syntheticRecords(recordCount).forEach { (id, text) -> index.index(id, text) }
+        val records = syntheticRecords(recordCount)
+        val indexStartedAtNanos = nanoClock()
+        records.forEach { (id, text) -> index.index(id, text) }
+        val indexMs = ((nanoClock() - indexStartedAtNanos) / 1_000_000L).coerceAtLeast(0L)
         val startedAtNanos = nanoClock()
         val hits = index.search(QUERY, topK = 10)
-        val elapsedMs = ((nanoClock() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
-        return Measurement(elapsedMs = elapsedMs, recordCount = recordCount, hitCount = hits.size)
+        val searchMs = ((nanoClock() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
+        return Measurement(indexMs = indexMs, searchMs = searchMs, recordCount = recordCount, hitCount = hits.size)
     }
 }

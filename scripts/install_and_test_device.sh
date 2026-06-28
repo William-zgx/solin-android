@@ -13,7 +13,7 @@ CLEAN_DEVICE="${CLEAN_DEVICE:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_INSTALL="${SKIP_INSTALL:-0}"
 REQUIRE_SOLIN_ACCESSIBILITY="${REQUIRE_SOLIN_ACCESSIBILITY:-0}"
-RESET_APP_DATA_AFTER_TESTS="${RESET_APP_DATA_AFTER_TESTS:-1}"
+RESET_APP_DATA_AFTER_TESTS="${RESET_APP_DATA_AFTER_TESTS:-0}"
 KEEP_DEVICE_AWAKE_FOR_TESTS="${KEEP_DEVICE_AWAKE_FOR_TESTS:-1}"
 ALLOW_MIUI_BACKGROUND_ACTIVITY_STARTS="${ALLOW_MIUI_BACKGROUND_ACTIVITY_STARTS:-1}"
 MIUI_BACKGROUND_ACTIVITY_START_OP="${MIUI_BACKGROUND_ACTIVITY_START_OP:-10021}"
@@ -302,6 +302,8 @@ prepare_device_awake_state() {
   DEVICE_STAY_ON_WHILE_PLUGGED_IN_RESTORE="$(
     "$ADB_BIN" -s "$SELECTED_SERIAL" shell settings get global stay_on_while_plugged_in 2>/dev/null | tr -d '\r'
   )"
+  "$ADB_BIN" -s "$SELECTED_SERIAL" shell cmd power suppress-ambient-display solin-device-tests true >/dev/null 2>&1 || true
+  "$ADB_BIN" -s "$SELECTED_SERIAL" shell cmd power wakeup 0 >/dev/null 2>&1 || true
   "$ADB_BIN" -s "$SELECTED_SERIAL" shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
   "$ADB_BIN" -s "$SELECTED_SERIAL" shell wm dismiss-keyguard >/dev/null 2>&1 || true
   "$ADB_BIN" -s "$SELECTED_SERIAL" shell svc power stayon true >/dev/null 2>&1 || true
@@ -320,6 +322,7 @@ restore_device_awake_state() {
     "$ADB_BIN" -s "$SELECTED_SERIAL" shell settings put global stay_on_while_plugged_in \
       "$DEVICE_STAY_ON_WHILE_PLUGGED_IN_RESTORE" >/dev/null 2>&1 || true
   fi
+  "$ADB_BIN" -s "$SELECTED_SERIAL" shell cmd power suppress-ambient-display solin-device-tests false >/dev/null 2>&1 || true
   DEVICE_AWAKE_RESTORED=1
 }
 
@@ -440,7 +443,7 @@ if [[ "$SKIP_BUILD" == "1" ]]; then
       "SKIP_BUILD=1 requires existing APKs when SKIP_INSTALL is not set."
   fi
 else
-  "$GRADLE_CMD" assembleDebug assembleDebugAndroidTest
+  "$GRADLE_CMD" :app:assembleDebug :app:assembleDebugAndroidTest
 fi
 
 solin_accessibility_enabled() {

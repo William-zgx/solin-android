@@ -5,6 +5,7 @@ import com.bytedance.zgx.solin.action.AppDeepTargets
 import com.bytedance.zgx.solin.action.MobileActionFunctions
 import com.bytedance.zgx.solin.action.SystemSettingsTargets
 import com.bytedance.zgx.solin.multimodal.CurrentScreenshotOcrContract
+import org.json.JSONObject
 
 class ToolRegistry private constructor(
     definitions: List<ToolDefinition>,
@@ -223,6 +224,14 @@ class ToolRegistry private constructor(
                 ?.takeIf { value -> privateNonSucceededDiagnosticValueAllowed(key, value) }
                 ?.let { value -> sanitizedData[key] = value }
         }
+        if (spec.capability == ToolCapability.DeviceControl) {
+            privateNonSucceededDeviceControlObservationKeys.forEach { key ->
+                data[key]
+                    ?.takeIf { key in spec.privateOutputKeys }
+                    ?.takeIf { value -> privateNonSucceededDeviceControlObservationValueAllowed(key, value) }
+                    ?.let { value -> sanitizedData[key] = value }
+            }
+        }
         sanitizedData["toolName"] = request.toolName
         sanitizedData["privacy"] = MessagePrivacy.LocalOnly.name
         sanitizedData["requiresLocalModel"] = true.toString()
@@ -406,6 +415,15 @@ private val privateNonSucceededAllowedDiagnosticKeys = setOf(
     "searchVerificationEvidence",
 )
 
+private val privateNonSucceededDeviceControlObservationKeys = setOf(
+    "beforeObservationId",
+    "afterObservationId",
+    "verificationSummary",
+    "screenObservationDiffSummary",
+    "beforeScreenObservationJson",
+    "afterScreenObservationJson",
+)
+
 private val privateNonSucceededAllowedFailureKinds = setOf(
     "node_not_found",
     "page_changed",
@@ -417,12 +435,39 @@ private val privateNonSucceededAllowedFailureKinds = setOf(
     "editable_not_found",
     "submit_not_found",
     "result_not_verified",
+    "dangerous_action",
     "unknown",
 )
 
 private fun privateNonSucceededDiagnosticValueAllowed(key: String, value: String): Boolean {
     if (value.length > 64 || !value.matches(Regex("""[A-Za-z0-9_-]+"""))) return false
     return key != "failureKind" || value in privateNonSucceededAllowedFailureKinds
+}
+
+private fun privateNonSucceededDeviceControlObservationValueAllowed(
+    key: String,
+    value: String,
+): Boolean =
+    when (key) {
+        "beforeObservationId",
+        "afterObservationId" ->
+            value.length <= 96 && value.matches(Regex("""[A-Za-z0-9_.:-]+"""))
+
+        "verificationSummary" -> value.length <= 320
+        "screenObservationDiffSummary" -> value.length <= 2_048
+        "beforeScreenObservationJson",
+        "afterScreenObservationJson" -> value.isLocalOnlyScreenObservationJson()
+
+        else -> false
+    }
+
+private fun String.isLocalOnlyScreenObservationJson(): Boolean {
+    if (isBlank() || length > 80_000) return false
+    return runCatching {
+        val json = JSONObject(this)
+        json.optString("privacyLevel") == MessagePrivacy.LocalOnly.name &&
+            json.optJSONArray("elements") != null
+    }.getOrDefault(false)
 }
 
 
@@ -1569,21 +1614,36 @@ private val uiActionOutputSchemaJson = """
             "editable_not_found",
             "submit_not_found",
             "result_not_verified",
+            "dangerous_action",
             "unknown"
           ]
         },
         "beforeObservationId": {"type": "string"},
         "afterObservationId": {"type": "string"},
         "verificationSummary": {"type": "string", "minLength": 1},
+        "screenObservationDiffSummary": {
+          "type": "string",
+          "description": "Bounded LocalOnly before/after Accessibility observation diff summary for local action replanning.",
+          "minLength": 1
+        },
         "searchVerificationStatus": {"type": "string", "enum": ["verified", "not_verified"]},
         "searchVerificationEvidence": {"type": "string", "maxLength": 80},
+        "beforePackageName": {"type": "string"},
+        "beforeCapturedAtMillis": {"type": "integer", "minimum": 0},
+        "beforeNodeCount": {"type": "integer", "minimum": 0},
+        "beforeActionableNodeCount": {"type": "integer", "minimum": 0},
+        "beforeTextSummary": {"type": "string"},
+        "beforeTruncated": {"type": "boolean"},
+        "beforeNodesJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"},
+        "beforeScreenObservationJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"},
         "afterPackageName": {"type": "string"},
         "afterCapturedAtMillis": {"type": "integer", "minimum": 0},
         "afterNodeCount": {"type": "integer", "minimum": 0},
         "afterActionableNodeCount": {"type": "integer", "minimum": 0},
         "afterTextSummary": {"type": "string"},
         "afterTruncated": {"type": "boolean"},
-        "afterNodesJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"}
+        "afterNodesJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"},
+        "afterScreenObservationJson": {"type": "string", "minLength": 1, "contentMediaType": "application/json"}
       },
       "additionalProperties": false
     }
@@ -1633,8 +1693,17 @@ private val uiActionPrivateOutputKeys = setOf(
     "beforeObservationId",
     "afterObservationId",
     "verificationSummary",
+    "screenObservationDiffSummary",
     "searchVerificationStatus",
     "searchVerificationEvidence",
+    "beforePackageName",
+    "beforeCapturedAtMillis",
+    "beforeNodeCount",
+    "beforeActionableNodeCount",
+    "beforeTextSummary",
+    "beforeTruncated",
+    "beforeNodesJson",
+    "beforeScreenObservationJson",
     "afterPackageName",
     "afterCapturedAtMillis",
     "afterNodeCount",
@@ -1642,6 +1711,7 @@ private val uiActionPrivateOutputKeys = setOf(
     "afterTextSummary",
     "afterTruncated",
     "afterNodesJson",
+    "afterScreenObservationJson",
 )
 
 private val deviceControlSessionTags = setOf(
@@ -2222,18 +2292,19 @@ private val builtInToolDefinitions: List<ToolDefinition> = listOf(
         spec = ToolSpec(
             name = MobileActionFunctions.CAPTURE_CURRENT_SCREENSHOT_OCR,
             title = "截取当前屏幕 OCR",
-            description = "在用户确认并完成 Android MediaProjection 前台同意后，单次截取当前可见屏幕并本地提取有界 OCR 文本；不保存图片、像素、URI、路径或窗口标题，不做视觉语义理解。",
+            description = "在用户确认并完成 Android MediaProjection 前台同意后，单次截取当前可见屏幕并本地提取有界 OCR 文本；可融合临时 Accessibility 节点形成本地结构化观测；不保存图片、像素、URI、路径或窗口标题，不做视觉语义理解。",
             inputSchemaJson = currentScreenshotOcrSchemaJson,
             outputSchemaJson = currentScreenshotOcrOutputSchemaJson,
             capability = ToolCapability.DeviceContext,
             permissions = setOf(
                 ToolPermission.ReadsDeviceContext,
+                ToolPermission.ReadsAccessibilityText,
                 ToolPermission.RequiresMediaProjectionConsent,
             ),
             riskLevel = RiskLevel.MediumDraftOrNavigation,
             confirmationPolicy = ConfirmationPolicy.Required,
             pendingArgumentAllowlist = setOf("captureMode"),
-            privateOutputKeys = setOf("ocrText", "ocrBlocksJson"),
+            privateOutputKeys = setOf("ocrText", "ocrBlocksJson", "screenObservationJson"),
             redactedResultSummary = "已读取当前屏幕截图 OCR 摘录",
             resultContinuationPolicy = ToolResultContinuationPolicy.LocalEvidence,
             tags = sequentialLocalContinuationTags,

@@ -31,12 +31,14 @@ LOGCAT_FILE="${LOGCAT_FILE:-${ARTIFACT_DIR}/logcat.txt}"
 OUT_FILE="${OUT_FILE:-build/verification/rc/perf-baseline.properties}"
 
 PACKAGE_NAME="com.bytedance.zgx.solin"
+PERF_BACKGROUND_PACKAGES_TO_STOP="${PERF_BACKGROUND_PACKAGES_TO_STOP:-com.bytedance.zgx.solin.test com.taobao.taobao com.xunmeng.pinduoduo com.autonavi.minimap com.jingdong.app.mall com.android.chrome com.android.browser com.quark.browser com.UCMobile}"
 MAIN_ACTIVITY="${MAIN_ACTIVITY:-${PACKAGE_NAME}/.MainActivity}"
 HARNESS_COMPONENT="${PACKAGE_NAME}/.rcperf.RcPerfHarnessService"
 RC_PERF_ACTION="${PACKAGE_NAME}.rcperf.RUN"
 RC_PERF_APK="${RC_PERF_APK:-app/build/outputs/apk/rcPerfRelease/app-rcPerfRelease.apk}"
-RC_PERF_VARIANT_TASK="${RC_PERF_VARIANT_TASK:-assembleRcPerfRelease}"
+RC_PERF_VARIANT_TASK="${RC_PERF_VARIANT_TASK:-:app:assembleRcPerfRelease}"
 HARNESS_REQUESTED_BACKEND="${HARNESS_REQUESTED_BACKEND:-GPU}"
+HARNESS_MODEL_ID="${HARNESS_MODEL_ID:-}"
 
 # The release artifact recorded in the perf baseline is the production release under test (signed),
 # distinct from the debug-signed rcPerfRelease measurement APK installed on the device.
@@ -83,8 +85,10 @@ write_report() {
     echo "memoryPeakMb=${MEMORY_PEAK_MB:-}"
     echo "oomOrAnrObserved=$OOM_OR_ANR_OBSERVED"
     echo "harnessProgress=${HARNESS_PROGRESS:-}"
+    echo "harnessModelId=$HARNESS_MODEL_ID"
     echo "runner=rc_perf_release_broadcast"
     echo "preserves_model_data=true"
+    echo "perf_background_packages_stopped=$PERF_BACKGROUND_PACKAGES_TO_STOP"
   } > "$REPORT_FILE"
   echo "RC perf collection report: $REPORT_FILE"
 }
@@ -115,6 +119,17 @@ stop_app_preserving_data() {
   fi
 }
 
+stop_background_packages_preserving_data() {
+  if [[ -z "$SELECTED_SERIAL" ]]; then
+    return
+  fi
+  local package_name
+  for package_name in $PERF_BACKGROUND_PACKAGES_TO_STOP; do
+    [[ -z "$package_name" || "$package_name" == "$PACKAGE_NAME" ]] && continue
+    "${ADB[@]}" shell am force-stop "$package_name" >/dev/null 2>&1 || true
+  done
+}
+
 require_env() {
   local name="$1"
   if [[ -z "${!name:-}" ]]; then
@@ -122,6 +137,10 @@ require_env() {
     reason="$(printf '%s' "$name" | tr '[:upper:]_' '[:lower:]-')"
     fail_with_reason environment "missing-$reason" "Missing required environment variable: $name"
   fi
+}
+
+strip_cr() {
+  LC_ALL=C tr -d '\r'
 }
 
 require_env RELEASE_ARTIFACT
@@ -155,13 +174,13 @@ fi
 
 ADB=("$ADB_BIN" -s "$SELECTED_SERIAL")
 echo "Using Android device: $SELECTED_SERIAL"
-API_LEVEL="$("${ADB[@]}" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
-ABI_LIST="$("${ADB[@]}" shell getprop ro.product.cpu.abilist64 2>/dev/null | tr -d '\r' || true)"
+API_LEVEL="$("${ADB[@]}" shell getprop ro.build.version.sdk 2>/dev/null | strip_cr || true)"
+ABI_LIST="$("${ADB[@]}" shell getprop ro.product.cpu.abilist64 2>/dev/null | strip_cr || true)"
 # Primary ABI and model are recorded in the perf baseline (verifier requires abi=arm64-v8a and a
 # non-empty deviceModel). Resolve them here so we can hand them to collect_perf_baseline.sh
 # directly: that downstream script cannot reuse our `-s <serial>` adb wrapper.
-DEVICE_ABI="$("${ADB[@]}" shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r' || true)"
-DEVICE_MODEL="$("${ADB[@]}" shell getprop ro.product.model 2>/dev/null | tr -d '\r' || true)"
+DEVICE_ABI="$("${ADB[@]}" shell getprop ro.product.cpu.abi 2>/dev/null | strip_cr || true)"
+DEVICE_MODEL="$("${ADB[@]}" shell getprop ro.product.model 2>/dev/null | strip_cr || true)"
 
 # A physical arm64 device is required: emulators cannot produce a valid perf baseline.
 if [[ "$SELECTED_SERIAL" == emulator-* ]]; then
@@ -182,9 +201,12 @@ if [[ "$SKIP_INSTALL" != "1" ]]; then
   "${ADB[@]}" install -r "$RC_PERF_APK"
 fi
 
+stop_background_packages_preserving_data
+"${ADB[@]}" logcat -c >/dev/null 2>&1 || true
+
 # First-launch interactive time from a cold start of the main activity.
 "${ADB[@]}" shell am force-stop "$PACKAGE_NAME" >/dev/null 2>&1 || true
-LAUNCH_OUTPUT="$("${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" 2>/dev/null | tr -d '\r' || true)"
+LAUNCH_OUTPUT="$("${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" 2>/dev/null | strip_cr || true)"
 FIRST_LAUNCH_INTERACTIVE_MS="$(awk -F: '/^TotalTime/ {gsub(/ /,"",$2); print $2; exit}' <<<"$LAUNCH_OUTPUT")"
 if [[ -z "$FIRST_LAUNCH_INTERACTIVE_MS" ]]; then
   FIRST_LAUNCH_INTERACTIVE_MS="$(awk -F: '/^WaitTime/ {gsub(/ /,"",$2); print $2; exit}' <<<"$LAUNCH_OUTPUT")"
@@ -202,12 +224,15 @@ broadcast_extras=(
   --es requestId "$REQUEST_ID"
   --es backend "$HARNESS_REQUESTED_BACKEND"
 )
+if [[ -n "$HARNESS_MODEL_ID" ]]; then
+  broadcast_extras+=(--es modelId "$HARNESS_MODEL_ID")
+fi
 
 "${ADB[@]}" shell am start-foreground-service -a "$RC_PERF_ACTION" -n "$HARNESS_COMPONENT" "${broadcast_extras[@]}" >/dev/null
 
 sample_memory_peak_mb() {
   local meminfo total_kb total_mb
-  meminfo="$("${ADB[@]}" shell dumpsys meminfo "$PACKAGE_NAME" 2>/dev/null | tr -d '\r' || true)"
+  meminfo="$("${ADB[@]}" shell dumpsys meminfo "$PACKAGE_NAME" 2>/dev/null | strip_cr || true)"
   total_kb="$(awk '/^[[:space:]]*TOTAL[[:space:]]/ {print $2; exit}' <<<"$meminfo")"
   [[ -z "$total_kb" ]] && total_kb="$(awk '/TOTAL PSS:/ {print $3; exit}' <<<"$meminfo")"
   if [[ -n "$total_kb" && "$total_kb" =~ ^[0-9]+$ ]]; then
@@ -244,7 +269,7 @@ read_harness_result_from_logcat() {
   tmp_result="${HARNESS_RESULT_FILE}.tmp"
   encoded="$(
     "${ADB[@]}" logcat -d -s RcPerfHarness:I 2>/dev/null |
-      tr -d '\r' |
+      strip_cr |
       awk -v request="$REQUEST_ID" '
         index($0, "rcPerfResultBase64 requestId=" request " payload=") {
           sub(/^.* payload=/, "")
@@ -266,7 +291,7 @@ update_harness_progress() {
   local progress
   progress="$(
     "${ADB[@]}" logcat -d -s RcPerfHarness:I 2>/dev/null |
-      tr -d '\r' |
+      strip_cr |
       awk -v request="$REQUEST_ID" '
         index($0, "rcPerfProgress requestId=" request " stage=") {
           sub(/^.* stage=/, "")
@@ -318,6 +343,9 @@ STOP_GENERATION_RECOVERY_MS="$(harness_value stopGenerationRecoveryMs)"
 GPU_FALLBACK_STATUS="$(harness_value gpuFallbackStatus)"
 VISION_INPUT_MS="$(harness_value visionInputMs)"
 MEMORY_SEARCH_5K_MS="$(harness_value memorySearch5kMs)"
+ZVEC_MEMORY_INDEX_50K_MS="$(harness_value zvecMemoryIndex50kMs)"
+ZVEC_MEMORY_SEARCH_50K_MS="$(harness_value zvecMemorySearch50kMs)"
+HARNESS_RESULT_SHA256="$(shasum -a 256 "$HARNESS_RESULT_FILE" | awk '{print $1}')"
 
 sample_memory_peak_mb
 if [[ -z "$MEMORY_PEAK_MB" ]]; then
@@ -325,17 +353,22 @@ if [[ -z "$MEMORY_PEAK_MB" ]]; then
 fi
 
 # Scan logcat for OOM/ANR signals around the run.
-RUN_LOGCAT="$("${ADB[@]}" logcat -d 2>/dev/null | tr -d '\r' || true)"
-if grep -Eq 'ANR in |OutOfMemoryError|lowmemorykiller|Process .* died' <<<"$RUN_LOGCAT"; then
-  if grep -Eq "$PACKAGE_NAME" <<<"$(grep -E 'ANR in |OutOfMemoryError|lowmemorykiller|Process .* died' <<<"$RUN_LOGCAT")"; then
-    OOM_OR_ANR_OBSERVED="true"
-  fi
+RUN_LOGCAT="$("${ADB[@]}" logcat -d 2>/dev/null | strip_cr || true)"
+OOM_OR_ANR_LINES="$(grep -E 'ANR in |OutOfMemoryError|lowmemorykiller|Process .* died' <<<"$RUN_LOGCAT" || true)"
+PACKAGE_NAME_REGEX="${PACKAGE_NAME//./\\.}"
+if grep -Eq "ANR in ${PACKAGE_NAME_REGEX}([[:space:]:]|$)|OutOfMemoryError.*${PACKAGE_NAME_REGEX}|${PACKAGE_NAME_REGEX}.*OutOfMemoryError|lowmemorykiller: Kill '${PACKAGE_NAME_REGEX}(:|')|Process ${PACKAGE_NAME_REGEX}([[:space:]:]|\\()" <<<"$OOM_OR_ANR_LINES"; then
+  OOM_OR_ANR_OBSERVED="true"
 fi
 
 # Hand the measured metrics to the perf baseline collector + verifier. The release artifact and
 # app version describe the production release under test, recorded for provenance. Device metadata
 # is passed explicitly because the downstream collector cannot reuse our `-s <serial>` adb wrapper.
 OUT_FILE="$OUT_FILE" \
+COLLECTION_COMMAND_OVERRIDE="scripts/collect_rc_perf_from_device.sh" \
+PERF_BASELINE_RUNNER="rc_perf_release_broadcast" \
+PRESERVES_MODEL_DATA="true" \
+HARNESS_RESULT_SHA256="$HARNESS_RESULT_SHA256" \
+RC_PERF_COLLECTOR_REPORT_FILE="$REPORT_FILE" \
 RELEASE_ARTIFACT="$RELEASE_ARTIFACT" \
 ANDROID_SERIAL="$SELECTED_SERIAL" \
 DEVICE_MODEL="$DEVICE_MODEL" \
@@ -352,6 +385,8 @@ STOP_GENERATION_RECOVERY_MS="$STOP_GENERATION_RECOVERY_MS" \
 GPU_FALLBACK_STATUS="$GPU_FALLBACK_STATUS" \
 VISION_INPUT_MS="$VISION_INPUT_MS" \
 MEMORY_SEARCH_5K_MS="$MEMORY_SEARCH_5K_MS" \
+ZVEC_MEMORY_INDEX_50K_MS="$ZVEC_MEMORY_INDEX_50K_MS" \
+ZVEC_MEMORY_SEARCH_50K_MS="$ZVEC_MEMORY_SEARCH_50K_MS" \
 MEMORY_PEAK_MB="$MEMORY_PEAK_MB" \
 OOM_OR_ANR_OBSERVED="$OOM_OR_ANR_OBSERVED" \
   scripts/collect_perf_baseline.sh

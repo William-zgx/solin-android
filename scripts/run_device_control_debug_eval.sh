@@ -15,6 +15,7 @@ LOGCAT_FILE="${LOGCAT_FILE:-${ARTIFACT_DIR}/logcat.txt}"
 DIAGNOSTICS_DIR="${DIAGNOSTICS_DIR:-${ARTIFACT_DIR}/diagnostics}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_INSTALL="${SKIP_INSTALL:-0}"
+AUTO_ENABLE_SOLIN_ACCESSIBILITY="${AUTO_ENABLE_SOLIN_ACCESSIBILITY:-1}"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 PACKAGE_NAME="com.bytedance.zgx.solin"
@@ -129,6 +130,7 @@ on_exit() {
   local status="$?"
   trap - EXIT
   if [[ -n "$SELECTED_SERIAL" && -x "$ADB_BIN" ]]; then
+    "$ADB_BIN" -s "$SELECTED_SERIAL" shell cmd power suppress-ambient-display solin-debug-eval false >/dev/null 2>&1 || true
     "$ADB_BIN" -s "$SELECTED_SERIAL" logcat -d -t 500 > "$LOGCAT_FILE" 2>/dev/null || true
   fi
   write_report "$status"
@@ -175,7 +177,7 @@ ABI_LIST="$("${ADB[@]}" shell getprop ro.product.cpu.abilist64 2>/dev/null | tr 
 "${ADB[@]}" logcat -c >/dev/null 2>&1 || true
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
-  "$GRADLE_CMD" assembleDebug
+  "$GRADLE_CMD" :app:assembleDebug
 fi
 if [[ "$SKIP_INSTALL" != "1" ]]; then
   "${ADB[@]}" install -r "$DEBUG_APK"
@@ -193,12 +195,46 @@ solin_accessibility_enabled() {
   grep -Fq "$SOLIN_ACCESSIBILITY_SERVICE" <<<"${bound_section}${enabled_line}"
 }
 
+enable_solin_accessibility_for_eval() {
+  local current updated
+  current="$("${ADB[@]}" shell settings get secure enabled_accessibility_services 2>/dev/null | tr -d '\r' || true)"
+  if [[ -z "$current" || "$current" == "null" ]]; then
+    updated="$SOLIN_ACCESSIBILITY_SERVICE"
+  elif [[ ":$current:" == *":$SOLIN_ACCESSIBILITY_SERVICE:"* ]]; then
+    updated="$current"
+  else
+    updated="${current}:$SOLIN_ACCESSIBILITY_SERVICE"
+  fi
+  "${ADB[@]}" shell settings put secure enabled_accessibility_services "$updated"
+  "${ADB[@]}" shell settings put secure accessibility_enabled 1
+  sleep 2
+}
+
+prepare_interactive_surface() {
+  "${ADB[@]}" shell cmd power suppress-ambient-display solin-debug-eval true >/dev/null 2>&1 || true
+  "${ADB[@]}" shell cmd power wakeup 0 >/dev/null 2>&1 || true
+  "${ADB[@]}" shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
+  "${ADB[@]}" shell wm dismiss-keyguard >/dev/null 2>&1 || true
+  "${ADB[@]}" shell input keyevent KEYCODE_MENU >/dev/null 2>&1 || true
+  "${ADB[@]}" shell input swipe 600 2100 600 700 200 >/dev/null 2>&1 || true
+  "${ADB[@]}" shell cmd statusbar collapse >/dev/null 2>&1 || true
+  sleep 1
+}
+
 if ! solin_accessibility_enabled; then
-  fail_with_reason accessibility solin-accessibility-not-enabled \
-    "栖知 Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_INSTALL=1."
+  if [[ "$AUTO_ENABLE_SOLIN_ACCESSIBILITY" == "1" ]]; then
+    echo "栖知 Accessibility is not enabled; enabling it through adb secure settings for debug eval."
+    enable_solin_accessibility_for_eval
+  fi
+  if ! solin_accessibility_enabled; then
+    fail_with_reason accessibility solin-accessibility-not-enabled \
+      "栖知 Accessibility is not enabled. Enable it in system Accessibility settings, then rerun with SKIP_INSTALL=1."
+  fi
 fi
 
+prepare_interactive_surface
 "${ADB[@]}" shell am start -W -n "$MAIN_ACTIVITY" >/dev/null
+prepare_interactive_surface
 sleep 1
 
 result_file_for() {

@@ -647,6 +647,11 @@ class MemoryRepository(
     }
 
     private fun refreshSemanticIndexStats() {
+        if (!activeEmbeddingRuntime.supportsSemanticRecall) {
+            semanticMemoryIndexedRecordCount = 0
+            semanticMemoryLastRebuiltAtMillis = null
+            return
+        }
         semanticMemoryIndexedRecordCount = entries.values.count { entry ->
             entry.type.isSemanticRecallEligible() && entry.semanticEmbedding != null
         }
