@@ -6,6 +6,10 @@
 [![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#current-status)
 
 <p align="center">
+  English | <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
   <img src="docs/assets/solin_brand_lockup.png" alt="Solin brand lockup" width="280">
 </p>
 
@@ -164,7 +168,7 @@ use environment variables for local validation.
 Run a local secret scan before committing sensitive changes:
 
 ```bash
-scripts/privacy_scan.sh --report build/verification/privacy-scan.properties README.md docs app/src/main scripts
+scripts/privacy_scan.sh --report build/verification/privacy-scan.properties README.md README.zh-CN.md docs app/src/main scripts
 ```
 
 If a token or signing secret lands in Git history, treat it as compromised,
@@ -250,6 +254,7 @@ scripts/           Local, device, release, and evidence helpers
 
 ## Documentation
 
+- Simplified Chinese README: `README.zh-CN.md`
 - Architecture and module ownership: `docs/agent_core_modules.md`
 - Privacy boundary: `docs/privacy_notice.md`
 - Model provenance: `docs/model_manifest.md`

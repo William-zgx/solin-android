@@ -37,7 +37,7 @@ flowchart TD
 
 | Document | Role | Keep it focused on |
 | --- | --- | --- |
-| `../README.md` | Project entrance | What Solin is, how to build, where to go next |
+| `../README.md` / `../README.zh-CN.md` | Project entrance | What Solin is, how to build, where to go next |
 | `agent_core_modules.md` | Agent architecture reference | Current module ownership, boundaries, status |
 | `intent_routing_skill_arbitration.md` | Routing contract | Priority rules and evidence fields for route-sensitive behavior |
 | `model_manifest.md` | Model provenance | Pinned upstream revisions, bytes, hashes, license-review status |
